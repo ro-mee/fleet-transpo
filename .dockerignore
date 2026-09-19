@@ -50,13 +50,16 @@ scratch-tz.mjs
 scratch_check_odo.js
 scratch_test.mjs
 
-# Root junk: models, editor configs, tooling metadata
+# Root junk: models, editor configs, tooling metadata.
+# NOTE: jsconfig.json is deliberately NOT excluded — it defines the @/*
+# path alias, and excluding it broke the HostForge build with 1828
+# "Can't resolve '@/...'" errors (2026-09-19). See
+# src/dockerignore.build-inputs.test.js, which pins the required set.
 *.traineddata
 car animation.json
 skills-lock.json
 opencode.json
 eas.json
-jsconfig.json
 vitest.config.mjs
 eslint.config.mjs
 CLAUDE.md
