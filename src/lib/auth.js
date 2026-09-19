@@ -9,6 +9,7 @@ import { consumeFactor } from "@/lib/auth/mfa";
 import { checkAccountLockout, recordFailedAttempt, clearAccountLockout, LOCKOUT_LIMIT } from "@/lib/auth/account-lockout";
 import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
+import { hashTrustedDeviceToken, trustedDeviceTokenFromCookieHeader } from "@/lib/auth/trusted-device";
 import { signedUrlFor, isResolvableMediaRef } from "@/lib/storage/object-refs";
 import { AVATAR_BUCKETS } from "@/lib/drivers/media";
 
@@ -89,7 +90,31 @@ export const authOptions = {
           throw new Error("MFA_UNAVAILABLE");
         }
         if (mfaRows[0]?.enabled_at) {
+          let trustedDevice = false;
           if (!factorCode) {
+            const trustedToken = trustedDeviceTokenFromCookieHeader(auditReq.headers.get("cookie"));
+            if (trustedToken) {
+              try {
+                const trusted = await query(
+                  `UPDATE trusted_web_devices
+                      SET last_used_at = NOW()
+                    WHERE employee_id = $1
+                      AND token_hash = $2
+                      AND auth_version = $3
+                      AND revoked_at IS NULL
+                      AND expires_at > NOW()
+                    RETURNING device_id`,
+                  [employee.employee_id, hashTrustedDeviceToken(trustedToken), employee.auth_version]
+                );
+                trustedDevice = Boolean(trusted.rows[0]);
+              } catch {
+                // A remembered-device lookup fails closed to normal MFA.
+                trustedDevice = false;
+              }
+            }
+          }
+
+          if (!factorCode && !trustedDevice) {
             await writeAudit(auditReq, null, {
               action: "mfa_required",
               resource: "authentication",
@@ -98,27 +123,29 @@ export const authOptions = {
             });
             throw new Error("MFA_REQUIRED");
           }
-          const [mfaIpBucket, mfaAccountBucket] = await Promise.all([
-            rateLimit(`mfa-login:ip:${ip}`, { limit: 5, windowMs: 60_000 }),
-            rateLimit(`mfa-login:account:${employee.employee_id}`, { limit: 5, windowMs: 60_000 }),
-          ]);
-          if (!mfaIpBucket.allowed || !mfaAccountBucket.allowed) {
-            throw new Error("Too many verification attempts. Please try again in a minute.");
-          }
-          let factor;
-          try {
-            factor = await withTransaction((tx) => consumeFactor(tx, employee.employee_id, factorCode));
-          } catch {
-            throw new Error("MFA_UNAVAILABLE");
-          }
-          if (!factor.ok) {
-            await writeAudit(auditReq, null, {
-              action: "mfa_failure",
-              resource: "authentication",
-              resourceId: employee.employee_id,
-              newValues: { channel: "web", reason: factor.reason },
-            });
-            throw new Error("MFA_INVALID");
+          if (!trustedDevice) {
+            const [mfaIpBucket, mfaAccountBucket] = await Promise.all([
+              rateLimit(`mfa-login:ip:${ip}`, { limit: 5, windowMs: 60_000 }),
+              rateLimit(`mfa-login:account:${employee.employee_id}`, { limit: 5, windowMs: 60_000 }),
+            ]);
+            if (!mfaIpBucket.allowed || !mfaAccountBucket.allowed) {
+              throw new Error("Too many verification attempts. Please try again in a minute.");
+            }
+            let factor;
+            try {
+              factor = await withTransaction((tx) => consumeFactor(tx, employee.employee_id, factorCode));
+            } catch {
+              throw new Error("MFA_UNAVAILABLE");
+            }
+            if (!factor.ok) {
+              await writeAudit(auditReq, null, {
+                action: "mfa_failure",
+                resource: "authentication",
+                resourceId: employee.employee_id,
+                newValues: { channel: "web", reason: factor.reason },
+              });
+              throw new Error("MFA_INVALID");
+            }
           }
         }
 

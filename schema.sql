@@ -920,6 +920,21 @@ CREATE TABLE trips (
   CONSTRAINT trips_pkey PRIMARY KEY (trip_id)
 );
 
+CREATE TABLE trusted_web_devices (
+  device_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+  employee_id integer NOT NULL,
+  token_hash char(64) NOT NULL,
+  auth_version bigint NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  last_used_at timestamptz DEFAULT now() NOT NULL,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  ip_address varchar(50),
+  user_agent text,
+  CONSTRAINT trusted_web_devices_pkey PRIMARY KEY (device_id),
+  CONSTRAINT trusted_web_devices_token_hash_key UNIQUE (token_hash)
+);
+
 CREATE TABLE uvvrp_exemptions (
   exemption_id integer DEFAULT nextval('uvvrp_exemptions_exemption_id_seq'::regclass) NOT NULL,
   vehicle_id integer NOT NULL,
@@ -1189,6 +1204,7 @@ ALTER TABLE trips ADD CONSTRAINT trips_driver_id_fkey FOREIGN KEY (driver_id) RE
 ALTER TABLE trips ADD CONSTRAINT trips_route_id_fkey FOREIGN KEY (route_id) REFERENCES routes(route_id);
 ALTER TABLE trips ADD CONSTRAINT trips_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE trips ADD CONSTRAINT trips_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE trusted_web_devices ADD CONSTRAINT trusted_web_devices_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE uvvrp_exemptions ADD CONSTRAINT uvvrp_exemptions_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
 ALTER TABLE uvvrp_exemptions ADD CONSTRAINT uvvrp_exemptions_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
@@ -1336,6 +1352,7 @@ CREATE INDEX idx_trips_rating ON public.trips USING btree (customer_rating);
 CREATE INDEX idx_trips_status ON public.trips USING btree (trip_status);
 CREATE INDEX idx_trips_vehicle ON public.trips USING btree (vehicle_id);
 CREATE INDEX idx_trips_vehicle_start ON public.trips USING btree (vehicle_id, start_time);
+CREATE INDEX idx_trusted_web_devices_employee_active ON public.trusted_web_devices USING btree (employee_id, revoked_at, expires_at);
 CREATE INDEX idx_uvvrp_exemptions_active ON public.uvvrp_exemptions USING btree (active);
 CREATE INDEX idx_uvvrp_exemptions_vehicle ON public.uvvrp_exemptions USING btree (vehicle_id) WHERE active;
 CREATE INDEX idx_uvvrp_violations_action ON public.uvvrp_violations USING btree (action, created_at DESC);

@@ -24,6 +24,12 @@ export async function revokeEmployeeSessions(tx, employeeId) {
       WHERE employee_id = $1 AND revoked_at IS NULL`,
     [employeeId]
   );
+  await tx.query(
+    `UPDATE trusted_web_devices
+        SET revoked_at = COALESCE(revoked_at, NOW())
+      WHERE employee_id = $1 AND revoked_at IS NULL`,
+    [employeeId]
+  );
 }
 
 export function sessionDeviceLabel(userAgent, kind = "web") {

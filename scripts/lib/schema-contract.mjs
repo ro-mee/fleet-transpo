@@ -90,6 +90,10 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Server-backed web sessions with device metadata.",
   },
+  trusted_web_devices: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Hashed, revocable browser trust tokens that can bypass TOTP for 30 days.",
+  },
   employee_mfa: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Encrypted TOTP secrets and replay markers.",

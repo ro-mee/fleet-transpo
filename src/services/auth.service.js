@@ -36,6 +36,14 @@ export async function signIn(email, password, { mfaCode = "" } = {}) {
 // Password reset flows go through server routes — never the browser-side
 // Supabase anon client. The anon role has no privileges on `employees`.
 
+export function rememberTrustedDevice() {
+  return apiFetch("/api/auth/trusted-device", { method: "POST", body: {} });
+}
+
+export function revokeTrustedDevice() {
+  return apiFetch("/api/auth/trusted-device", { method: "DELETE" });
+}
+
 export async function requestPasswordReset(email) {
   return apiFetch("/api/auth/forgot-password", { method: "POST", body: { email } });
 }

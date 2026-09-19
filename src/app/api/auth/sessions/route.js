@@ -62,6 +62,11 @@ export async function POST(req) {
            WHERE employee_id = $1 AND revoked_at IS NULL`,
         [employeeId]
       );
+      await tx.query(
+        `UPDATE trusted_web_devices SET revoked_at = COALESCE(revoked_at, NOW())
+           WHERE employee_id = $1 AND revoked_at IS NULL`,
+        [employeeId]
+      );
     });
     await writeAudit(req, session, {
       action: "session_revoke_others",
