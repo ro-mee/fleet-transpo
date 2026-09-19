@@ -16,6 +16,7 @@ const eslintConfig = defineConfig([
     // ErrorUtils / nativePerformanceNow and produced 772 of 773 no-undef
     // errors before it was excluded.
     "mobile/dist/**",
+    "mobile/.expo/**",
     // Not application source, and each drowns the real count:
     //   Capstone/  — the untracked Obsidian vault; its plugins ship minified
     //               bundles (MainLoop, MLTensorUsage, define, ...).
