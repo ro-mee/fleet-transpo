@@ -1,11 +1,17 @@
 ---
 type: implementation-plan
-status: proposed
+status: in-progress
 created: 2026-09-19
 related: ["[[AI Advisory]]", "[[AI Architecture]]", "[[Dispatch]]", "[[Dispatch Copilot Decision Support Enhancement Plan]]", "[[ADR-003 Deterministic AI]]"]
 ---
 
-# Jev Dispatch Pair Ranking and Dispatch Copilot Guardrail Implementation Plan
+# FleetMate Wording, Jev Dispatch Copilot Guardrail, and Pair Ranking Implementation Plan
+
+## Implementation record — 2026-09-19
+
+Track 0 (FleetMate Response Wording Library and concise response shell) is implemented locally. The conversation prompt now prioritizes answer-first dispatcher language, distinguishes hard conflicts from pending verification, handles unselected/tied options without inventing a ranking reason, and replaces internal terms such as usable slack and service-date workload. The deterministic evidence fallback now uses friendly option names, status/reason/next-step wording, and a clear no-selection response. Provider-generated choice prompts are removed server-side because the interface owns that prompt. Pair-ranking order and radar validation remain unchanged; only the explanatory tie wording was clarified.
+
+Verification: five focused suites passed, 83 tests total (`conversation`, `copilot-prompt`, `fleetmate-ranking`, conversation route, and FleetMate scenario route); touched-source ESLint passed with zero warnings. Live-provider wording and browser acceptance remain pending.
 
 ## Decision
 
@@ -16,6 +22,7 @@ Do not replace either module completely.
 - Replace only the soft Option 1/Option 2 ranking boundary. The correct existing seam is `src/lib/dispatch/recommendation-ranking.js`, especially `rankDispatchPairs()` and `comparePairEvidence()`.
 - For pair ranking, Jev may become the primary ranker after rollout. The current evidence-based ranker remains the validated fallback until Jev proves reliable in shadow mode.
 - For Dispatch Copilot, the first Jev use case is response verification and guardrails, not ranking replacement.
+- The first implementation slice is a FleetMate Response Wording Library and concise server-generated response shell. It improves usefulness without adding a model dependency.
 
 The goal is to correct inaccurate pair ordering without weakening the rules that decide which pairs are allowed to compete.
 
@@ -33,6 +40,105 @@ prepareDispatchRecommendation()
 ```
 
 `dispatch-radar.service.js` must remain in this flow. Jev must not receive unverified candidates and must not perform assignment validation.
+
+## FleetMate response flow
+
+```text
+verified server evidence
+  -> server chooses status, key facts and next step
+  -> FleetMate adds one short explanation when useful
+  -> existing deterministic narration guards
+  -> Jev verifier in a later rollout phase
+  -> dispatcher
+```
+
+The response shell is the source of truth for status and facts. FleetMate must not decide which checks matter, invent a ranking reason, or turn unknown evidence into a positive or negative claim.
+
+## FleetMate Response Wording Library
+
+### Voice contract
+
+FleetMate should sound like an experienced dispatcher helping another dispatcher: calm, concise, practical, and confident without sounding absolute.
+
+Most replies follow:
+
+```text
+answer -> decisive reason -> optional next step
+```
+
+Target length is two or three short sentences, or a short status block with one explanation. The first sentence must answer the actual question.
+
+Prefer normal dispatcher language:
+
+| Internal wording | FleetMate wording |
+|---|---|
+| candidate pair | option / driver and vehicle |
+| evaluation | latest check |
+| server evidence | verified system data / latest records |
+| temporal horizon | future booking / booking timing |
+| usable slack | preparation time |
+| reliability band | timing situation |
+| workload evidence | workload for this date |
+| blocking finding | blocker |
+| prefiltered | checked briefly |
+| insufficient data | I can't verify that yet |
+| resolved | still available |
+| missing | no longer available in the latest check |
+| rerank | update the recommendation |
+| mutation | assignment / change |
+
+Never expose field names, JSON keys, decision codes, ranking codes, implementation terms, model terms, or internal evidence labels. Do not narrate every check; explain only the one or two facts that materially answer the question.
+
+### Required wording rules
+
+- Use **“No hard conflict found”** only for the hard-conflict result. It does not mean the option is ready.
+- If timing, GPS, route, or another required check is unknown, say **“Needs verification”** and name the missing check.
+- Use “ready” only when the server marks the option ready for review. Never use “safe” as a substitute for readiness.
+- If both options have no meaningful advantage, say **“No clear advantage was verified”** or **“Both options are workable”**. Do not invent a ranking reason.
+- If no option has been selected, say so explicitly. A generic “Why this pair?” may explain Option 1, but must also disclose that the user has not selected it and summarize the alternative.
+- For future bookings, mention once when useful that planning records—not the driver's current location—drive the recommendation.
+- Never describe an eligible option as assigned or claim success until the server confirms the assignment mutation.
+- Give a next step only when it helps the dispatcher act.
+
+### Library categories
+
+The full wording library should cover the supplied response set without putting all 50 exact responses into one prompt:
+
+1. recommendation discovery and equal-options responses;
+2. “why this option?” reasons for timing, efficiency, workload, and designated pairing;
+3. future versus immediate booking and GPS uncertainty;
+4. exclusions, blockers, capacity, pairing, compliance, and schedule issues;
+5. travel and turnaround uncertainty;
+6. no-option and limited-evaluation coverage;
+7. selection, recheck, stale evidence, and changed recommendation;
+8. assignment status and permission copy;
+9. incident suggestions and prompt-injection refusals.
+
+Exact safety, status, assignment, and blocker strings should be deterministic templates. The language model may add a short explanation only after the server selects the relevant wording pattern.
+
+### Canonical examples
+
+For a selected option:
+
+```text
+Option 2 — ABC-1234 with Karlo Rafael
+Status: Needs verification
+
+No hard conflict found. Duty, leave, schedule, maintenance, and incident checks passed, but pickup timing still needs verification.
+Next step: Verify departure positioning, then recheck the request.
+```
+
+For an unselected recommendation:
+
+```text
+You have not selected an option yet.
+
+Option 1 is listed first, but no clear advantage over Option 2 was verified. Both options passed the required checks, but both still need timing verification.
+
+Choose Option 1 or Option 2.
+```
+
+The exact facts and reason must be generated from the current evidence; these examples are wording shapes, not hard-coded data.
 
 ## Jev roles in Dispatch Copilot
 
@@ -129,6 +235,7 @@ assignment
 
 ### Included
 
+- FleetMate wording library, response states, and concise response shell.
 - Replace the final soft ranking decision for valid vehicle-driver pairs.
 - Preserve hard blocks and all current radar evidence.
 - Preserve human confirmation, signed review state, assignment revalidation, and the database overlap guard.
@@ -137,6 +244,7 @@ assignment
 
 ### Excluded
 
+- A single prompt containing all wording-library entries.
 - Replacing `dispatch-radar.service.js`.
 - Letting Jev create, modify, or commit a dispatch.
 - Letting Jev bypass schedule, leave, licensing, vehicle, pairing, or route checks.
@@ -146,7 +254,75 @@ assignment
 
 ## Implementation tracks
 
-### Track A — Dispatch Copilot guardrails (first)
+### Track 0 — FleetMate Response Wording Library and concise response shell (first)
+
+#### Phase W0 — Inventory the current response contract
+
+1. Audit `src/lib/dispatch/conversation.js`, `src/app/api/integration/transport-requests/[id]/conversation/route.js`, `src/lib/dispatch/copilot-prompt.js`, and the current Copilot component for every response path.
+2. Identify which replies are deterministic fallbacks, which are provider narration, and which are assignment/status UI copy.
+3. Preserve the existing conversation response shape. Do not add a new response field only to carry wording metadata in this phase.
+4. Capture baselines for the two reported cases: selected Option 2 with timing pending, and “Why this pair?” before a selection.
+
+Acceptance:
+
+- Every response path has one clear owner for status, facts, explanation, and next step.
+- The existing evidence-only fallback remains available without an AI provider.
+- No assignment or safety decision depends on generated wording.
+
+#### Phase W1 — Implement the wording library as evidence-gated patterns
+
+1. Map the supplied library into intent/state patterns rather than one large prompt block.
+2. Reuse the existing deterministic fallback and evidence helpers before adding a new response module. Add one shared pure formatter only if the existing helpers cannot express the new structure.
+3. Define the status vocabulary internally: checking, ready for review, needs verification, blocked, no eligible option, stale, and no clear advantage.
+4. For each pattern, define required evidence, forbidden claims, and the allowed next step.
+5. Add the explicit no-selection and tie/no-material-advantage patterns.
+6. Keep Evidence Drawer wording formal and bounded; keep FleetMate chat natural and short while expressing the same facts.
+
+Required evidence gates include:
+
+- timing wording only when the ranking evidence identifies timing as decisive;
+- workload wording only when the service-date workload evidence is complete;
+- current-location wording only for an immediate/repositioning context with usable GPS;
+- designated-driver wording only when the pairing is verified;
+- ready wording only when readiness is verified;
+- substitute wording that does not incorrectly exclude a vehicle that has a valid dated substitute.
+
+#### Phase W2 — Build the deterministic response shell
+
+1. Compose each operational answer in this order: answer/status, one or two material facts, optional short explanation, next step.
+2. Keep status and facts server-generated. Use the language model only for the short explanation on the narrated path.
+3. On provider failure, timeout, malformed output, or a guard finding, return the concise evidence-only version instead of a long generic apology.
+4. Cap the explanation to one or two short sentences and remove duplicated facts already shown in the status block.
+5. Do not use “safe,” “all clear,” “fully available,” or “assigned” unless the corresponding server state supports that exact claim.
+
+#### Phase W3 — Update the FleetMate prompt
+
+1. Add the voice contract to the existing prompt owner, `copilot-prompt.js`.
+2. Pass the selected wording pattern or decisive reason to FleetMate instead of embedding all 50 library entries in every request.
+3. Require the model to answer the question first, use only one or two supplied facts, and add a next step only when useful.
+4. Instruct the model to use normal dispatcher language and silently apply limitations unless the limitation answers the question.
+5. Keep prompt instructions as defense in depth; server templates and evidence gates remain authoritative.
+
+#### Phase W4 — Verify and roll out the wording change
+
+Automated checks must cover:
+
+- selected Option 2 with no hard conflict but timing pending;
+- no selected option asking “Why this pair?”;
+- two options with no material advantage;
+- timing, efficiency, workload, and designated-pair explanations;
+- future booking with no GPS claim;
+- immediate booking with stale or absent GPS;
+- no option, limited evaluation, stale evidence, and changed recommendation;
+- assignment permission, 409 conditions changed, uncertain assignment result, and completed/active/cancelled states;
+- absence of internal terms and unsupported readiness claims;
+- provider failure and deterministic fallback.
+
+Manual acceptance must confirm that a dispatcher can scan the answer in a few seconds, identify the current status, understand why, and know the next action on desktop and mobile.
+
+Only after this track passes should the Jev response verifier be enabled. Jev should verify the short explanation, not replace the deterministic response shell.
+
+### Track A — Dispatch Copilot guardrails (after Track 0)
 
 #### Phase A0 — Establish the deterministic baseline
 
@@ -329,7 +505,7 @@ After caller and snapshot audits:
 After implementation, update:
 
 - `Capstone/04 - Architecture/AI Architecture.md` — Jev's typed ranking role and its no-write boundary;
-- `Capstone/02 - Features/AI Advisory.md` — Copilot verifier, ranking source, fallback, evidence contract, and UI behavior;
+- `Capstone/02 - Features/AI Advisory.md` — wording library, Copilot verifier, ranking source, fallback, evidence contract, and UI behavior;
 - `Capstone/07 - Development/Dispatch Copilot Decision Support Enhancement Plan.md` — guardrail and incident-classification scope;
 - `Capstone/06 - Decisions/ADR/ADR-003 Deterministic AI.md` — revise the decision only if Jev becomes a primary ranking input, while preserving deterministic safety gates and human confirmation;
 - `SYSTEM.md` — actual files changed, verification results, rollout status, and any remaining provider/browser limitations.
@@ -338,4 +514,4 @@ No database migration is expected for the initial implementation. No code, schem
 
 ## Completion criteria
 
-The work is complete only when the Copilot verifier can reject unsupported FleetMate claims, ambiguous or malicious input follows a server-owned safe path, incident suggestions require confirmation, and the pair-ranking track can change the top-two order using verified evidence without bypassing hard or radar checks. Both tracks must fall back safely, remain auditable in logs/snapshots, and leave assignment-time validation unchanged.
+The work is complete only when FleetMate answers are scanable and useful through the deterministic wording shell, the Copilot verifier can reject unsupported explanations, ambiguous or malicious input follows a server-owned safe path, incident suggestions require confirmation, and the pair-ranking track can change the top-two order using verified evidence without bypassing hard or radar checks. All tracks must fall back safely, remain auditable in logs/snapshots, and leave assignment-time validation unchanged.

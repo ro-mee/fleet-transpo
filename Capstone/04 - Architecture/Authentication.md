@@ -7,6 +7,7 @@ source:
   - src/lib/api/utils.js
   - src/lib/auth/mobile-token.js
   - src/lib/auth/mfa.js
+  - src/lib/auth/trusted-device.js
   - src/lib/auth/sessions.js
   - src/services/auth.service.js
   - src/app/api/auth/forgot-password/route.js
@@ -25,7 +26,10 @@ source:
   - src/app/api/auth/mfa/confirm/route.js
   - src/app/api/auth/mfa/disable/route.js
   - src/app/api/auth/mfa/recovery-codes/route.js
+  - src/app/api/auth/trusted-device/route.js
+  - supabase/migrations/117_trusted_web_devices.sql
   - src/lib/auth/reset-token.js
+  - src/app/(auth)/login/page.js
 last_verified: 2026-09-19
 ---
 
@@ -122,7 +126,7 @@ All credential-change paths are **server-side**; nothing writes `employees` from
 - `auth.service.js` previously called Supabase `signUp`/`resetPassword`/`updatePassword` through the **browser anon client**. Migration 009 let that anon key `INSERT`/`SELECT` on `employees`, and the default grants went further (`UPDATE`/`DELETE`) — **anyone with the public anon key could insert a `system_admin` or overwrite a password hash**. Migration 060 dropped the 009 policies and `REVOKE ALL`d `anon`; verified live (`pg_policies` + `role_table_grants` both empty for `anon` on `employees`).
 - `signUp`/`resetPassword`/`updatePassword` were **deleted** from `auth.service.js`; it no longer imports the anon `createClient`. Credential mutation lives in three routes:
   - `POST /api/auth/change-password` — session-bound, pre-existing.
-  - `POST /api/auth/forgot-password` — **public** but rate-limited (per-IP + per-email, 5/60s), identical generic response whether or not the email exists (no enumeration), no email is actually sent yet.
+   - `POST /api/auth/forgot-password` — **public** but rate-limited (per-IP + per-email, 5/60s), identical generic response whether or not the email exists (no enumeration). Since 2026-09-19 it self-serves over Resend when `RESEND_API_KEY` is set (link + paste-able code emailed, `password_reset_requested` audited); without a provider it keeps the administrator-issued wording.
   - `POST /api/auth/reset-password` — `requireAuth`, employee derived from the session (never the body), rate-limited, wipes the employee's `mobile_refresh_tokens` so a leaked mobile session dies too.
 - `POST /api/mobile/auth/login` is now throttled **per-IP and per-account** (5/60s, 429 + `Retry-After`), mirroring the web Credentials provider — previously it ran unlimited bcrypt compares.
 - Seeded `admin123` credential from migration 008 was a **real account takeover**: migration 061 NULLs the known hash where it still matches, and the live `admin@fleetops.com` password was **rotated** to a fresh strong hash (cost 10). Decision: keep the account, rotate the credential.
@@ -145,9 +149,7 @@ behavior is:
   a 30-minute one-time link. Only a SHA-256 token hash is stored. The reset page
   consumes the token without an employee id, marks it used, revokes other reset
   and mobile tokens, and requires a fresh sign-in afterward.
-- `POST /api/auth/forgot-password` deliberately remains a uniform contact-admin
-  response until a verified email delivery provider is selected. It does not
-  claim that an email was sent.
+- `POST /api/auth/forgot-password` self-serves since 2026-09-19: with `RESEND_API_KEY` set it mints from the shared `issueResetToken()` issuer and emails the link + code via `src/lib/email/resend.js`; without a provider it keeps the uniform contact-admin wording. The message depends only on provider configuration, never on the lookup result, so enumeration safety holds either way. Delivery failures are warn-logged server-side and still answer generically. It does not claim that an email was sent when none was.
 - Authentication, session, and MFA events are written to `audit_logs` without storing
   passwords, cookies, bearer tokens, OTPs, recovery codes, or plaintext TOTP secrets. PostgreSQL-backed
   IP/account rate-limit buckets are shared across app instances and fail closed
@@ -157,8 +159,7 @@ behavior is:
   expired and long-revoked rows; `/api/mobile/auth/logout` supports the existing
   `allDevices` flag.
 
-Verified email delivery and scheduled pruning remain explicitly unimplemented
-until their provider or deployment decisions are made.
+Verified email delivery landed 2026-09-19 (Resend, forgot-password only); scheduled pruning of expired reset tokens remains explicitly unimplemented until its deployment decision is made.
 
 ## Driver credential screens on mobile — CONFIRMED (2026-09-13)
 
@@ -173,10 +174,13 @@ credential endpoints, which already authorize mobile bearer tokens.
   and returns to login, mirroring web Settings > Security.
 - **Forgot** (`mobile/app/forgot-password.js`, public, linked from login):
   `POST /api/auth/forgot-password` with `skipAuth`; renders the generic
-  contact-admin message verbatim (no enumeration, no email sent).
+  server message verbatim (no enumeration). Since 2026-09-19 that message
+  reports a sent email when Resend is configured — the driver opens the link
+  or pastes the code from the same email.
 - **Reset** (`mobile/app/reset-password.js`, public, paste-the-code): the
   token mode of `POST /api/auth/reset-password` (`{ token, newPassword }`,
-  `skipAuth`) consumes the administrator-issued 30-minute single-use code.
+  `skipAuth`) consumes the 30-minute single-use code from the email (or an
+  administrator-issued one — both mint from the same issuer).
   A deep link for the web `reset-password?token=` URL is a follow-up.
 - **Policy enforcement is two-layered.** Client: pure
   `mobile/lib/password-validation.js` (min 8, lower + upper + number +
@@ -211,6 +215,22 @@ Verified: mobile suite 129/129, ESLint clean on all 7 touched files,
   throttles.
 - Web and mobile credential exchanges check the enrolled factor before issuing
   a session. Missing/invalid factors never create a web session or mobile token.
+- **Web MFA verification UX (2026-09-19):** after valid credentials return
+  `MFA_REQUIRED`, `src/app/(auth)/login/page.js` opens a centered compact
+  reference-matched modal with a pale blue-gray veil, subtle backdrop blur,
+  lock/check hero mark, six animated visual code cells, authenticator guidance,
+  recovery action, and automatic scan/check feedback. The cells are backed by one
+  accessible numeric input. The sixth digit auto-submits through the existing
+  `totpCode` contract; recovery codes remain available in a separate mode.
+  Invalid/replayed codes clear the input and restore focus, while confirmed
+  verification waits for the session before using the existing role-aware
+  return route. The remember-device row is an explicit opt-in backed by
+  `POST/DELETE /api/auth/trusted-device` and a 30-day HttpOnly opaque cookie.
+  Only a SHA-256 token hash is stored in the private `trusted_web_devices`
+  table; records are bound to `auth_version`, expiry, and revocation state.
+  Password, MFA, email, account, and session revocation changes invalidate
+  remembered devices through the shared auth lifecycle. Email OTP remains a
+  separate delivery/provider decision.
 - Enabling/disabling MFA increments `auth_version` and revokes all web/mobile
   sessions. Password/email/role/account changes use the same revocation path.
 - `web_sessions` records safe device metadata and bounded activity. The
@@ -230,7 +250,7 @@ Verified: mobile suite 129/129, ESLint clean on all 7 touched files,
 - **Identity resolution is read-only for session timing** (2026-09-18): `resolveCurrentIdentity()` must never write `last_seen_at`. See "The idle timeout that wasn't" below.
 - **Single policy source**: `src/lib/auth/session-policy.js` holds the constants. It is dependency-free precisely so the `"use client"` session manager can import it — `lib/auth/sessions.js` pulls in `@/lib/db` and `geoip-lite` and cannot be imported from a client component, which is why the client used to keep its own hand-copied literals. `sessions.js` re-exports for existing server importers.
 - **Derived, not copied**: the warning window is 20% of the idle window capped at 5 minutes (60s at the current policy), and the heartbeat interval is half the idle window. Both are computed from `IDLE_TIMEOUT_SECONDS` so they cannot collide with it again (see below).
-- **Heartbeat & human activity**: `GET/POST /api/auth/heartbeat`. `POST` is the **only** writer of `last_seen_at`. The frontend monitors DOM events (`click`, `keydown`, `touchstart`, `pointerdown`) and slides the deadline as soon as activity occurs, throttled by `ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS` (60s) so typing does not produce a write per keystroke; a periodic tick at half the idle window is a backstop for missed events.
+- **Heartbeat & human activity** (revised 2026-09-19 — optimistic local reset): `GET/POST /api/auth/heartbeat`. `POST` is the **only** writer of `last_seen_at`. The frontend monitors DOM events (`click`, `keydown`, `touchstart`, `pointerdown`; deliberately no `mousemove`) and snaps the visible countdown back to a full window **instantly** on every interaction. The server write stays throttled by `ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS` (60s): the confirmation fires immediately when the gap has elapsed, otherwise it is scheduled once for the moment the gap elapses — never per keystroke, never later than ~60s after the activity. Before this fix the chip waited for the POST, so it kept draining through real activity (up to 60s of visible lag) despite the tooltip promising a reset on click/type. `GET` reconciles against the optimistic value (keeps the newer deadline only while the activity is still inside the unflushed throttle window); the periodic tick at half the idle window is now a timestamp-gated backstop for a lost flush only, so it can no longer extend a session long after the user walked away.
 - **Stay signed in**: Issues a forced `POST /api/auth/heartbeat` (bypassing the throttle, since the user explicitly asked) to slide `last_seen_at` and the idle deadline by 5 minutes; the 12-hour maximum remains unchanged.
 - **Warning and timeout UX (2026-09-18 enhanced)**: `SessionTimeoutDialog` (`src/components/auth/session-timeout-dialog.jsx`) implements a centered blocking modal over a dimmed backdrop (`rgba(15, 23, 42, 0.38)` with `backdrop-filter: blur(2px)`), perfectly matching the Operations Center visual language (white modal surface, subtle `#E4E7EC` border, soft elevation shadow `0 16px 40px rgba(16, 24, 40, 0.16)`, `#0F172A` dark navy primary button).
   - **Calm Warning State**: Renders a compact amber timer card (148px × 84px, `#FFF9F1` bg, `#F3E3C7` border, 32px tabular numbers) with `SESSION INACTIVITY` pill when the warning threshold starts.

@@ -442,3 +442,29 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
   value at 60s, and that cross-tab extension moves the idle tab's chip. The run
   above proves the module graph, the arithmetic and the lint gate, not the
   wiring. Listed in the daily note's Next steps.
+
+### Phase 13 — MFA verification modal (2026-09-19)
+
+- Reworked the centered focus-trapped Radix dialog to match the supplied
+  reference: ~512px pale surface, soft blue-gray 8px backdrop blur, precise
+  24px-class radius, top-right close control, lock/check hero mark, generous
+  vertical rhythm, and no nested header/footer card chrome.
+- The reference layout now includes six compact OTP cells backed by one
+  accessible numeric input, a phone-icon authenticator helper row, the opt-in
+  “Remember this device for 30 days” affordance, automatic verification,
+  a “Having trouble?” divider, and an outlined recovery-code action.
+- Motion remains intentionally small but explicit: per-entry scale/tint, a
+  blinking active caret, a short invalid-code shake, a lock scan while the
+  server verifies, a drawn success check with restrained particles, and the
+  confirmed state before role-aware navigation. The existing
+  `MotionConfig reducedMotion="user"` governs the interaction.
+- The remember-device row is an explicit opt-in backed by a 30-day HttpOnly
+  cookie. The server stores only a SHA-256 hash in private
+  `trusted_web_devices`, checks expiry/revocation/current `auth_version`, and
+  revokes remembered devices on security-sensitive auth/session changes.
+- Email OTP remains a separate delivery feature; this surface currently
+  verifies TOTP/recovery codes.
+- Verified with touched-file ESLint, production build, 61 focused auth/schema
+  security tests, `db:contract`, and a live catalog check confirming RLS,
+  revoked anon SELECT, and the unique token-hash constraint. Repo-wide lint
+  still reports unrelated generated `mobile/.expo` bundle errors.

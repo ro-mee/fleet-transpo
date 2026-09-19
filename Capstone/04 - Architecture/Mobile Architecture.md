@@ -141,8 +141,9 @@ existing credential endpoints (no new backend route — full detail in
   Security; success signs out (cache cleared before SecureStore) and returns
   to login on the `signInRequired` contract.
 - **Recovery** (public, outside the `(app)` guard like login): `forgot-password.js`
-  (email → generic contact-admin stub response) and `reset-password.js`
-  (admin-issued 30-min single-use code + new password), linked from a new
+  (email → generic server message; a reset link + paste-able code is emailed
+  when Resend is configured, administrator wording otherwise) and
+  `reset-password.js` (30-min single-use code + new password), linked from a new
   "Forgot password?" entry on `login.js`. Paste-the-code — no deep-link config.
 - **Policy + offline rules (locked):** one pure validator
   (`mobile/lib/password-validation.js`, client≡server parity fuzz-pinned)

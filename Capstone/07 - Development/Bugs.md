@@ -1253,6 +1253,7 @@ succeeds, and the built `routes-manifest.json` carries the narrowed `img-src`.
 
 - **Mobile showed `Network request failed. Check your connection.` on local Wi-Fi.** The ignored `mobile/.env` still pointed at a retired LAN address, while the Next API was listening on the machine's current address at port 3000. The stale address timed out; the corrected address returned the API's expected HTTP 400 for an empty login body. No API or auth code was changed. Physical builds must be reloaded/rebuilt after changing `EXPO_PUBLIC_API_URL` because Expo inlines public variables into the bundle.
 - **Devices & Sessions treated session rows as devices and used “Sign Out” wording.** Same-IP rows were easy to misread as duplicate devices even though web session IDs and mobile refresh families are the real identities, and the mobile current-session branch called the nonexistent `clearAuth` helper. The screens now say “active sessions,” explain shared-IP behavior, revoke by `kind:id`, and use the existing `signOut` cleanup only after the server has revoked the current mobile family. The sessions API responses and web/mobile confirmations now use “Revoke session.” No migration was needed; touched-source lint is the verification gate.
+- **The dispatcher's chosen pair was dropped on every navigation — the chat kept asserting a choice the panel no longer held.** Reported as *"when the dispatcher has already chosen and moves to another tab, the chosen option is not saved — only the chat is."* `DispatchPlanPanel` keys the Copilot panel on the reservation (`key={selectedRequest?.request_id}`, `dispatch-plan-panel.jsx:38`/`:93`), so leaving the route and returning **remounts** the whole subtree and `useState(null)` won. Only the transcript was persisted (sessionStorage), and the queue plan and recommendation already live in the app-level QueryClient — the chosen pair was the one piece of the state held in React. Consequence was worse than a re-click: the transcript still showed the picked option, so the screen contradicted itself. **Fix:** the selection is stored beside the transcript in the same module (`copilot-conversation.jsx`, `fleetops_dispatch_copilot_selection_map`, same 30-entry prune and private-mode guards), recording the pair key **and the pinned option key list**, so the restored card keeps its number when the engine re-ranks; it is cleared by *Change selection*, by a successful assignment, and by `clearReservationMessages`/`clearAllReservationMessages`. Restoring **appends no chat turn** — `CopilotConversation` re-anchors the inline review to the persisted `select-pair` message matching the selection — and the check is re-run on return (the accepted cost: one queue re-analysis per remount), guarded by a ref because that re-analysis invalidates the recommendation query and would otherwise re-run in a loop. The transcript is deliberately **not** the source of truth: `chooseAnother` clears the selection without appending a message, so deriving from the last `select-pair` turn would resurrect an abandoned choice. Verified: `src/components/reservations` **67/67 in 8 files** (10 new tests: 4 for the pure resolution step in the new `copilot-options.test.js`, 4 store tests including a `vi.resetModules()` round trip through a stubbed sessionStorage, 2 handler tests for persist/clear), ESLint clean on all seven touched files. **Teeth proofs executed** — ignoring the remembered pin fails exactly 3 assertions, and removing the persist, the clear-on-change, or the selection clear from `clearReservationMessages` each fails exactly its own test — with every file restored byte-identical afterwards. Honest limit: the restore is an **effect**, and no test here can run effects (all component tests use `renderToStaticMarkup`; a DOM harness would need a browser-testing dependency), so the restore decision was extracted into the pure `resolveRememberedOption` to be provable at all, and **browser acceptance of the restored review remains pending**. No schema change, no migration, no new dependency, no commit.
 
 ## Fixed — 2026-09-06
 
@@ -1390,8 +1391,76 @@ missed that the second vehicle's reason was the actual defect. Read all `none_re
 month/day — correct it if the policy says otherwise). Live engine re-run: **both pairs SAFE, zero exclusions** —
 recommended v1+Jack Mors, alternate v37+Karlo Torres.
 
+## Open — 2026-09-19 — three of the ten evidence proofs return 404 (leave, pairing, comparison) — ROOT-CAUSED, NOT FIXED
+
+**Symptom:** the Evidence Drawer's Review action on a *leave*, a *pairing* or a *comparison* row returns
+"Evidence is currently unavailable." (HTTP 404). The other seven proof types resolve normally. Deferred by
+explicit instruction — *"address the leave/pairing/comparison proof 404s separately"* — so this entry records the
+diagnosis, not a remediation. **No production file was changed for it.**
+
+**Two independent defects, not one.** All three failures land on the same user-visible string because
+`evidence/route.js:51` catches everything and re-throws a single `AuthError('Evidence is currently unavailable.', 404)`
+— so the surface is uniform and the causes are not:
+
+1. **A column that does not exist, twice** (`src/services/evidence-resolve.service.js`). `resolveLeave()` (:49-67)
+   filters `driver_leave_requests` on `status='Approved' AND deleted_at IS NULL`, and `resolvePairing()` (:144-163)
+   filters `substitute_vehicle_schedules` on `deleted_at IS NULL`. **Neither table has a `deleted_at` column.**
+   Postgres raises `42703 undefined_column`; `db.query` is the only throw site in each resolver, so the throw is
+   indistinguishable from a genuine outage by the time the route sees it. Read-only live census of both tables
+   confirms the absence: `driver_leave_requests` = leave_request_id, driver_id, start_date, end_date, leave_type,
+   reason, status, requested_at, reviewed_by, reviewed_at, review_notes, start_time, end_time;
+   `substitute_vehicle_schedules` = substitute_id, vehicle_id, substitute_driver_id, effective_from,
+   effective_until, notes, created_at, updated_at, created_by, updated_by. `evidence-resolve.service.js` is the
+   **only** file in the repository that references `deleted_at` on either table.
+2. **An arity mismatch that makes `ctx` undefined** (same file). `resolveComparison(db, refData, ctx, deps)` reads
+   `ctx.requestRow` (:197-206), but `resolveEvidence()` (:236-250) calls `resolver(store, { ...refData, ...ctx },
+   ...)` — **two arguments**, so `ctx` is `undefined` and the property read throws. This is the comparison proof
+   only, and it is a different bug from the two above: nothing is wrong with the SQL there.
+
+**Why the suite was blind to both, which is the more useful finding.** Four independent reasons, each of which
+would have to be closed separately: `evidence-resolve.test.js` drives the resolvers through a fake
+`dbFor = handlers => ({ query: async (sql, params) => ({ rows: await handlers(sql, params) }) })` whose handlers
+branch on `sql.includes('FROM vehiclemaintenance')` — **they never parse the SQL**, so a column that does not exist
+is invisible by construction; `resolveComparison` is only ever called *directly with an explicit `ctx`*
+(`evidence-resolve.test.js:68`, `fleetmate-evidence.test.js:243`) and no test anywhere calls `resolveEvidence` with
+`proofType: 'COMPARISON'`, so the production call shape is never exercised; `evidence/route.test.js:5` mocks
+`resolveEvidence` wholesale, so the route test cannot see inside it either. And the schema gates do not cover the
+class at all — `scripts/lib/sql-references.mjs` extracts **table** names only (`NOT_A_TABLE`,
+`referencedTablesInFile`), so `npm run db:contract` reports this file clean while a column in it does not exist.
+**Table-level contract passing is not column-level correctness**; that is the gap this defect fell through, and it
+is worth noting that the same gap would hide any future wrong-column bug in any raw-SQL service.
+
+**Fixes identified, not applied** (deferred by instruction): drop `AND deleted_at IS NULL` at both sites — these
+tables have no soft-delete, their lifecycle is `status` / the effective date range — and give `resolveComparison`
+its context (`ctx?.requestRow ?? refData.requestRow`, or pass `ctx` through from `resolveEvidence`). Each deserves
+its own regression test that pins the *production* call shape, since the existing tests pass against the broken
+code and would go on passing after a fix that only satisfied them.
+
 **Sweep 2026-09-19 (same class of problem, other bookings):** full suite **1931/1931 pass**; live-data sweep
 found 0 stale `Scheduled` dispatches left and only 1 open request in 7 days (RS-W3JU, fixed). One latent gap
 flagged, not fixed: **v18 ABC 1454** (only VIP cat-1 vehicle) has expired insurance (2026-08-09) AND its
 custodian driver 4 is `Suspended` with no schedule rows — a VIP booking today would show zero options the same
 way. The other 12 schedule-less custodians are `TST-/TSG-` seed vehicles, not operational.
+
+## Fixed — 2026-09-19 — FleetMate narration, queue precedence, and session state
+
+The non-email defects found during the uncommitted-worktree audit are closed.
+
+- FleetMate's deterministic summary now preserves the safety contract for blocked
+  and unverified pairs, gives a truthful explanation for a single ready option,
+  and includes material downstream dispatch reasons instead of only the first
+  pair reason.
+- Queue confirmation now reports stale or failed recommendation evidence before
+  queue validation status, so a loading message cannot hide an unavailable
+  result.
+- Copilot conversations, selections, and baseline snapshots are cleared during
+  sign-in-again and identity replacement; optimistic session activity refs are
+  reset at the same boundary.
+- Generated Expo output under `mobile/.expo/**` is excluded from source lint,
+  and the related documentation/EOF hygiene issues are corrected.
+
+Verified:
+
+- `npm run test:run` — **179 files / 2,043 tests passed**.
+- `npm run lint:ci` passed.
+- `npm run build` passed with **204/204** static pages generated.
