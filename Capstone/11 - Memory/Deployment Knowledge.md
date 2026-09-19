@@ -55,6 +55,13 @@ last_verified: 2026-09-19
 
 `next.config.mjs` carries a cache-busting comment (`// Invalidate Turbopack cache: 2026-08-07T14:30:45`) — a local build workaround, not deployment config.
 
+## First green HostForge deploy — 2026-09-19
+
+- Live at `https://fleetops-fleet-and-transportation-management.hostforgeplatforms.com` (HostForge platform address, HTTPS via their reverse proxy). Manual redeploy of `fd84166`; auto-deploy did not pick up the pushes on its own.
+- Final recipe that fit the 2400s limit: own-Dockerfile mode (`Dockerfile`, Node 24, standalone ~150MB), probe `/api/health`, Database None (Supabase stays external), 18 env vars with `NEXT_PUBLIC_APP_URL` = `NEXTAUTH_URL` = the platform address.
+- Total failed attempts before green: 4 (missing build env → 2× timeout on the generated pipeline → 1828-error jsconfig build failure on the first own-Dockerfile attempt).
+- Still open after green: browser smoke test (health JSON → login → dashboard), external cron for `/api/cron/sync`, secret rotation (several keys entered chat history during setup), mobile APK still points at the old Vercel backend URL (needs a rebuild against the HostForge URL if mobile moves over).
+
 ## What's UNKNOWN
 
 - Where the web app is or will be hosted
