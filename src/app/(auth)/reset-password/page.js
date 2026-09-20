@@ -95,6 +95,19 @@ function RecoverySteps({ current }) {
   );
 }
 
+// Same ambient backdrop as the login page: three soft aurora blobs over the
+// app background. Pure atmosphere — aria-hidden, never interactive, and the
+// card below sits at z-10 so nothing shifts.
+function AuthBackdrop() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="absolute -right-40 -top-44 h-[38rem] w-[38rem] rounded-full bg-primary/[0.05] blur-3xl" />
+      <div className="absolute -bottom-56 -left-36 h-[34rem] w-[34rem] rounded-full bg-info/[0.06] blur-3xl" />
+      <div className="absolute left-[42%] top-[30%] h-80 w-80 rounded-full bg-success/[0.045] blur-3xl" />
+    </div>
+  );
+}
+
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -116,7 +129,9 @@ function ResetPasswordForm() {
   // visitor has nothing to reset. Say so before they fill the form.
   if (!resetToken && sessionStatus !== "loading" && !session?.user?.email) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
+        <AuthBackdrop />
+        <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
         <Card className="shadow-xl border-0 text-center max-w-md w-full">
           <CardHeader>
             <CardTitle className="text-xl">Sign in first</CardTitle>
@@ -130,6 +145,7 @@ function ResetPasswordForm() {
             </Link>
           </CardContent>
         </Card>
+        </div>
       </div>
     );
   }
@@ -162,7 +178,9 @@ function ResetPasswordForm() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
+        <AuthBackdrop />
+        <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
         <MotionConfig reducedMotion="user">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -188,12 +206,15 @@ function ResetPasswordForm() {
             </Card>
           </motion.div>
         </MotionConfig>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
+      <AuthBackdrop />
+      <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
       <MotionConfig reducedMotion="user">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -225,27 +246,6 @@ function ResetPasswordForm() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="mb-4 space-y-1.5 text-xs" aria-label="Password requirements">
-              {RULE_CHECKS.map(({ key, label, test }) => {
-                const met = test(password);
-                return (
-                  <li
-                    key={key}
-                    className={cn(
-                      "flex items-center gap-1.5 font-medium",
-                      met ? "text-success" : "text-foreground-muted"
-                    )}
-                  >
-                    {met ? (
-                      <Check aria-hidden="true" className="h-3.5 w-3.5" />
-                    ) : (
-                      <span aria-hidden="true" className="h-1 w-1 rounded-full bg-foreground-muted" />
-                    )}
-                    {label}
-                  </li>
-                );
-              })}
-            </ul>
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
                 <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
@@ -309,6 +309,27 @@ function ResetPasswordForm() {
                 <CapsLockHint on={capsOnConfirm} />
                 {fieldError("confirmPassword").error && <p className="text-xs text-danger">{fieldError("confirmPassword").error}</p>}
               </div>
+              <ul className="space-y-1.5 text-xs" aria-label="Password requirements">
+                {RULE_CHECKS.map(({ key, label, test }) => {
+                  const met = test(password);
+                  return (
+                    <li
+                      key={key}
+                      className={cn(
+                        "flex items-center gap-1.5 font-medium",
+                        met ? "text-success" : "text-foreground-muted"
+                      )}
+                    >
+                      {met ? (
+                        <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                      ) : (
+                        <span aria-hidden="true" className="h-1 w-1 rounded-full bg-foreground-muted" />
+                      )}
+                      {label}
+                    </li>
+                  );
+                })}
+              </ul>
               <Button type="submit" className="w-full h-11" disabled={loading}>
                 {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
                 Update password
@@ -328,6 +349,7 @@ function ResetPasswordForm() {
         </Card>
         </motion.div>
       </MotionConfig>
+      </div>
     </div>
   );
 }
