@@ -50,6 +50,7 @@ export function CoachMarkTarget({
   radius = 12,
   padding = 8,
   scrollRef,
+  measureRevision,
   children,
   style,
 }) {
@@ -118,7 +119,13 @@ export function CoachMarkTarget({
     pathname = "/";
   }
 
-  const { registerTarget, unregisterTarget, activeMilestone, currentStep } = useCoachMarks();
+  const {
+    registerTarget,
+    unregisterTarget,
+    activeMilestone,
+    currentStep,
+    activePresentationId,
+  } = useCoachMarks();
   const isCurrentActiveTarget = Boolean(currentStep?.targetId && currentStep.targetId === effectiveId);
 
   const measureAndRegister = useCallback(() => {
@@ -149,10 +156,19 @@ export function CoachMarkTarget({
               if (rw > 0 && rh > 0) {
                 registerTarget(
                   effectiveId,
-                  { x: rx, y: ry, width: rw, height: rh, radius, padding },
+                  {
+                    x: rx,
+                    y: ry,
+                    width: rw,
+                    height: rh,
+                    radius,
+                    padding,
+                    presentationId: activePresentationId,
+                  },
                   pathname,
                   token,
-                  instanceId
+                  instanceId,
+                  activePresentationId
                 );
               }
             });
@@ -217,10 +233,12 @@ export function CoachMarkTarget({
                     height: nh,
                     radius,
                     padding,
+                    presentationId: activePresentationId,
                   },
                   pathname,
                   token,
-                  instanceId
+                  instanceId,
+                  activePresentationId
                 );
               }
             });
@@ -238,10 +256,12 @@ export function CoachMarkTarget({
           height,
           radius,
           padding,
+          presentationId: activePresentationId,
         },
         pathname,
         token,
-        instanceId
+        instanceId,
+        activePresentationId
       );
     });
   }, [
@@ -258,6 +278,7 @@ export function CoachMarkTarget({
     canRegister,
     isFocused,
     windowHeight,
+    activePresentationId,
   ]);
 
   // Re-measure when activeMilestone activates or changes
@@ -265,8 +286,9 @@ export function CoachMarkTarget({
     measureAndRegister();
   }, [activeMilestone, measureAndRegister]);
 
-  // Whenever this target becomes active, perform authoritative measurements
-  // across animation and settling ticks to capture transitions and async data loads
+  // Whenever this target becomes active or the presentation generation advances,
+  // perform authoritative measurements across animation and settling ticks to capture transitions
+  // and async data loads
   useEffect(() => {
     if (!isCurrentActiveTarget) return;
 
@@ -289,7 +311,23 @@ export function CoachMarkTarget({
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [isCurrentActiveTarget, measureAndRegister]);
+  }, [isCurrentActiveTarget, activePresentationId, measureAndRegister]);
+
+  // Explicit re-measure signal for targets whose visual geometry changes
+  // without normal React Native layout commits (e.g. draggable SOS resting position)
+  useEffect(() => {
+    if (measureRevision == null) return;
+    if (!isCurrentActiveTarget) {
+      measureAndRegister();
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      InteractionManager.runAfterInteractions(() => {
+        measureAndRegister();
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [measureRevision, isCurrentActiveTarget, measureAndRegister]);
 
   // Re-measure on keyboard and window dimension events
   useEffect(() => {

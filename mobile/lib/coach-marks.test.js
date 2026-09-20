@@ -217,16 +217,25 @@ describe("Coach Marks Configuration & Storage", () => {
     function createTargetRegistry() {
       let targets = {};
       let currentPathname = "/";
+      let currentPresentationId = 1;
 
       return {
         setRoute: (p) => {
           currentPathname = p;
         },
-        register: (targetId, layout, route) => {
+        setPresentationId: (id) => {
+          currentPresentationId = id;
+        },
+        bumpPresentationId: () => {
+          currentPresentationId += 1;
+          return currentPresentationId;
+        },
+        register: (targetId, layout, route, presentationId) => {
           if (!targetId || !layout) return false;
           if (layout.width <= 0 || layout.height <= 0) return false;
           const targetRoute = route || layout.route || currentPathname;
-          targets[targetId] = { ...layout, route: targetRoute };
+          const pid = presentationId ?? layout.presentationId ?? currentPresentationId;
+          targets[targetId] = { ...layout, route: targetRoute, presentationId: pid };
           return true;
         },
         unregister: (targetId) => {
@@ -238,6 +247,7 @@ describe("Coach Marks Configuration & Storage", () => {
           if (!layout) return null;
           if (layout.width <= 0 || layout.height <= 0) return null;
           if (layout.route && !isRouteMatch(currentPathname, layout.route)) return null;
+          if (layout.presentationId !== currentPresentationId) return null;
           return layout;
         },
         shouldShowOverlay: (milestone, step) => {
@@ -248,6 +258,7 @@ describe("Coach Marks Configuration & Storage", () => {
           if (!activeLayout) return false;
           if (activeLayout.width <= 0 || activeLayout.height <= 0) return false;
           if (activeLayout.route && !isRouteMatch(currentPathname, activeLayout.route)) return false;
+          if (activeLayout.presentationId !== currentPresentationId) return false;
           return true;
         },
       };
@@ -374,6 +385,104 @@ describe("Coach Marks Configuration & Storage", () => {
       // Target unmounts (e.g. list changes or screen navigated away)
       registry.unregister("inspection.pass_fail");
       expect(registry.shouldShowOverlay(pretripMilestone, passFailStep)).toBe(false);
+    });
+
+    it("rejects stale presentation generations (Test 1: gen 4 rejected when active is 5)", () => {
+      const registry = createTargetRegistry();
+      registry.setRoute("/(app)/(tabs)");
+      registry.setPresentationId(5);
+
+      // Target registered with older generation 4 (e.g. before milestone or step activated)
+      registry.register("incident.sos", { x: 316, y: 357, width: 64, height: 64 }, "/", 4);
+
+      const sosStep = { targetId: "incident.sos" };
+      const sosMilestone = getMilestoneConfig("sos");
+
+      // Stale layout rejected: activeLayout is null, overlay is hidden
+      expect(registry.getActiveLayout(sosStep)).toBeNull();
+      expect(registry.shouldShowOverlay(sosMilestone, sosStep)).toBe(false);
+    });
+
+    it("accepts fresh presentation generations (Test 2: gen 5 accepted when active is 5)", () => {
+      const registry = createTargetRegistry();
+      registry.setRoute("/(app)/(tabs)");
+      registry.setPresentationId(5);
+
+      // Fresh registration stamped with active generation 5
+      registry.register("incident.sos", { x: 316, y: 421, width: 64, height: 64 }, "/", 5);
+
+      const sosStep = { targetId: "incident.sos" };
+      const sosMilestone = getMilestoneConfig("sos");
+
+      expect(registry.getActiveLayout(sosStep)).not.toBeNull();
+      expect(registry.getActiveLayout(sosStep).y).toBe(421);
+      expect(registry.shouldShowOverlay(sosMilestone, sosStep)).toBe(true);
+    });
+
+    it("requires a new measurement on step transition (Test 3: step 1 bounds cannot render step 2 overlay)", () => {
+      const registry = createTargetRegistry();
+      registry.setRoute("/(app)/trip");
+      registry.setPresentationId(10);
+
+      const readinessMilestone = getMilestoneConfig("trip_readiness");
+      const step1 = readinessMilestone.steps[0]; // trip.readiness
+      const step2 = readinessMilestone.steps[1]; // trip.pretrip_requirement
+
+      // Step 1 registered for generation 10
+      registry.register("trip.readiness", { x: 16, y: 120, width: 340, height: 80 }, "/trip", 10);
+      expect(registry.getActiveLayout(step1)).not.toBeNull();
+
+      // Step advances to Step 2 -> presentation generation increments to 11
+      registry.bumpPresentationId(); // now 11
+
+      // Step 2 has not yet registered with gen 11
+      expect(registry.getActiveLayout(step2)).toBeNull();
+      expect(registry.shouldShowOverlay(readinessMilestone, step2)).toBe(false);
+
+      // Once step 2 registers with gen 11, it renders
+      registry.register("trip.pretrip_requirement", { x: 16, y: 220, width: 340, height: 80 }, "/trip", 11);
+      expect(registry.getActiveLayout(step2)).not.toBeNull();
+      expect(registry.shouldShowOverlay(readinessMilestone, step2)).toBe(true);
+    });
+
+    it("invalidates presentation on route change (Test 4)", () => {
+      const registry = createTargetRegistry();
+      registry.setRoute("/(app)/(tabs)");
+      registry.setPresentationId(1);
+      registry.register("incident.sos", { x: 316, y: 421, width: 64, height: 64 }, "/");
+
+      expect(registry.getActiveLayout({ targetId: "incident.sos" })).not.toBeNull();
+
+      // Navigates away to inspection
+      registry.setRoute("/(app)/inspection");
+      expect(registry.getActiveLayout({ targetId: "incident.sos" })).toBeNull();
+    });
+
+    it("invalidates registration when component drops target (Test 5)", () => {
+      const registry = createTargetRegistry();
+      registry.setRoute("/(app)/incidents");
+      registry.setPresentationId(1);
+      registry.register("incident.category", { x: 16, y: 200, width: 360, height: 280 }, "/incidents", 1);
+
+      expect(registry.getActiveLayout({ targetId: "incident.category" })).not.toBeNull();
+
+      // Target dropped (blur / unmount)
+      registry.unregister("incident.category");
+      expect(registry.getActiveLayout({ targetId: "incident.category" })).toBeNull();
+    });
+
+    it("updates to settled coordinates on layout revision (Test 6: SOS resting position update)", () => {
+      const registry = createTargetRegistry();
+      registry.setRoute("/(app)/(tabs)");
+      registry.setPresentationId(12);
+
+      // Initial mount (unhydrated or before drag)
+      registry.register("incident.sos", { x: 316, y: 357, width: 64, height: 64 }, "/", 12);
+      expect(registry.getActiveLayout({ targetId: "incident.sos" }).y).toBe(357);
+
+      // SOS drag settles / spring finishes -> forces remeasurement at settled Y
+      registry.register("incident.sos", { x: 316, y: 421, width: 64, height: 64 }, "/", 12);
+      expect(registry.getActiveLayout({ targetId: "incident.sos" }).y).toBe(421);
     });
   });
 
@@ -673,6 +782,42 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
 
     it("retires the guide when the driver starts the trip", () => {
       expect(tripScreen).toContain("Promise.resolve(dismiss()).catch(() => {});");
+    });
+  });
+
+  describe("Presentation generation & fresh measurement contract", () => {
+    const provider = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    );
+    const target = readFileSync(
+      new URL("../components/coachmarks/CoachMarkTarget.jsx", import.meta.url),
+      "utf8"
+    );
+    const driverSos = readFileSync(
+      new URL("../components/DriverSos.js", import.meta.url),
+      "utf8"
+    );
+
+    it("enforces presentationId matching activePresentationId in activeTargetLayout", () => {
+      expect(provider).toContain("if (layout.presentationId !== activePresentationId) return null;");
+      expect(provider).toContain("activePresentationId,");
+    });
+
+    it("stamps target registrations with activePresentationId in CoachMarkTarget", () => {
+      expect(target).toContain("presentationId: activePresentationId,");
+      expect(target).toContain("activePresentationId,");
+    });
+
+    it("supports measureRevision for transformed targets in CoachMarkTarget", () => {
+      expect(target).toContain("measureRevision,");
+      expect(target).toContain("if (measureRevision == null) return;");
+    });
+
+    it("hardens DriverSos with positionReady gating and passes measureRevision", () => {
+      expect(driverSos).toContain("positionReady");
+      expect(driverSos).toContain("measureRevision={layoutRevision}");
+      expect(driverSos).toContain("setLayoutRevision((r) => r + 1);");
     });
   });
 });
