@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,8 @@ export default memo(function DriverHomeHeader({ driverName, initial, photoUrl, w
   const mats = clayMaterials(scheme === 'dark');
   const count = Math.max(0, Number(unreadCount) || 0);
   const shadow = { shadowColor: colors.shadow, shadowOpacity: settings.highContrast ? 0 : scheme === 'dark' ? 0.35 : 0.17 };
+  const [failedUrl, setFailedUrl] = useState(null);
+  const showImage = Boolean(photoUrl && photoUrl !== failedUrl);
   // Avatar sheen: on the forest avatar (colors.primary) the white gradient is
   // the light recipe; in dark the primary flips to pale sage, so the sheen
   // drops to a whisper and the bottom shade deepens instead.
@@ -24,12 +26,17 @@ export default memo(function DriverHomeHeader({ driverName, initial, photoUrl, w
   return <View style={[s.header, { paddingTop: topInset + 4, backgroundColor: colors.background }]}>
     <View style={[s.identity, stacked && { flexBasis: '100%' }]}>
       <Pressable onPress={onProfile} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => [s.avatar, { ...s.raised, ...shadow, borderColor: colors.surfaceContainerLow, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1, overflow: 'hidden' }]}>
-        {photoUrl ? (
-          <Image source={{ uri: photoUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        {showImage ? (
+          <Image
+            source={{ uri: photoUrl }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            onError={() => setFailedUrl(photoUrl)}
+          />
         ) : (
           <>
             {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
-            <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24 }]}>{initial || 'D'}</Text>
+            <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24, fontWeight: '700' }]}>{initial || 'D'}</Text>
           </>
         )}
       </Pressable>

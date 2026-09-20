@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { View, Keyboard, Dimensions } from "react-native";
+import { View, Keyboard, Dimensions, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
 import { getMilestoneConfig, isRouteMatch } from "../../lib/coach-marks";
@@ -58,6 +58,7 @@ export function CoachMarkProvider({ children, driverId }) {
   // Used to reject targets that measured outside the safe viewport — the same
   // bounds CoachMarkTarget scrolls against.
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
 
   let pathname = "/";
   try {
@@ -236,12 +237,13 @@ export function CoachMarkProvider({ children, driverId }) {
     // `isCurrentActiveTarget` (independent of overlay visibility): it runs, the
     // target re-registers at its settled position, and the mark appears then.
     const minSafeY = (insets?.top || 0) + 40;
+    const SCREEN_HEIGHT = windowHeight || Dimensions.get("window").height;
     const maxSafeY = SCREEN_HEIGHT - (insets?.bottom || 0) - 80;
     if (layout.y + layout.height <= minSafeY) return null;
     if (layout.y >= maxSafeY) return null;
 
     return layout;
-  }, [currentStep?.targetId, targets, pathname, insets]);
+  }, [currentStep?.targetId, targets, pathname, insets, windowHeight]);
 
   // Route validity for the active milestone
   const isCurrentRouteValid = isRouteMatch(pathname, activeMilestone?.route);

@@ -1,5 +1,5 @@
-import React from "react";
-import { StyleSheet, Text, View, Pressable } from "react-native";
+import React, { useEffect } from "react";
+import { StyleSheet, Text, View, Pressable, AccessibilityInfo } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
@@ -35,6 +35,13 @@ export function CoachMarkTooltip({
   // Harmonized background color ensuring 100% arrow-to-card color continuity
   const cardBg = isDark ? "#17221D" : "#FFFFFF";
 
+  // Announce title and guidance body to screen readers (TalkBack / VoiceOver)
+  useEffect(() => {
+    if (title && body) {
+      AccessibilityInfo.announceForAccessibility(`${title}. ${body}`);
+    }
+  }, [title, body]);
+
   return (
     <View style={[styles.wrapper, style]}>
       {/* Arrow pointing UP (when tooltip is positioned below target) */}
@@ -52,6 +59,8 @@ export function CoachMarkTooltip({
 
       {/* Main Tactile Tooltip Card */}
       <View
+        accessibilityRole="alert"
+        accessibilityLiveRegion="polite"
         style={[
           styles.card,
           {

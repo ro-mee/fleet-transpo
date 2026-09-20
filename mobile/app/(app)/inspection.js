@@ -73,6 +73,9 @@ export default function PreShiftInspection() {
   const setStatus = (id, val) => {
     setStatuses((prev) => ({ ...prev, [id]: val }));
     notifyInteraction?.("inspection.pass_fail", { itemId: id, status: val });
+    if (val === "FAIL") {
+      triggerMilestone("pretrip_remarks");
+    }
   };
 
   // Leaving mid-checklist must not silently throw away answers.

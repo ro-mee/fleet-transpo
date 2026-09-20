@@ -234,13 +234,20 @@ Direct imports load only the six font weights already used by the app. Verified 
 
 Verification: two runnable launch-lifecycle tests passed (completion races, bounded timing, native/non-interaction flags, cleanup, pending/reduced-motion preferences); targeted ESLint passed; final Android Hermes export passed. No connected adb device was available, so physical-device cold-start duration, frame rate and light/dark appearance have not been measured. These are configured animation timings and bundle measurements, not a claimed FPS improvement. Native splash acceptance should be checked in a release build per the Expo splash-screen documentation: https://docs.expo.dev/versions/v57.0.0/sdk/splash-screen/ .
 
-## Launch handoff follow-up - 2026-09-19
+## Launch Screen & Startup Animation (2026-09-19, restored & verified)
 
-The remaining opening hitch came from the car Lottie itself: `car animation.json` was a 512x512, five-second composition with about 588 KB of embedded raster data, decoded while the launch overlay mounted. The follow-up removes that Lottie from the launch path while retaining the native-driver dial, route-track, wordmark and static location beacon motion. The normal launch hold is now 1.1 seconds with a 180 ms exit fade; reduced motion remains a 150 ms handoff with immediate animation timings.
+The animated startup sequence in `mobile/components/LaunchScreen.js` plays the moving car Lottie composition (`mobile/assets/car animation.json`) inside the circular compass dial.
+- **Animation timing**: Plays once at 2.2x speed with a 2,300 ms fallback safety timer (`launchHoldMs = 2300`), after which the launch overlay fades out smoothly over 240 ms.
+- **Safety & Error Guards**: Completion is guarded against duplicate events, cancelled animations do not prematurely advance launch, and `onAnimationFailure` gracefully triggers completion. Motion respects the OS reduced-motion preference (`isReducedMotion`) using a 150 ms hold with immediate handoff.
+- **Verification**: `mobile/lib/launch-animation.test.js` pins both the inclusion of `car animation.json` and the bounded timer duration ($\le 2300$ ms).
 
-The native splash now hides inside `ThemedApp` after the app shell commits, rather than immediately when fonts finish. This prevents an empty native-splash-to-app gap while `SettingsProvider` restores preferences. Notification channel setup is deferred until the launch overlay exits and pending interactions settle, so it no longer competes with the first frame.
+## Driver Avatar & Fallback Initialization (2026-09-19, implemented)
 
-Verification: the full mobile library suite passed (22 files / 135 tests), targeted ESLint passed, and an Android export passed (1,376 modules, 79 assets, 4.58 MB Hermes bundle); the export no longer includes `car animation.json`. Physical-device cold-start duration and FPS still require a release-build device check.
+In `mobile/components/home/DriverHomeHeader.jsx` and `mobile/app/(app)/(tabs)/profile.js`, the driver avatar displays the profile picture when available, but automatically and gracefully falls back to a clay-styled initials badge (e.g. "J" for Jack) whenever:
+- No `photoUrl` or `facePhotoUrl` is defined.
+- The remote image URL fails to load (network error, expired Supabase storage token, 404).
+- Both components track `failedUrl` / `failedPhotoUrl` with `<Image onError={...} />` handlers, ensuring the UI never displays an empty dark green circle or broken image box.
+
 ## In-App Guidance & Contextual Coach Marks Subsystem (2026-09-16, implemented & refined)
 
 Introduced a lightweight, just-in-time contextual guidance subsystem (`mobile/components/coachmarks/` and `mobile/lib/coach-marks.js`) to train drivers directly over live production screens without passive slide tours, simulations, mascots, or gamification:

@@ -24,6 +24,7 @@ import { api } from "../lib/api";
 import { useTheme } from "../lib/theme-context";
 import { TOUCH_TARGET } from "../lib/theme";
 import { clayMaterials } from "../lib/clay";
+import { isRouteMatch } from "../lib/coach-marks";
 import { AppAlert } from "./AppAlert";
 import RadarPulse from "./RadarPulse";
 import { useCoachMarks, CoachMarkTarget } from "./coachmarks";
@@ -83,7 +84,7 @@ export function DriverSos() {
 
   // SOS coach mark must only auto-present in a safe/stationary context.
   useEffect(() => {
-    if (pathname === "/" && !isDriving && !open) {
+    if (isRouteMatch(pathname, "/") && !isDriving && !open && !activeMilestone) {
       const timer = setTimeout(() => {
         if (!isDriving && !open) {
           triggerMilestone("sos");
@@ -91,7 +92,7 @@ export function DriverSos() {
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [pathname, isDriving, open, triggerMilestone]);
+  }, [pathname, isDriving, open, activeMilestone, triggerMilestone]);
 
   useEffect(() => {
     registerSosHandler(() => setOpen(true));
@@ -259,8 +260,19 @@ export function DriverSos() {
 
   return (
     <>
-      <CoachMarkTarget targetId="incident.sos">
-        <Animated.View
+      <CoachMarkTarget
+        targetId="incident.sos"
+        radius={SOS_SIZE / 2}
+        padding={4}
+        style={[
+          styles.sosWrapper,
+          {
+            bottom: insets.bottom + 88,
+            transform: position.getTranslateTransform(),
+          },
+        ]}
+      >
+        <View
           {...pan.panHandlers}
           style={[
             styles.sos,
@@ -269,8 +281,6 @@ export function DriverSos() {
               borderColor: sosTheme.borderColor,
               shadowColor: sosTheme.shadowColor,
               shadowOpacity: sosTheme.shadowOpacity,
-              bottom: insets.bottom + 88,
-              transform: position.getTranslateTransform(),
             },
           ]}
           accessibilityRole="button"
@@ -294,7 +304,7 @@ export function DriverSos() {
               />
             </View>
           </LinearGradient>
-        </Animated.View>
+        </View>
       </CoachMarkTarget>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
@@ -366,11 +376,17 @@ const styles = StyleSheet.create({
   // Soft Rose Clay Medallion (#FFF0F0) / Dark Wine Clay:
   // Uniform symmetric border eliminates any eccentric crescent overhang ("lumalampas").
   // Consistent soft rose hue across the entire circumference with zero uncolored white spots.
-  sos: {
+  sosWrapper: {
     position: "absolute",
     right: moderateScale(16),
     width: SOS_SIZE,
     height: SOS_SIZE,
+    borderRadius: SOS_SIZE / 2,
+    zIndex: 10,
+  },
+  sos: {
+    width: "100%",
+    height: "100%",
     borderRadius: SOS_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
@@ -378,7 +394,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 12,
     elevation: 8,
-    zIndex: 10,
   },
   sosInner: {
     width: "100%",

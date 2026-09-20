@@ -13,7 +13,7 @@ import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
 
 export function LaunchScreen({ onComplete }) {
-  const launchHoldMs = 1100;
+  const launchHoldMs = 2300;
   const exitDurationMs = 180;
   const { colors } = useTheme();
   const [reduceMotion, setReduceMotion] = useState(null);
@@ -125,6 +125,18 @@ export function LaunchScreen({ onComplete }) {
           <View style={[styles.tick, styles.tickBottom, { backgroundColor: colors.secondary }]} />
           <View style={[styles.tick, styles.tickLeft, { backgroundColor: colors.secondary }]} />
         </Animated.View>
+        {reduceMotion === false && (
+          <LottieView
+            autoPlay
+            loop={false}
+            speed={2.2}
+            source={require("../assets/car animation.json")}
+            onAnimationFinish={(cancelled) => { if (!cancelled) finish(); }}
+            onAnimationFailure={finish}
+            pointerEvents="none"
+            style={styles.car}
+          />
+        )}
       </View>
 
       <Animated.View
@@ -303,6 +315,11 @@ const styles = StyleSheet.create({
   },
   tickLeft: {
     left: -6,
+  },
+  car: {
+    position: "absolute",
+    width: 274,
+    height: 274,
   },
   locationBeacon: {
     marginLeft: 5,

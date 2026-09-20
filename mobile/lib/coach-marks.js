@@ -109,6 +109,7 @@ export const COACH_MARK_MILESTONES = {
         id: "trip.primary_action",
         targetId: "trip.primary_action",
         title: "Start vs. Continue",
+        body: "Start Trip begins the trip when readiness and inspection requirements are satisfied.",
         dynamicBody: (ctx) =>
           ctx?.isContinue
             ? "Once the trip is active, Continue to Map only returns you to the live trip and navigation."
