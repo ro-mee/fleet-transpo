@@ -107,7 +107,7 @@ describe("Fuel receipt coach-mark micro-simulation", () => {
     );
 
     expect(overlay).toContain('step.presentation === "simulation"');
-    expect(overlay).toContain("setInSimulationHandoff(true)");
+    expect(overlay).toContain("setHandoffStepId(step?.id || null)");
     expect(overlay).toContain("Now scan your receipt");
 
     expect(screen).toContain('targetId="fuel.scan_entry"');
