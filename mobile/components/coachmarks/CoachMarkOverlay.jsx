@@ -51,11 +51,11 @@ export function CoachMarkOverlay({
   const SCREEN_HEIGHT = windowHeight || Dimensions.get("window").height;
 
   const [reduceMotion, setReduceMotion] = useState(false);
-  const [inSimulationHandoff, setInSimulationHandoff] = useState(false);
-
-  useEffect(() => {
-    setInSimulationHandoff(false);
-  }, [step?.id, step?.demoKey]);
+  const [handoffStepId, setHandoffStepId] = useState(null);
+  const inSimulationHandoff = Boolean(
+    step?.presentation === "simulation" &&
+    handoffStepId === step?.id
+  );
 
   // Spotlight geometry with 8dp breathing room
   const pad = targetLayout?.padding ?? 8;
@@ -386,8 +386,8 @@ export function CoachMarkOverlay({
             <CoachMarkSimulationPanel
               step={step}
               style={simulationStyle}
-              onHandoff={() => setInSimulationHandoff(true)}
-              onSkip={() => setInSimulationHandoff(true)}
+              onHandoff={() => setHandoffStepId(step?.id || null)}
+              onSkip={() => setHandoffStepId(step?.id || null)}
             />
           ) : isSimulation && inSimulationHandoff ? (
             <View
@@ -412,7 +412,7 @@ export function CoachMarkOverlay({
                   { color: colors.onSurfaceVariant },
                 ]}
               >
-                Tap the highlighted Scan receipt option when you're ready.
+                Tap the highlighted Scan receipt option when you&apos;re ready.
               </Text>
             </View>
           ) : (
