@@ -58,6 +58,19 @@ function RecoverySteps({ current }) {
   );
 }
 
+// Same ambient backdrop as the login page: three soft aurora blobs over the
+// app background. Pure atmosphere — aria-hidden, never interactive, and the
+// card below sits at z-10 so nothing shifts.
+function AuthBackdrop() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="absolute -right-40 -top-44 h-[38rem] w-[38rem] rounded-full bg-primary/[0.05] blur-3xl" />
+      <div className="absolute -bottom-56 -left-36 h-[34rem] w-[34rem] rounded-full bg-info/[0.06] blur-3xl" />
+      <div className="absolute left-[42%] top-[30%] h-80 w-80 rounded-full bg-success/[0.045] blur-3xl" />
+    </div>
+  );
+}
+
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
@@ -102,7 +115,9 @@ export default function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
+        <AuthBackdrop />
+        <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
         <MotionConfig reducedMotion="user">
           <motion.div
             initial={{ opacity: 0, y: 16 }}
@@ -140,12 +155,15 @@ export default function ForgotPasswordPage() {
             </Card>
           </motion.div>
         </MotionConfig>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
+      <AuthBackdrop />
+      <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
       <MotionConfig reducedMotion="user">
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -211,6 +229,7 @@ export default function ForgotPasswordPage() {
           </Card>
         </motion.div>
       </MotionConfig>
+      </div>
     </div>
   );
 }
