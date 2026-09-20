@@ -199,6 +199,10 @@ export default function FuelReceiptScanDemo({ onComplete, onSkip }) {
 
   const pan = useMemo(
     () =>
+      // PanResponder stores these callbacks for gesture events; it does not read
+      // the Animated.Value objects during render. React's refs rule cannot infer
+      // that native responder contract, so this one call is intentionally scoped.
+      // eslint-disable-next-line react-hooks/refs
       PanResponder.create({
         onStartShouldSetPanResponder: () => phase === "aligning",
         onMoveShouldSetPanResponder: () => phase === "aligning",
