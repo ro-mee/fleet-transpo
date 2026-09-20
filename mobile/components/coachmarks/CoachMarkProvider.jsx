@@ -424,6 +424,17 @@ export function CoachMarkProvider({ children, driverId }) {
         }
       }
 
+      // Fuel scan intro handoff: the simulation never opens the camera.
+      // The real production card opens it, and the guide merely observes that tap.
+      if (
+        targetId === "fuel.scan_entry" &&
+        currentStep.targetId === "fuel.scan_entry" &&
+        data?.action === "open_real_scanner"
+      ) {
+        await completeActiveMilestone();
+        return;
+      }
+
       // Incident Category selection
       if (
         targetId === "incident.category" &&
