@@ -3,7 +3,7 @@ import { ok, err, handleError } from "@/lib/api/utils";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import { issueResetToken } from "@/lib/auth/reset-token";
-import { isEmailConfigured, sendPasswordResetEmail } from "@/lib/email/resend";
+import { isEmailConfigured, sendPasswordResetEmail } from "@/lib/email/smtp";
 
 /**
  * POST /api/auth/forgot-password
@@ -17,7 +17,7 @@ import { isEmailConfigured, sendPasswordResetEmail } from "@/lib/email/resend";
  * server-side. Rate-limited per IP and per email. Which message is returned
  * depends only on provider configuration — never on the lookup result.
  *
- * When Resend is configured (RESEND_API_KEY), an existing Active account
+ * When SMTP email is configured, an existing Active account
  * gets a 30-minute single-use token emailed to it — the same token shape the
  * administrator-issued flow mints, consumable both by the web reset link and
  * by pasting the code into the mobile app's reset screen. Without a provider

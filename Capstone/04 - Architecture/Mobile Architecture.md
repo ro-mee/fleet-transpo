@@ -142,7 +142,7 @@ existing credential endpoints (no new backend route — full detail in
   to login on the `signInRequired` contract.
 - **Recovery** (public, outside the `(app)` guard like login): `forgot-password.js`
   (email → generic server message; a reset link + paste-able code is emailed
-  when Resend is configured, administrator wording otherwise) and
+  when SMTP delivery is configured, administrator wording otherwise) and
   `reset-password.js` (30-min single-use code + new password), linked from a new
   "Forgot password?" entry on `login.js`. Paste-the-code — no deep-link config.
 - **Policy + offline rules (locked):** one pure validator

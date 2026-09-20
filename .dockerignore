@@ -1,0 +1,66 @@
+# Build context for the root Dockerfile (HostForge own-Dockerfile mode).
+# `next build` only reads package*.json, next.config.mjs, postcss.config.mjs,
+# src/ and public/ — everything else would just inflate the COPY layer,
+# invalidate its cache on unrelated edits, and (for .env*) risk baking
+# secrets into the image. When in doubt, exclude: a missing input fails the
+# build loudly, while a stray inclusion fails silently.
+
+# Dependencies and previous build output (stages bring their own)
+node_modules
+.next
+
+# Version control
+.git
+
+# Secrets — never bake these; they arrive as container env.
+# ( Belt-and-braces: .env.local is already gitignored, but Docker does not
+#   read .gitignore, so without this line COPY . . would embed it. )
+.env*
+
+# Logs and scratch work
+*.log
+scratch/
+workflow/
+stitch_fleetops_driver_companion/
+nextjs-technical-lead-workspace/
+resources/
+
+# Documentation and vault (no build input)
+Capstone/
+*.md
+*.txt
+
+# Mobile app — separate EAS build, not a web build input
+mobile/
+
+# Database scripts and local DB helpers (run from the operator machine)
+supabase/
+scripts/
+apply_migration.js
+check_db.mjs
+check_trips.js
+cleanup_orphans.js
+scratch-*.mjs
+scratch-*.js
+test_db.js
+_verify.mjs
+scratch-pwd.mjs
+scratch-test.mjs
+scratch-tz.mjs
+scratch_check_odo.js
+scratch_test.mjs
+
+# Root junk: models, editor configs, tooling metadata.
+# NOTE: jsconfig.json is deliberately NOT excluded — it defines the @/*
+# path alias, and excluding it broke the HostForge build with 1828
+# "Can't resolve '@/...'" errors (2026-09-19). See
+# src/dockerignore.build-inputs.test.js, which pins the required set.
+*.traineddata
+car animation.json
+skills-lock.json
+opencode.json
+eas.json
+vitest.config.mjs
+eslint.config.mjs
+CLAUDE.md
+AGENTS.md

@@ -93,6 +93,11 @@ const securityHeaders = [
 
 const nextConfig = {
   poweredByHeader: false,
+  // Minimal self-contained server for container deploys (HostForge own-Dockerfile
+  // mode): `next build` emits .next/standalone/server.js plus only the traced
+  // files it imports, so the runtime image drops ~700MB of node_modules instead
+  // of exporting/unpacking them. `next start` is unaffected.
+  output: "standalone",
   serverExternalPackages: ["geoip-lite"],
   turbopack: {
     root: process.cwd(),
