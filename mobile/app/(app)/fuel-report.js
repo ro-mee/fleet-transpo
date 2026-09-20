@@ -26,7 +26,7 @@ export default function FuelReport() {
   const { user } = useAuth();
   const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
   const { colors } = useTheme();
-  const { triggerMilestone, notifyInteraction } = useCoachMarks();
+  const { triggerMilestone, notifyInteraction, activeMilestone } = useCoachMarks();
 
   const [assignedTrip, setAssignedTrip] = useState(null);
   const driverId = resolveDriverId(user);
@@ -76,22 +76,27 @@ export default function FuelReport() {
   const scrollRef = useRef(null);
 
   useEffect(() => {
-    if (cameraOpen && cameraPurpose === "scan") {
+    if (
+      cameraOpen &&
+      cameraPurpose === "scan" &&
+      !activeMilestone
+    ) {
       triggerMilestone("fuel_scan_capture");
     }
-  }, [cameraOpen, cameraPurpose, triggerMilestone]);
+  }, [cameraOpen, cameraPurpose, activeMilestone, triggerMilestone]);
 
   useEffect(() => {
     if (
       mode === "details" &&
       entryMethod === "scan" &&
       !scanning &&
+      !activeMilestone &&
       receiptScanData &&
       Object.keys(receiptScanData).length > 0
     ) {
       triggerMilestone("fuel_scan_verify");
     }
-  }, [mode, entryMethod, scanning, receiptScanData, triggerMilestone]);
+  }, [mode, entryMethod, scanning, activeMilestone, receiptScanData, triggerMilestone]);
 
   useEffect(() => {
     (async () => {
@@ -560,7 +565,9 @@ export default function FuelReport() {
     } finally {
       scanInFlight.current = false;
       setScanning(false);
-      setScanVisualPhase((current) => current === "review_ready" ? current : null);
+      setScanVisualPhase((current) =>
+        current === "review_ready" || current === "failed" ? current : null
+      );
     }
   };
 
