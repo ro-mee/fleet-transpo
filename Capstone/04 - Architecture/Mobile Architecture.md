@@ -241,12 +241,12 @@ The animated startup sequence in `mobile/components/LaunchScreen.js` plays the m
 - **Safety & Error Guards**: Completion is guarded against duplicate events, cancelled animations do not prematurely advance launch, and `onAnimationFailure` gracefully triggers completion. Motion respects the OS reduced-motion preference (`isReducedMotion`) using a 150 ms hold with immediate handoff.
 - **Verification**: `mobile/lib/launch-animation.test.js` pins both the inclusion of `car animation.json` and the bounded timer duration ($\le 2300$ ms).
 
-## Driver Avatar & Fallback Initialization (2026-09-19, implemented)
+## Driver Avatar & Layered Fallback Architecture (2026-09-20, refined)
 
-In `mobile/components/home/DriverHomeHeader.jsx` and `mobile/app/(app)/(tabs)/profile.js`, the driver avatar displays the profile picture when available, but automatically and gracefully falls back to a clay-styled initials badge (e.g. "J" for Jack) whenever:
-- No `photoUrl` or `facePhotoUrl` is defined.
-- The remote image URL fails to load (network error, expired Supabase storage token, 404).
-- Both components track `failedUrl` / `failedPhotoUrl` with `<Image onError={...} />` handlers, ensuring the UI never displays an empty dark green circle or broken image box.
+In `mobile/components/home/DriverHomeHeader.jsx` and `mobile/app/(app)/(tabs)/profile.js`, the driver avatar employs a **layered architecture**:
+- **Layer 1 (Permanent Base)**: A clay-styled initials badge (e.g. "J" or "JM" for Jack Mors) is always rendered as the foundation view, with full clay sheen and background colors. This guarantees that during cold start, offline use, network revalidation, or slow remote image downloads, the UI never presents a blank dark green circle or transparent box.
+- **Layer 2 (Remote Photo Overlay)**: When a profile photo is available (`photoUrl` / `facePhotoUrl`), `<Image>` is rendered directly on top of the initials with explicit dimensions (`width: '100%', height: '100%'`). When loaded, it seamlessly covers the base initials.
+- **Fallback Chain & Failure Tolerance**: Resolves across `avatarUrl || faceImageUrl || license.imageUrl || user.avatarUrl`. If a remote fetch fails or is rejected, `<Image onError={...} />` unmounts the failed overlay, cleanly retaining the clay initials badge without layout shift. In Profile, the edit camera badge remains permanently anchored to the base circle.
 
 ## In-App Guidance & Contextual Coach Marks Subsystem (2026-09-16, implemented & refined)
 
