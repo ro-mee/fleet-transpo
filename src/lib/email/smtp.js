@@ -73,13 +73,67 @@ export async function sendPasswordResetEmail({ to, resetUrl, token }) {
     from: emailFrom(),
     to,
     subject: "Reset your FleetOps password",
-    html:
-      `<p>You requested a password reset for your FleetOps account.</p>` +
-      `<p><a href="${resetUrl}">Reset your password</a> — this link is single-use ` +
-      `and expires in ${RESET_LINK_TTL_MINUTES} minutes.</p>` +
-      `<p>On the FleetOps mobile app instead? Paste this code on the reset screen:</p>` +
-      `<p><strong>${token}</strong></p>` +
-      `<p>If you did not request this, you can safely ignore this email.</p>`,
+    html: resetEmailHtml({ resetUrl, token }),
   });
   return info;
+}
+
+/**
+ * Premium-minimalist reset email, hand-built for inbox rendering.
+ *
+ * Email-client constraints (not web CSS): table layout, inline styles only,
+ * no external assets (images are blocked by default, so the wordmark is
+ * text), system font stack, 600px container. Palette follows DESIGN.md —
+ * Midnight Ink header, Cool Paper backdrop, emerald reserved for the single
+ * primary action accent.
+ */
+export function resetEmailHtml({ resetUrl, token }) {
+  return (
+    `<!DOCTYPE html><html><body style="margin:0;padding:0;background-color:#f3f3f3;">` +
+    `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">` +
+    `Reset your FleetOps password — this link expires in ${RESET_LINK_TTL_MINUTES} minutes.` +
+    `</div>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f3f3;padding:32px 16px;">` +
+    `<tr><td align="center">` +
+    `<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;">` +
+    `<tr><td style="background-color:#111827;padding:28px 32px;">` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">FleetOps</div>` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9ca3af;margin-top:4px;">Fleet &amp; Transportation Management</div>` +
+    `</td></tr>` +
+    `<tr><td style="padding:36px 36px 12px 36px;">` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:bold;color:#111827;margin:0 0 12px 0;">Reset your password</div>` +
+    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#4b5563;margin:0 0 24px 0;">` +
+    `We received a password reset request for your FleetOps account. Click the button below to choose a new password.` +
+    `</p>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td align="center" style="border-radius:8px;background-color:#111827;">` +
+    `<a href="${resetUrl}" style="display:inline-block;padding:14px 36px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:bold;color:#ffffff;text-decoration:none;">Reset password</a>` +
+    `</td></tr></table>` +
+    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:20px;color:#6b7280;margin:20px 0 0 0;">` +
+    `Button not working? Paste this link into your browser:<br>` +
+    `<span style="word-break:break-all;color:#374151;">${resetUrl}</span>` +
+    `</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:8px 36px 12px 36px;">` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;">` +
+    `<tr><td style="padding:20px 24px;">` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;font-weight:bold;color:#6b7280;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Using the mobile app?</div>` +
+    `<div style="font-family:'Courier New',Courier,monospace;font-size:15px;font-weight:bold;color:#111827;letter-spacing:1px;word-break:break-all;">${token}</div>` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#6b7280;margin-top:8px;">Paste this code on the app's reset screen.</div>` +
+    `</td></tr></table>` +
+    `</td></tr>` +
+    `<tr><td style="padding:12px 36px 36px 36px;">` +
+    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:20px;color:#6b7280;margin:0;">` +
+    `This link and code are single-use and expire in ${RESET_LINK_TTL_MINUTES} minutes. ` +
+    `If you did not request this, you can safely ignore this email — your password will not change.` +
+    `</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:20px 36px;border-top:1px solid #f3f4f6;">` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#9ca3af;">` +
+    `Sent by FleetOps · Please do not reply to this email.` +
+    `</div>` +
+    `</td></tr>` +
+    `</table>` +
+    `</td></tr></table>` +
+    `</body></html>`
+  );
 }

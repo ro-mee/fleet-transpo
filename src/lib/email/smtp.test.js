@@ -10,6 +10,7 @@ import {
   isEmailConfigured,
   emailFrom,
   sendPasswordResetEmail,
+  resetEmailHtml,
 } from "./smtp";
 
 const ENV_BACKUP = { ...process.env };
@@ -89,5 +90,23 @@ describe("sendPasswordResetEmail", () => {
     await expect(
       sendPasswordResetEmail({ to: "a@b.co", resetUrl: "https://x/r?t=t", token: "t" })
     ).rejects.toThrow(/Invalid credentials/);
+  });
+});
+
+describe("resetEmailHtml", () => {
+  it("renders a self-contained premium template with link, code and expiry", () => {
+    const html = resetEmailHtml({
+      resetUrl: "https://app/reset-password?token=abc",
+      token: "abc",
+    });
+
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain('href="https://app/reset-password?token=abc"');
+    expect(html).toContain("abc");
+    expect(html).toContain("30 minutes");
+    expect(html).toContain("FleetOps");
+    // Email-safe: table layout, inline styles, no external assets.
+    expect(html).toContain("<table");
+    expect(html).not.toMatch(/<link|<style|http[^s].*\.(png|jpg)/);
   });
 });
