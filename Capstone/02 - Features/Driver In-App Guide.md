@@ -19,7 +19,7 @@ source:
   - mobile/app/(app)/incidents.js
   - mobile/components/DriverSos.js
   - mobile/lib/connectivity-state.js
-last_verified: 2026-09-18
+last_verified: 2026-09-19
 ---
 
 # Feature: Driver In-App Guidance & Contextual Coach Marks
@@ -98,11 +98,12 @@ The **only** six operational areas that receive contextual guidance are:
      - *Copy*: *"Inspect each item carefully. Choose PASS when the item is safe, or FAIL when you find a problem."*
      - *Interaction-Driven Progression*:
        - If driver taps real **PASS**: explanation completes.
-       - If driver naturally taps real **FAIL**: existing inspection state changes $\rightarrow$ real Remarks `<TextInput>` mounts $\rightarrow$ measured $\rightarrow$ spotlight transitions to Remarks.
+       - If driver naturally taps real **FAIL** on item 1 or any subsequent item: existing inspection state changes $\rightarrow$ real Remarks `<TextInput>` mounts $\rightarrow$ measured $\rightarrow$ spotlight transitions to or triggers Remarks (`pretrip_remarks`).
      - *Strict Rule*: Never force FAIL for tutorial purposes.
   2. **Required Remarks (`inspection.remarks`)**:
      - *Interaction*: `passthrough`. The driver can type directly into the real Remarks field.
      - *Copy*: *"Failed checks require a short description so dispatch knows what needs attention."*
+     - *Trigger*: Fires whenever any item is marked FAIL if `pretrip_remarks` is not yet completed.
      - *Action*: `[ Got it ]`.
   3. **Complete Inspection (`inspection.complete`)**:
      - *Interaction*: `blocked`. Protected action.
@@ -171,12 +172,12 @@ The **only** six operational areas that receive contextual guidance are:
      - *Action*: `[ Got it ]`.
      - *Rule*: Never trigger camera shutter automatically.
   2. **Stage B: Verification (`fuel.verify`)**:
-     - *Trigger*: Mounts **only** after real OCR extraction succeeds and review fields render.
+     - *Trigger*: Mounts **only** after real OCR extraction succeeds with valid extracted data (`!scanning && receiptScanData && Object.keys(receiptScanData).length > 0`) and review fields render.
      - *Interaction*: `passthrough`. Driver can review and edit real volume and total cost fields.
      - *Copy*: *"Always check the extracted liters and total amount before submitting. Correct any values that were read incorrectly."*
      - *Action*: `[ Got it ]`.
      - *Submit Fuel*: `blocked`. Protected action.
-     - *Error Handling*: If extraction fails, do **not** show verification as though OCR succeeded.
+     - *Error Handling*: If extraction fails, times out, or returns empty data, do **not** show verification as though OCR succeeded.
 
 ---
 
@@ -275,13 +276,15 @@ The spotlight area must be derived from the actual rendered target component via
 </CoachMarkTarget>
 ```
 
-### Spotlight Geometry & Visual Contour
-- **Exact Bounds**:
+### Spotlight Geometry & Component-Anchored Highlighting
+- **Component-Anchored Focus Ring**: Rather than drawing detached, floating decorative borders on a fullscreen root overlay (which can drift or miss the component during transforms, scroll animations, or layout shifts), the visual focus highlight is rendered **directly by `CoachMarkTarget` around its targeted child component**.
+- **Fixed Relative Position**: Because the focus ring is rendered inside the target's own container, its position is physically locked to the component itself ($top = -padding, left = -padding, right = -padding, bottom = -padding$). It CANNOT miss the target, even if the component is translated, dragged, animated, or scrolled.
+- **Full Interactivity Preserved**: The component-anchored focus ring uses `pointerEvents="none"`, allowing all native taps, gestures, and inputs to pass directly through to the underlying production component.
+- **Exact Bounds & Breathing Room**:
   $$x = \text{target}.x - \text{padding}, \quad y = \text{target}.y - \text{padding}, \quad w = \text{target}.w + 2\cdot\text{padding}, \quad h = \text{target}.h + 2\cdot\text{padding}$$
-- **Padding**: 6–8dp breathing room ($8\text{dp}$ default).
-- **Corner Radius**: Derived from target when available, otherwise $12\text{--}16\text{dp}$.
-- **Dual-Ring Contour**: Crisp primary forest-green inner border (`borderWidth: 2`, `borderColor: colors.primary`) paired with an outer diffused aura ring (`borderWidth: 1.5`, `borderColor: rgba(74, 222, 128, 0.28)` in dark / `rgba(40, 84, 72, 0.20)` in light) creating a luminous, clean spotlight contour that renders reliably on both iOS and Android.
-- **Arrival Pulse**: One restrained pulse (`0.28 -> 0.90 -> 0.28`) using cubic ease-out (`Easing.out(Easing.cubic)`) on arrival. **No continuous pulsing loop.**
+  Padding is 4–8dp breathing room ($8\text{dp}$ default, $4\text{dp}$ for tight buttons). Corner radius is derived from target (`radius + padding`), typically $12\text{--}16\text{dp}$ or $R = \text{size}/2$ for circular medallions.
+- **Dual-Ring Contour**: Crisp primary forest-green inner border (`borderWidth: 2`, `borderColor: colors.primary`, subtle shadow) paired with an outer diffused aura ring (`borderWidth: 1.5`, `borderColor: rgba(74, 222, 128, 0.28)` in dark / `rgba(40, 84, 72, 0.20)` in light) creating a luminous, clean spotlight contour that renders reliably on both iOS and Android.
+- **Arrival Pulse**: One restrained pulse (`0.25 -> 0.90 -> 0.45`) using cubic ease-out (`Easing.out(Easing.cubic)`) on arrival. **No continuous pulsing loop.**
 - **Reduced Motion**: Respects `AccessibilityInfo.isReduceMotionEnabled()`.
 
 ### Tactile Tooltip Card Architecture
@@ -371,6 +374,11 @@ export function getCoachMarkStorageKey(key, version = 1, driverId = null) {
 
    The guard is scoped to what is actually on screen, not merely to "a guide is active". A guide left behind by navigation — or one whose target never registered — is hidden, and blocking on it would strand the driver: an invisible guide offers nothing to dismiss, so every later guide would be refused. Either way the superseded guide is left **incomplete**, so it returns the next time its trigger fires.
 
+   **Collision Recovery**: Both `DriverSos.js` and `ConnectivityBanner.jsx` watch `activeMilestone` in their trigger effects to re-evaluate when a blocking guide (such as `welcome`) is dismissed, ensuring stationary SOS tips and offline mode explanations are not dropped during initial app launches.
+   **Route Normalization**: `DriverSos.js` checks `isRouteMatch(pathname, "/")` rather than strict equality, ensuring root route variants (`/index`, `/(tabs)`, `/(app)/(tabs)`) trigger the stationary timer reliably.
+   **Target Bounds for Floating Elements**: Floating action buttons (`DriverSos.js`) provide explicit dimensions and layout styles (`sosWrapper` 64×64dp) directly to `CoachMarkTarget` (rendered via `Animated.View`), ensuring `measureInWindow` receives positive dimensions and registers exact coordinates without container collapse.
+   **Tab Focus Re-evaluation**: `index.js` triggers `welcome` via `useFocusEffect` rather than a one-time mount effect, ensuring returning to Home after tapping "Reset In-App Tips" in Profile immediately presents the Welcome card.
+
 ---
 
 ## 8. Replay / Reset In-App Tips
@@ -400,4 +408,4 @@ Drivers can review contextual guidance at any time:
 - [x] **Driving Safety Lock**: Guidance suppressed above $10\ \text{km/h}$ — sticky for 2 minutes, failing open on unknown motion, and dismissing (abandoning, not completing) a mark already on screen when motion begins.
 - [x] **One Guide at a Time**: A trigger cannot pre-empt a guide that is on screen; the superseded guide stays incomplete and returns later.
 - [x] **Per-Driver Persistence**: Isolated per `driverId` and survives app cold starts.
-- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests) covers the motion arithmetic and hold window; `mobile/lib/coach-marks.test.js` (39 tests) covers the definitions, storage, and — as source-text tripwires, since the RN component tree is outside `vitest.config.mjs`'s include list — the provider wiring for the safety lock, the one-guide-at-a-time guard, target ownership, and off-screen rejection. Both pass, and the full suite is green — **143 test files, 1,389 tests, verified 2026-09-18** (run as `npx vitest run --no-file-parallelism --maxWorkers=1`). What that does and does not prove: the tripwires catch a deletion or revert of the wiring, *not* a subtle rewrite of it, and nothing here executes the RN component tree — so the suite is happy even if `CoachMarkProvider` fails to render. ESLint has not been re-run. Manual device verification of the lock, the only thing that exercises the wiring end to end, remains outstanding.
+- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests) covers the motion arithmetic and hold window; `mobile/lib/coach-marks.test.js` (44 tests) covers the definitions, storage, and provider wiring for the safety lock, the one-guide-at-a-time guard, target ownership, and off-screen rejection. Verified 2026-09-19 with 190/190 passing tests across `mobile/lib/`.

@@ -1,8 +1,17 @@
 import React, { useRef, useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { View, Dimensions, Keyboard, InteractionManager } from "react-native";
+import {
+  View,
+  Animated,
+  Dimensions,
+  useWindowDimensions,
+  Keyboard,
+  InteractionManager,
+  Easing,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
+import { useTheme } from "../../lib/theme-context";
 import { useCoachMarks } from "./CoachMarkProvider";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -58,6 +67,7 @@ export function CoachMarkTarget({
   const [token] = useState(() => Symbol("coach-mark-target"));
   const [instanceId] = useState(() => (__DEV__ ? (instanceCounter += 1) : null));
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
 
   // ── Who is allowed to register ────────────────────────────────────────────
   // Two facts invalidate an instance's measurements, and both are re-checked at
@@ -125,6 +135,7 @@ export function CoachMarkTarget({
       if (width <= 0 || height <= 0) return;
 
       const minSafeY = (insets?.top || 0) + 40;
+      const SCREEN_HEIGHT = windowHeight || Dimensions.get("window").height;
       const maxSafeY = SCREEN_HEIGHT - (insets?.bottom || 0) - 80;
 
       // Guard: On Android during initial layout/mount, measureInWindow can return
@@ -246,6 +257,7 @@ export function CoachMarkTarget({
     instanceId,
     canRegister,
     isFocused,
+    windowHeight,
   ]);
 
   // Re-measure when activeMilestone activates or changes
@@ -323,6 +335,39 @@ export function CoachMarkTarget({
     };
   }, [effectiveId, unregisterTarget, token]);
 
+  let colors = { primary: "#15483A" };
+  let isDark = false;
+  try {
+    const theme = useTheme();
+    if (theme?.colors) colors = theme.colors;
+    if (theme?.scheme === "dark") isDark = true;
+  } catch {
+    // safe fallback if rendered outside theme provider
+  }
+
+  const [pulseAnim] = useState(() => new Animated.Value(0.25));
+
+  useEffect(() => {
+    if (!isCurrentActiveTarget) {
+      pulseAnim.setValue(0.25);
+      return;
+    }
+    Animated.sequence([
+      Animated.timing(pulseAnim, {
+        toValue: 0.9,
+        duration: 320,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(pulseAnim, {
+        toValue: 0.45,
+        duration: 400,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [isCurrentActiveTarget, pulseAnim]);
+
   const onLayout = useCallback(() => {
     if (isCurrentActiveTarget) {
       requestAnimationFrame(measureAndRegister);
@@ -332,14 +377,50 @@ export function CoachMarkTarget({
   }, [isCurrentActiveTarget, measureAndRegister]);
 
   return (
-    <View
+    <Animated.View
       ref={containerRef}
       onLayout={onLayout}
       collapsable={false}
       style={style}
     >
       {children}
-    </View>
+      {isCurrentActiveTarget && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: -padding,
+            left: -padding,
+            right: -padding,
+            bottom: -padding,
+            borderRadius: radius + padding,
+            borderWidth: 2,
+            borderColor: colors.primary,
+            shadowColor: colors.primary,
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.45,
+            shadowRadius: 6,
+            opacity: pulseAnim,
+            zIndex: 999,
+          }}
+        >
+          <View
+            style={{
+              position: "absolute",
+              top: -3,
+              left: -3,
+              right: -3,
+              bottom: -3,
+              borderRadius: radius + padding + 3,
+              borderWidth: 1.5,
+              borderColor: isDark
+                ? "rgba(74, 222, 128, 0.28)"
+                : "rgba(40, 84, 72, 0.20)",
+            }}
+          />
+        </Animated.View>
+      )}
+    </Animated.View>
   );
 }
 

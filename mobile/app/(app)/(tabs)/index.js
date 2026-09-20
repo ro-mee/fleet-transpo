@@ -101,12 +101,15 @@ export default function Home() {
   const { status } = useConnectivity();
   const offline = status === "offline";
 
-  // First authenticated launch: show the short, non-intrusive Welcome card
-  useEffect(() => {
-    if (driverId) {
-      triggerMilestone("welcome");
-    }
-  }, [driverId, triggerMilestone]);
+  // First authenticated launch (or re-focused after Reset In-App Tips in Profile):
+  // show the short, non-intrusive Welcome card. Silent no-op once completed.
+  useFocusEffect(
+    useCallback(() => {
+      if (driverId) {
+        triggerMilestone("welcome");
+      }
+    }, [driverId, triggerMilestone])
+  );
 
   // Keep the GPS-age caption ticking on a calm 30s cadence without an immediate mount duplicate render.
   useEffect(() => {

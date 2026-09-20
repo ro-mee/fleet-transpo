@@ -116,9 +116,12 @@ export default function Profile() {
     .substring(0, 2)
     .toUpperCase();
 
+  const [failedPhotoUrl, setFailedPhotoUrl] = useState(null);
+
   // The avatar doubles as the attendance face-verification reference photo
   // (drivers.face_image_url) — one upload serves both surfaces.
   const facePhotoUrl = serverProfile?.license?.imageUrl || null;
+  const showFacePhoto = Boolean(facePhotoUrl && facePhotoUrl !== failedPhotoUrl);
 
   const toFaceDataUrl = async (asset) => {
     const context = ImageManipulator.manipulate(asset.uri);
@@ -197,19 +200,20 @@ export default function Profile() {
             onPress={handleAvatarPress}
             disabled={uploadingPhoto}
             accessibilityRole="button"
-            accessibilityLabel={facePhotoUrl ? "Change profile photo" : "Add profile photo"}
+            accessibilityLabel={showFacePhoto ? "Change profile photo" : "Add profile photo"}
             accessibilityHint="Opens photo options to update your profile and attendance verification photo"
             style={({ pressed }) => [
               styles.avatarContainer,
               pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
             ]}
           >
-            {facePhotoUrl ? (
+            {showFacePhoto ? (
               <Image
                 source={{ uri: facePhotoUrl }}
                 style={styles.avatarImage}
                 resizeMode="cover"
                 accessibilityLabel="Driver profile photo"
+                onError={() => setFailedPhotoUrl(facePhotoUrl)}
               />
             ) : (
               <View

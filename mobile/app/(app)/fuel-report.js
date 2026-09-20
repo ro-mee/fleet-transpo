@@ -81,10 +81,16 @@ export default function FuelReport() {
   }, [cameraOpen, cameraPurpose, triggerMilestone]);
 
   useEffect(() => {
-    if (mode === "details" && entryMethod === "scan") {
+    if (
+      mode === "details" &&
+      entryMethod === "scan" &&
+      !scanning &&
+      receiptScanData &&
+      Object.keys(receiptScanData).length > 0
+    ) {
       triggerMilestone("fuel_scan_verify");
     }
-  }, [mode, entryMethod, triggerMilestone]);
+  }, [mode, entryMethod, scanning, receiptScanData, triggerMilestone]);
 
   useEffect(() => {
     (async () => {

@@ -3,6 +3,7 @@ import {
   StyleSheet,
   View,
   Dimensions,
+  useWindowDimensions,
   Animated,
   AccessibilityInfo,
   BackHandler,
@@ -43,6 +44,9 @@ export function CoachMarkOverlay({
   const { colors, scheme } = useTheme();
   const insets = useSafeAreaInsets();
   const isDark = scheme === "dark";
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const SCREEN_WIDTH = windowWidth || Dimensions.get("window").width;
+  const SCREEN_HEIGHT = windowHeight || Dimensions.get("window").height;
 
   const [reduceMotion, setReduceMotion] = useState(false);
 
@@ -348,44 +352,7 @@ export function CoachMarkOverlay({
               borderRadius: radius,
             },
           ]}
-        >
-          {/* Outer diffused aura ring */}
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              {
-                position: "absolute",
-                top: -3,
-                left: -3,
-                right: -3,
-                bottom: -3,
-                borderRadius: radius + 3,
-                borderWidth: 1.5,
-                borderColor: isDark
-                  ? "rgba(74, 222, 128, 0.28)"
-                  : "rgba(40, 84, 72, 0.20)",
-                opacity: pulseAnim,
-              },
-            ]}
-          />
-          {/* Inner crisp primary contour border & tactile focus */}
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFill,
-              {
-                borderRadius: radius,
-                borderWidth: 2,
-                borderColor: colors.primary,
-                shadowColor: colors.primary,
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.45,
-                shadowRadius: 6,
-                opacity: pulseAnim,
-              },
-            ]}
-          />
-        </Animated.View>
+        />
 
         {/* ── Operational Tooltip Card ── */}
         <Animated.View

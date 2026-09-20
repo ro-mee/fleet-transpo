@@ -116,16 +116,16 @@ export function ConnectivityBanner() {
   const { status, phase, pendingCount, gpsRecording, lastSuccessAt } = useConnectivity();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { triggerMilestone } = useCoachMarks();
+  const { triggerMilestone, activeMilestone } = useCoachMarks();
   const [reduceMotion, setReduceMotion] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(-8));
 
   useEffect(() => {
-    if (status === "offline") {
+    if (status === "offline" && !activeMilestone) {
       triggerMilestone("offline");
     }
-  }, [status, triggerMilestone]);
+  }, [status, activeMilestone, triggerMilestone]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
