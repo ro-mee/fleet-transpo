@@ -29,8 +29,11 @@ source:
   - src/app/api/auth/trusted-device/route.js
   - supabase/migrations/117_trusted_web_devices.sql
   - src/lib/auth/reset-token.js
+  - src/components/auth/recovery-shell.jsx
   - src/app/(auth)/login/page.js
-last_verified: 2026-09-19
+  - src/app/(auth)/forgot-password/page.js
+  - src/app/(auth)/reset-password/page.js
+last_verified: 2026-09-20
 ---
 
 # Authentication
@@ -150,6 +153,7 @@ behavior is:
   consumes the token without an employee id, marks it used, revokes other reset
   and mobile tokens, and requires a fresh sign-in afterward.
 - `POST /api/auth/forgot-password` self-serves since 2026-09-19: with SMTP credentials set it mints from the shared `issueResetToken()` issuer and emails the link + code via `src/lib/email/smtp.js` (Nodemailer; Resend SDK was installed and removed the same day before any production send); without a provider it keeps the uniform contact-admin wording. The message depends only on provider configuration, never on the lookup result, so enumeration safety holds either way. Delivery failures are warn-logged server-side and still answer generically. It does not claim that an email was sent when none was.
+- **Web recovery UI (2026-09-20):** `forgot-password/page.js` and `reset-password/page.js` share `recovery-shell.jsx`, which reuses the login page's normal ambient background, desktop brand panel, right-side `max-w-[27rem]` column, and double-bezel card positioning as a standard page layout—not a modal or nested login-page backdrop. Forgot-password keeps untouched/typing email states quiet, shows compact valid/invalid feedback after enough interaction, preserves the server's generic response verbatim, and adds a local resend affordance. Reset-password keeps the token and authenticated current-password paths, gates submission on the shared strong policy (8+ characters, upper/lowercase, number, special character, and 72 UTF-8-byte bcrypt limit), shows four lightweight requirement rows plus a secondary strength indicator, handles mismatch/verification/expired-link states, revokes sessions through the existing server route, and waits for an explicit fresh sign-in action after success. The UI does not weaken server validation or account-enumeration protections.
 - Authentication, session, and MFA events are written to `audit_logs` without storing
   passwords, cookies, bearer tokens, OTPs, recovery codes, or plaintext TOTP secrets. PostgreSQL-backed
   IP/account rate-limit buckets are shared across app instances and fail closed

@@ -1,235 +1,323 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { MotionConfig, motion } from "framer-motion";
+import { useEffect, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+import { Check, Loader2, Mail } from "lucide-react";
 import { requestPasswordReset } from "@/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, CarFront, ArrowLeft, MailCheck, Check } from "lucide-react";
-import { APP_NAME } from "@/lib/constants";
+import { isEmail } from "@/lib/validation/index";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
+import {
+  RecoveryAlert,
+  RecoveryFooterLink,
+  RecoveryHeader,
+  RecoveryShell,
+  RecoverySteps,
+  SecurityLine,
+} from "@/components/auth/recovery-shell";
 import { cn } from "@/lib/utils";
 
 const forgotSchema = {
   email: { required: true, type: "email", label: "Email" },
 };
 
-// Same entrance curve as the login page and PageEntrance.
 const EASE = [0.32, 0.72, 0, 1];
 
-// Recovery is a genuine two-step sequence (email, then new password), so a
-// step rail encodes real information here rather than decorating.
-function RecoverySteps({ current }) {
-  const steps = ["Email", "New password"];
+function EmailStateIcon({ status }) {
+  if (status === "valid") {
+    return (
+      <motion.span
+        initial={{ opacity: 0, scale: 0.85 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.2, ease: EASE }}
+        className="text-success"
+      >
+        <Check className="h-4 w-4" strokeWidth={2.2} />
+      </motion.span>
+    );
+  }
+
+  if (status === "invalid") {
+    return <span className="text-danger" aria-hidden="true">!</span>;
+  }
+
+  return null;
+}
+
+function EmailFeedback({ status }) {
   return (
-    <ol aria-label="Recovery progress" className="flex items-center justify-center gap-2">
-      {steps.map((label, i) => {
-        const done = i + 1 < current;
-        const active = i + 1 === current;
-        return (
-          <li key={label} className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
-              className={cn(
-                "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
-                done && "bg-success text-white",
-                active && "bg-primary text-white",
-                !done && !active && "bg-muted text-foreground-muted"
-              )}
-            >
-              {done ? <Check className="h-3 w-3" /> : i + 1}
-            </span>
-            <span
-              className={cn(
-                "text-xs font-medium",
-                active ? "text-foreground" : "text-foreground-muted"
-              )}
-            >
-              {label}
-            </span>
-            {i === 0 && <span aria-hidden="true" className="mx-1 h-px w-6 bg-border" />}
-          </li>
-        );
-      })}
-    </ol>
+    <AnimatePresence initial={false} mode="wait">
+      {status === "valid" && (
+        <motion.p
+          key="valid"
+          role="status"
+          initial={{ opacity: 0, y: -3 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -3 }}
+          className="text-xs text-success"
+        >
+          Email format looks good.
+        </motion.p>
+      )}
+      {status === "invalid" && (
+        <motion.p
+          key="invalid"
+          role="alert"
+          initial={{ opacity: 0, y: -3 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -3 }}
+          className="text-xs text-danger"
+        >
+          Enter a valid email address.
+        </motion.p>
+      )}
+    </AnimatePresence>
   );
 }
 
-// Same ambient backdrop as the login page: three soft aurora blobs over the
-// app background. Pure atmosphere — aria-hidden, never interactive, and the
-// card below sits at z-10 so nothing shifts.
-function AuthBackdrop() {
+function MailSuccessIcon() {
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute -right-40 -top-44 h-[38rem] w-[38rem] rounded-full bg-primary/[0.05] blur-3xl" />
-      <div className="absolute -bottom-56 -left-36 h-[34rem] w-[34rem] rounded-full bg-info/[0.06] blur-3xl" />
-      <div className="absolute left-[42%] top-[30%] h-80 w-80 rounded-full bg-success/[0.045] blur-3xl" />
+    <div className="relative flex h-16 w-16 items-center justify-center rounded-full border border-success/25 bg-success/[0.08] text-success">
+      <motion.div
+        aria-hidden="true"
+        className="absolute inset-0 rounded-full border border-success/25"
+        initial={{ opacity: 0.7, scale: 0.78 }}
+        animate={{ opacity: 0, scale: 1.35 }}
+        transition={{ duration: 0.9, ease: "easeOut" }}
+      />
+      <Mail className="relative h-7 w-7" strokeWidth={1.55} />
+      <motion.svg
+        viewBox="0 0 24 24"
+        className="absolute h-7 w-7"
+        fill="none"
+        aria-hidden="true"
+      >
+        <motion.path
+          d="m5 12.5 4.2 4.2L19 7"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          initial={{ pathLength: 0, opacity: 0 }}
+          animate={{ pathLength: 1, opacity: 1 }}
+          transition={{ duration: 0.45, delay: 0.2, ease: EASE }}
+        />
+      </motion.svg>
     </div>
   );
 }
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
+  const [emailBlurred, setEmailBlurred] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const [sent, setSent] = useState(false);
   const [serverMessage, setServerMessage] = useState("");
   const [error, setError] = useState("");
+  const [resendSeconds, setResendSeconds] = useState(42);
   const { validate, fieldError, registerField } = useFormValidation(forgotSchema);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
+  useEffect(() => {
+    if (!sent || resendSeconds <= 0) return undefined;
+    const timer = setTimeout(() => setResendSeconds((seconds) => Math.max(seconds - 1, 0)), 1000);
+    return () => clearTimeout(timer);
+  }, [resendSeconds, sent]);
 
-    const isValid = validate({ email }, {
+  const emailStatus = (emailBlurred || email.length >= 5)
+    ? (isEmail(email) ? "valid" : "invalid")
+    : "idle";
+  const emailField = fieldError("email");
+
+  const submitRequest = async () => {
+    try {
+      const result = await requestPasswordReset(email);
+      setServerMessage(
+        result?.message ||
+          "If an account exists for that email, a reset link has been sent. It expires in 30 minutes."
+      );
+      setResendSeconds(42);
+      setSent(true);
+    } catch (err) {
+      setError(err?.message || "We couldn't send a reset link right now. Please try again.");
+    }
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    setEmailBlurred(true);
+    setError("");
+    validate({ email }, {
       onSuccess: async () => {
         setLoading(true);
-        try {
-          // The server owns the response wording: it reports a sent email
-          // when email delivery is configured and the administrator path
-          // otherwise — identical whether or not the account exists
-          // (no enumeration).
-          const result = await requestPasswordReset(email);
-          setServerMessage(
-            result?.message ||
-              "If an account exists for that email, a reset link has been sent. It expires in 30 minutes."
-          );
-          setSent(true);
-        } catch (err) {
-          setError(err.message);
-        } finally {
-          setLoading(false);
-        }
+        await submitRequest();
+        setLoading(false);
       },
     });
-    if (!isValid) return;
   };
 
-  const startOver = () => {
-    setSent(false);
-    setServerMessage("");
+  const handleResend = async () => {
+    if (resendSeconds > 0 || resending) return;
     setError("");
+    setResending(true);
+    await submitRequest();
+    setResending(false);
   };
-
-  if (sent) {
-    return (
-      <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
-        <AuthBackdrop />
-        <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
-        <MotionConfig reducedMotion="user">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: EASE }}
-            className="w-full max-w-md"
-          >
-            <Card className="shadow-xl border-0 text-center">
-              <CardHeader>
-                <div className="flex justify-center mb-4">
-                  <div className="w-16 h-16 rounded-2xl bg-success/10 flex items-center justify-center">
-                    <MailCheck className="w-8 h-8 text-success" />
-                  </div>
-                </div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground-muted">
-                  Step 1 of 2 complete
-                </p>
-                <CardTitle className="text-xl mt-1">Check your inbox</CardTitle>
-                <CardDescription className="mt-1">
-                  {serverMessage} If you use the mobile app, the same email carries a code you can paste on its
-                  reset screen. Nothing arrived? Check spam, then try again.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-2">
-                <Button variant="outline" onClick={startOver}>
-                  Use a different email
-                </Button>
-                <Link href="/login">
-                  <Button variant="link" className="w-full">
-                    <ArrowLeft className="w-4 h-4 mr-2" />
-                    Back to login
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </motion.div>
-        </MotionConfig>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
-      <AuthBackdrop />
-      <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
-      <MotionConfig reducedMotion="user">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: EASE }}
-          className="w-full max-w-md"
-        >
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary shadow-lg shadow-primary/25 mb-4">
-              <CarFront className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-foreground">{APP_NAME}</h1>
-            <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-foreground-muted">
-              Account recovery
-            </p>
-          </div>
+    <MotionConfig reducedMotion="user">
+      <RecoveryShell>
+        <AnimatePresence mode="wait" initial={false}>
+          {!sent ? (
+            <motion.div
+              key="forgot"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22, ease: EASE }}
+              className="space-y-7"
+            >
+              <RecoveryHeader />
 
-          <div className="mb-5">
-            <RecoverySteps current={1} />
-          </div>
+              <div className="flex items-center justify-between">
+                <RecoverySteps current={1} />
+                <span className="text-[11px] font-semibold tabular-nums text-foreground-muted">01 / 02</span>
+              </div>
 
-          <Card className="shadow-xl border-0">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-xl">Forgot password</CardTitle>
-              <CardDescription>
-                Enter your account email and we will send a reset link if an account exists for it
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {error && (
-                  <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
-                    {error}
-                  </div>
-                )}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-foreground-muted">Account recovery</p>
+                <h1 id="forgot-title" className="mt-3 text-3xl font-bold tracking-[-0.03em] text-foreground">
+                  Forgot your password?
+                </h1>
+                <p id="forgot-description" className="mt-2 max-w-[30rem] text-sm leading-relaxed text-foreground-secondary">
+                  Enter the email associated with your FleetOps account. We&apos;ll send you a secure password reset link.
+                </p>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+                {error && <RecoveryAlert>{error}</RecoveryAlert>}
+
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    ref={registerField("email")}
-                    invalid={fieldError("email").invalid}
-                  />
-                  {fieldError("email").error && <p className="text-xs text-danger">{fieldError("email").error}</p>}
+                  <Label htmlFor="recovery-email" className="text-sm font-medium text-foreground">
+                    Email
+                  </Label>
+                  <div className="relative">
+                    <Mail
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground-muted"
+                      strokeWidth={1.75}
+                    />
+                    <Input
+                      id="recovery-email"
+                      type="email"
+                      placeholder="name@company.com"
+                      value={email}
+                      onChange={(event) => {
+                        setEmail(event.target.value);
+                        setError("");
+                      }}
+                      onBlur={() => setEmailBlurred(true)}
+                      ref={registerField("email")}
+                      invalid={emailStatus === "invalid" || emailField.invalid}
+                      aria-describedby="recovery-email-feedback"
+                      autoComplete="email"
+                      autoFocus
+                      className={cn(
+                        "h-12 rounded-[0.9rem] bg-surface pl-11 pr-11 text-[15px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] caret-primary focus-visible:ring-offset-surface",
+                        emailStatus === "valid" && "border-success/60 focus-visible:ring-success/50",
+                        emailStatus === "invalid" && "border-danger/60 focus-visible:ring-danger/50"
+                      )}
+                    />
+                    <span className="absolute right-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center text-xs font-semibold">
+                      <EmailStateIcon status={emailStatus} />
+                    </span>
+                  </div>
+                  <div id="recovery-email-feedback" aria-live="polite" className="min-h-4">
+                    <EmailFeedback status={emailStatus} />
+                    {emailField.error && emailStatus !== "invalid" && <p className="text-xs text-danger">{emailField.error}</p>}
+                  </div>
                 </div>
-                <Button type="submit" className="w-full h-11" disabled={loading}>
-                  {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
-                  Send reset link
+
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="h-12 w-full rounded-full bg-primary text-sm font-semibold text-primary-bg shadow-[0_12px_24px_-16px_rgba(15,23,42,0.55)] transition-all duration-200 hover:bg-primary/90 hover:shadow-[0_16px_30px_-16px_rgba(15,23,42,0.6)] active:scale-[0.99]"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" strokeWidth={2} />
+                      Sending reset link…
+                    </>
+                  ) : (
+                    "Send reset link"
+                  )}
                 </Button>
               </form>
-            </CardContent>
-            <CardContent className="pt-0">
-              <Link href="/login">
-                <Button variant="link" className="w-full">
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to login
+
+              <div className="flex flex-col items-center gap-5">
+                <RecoveryFooterLink />
+                <SecurityLine />
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="sent"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.22, ease: EASE }}
+              className="space-y-7 text-center"
+            >
+              <div className="flex justify-start text-left">
+                <RecoveryHeader />
+              </div>
+
+              <div className="flex items-center justify-center">
+                <RecoverySteps current={1} />
+              </div>
+
+              <div className="flex flex-col items-center">
+                <MailSuccessIcon />
+                <p className="mt-6 text-xs font-semibold uppercase tracking-[0.15em] text-success">Request received</p>
+                <h1 id="forgot-title" className="mt-3 text-3xl font-bold tracking-[-0.03em] text-foreground">
+                  Check your email
+                </h1>
+                <p id="forgot-description" className="mt-2 max-w-[28rem] text-sm leading-relaxed text-foreground-secondary">
+                  Reset instructions were requested for <span className="font-medium text-foreground">{email}</span>.
+                </p>
+                <p className="mt-2 max-w-[29rem] text-xs leading-relaxed text-foreground-muted" aria-live="polite">
+                  {serverMessage}
+                </p>
+              </div>
+
+              {error && <RecoveryAlert>{error}</RecoveryAlert>}
+
+              <div className="space-y-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={resendSeconds > 0 || resending}
+                  onClick={handleResend}
+                  className="h-11 w-full rounded-full border-border bg-surface text-sm font-semibold transition-colors hover:bg-hover"
+                >
+                  {resending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Resend email
                 </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </MotionConfig>
-      </div>
-    </div>
+                <p className="text-xs tabular-nums text-foreground-muted" role="status" aria-live="polite">
+                  {resendSeconds > 0 ? `Resend available in ${resendSeconds}s` : "You can request another email now."}
+                </p>
+              </div>
+
+              <div className="flex flex-col items-center gap-5">
+                <RecoveryFooterLink />
+                <SecurityLine />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </RecoveryShell>
+    </MotionConfig>
   );
 }

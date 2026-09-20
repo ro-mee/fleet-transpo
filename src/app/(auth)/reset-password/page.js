@@ -4,19 +4,26 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { MotionConfig, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+import { Check, Eye, EyeOff, Loader2, Lock, ShieldCheck } from "lucide-react";
 import { resetSessionPassword } from "@/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, CarFront, Eye, EyeOff, Check, ArrowLeft } from "lucide-react";
-import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { isPasswordByteLengthAllowed } from "@/lib/validation/helpers";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+import {
+  RecoveryAlert,
+  RecoveryFooterLink,
+  RecoveryHeader,
+  RecoveryIcon,
+  RecoveryShell,
+  RecoverySteps,
+  SecurityLine,
+} from "@/components/auth/recovery-shell";
 import { cn } from "@/lib/utils";
 
-// Same policy as /settings/security so both change paths enforce identical rules.
 const resetSchema = {
   currentPassword: (value, values) => (!values.token && !value ? "Current password is required." : null),
   password: (value) => {
@@ -36,75 +43,163 @@ const resetSchema = {
   },
 };
 
-// Live version of the password policy: each rule lights up as the typed
-// password satisfies it. Mirrors the server-side `type: "password"` policy
-// so the checklist can never promise what the server will reject.
+// Four visual rows keep the checklist calm while the combined case row mirrors
+// the server's stronger uppercase + lowercase policy.
 const RULE_CHECKS = [
-  { key: "length", label: "At least 8 characters", test: (v) => v.length >= 8 },
+  { key: "length", label: "At least 8 characters", test: (value) => value.length >= 8 },
   {
     key: "case",
-    label: "Upper and lowercase letters",
-    test: (v) => /[a-z]/.test(v) && /[A-Z]/.test(v),
+    label: "Uppercase and lowercase letters",
+    test: (value) => /[a-z]/.test(value) && /[A-Z]/.test(value),
   },
-  { key: "number", label: "At least one number", test: (v) => /[0-9]/.test(v) },
+  { key: "number", label: "One number", test: (value) => /[0-9]/.test(value) },
   {
     key: "special",
-    label: "At least one special character",
-    test: (v) => /[^A-Za-z0-9]/.test(v),
+    label: "One special character",
+    test: (value) => /[^A-Za-z0-9]/.test(value),
   },
 ];
 
-// Same entrance curve as the login page and PageEntrance.
 const EASE = [0.32, 0.72, 0, 1];
 
-// Recovery is a genuine two-step sequence (email, then new password), so a
-// step rail encodes real information here rather than decorating.
-function RecoverySteps({ current }) {
-  const steps = ["Email", "New password"];
+function passwordStrength(value) {
+  if (!value) return { label: "", score: 0 };
+  const score = RULE_CHECKS.filter(({ test }) => test(value)).length;
+  if (score <= 1) return { label: "Weak", score: 1 };
+  if (score < RULE_CHECKS.length) return { label: "Fair", score: 2 };
+  return { label: "Strong", score: 4 };
+}
+
+function RequirementList({ password }) {
   return (
-    <ol aria-label="Recovery progress" className="flex items-center justify-center gap-2">
-      {steps.map((label, i) => {
-        const done = i + 1 < current;
-        const active = i + 1 === current;
+    <ul aria-label="Password requirements" className="space-y-2">
+      {RULE_CHECKS.map(({ key, label, test }) => {
+        const met = test(password);
         return (
-          <li key={label} className="flex items-center gap-2">
-            <span
-              aria-hidden="true"
+          <li key={key} className={cn("flex items-center gap-2 text-xs transition-colors duration-200", met ? "text-success" : "text-foreground-muted")}>
+            <motion.span
+              initial={false}
+              animate={{ scale: met ? 1 : 0.9, opacity: 1 }}
+              transition={{ duration: 0.18, ease: EASE }}
               className={cn(
-                "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
-                done && "bg-success text-white",
-                active && "bg-primary text-white",
-                !done && !active && "bg-muted text-foreground-muted"
+                "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                met ? "border-success bg-success text-white" : "border-border bg-transparent"
               )}
             >
-              {done ? <Check className="h-3 w-3" /> : i + 1}
-            </span>
-            <span
-              className={cn(
-                "text-xs font-medium",
-                active ? "text-foreground" : "text-foreground-muted"
-              )}
-            >
-              {label}
-            </span>
-            {i === 0 && <span aria-hidden="true" className="mx-1 h-px w-6 bg-border" />}
+              {met ? <Check className="h-2.5 w-2.5" strokeWidth={2.5} /> : null}
+            </motion.span>
+            <span className={met ? "font-medium" : "font-normal"}>{label}</span>
           </li>
         );
       })}
-    </ol>
+    </ul>
   );
 }
 
-// Same ambient backdrop as the login page: three soft aurora blobs over the
-// app background. Pure atmosphere — aria-hidden, never interactive, and the
-// card below sits at z-10 so nothing shifts.
-function AuthBackdrop() {
+function StrengthIndicator({ password }) {
+  const { label, score } = passwordStrength(password);
+  const fill = score === 1 ? "bg-danger/70" : score === 2 ? "bg-warning/80" : "bg-success";
+
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute -right-40 -top-44 h-[38rem] w-[38rem] rounded-full bg-primary/[0.05] blur-3xl" />
-      <div className="absolute -bottom-56 -left-36 h-[34rem] w-[34rem] rounded-full bg-info/[0.06] blur-3xl" />
-      <div className="absolute left-[42%] top-[30%] h-80 w-80 rounded-full bg-success/[0.045] blur-3xl" />
+    <div className="flex items-center gap-3" aria-live="polite">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5" aria-hidden="true">
+        {[0, 1, 2, 3].map((segment) => (
+          <motion.span
+            key={segment}
+            initial={false}
+            animate={{ opacity: segment < score ? 1 : 0.35, scaleX: segment < score ? 1 : 0.92 }}
+            transition={{ duration: 0.2, ease: EASE }}
+            className={cn("h-1.5 flex-1 origin-left rounded-full", segment < score ? fill : "bg-border")}
+          />
+        ))}
+      </div>
+      <span className="min-w-12 text-right text-[11px] font-medium text-foreground-muted">{label || "Strength"}</span>
     </div>
+  );
+}
+
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  onBlur,
+  onFocus,
+  show,
+  onToggle,
+  autoComplete,
+  invalid,
+  register,
+  capsBind,
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id} className="text-sm font-medium text-foreground">{label}</Label>
+      <div className="relative">
+        <Lock
+          aria-hidden="true"
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground-muted"
+          strokeWidth={1.75}
+        />
+        <Input
+          id={id}
+          type={show ? "text" : "password"}
+          autoComplete={autoComplete}
+          value={value}
+          onChange={onChange}
+          onBlur={onBlur}
+          onFocus={onFocus}
+          ref={register}
+          invalid={invalid}
+          className="h-12 rounded-[0.9rem] bg-surface pl-11 pr-12 text-[15px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] caret-primary focus-visible:ring-offset-surface"
+          {...capsBind}
+        />
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={show ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+          className="absolute right-2.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-foreground-muted transition-colors duration-200 hover:bg-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        >
+          {show ? <EyeOff className="h-4 w-4" strokeWidth={1.75} /> : <Eye className="h-4 w-4" strokeWidth={1.75} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StateFrame({ children, current = 2, eyebrow = "Account recovery", showSteps = true }) {
+  return (
+    <div className="flex min-h-[30rem] flex-col space-y-7">
+      <RecoveryHeader eyebrow={eyebrow} />
+      {showSteps && (
+        <div className="flex items-center justify-center">
+          <RecoverySteps current={current} />
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function AccessState({ loading = false }) {
+  return (
+    <StateFrame showSteps={false} eyebrow="Account recovery">
+      <div className="flex flex-1 flex-col items-center justify-center text-center">
+        {loading ? (
+          <Loader2 className="h-7 w-7 animate-spin text-foreground-muted" aria-label="Loading" />
+        ) : (
+          <>
+            <h1 id="reset-title" className="text-2xl font-bold tracking-[-0.03em] text-foreground">Sign in first</h1>
+            <p id="reset-description" className="mt-2 max-w-sm text-sm leading-relaxed text-foreground-secondary">
+              Sign in with your current password, then change it here or from Settings → Security.
+            </p>
+            <Button asChild className="mt-7 h-11 w-full max-w-xs rounded-full bg-primary font-semibold text-primary-bg">
+              <Link href="/login">Go to login</Link>
+            </Button>
+          </>
+        )}
+      </div>
+    </StateFrame>
   );
 }
 
@@ -116,239 +211,241 @@ function ResetPasswordForm() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmTouched, setConfirmTouched] = useState(false);
+  const [phase, setPhase] = useState("idle");
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
+  const { validate, fieldError, registerField } = useFormValidation(resetSchema);
   const { active: capsOnCurrent, bind: capsBindCurrent } = useCapsLock();
   const { active: capsOnPassword, bind: capsBindPassword } = useCapsLock();
   const { active: capsOnConfirm, bind: capsBindConfirm } = useCapsLock();
-  const { validate, fieldError, registerField } = useFormValidation(resetSchema);
 
-  // The reset endpoint changes the SESSION user's password — an anonymous
-  // visitor has nothing to reset. Say so before they fill the form.
-  if (!resetToken && sessionStatus !== "loading" && !session?.user?.email) {
-    return (
-      <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
-        <AuthBackdrop />
-        <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
-        <Card className="shadow-xl border-0 text-center max-w-md w-full">
-          <CardHeader>
-            <CardTitle className="text-xl">Sign in first</CardTitle>
-            <CardDescription>
-              Sign in with your current password, then change it here or from Settings &rarr; Security.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/login">
-              <Button className="w-full h-11">Go to login</Button>
-            </Link>
-          </CardContent>
-        </Card>
-        </div>
-      </div>
-    );
+  const confirmStatus = !confirmPassword
+    ? "idle"
+    : confirmPassword === password
+      ? "valid"
+      : "invalid";
+  const passwordReady = isPasswordByteLengthAllowed(password) && RULE_CHECKS.every(({ test }) => test(password));
+  const canSubmit = passwordReady && confirmStatus === "valid" && (resetToken || currentPassword.length > 0);
+
+  if (!resetToken && sessionStatus === "loading") {
+    return <AccessState loading />;
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  if (!resetToken && !session?.user?.email) {
+    return <AccessState />;
+  }
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (phase !== "idle") return;
     setError("");
+    setConfirmTouched(true);
 
-    if (!resetToken && !session?.user?.email) {
-      setError("You must be logged in to reset your password");
-      return;
-    }
-
-    const isValid = validate({ token: resetToken, currentPassword, password, confirmPassword }, {
+    validate({ token: resetToken, currentPassword, password, confirmPassword }, {
       onSuccess: async () => {
-        setLoading(true);
+        setPhase("verifying");
+        const startedAt = Date.now();
         try {
           await resetSessionPassword(password, currentPassword, resetToken);
-          setSuccess(true);
-          setTimeout(() => router.push("/login"), 2000);
+          const remaining = 620 - (Date.now() - startedAt);
+          if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+          setPhase("success");
         } catch (err) {
-          setError(err.message);
-        } finally {
-          setLoading(false);
+          const message = err?.message || "We couldn't update your password. Please try again.";
+          if (/invalid or expired reset link/i.test(message)) {
+            setPhase("expired");
+          } else {
+            setError(message);
+            setPhase("idle");
+          }
         }
       },
     });
-    if (!isValid) return;
   };
 
-  if (success) {
+  if (phase === "verifying") {
     return (
-      <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
-        <AuthBackdrop />
-        <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
-        <MotionConfig reducedMotion="user">
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: EASE }}
-            className="w-full max-w-md"
-          >
-            <Card className="shadow-xl border-0 text-center">
-              <CardHeader>
-                <div className="flex justify-center mb-4">
-                  <div className="w-16 h-16 rounded-2xl bg-success/10 flex items-center justify-center">
-                    <Check className="w-8 h-8 text-success" />
-                  </div>
-                </div>
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground-muted">
-                  {resetToken ? "Step 2 of 2 complete" : "Password updated"}
-                </p>
-                <CardTitle className="text-xl mt-1">Password updated</CardTitle>
-                <CardDescription className="mt-1">
-                  Signing you out everywhere for safety — redirecting to login so you can sign in fresh.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </motion.div>
-        </MotionConfig>
+      <StateFrame>
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <RecoveryIcon kind="verify" />
+          <h1 id="reset-title" className="mt-6 text-2xl font-bold tracking-[-0.03em] text-foreground">Updating your password…</h1>
+          <p id="reset-description" className="mt-2 text-sm leading-relaxed text-foreground-secondary">
+            Please wait while we secure your account.
+          </p>
         </div>
-      </div>
+      </StateFrame>
+    );
+  }
+
+  if (phase === "success") {
+    return (
+      <StateFrame current={3}>
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <RecoveryIcon />
+          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.15em] text-success">Step 2 complete</p>
+          <h1 id="reset-title" className="mt-3 text-2xl font-bold tracking-[-0.03em] text-foreground">Password updated</h1>
+          <p id="reset-description" className="mt-2 max-w-sm text-sm leading-relaxed text-foreground-secondary">
+            Your password has been securely changed.
+          </p>
+          <Button
+            type="button"
+            onClick={() => router.replace("/login")}
+            className="mt-7 h-11 w-full max-w-xs rounded-full bg-primary font-semibold text-primary-bg transition-all duration-200 hover:bg-primary/90 hover:shadow-[0_16px_30px_-16px_rgba(15,23,42,0.6)]"
+          >
+            Continue to sign in
+          </Button>
+          <div className="mt-6 flex items-center gap-2 text-xs text-foreground-muted">
+            <ShieldCheck className="h-3.5 w-3.5 text-success" strokeWidth={1.75} />
+            Your previous password can no longer be used.
+          </div>
+        </div>
+      </StateFrame>
+    );
+  }
+
+  if (phase === "expired") {
+    return (
+      <StateFrame>
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <RecoveryIcon kind="expired" />
+          <h1 id="reset-title" className="mt-6 text-2xl font-bold tracking-[-0.03em] text-foreground">Reset link expired</h1>
+          <p id="reset-description" className="mt-2 max-w-sm text-sm leading-relaxed text-foreground-secondary">
+            This password reset link is no longer valid. Request a new one to continue.
+          </p>
+          <Button asChild className="mt-7 h-11 w-full max-w-xs rounded-full bg-primary font-semibold text-primary-bg">
+            <Link href="/forgot-password">Send a new reset link</Link>
+          </Button>
+          <div className="mt-5">
+            <RecoveryFooterLink />
+          </div>
+        </div>
+      </StateFrame>
     );
   }
 
   return (
-    <div className="relative min-h-[100dvh] w-full overflow-hidden bg-background">
-      <AuthBackdrop />
-      <div className="relative z-10 flex min-h-[100dvh] items-center justify-center p-4">
-      <MotionConfig reducedMotion="user">
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: EASE }}
-          className="w-full max-w-md"
-        >
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary shadow-lg shadow-primary/25 mb-4">
-            <CarFront className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-foreground">{resetToken ? "Reset password" : "Change password"}</h1>
-          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-foreground-muted">
-            {resetToken ? "Account recovery" : "Password settings"}
-          </p>
-        </div>
+    <div className="space-y-7">
+      <RecoveryHeader eyebrow={resetToken ? "Account recovery" : "Password settings"} />
 
-        {resetToken && (
-          <div className="mb-5">
-            <RecoverySteps current={2} />
+      {resetToken && (
+        <div className="flex items-center justify-center">
+          <RecoverySteps current={2} />
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-foreground-muted">{resetToken ? "Step 2 of 2" : "Password settings"}</p>
+        <h1 id="reset-title" className="mt-3 text-2xl font-bold tracking-[-0.03em] text-foreground sm:text-3xl">Create a new password</h1>
+        <p id="reset-description" className="mt-2 text-sm leading-relaxed text-foreground-secondary">
+          {resetToken ? "Choose a strong password you haven’t used before." : "Confirm your current password, then choose a strong new one."}
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        {error && <RecoveryAlert>{error}</RecoveryAlert>}
+
+        {!resetToken && (
+          <div>
+            <PasswordField
+              id="currentPassword"
+              label="Current password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              show={showCurrent}
+              onToggle={() => setShowCurrent((value) => !value)}
+              autoComplete="current-password"
+              invalid={fieldError("currentPassword").invalid}
+              register={registerField("currentPassword")}
+              capsBind={capsBindCurrent}
+            />
+            <CapsLockHint on={capsOnCurrent} />
+            {fieldError("currentPassword").error && <p className="mt-2 text-xs text-danger">{fieldError("currentPassword").error}</p>}
           </div>
         )}
 
-        <Card className="shadow-xl border-0">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-xl">{resetToken ? "Choose a new password" : "Change your password"}</CardTitle>
-            <CardDescription>
-              {resetToken ? "This link works once — pick something strong" : "Confirm your current password, then choose a new one"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
-                  {error}
-                </div>
-              )}
-              {!resetToken && (
-                <div className="space-y-2">
-                  <Label htmlFor="currentPassword">Current password</Label>
-                  <Input
-                    id="currentPassword"
-                    type="password"
-                    autoComplete="current-password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    ref={registerField("currentPassword")}
-                    invalid={fieldError("currentPassword").invalid}
-                    {...capsBindCurrent}
-                  />
-                  <CapsLockHint on={capsOnCurrent} />
-                  {fieldError("currentPassword").error && <p className="text-xs text-danger">{fieldError("currentPassword").error}</p>}
-                </div>
-              )}
-              <div className="space-y-2">
-                <Label htmlFor="password">New password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    ref={registerField("password")}
-                    invalid={fieldError("password").invalid}
-                    {...capsBindPassword}
-                  />
-                  <CapsLockHint on={capsOnPassword} />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted"
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                  {fieldError("password").error && <p className="text-xs text-danger">{fieldError("password").error}</p>}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  ref={registerField("confirmPassword")}
-                  invalid={fieldError("confirmPassword").invalid}
-                  {...capsBindConfirm}
-                />
-                <CapsLockHint on={capsOnConfirm} />
-                {fieldError("confirmPassword").error && <p className="text-xs text-danger">{fieldError("confirmPassword").error}</p>}
-              </div>
-              <ul className="space-y-1.5 text-xs" aria-label="Password requirements">
-                {RULE_CHECKS.map(({ key, label, test }) => {
-                  const met = test(password);
-                  return (
-                    <li
-                      key={key}
-                      className={cn(
-                        "flex items-center gap-1.5 font-medium",
-                        met ? "text-success" : "text-foreground-muted"
-                      )}
-                    >
-                      {met ? (
-                        <Check aria-hidden="true" className="h-3.5 w-3.5" />
-                      ) : (
-                        <span aria-hidden="true" className="h-1 w-1 rounded-full bg-foreground-muted" />
-                      )}
-                      {label}
-                    </li>
-                  );
-                })}
-              </ul>
-              <Button type="submit" className="w-full h-11" disabled={loading}>
-                {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
-                Update password
-              </Button>
-            </form>
-          </CardContent>
-          {!resetToken && (
-            <CardContent className="pt-0">
-              <Link href="/login">
-                <Button variant="link" className="w-full">
-                  <ArrowLeft className="w-4 h-4 mr-2" />
-                  Back to login
-                </Button>
-              </Link>
-            </CardContent>
+        <div>
+          <PasswordField
+            id="password"
+            label="New password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            show={showPassword}
+            onToggle={() => setShowPassword((value) => !value)}
+            autoComplete="new-password"
+            invalid={fieldError("password").invalid}
+            register={registerField("password")}
+            capsBind={capsBindPassword}
+          />
+          <CapsLockHint on={capsOnPassword} />
+          {fieldError("password").error && <p className="mt-2 text-xs text-danger">{fieldError("password").error}</p>}
+          <div className="mt-3 space-y-3 rounded-xl border border-border/70 bg-background/45 px-3.5 py-3">
+            <RequirementList password={password} />
+            <StrengthIndicator password={password} />
+          </div>
+        </div>
+
+        <div>
+          <PasswordField
+            id="confirmPassword"
+            label="Confirm password"
+            value={confirmPassword}
+            onChange={(event) => {
+              setConfirmPassword(event.target.value);
+              setConfirmTouched(true);
+            }}
+            show={showConfirm}
+            onToggle={() => setShowConfirm((value) => !value)}
+            autoComplete="new-password"
+            invalid={confirmStatus === "invalid" || fieldError("confirmPassword").invalid}
+            register={registerField("confirmPassword")}
+            capsBind={capsBindConfirm}
+          />
+          <CapsLockHint on={capsOnConfirm} />
+          <AnimatePresence initial={false} mode="wait">
+            {confirmTouched && confirmStatus === "invalid" && (
+              <motion.p
+                key="mismatch"
+                initial={{ opacity: 0, y: -3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -3 }}
+                className="mt-2 text-xs text-danger"
+              >
+                Passwords don&apos;t match yet.
+              </motion.p>
+            )}
+            {confirmTouched && confirmStatus === "valid" && (
+              <motion.p
+                key="match"
+                initial={{ opacity: 0, y: -3 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -3 }}
+                className="mt-2 flex items-center gap-1.5 text-xs text-success"
+              >
+                <Check className="h-3.5 w-3.5" strokeWidth={2.1} />
+                Passwords match.
+              </motion.p>
+            )}
+          </AnimatePresence>
+          {fieldError("confirmPassword").error && confirmStatus !== "invalid" && confirmStatus !== "valid" && (
+            <p className="mt-2 text-xs text-danger">{fieldError("confirmPassword").error}</p>
           )}
-        </Card>
-        </motion.div>
-      </MotionConfig>
+        </div>
+
+        <Button
+          type="submit"
+          disabled={!canSubmit || phase !== "idle"}
+          className="h-12 w-full rounded-full bg-primary text-sm font-semibold text-primary-bg shadow-[0_12px_24px_-16px_rgba(15,23,42,0.55)] transition-all duration-200 hover:bg-primary/90 hover:shadow-[0_16px_30px_-16px_rgba(15,23,42,0.6)] disabled:bg-muted disabled:text-foreground-muted disabled:shadow-none"
+        >
+          Reset password
+        </Button>
+      </form>
+
+      <div className="flex flex-col items-center gap-5">
+        {!resetToken && <RecoveryFooterLink />}
+        <SecurityLine />
       </div>
     </div>
   );
@@ -356,12 +453,18 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="animate-pulse text-foreground-secondary">Loading...</div>
-      </div>
-    }>
-      <ResetPasswordForm />
+    <Suspense
+      fallback={
+        <div className="flex min-h-[100dvh] items-center justify-center bg-background p-4">
+          <div className="text-sm text-foreground-secondary">Loading recovery…</div>
+        </div>
+      }
+    >
+      <MotionConfig reducedMotion="user">
+        <RecoveryShell>
+          <ResetPasswordForm />
+        </RecoveryShell>
+      </MotionConfig>
     </Suspense>
   );
 }
