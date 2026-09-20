@@ -33,13 +33,20 @@ export default function FuelReceiptScanDemo({ onComplete, onSkip }) {
   const [revealedRows, setRevealedRows] = useState(0);
   const [selectedTotal, setSelectedTotal] = useState(null);
   const [reviewMessage, setReviewMessage] = useState("");
-  const [scanMessage, setScanMessage] = useState("");
+  const [scanStage, setScanStage] = useState(0);
   const timersRef = useRef(new Set());
-  const receiptX = useRef(new Animated.Value(34)).current;
-  const receiptY = useRef(new Animated.Value(-22)).current;
-  const receiptRotate = useRef(new Animated.Value(1)).current;
-  const receiptScale = useRef(new Animated.Value(0.92)).current;
-  const scanLine = useRef(new Animated.Value(0)).current;
+  const [receiptX] = useState(() => new Animated.Value(34));
+  const [receiptY] = useState(() => new Animated.Value(-22));
+  const [receiptRotate] = useState(() => new Animated.Value(1));
+  const [receiptScale] = useState(() => new Animated.Value(0.92));
+  const [scanLine] = useState(() => new Animated.Value(0));
+
+  const scanMessages = [
+    "Reading receipt…",
+    "Finding fuel details…",
+    "Checking values…",
+  ];
+  const scanMessage = scanMessages[Math.min(scanStage, scanMessages.length - 1)];
 
   const clearTimers = useCallback(() => {
     for (const timer of timersRef.current) clearTimeout(timer);
@@ -69,7 +76,7 @@ export default function FuelReceiptScanDemo({ onComplete, onSkip }) {
     setRevealedRows(0);
     setSelectedTotal(null);
     setReviewMessage("");
-    setScanMessage("");
+    setScanStage(0);
     resetVisuals();
   }, [clearTimers, resetVisuals]);
 
@@ -151,14 +158,16 @@ export default function FuelReceiptScanDemo({ onComplete, onSkip }) {
           duration: reduceMotion ? 1 : LIFT_MS,
           useNativeDriver: true,
         }),
-      ]).start(() => setNextPhase("scanning"));
+      ]).start(() => {
+        setScanStage(0);
+        setNextPhase("scanning");
+      });
       return;
     }
 
     if (phase === "scanning") {
-      setScanMessage("Reading receipt…");
-      schedule(() => setScanMessage("Finding fuel details…"), reduceMotion ? 60 : 700);
-      schedule(() => setScanMessage("Checking values…"), reduceMotion ? 120 : 1500);
+      schedule(() => setScanStage(1), reduceMotion ? 60 : 700);
+      schedule(() => setScanStage(2), reduceMotion ? 120 : 1500);
 
       Animated.timing(scanLine, {
         toValue: 1,
