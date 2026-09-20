@@ -26,7 +26,7 @@ export default function FuelReport() {
   const { user } = useAuth();
   const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
   const { colors } = useTheme();
-  const { triggerMilestone } = useCoachMarks();
+  const { triggerMilestone, notifyInteraction } = useCoachMarks();
 
   const [assignedTrip, setAssignedTrip] = useState(null);
   const driverId = resolveDriverId(user);
@@ -43,6 +43,7 @@ export default function FuelReport() {
   const [receiptFuelType, setReceiptFuelType] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [scanVisualPhase, setScanVisualPhase] = useState(null);
   const [receiptUrl, setReceiptUrl] = useState(null);
   const [receiptAsset, setReceiptAsset] = useState(null);
   const [submittedRecord, setSubmittedRecord] = useState(null);
@@ -156,6 +157,17 @@ export default function FuelReport() {
     ? String(request.vehicle_id) === activeVehicleId
     : String(request.trip_id) === String(activeTripId));
   const canLogFuel = Boolean(id) || currentFuelRequest?.status === "Approved";
+
+  useEffect(() => {
+    if (
+      mode === "overview" &&
+      canLogFuel &&
+      !cameraOpen &&
+      !scanning
+    ) {
+      triggerMilestone("fuel_scan_intro");
+    }
+  }, [mode, canLogFuel, cameraOpen, scanning, triggerMilestone]);
 
   const loadFuelRequests = useCallback(async () => {
     if (!hasAssignedVehicle || id) {
@@ -468,6 +480,7 @@ export default function FuelReport() {
     let retainedAsset = existingAsset || receiptAsset;
     try {
       setScanning(true);
+      setScanVisualPhase("preparing");
       if (Platform.OS === "web") {
         startManualEntry();
         AppAlert.alert("Scanner Unavailable", "Use a mobile development build to scan receipts.");
@@ -487,11 +500,13 @@ export default function FuelReport() {
       let d = {};
       let receiptUploaded = false;
       try {
+        setScanVisualPhase("uploading");
         const uploadResult = await api.post("/api/mobile/fuel/upload", createReceiptFormData(asset));
         receiptUploaded = uploadResult?.receipt_url || false;
         setReceiptUrl(receiptUploaded || null);
         if (receiptUploaded) {
           try {
+            setScanVisualPhase("reading");
             const geminiResult = await api.post(
               "/api/mobile/fuel/scan",
               { receipt_url: receiptUploaded },
@@ -503,6 +518,7 @@ export default function FuelReport() {
             if (Object.keys(geminiData).length) {
               d = geminiData;
               setReceiptScanData(geminiResult?.extracted_data || null);
+              setScanVisualPhase("review_ready");
             }
           } catch (error) {
             console.warn("Gemini receipt scan skipped:", error.message);
@@ -518,13 +534,15 @@ export default function FuelReport() {
       setReceiptFuelType(typeof d.fuel_type === "string" ? d.fuel_type : "");
       if (d.fuel_date) setFuelDate(d.fuel_date);
       if (Object.values(d).some(Boolean)) {
-        AppAlert.alert(
-          receiptUploaded ? "Receipt Scanned" : "Scan Incomplete",
-          receiptUploaded
-            ? "Gemini filled the details. Review them before saving."
-            : "The photo was kept, but upload did not complete. Retry the scan before saving."
-        );
+        if (!receiptUploaded) {
+          setScanVisualPhase("failed");
+          AppAlert.alert(
+            "Scan Incomplete",
+            "The photo was kept, but upload did not complete. Retry the scan before saving."
+          );
+        }
       } else {
+        setScanVisualPhase("failed");
         AppAlert.alert(
           "Scan Incomplete",
           receiptUploaded
@@ -537,10 +555,12 @@ export default function FuelReport() {
         setEntryMethod("scan");
         setMode("details");
       }
+      setScanVisualPhase("failed");
       AppAlert.alert("Scan Error", "The receipt could not be read. Your photo and entered details were kept; retry or continue manually.");
     } finally {
       scanInFlight.current = false;
       setScanning(false);
+      setScanVisualPhase((current) => current === "review_ready" ? current : null);
     }
   };
 
@@ -956,16 +976,21 @@ export default function FuelReport() {
         {mode === "overview" && canLogFuel ? (
           <View style={styles.methodSection}>
             <Text style={[styles.methodTitle, { color: colors.onBackground }]}>How do you want to log fuel?</Text>
-            <ClayCard
-              onPress={() => openReceiptCamera("scan")}
-              disabled={scanning}
-              style={[styles.methodCard, { backgroundColor: colors.primaryContainer, borderWidth: 1.5, borderColor: colors.primary }]}
-            >
-              <View style={styles.methodCopy}>
-                <Text style={[styles.methodCardTitle, { color: colors.onPrimaryContainer }]}>{scanning ? "Scanning receipt..." : "Scan receipt"}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={21} color={colors.primary} />
-            </ClayCard>
+            <CoachMarkTarget targetId="fuel.scan_entry" radius={16} padding={6}>
+              <ClayCard
+                onPress={() => {
+                  notifyInteraction?.("fuel.scan_entry", { action: "open_real_scanner" });
+                  openReceiptCamera("scan");
+                }}
+                disabled={scanning}
+                style={[styles.methodCard, { backgroundColor: colors.primaryContainer, borderWidth: 1.5, borderColor: colors.primary }]}
+              >
+                <View style={styles.methodCopy}>
+                  <Text style={[styles.methodCardTitle, { color: colors.onPrimaryContainer }]}>{scanning ? "Scanning receipt..." : "Scan receipt"}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={21} color={colors.primary} />
+              </ClayCard>
+            </CoachMarkTarget>
 
             <ClayCard
               onPress={startManualEntry}
@@ -1114,7 +1139,17 @@ export default function FuelReport() {
                 </Pressable>
               )}
               {scanning ? (
-                <Text style={[styles.evidencePending, { color: colors.onSurfaceVariant }]}>{entryMethod === "scan" ? "Reading and uploading the receipt..." : "Uploading receipt photo..."}</Text>
+                <Text style={[styles.evidencePending, { color: colors.onSurfaceVariant }]}>
+                  {entryMethod === "scan"
+                    ? scanVisualPhase === "preparing"
+                      ? "Preparing receipt image..."
+                      : scanVisualPhase === "uploading"
+                        ? "Uploading receipt..."
+                        : scanVisualPhase === "reading"
+                          ? "Reading receipt and extracting fuel details..."
+                          : "Reading receipt..."
+                    : "Uploading receipt photo..."}
+                </Text>
               ) : receiptUrl ? (
                 <Text style={[styles.evidenceReady, { color: colors.success || colors.primary }]}>Receipt attached and ready for review</Text>
               ) : receiptAsset ? (
