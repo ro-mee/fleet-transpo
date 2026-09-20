@@ -57,9 +57,10 @@ npm run dev          # web, next dev
 cd mobile && npx expo start
 ```
 
-> **Expo Go + stale LAN IP (seen 2026-09-13, recurred 2026-09-16).** `mobile/.env` holds a hardcoded
+> **Expo Go + stale LAN IP (seen 2026-09-13, recurred 2026-09-16, recurred 2026-09-20).** `mobile/.env` holds a hardcoded
 > `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:3000`, but the PC's DHCP lease can
-> change (e.g. `.5` → `.248`, then back `.248` → `.5` on 2026-09-16). Symptom is
+> change (e.g. `.5` → `.248`, then back `.248` → `.5` on 2026-09-16; `.200` →
+> `.193` on Ethernet on 2026-09-20). Symptom is
 > `Network request failed. Check your connection (status 0)` — at login
 > (`POST /api/mobile/auth/login` never reaches the dev terminal) or as a cluster
 > of `Could not load fuel requests` + `Could not load trip for map` WARNs. Every
@@ -70,6 +71,11 @@ cd mobile && npx expo start
 > `npx expo start --clear` (Expo Go caches env), and confirm from the phone
 > browser that `http://<IP>:3000/api/mobile/driver/ref` responds before
 > debugging code. `mobile/.env` is gitignored — this fix is local-only.
+> Diagnosis shortcut (2026-09-20): `Get-NetTCPConnection -LocalPort 3000`
+> must show a `::` listener (dev is LAN-bound) and `Invoke-WebRequest
+> http://<IP>:3000/api/mobile/driver/ref` must answer HTTP 401 — that pair
+> proves the server side healthy and isolates the fault to the app's baked
+> URL or the phone's network.
 
 Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **487/487 tests across 46 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
 
