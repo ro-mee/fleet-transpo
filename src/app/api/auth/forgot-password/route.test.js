@@ -5,7 +5,7 @@ import { POST } from "./route";
 import * as db from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { issueResetToken } from "@/lib/auth/reset-token";
-import { isEmailConfigured, sendPasswordResetEmail } from "@/lib/email/resend";
+import { isEmailConfigured, sendPasswordResetEmail } from "@/lib/email/smtp";
 
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({
@@ -14,7 +14,7 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn(async () => {}) }));
 vi.mock("@/lib/auth/reset-token", () => ({ issueResetToken: vi.fn() }));
-vi.mock("@/lib/email/resend", () => ({
+vi.mock("@/lib/email/smtp", () => ({
   isEmailConfigured: vi.fn(),
   sendPasswordResetEmail: vi.fn(),
 }));

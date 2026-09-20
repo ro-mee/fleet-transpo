@@ -32,7 +32,7 @@ export default function ForgotPasswordPage() {
         setLoading(true);
         try {
           // The server owns the response wording: it reports a sent email
-          // when Resend is configured and the administrator path otherwise —
+          // when email delivery is configured and the administrator path otherwise —
           // identical whether or not the account exists (no enumeration).
           const result = await requestPasswordReset(email);
           setServerMessage(

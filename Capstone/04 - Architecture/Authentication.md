@@ -126,7 +126,7 @@ All credential-change paths are **server-side**; nothing writes `employees` from
 - `auth.service.js` previously called Supabase `signUp`/`resetPassword`/`updatePassword` through the **browser anon client**. Migration 009 let that anon key `INSERT`/`SELECT` on `employees`, and the default grants went further (`UPDATE`/`DELETE`) — **anyone with the public anon key could insert a `system_admin` or overwrite a password hash**. Migration 060 dropped the 009 policies and `REVOKE ALL`d `anon`; verified live (`pg_policies` + `role_table_grants` both empty for `anon` on `employees`).
 - `signUp`/`resetPassword`/`updatePassword` were **deleted** from `auth.service.js`; it no longer imports the anon `createClient`. Credential mutation lives in three routes:
   - `POST /api/auth/change-password` — session-bound, pre-existing.
-   - `POST /api/auth/forgot-password` — **public** but rate-limited (per-IP + per-email, 5/60s), identical generic response whether or not the email exists (no enumeration). Since 2026-09-19 it self-serves over Resend when `RESEND_API_KEY` is set (link + paste-able code emailed, `password_reset_requested` audited); without a provider it keeps the administrator-issued wording.
+   - `POST /api/auth/forgot-password` — **public** but rate-limited (per-IP + per-email, 5/60s), identical generic response whether or not the email exists (no enumeration). Since 2026-09-19 it self-serves over SMTP (Nodemailer; briefly Resend on day one, swapped the same day) when `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` are set (link + paste-able code emailed, `password_reset_requested` audited); without a provider it keeps the administrator-issued wording.
   - `POST /api/auth/reset-password` — `requireAuth`, employee derived from the session (never the body), rate-limited, wipes the employee's `mobile_refresh_tokens` so a leaked mobile session dies too.
 - `POST /api/mobile/auth/login` is now throttled **per-IP and per-account** (5/60s, 429 + `Retry-After`), mirroring the web Credentials provider — previously it ran unlimited bcrypt compares.
 - Seeded `admin123` credential from migration 008 was a **real account takeover**: migration 061 NULLs the known hash where it still matches, and the live `admin@fleetops.com` password was **rotated** to a fresh strong hash (cost 10). Decision: keep the account, rotate the credential.
@@ -149,7 +149,7 @@ behavior is:
   a 30-minute one-time link. Only a SHA-256 token hash is stored. The reset page
   consumes the token without an employee id, marks it used, revokes other reset
   and mobile tokens, and requires a fresh sign-in afterward.
-- `POST /api/auth/forgot-password` self-serves since 2026-09-19: with `RESEND_API_KEY` set it mints from the shared `issueResetToken()` issuer and emails the link + code via `src/lib/email/resend.js`; without a provider it keeps the uniform contact-admin wording. The message depends only on provider configuration, never on the lookup result, so enumeration safety holds either way. Delivery failures are warn-logged server-side and still answer generically. It does not claim that an email was sent when none was.
+- `POST /api/auth/forgot-password` self-serves since 2026-09-19: with SMTP credentials set it mints from the shared `issueResetToken()` issuer and emails the link + code via `src/lib/email/smtp.js` (Nodemailer; Resend SDK was installed and removed the same day before any production send); without a provider it keeps the uniform contact-admin wording. The message depends only on provider configuration, never on the lookup result, so enumeration safety holds either way. Delivery failures are warn-logged server-side and still answer generically. It does not claim that an email was sent when none was.
 - Authentication, session, and MFA events are written to `audit_logs` without storing
   passwords, cookies, bearer tokens, OTPs, recovery codes, or plaintext TOTP secrets. PostgreSQL-backed
   IP/account rate-limit buckets are shared across app instances and fail closed
@@ -159,7 +159,7 @@ behavior is:
   expired and long-revoked rows; `/api/mobile/auth/logout` supports the existing
   `allDevices` flag.
 
-Verified email delivery landed 2026-09-19 (Resend, forgot-password only); scheduled pruning of expired reset tokens remains explicitly unimplemented until its deployment decision is made.
+Verified email delivery landed 2026-09-19 (SMTP/Nodemailer, forgot-password only); scheduled pruning of expired reset tokens remains explicitly unimplemented until its deployment decision is made.
 
 ## Driver credential screens on mobile — CONFIRMED (2026-09-13)
 
@@ -175,7 +175,7 @@ credential endpoints, which already authorize mobile bearer tokens.
 - **Forgot** (`mobile/app/forgot-password.js`, public, linked from login):
   `POST /api/auth/forgot-password` with `skipAuth`; renders the generic
   server message verbatim (no enumeration). Since 2026-09-19 that message
-  reports a sent email when Resend is configured — the driver opens the link
+  reports a sent email when SMTP delivery is configured — the driver opens the link
   or pastes the code from the same email.
 - **Reset** (`mobile/app/reset-password.js`, public, paste-the-code): the
   token mode of `POST /api/auth/reset-password` (`{ token, newPassword }`,
