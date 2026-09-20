@@ -51,6 +51,7 @@ describe("Coach Marks Configuration & Storage", () => {
       expect(COACH_MARK_MILESTONES.PRETRIP_COMPLETE).toBeDefined();
       expect(COACH_MARK_MILESTONES.TRIP_READINESS).toBeDefined();
       expect(COACH_MARK_MILESTONES.LIVE_TRIP).toBeDefined();
+      expect(COACH_MARK_MILESTONES.FUEL_SCAN_INTRO).toBeDefined();
       expect(COACH_MARK_MILESTONES.FUEL_SCAN_CAPTURE).toBeDefined();
       expect(COACH_MARK_MILESTONES.FUEL_SCAN_VERIFY).toBeDefined();
       expect(COACH_MARK_MILESTONES.SOS).toBeDefined();
@@ -205,10 +206,22 @@ describe("Coach Marks Configuration & Storage", () => {
       expect(categoryStep.targetId).toBe("incident.category");
       expect(categoryStep.interaction).toBe("passthrough");
 
-      // Fuel verification fields
+      // Fuel intro is a protected simulation until the demo hands back to
+      // the real Scan receipt card; verification fields remain passthrough.
+      const fuelIntro = getMilestoneConfig("fuel_scan_intro");
+      expect(fuelIntro.steps[0].targetId).toBe("fuel.scan_entry");
+      expect(fuelIntro.steps[0].presentation).toBe("simulation");
+      expect(fuelIntro.steps[0].demoKey).toBe("fuel_receipt_scan");
+
+      const fuelCapture = getMilestoneConfig("fuel_scan_capture");
+      expect(fuelCapture.version).toBe(2);
+      expect(fuelCapture.steps[0].targetId).toBe("fuel.viewfinder");
+      expect(fuelCapture.steps[0].presentation).toBe("compact");
+
       const fuelVerify = getMilestoneConfig("fuel_scan_verify");
       expect(fuelVerify.steps[0].targetId).toBe("fuel.verify");
       expect(fuelVerify.steps[0].interaction).toBe("passthrough");
+      expect(fuelVerify.steps[0].presentation).toBe("compact");
     });
   });
 
