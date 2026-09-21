@@ -652,7 +652,7 @@ export default function MapTab() {
   const mapIntroActiveLayers = useMemo(() => {
     if (activeMilestone !== "map_intro" || currentStepIndex !== 2 || !activeTrip) return null;
     return (
-      <CoachMarkTarget targetId="map.layers" style={styles.mapIntroActiveLayersTarget}>
+      <CoachMarkTarget targetId="map.layers" radius={16} style={styles.mapIntroActiveLayersTarget}>
         <View
           pointerEvents="none"
           style={[
@@ -1237,11 +1237,19 @@ export default function MapTab() {
           )}
         </View>}
 
-        <CoachMarkTarget targetId="map.controls" style={[styles.standbyControls, { bottom: standbyBottom }]}>
+        {/* radius 24 is half of the 48dp control, which is how a target says
+            "I am round": the spotlight hole then becomes a circle instead of a
+            rounded square. The cluster is a column of three, so the hole takes
+            rounded ends rather than being a single circle. */}
+        <CoachMarkTarget
+          targetId="map.controls"
+          radius={24}
+          style={[styles.standbyControls, { bottom: standbyBottom }]}
+        >
           <ClayCard variant="compact" style={styles.standbyControl} onPress={() => mapRef.current?.recenter()} accessibilityLabel="Recenter on vehicle">
             <Ionicons name="navigate-outline" size={21} color={colors.onSurface} />
           </ClayCard>
-          <CoachMarkTarget targetId="map.layers" style={styles.mapLayerTarget}>
+          <CoachMarkTarget targetId="map.layers" radius={24} style={styles.mapLayerTarget}>
             <ClayCard variant="compact" style={styles.standbyControl} onPress={() => setLegendExpanded(!legendExpanded)} accessibilityLabel="Map layers" accessibilityState={{ expanded: legendExpanded }}>
               <Ionicons name="layers-outline" size={21} color={colors.onSurface} />
             </ClayCard>
@@ -1498,7 +1506,9 @@ export default function MapTab() {
           style={[styles.bottomSheet, mats.clayShade, { transform: [{ translateY: panY }], backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}
         >
           {/* Floating Map Controls (Sticks to top of sheet) */}
-          <CoachMarkTarget targetId="map.controls" style={styles.floatingControlsContainer}>
+          {/* radius 18 matches the control buttons' own corners, so the hole
+              outlines the row rather than falling back to the generic 12. */}
+          <CoachMarkTarget targetId="map.controls" radius={18} style={styles.floatingControlsContainer}>
             <Pressable
               style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}
               onPress={() => mapRef.current?.recenter()}
