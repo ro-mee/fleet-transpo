@@ -1092,4 +1092,17 @@ describe("Fuel intro retry", () => {
     expect(fuelScreen).toContain("canLogFuel &&\n      !cameraOpen &&\n      !scanning &&\n      !activeMilestone");
     expect(fuelScreen).toContain("[mode, canLogFuel, cameraOpen, scanning, activeMilestone, triggerMilestone]");
   });
+
+  it("sequences intro completion before the scanner opens", () => {
+    expect(fuelScreen).toContain('await notifyInteraction?.("fuel.scan_entry", { action: "open_real_scanner" });');
+    expect(fuelScreen).toContain('openReceiptCamera("scan");');
+    // Anchor the scan-call search at the await: an earlier, unrelated
+    // `openReceiptCamera("scan");` (auto-scan effect) precedes the scan card.
+    const from = fuelScreen.indexOf('await notifyInteraction?.("fuel.scan_entry"');
+    const seq = fuelScreen.slice(
+      from,
+      fuelScreen.indexOf('openReceiptCamera("scan");', from) + 'openReceiptCamera("scan");'.length
+    );
+    expect(seq.indexOf("await notifyInteraction")).toBeLessThan(seq.indexOf("openReceiptCamera"));
+  });
 });

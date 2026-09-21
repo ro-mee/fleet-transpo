@@ -994,8 +994,11 @@ export default function FuelReport() {
             <Text style={[styles.methodTitle, { color: colors.onBackground }]}>How do you want to log fuel?</Text>
             <CoachMarkTarget targetId="fuel.scan_entry" radius={16} padding={6}>
               <ClayCard
-                onPress={() => {
-                  notifyInteraction?.("fuel.scan_entry", { action: "open_real_scanner" });
+                onPress={async () => {
+                  // Complete the intro first: its storage write is async, and opening the
+                  // camera synchronously wins the race so the capture trigger sees the
+                  // intro still active and must rely on its re-fire.
+                  await notifyInteraction?.("fuel.scan_entry", { action: "open_real_scanner" });
                   openReceiptCamera("scan");
                 }}
                 disabled={scanning}
