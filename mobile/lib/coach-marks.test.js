@@ -50,6 +50,7 @@ describe("Coach Marks Configuration & Storage", () => {
       expect(COACH_MARK_MILESTONES.PRETRIP_REMARKS).toBeDefined();
       expect(COACH_MARK_MILESTONES.PRETRIP_COMPLETE).toBeDefined();
       expect(COACH_MARK_MILESTONES.TRIP_READINESS).toBeDefined();
+      expect(COACH_MARK_MILESTONES.MAP_INTRO).toBeDefined();
       expect(COACH_MARK_MILESTONES.LIVE_TRIP).toBeDefined();
       expect(COACH_MARK_MILESTONES.FUEL_SCAN_CAPTURE).toBeDefined();
       expect(COACH_MARK_MILESTONES.FUEL_SCAN_VERIFY).toBeDefined();
@@ -60,6 +61,31 @@ describe("Coach Marks Configuration & Storage", () => {
       // Zero mascot or celebration milestones
       expect(COACH_MARK_MILESTONES.COMPLETION).toBeUndefined();
       expect(COACH_MARK_MILESTONES.MASCOT).toBeUndefined();
+    });
+
+    it("keeps the first Map tour separate from the real-trip guide", () => {
+      const mapIntro = getMilestoneConfig("map_intro");
+      const liveTrip = getMilestoneConfig("live_trip");
+
+      expect(mapIntro.key).toBe("map_intro");
+      expect(mapIntro.version).toBe(1);
+      expect(mapIntro.route).toBe("/map");
+      expect(mapIntro.steps.slice(0, 3).map((step) => step.targetId)).toEqual([
+        "map.standby_status",
+        "map.controls",
+        "map.layers",
+      ]);
+      expect(mapIntro.steps.slice(3, 8).every((step) =>
+        step.targetId === "map.trip_practice" &&
+        step.requiresInteraction === true &&
+        step.interaction === "passthrough"
+      )).toBe(true);
+      expect(mapIntro.steps.at(-1).actionText).toBe("Finish Tour");
+      expect(liveTrip.steps.map((step) => step.targetId)).toEqual([
+        "map.current_target",
+        "map.telemetry",
+        "map.trip_progression",
+      ]);
     });
 
     it("ensures Live Trip step 1 does not claim turn-by-turn navigation", () => {
@@ -139,12 +165,14 @@ describe("Coach Marks Configuration & Storage", () => {
     it("resets all coach marks for a specific driver without touching other drivers", async () => {
       await setCoachMarkCompleted("pretrip", 1, "driver_A");
       await setCoachMarkCompleted("live_trip", 1, "driver_A");
+      await setCoachMarkCompleted("map_intro", 1, "driver_A");
       await setCoachMarkCompleted("pretrip", 1, "driver_B");
 
       await resetAllCoachMarks("driver_A");
 
       expect(await isCoachMarkCompleted("pretrip", 1, "driver_A")).toBe(false);
       expect(await isCoachMarkCompleted("live_trip", 1, "driver_A")).toBe(false);
+      expect(await isCoachMarkCompleted("map_intro", 1, "driver_A")).toBe(false);
       // driver_B remains completed
       expect(await isCoachMarkCompleted("pretrip", 1, "driver_B")).toBe(true);
     });
@@ -495,8 +523,8 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       expect(provider).toMatch(/^\s*isDriving,$/m);
     });
 
-    it("dismisses an open mark when motion starts, without burning it", () => {
-      expect(provider).toContain("if (isDriving) abandonActiveMilestone();");
+    it("dismisses open non-Map marks when motion starts, without burning them", () => {
+      expect(provider).toContain('if (isDriving && activeKeyRef.current !== "map_intro")');
 
       // Abandoning must not write completion: a tip the driver never read has
       // to come back once they are stationary.
@@ -556,6 +584,100 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
     });
   });
 
+  describe("First Map tour wiring", () => {
+    const provider = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    );
+    const tabBar = readFileSync(
+      new URL("../components/CurvedPillTabBar.js", import.meta.url),
+      "utf8"
+    );
+    const mapScreen = readFileSync(
+      new URL("../app/(app)/(tabs)/map.js", import.meta.url),
+      "utf8"
+    );
+    const practice = readFileSync(
+      new URL("../components/MapIntroPractice.jsx", import.meta.url),
+      "utf8"
+    );
+    const overlay = readFileSync(
+      new URL("../components/coachmarks/CoachMarkOverlay.jsx", import.meta.url),
+      "utf8"
+    );
+    const tomTomMap = readFileSync(
+      new URL("../components/TomTomMap.js", import.meta.url),
+      "utf8"
+    );
+
+    it("starts only from the intentional Map-tab handler", () => {
+      expect(tabBar).toContain("triggerMapIntroFromTab");
+      expect(tabBar).toContain("isMapTabIntent(routeName)");
+      expect(mapScreen).not.toContain('triggerMilestone("map_intro")');
+    });
+
+    it("reserves the Map tour before tabPress can be prevented", () => {
+      const handler = tabBar.slice(tabBar.indexOf("const isFocused = activeRouteName === routeName;"));
+      expect(handler.indexOf("triggerMapIntroFromTab")).toBeLessThan(handler.indexOf("navigation.emit"));
+    });
+
+    it("keeps the live-trip race guard and swipe gate opt-in", () => {
+      expect(provider).toContain("mapIntroPendingRef");
+      expect(provider).toContain('activeKeyRef.current === "map_intro"');
+      expect(provider).toContain("currentStep?.requiresInteraction");
+      expect(provider).toContain("data?.success !== true");
+    });
+
+    it("lets an intentional Map tap take priority over reset's Home welcome", () => {
+      expect(provider).toContain('if (activeKeyRef.current === "welcome")');
+      expect(provider).toContain("abandonActiveMilestone();");
+      expect(provider).toContain('milestoneKey !== "map_intro"');
+      expect(overlay).toContain('const isWelcomeCard = milestone?.key === "welcome"');
+      expect(overlay).toContain('pointerEvents={isWelcomeCard ? "box-none" : "auto"}');
+    });
+
+    it("does not inject a custom fallback car icon", () => {
+      expect(tomTomMap).not.toContain("FALLBACK_CAR_IMAGE");
+      expect(tomTomMap).not.toContain("const fallbackCarImage");
+      expect(tomTomMap).toContain("radial-gradient(circle, #70B991 0 6px, transparent 7px)");
+      expect(tomTomMap).toContain("cachedCarImage || carImage");
+    });
+
+    it("anchors only the new Map targets and keeps the production targets", () => {
+      expect(mapScreen).toContain('targetId="map.standby_status"');
+      expect(mapScreen).toContain('targetId="map.controls"');
+      expect(mapScreen).toContain('targetId="map.layers"');
+      expect(mapScreen).toContain('targetId="map.trip_practice"');
+      expect(mapScreen).toContain('targetId="map.current_target"');
+      expect(mapScreen).toContain('targetId="map.telemetry"');
+      expect(mapScreen).toContain('targetId="map.trip_progression"');
+    });
+
+    it("keeps tutorial practice away from production APIs", () => {
+      expect(practice).not.toContain("lib/api");
+      expect(practice).not.toContain("/api/trips/");
+      expect(practice).toContain("Vibration.vibrate(10)");
+    });
+
+    it("keeps tutorial rendering off the normal GPS render path", () => {
+      expect(practice).toContain("React.memo(MapIntroPractice)");
+      expect(mapScreen).toContain("const mapIntroPractice = useMemo");
+    });
+
+    it("mounts Map targets while the first visit is waiting for GPS", () => {
+      expect(mapScreen).toContain('const shouldRenderMapBeforeGps = activeMilestone === "map_intro" || mapIntroPending');
+      expect(mapScreen).toContain("!gpsTimedOut && !shouldRenderMapBeforeGps");
+    });
+
+    it("keeps the first Map walkthrough independent from GPS permission and motion", () => {
+      expect(mapScreen).toContain("if (permissionDenied && !shouldRenderMapBeforeGps)");
+      const mapTrigger = provider.slice(provider.indexOf("const triggerMapIntroFromTab"));
+      const mapTriggerEnd = mapTrigger.indexOf("const completeActiveMilestone");
+      expect(mapTrigger.slice(0, mapTriggerEnd)).not.toContain("isDrivingRef.current");
+      expect(provider).toContain('activeKeyRef.current !== "map_intro"');
+    });
+  });
+
   describe("A spotlight can never point at nothing", () => {
     const provider = readFileSync(
       new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
@@ -570,9 +692,19 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       "utf8"
     );
 
-    it("rejects a target measured entirely outside the safe viewport", () => {
-      expect(provider).toContain("if (layout.y + layout.height <= minSafeY) return null;");
-      expect(provider).toContain("if (layout.y >= maxSafeY) return null;");
+    it("rejects only a target lying entirely outside the window", () => {
+      // A whole-box test against the window, not against a margin. The previous
+      // `insets.top + 40` / `SCREEN_HEIGHT - insets.bottom - 80` slack refused
+      // `map.standby_status` on a device run: it measured y=16, height=49.8 —
+      // entirely visible — and a top-anchored target is legitimately at the top
+      // of the screen by design. Partial visibility must present (the
+      // auto-scroll settles it), so there is no margin to regress back to.
+      expect(provider).toContain("if (layout.y + layout.height <= 0) {");
+      expect(provider).toContain('rejected("target entirely above the window"');
+      expect(provider).toContain("if (layout.y >= SCREEN_HEIGHT) {");
+      expect(provider).toContain('rejected("target entirely below the window"');
+      expect(provider).not.toContain("minSafeY");
+      expect(provider).not.toContain("maxSafeY");
     });
 
     it("scopes unmount to the registering instance", () => {
@@ -635,7 +767,9 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       // true where it lands.
       expect(target).toContain("const canRegister = useCallback(");
       expect(target).toContain("() => mountedRef.current && isFocusedRef.current,");
-      expect(target.match(/if \(!canRegister\(\)\) return;/g)).toHaveLength(5);
+      // 6, not 5: the bounded retry for an unusable measurement added one more
+      // native round trip, and it re-checks for exactly this reason.
+      expect(target.match(/if \(!canRegister\(\)\) return;/g)).toHaveLength(6);
       expect(target).toContain("mountedRef.current = false;");
     });
 

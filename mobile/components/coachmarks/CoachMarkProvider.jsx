@@ -20,6 +20,9 @@ const CoachMarkContext = createContext({
   stepContext: null,
   activeTargetLayout: null,
   triggerMilestone: () => Promise.resolve(false),
+  triggerMapIntroFromTab: () => Promise.resolve(false),
+  mapIntroPending: false,
+  mapIntroAwaitingTap: false,
   registerTarget: () => {},
   unregisterTarget: () => {},
   notifyInteraction: () => {},
@@ -83,12 +86,22 @@ export function CoachMarkProvider({ children, driverId }) {
   //      every milestone transition those effects would re-fire.
   // Every writer of `activeMilestoneKey` below sets this in the same tick.
   const activeKeyRef = useRef(null);
+  const [mapIntroPending, setMapIntroPending] = useState(false);
+  const [mapIntroAwaitingTap, setMapIntroAwaitingTap] = useState(false);
+  const mapIntroPendingRef = useRef(false);
+  const mapIntroAwaitingTapRef = useRef(false);
+  const mapIntroAttemptRef = useRef(0);
+  const interactionSatisfiedRef = useRef(null);
 
   const activeMilestone = useMemo(
     () => getMilestoneConfig(activeMilestoneKey),
     [activeMilestoneKey]
   );
   const currentStep = activeMilestone?.steps?.[currentStepIndex] || null;
+
+  useEffect(() => {
+    interactionSatisfiedRef.current = null;
+  }, [activeMilestoneKey, currentStepIndex]);
 
   // ── Target ownership ──────────────────────────────────────────────────────
   // A target id can be live more than once: `inspection.remarks` mounts once per
@@ -220,30 +233,101 @@ export function CoachMarkProvider({ children, driverId }) {
 
   // Compute layout for the active step:
   // Must have positive dimensions, match the current route, and be on screen.
-  const activeTargetLayout = useMemo(() => {
-    if (!currentStep?.targetId) return null;
+  //
+  // ── Why the spotlight is not presenting (dev only) ────────────────────────
+  // Presentation is gated entirely on this result, and EVERY way of failing it
+  // used to be a silent `return null`. That is what made a measurement that
+  // never landed indistinguishable from a trigger that never fired: the
+  // milestone can be claimed, on the right route, with the right step current,
+  // and still present nothing at all — so a trigger-side fix and a measurement
+  // fix look identical from the device. The reason is computed here as plain
+  // data and reported from the effect below, because a ref must not be touched
+  // during render (`react-hooks/refs`).
+  const spotlight = useMemo(() => {
+    const rejected = (reason, detail = null) => ({ layout: null, reason, detail });
+
+    if (!currentStep?.targetId) {
+      // No target on this step: the card presents centred, which is a success.
+      return { layout: null, reason: null, detail: null };
+    }
     const layout = targets[currentStep.targetId];
-    if (!layout) return null;
-    if (layout.width <= 0 || layout.height <= 0) return null;
-    if (layout.route && !isRouteMatch(pathname, layout.route)) return null;
+    if (!layout) {
+      return rejected("target never registered", {
+        registered: Object.keys(targets),
+      });
+    }
+    if (layout.width <= 0 || layout.height <= 0) {
+      return rejected("target measured zero-size", { layout });
+    }
+    if (layout.route && !isRouteMatch(pathname, layout.route)) {
+      return rejected("target belongs to another route", {
+        targetRoute: layout.route,
+      });
+    }
 
     // Positive bounds are not enough: a card scrolled out of view measures
     // positively too, and the overlay would then dim the whole screen with the
-    // cutout pointing at nothing.
+    // cutout pointing at nothing. That — a box lying ENTIRELY outside the window
+    // — is the whole of what is rejected here.
     //
-    // Rejected only when the box is ENTIRELY outside the safe viewport — the
-    // same bounds CoachMarkTarget scrolls against. A partially visible target
-    // must still present, because the auto-scroll is gated on
-    // `isCurrentActiveTarget` (independent of overlay visibility): it runs, the
-    // target re-registers at its settled position, and the mark appears then.
-    const minSafeY = (insets?.top || 0) + 40;
+    // This used to be `insets.top + 40` / `SCREEN_HEIGHT - insets.bottom - 80`,
+    // and that slack is what refused the first Map spotlight. A top-anchored
+    // target legitimately sits at the top of the screen: on device,
+    // `map.standby_status` measured y=16, height=49.8 — entirely visible — while
+    // the gate demanded its bottom edge clear `insets.top + 40` = 79.1. Because
+    // the header declares `top: insets.top + 16`, its settled box is
+    // `insets.top + 16 .. insets.top + 66`, which clears that bar by only 26px;
+    // the refusal happened because the target's own insets had not settled when
+    // it measured while the provider's already had. Testing against the window
+    // makes presentation independent of that race.
+    //
+    // Partially visible targets must still present: the auto-scroll is gated on
+    // `isCurrentActiveTarget` (independent of overlay visibility), so it runs,
+    // the target re-registers at its settled position, and the mark appears
+    // then. Hence a whole-box test rather than a margin.
     const SCREEN_HEIGHT = windowHeight || Dimensions.get("window").height;
-    const maxSafeY = SCREEN_HEIGHT - (insets?.bottom || 0) - 80;
-    if (layout.y + layout.height <= minSafeY) return null;
-    if (layout.y >= maxSafeY) return null;
+    if (layout.y + layout.height <= 0) {
+      return rejected("target entirely above the window", {
+        y: layout.y,
+        height: layout.height,
+      });
+    }
+    if (layout.y >= SCREEN_HEIGHT) {
+      return rejected("target entirely below the window", {
+        y: layout.y,
+        SCREEN_HEIGHT,
+      });
+    }
 
-    return layout;
-  }, [currentStep?.targetId, targets, pathname, insets, windowHeight]);
+    return { layout, reason: null, detail: null };
+  }, [currentStep?.targetId, targets, pathname, windowHeight]);
+
+  const activeTargetLayout = spotlight.layout;
+
+  // Deduped by signature: the memo above re-runs on every re-measure, so a raw
+  // log would bury the first — and only informative — line under its own
+  // repeats. `console.warn` matches this app's existing diagnostic idiom. The
+  // latch clears as soon as the spotlight presents, so a later regression on the
+  // same step reports again rather than staying silent.
+  const rejectReasonRef = useRef(null);
+  useEffect(() => {
+    if (!__DEV__) return;
+    const signature = spotlight.reason
+      ? `${spotlight.reason}|${currentStep?.targetId || "none"}`
+      : null;
+    if (!signature) {
+      rejectReasonRef.current = null;
+      return;
+    }
+    if (rejectReasonRef.current === signature) return;
+    rejectReasonRef.current = signature;
+    console.warn(`[coachmarks] spotlight not presenting — ${spotlight.reason}`, {
+      milestone: activeMilestoneKey,
+      targetId: currentStep?.targetId || null,
+      pathname,
+      detail: spotlight.detail,
+    });
+  }, [spotlight, currentStep?.targetId, activeMilestoneKey, pathname]);
 
   // Route validity for the active milestone
   const isCurrentRouteValid = isRouteMatch(pathname, activeMilestone?.route);
@@ -281,10 +365,18 @@ export function CoachMarkProvider({ children, driverId }) {
    * permanently, so it returns the next time its trigger fires.
    */
   const abandonActiveMilestone = useCallback(() => {
+    if (activeKeyRef.current === "map_intro") {
+      mapIntroAwaitingTapRef.current = true;
+      setMapIntroAwaitingTap(true);
+    }
+    // Clear the synchronous guard with the owner ref so an intentional Map
+    // handoff cannot see the just-abandoned Welcome overlay for one tick.
+    overlayVisibleRef.current = false;
     activeKeyRef.current = null;
     setActiveMilestoneKey(null);
     setCurrentStepIndex(0);
     setStepContext(null);
+    interactionSatisfiedRef.current = null;
   }, []);
 
   // Triggering with driver isolation, driving safety check, and a
@@ -292,6 +384,27 @@ export function CoachMarkProvider({ children, driverId }) {
   const triggerMilestone = useCallback(
     async (milestoneKey, context = null) => {
       if (!milestoneKey) return false;
+
+      // An intentional Map-tab visit owns the first Map tour. Do not let a
+      // Home focus trigger claim the screen while that reservation is async.
+      if (
+        milestoneKey !== "map_intro" &&
+        (mapIntroPendingRef.current || activeKeyRef.current === "map_intro")
+      ) {
+        return false;
+      }
+
+      // Map-intro owns the first intentional Map visit. Keep the existing
+      // live-trip trigger from winning the async storage race while that
+  // map-specific reservation is pending or active.
+      if (
+        milestoneKey === "live_trip" &&
+        (mapIntroPendingRef.current ||
+          mapIntroAwaitingTapRef.current ||
+          activeKeyRef.current === "map_intro")
+      ) {
+        return false;
+      }
 
       // Driving Safety Lock: coach marks are suppressed while moving
       if (isDriving) {
@@ -326,6 +439,15 @@ export function CoachMarkProvider({ children, driverId }) {
         return false;
       }
 
+      if (
+        milestoneKey === "live_trip" &&
+        (mapIntroPendingRef.current ||
+          mapIntroAwaitingTapRef.current ||
+          activeKeyRef.current === "map_intro")
+      ) {
+        return false;
+      }
+
       // Compared against what it was before the await, rather than merely
       // checked for presence: that storage read is async, so another trigger can
       // claim the screen while this one is resolving. Comparing also lets a
@@ -336,6 +458,12 @@ export function CoachMarkProvider({ children, driverId }) {
       // And re-check the lock itself, for the same reason: it may have engaged
       // during the read.
       if (isDrivingRef.current) return false;
+      if (
+        milestoneKey !== "map_intro" &&
+        (mapIntroPendingRef.current || activeKeyRef.current === "map_intro")
+      ) {
+        return false;
+      }
 
       // Set synchronously, before the state lands, so the guard above is
       // accurate for anything that fires before the next render.
@@ -346,6 +474,62 @@ export function CoachMarkProvider({ children, driverId }) {
       return true;
     },
     [driverId, isDriving]
+  );
+
+  // Intentional Map-tab entry point. This is deliberately separate from the
+  // generic trigger so programmatic navigation and screen focus cannot start
+  // the first Map tour, and so the live-trip trigger cannot pre-empt it while
+  // AsyncStorage is being checked.
+  const triggerMapIntroFromTab = useCallback(
+    async (context = { source: "map-tab" }) => {
+      const config = getMilestoneConfig("map_intro");
+      if (!config) return false;
+      if (mapIntroPendingRef.current || activeKeyRef.current === config.key) {
+        return false;
+      }
+      if (activeKeyRef.current === "welcome") {
+        // Resetting tips can immediately show Home's welcome card. A direct
+        // Map-tab tap is an explicit choice to start the Map tour instead.
+        abandonActiveMilestone();
+      } else if (overlayVisibleRef.current) {
+        return false;
+      }
+
+      mapIntroAwaitingTapRef.current = false;
+      setMapIntroAwaitingTap(false);
+
+      const attempt = mapIntroAttemptRef.current + 1;
+      mapIntroAttemptRef.current = attempt;
+      mapIntroPendingRef.current = true;
+      setMapIntroPending(true);
+
+      try {
+        const alreadyDone = await isCoachMarkCompleted(
+          config.key,
+          config.version,
+          driverId
+        );
+        if (
+          alreadyDone ||
+          overlayVisibleRef.current ||
+          mapIntroAttemptRef.current !== attempt
+        ) {
+          return false;
+        }
+
+        activeKeyRef.current = config.key;
+        setStepContext(context);
+        setCurrentStepIndex(0);
+        setActiveMilestoneKey(config.key);
+        return true;
+      } finally {
+        if (mapIntroAttemptRef.current === attempt) {
+          mapIntroPendingRef.current = false;
+          setMapIntroPending(false);
+        }
+      }
+    },
+    [abandonActiveMilestone, driverId]
   );
 
   const completeActiveMilestone = useCallback(async () => {
@@ -370,6 +554,11 @@ export function CoachMarkProvider({ children, driverId }) {
     setActiveMilestoneKey(null);
     setCurrentStepIndex(0);
     setStepContext(null);
+    interactionSatisfiedRef.current = null;
+    if (key === "map_intro") {
+      mapIntroAwaitingTapRef.current = false;
+      setMapIntroAwaitingTap(false);
+    }
   }, [driverId]);
 
   const nextStep = useCallback(async () => {
@@ -377,18 +566,26 @@ export function CoachMarkProvider({ children, driverId }) {
     const config = getMilestoneConfig(activeMilestoneKey);
     if (!config) return;
 
+    if (
+      currentStep?.requiresInteraction &&
+      interactionSatisfiedRef.current !== currentStep.id
+    ) {
+      return;
+    }
+
     if (currentStepIndex < config.steps.length - 1) {
       setCurrentStepIndex((prev) => prev + 1);
     } else {
       await completeActiveMilestone();
     }
-  }, [activeMilestoneKey, currentStepIndex, completeActiveMilestone]);
+  }, [activeMilestoneKey, currentStep, currentStepIndex, completeActiveMilestone]);
 
   const prevStep = useCallback(() => {
+    if (currentStep?.allowBack === false) return;
     if (currentStepIndex > 0) {
       setCurrentStepIndex((prev) => prev - 1);
     }
-  }, [currentStepIndex]);
+  }, [currentStep, currentStepIndex]);
 
   const skip = useCallback(async () => {
     await completeActiveMilestone();
@@ -438,6 +635,10 @@ export function CoachMarkProvider({ children, driverId }) {
         currentStep.targetId === targetId &&
         currentStep.interaction === "passthrough"
       ) {
+        if (currentStep.requiresInteraction) {
+          if (data?.success !== true) return;
+          interactionSatisfiedRef.current = currentStep.id;
+        }
         await nextStep();
       }
     },
@@ -452,7 +653,14 @@ export function CoachMarkProvider({ children, driverId }) {
 
   const resetTips = useCallback(async () => {
     const success = await resetAllCoachMarks(driverId);
+    mapIntroAttemptRef.current += 1;
+    mapIntroPendingRef.current = false;
+    mapIntroAwaitingTapRef.current = false;
+    overlayVisibleRef.current = false;
     activeKeyRef.current = null;
+    interactionSatisfiedRef.current = null;
+    setMapIntroPending(false);
+    setMapIntroAwaitingTap(false);
     setActiveMilestoneKey(null);
     setCurrentStepIndex(0);
     setStepContext(null);
@@ -470,8 +678,9 @@ export function CoachMarkProvider({ children, driverId }) {
     // has no render-derived form — the milestone must be cleared without being
     // recorded as completed, so it cannot simply be computed away while
     // rendering, and the clearing has to reach state that later triggers read.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (isDriving) abandonActiveMilestone();
+    if (isDriving && activeKeyRef.current !== "map_intro") {
+      abandonActiveMilestone();
+    }
   }, [isDriving, abandonActiveMilestone]);
 
   const value = {
@@ -481,6 +690,9 @@ export function CoachMarkProvider({ children, driverId }) {
     stepContext,
     activeTargetLayout,
     triggerMilestone,
+    triggerMapIntroFromTab,
+    mapIntroPending,
+    mapIntroAwaitingTap,
     registerTarget,
     unregisterTarget,
     notifyInteraction,

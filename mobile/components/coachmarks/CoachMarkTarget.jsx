@@ -121,6 +121,39 @@ export function CoachMarkTarget({
   const { registerTarget, unregisterTarget, activeMilestone, currentStep } = useCoachMarks();
   const isCurrentActiveTarget = Boolean(currentStep?.targetId && currentStep.targetId === effectiveId);
 
+  // ── Bounded self-retry for a measurement that came back unusable ──────────
+  //
+  // The fixed settling ladder below assumes the target's geometry resolves
+  // within ~480ms. A cold first render does not honour that: on a fresh install
+  // the first Map visit is still constructing the WebView and fetching the trip
+  // while this target mounts, so `measureInWindow` returns `y <= 0` or zero
+  // dimensions, the provider rejects those bounds, and the ladder has already
+  // spent itself — nothing measures again, so the spotlight never presents even
+  // though the milestone is claimed and the step is correct.
+  //
+  // Retried only from the invalid branches, so a target that measures correctly
+  // is never re-measured and never re-scrolled: the ScrollView auto-scroll path
+  // is gated on `isPartiallyHidden`, and repeatedly re-entering it would re-fire
+  // `scrollTo` and stack its 320ms settle timers.
+  //
+  // Held in a ref rather than called directly because `measureAndRegister` needs
+  // this in its dep list, and a mutual reference between the two would not close.
+  const retryRef = useRef({ deadline: 0, timer: null });
+  const measureRef = useRef(null);
+
+  const retryInvalidMeasurement = useCallback(() => {
+    if (!isCurrentActiveTarget) return;
+    const now = Date.now();
+    if (retryRef.current.deadline === 0) retryRef.current.deadline = now + 4000;
+    if (now >= retryRef.current.deadline) return;
+    if (retryRef.current.timer != null) return;
+    retryRef.current.timer = setTimeout(() => {
+      retryRef.current.timer = null;
+      if (!canRegister()) return;
+      measureRef.current?.();
+    }, 150);
+  }, [isCurrentActiveTarget, canRegister]);
+
   const measureAndRegister = useCallback(() => {
     if (!containerRef.current || !effectiveId) return;
 
@@ -132,7 +165,10 @@ export function CoachMarkTarget({
     containerRef.current.measureInWindow((x, y, width, height) => {
       if (!canRegister()) return;
       // Validate positive dimensions
-      if (width <= 0 || height <= 0) return;
+      if (width <= 0 || height <= 0) {
+        retryInvalidMeasurement();
+        return;
+      }
 
       const minSafeY = (insets?.top || 0) + 40;
       const SCREEN_HEIGHT = windowHeight || Dimensions.get("window").height;
@@ -146,15 +182,22 @@ export function CoachMarkTarget({
           if (containerRef.current) {
             containerRef.current.measureInWindow((rx, ry, rw, rh) => {
               if (!canRegister()) return;
-              if (rw > 0 && rh > 0) {
-                registerTarget(
-                  effectiveId,
-                  { x: rx, y: ry, width: rw, height: rh, radius, padding },
-                  pathname,
-                  token,
-                  instanceId
-                );
+              // Still unsettled. Publishing `ry <= 0` would only be thrown out by
+              // the provider's safe-viewport gate (`y + height <= insets.top + 40`),
+              // so retry rather than register bounds that cannot present. This was
+              // the silent dead end: the settling ladder had already spent itself,
+              // so an unsettled first frame meant nothing ever measured again.
+              if (ry <= 0 || rw <= 0 || rh <= 0) {
+                retryInvalidMeasurement();
+                return;
               }
+              registerTarget(
+                effectiveId,
+                { x: rx, y: ry, width: rw, height: rh, radius, padding },
+                pathname,
+                token,
+                instanceId
+              );
             });
           }
         });
@@ -258,7 +301,30 @@ export function CoachMarkTarget({
     canRegister,
     isFocused,
     windowHeight,
+    retryInvalidMeasurement,
   ]);
+
+  // The retry timer calls through this, so it always measures with the current
+  // closure rather than the one that scheduled it.
+  useEffect(() => {
+    measureRef.current = measureAndRegister;
+  }, [measureAndRegister]);
+
+  // A step change gets a fresh retry budget, and a pending timer is cleared so
+  // it cannot measure on behalf of a step that is no longer current. The retry
+  // container is captured rather than re-read in the cleanup: it is created once
+  // and never reassigned, and reading `.current` at cleanup time is what
+  // `react-hooks/exhaustive-deps` warns about.
+  useEffect(() => {
+    const retry = retryRef.current;
+    retry.deadline = 0;
+    return () => {
+      if (retry.timer != null) {
+        clearTimeout(retry.timer);
+        retry.timer = null;
+      }
+    };
+  }, [isCurrentActiveTarget, currentStep?.id]);
 
   // Re-measure when activeMilestone activates or changes
   useEffect(() => {

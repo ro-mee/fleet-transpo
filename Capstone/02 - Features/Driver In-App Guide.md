@@ -11,15 +11,20 @@ source:
   - mobile/components/coachmarks/CoachMarkOverlay.jsx
   - mobile/components/coachmarks/CoachMarkTooltip.jsx
   - mobile/components/coachmarks/CoachMarkTarget.jsx
+  - mobile/components/CurvedPillTabBar.js
+  - mobile/components/MapIntroPractice.jsx
+  - mobile/lib/map-intro.js
+  - mobile/lib/map-intro.test.js
   - mobile/app/(app)/_layout.js
   - mobile/app/(app)/(tabs)/_layout.js
+  - mobile/app/(app)/(tabs)/map.js
   - mobile/app/(app)/inspection.js
   - mobile/app/(app)/trip/[id].js
   - mobile/app/(app)/fuel-report.js
   - mobile/app/(app)/incidents.js
   - mobile/components/DriverSos.js
   - mobile/lib/connectivity-state.js
-last_verified: 2026-09-19
+last_verified: 2026-09-21
 ---
 
 # Feature: Driver In-App Guidance & Contextual Coach Marks
@@ -158,6 +163,67 @@ The **only** six operational areas that receive contextual guidance are:
      - *Action*: `[ Got it ]`.
      - *Rules*: Do **not** highlight the entire map. Do **not** measure WebView route geometry; target only stable React Native UI components. Never require swiping a real status control. Never fabricate GPS, ETA, route, or trip status.
 
+### 3.3.1 First Map Tour (implemented 2026-09-20)
+
+The first intentional Map exploration has its own milestone: `map_intro`, version 1, route `/map`, stored through the existing driver-scoped key `fleetops.guide.map_intro.v1_{driverId}`. It is triggered only from the actual `Map` tab press in `CurvedPillTabBar`; Map screen focus or programmatic navigation does not start it.
+
+The tour uses four new exact targets:
+
+1. `map.standby_status` — the existing standby Live Tracking / Waiting for assignment header.
+2. `map.controls` — the existing recenter / Layers / locate control group.
+3. `map.layers` — the existing Layers control, with no automatic coverage change.
+4. `map.trip_practice` — the local-only practice surface.
+
+The practice surface uses five local stages: Start Route, Arrived at Pickup, Picked Up Guest, Arrived at Destination, and Dropped Off Guest. Each stage requires a right swipe, resets on an early release, shows a restrained success state, and advances only after the local gesture succeeds. It never calls trip, dispatch, reservation, GPS, geofence, odometer, incident, or notification APIs. `Finish Tour` is the only normal completion action that writes `map_intro` completion.
+
+The existing `live_trip` milestone and its `map.current_target`, `map.telemetry`, and `map.trip_progression` targets remain unchanged. A map-specific pending/active gate prevents the real-trip guide from pre-empting the first Map tour; after completion or skip, the existing active-trip trigger may retry. The first Map walkthrough is a UI-only exception to the motion gate so a Map tap can show the tutorial immediately; the Driving Safety Lock remains unchanged for the other milestones.
+
+If the first Map-tab tap lands while a trip is already active, `map_intro` still has priority over `live_trip`. The active route sheet supplies the existing status header and map-control targets; the Layers explanation uses a read-only tutorial preview because the active-trip branch does not render the standby radar Layers control. No production action or trip state is changed.
+
+### 3.3.2 Map first-visit reliability hardening (source, 2026-09-21)
+
+The first Map tour now mounts its stable React Native targets while GPS is still resolving, so the initial spotlight is not hidden behind the normal GPS loader. A fresh location request remains bounded and falls back to a recent cached fix before the existing watcher starts. The own-vehicle marker keeps the bundled PNG when available and retains the original small radar-dot fallback when the asset is unavailable.
+
+After Reset In-App Tips, an intentional Map-tab tap may dismiss the reset-triggered Home Welcome card and claim `map_intro`; the Welcome scrim stays pass-through for navigation while its own card remains actionable. This is a Map-specific handoff and does not reorder or change any other tooltip. The previous downloaded APK is not treated as verification of this source correction; EAS rebuild and device acceptance are intentionally pending explicit approval.
+
+### 3.3.3 Presentation gate: the spotlight was refused for being on screen (source, 2026-09-21)
+
+Section 3.3.2 hardened the *trigger*: the milestone is claimed from the Map tab, and the Home Welcome card hands off. That was necessary but not sufficient, and reading the presentation gate is what showed why four rounds of green suites changed nothing on the device.
+
+A guide presents only when `activeTargetLayout !== null`, and every way of failing that gate was a bare `return null`. So "the trigger never fired" and "the target never measured" produced identical device behaviour, and nothing distinguished them: the coach-mark suite reads source text rather than rendering. The trigger side was re-verified as sound — `mapIntroPendingRef` is set synchronously before `map_intro`'s storage read and re-checked after `triggerMilestone`'s own read (`:391`), so neither async claim can pre-empt the other, and the registration token bookkeeping already ignores a stale instance's measurements.
+
+**Root cause (device run, `__DEV__` warning).** The gate refused a target that was entirely visible:
+
+```
+[coachmarks] spotlight not presenting — target above the safe viewport
+  { milestone: "map_intro", pathname: "/map", targetId: "map.standby_status",
+    detail: { y: 16, height: 49.78, minSafeY: 79.11 } }
+```
+
+`map.standby_status` occupied `16 → 65.78` — fully on screen, and the intended target of step 0. The gate demanded its bottom edge clear `minSafeY = insets.top + 40` (`insets.top` = 39.11 in the provider). The slack was simply wrong for a top-anchored target: the header declares `top: insets.top + 16`, so its settled box is `insets.top + 16 .. insets.top + 66` and clears that bar by only 26px. The refusal happened because the target's own insets had not settled when it measured (`16 = 0 + 16`) while the provider's already had — so the same declaration produced two different coordinate systems in one frame. Testing against a margin made presentation depend on that race.
+
+Two source changes:
+
+- **The gate tests the window, not a margin.** Rejection is now whole-box against the window edges (`y + height <= 0`, `y >= SCREEN_HEIGHT`), which is what the gate's own comment already claimed it did — "rejected only when the box is ENTIRELY outside the safe viewport… a partially visible target must still present". The `insets.top + 40` / `SCREEN_HEIGHT - insets.bottom - 80` slack is gone, and the reason strings now say *entirely above/below the window*. Presentation no longer depends on inset-settling order.
+- **The gate reports its reason.** In `__DEV__` only and deduped by signature, a `console.warn` names which rejection fired (never registered / zero-size / other route / entirely above or below the window) with the milestone, target and bounds. The latch clears when the spotlight presents. This is what produced the line above; without it the failure was invisible from both the device and the suite.
+
+Two supporting changes, neither of which was the cause:
+
+- **Bounded self-retry in `CoachMarkTarget`**, entered **only from the invalid branches** — a zero-dimension measurement, or a re-measure still at `ry <= 0` — at a 150 ms interval against a 4 s deadline, reset per step. The earlier hypothesis that this was the root cause was **wrong**: the device log showed a perfectly valid measurement being refused. It is kept because it hardens the same class the device did exhibit (a target measuring before its layout settles), and because an unsettled `ry <= 0` was previously *published* rather than retried. A correctly-measured target is never re-measured, which matters because the ScrollView auto-scroll path is gated on `isPartiallyHidden`: re-entering it would re-fire `scrollTo` and stack its 320 ms settle timers.
+- **`mapIntroAwaitingTap` is unreachable** (see `Bugs.md`): its only writer runs when the active milestone is `map_intro`, but both call sites are mutually exclusive with that branch, so the guards reading it are inert. Recorded, not changed.
+
+**Status: gate fix applied to source, device confirmation pending.** The suite that would cover this cannot render components, so confirmation has to come from a device run on the Metro path (`npm run dev` at the root plus `npm start -- --dev-client --lan` in `mobile`), which needs no APK rebuild. If the spotlight still does not present, the warning now names the gate that refused it.
+
+### 3.3.4 The spotlight landed off the element (source, 2026-09-21)
+
+Section 3.3.3 made the spotlight present. It then appeared on every step — and in the wrong place, **uniformly**, on all of them. A uniform offset is a coordinate-space mismatch, not a per-target measurement error, and this one is structural rather than a slip in the geometry arithmetic.
+
+`CoachMarkTarget` registers bounds from `measureInWindow`, which reports **window** coordinates. `CoachMarkOverlay` draws its four scrim rectangles and its cutout with `StyleSheet.absoluteFill` inside the *provider's* container (`CoachMarkProvider.jsx:713`). Those are the same space only while that container sits exactly at the window origin — and it need not: the container also holds `<ConnectivityBanner />` as a layout-participating sibling above the navigator (`app/(app)/_layout.js:78`), so a visible banner, or any parent padding, inset or transform, moves every cutout by the same amount. That is precisely the observed signature, which is why the fix is in the overlay's frame of reference rather than in any individual target's numbers.
+
+`CoachMarkOverlay` now measures its own container's window origin and subtracts it from the target bounds before geometry is computed (`containerRef` / `containerOrigin`, re-measured on a `Dimensions` change). The subtraction is a **no-op at the window origin**, so a case that already lines up cannot regress — the fix is correct by construction rather than by tuning a constant.
+
+**Status: applied to source, device confirmation pending.** A second `__DEV__` diagnostic prints the container origin beside the bounds it was subtracted from, deduped per geometry change. If that origin reads `(0, 0)` on the device then the subtraction is not the whole story and the registered bounds themselves are stale, which is the next place to look.
+
 ---
 
 ### 3.4 Fuel Receipt Scanning (HIGH Priority)
@@ -255,6 +321,8 @@ Spotlight smoothly transitions to Remarks field
 > [!IMPORTANT]
 > `CoachMarkProvider` **never** mutates production state directly. The driver performs the real action, the screen updates its own state, and the coach mark merely observes.
 
+The first Map tour uses the same `passthrough` mechanism for its practice spotlight, plus an opt-in `requiresInteraction` guard. Its tooltip CTA cannot advance a practice stage by tap alone; only the local right-swipe callback can move the tutorial forward.
+
 ---
 
 ## 5. Spotlight & Target Architecture
@@ -337,6 +405,7 @@ export function getCoachMarkStorageKey(key, version = 1, driverId = null) {
 | Scope | Key | Storage Key | Version |
 |---|---|---|---|
 | **Introduction** | `welcome` | `fleetops.guide.welcome.v1_{driverId}` | 1 |
+| **First Map Tour** | `map_intro` | `fleetops.guide.map_intro.v1_{driverId}` | 1 |
 | **Guide 1** | `pretrip` | `fleetops.guide.pretrip.v1_{driverId}` | 1 |
 | | `pretrip_remarks` | `fleetops.guide.pretrip_remarks.v1_{driverId}` | 1 |
 | | `pretrip_complete` | `fleetops.guide.pretrip_complete.v1_{driverId}` | 1 |
@@ -408,4 +477,28 @@ Drivers can review contextual guidance at any time:
 - [x] **Driving Safety Lock**: Guidance suppressed above $10\ \text{km/h}$ — sticky for 2 minutes, failing open on unknown motion, and dismissing (abandoning, not completing) a mark already on screen when motion begins.
 - [x] **One Guide at a Time**: A trigger cannot pre-empt a guide that is on screen; the superseded guide stays incomplete and returns later.
 - [x] **Per-Driver Persistence**: Isolated per `driverId` and survives app cold starts.
-- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests) covers the motion arithmetic and hold window; `mobile/lib/coach-marks.test.js` (44 tests) covers the definitions, storage, and provider wiring for the safety lock, the one-guide-at-a-time guard, target ownership, and off-screen rejection. Verified 2026-09-19 with 190/190 passing tests across `mobile/lib/`.
+- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests), `mobile/lib/coach-marks.test.js` (50 tests), and `mobile/lib/map-intro.test.js` (5 tests) cover the motion arithmetic, Map-intro stages, storage, intentional-tab wiring, provider race guard, target ownership, off-screen rejection, and tutorial render isolation. Verified 2026-09-20 with 25 files / 201 tests passing across `mobile/lib/`.
+
+### Map first-install trigger simplification — 2026-09-21
+
+For `map_intro` only, the eligibility rule is now intentionally simple:
+`Map tab clicked` and `map_intro` is not completed for the current driver. The
+tutorial does not wait for location permission, a GPS fix, or motion state;
+GPS remains responsible for the car marker and live tracking. Other guidance
+milestones remain unchanged. Focused coach-mark/Map-intro tests passed **60/60**;
+no APK rebuild was run.
+
+## First-install map tutorial implementation — 2026-09-20
+
+- Implemented the first intentional Map-tab tour as a separate `map_intro` milestone. Home `welcome`, the existing `live_trip` guide, and all non-Map tooltip definitions remain separate.
+- Added the exact standby header/control/layers targets and the local-only five-stage swipe practice. The production `SwipeButton` and trip API branches were not reused for tutorial callbacks.
+- Kept the practice card off the normal Map render path: it mounts only during `map_intro` practice, is memoized against GPS-driven parent renders, and uses native-driver thumb animations.
+- Preserved per-driver AsyncStorage, Reset In-App Tips, route-scoped target measurement, reduced-motion handling, accessibility activation, and the Driving Safety Lock for non-Map milestones.
+- Verification: mobile library suite passed 25/25 files and 201/201 tests; touched mobile ESLint passed with zero warnings; Android Expo export bundled 1,387 modules with `--no-bytecode`. The normal Hermes bytecode export remains environment-blocked by `hermesc.exe` permission denied on this Windows workspace.
+
+### Map marker recovery after first-install APK (2026-09-20)
+
+- Root cause: the Map screen awaited a fresh highest-accuracy GPS fix before setting `driverLocation` or starting `watchPositionAsync`; on Android, a delayed or failed first request left the own-vehicle marker absent.
+- Fix: `mobile/app/(app)/(tabs)/map.js` now times out the fresh request after 8 seconds, falls back to a recent `getLastKnownPositionAsync` fix (5-minute age / 1 km accuracy), seeds the existing fix ref, and then keeps the existing live watcher, heading, and odometer paths unchanged.
+- The change is isolated to Map location initialization. No coach-mark definition, provider, target, reset behavior, other tooltip, fake radar data, or production trip callback changed.
+- Verification: touched-file ESLint passed; coach-mark and Map-intro tests passed 56/56; Android export bundled 1,387 modules; final EAS preview build `2dea7830-a960-4fd4-8e5c-4f11168ce7dd` finished successfully. Final APK: https://expo.dev/artifacts/eas/9CcUWryae0tYqy6s0SgRvNDB5QCI2liNFy_HZp5PjvY.apk

@@ -12,6 +12,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
+import { useCoachMarks } from "./coachmarks";
+import { isMapTabIntent } from "../lib/map-intro";
 
 const waveLight = require("../assets/images/clay_wave_light.png");
 const waveDark = require("../assets/images/clay_wave_dark.png");
@@ -46,6 +48,7 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { scheme } = useTheme();
+  const { triggerMapIntroFromTab } = useCoachMarks();
   const isDark = scheme === "dark";
 
   // Light/Dark token mappings matching the exact reference palette
@@ -112,17 +115,29 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
 
   const handleTabPress = (routeName) => {
     if (!navigation || !state) {
+      if (isMapTabIntent(routeName)) {
+        triggerMapIntroFromTab({ source: "map-tab" });
+      }
       router.push(`/(app)/(tabs)/${routeName === "index" ? "" : routeName}`);
       return;
     }
 
     const route = state.routes.find((r) => r.name === routeName);
     if (!route) {
+      if (isMapTabIntent(routeName)) {
+        triggerMapIntroFromTab({ source: "map-tab" });
+      }
       router.push(`/(app)/(tabs)/${routeName === "index" ? "" : routeName}`);
       return;
     }
 
     const isFocused = activeRouteName === routeName;
+    if (isMapTabIntent(routeName)) {
+      // Reserve the Map tour before navigation emits tabPress. Some navigator
+      // listeners can prevent the default event even though the driver made an
+      // intentional Map-tab tap.
+      triggerMapIntroFromTab({ source: "map-tab" });
+    }
     const event = navigation.emit({
       type: "tabPress",
       target: route.key,

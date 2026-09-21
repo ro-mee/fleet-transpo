@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -50,10 +50,44 @@ export function CoachMarkOverlay({
 
   const [reduceMotion, setReduceMotion] = useState(false);
 
+  // `measureInWindow` reports WINDOW coordinates; the spotlight is drawn inside
+  // this overlay's own container. Those are the same space only while that
+  // container sits exactly at the window origin, and it need not: the
+  // provider's container also holds a layout-participating sibling above the
+  // navigator, and any parent padding, inset or transform moves it. When it
+  // does, EVERY cutout is out by the same delta — which is exactly a highlight
+  // that is inaccurate on all of them, at every step.
+  //
+  // Measuring the container and subtracting its origin makes the two spaces
+  // agree by construction. At the window origin this subtracts zero, so it
+  // cannot regress a case that already lines up.
+  const containerRef = useRef(null);
+  const [containerOrigin, setContainerOrigin] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node?.measureInWindow) return undefined;
+    let cancelled = false;
+    const measure = () => {
+      node.measureInWindow((x, y) => {
+        if (cancelled) return;
+        setContainerOrigin((prev) =>
+          prev.x === x && prev.y === y ? prev : { x, y }
+        );
+      });
+    };
+    measure();
+    const sub = Dimensions.addEventListener?.("change", measure);
+    return () => {
+      cancelled = true;
+      sub?.remove?.();
+    };
+  }, []);
+
   // Spotlight geometry with 8dp breathing room
   const pad = targetLayout?.padding ?? 8;
-  const rawX = targetLayout?.x ?? 0;
-  const rawY = targetLayout?.y ?? 0;
+  const rawX = (targetLayout?.x ?? 0) - containerOrigin.x;
+  const rawY = (targetLayout?.y ?? 0) - containerOrigin.y;
   const rawW = targetLayout?.width ?? 0;
   const rawH = targetLayout?.height ?? 0;
 
@@ -62,6 +96,34 @@ export function CoachMarkOverlay({
   const spotW = Math.max(0, Math.min(SCREEN_WIDTH - spotX, rawW + pad * 2));
   const spotH = Math.max(0, Math.min(SCREEN_HEIGHT - spotY, rawH + pad * 2));
   const radius = targetLayout?.radius ?? 12;
+
+  // Device-side confirmation that the two coordinate spaces agree. Prints the
+  // container origin next to the bounds it was subtracted from, so a run that
+  // still looks off says which side moved rather than needing another guess.
+  // Deduped: a settling target re-measures several times per step.
+  const geometryLogRef = useRef(null);
+  useEffect(() => {
+    if (!__DEV__ || !targetLayout) return;
+    const signature = [
+      step?.targetId ?? "none",
+      `${containerOrigin.x},${containerOrigin.y}`,
+      `${targetLayout.x},${targetLayout.y},${targetLayout.width},${targetLayout.height}`,
+    ].join("|");
+    if (geometryLogRef.current === signature) return;
+    geometryLogRef.current = signature;
+    console.warn("[coachmarks] spotlight geometry", {
+      targetId: step?.targetId ?? null,
+      origin: containerOrigin,
+      measured: {
+        x: targetLayout.x,
+        y: targetLayout.y,
+        w: targetLayout.width,
+        h: targetLayout.height,
+      },
+      spotlight: { x: spotX, y: spotY, w: spotW, h: spotH },
+      insets: { top: insets?.top ?? null, bottom: insets?.bottom ?? null },
+    });
+  }, [targetLayout, containerOrigin, step, spotX, spotY, spotW, spotH, insets]);
 
   // Animated values for smooth bounds transitions and restrained arrival pulse
   const [animX] = useState(() => new Animated.Value(spotX));
@@ -192,6 +254,10 @@ export function CoachMarkOverlay({
 
   // Scrim color: dark translucent preserving underlying visual context
   const scrimBg = isDark ? "rgba(10, 15, 13, 0.76)" : "rgba(15, 25, 20, 0.65)";
+  // Welcome is intentionally non-intrusive. Let navigation tabs remain
+  // reachable so a driver can choose Map immediately after resetting tips;
+  // every targeted/protected coach mark keeps its normal blocking geometry.
+  const isWelcomeCard = milestone?.key === "welcome";
 
   // If there's no target (e.g. Welcome card), render centered card over full scrim
   if (!targetLayout) {
@@ -201,10 +267,11 @@ export function CoachMarkOverlay({
         style={[StyleSheet.absoluteFill, styles.rootOverlay]}
       >
         <Animated.View
+          pointerEvents={isWelcomeCard ? "box-none" : "auto"}
           style={[StyleSheet.absoluteFill, { opacity: overlayFade }]}
         >
           <View
-            pointerEvents="auto"
+            pointerEvents={isWelcomeCard ? "box-none" : "auto"}
             style={[StyleSheet.absoluteFill, { backgroundColor: scrimBg }]}
           />
           <View style={styles.centerCardWrap} pointerEvents="box-none">
@@ -215,6 +282,7 @@ export function CoachMarkOverlay({
               totalSteps={totalSteps}
               actionText={step.actionText || "Got it"}
               canSkip={step.canSkip}
+              allowBack={step.allowBack !== false}
               arrowPosition="none"
               onNext={onNext}
               onPrev={onPrev}
@@ -270,6 +338,7 @@ export function CoachMarkOverlay({
 
   return (
     <View
+      ref={containerRef}
       pointerEvents="box-none"
       style={[StyleSheet.absoluteFill, styles.rootOverlay]}
     >
@@ -369,6 +438,7 @@ export function CoachMarkOverlay({
               (stepIndex === totalSteps - 1 ? "Got it" : "Next →")
             }
             canSkip={step.canSkip}
+            allowBack={step.allowBack !== false}
             arrowPosition={tooltipArrowPos}
             arrowOffset={arrowOffset}
             style={tooltipStyle}
@@ -385,6 +455,8 @@ export function CoachMarkOverlay({
 const styles = StyleSheet.create({
   rootOverlay: {
     zIndex: 99999,
+    // Keep the Map coach mark above the Android TomTom WebView surface.
+    elevation: 1000,
   },
   scrimRect: {
     position: "absolute",

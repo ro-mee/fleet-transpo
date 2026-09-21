@@ -19,8 +19,14 @@ source:
   - mobile/app/forgot-password.js
   - mobile/app/reset-password.js
   - mobile/lib/password-validation.js
+  - mobile/components/CurvedPillTabBar.js
+  - mobile/components/MapIntroPractice.jsx
+  - mobile/components/coachmarks/CoachMarkProvider.jsx
+  - mobile/lib/coach-marks.js
+  - mobile/lib/map-intro.js
+  - mobile/app/(app)/(tabs)/map.js
   - mobile/AGENTS.md
-last_verified: 2026-09-19
+last_verified: 2026-09-21
 ---
 
 # Mobile Architecture
@@ -291,3 +297,26 @@ Scoping the guard to *visible* rather than *active* is what keeps it from wedgin
 - **Spotlight geometry is animated**: the four scrim rectangles and the cutout are driven by interpolated bounds. They were previously animated for 240 ms and then never referenced in JSX, so a re-measuring target snapped the spotlight instead of moving it.
 
 - **Verification**: `mobile/lib/coach-marks.test.js` (39 tests) and `mobile/lib/motion-state.test.js` (11 tests) both pass, and the full suite is green as of 2026-09-18 — **143 test files, 1,389 tests**, run with `npx vitest run --no-file-parallelism --maxWorkers=1`. They cover the definitions, storage, motion arithmetic, and hold-window boundaries directly; the provider wiring is asserted as **source text** (the RN component tree is outside the vitest include list), which catches a revert but not a subtle rewrite — the suite passes even if the provider fails to render. ESLint has not been re-run. Manual device checks of the lock — the only thing that exercises the wiring rather than the arithmetic — remain outstanding; see the journal entry for that date.
+
+### First intentional Map tour (2026-09-20)
+
+The first Map exploration is a separate driver-scoped `map_intro` milestone. `CurvedPillTabBar` starts it only for an intentional Map-tab press; the provider reserves the milestone before the async storage read so the existing `live_trip` trigger cannot win the race. The Map screen contributes the standby status, control-group, Layers, and local practice targets. Five practice swipes are handled entirely by `MapIntroPractice` and never call production trip APIs or the real `SwipeButton` callback.
+
+The active-trip branch does not expose the standby radar Layers control, so `map_intro` uses a read-only tutorial preview for that one explanatory step while keeping the existing status header and map-control targets. `map_intro` retains priority over `live_trip`; after completion, the existing real-trip guide can trigger normally. The existing welcome, live-trip, and non-Map coach marks retain their definitions and behavior. Verification: 25 mobile library files / 201 tests, touched-file ESLint with zero warnings, and Android export with `--no-bytecode` bundling 1,387 modules. Manual native visual acceptance remains pending because no connected device was available; the normal Hermes export was blocked by Windows `hermesc.exe` permission denied.
+
+The practice card is mounted only for `map_intro` practice steps, memoized so GPS-driven Map renders do not rebuild its subtree, and uses native-driver animations for the thumb/fill transitions. No new polling, watcher, API request, dependency, or production trip callback was added.
+
+### Map GPS initialization fallback (2026-09-20; hardened 2026-09-21)
+
+The standby Map must not depend on one successful `getCurrentPositionAsync()` call to render the driver's own vehicle. `map.js` races the fresh highest-accuracy request against an 8-second timeout, uses a recent `getLastKnownPositionAsync()` fix when the fresh request is unavailable, seeds `lastFixRef`, and then starts the existing position watcher. The Map tab reserves its tutorial before `tabPress` emission, and the coach overlay has Android elevation so a native TomTom WebView cannot cover it. These changes improve cold-start and presentation reliability without adding a second watcher, polling loop, API call, or dependency. Release radar markers remain truthful; no synthetic production data was enabled.
+
+The follow-up source hardening keeps the normal GPS loader for ordinary Map visits but mounts the Map tutorial shell while `map_intro` is pending. A direct Map-tab tap can also hand off from the reset-triggered Home Welcome card; that Welcome-only scrim is pass-through for navigation, while the card CTA remains actionable. `TomTomMap` keeps the bundled `carlive.png` when available and retains the original small radar-dot fallback when the asset is unavailable.
+
+Verification: touched-file ESLint passed; focused coach-mark/Map-intro tests passed 60/60. No EAS build was run after this correction because APK rebuilding is pending explicit user approval; device visual acceptance remains pending.
+
+The follow-up trigger simplification keeps `map_intro` independent from
+location permission, GPS readiness, and motion state: an intentional Map-tab
+tap starts it when the current driver's completion key is absent. GPS and the
+vehicle marker remain separate runtime concerns. Other coach-mark milestones
+retain their existing trigger and safety behavior. Focused verification is
+60/60; no APK rebuild was run.

@@ -22,6 +22,7 @@ import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
 import { FilledButton, TonalButton } from "../../../components/ui";
 import { useCoachMarks, CoachMarkTarget } from "../../../components/coachmarks";
+import MapIntroPractice from "../../../components/MapIntroPractice";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -88,6 +89,21 @@ function haversineKm(latA, lonA, latB, lonB) {
     Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+function driverLocationFromFix(location) {
+  const lat = Number(location?.coords?.latitude);
+  const lng = Number(location?.coords?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  const heading = Number(location?.coords?.heading);
+  const speed = Number(location?.coords?.speed);
+  return {
+    lat,
+    lng,
+    heading: Number.isFinite(heading) && heading >= 0 ? heading : undefined,
+    speed: Number.isFinite(speed) ? speed : undefined,
+  };
 }
 
 // Max km a single GPS segment (≤3s apart) can plausibly be before we treat it
@@ -341,7 +357,14 @@ export default function MapTab() {
   const router = useRouter();
   const { colors, scheme, type } = useTheme();
   const insets = useSafeAreaInsets();
-  const { triggerMilestone } = useCoachMarks();
+  const {
+    triggerMilestone,
+    activeMilestone,
+    currentStepIndex,
+    mapIntroPending,
+    mapIntroAwaitingTap,
+    notifyInteraction,
+  } = useCoachMarks();
   const { status: connectivity } = useConnectivity();
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
@@ -581,10 +604,70 @@ export default function MapTab() {
   }, []);
 
   useEffect(() => {
-    if (!loading && activeTrip && isGpsTrackedTrip(activeTrip)) {
+    if (
+      focusedRef.current &&
+      !loading &&
+      activeTrip &&
+      isGpsTrackedTrip(activeTrip) &&
+      !mapIntroPending &&
+      !mapIntroAwaitingTap &&
+      activeMilestone !== "map_intro"
+    ) {
       triggerMilestone("live_trip");
     }
-  }, [loading, activeTrip, triggerMilestone]);
+  }, [
+    loading,
+    activeTrip,
+    triggerMilestone,
+    activeMilestone,
+    mapIntroPending,
+    mapIntroAwaitingTap,
+  ]);
+
+  const handleMapPracticeSuccess = useCallback(
+    (data) => notifyInteraction("map.trip_practice", data),
+    [notifyInteraction]
+  );
+
+  // The local practice only mounts once the Map-intro configuration reaches
+  // its first swipe step. It is deliberately absent from the real trip action
+  // path, so the production SwipeButton and its API callbacks remain intact.
+  const mapIntroPractice = useMemo(() => {
+    if (activeMilestone !== "map_intro" || currentStepIndex < 3) return null;
+    return (
+      <View style={styles.mapIntroPractice} pointerEvents="box-none">
+        <CoachMarkTarget targetId="map.trip_practice" style={styles.mapIntroPracticeTarget}>
+          <MapIntroPractice onStageSuccess={handleMapPracticeSuccess} />
+        </CoachMarkTarget>
+      </View>
+    );
+  }, [activeMilestone, currentStepIndex, handleMapPracticeSuccess]);
+
+  // Active trips do not render the standby radar Layers button. Keep the
+  // first Map tour usable without pretending that the route sheet has a
+  // production Layers action; this small read-only preview is tutorial-only.
+  const mapIntroActiveLayers = useMemo(() => {
+    if (activeMilestone !== "map_intro" || currentStepIndex !== 2 || !activeTrip) return null;
+    return (
+      <CoachMarkTarget targetId="map.layers" style={styles.mapIntroActiveLayersTarget}>
+        <View
+          pointerEvents="none"
+          style={[
+            styles.mapIntroActiveLayers,
+            mats.clayTile,
+            {
+              backgroundColor: colors.surfaceContainerLow,
+              borderColor: colors.outlineVariant,
+              shadowColor: colors.shadow,
+            },
+          ]}
+        >
+          <Ionicons name="layers-outline" size={20} color={colors.primary} />
+          <Text style={[styles.mapIntroActiveLayersText, { color: colors.onSurface }]}>Map layers</Text>
+        </View>
+      </CoachMarkTarget>
+    );
+  }, [activeMilestone, currentStepIndex, activeTrip, mats.clayTile, colors]);
 
   useFocusEffect(useCallback(() => {
     focusedRef.current = true;
@@ -662,9 +745,34 @@ export default function MapTab() {
       }
       setPermissionDenied(false);
 
-      // Get initial location with highest accuracy so it doesn't calculate the route from a wrong/approximate spot!
-      let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
-      setDriverLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading });
+      // Seed the marker from a cached fix when available. The fresh request can
+      // be slow or fail on some Android devices; that must not leave the map
+      // without a vehicle while the watcher is being established.
+      let loc = null;
+      try {
+        loc = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }),
+          new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
+        ]);
+      } catch (error) {
+        console.warn('[Map] Fresh location unavailable:', error?.message || error);
+      }
+      let initialFix = driverLocationFromFix(loc);
+      if (!initialFix) {
+        try {
+          loc = await Location.getLastKnownPositionAsync({
+            maxAge: 5 * 60 * 1000,
+            requiredAccuracy: 1000,
+          });
+        } catch (error) {
+          console.warn('[Map] Last known location unavailable:', error?.message || error);
+        }
+        initialFix = driverLocationFromFix(loc);
+      }
+      if (initialFix) {
+        lastFixRef.current = initialFix;
+        setDriverLocation(initialFix);
+      }
 
       // Subscribe to real-time updates (every 5 meters or 3 seconds)
       subscription = await Location.watchPositionAsync(
@@ -915,9 +1023,15 @@ export default function MapTab() {
   const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
   const handleMapDragged = useCallback(() => {}, []);
 
+  // The first Map tutorial is a UI walkthrough, so it must be able to render
+  // even when location permission is unavailable. GPS only controls the car
+  // marker; it is not a prerequisite for explaining the Map screen.
+  const shouldRenderMapBeforeGps = activeMilestone === "map_intro" || mapIntroPending;
+
   // Permission denied — an honest dead-end with a way out, not a loader that
-  // never resolves.
-  if (permissionDenied) {
+  // never resolves. Keep the tutorial shell available when Map was explicitly
+  // opened for its first-time walkthrough.
+  if (permissionDenied && !shouldRenderMapBeforeGps) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }, styles.permState]}>
         <View style={[styles.permIconWrap, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
@@ -941,10 +1055,10 @@ export default function MapTab() {
     );
   }
 
-  // GPS still resolving — but fail-open after gpsTimedOut so a hung fix can
-  // never strand a Drop-off trip on a fullscreen spinner. The active-trip
-  // branch below already falls back to the trip's stored origin coords.
-  if (!driverLocation && !gpsTimedOut) {
+  // Mount the Map tour's stable targets immediately while GPS resolves. The
+  // normal screen keeps its loader; only the intentional first Map visit needs
+  // the map shell present so the first spotlight has something to measure.
+  if (!driverLocation && !gpsTimedOut && !shouldRenderMapBeforeGps) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <LottieView
@@ -994,15 +1108,17 @@ export default function MapTab() {
           </View>
         )}
         
-        <View style={[styles.standbyHeader, { top: insets.top + 16 }]} pointerEvents="none">
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={[styles.standbyLiveDot, { backgroundColor: poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error && connectivity === 'online' ? colors.primary : colors.outline }]} />
-            <Text style={[type.titleLg, { color: colors.onSurface }]}>
-              {!driverLocation ? 'Locating vehicle' : connectivity !== 'online' ? 'Connection interrupted' : poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error ? 'Live Tracking' : 'Tracking paused'}
-            </Text>
+        <CoachMarkTarget targetId="map.standby_status" style={[styles.standbyHeader, { top: insets.top + 16 }]}>
+          <View pointerEvents="none">
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={[styles.standbyLiveDot, { backgroundColor: poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error && connectivity === 'online' ? colors.primary : colors.outline }]} />
+              <Text style={[type.titleLg, { color: colors.onSurface }]}>
+                {!driverLocation ? 'Locating vehicle' : connectivity !== 'online' ? 'Connection interrupted' : poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error ? 'Live Tracking' : 'Tracking paused'}
+              </Text>
+            </View>
+            <Text style={[type.caption, { color: colors.onSurfaceVariant, marginTop: 5 }]}>Waiting for assignment</Text>
           </View>
-          <Text style={[type.caption, { color: colors.onSurfaceVariant, marginTop: 5 }]}>Waiting for assignment</Text>
-        </View>
+        </CoachMarkTarget>
 
         {/* Collapsible Interactive Radar Legend */}
         {legendExpanded && <View style={[styles.legendCard, { top: insets.top + 92 }, mats.compactShade, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder, shadowColor: colors.shadow }]}>
@@ -1118,17 +1234,19 @@ export default function MapTab() {
           )}
         </View>}
 
-        <View style={[styles.standbyControls, { bottom: standbyBottom }]}>
+        <CoachMarkTarget targetId="map.controls" style={[styles.standbyControls, { bottom: standbyBottom }]}>
           <ClayCard variant="compact" style={styles.standbyControl} onPress={() => mapRef.current?.recenter()} accessibilityLabel="Recenter on vehicle">
             <Ionicons name="navigate-outline" size={21} color={colors.onSurface} />
           </ClayCard>
-          <ClayCard variant="compact" style={styles.standbyControl} onPress={() => setLegendExpanded(!legendExpanded)} accessibilityLabel="Map layers" accessibilityState={{ expanded: legendExpanded }}>
-            <Ionicons name="layers-outline" size={21} color={colors.onSurface} />
-          </ClayCard>
+          <CoachMarkTarget targetId="map.layers" style={styles.mapLayerTarget}>
+            <ClayCard variant="compact" style={styles.standbyControl} onPress={() => setLegendExpanded(!legendExpanded)} accessibilityLabel="Map layers" accessibilityState={{ expanded: legendExpanded }}>
+              <Ionicons name="layers-outline" size={21} color={colors.onSurface} />
+            </ClayCard>
+          </CoachMarkTarget>
           <ClayCard variant="compact" style={styles.standbyControl} onPress={() => mapRef.current?.recenter()} accessibilityLabel="Locate my vehicle">
             <Ionicons name="locate-outline" size={21} color={colors.onSurface} />
           </ClayCard>
-        </View>
+        </CoachMarkTarget>
 
         {/* Compact Interactive Assignment / Station / Driver Card */}
         {selectedMarker && (
@@ -1290,7 +1408,7 @@ export default function MapTab() {
             </View>
           </ClayCard>}
         </View>
-
+        {mapIntroPractice}
       </View>
     );
   }
@@ -1369,13 +1487,15 @@ export default function MapTab() {
           </Text>
         </Pressable>
       )}
+
+      {mapIntroActiveLayers}
       
       {activeTrip && (
         <Animated.View 
           style={[styles.bottomSheet, mats.clayShade, { transform: [{ translateY: panY }], backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}
         >
           {/* Floating Map Controls (Sticks to top of sheet) */}
-          <View style={styles.floatingControlsContainer}>
+          <CoachMarkTarget targetId="map.controls" style={styles.floatingControlsContainer}>
             <Pressable
               style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}
               onPress={() => mapRef.current?.recenter()}
@@ -1395,7 +1515,7 @@ export default function MapTab() {
             >
               <Ionicons name="scan-outline" size={20} color={colors.onSurfaceVariant} />
             </Pressable>
-          </View>
+          </CoachMarkTarget>
 
           {/* eslint-disable-next-line react-hooks/refs -- spreading the once-created responder's handlers */}
       <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
@@ -1404,7 +1524,7 @@ export default function MapTab() {
               <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant }]} />
 
               {/* Location Header */}
-              <View style={styles.sheetHeader}>
+              <CoachMarkTarget targetId="map.standby_status" style={styles.sheetHeader}>
                 <View style={[styles.locationIconWrapper, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
                   <Ionicons name="location-sharp" size={20} color={colors.primary} />
                 </View>
@@ -1468,7 +1588,7 @@ export default function MapTab() {
                     )}
                   </View>
                 </CoachMarkTarget>
-              </View>
+              </CoachMarkTarget>
 
               <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
             </Pressable>
@@ -1871,6 +1991,7 @@ export default function MapTab() {
           </ScrollView>
         </Animated.View>
       )}
+      {mapIntroPractice}
     </View>
   );
 }
@@ -1880,6 +2001,35 @@ const styles = StyleSheet.create({
   standbyLiveDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#FFFFFFB3' },
   standbyControls: { position: 'absolute', right: 16, gap: 10 },
   standbyControl: { width: 48, height: 48, borderRadius: 24, padding: 0, alignItems: 'center', justifyContent: 'center' },
+  mapLayerTarget: { width: 48, height: 48 },
+  mapIntroPractice: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 104,
+    zIndex: 40,
+  },
+  mapIntroPracticeTarget: { width: '100%' },
+  mapIntroActiveLayersTarget: {
+    position: 'absolute',
+    top: 92,
+    right: 16,
+    zIndex: 40,
+  },
+  mapIntroActiveLayers: {
+    minWidth: 112,
+    height: 48,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+  },
+  mapIntroActiveLayersText: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 12,
+  },
   standbyWeatherCard: { maxWidth: 280, padding: 10 },
   standbyWeather: { position: 'absolute', left: 16, right: 80, alignItems: 'flex-start' },
   container: {

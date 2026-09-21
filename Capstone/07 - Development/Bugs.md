@@ -4,7 +4,7 @@ title: Bugs
 tags: [development, bugs]
 source:
   - (see individual notes)
-last_verified: 2026-09-19
+last_verified: 2026-09-21
 ---
 
 # Bugs
@@ -59,9 +59,85 @@ The leaked database password was **rotated on
   returnAt ? ...`), so the AI-Assign dialog loaded no availability data and showed
   "Fully booked / 0 / 0" despite eligible resources. **Closed 2026-08-18.** →
   [[BUG Availability Endpoints 500 False Fully Booked]]
+- **First Map tooltip refused for being on screen — the safe-viewport margin —
+  MEDIUM, FIXED IN SOURCE 2026-09-21; device acceptance has not run.** Reported
+  four times against the intent-driven `map_intro` tour: a fresh install claims the
+  milestone and still shows no spotlight. The three earlier rounds all fixed
+  *trigger-side* concerns — tabPress ordering, the Home Welcome handoff, the
+  GPS-spinner gate, overlay elevation — and each closed with a green suite while
+  device behaviour did not change. Presentation depends solely on
+  `activeTargetLayout !== null`, and every path to `null` was a silent
+  `return null`, so "the trigger never fired" and "the target never measured" were
+  indistinguishable from the device. A `__DEV__` diagnostic on that gate produced
+  the line that settled it:
+  `spotlight not presenting — target above the safe viewport`,
+  `{ milestone: "map_intro", targetId: "map.standby_status", y: 16, height: 49.78,
+  minSafeY: 79.11 }`. The target occupied `16 → 65.78` — entirely on screen, and
+  the intended step-0 target — while the gate demanded its bottom edge clear
+  `insets.top + 40`. That margin was wrong for a top-anchored target: the header
+  declares `top: insets.top + 16`, so its settled box (`insets.top + 16 ..
+  insets.top + 66`) clears the bar by 26px, and the refusal only happened because
+  the target's own safe-area insets had not settled when it measured
+  (`16 = 0 + 16`) while the provider's already had — one declaration producing two
+  coordinate systems in the same frame. Rejection is now a whole-box test against
+  the window edges (`y + height <= 0`, `y >= SCREEN_HEIGHT`), which is what the
+  gate's own comment already claimed it did; the slack is gone and presentation no
+  longer depends on inset-settling order. Verified sound rather than assumed: the
+  trigger side (`mapIntroPendingRef` is set synchronously before `map_intro`'s
+  storage read and re-checked after `triggerMilestone`'s own read, so whichever
+  async claim resolves first the other defers) and the registration bookkeeping
+  (`registerTarget` / `unregisterTarget` / `commitWinner` ignore a stale instance's
+  measurements). A bounded measurement retry was added alongside the gate fix for
+  the adjacent case — a target measuring before its layout settles — but it was
+  **not** the cause: that was the first hypothesis and the device log disproved it.
+  Two source-text assertions moved with the change (`lib/coach-marks.test.js:703`,
+  `:772`).
+- **Coach-mark spotlight drawn in the wrong coordinate space — HIGH, FIXED IN
+  SOURCE 2026-09-21, device confirmation pending.** Follows directly from the
+  entry above: once the gate stopped refusing an on-screen target the spotlight
+  presented on every step, but landed off the element — uniformly, on all of
+  them. A uniform offset is a coordinate-space mismatch, not a per-target
+  calculation error, and the mismatch is structural. `CoachMarkTarget` registers
+  bounds from `measureInWindow`, which reports WINDOW coordinates, while
+  `CoachMarkOverlay` draws its four scrim rectangles and its cutout with
+  `StyleSheet.absoluteFill` inside the *provider's* container
+  (`CoachMarkProvider.jsx:713`). Those are the same space only while that
+  container sits exactly at the window origin — and it need not: the container
+  also holds `<ConnectivityBanner />` as a layout-participating sibling above the
+  navigator (`app/(app)/_layout.js:78`), and any parent padding, inset or
+  transform moves it. Fixed by measuring the overlay container's own window
+  origin and subtracting it from the target bounds before geometry is computed
+  (`CoachMarkOverlay.jsx`: `containerRef` / `containerOrigin`). Correct by
+  construction, and a no-op at the window origin, so it cannot regress a case
+  that already lines up. **A `__DEV__` line now prints the origin beside the
+  bounds it was subtracted from**, deduped per geometry change: if that origin
+  reads `(0,0)` on device then the subtraction is not the whole story and the
+  registered bounds themselves are stale, which is the next place to look.
+- **The coach-mark suite cannot observe any of this — OPEN, structural.** 55 of the
+  60 cases in `mobile/lib/coach-marks.test.js` read the source with `readFileSync`
+  and assert with `toContain`, and `mobile/` contains no `react-test-renderer`, no
+  `@testing-library/react-native` and no `render()` at all — the only runner is
+  `vitest` over `mobile/lib`. So "60/60 green" has never meant the tour appears, and
+  a trigger-side fix and a presentation-side fix are indistinguishable to the gate.
+  That is the mechanism by which four rounds of green suites reached a device with
+  no behaviour change, and it is why the gate fix above still needs a device run
+  before it counts as evidence. A genuinely runtime test here needs a renderer added
+  as a devDependency; until then every claim about this feature is a claim about
+  source text.
+  `lib/map-intro.test.js` (5 cases) exercises the stage machine's pure logic and is
+  not implicated.
+- **`mapIntroAwaitingTap` is unreachable — LOW, OPEN.** It is only ever set `true`
+  inside `abandonActiveMilestone` when the active milestone is `map_intro`
+  (provider `:297`), but both call sites are mutually exclusive with that branch:
+  `:422` runs only when the active key is `"welcome"`, and `:610` is guarded by
+  `activeKeyRef.current !== "map_intro"`. The flag is therefore permanently `false`
+  and everything reading it (`:332`, `:374`, `map.js:613`) is inert — the "an
+  abandoned tour is reclaimed" safety valve does not exist. Not the cause of the
+  missing spotlight; recorded so it is not mistaken for a working guard.
 
 ### Not yet filed as individual notes
 
+- **Mobile live-trip coach mark can disappear before telemetry (2026-09-20):** A fresh driver install correctly shows `welcome` on Home, but `map.js` can trigger `live_trip` while the first trip is `Driver Accepted` and still before `earliest_start`. In that state `preDeparture` renders an empty `map.telemetry` target, so `CoachMarkTarget` rejects its zero height and the overlay disappears after the first `Next`. The focused coach-mark suite is green (44/44); this scheduling-state case is not covered. No fix applied during the check.
 - **Read-only Jack session inventory (2026-09-19):** The active-session query
   found **29 mobile refresh families and 0 web sessions**. Those families came
   from **310 token rows** total: 281 revoked rotation rows and exactly one
@@ -1464,3 +1540,29 @@ Verified:
 - `npm run test:run` — **179 files / 2,043 tests passed**.
 - `npm run lint:ci` passed.
 - `npm run build` passed with **204/204** static pages generated.
+
+## Fixed - 2026-09-20 - Map own-vehicle marker missing on Android cold start
+
+The Map screen could remain without the driver's own car marker when Android delayed or rejected the first highest-accuracy `getCurrentPositionAsync()` call. The screen now uses an 8-second bounded fresh-fix request, a recent `getLastKnownPositionAsync()` fallback, and then the existing live position watcher. The fallback is local-only and does not synthesize fleet/radar data.
+
+Verification: Map ESLint clean; focused coach-mark and Map-intro tests 56/56; Android export bundled 1,387 modules; final EAS preview build `2dea7830-a960-4fd4-8e5c-4f11168ce7dd` finished successfully. Final APK: https://expo.dev/artifacts/eas/9CcUWryae0tYqy6s0SgRvNDB5QCI2liNFy_HZp5PjvY.apk
+
+## Source hardening — 2026-09-21 — downloaded APK still lacked Map tooltip and car
+
+The user-reported APK result exposed three independent release-path gaps that were not visible in source-only checks:
+
+- the first Map target tree was behind the GPS spinner, so the provider had no measurable target for the spotlight;
+- Reset In-App Tips could immediately show Home's Welcome overlay, which blocked or rejected the intentional Map-tab trigger;
+- the Android TomTom WebView could fail to resolve the local `carlive.png` URI after the own-vehicle marker was created.
+
+Source fixes: Map renders its stable tutorial shell while `map_intro` is pending/active but keeps the ordinary loader for normal visits; the reset-triggered Welcome scrim is pass-through for navigation and an intentional Map tap may hand off only from that Welcome card; the fresh GPS result is validated before the cached fallback; and the car marker keeps the bundled PNG with the original small radar-dot fallback when the asset is unavailable. No fake release radar data, second watcher, polling loop, API request, dependency, or non-Map tooltip change was added.
+
+Verified: focused coach-mark/Map-intro tests **60/60** and touched-file ESLint passed. The prior APK is not considered a verification of this source correction. No EAS rebuild was run after it because rebuilding is explicitly waiting for the user's instruction; device acceptance remains pending.
+
+## Source simplification — 2026-09-21 — Map tutorial eligibility
+
+The first Map tutorial no longer depends on location permission, a GPS fix, or
+motion state. Its only eligibility check is an intentional Map-tab tap while
+the current driver's `map_intro` completion key is absent. GPS remains the
+separate prerequisite for the own-vehicle marker/live tracking path. Focused
+coach-mark/Map-intro tests pass **60/60** and no rebuild was run.

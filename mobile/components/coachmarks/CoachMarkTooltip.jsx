@@ -18,6 +18,7 @@ export function CoachMarkTooltip({
   totalSteps = 1,
   actionText = "Got it",
   canSkip = false,
+  allowBack = true,
   onNext,
   onPrev,
   onSkip,
@@ -29,7 +30,7 @@ export function CoachMarkTooltip({
   const isDark = scheme === "dark";
 
   const showStepCounter = totalSteps > 1;
-  const showBack = stepIndex > 0;
+  const showBack = allowBack && stepIndex > 0;
   const isWelcome = arrowPosition === "none";
 
   // Harmonized background color ensuring 100% arrow-to-card color continuity
