@@ -112,13 +112,14 @@ function MailSuccessIcon() {
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [emailBlurred, setEmailBlurred] = useState(false);
+  const [emailSubmitted, setEmailSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [sent, setSent] = useState(false);
   const [serverMessage, setServerMessage] = useState("");
   const [error, setError] = useState("");
   const [resendSeconds, setResendSeconds] = useState(42);
-  const { validate, fieldError, registerField } = useFormValidation(forgotSchema);
+  const { clearError, validate, fieldError, registerField } = useFormValidation(forgotSchema);
 
   useEffect(() => {
     if (!sent || resendSeconds <= 0) return undefined;
@@ -126,9 +127,11 @@ export default function ForgotPasswordPage() {
     return () => clearTimeout(timer);
   }, [resendSeconds, sent]);
 
-  const emailStatus = (emailBlurred || email.length >= 5)
-    ? (isEmail(email) ? "valid" : "invalid")
-    : "idle";
+  const emailStatus = !email.trim()
+    ? "idle"
+    : isEmail(email)
+      ? "valid"
+      : (emailBlurred || emailSubmitted ? "invalid" : "idle");
   const emailField = fieldError("email");
 
   const submitRequest = async () => {
@@ -148,6 +151,7 @@ export default function ForgotPasswordPage() {
   const handleSubmit = (event) => {
     event.preventDefault();
     setEmailBlurred(true);
+    setEmailSubmitted(true);
     setError("");
     validate({ email }, {
       onSuccess: async () => {
@@ -216,6 +220,9 @@ export default function ForgotPasswordPage() {
                       value={email}
                       onChange={(event) => {
                         setEmail(event.target.value);
+                        setEmailBlurred(false);
+                        setEmailSubmitted(false);
+                        clearError("email");
                         setError("");
                       }}
                       onBlur={() => setEmailBlurred(true)}
