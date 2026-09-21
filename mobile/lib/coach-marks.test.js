@@ -1154,3 +1154,39 @@ describe("Remaining tooltips keep the live-map wake-up-only discipline", () => {
     expect(target).toContain("useCoachMarkState()");
   });
 });
+
+describe("Scrim paints the surroundings, never the target", () => {
+  const overlay = readFileSync(
+    new URL("../components/coachmarks/CoachMarkOverlay.jsx", import.meta.url),
+    "utf8"
+  );
+
+  it("does not paint the dim with a border on a hole-sized view", () => {
+    // React Native draws borders inside the view bounds: a ~1200dp border on
+    // a hole-sized box fills the target itself dark and leaves the
+    // surroundings undimmed — an inverted spotlight (device-confirmed
+    // 2026-09-21 on the incident walkthrough).
+    expect(overlay).not.toContain("borderWidth: scrimReach");
+    expect(overlay).not.toContain("scrimReach");
+  });
+
+  it("dims the four surroundings with the scrim color", () => {
+    const paints = overlay.match(/backgroundColor: scrimBg/g) || [];
+    // Welcome branch (1) + top/bottom/left/right blockers (4).
+    expect(paints.length).toBeGreaterThanOrEqual(5);
+    expect(overlay).toContain("height: animY,");
+    expect(overlay).toContain("top: animBottom,");
+    expect(overlay).toContain("width: animX,");
+    expect(overlay).toContain("left: animRight,");
+  });
+
+  it("clamps transient negative container origins and re-syncs after transitions", () => {
+    // A mid-slide measure reads y ≈ −statusBar; adopting it offsets every
+    // cutout by ~39dp until rotation (device log: origin 0 ↔ −39.11 on the
+    // same target). Fullscreen origins can never rest negative, so clamp;
+    // and re-measure per step plus once after the transition settles.
+    expect(overlay).toContain("Math.max(0, Math.round(");
+    expect(overlay).toContain("setTimeout(measure, 350)");
+    expect(overlay).toContain("[step?.targetId]");
+  });
+});

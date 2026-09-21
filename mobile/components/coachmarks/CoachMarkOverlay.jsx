@@ -76,6 +76,19 @@ export function CoachMarkOverlay({
   const containerRef = useRef(null);
   const [containerOrigin, setContainerOrigin] = useState({ x: 0, y: 0 });
 
+  const adoptOrigin = (x, y) => {
+    // Window coordinates of a fullscreen container can never rest negative —
+    // a negative read is a mid-transition frame (route slide ≈ status-bar
+    // height; device log showed 0 ↔ −39.11 on the same target). Adopting it
+    // offsets every cutout by ~39dp until the next rotation, so clamp.
+    // Rounded to whole dp to kill sub-pixel jitter between re-measures.
+    const nx = Math.max(0, Math.round(x));
+    const ny = Math.max(0, Math.round(y));
+    setContainerOrigin((prev) =>
+      prev.x === nx && prev.y === ny ? prev : { x: nx, y: ny }
+    );
+  };
+
   useEffect(() => {
     const node = containerRef.current;
     if (!node?.measureInWindow) return undefined;
@@ -83,18 +96,21 @@ export function CoachMarkOverlay({
     const measure = () => {
       node.measureInWindow((x, y) => {
         if (cancelled) return;
-        setContainerOrigin((prev) =>
-          prev.x === x && prev.y === y ? prev : { x, y }
-        );
+        adoptOrigin(x, y);
       });
     };
     measure();
+    // Re-sync after the route transition settles: an overlay that mounts
+    // mid-slide measures a transient origin and would otherwise keep it until
+    // rotation. One delayed recheck per step, cancelled on unmount/step change.
+    const settleTimer = setTimeout(measure, 350);
     const sub = Dimensions.addEventListener?.("change", measure);
     return () => {
       cancelled = true;
+      clearTimeout(settleTimer);
       sub?.remove?.();
     };
-  }, []);
+  }, [step?.targetId]);
 
   // Spotlight geometry with 8dp breathing room
   const pad = targetLayout?.padding ?? DEFAULT_PADDING;
@@ -126,7 +142,10 @@ export function CoachMarkOverlay({
 
   // Enough to reach every screen edge from any hole position, so the border
   // always paints the full surrounding scrim.
-  const scrimReach = Math.max(SCREEN_WIDTH, SCREEN_HEIGHT);
+  // (Removed 2026-09-21: see the scrim comment below — painting the dim with
+  // a giant border on a hole-sized view fills the target itself dark on
+  // device. Kept out; do not reintroduce without a device run proving the
+  // surroundings dim and the hole stays clear.)
 
   // Device-side confirmation that the two coordinate spaces agree. Prints the
   // container origin next to the bounds it was subtracted from, so a run that
@@ -411,37 +430,22 @@ export function CoachMarkOverlay({
         pointerEvents="box-none"
         style={[StyleSheet.absoluteFill, { opacity: overlayFade }]}
       >
-        {/* ── Scrim: one shaped paint, plus four touch catchers ── */}
-        {/* The paint is a single view whose content box IS the hole: only its
-            thick border paints, and that border's inner edge keeps
-            `borderRadius`, so the hole takes the target's shape instead of
-            always being a rectangle — a round control gets a round highlight.
-            One view rather than four, because the scrim is semi-transparent and
-            any overlap would composite twice into a visible seam.
-            The four rectangles below are therefore transparent: they exist to
-            block touches outside the hole. The shaped view cannot do that
-            itself, because its bounds include the hole's own content box and it
-            would capture steps that are meant to pass through.
-            Everything here is driven by the animated bounds rather than the raw
-            measurements, so a target that re-measures while the mark is open
-            (async data, a keyboard shift, an auto-scroll settle) moves the whole
-            scrim instead of snapping the spotlight. */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.scrimRect,
-            {
-              top: animY,
-              left: animX,
-              width: animW,
-              height: animH,
-              borderRadius: holeRadius,
-              borderWidth: scrimReach,
-              borderColor: scrimBg,
-            },
-          ]}
-        />
-        {/* Top Blocker (touch blocking only — its paint moved to the shaped scrim) */}
+        {/* ── Scrim: four dimmed rectangles around the hole ── */}
+        {/* The dim MUST be painted by rectangles surrounding the hole, never by
+            a border on a hole-sized view: React Native draws borders inside the
+            view bounds, so a ~1200dp border on a hole-sized box fills the
+            target itself dark and leaves the surroundings undimmed — an
+            inverted spotlight, device-confirmed 2026-09-21 on the incident
+            walkthrough (target darkened, surroundings clear, contour visibly
+            separated from the dark box). The four rectangles meet edge to
+            edge with no overlap, so the semi-transparent scrim shows no
+            seams, and they double as the touch blockers outside the hole
+            (the hole itself stays open for passthrough steps via the cutout
+            shim below). Accepted trade-off: the hole is square again — round
+            controls keep their round local contour, which carries the shape
+            cue. A truly round hole needs a native mask (react-native-svg)
+            and its own rebuild; that is a separate task, not this fix. */}
+        {/* Top Blocker */}
         <Animated.View
           pointerEvents="auto"
           style={[
@@ -451,7 +455,7 @@ export function CoachMarkOverlay({
               left: 0,
               right: 0,
               height: animY,
-              backgroundColor: "transparent",
+              backgroundColor: scrimBg,
             },
           ]}
         />
@@ -465,7 +469,7 @@ export function CoachMarkOverlay({
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: "transparent",
+              backgroundColor: scrimBg,
             },
           ]}
         />
@@ -479,7 +483,7 @@ export function CoachMarkOverlay({
               left: 0,
               width: animX,
               height: animH,
-              backgroundColor: "transparent",
+              backgroundColor: scrimBg,
             },
           ]}
         />
@@ -493,15 +497,15 @@ export function CoachMarkOverlay({
               left: animRight,
               right: 0,
               height: animH,
-              backgroundColor: "transparent",
+              backgroundColor: scrimBg,
             },
           ]}
         />
 
         {/* ── Spotlight Cutout: hit-test shim over the hole, not paint ── */}
-        {/* Its radius mirrors the painted hole so the touch area matches what is
-            visible, but it draws nothing — the shaped scrim above leaves the
-            hole uncovered. */}
+        {/* Its radius mirrors the target's shape so the touch area matches the
+            local contour; it draws nothing — the four dimmed rectangles above
+            leave the hole uncovered. */}
         <Animated.View
           pointerEvents={cutoutPointerEvents}
           style={[
