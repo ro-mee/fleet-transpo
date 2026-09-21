@@ -507,7 +507,7 @@ Drivers can review contextual guidance at any time:
 - [x] **Dual-System Documentation Parity**: Documentation clearly separates the component-anchored local contour from the global scrim cutout and tooltip.
 - [x] **Shape-Responsive Spotlight Hole**: The cutout follows the target's declared shape instead of always being a rectangle — a circle for round controls (`map.layers`, the `DriverSos` FAB), a stadium for pills, a rounded rectangle for cards. The radius rule is extracted to `lib/spotlight-geometry.js` with `lib/spotlight-geometry.test.js`, which is the first coach-mark *behaviour* this suite can assert rather than string-match. **Not yet device-confirmed**: shape is the one property the suite cannot observe, so the `[coachmarks] spotlight geometry` line now reports `holeRadius` and `circular` for a device run to settle.
 - [x] **Context Partition & Re-render Isolation**: The guide is published through three contexts split by change frequency (actions / status / state) instead of one un-memoized value object, so a step transition or a settling re-measure no longer re-renders consumers that only call into the guide. The six actions-only consumers are never re-rendered by tutorial activity; the checklist and incidents screen are pinned to that contract by `lib/coach-marks.test.js`. **Not yet measured**: this is a structural fix reasoned from the code, not a profiler result — no render counter has been run on a device.
-- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests), `mobile/lib/spotlight-geometry.test.js` (11 tests), `mobile/lib/coach-marks.test.js` (70 tests), and `mobile/lib/map-intro.test.js` (5 tests) cover the motion arithmetic, Map-intro stages, storage, intentional-tab wiring, provider race guard, target ownership, off-screen rejection, freshness semantics (stale-generation rejection, fresh-generation acceptance, step-transition invalidation, route-change/blur invalidation, SOS layout revision updates), spotlight shape resolution, the context partition, and tutorial render isolation. Verified 2026-09-21 with 27 files / 239 tests passing across `mobile/lib/` and touched-file ESLint at `--max-warnings 0`.
+- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests), `mobile/lib/spotlight-geometry.test.js` (11 tests), `mobile/lib/coach-marks.test.js` (83 tests), and `mobile/lib/map-intro.test.js` (5 tests) cover the motion arithmetic, Map-intro stages, storage, intentional-tab wiring, provider race guard, target ownership, off-screen rejection, freshness semantics (stale-generation rejection, fresh-generation acceptance, step-transition invalidation, route-change/blur invalidation, SOS layout revision updates), spotlight shape resolution, the context partition, tutorial render isolation, and — since 2026-09-21 — the non-Map retry guards, the trip no-window fallback target, the scan-card sequencing, and the wake-up-only subscription discipline. Verified 2026-09-21 with 27 files / 252 tests passing across `mobile/lib/` and touched-file ESLint at `--max-warnings 0`.
 - [ ] **Physical Android Device Verification**: Real-device verification matrix (floating SOS button spotlight alignment $\le 2\text{--}4\text{dp}$, no exposure of "More" tile, saved offset restoration, and driving safety lock) remains mandatory before declaring complete.
 
 ### Map first-install trigger simplification — 2026-09-21
@@ -518,6 +518,35 @@ tutorial does not wait for location permission, a GPS fix, or motion state;
 GPS remains responsible for the car marker and live tracking. Other guidance
 milestones remain unchanged. Focused coach-mark/Map-intro tests passed **60/60**;
 no APK rebuild was run.
+
+### Remaining-tooltip retry hardening — 2026-09-21
+
+Fresh-install analysis showed refused triggers were silently lost on four
+non-Map milestones (a trigger fired once while another guide owned the slot
+and never retried), plus a wedged step and a camera race. Fixes, all
+trigger/target-side — provider, overlay, milestone copy, storage keys,
+versions, and the Driving Safety Lock are unchanged:
+
+- `pretrip_complete` (`inspection.js`): guarded `!activeMilestone` + dep, so answering all 7 items while `pretrip`/`remarks` is open retries after it dismisses.
+- `trip_readiness` (`trip/[id].js`): same retry guard; and the no-start-window fallback now renders stacked `trip.readiness` + `trip.pretrip_requirement` targets with honest generic copy (previously step 2 had no target and the milestone wedged with no Next button).
+- `fuel_scan_intro` (`fuel-report.js`): same retry guard (no new import — `activeMilestone` was already in scope).
+- Scan-card tap (`fuel-report.js`): `onPress` is now `async` and awaits intro completion before `openReceiptCamera("scan")`, so the capture trigger fires first-try instead of relying on its re-fire backstop.
+- `incident` (`incidents.js`): same retry guard inside the existing `runAfterInteractions` wrapper.
+- Verify-only (already correct): `welcome`, `sos`, `offline`, `fuel_scan_capture`, `fuel_scan_verify`.
+
+Perf discipline preserved (same wake-up-only behavior as the live-map
+tooltips): every new subscription is status-context only; `inspection.js`,
+`trip/[id].js`, `fuel-report.js`, and `incidents.js` are pinned off the
+volatile step-driven context by `lib/coach-marks.test.js`, and only `map.js`
+plus `CoachMarkTarget.jsx` read step state. Guarded effects run at most twice
+per trigger — no loops, no polling, no new timers.
+
+Verification: `mobile/lib` suite 27 files / 252 tests green (coach-marks 83),
+touched-file ESLint `--max-warnings 0` clean, whole-branch review approved.
+Device walkthrough on the Metro dev-client path (Reset In-App Tips → welcome
+→ inspection → trip ±window → fuel → camera → OCR → incidents → SOS →
+offline, zero `[coachmarks] spotlight not presenting` lines, no production
+mutation) remains with the driver-device owner; no EAS rebuild was run.
 
 ## First-install map tutorial implementation — 2026-09-20
 
