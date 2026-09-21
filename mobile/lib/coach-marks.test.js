@@ -1124,3 +1124,33 @@ describe("Incident retry", () => {
     expect(incidentsScreen).not.toContain("useCoachMarks()");
   });
 });
+
+describe("Remaining tooltips keep the live-map wake-up-only discipline", () => {
+  const entries = {
+    inspection: "../app/(app)/inspection.js",
+    trip: "../app/(app)/trip/[id].js",
+    fuel: "../app/(app)/fuel-report.js",
+    incidents: "../app/(app)/incidents.js",
+  };
+
+  for (const [name, rel] of Object.entries(entries)) {
+    it(`${name} stays off the volatile step-driven context`, () => {
+      const src = readFileSync(new URL(rel, import.meta.url), "utf8");
+      expect(src).not.toContain("useCoachMarkState()");
+      expect(src).not.toContain("useCoachMarks()");
+    });
+  }
+
+  it("only the map screen and the target itself read step state", () => {
+    const mapScreen = readFileSync(
+      new URL("../app/(app)/(tabs)/map.js", import.meta.url),
+      "utf8"
+    );
+    const target = readFileSync(
+      new URL("../components/coachmarks/CoachMarkTarget.jsx", import.meta.url),
+      "utf8"
+    );
+    expect(mapScreen).toContain("useCoachMarkState()");
+    expect(target).toContain("useCoachMarkState()");
+  });
+});
