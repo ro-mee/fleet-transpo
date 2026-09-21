@@ -18,7 +18,6 @@ Every finding here was **verified against the actual file or the live database**
 
 | Note | Severity | One-line |
 |---|---|---|
-| [[BUG NextAuth Client Fetch Error HTML Response]] | ✅ Fixed 2026-09-20 | NextAuth client fetch error (`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`) caused by uninstalled `nodemailer` in dev server, serving 500 HTML |
 | [[BUG Client Fetch Interceptor And Dev CORS Reject]] | ✅ Fixed 2026-09-16 | `TypeError: Failed to fetch` on RSC payload and `/api/auth/session` due to un-scoped window.fetch interceptor and dev CORS rejects on loopback/LAN |
 | [[GAP Compliance Suspension Had No Inverse]] | ✅ Fixed 2026-08-23 | License renewal never un-suspended anyone — no reason was recorded. Now gated by `suspension_reason` (migration 064) |
 | [[BUG Dispatch Teardown Ungrounds Vehicle]] | ✅ Fixed 2026-08-23 | Each dispatch teardown re-synced availability and reset the freshly-grounded vehicle to `Available`. Found by the headless E2E rehearsal, not by review |
