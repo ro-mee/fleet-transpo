@@ -26,18 +26,15 @@ export default memo(function DriverHomeHeader({ driverName, initial, photoUrl, w
   return <View style={[s.header, { paddingTop: topInset + 4, backgroundColor: colors.background }]}>
     <View style={[s.identity, stacked && { flexBasis: '100%' }]}>
       <Pressable onPress={onProfile} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => [s.avatar, { ...s.raised, ...shadow, borderColor: colors.surfaceContainerLow, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1, overflow: 'hidden' }]}>
-        {showImage ? (
+        {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
+        <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24, fontWeight: '700' }]}>{initial || 'D'}</Text>
+        {showImage && (
           <Image
             source={{ uri: photoUrl }}
-            style={StyleSheet.absoluteFill}
+            style={[StyleSheet.absoluteFill, { width: '100%', height: '100%', borderRadius: 21 }]}
             resizeMode="cover"
             onError={() => setFailedUrl(photoUrl)}
           />
-        ) : (
-          <>
-            {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
-            <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24, fontWeight: '700' }]}>{initial || 'D'}</Text>
-          </>
         )}
       </Pressable>
       <View style={s.copy}>

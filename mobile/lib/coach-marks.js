@@ -258,19 +258,40 @@ export const COACH_MARK_MILESTONES = {
     ],
   },
 
-  FUEL_SCAN_CAPTURE: {
-    key: "fuel_scan_capture",
+  FUEL_SCAN_INTRO: {
+    key: "fuel_scan_intro",
     version: 1,
     route: "/fuel-report",
     steps: [
       {
-        id: "fuel.viewfinder",
+        id: "fuel.scan_intro",
+        targetId: "fuel.scan_entry",
+        title: "Scan your fuel receipt",
+        body: "FleetOps can read key receipt details for you. Try a quick sample scan, then use the real scanner.",
+        actionText: "Try sample scan",
+        canSkip: true,
+        interaction: "observe",
+        presentation: "simulation",
+        demoKey: "fuel_receipt_scan",
+        handoff: "fuel.scan_entry",
+      },
+    ],
+  },
+
+  FUEL_SCAN_CAPTURE: {
+    key: "fuel_scan_capture",
+    version: 2,
+    route: "/fuel-report",
+    steps: [
+      {
+        id: "fuel.capture.viewfinder",
         targetId: "fuel.viewfinder",
-        title: "Position the receipt",
-        body: "Place the full receipt inside the frame. Ensure good lighting and avoid glare or folds so AI can read the text.",
+        title: "Frame the whole receipt",
+        body: "Keep the full receipt inside the frame. Use good lighting and avoid glare or folds.",
         actionText: "Got it",
         canSkip: true,
         interaction: "observe",
+        presentation: "compact",
       },
     ],
   },
@@ -283,11 +304,12 @@ export const COACH_MARK_MILESTONES = {
       {
         id: "fuel.verify",
         targetId: "fuel.verify",
-        title: "Verify the details",
-        body: "Always check the extracted liters and total amount before submitting. Correct any values that were read incorrectly.",
+        title: "Verify the extracted values",
+        body: "Check Volume and Total Cost against the receipt. Correct anything FleetOps read incorrectly.",
         actionText: "Got it",
         canSkip: false,
         interaction: "passthrough",
+        presentation: "compact",
       },
     ],
   },

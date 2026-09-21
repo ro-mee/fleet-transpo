@@ -120,7 +120,12 @@ export default function Profile() {
 
   // The avatar doubles as the attendance face-verification reference photo
   // (drivers.face_image_url) — one upload serves both surfaces.
-  const facePhotoUrl = serverProfile?.license?.imageUrl || null;
+  const facePhotoUrl =
+    serverProfile?.avatarUrl ||
+    serverProfile?.faceImageUrl ||
+    serverProfile?.license?.imageUrl ||
+    user?.avatarUrl ||
+    null;
   const showFacePhoto = Boolean(facePhotoUrl && facePhotoUrl !== failedPhotoUrl);
 
   const toFaceDataUrl = async (asset) => {
@@ -207,23 +212,22 @@ export default function Profile() {
               pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
             ]}
           >
-            {showFacePhoto ? (
+            <View
+              style={[
+                styles.avatarCircle,
+                { backgroundColor: colors.primaryContainer, borderTopColor: mats.clayTile.borderTopColor, borderBottomWidth: 2, borderBottomColor: mats.clayTile.borderBottomColor },
+              ]}
+            >
+              <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
+            </View>
+            {showFacePhoto && (
               <Image
                 source={{ uri: facePhotoUrl }}
-                style={styles.avatarImage}
+                style={[StyleSheet.absoluteFill, styles.avatarImage]}
                 resizeMode="cover"
                 accessibilityLabel="Driver profile photo"
                 onError={() => setFailedPhotoUrl(facePhotoUrl)}
               />
-            ) : (
-              <View
-                style={[
-                  styles.avatarCircle,
-                  { backgroundColor: colors.primaryContainer, borderTopColor: mats.clayTile.borderTopColor, borderBottomWidth: 2, borderBottomColor: mats.clayTile.borderBottomColor },
-                ]}
-              >
-                <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
-              </View>
             )}
             {uploadingPhoto ? (
               <View style={[styles.avatarUploading, { backgroundColor: "rgba(0,0,0,0.45)" }]}>

@@ -82,9 +82,18 @@ export function DriverSos() {
     }
   }, [open, activeMilestone, dismissCoachMark]);
 
-  // SOS coach mark must only auto-present in a safe/stationary context.
+  const [positionReady, setPositionReady] = useState(false);
+  const [layoutRevision, setLayoutRevision] = useState(0);
+
+  // SOS coach mark must only auto-present in a safe/stationary context AND once position is ready.
   useEffect(() => {
-    if (isRouteMatch(pathname, "/") && !isDriving && !open && !activeMilestone) {
+    if (
+      isRouteMatch(pathname, "/") &&
+      !isDriving &&
+      !open &&
+      !activeMilestone &&
+      positionReady
+    ) {
       const timer = setTimeout(() => {
         if (!isDriving && !open) {
           triggerMilestone("sos");
@@ -92,7 +101,7 @@ export function DriverSos() {
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [pathname, isDriving, open, activeMilestone, triggerMilestone]);
+  }, [pathname, isDriving, open, activeMilestone, positionReady, triggerMilestone]);
 
   useEffect(() => {
     registerSosHandler(() => setOpen(true));
@@ -132,7 +141,10 @@ export function DriverSos() {
           // ignore corrupted storage
         }
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => {
+      setPositionReady(true);
+      setLayoutRevision((r) => r + 1);
+    });
 
     const show = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
     const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
@@ -179,7 +191,10 @@ export function DriverSos() {
       mass: 0.8,
       overshootClamping: true,
       useNativeDriver: false,
-    }).start();
+    }).start(() => {
+      // Spring settling: commit final snapped position and signal coach-mark target remeasurement
+      setLayoutRevision((r) => r + 1);
+    });
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snapped)).catch(() => {});
   };
 
@@ -262,6 +277,7 @@ export function DriverSos() {
     <>
       <CoachMarkTarget
         targetId="incident.sos"
+        measureRevision={layoutRevision}
         radius={SOS_SIZE / 2}
         padding={4}
         style={[

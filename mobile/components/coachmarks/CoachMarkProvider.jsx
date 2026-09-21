@@ -19,6 +19,7 @@ const CoachMarkContext = createContext({
   currentStep: null,
   stepContext: null,
   activeTargetLayout: null,
+  activePresentationId: 0,
   triggerMilestone: () => Promise.resolve(false),
   triggerMapIntroFromTab: () => Promise.resolve(false),
   mapIntroPending: false,
@@ -76,6 +77,21 @@ export function CoachMarkProvider({ children, driverId }) {
   const [stepContext, setStepContext] = useState(null);
   const [targets, setTargets] = useState({});
 
+  // ── Presentation Generation / Freshness Gate ──────────────────────────────
+  // An overlay may never render from a target rectangle measured before the
+  // current step activation. Every milestone trigger or step change increments
+  // this generation. The overlay only presents once the active target publishes
+  // a measurement matching `activePresentationId`.
+  const [activePresentationId, setActivePresentationId] = useState(0);
+  const activePresentationIdRef = useRef(0);
+
+  const bumpPresentationId = useCallback(() => {
+    const next = activePresentationIdRef.current + 1;
+    activePresentationIdRef.current = next;
+    setActivePresentationId(next);
+    return next;
+  }, []);
+
   // Which milestone owns the screen, held in a ref rather than read from the
   // `activeMilestoneKey` state above. Two reasons:
   //   1. The non-pre-emption guard below must be accurate the instant it runs.
@@ -113,7 +129,7 @@ export function CoachMarkProvider({ children, driverId }) {
   // newest live one wins, and an unmount removes only its own — promoting the
   // survivor rather than clearing the id.
   const seqRef = useRef(0);
-  const registrationsRef = useRef(new Map()); // targetId -> Map<token, {seq, layout, route}>
+  const registrationsRef = useRef(new Map()); // targetId -> Map<token, {seq, layout, route, instanceId, presentationId}>
 
   // Publishes the winning registration for `targetId` — or removes the id once
   // nothing live holds it. Ownership bookkeeping lives in the ref above, so this
@@ -141,7 +157,8 @@ export function CoachMarkProvider({ children, driverId }) {
         existing.y === winner.layout.y &&
         existing.width === winner.layout.width &&
         existing.height === winner.layout.height &&
-        existing.route === winner.route
+        existing.route === winner.route &&
+        existing.presentationId === winner.presentationId
       ) {
         return prev;
       }
@@ -150,17 +167,19 @@ export function CoachMarkProvider({ children, driverId }) {
         [targetId]: {
           ...winner.layout,
           route: winner.route,
+          presentationId: winner.presentationId,
         },
       };
     });
   }, []);
 
-  // Target registration with route stamping, dimension validation and ownership
-  const registerTarget = useCallback((targetId, layout, route, token, instanceId) => {
+  // Target registration with route stamping, dimension validation, ownership and freshness generation
+  const registerTarget = useCallback((targetId, layout, route, token, instanceId, presentationId) => {
     if (!targetId || !layout) return;
     if (layout.width <= 0 || layout.height <= 0) return;
 
     const targetRoute = route || layout.route || pathname;
+    const targetPresentationId = presentationId ?? layout.presentationId ?? null;
 
     let byToken = registrationsRef.current.get(targetId);
     if (!byToken) {
@@ -178,6 +197,7 @@ export function CoachMarkProvider({ children, driverId }) {
       layout,
       route: targetRoute,
       instanceId,
+      presentationId: targetPresentationId,
     });
 
     // Two live mounts under one id is legitimate for `inspection.remarks`, but
@@ -232,7 +252,8 @@ export function CoachMarkProvider({ children, driverId }) {
   }, [commitWinner]);
 
   // Compute layout for the active step:
-  // Must have positive dimensions, match the current route, and be on screen.
+  // Must have positive dimensions, match the current route, match the active
+  // presentation generation, and lie at least partly inside the window.
   //
   // ── Why the spotlight is not presenting (dev only) ────────────────────────
   // Presentation is gated entirely on this result, and EVERY way of failing it
@@ -262,6 +283,18 @@ export function CoachMarkProvider({ children, driverId }) {
     if (layout.route && !isRouteMatch(pathname, layout.route)) {
       return rejected("target belongs to another route", {
         targetRoute: layout.route,
+      });
+    }
+
+    // Freshness invariant: an overlay may never render from a target rectangle
+    // measured before the current step activation. The registration must carry
+    // the active presentation generation. Reported rather than a bare `null`, so
+    // a stale registration shows up in the diagnostic below instead of silently
+    // looking like a target that never measured.
+    if (layout.presentationId !== activePresentationId) {
+      return rejected("target registered by a stale presentation", {
+        registeredPresentationId: layout.presentationId ?? null,
+        activePresentationId,
       });
     }
 
@@ -300,7 +333,13 @@ export function CoachMarkProvider({ children, driverId }) {
     }
 
     return { layout, reason: null, detail: null };
-  }, [currentStep?.targetId, targets, pathname, windowHeight]);
+  }, [
+    currentStep?.targetId,
+    targets,
+    pathname,
+    windowHeight,
+    activePresentationId,
+  ]);
 
   const activeTargetLayout = spotlight.layout;
 
@@ -377,7 +416,8 @@ export function CoachMarkProvider({ children, driverId }) {
     setCurrentStepIndex(0);
     setStepContext(null);
     interactionSatisfiedRef.current = null;
-  }, []);
+    bumpPresentationId();
+  }, [bumpPresentationId]);
 
   // Triggering with driver isolation, driving safety check, and a
   // no-pre-emption rule
@@ -471,6 +511,9 @@ export function CoachMarkProvider({ children, driverId }) {
       setStepContext(context);
       setCurrentStepIndex(0);
       setActiveMilestoneKey(config.key);
+      const nextPresentationId = activePresentationIdRef.current + 1;
+      activePresentationIdRef.current = nextPresentationId;
+      setActivePresentationId(nextPresentationId);
       return true;
     },
     [driverId, isDriving]
@@ -559,7 +602,8 @@ export function CoachMarkProvider({ children, driverId }) {
       mapIntroAwaitingTapRef.current = false;
       setMapIntroAwaitingTap(false);
     }
-  }, [driverId]);
+    bumpPresentationId();
+  }, [driverId, bumpPresentationId]);
 
   const nextStep = useCallback(async () => {
     if (!activeMilestoneKey) return;
@@ -575,17 +619,25 @@ export function CoachMarkProvider({ children, driverId }) {
 
     if (currentStepIndex < config.steps.length - 1) {
       setCurrentStepIndex((prev) => prev + 1);
+      bumpPresentationId();
     } else {
       await completeActiveMilestone();
     }
-  }, [activeMilestoneKey, currentStep, currentStepIndex, completeActiveMilestone]);
+  }, [
+    activeMilestoneKey,
+    currentStep,
+    currentStepIndex,
+    completeActiveMilestone,
+    bumpPresentationId,
+  ]);
 
   const prevStep = useCallback(() => {
     if (currentStep?.allowBack === false) return;
     if (currentStepIndex > 0) {
       setCurrentStepIndex((prev) => prev - 1);
+      bumpPresentationId();
     }
-  }, [currentStep, currentStepIndex]);
+  }, [currentStep, currentStepIndex, bumpPresentationId]);
 
   const skip = useCallback(async () => {
     await completeActiveMilestone();
@@ -619,6 +671,17 @@ export function CoachMarkProvider({ children, driverId }) {
           await completeActiveMilestone();
           return;
         }
+      }
+
+      // Fuel scan intro handoff: the simulation never opens the camera.
+      // The real production card opens it, and the guide merely observes that tap.
+      if (
+        targetId === "fuel.scan_entry" &&
+        currentStep.targetId === "fuel.scan_entry" &&
+        data?.action === "open_real_scanner"
+      ) {
+        await completeActiveMilestone();
+        return;
       }
 
       // Incident Category selection
@@ -664,8 +727,27 @@ export function CoachMarkProvider({ children, driverId }) {
     setActiveMilestoneKey(null);
     setCurrentStepIndex(0);
     setStepContext(null);
+    bumpPresentationId();
     return success;
-  }, [driverId]);
+  }, [driverId, bumpPresentationId]);
+
+  // Dev-only coach-mark diagnostic log when active target layout settles
+  useEffect(() => {
+    if (__DEV__ && activeMilestoneKey && currentStep?.targetId && activeTargetLayout) {
+      console.log(
+        `[coach-marks] ACTIVE ${currentStep.targetId}\n` +
+          `presentation=${activePresentationId}\n` +
+          `route=${pathname}\n` +
+          `measured=(${activeTargetLayout.x},${activeTargetLayout.y} ${activeTargetLayout.width}x${activeTargetLayout.height})`
+      );
+    }
+  }, [
+    activeMilestoneKey,
+    currentStep?.targetId,
+    activeTargetLayout,
+    activePresentationId,
+    pathname,
+  ]);
 
   // The dismissal half of the Driving Safety Lock. Spec §7.1 suppresses marks
   // "until the vehicle is stationary" — but the hazard is not only the next mark
@@ -689,6 +771,7 @@ export function CoachMarkProvider({ children, driverId }) {
     currentStep,
     stepContext,
     activeTargetLayout,
+    activePresentationId,
     triggerMilestone,
     triggerMapIntroFromTab,
     mapIntroPending,

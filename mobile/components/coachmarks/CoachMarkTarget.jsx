@@ -50,6 +50,7 @@ export function CoachMarkTarget({
   radius = 12,
   padding = 8,
   scrollRef,
+  measureRevision,
   children,
   style,
 }) {
@@ -118,7 +119,13 @@ export function CoachMarkTarget({
     pathname = "/";
   }
 
-  const { registerTarget, unregisterTarget, activeMilestone, currentStep } = useCoachMarks();
+  const {
+    registerTarget,
+    unregisterTarget,
+    activeMilestone,
+    currentStep,
+    activePresentationId,
+  } = useCoachMarks();
   const isCurrentActiveTarget = Boolean(currentStep?.targetId && currentStep.targetId === effectiveId);
 
   // ── Bounded self-retry for a measurement that came back unusable ──────────
@@ -183,20 +190,29 @@ export function CoachMarkTarget({
             containerRef.current.measureInWindow((rx, ry, rw, rh) => {
               if (!canRegister()) return;
               // Still unsettled. Publishing `ry <= 0` would only be thrown out by
-              // the provider's safe-viewport gate (`y + height <= insets.top + 40`),
-              // so retry rather than register bounds that cannot present. This was
-              // the silent dead end: the settling ladder had already spent itself,
-              // so an unsettled first frame meant nothing ever measured again.
+              // the provider's presentation gate, so retry rather than register
+              // bounds that cannot present. This was the silent dead end: the
+              // settling ladder had already spent itself, so an unsettled first
+              // frame meant nothing ever measured again.
               if (ry <= 0 || rw <= 0 || rh <= 0) {
                 retryInvalidMeasurement();
                 return;
               }
               registerTarget(
                 effectiveId,
-                { x: rx, y: ry, width: rw, height: rh, radius, padding },
+                {
+                  x: rx,
+                  y: ry,
+                  width: rw,
+                  height: rh,
+                  radius,
+                  padding,
+                  presentationId: activePresentationId,
+                },
                 pathname,
                 token,
-                instanceId
+                instanceId,
+                activePresentationId
               );
             });
           }
@@ -260,10 +276,12 @@ export function CoachMarkTarget({
                     height: nh,
                     radius,
                     padding,
+                    presentationId: activePresentationId,
                   },
                   pathname,
                   token,
-                  instanceId
+                  instanceId,
+                  activePresentationId
                 );
               }
             });
@@ -281,10 +299,12 @@ export function CoachMarkTarget({
           height,
           radius,
           padding,
+          presentationId: activePresentationId,
         },
         pathname,
         token,
-        instanceId
+        instanceId,
+        activePresentationId
       );
     });
   }, [
@@ -302,6 +322,7 @@ export function CoachMarkTarget({
     isFocused,
     windowHeight,
     retryInvalidMeasurement,
+    activePresentationId,
   ]);
 
   // The retry timer calls through this, so it always measures with the current
@@ -331,8 +352,9 @@ export function CoachMarkTarget({
     measureAndRegister();
   }, [activeMilestone, measureAndRegister]);
 
-  // Whenever this target becomes active, perform authoritative measurements
-  // across animation and settling ticks to capture transitions and async data loads
+  // Whenever this target becomes active or the presentation generation advances,
+  // perform authoritative measurements across animation and settling ticks to capture transitions
+  // and async data loads
   useEffect(() => {
     if (!isCurrentActiveTarget) return;
 
@@ -355,7 +377,23 @@ export function CoachMarkTarget({
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [isCurrentActiveTarget, measureAndRegister]);
+  }, [isCurrentActiveTarget, activePresentationId, measureAndRegister]);
+
+  // Explicit re-measure signal for targets whose visual geometry changes
+  // without normal React Native layout commits (e.g. draggable SOS resting position)
+  useEffect(() => {
+    if (measureRevision == null) return;
+    if (!isCurrentActiveTarget) {
+      measureAndRegister();
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      InteractionManager.runAfterInteractions(() => {
+        measureAndRegister();
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [measureRevision, isCurrentActiveTarget, measureAndRegister]);
 
   // Re-measure on keyboard and window dimension events
   useEffect(() => {

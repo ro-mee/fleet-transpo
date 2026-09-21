@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   StyleSheet,
   View,
+  Text,
   Dimensions,
   useWindowDimensions,
   Animated,
@@ -12,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../lib/theme-context";
 import CoachMarkTooltip from "./CoachMarkTooltip";
+import CoachMarkSimulationPanel from "./simulation/CoachMarkSimulationPanel";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -49,6 +51,11 @@ export function CoachMarkOverlay({
   const SCREEN_HEIGHT = windowHeight || Dimensions.get("window").height;
 
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [handoffStepId, setHandoffStepId] = useState(null);
+  const inSimulationHandoff = Boolean(
+    step?.presentation === "simulation" &&
+    handoffStepId === step?.id
+  );
 
   // `measureInWindow` reports WINDOW coordinates; the spotlight is drawn inside
   // this overlay's own container. Those are the same space only while that
@@ -333,8 +340,24 @@ export function CoachMarkOverlay({
   // - "passthrough": Cutout is pointerEvents="none" so touches reach the real control underneath.
   // - "blocked": Cutout is pointerEvents="auto" to protect against accidental execution (SOS, Start Trip).
   // - "observe": Cutout is pointerEvents="auto" to keep user focused on Got it / Next.
+  const isSimulation = step.presentation === "simulation";
   const isPassthrough = step.interaction === "passthrough";
-  const cutoutPointerEvents = isPassthrough ? "none" : "auto";
+  const cutoutPointerEvents = isSimulation
+    ? (inSimulationHandoff ? "none" : "auto")
+    : (isPassthrough ? "none" : "auto");
+
+  const simulationStyle = isTargetInLowerHalf
+    ? {
+        position: "absolute",
+        top: safeTop + 12,
+      }
+    : {
+        position: "absolute",
+        top: Math.min(
+          spotY + spotH + 14,
+          SCREEN_HEIGHT - safeBottom - 420
+        ),
+      };
 
   return (
     <View
@@ -423,29 +446,64 @@ export function CoachMarkOverlay({
           ]}
         />
 
-        {/* ── Operational Tooltip Card ── */}
+        {/* ── Operational Tooltip / Safe Micro-Simulation ── */}
         <Animated.View
           pointerEvents="box-none"
           style={[StyleSheet.absoluteFill, { opacity: tooltipOpacity }]}
         >
-          <CoachMarkTooltip
-            title={step.title}
-            body={bodyText}
-            stepIndex={stepIndex}
-            totalSteps={totalSteps}
-            actionText={
-              step.actionText ||
-              (stepIndex === totalSteps - 1 ? "Got it" : "Next →")
-            }
-            canSkip={step.canSkip}
-            allowBack={step.allowBack !== false}
-            arrowPosition={tooltipArrowPos}
-            arrowOffset={arrowOffset}
-            style={tooltipStyle}
-            onNext={onNext}
-            onPrev={onPrev}
-            onSkip={onSkip}
-          />
+          {isSimulation && !inSimulationHandoff ? (
+            <CoachMarkSimulationPanel
+              step={step}
+              style={simulationStyle}
+              onHandoff={() => setHandoffStepId(step?.id || null)}
+              onSkip={() => setHandoffStepId(step?.id || null)}
+            />
+          ) : isSimulation && inSimulationHandoff ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.handoffCue,
+                tooltipStyle,
+                {
+                  backgroundColor: isDark ? "#17221D" : "#FFFFFF",
+                  borderColor: isDark
+                    ? "rgba(166, 199, 184, 0.20)"
+                    : "rgba(40, 84, 72, 0.12)",
+                },
+              ]}
+            >
+              <Text style={[styles.handoffTitle, { color: colors.onSurface }]}>
+                Now scan your receipt
+              </Text>
+              <Text
+                style={[
+                  styles.handoffBody,
+                  { color: colors.onSurfaceVariant },
+                ]}
+              >
+                Tap the highlighted Scan receipt option when you&apos;re ready.
+              </Text>
+            </View>
+          ) : (
+            <CoachMarkTooltip
+              title={step.title}
+              body={bodyText}
+              stepIndex={stepIndex}
+              totalSteps={totalSteps}
+              actionText={
+                step.actionText ||
+                (stepIndex === totalSteps - 1 ? "Got it" : "Next →")
+              }
+              canSkip={step.canSkip}
+              allowBack={step.allowBack !== false}
+              arrowPosition={tooltipArrowPos}
+              arrowOffset={arrowOffset}
+              style={tooltipStyle}
+              onNext={onNext}
+              onPrev={onPrev}
+              onSkip={onSkip}
+            />
+          )}
         </Animated.View>
       </Animated.View>
     </View>
@@ -469,6 +527,29 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  handoffCue: {
+    width: "90%",
+    maxWidth: 340,
+    alignSelf: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  handoffTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  handoffBody: {
+    fontSize: 12.5,
+    lineHeight: 18,
   },
 });
 

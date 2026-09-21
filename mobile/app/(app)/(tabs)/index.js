@@ -409,7 +409,7 @@ export default function Home() {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <DriverHomeHeader driverName={driverName}
         initial={(user?.firstName?.[0] || user?.name?.[0] || 'D').toUpperCase()}
-        photoUrl={driverProfile?.avatarUrl || driverProfile?.license?.imageUrl || user?.avatarUrl || null}
+        photoUrl={driverProfile?.avatarUrl || driverProfile?.faceImageUrl || driverProfile?.license?.imageUrl || user?.avatarUrl || null}
         weather={weatherChip} unreadCount={unreadCount} topInset={insets.top}
         onProfile={goProfile} onNotifications={goNotifications} />
 
