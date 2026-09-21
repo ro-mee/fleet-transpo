@@ -1080,3 +1080,16 @@ describe("Inspection completion retry", () => {
     expect(inspectScreen).not.toContain("useCoachMarks()");
   });
 });
+
+describe("Fuel intro retry", () => {
+  const fuelScreen = readFileSync(
+    new URL("../app/(app)/fuel-report.js", import.meta.url),
+    "utf8"
+  ).replace(/\r\n/g, "\n");
+
+  it("re-fires fuel_scan_intro once the blocking guide dismisses", () => {
+    expect(fuelScreen).toContain('triggerMilestone("fuel_scan_intro")');
+    expect(fuelScreen).toContain("canLogFuel &&\n      !cameraOpen &&\n      !scanning &&\n      !activeMilestone");
+    expect(fuelScreen).toContain("[mode, canLogFuel, cameraOpen, scanning, activeMilestone, triggerMilestone]");
+  });
+});

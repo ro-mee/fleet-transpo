@@ -176,11 +176,12 @@ export default function FuelReport() {
       mode === "overview" &&
       canLogFuel &&
       !cameraOpen &&
-      !scanning
+      !scanning &&
+      !activeMilestone
     ) {
       triggerMilestone("fuel_scan_intro");
     }
-  }, [mode, canLogFuel, cameraOpen, scanning, triggerMilestone]);
+  }, [mode, canLogFuel, cameraOpen, scanning, activeMilestone, triggerMilestone]);
 
   const loadFuelRequests = useCallback(async () => {
     if (!hasAssignedVehicle || id) {
