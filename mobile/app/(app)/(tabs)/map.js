@@ -21,7 +21,12 @@ import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
 import { FilledButton, TonalButton } from "../../../components/ui";
-import { useCoachMarks, CoachMarkTarget } from "../../../components/coachmarks";
+import {
+  useCoachMarkActions,
+  useCoachMarkStatus,
+  useCoachMarkState,
+  CoachMarkTarget,
+} from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
 import {
   startBackgroundTracking,
@@ -357,14 +362,12 @@ export default function MapTab() {
   const router = useRouter();
   const { colors, scheme, type } = useTheme();
   const insets = useSafeAreaInsets();
-  const {
-    triggerMilestone,
-    activeMilestone,
-    currentStepIndex,
-    mapIntroPending,
-    mapIntroAwaitingTap,
-    notifyInteraction,
-  } = useCoachMarks();
+  const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
+  const { activeMilestone, mapIntroPending, mapIntroAwaitingTap } =
+    useCoachMarkStatus();
+  // The Map screen is the tour's own screen, so it does have to follow the step
+  // index — but it no longer re-renders for a target re-measuring mid-step.
+  const { currentStepIndex } = useCoachMarkState();
   const { status: connectivity } = useConnectivity();
   const { user } = useAuth();
   const driverId = resolveDriverId(user);

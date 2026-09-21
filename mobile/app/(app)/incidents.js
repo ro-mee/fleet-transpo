@@ -15,7 +15,7 @@ import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
-import { useCoachMarks, CoachMarkTarget } from '../../components/coachmarks';
+import { useCoachMarkActions, CoachMarkTarget } from '../../components/coachmarks';
 
 const INCIDENT_TYPES = [
   { id: "breakdown", label: "Vehicle Breakdown", icon: "car" },
@@ -46,7 +46,7 @@ export default function IncidentsScreen() {
   const raised = raisedControl(isDark);
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
-  const { triggerMilestone, notifyInteraction } = useCoachMarks();
+  const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
   const scrollRef = useRef(null);
 
   const [type, setType] = useState(null);

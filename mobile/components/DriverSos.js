@@ -27,7 +27,11 @@ import { clayMaterials } from "../lib/clay";
 import { isRouteMatch } from "../lib/coach-marks";
 import { AppAlert } from "./AppAlert";
 import RadarPulse from "./RadarPulse";
-import { useCoachMarks, CoachMarkTarget } from "./coachmarks";
+import {
+  useCoachMarkActions,
+  useCoachMarkStatus,
+  CoachMarkTarget,
+} from "./coachmarks";
 
 const sosIcon = require("../assets/images/SOS.png");
 
@@ -73,7 +77,10 @@ export function DriverSos() {
         shadowOpacity: 0.22,
       };
   const [open, setOpen] = useState(false);
-  const { triggerMilestone, dismissCoachMark, activeMilestone, isDriving } = useCoachMarks();
+  const { triggerMilestone, dismissCoachMark } = useCoachMarkActions();
+  // A guide being open, and the driving lock — both milestone-scale facts. This
+  // button is mounted on every screen, so it stays off the step-driven state.
+  const { activeMilestone, isDriving } = useCoachMarkStatus();
 
   // Never allow tutorial state to delay, intercept, or prevent a real emergency SOS action.
   useEffect(() => {

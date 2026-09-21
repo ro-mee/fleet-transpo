@@ -16,7 +16,7 @@ import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
-import { useCoachMarks, CoachMarkTarget } from "../../../components/coachmarks";
+import { useCoachMarkActions, CoachMarkTarget } from "../../../components/coachmarks";
 
 // Scheme-aware clay material (clayMaterials) — the old local copy baked in
 // light-mode edge strips that read as a harsh gray line in dark mode.
@@ -32,7 +32,7 @@ export default function TripDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
-  const { triggerMilestone, dismiss } = useCoachMarks();
+  const { triggerMilestone, dismiss } = useCoachMarkActions();
   const mats = clayMaterials(scheme === "dark");
   const dark = scheme === "dark";
 

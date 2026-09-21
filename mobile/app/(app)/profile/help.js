@@ -16,7 +16,7 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
 import { ClayCard, ClayTile, ClayButton } from "../../../components/clay";
 import { AppAlert } from "../../../components/AppAlert";
-import { useCoachMarks } from "../../../components/coachmarks";
+import { useCoachMarkActions } from "../../../components/coachmarks";
 
 const FAQS = [
   {
@@ -63,7 +63,7 @@ export default function HelpCenter() {
   const insets = useSafeAreaInsets();
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
-  const { resetTips } = useCoachMarks();
+  const { resetTips } = useCoachMarkActions();
 
   const handleResetTips = () => {
     AppAlert.alert(

@@ -12,7 +12,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 import { useTheme } from "../../lib/theme-context";
-import { useCoachMarks } from "./CoachMarkProvider";
+import {
+  useCoachMarkActions,
+  useCoachMarkStatus,
+  useCoachMarkState,
+} from "./CoachMarkProvider";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -119,13 +123,13 @@ export function CoachMarkTarget({
     pathname = "/";
   }
 
-  const {
-    registerTarget,
-    unregisterTarget,
-    activeMilestone,
-    currentStep,
-    activePresentationId,
-  } = useCoachMarks();
+  // Split across the three contexts by how often each value moves. This is the
+  // one consumer that genuinely needs all of them: registration is a callback,
+  // `activeMilestone` only gates the re-measure on a milestone change, and the
+  // step and presentation generation are what a measurement is stamped with.
+  const { registerTarget, unregisterTarget } = useCoachMarkActions();
+  const { activeMilestone } = useCoachMarkStatus();
+  const { currentStep, activePresentationId } = useCoachMarkState();
   const isCurrentActiveTarget = Boolean(currentStep?.targetId && currentStep.targetId === effectiveId);
 
   // ── Bounded self-retry for a measurement that came back unusable ──────────

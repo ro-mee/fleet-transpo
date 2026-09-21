@@ -26,7 +26,7 @@ import { ErrorNotice } from "../../../components/ui";
 import { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
-import { useCoachMarks } from "../../../components/coachmarks/CoachMarkProvider";
+import { useCoachMarkActions } from "../../../components/coachmarks/CoachMarkProvider";
 import {
   useSharedSkeletonPulse,
   DriverHeroCardSkeleton,
@@ -83,7 +83,7 @@ export default function Home() {
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now);
-  const { triggerMilestone } = useCoachMarks();
+  const { triggerMilestone } = useCoachMarkActions();
   // Incident reports that permanently failed to deliver offline. Surfaced
   // globally — a driver must not have to open Activity Logs to learn that an
   // emergency report never reached dispatch.

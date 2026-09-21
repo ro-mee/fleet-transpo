@@ -18,7 +18,11 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AppAlert } from '../../components/AppAlert';
 import { RECEIPT_FRAME, receiptCropRect } from "../../lib/receipt-crop";
 import { ClayCard, ClayButton, ClayTile, ClayBadge } from '../../components/clay';
-import { useCoachMarks, CoachMarkTarget } from "../../components/coachmarks";
+import {
+  useCoachMarkActions,
+  useCoachMarkStatus,
+  CoachMarkTarget,
+} from "../../components/coachmarks";
 
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
@@ -26,7 +30,11 @@ export default function FuelReport() {
   const { user } = useAuth();
   const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
   const { colors } = useTheme();
-  const { triggerMilestone, notifyInteraction, activeMilestone } = useCoachMarks();
+  const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
+  // Read only to hold the camera and scanner back while a guide is on screen —
+  // "is one open", not which step. Keeps the viewfinder off the step-driven
+  // state context.
+  const { activeMilestone } = useCoachMarkStatus();
 
   const [assignedTrip, setAssignedTrip] = useState(null);
   const driverId = resolveDriverId(user);

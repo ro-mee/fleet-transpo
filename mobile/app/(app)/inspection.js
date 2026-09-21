@@ -10,7 +10,7 @@ import { api } from "../../lib/api";
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
-import { useCoachMarks, CoachMarkTarget } from "../../components/coachmarks";
+import { useCoachMarkActions, CoachMarkTarget } from "../../components/coachmarks";
 
 const CHECKLIST = [
   { id: "cabin", label: "Cabin Cleanliness & Sanitation" },
@@ -50,7 +50,9 @@ export default function PreShiftInspection() {
     return () => { cancelled = true; };
   }, [tripId]);
 
-  const { triggerMilestone, notifyInteraction } = useCoachMarks();
+  // Actions only. The checklist is the heaviest screen a guide runs on, so it
+  // must not be re-rendered by a step transition or a target re-measure.
+  const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
   const scrollRef = useRef(null);
 
   // Initial guidance: spotlight Pass / Fail on first inspection open

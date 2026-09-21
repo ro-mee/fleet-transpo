@@ -968,4 +968,86 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       expect(driverSos).toContain("setLayoutRevision((r) => r + 1);");
     });
   });
+
+  // ── Context partition ──────────────────────────────────────────────────────
+  //
+  // The guide used to publish one value object, built as a fresh literal on
+  // every provider render. A context value is compared by identity, so every
+  // consumer re-rendered whenever ANYTHING in the provider changed — a route
+  // change, a window resize, one target settling — and all ~24 targets plus the
+  // always-mounted tab bar, SOS button and connectivity banner re-rendered on
+  // every step transition.
+  //
+  // There is no renderer in this suite, so this cannot count renders. What it
+  // can do is pin the structure that produces the counts, and pin the two
+  // screens whose re-render cost is the reason the split exists. Both screen
+  // assertions are deliberate tripwires: if a change needs the volatile context
+  // in one of them, this fails and the perf consequence gets looked at rather
+  // than discovered on a device.
+  describe("Coach-mark context partition", () => {
+    const provider = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    );
+    const barrel = readFileSync(
+      new URL("../components/coachmarks/index.js", import.meta.url),
+      "utf8"
+    );
+    const inspectScreen = readFileSync(
+      new URL("../app/(app)/inspection.js", import.meta.url),
+      "utf8"
+    );
+    const incidentsScreen = readFileSync(
+      new URL("../app/(app)/incidents.js", import.meta.url),
+      "utf8"
+    );
+
+    it("publishes three contexts, each behind a memoized value", () => {
+      expect(provider).toContain("const CoachMarkActionsContext = createContext(");
+      expect(provider).toContain("const CoachMarkStatusContext = createContext(");
+      expect(provider).toContain("const CoachMarkStateContext = createContext(");
+      expect(provider).toContain("const actions = useMemo(");
+      expect(provider).toContain("const status = useMemo(");
+      expect(provider).toContain("const state = useMemo(");
+      expect(provider).toContain("<CoachMarkActionsContext.Provider value={actions}>");
+      expect(provider).toContain("<CoachMarkStatusContext.Provider value={status}>");
+      expect(provider).toContain("<CoachMarkStateContext.Provider value={state}>");
+    });
+
+    it("never hands a Provider an unmemoized object literal again", () => {
+      // The regression this guards: `const value = { … }`, re-created on every
+      // render, which makes every consumer re-render for every provider render.
+      expect(provider).not.toContain("const value = {");
+      expect(provider).not.toContain("<CoachMarkContext.Provider");
+    });
+
+    it("keeps the step-dependent callbacks off the actions identity", () => {
+      expect(provider).toContain("stepCallbacksRef.current?.nextStep?.(...args)");
+      expect(provider).toContain("stepCallbacksRef.current?.prevStep?.(...args)");
+      expect(provider).toContain(
+        "stepCallbacksRef.current?.notifyInteraction?.(...args)"
+      );
+      // triggerMilestone must stay raw. It closes over `isDriving`, and several
+      // screens trigger it from an effect whose only other deps are local state
+      // (inspection.js:61, incidents.js:71, fuel-report.js:183). That identity
+      // change is what re-runs those effects when the driving lock releases.
+      expect(provider).not.toContain("?.triggerMilestone");
+    });
+
+    it("keeps the heaviest guide screens on the actions context alone", () => {
+      expect(inspectScreen).toContain("useCoachMarkActions()");
+      expect(inspectScreen).not.toContain("useCoachMarkState()");
+      expect(inspectScreen).not.toContain("useCoachMarks()");
+      expect(incidentsScreen).toContain("useCoachMarkActions()");
+      expect(incidentsScreen).not.toContain("useCoachMarkState()");
+      expect(incidentsScreen).not.toContain("useCoachMarks()");
+    });
+
+    it("still exports the merged hook for consumers needing more than one group", () => {
+      expect(provider).toContain("export function useCoachMarks()");
+      expect(barrel).toContain("useCoachMarkActions,");
+      expect(barrel).toContain("useCoachMarkStatus,");
+      expect(barrel).toContain("useCoachMarkState,");
+    });
+  });
 });

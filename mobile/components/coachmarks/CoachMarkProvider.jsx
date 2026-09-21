@@ -13,17 +13,35 @@ import CoachMarkOverlay from "./CoachMarkOverlay";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const CoachMarkContext = createContext({
-  activeMilestone: null,
-  currentStepIndex: 0,
-  currentStep: null,
-  stepContext: null,
-  activeTargetLayout: null,
-  activePresentationId: 0,
+// ── Why the guide is published through THREE contexts, not one ─────────────
+// A context's value is compared by identity, so one value object means every
+// consumer re-renders whenever ANY coach-mark field changes. It was also built
+// as a plain object literal, so it changed identity on every provider render —
+// a route change, a window resize, a keyboard event or one target re-measuring
+// all woke every consumer, including the always-mounted pieces (the tab bar,
+// the SOS button, the connectivity banner).
+//
+// The fields are partitioned by HOW OFTEN they change, not by what they are
+// about:
+//
+//   Actions — callbacks only. Stable across step transitions and target
+//             re-measures, which is where the churn was. It does still move on
+//             a route change or a driving-lock flip, and that is deliberate —
+//             see the note on the delegates below. Half the consumers are in
+//             this group (see `useCoachMarkActions`).
+//   Status  — which milestone owns the screen, whether the vehicle is moving,
+//             and the Map-tour reservation flags. Moves on milestone
+//             transitions only, not on step changes or re-measures.
+//   State   — the current step, its measured rectangle and the presentation
+//             generation. Genuinely volatile: this is exactly what step
+//             transitions and settling re-measures are supposed to move.
+//
+// `useCoachMarks()` still returns all three merged, so a consumer that needs
+// more than one group is unaffected; it is the narrower hooks that carry the
+// win.
+const CoachMarkActionsContext = createContext({
   triggerMilestone: () => Promise.resolve(false),
   triggerMapIntroFromTab: () => Promise.resolve(false),
-  mapIntroPending: false,
-  mapIntroAwaitingTap: false,
   registerTarget: () => {},
   unregisterTarget: () => {},
   notifyInteraction: () => {},
@@ -33,8 +51,22 @@ const CoachMarkContext = createContext({
   dismiss: () => {},
   dismissCoachMark: () => {},
   resetTips: () => Promise.resolve(false),
-  currentRoute: "/",
+});
+
+const CoachMarkStatusContext = createContext({
+  activeMilestone: null,
+  mapIntroPending: false,
+  mapIntroAwaitingTap: false,
   isDriving: false,
+});
+
+const CoachMarkStateContext = createContext({
+  currentStepIndex: 0,
+  currentStep: null,
+  stepContext: null,
+  activeTargetLayout: null,
+  activePresentationId: 0,
+  currentRoute: "/",
 });
 
 export function CoachMarkProvider({ children, driverId }) {
@@ -765,55 +797,175 @@ export function CoachMarkProvider({ children, driverId }) {
     }
   }, [isDriving, abandonActiveMilestone]);
 
-  const value = {
-    activeMilestone: activeMilestoneKey,
-    currentStepIndex,
-    currentStep,
-    stepContext,
-    activeTargetLayout,
-    activePresentationId,
-    triggerMilestone,
-    triggerMapIntroFromTab,
-    mapIntroPending,
-    mapIntroAwaitingTap,
-    registerTarget,
-    unregisterTarget,
-    notifyInteraction,
-    nextStep,
-    prevStep,
-    skip,
-    dismiss,
-    dismissCoachMark: dismiss,
-    resetTips,
-    currentRoute: pathname,
-    // Exposed so screens can respect the lock themselves — DriverSos.js already
-    // destructures this for its "only once stationary" delay.
-    isDriving,
-  };
+  // ── Stable handles for the three step-dependent callbacks ─────────────────
+  // `nextStep`, `prevStep` and `notifyInteraction` all close over the current
+  // step, so their identity changes on every step transition. Published raw,
+  // they would re-create the actions value each time and drag every
+  // actions-only consumer back into re-rendering on every step — which is the
+  // exact cost the split exists to remove.
+  //
+  // So the actions context carries stable delegates that read the latest
+  // definition out of a ref. This changes nothing about what the callback does:
+  // the ref is written at commit, and these are only ever reached from an event
+  // handler, so a call always runs the definition from the render on screen.
+  // Written in a layout effect for the same reason as the other ref mirrors in
+  // this file — it lands at commit, before anything that could read it.
+  //
+  // `triggerMilestone` is deliberately left raw for the opposite reason: it
+  // closes over `isDriving`, and several screens trigger it from an effect whose
+  // only other deps are their own local state (inspection.js:61, incidents.js:71,
+  // fuel-report.js:183). That identity change is what re-runs those effects the
+  // moment the driving lock releases, so a guide suppressed while moving appears
+  // once parked. Freezing it would strand those triggers until something
+  // unrelated changed. `registerTarget` is left raw for the same shape of
+  // reason — it carries the route — and costs nothing, because CoachMarkTarget
+  // lists `pathname` as a dep of its own measurement callback anyway.
+  const stepCallbacksRef = useRef(null);
+  useLayoutEffect(() => {
+    stepCallbacksRef.current = { nextStep, prevStep, notifyInteraction };
+  }, [nextStep, prevStep, notifyInteraction]);
+
+  // Optional calls rather than bare ones: nothing can reach a delegate before
+  // the layout effect above has run, but a null-safe call costs nothing and
+  // removes the need for a reader to prove that.
+  const stableNextStep = useCallback(
+    (...args) => stepCallbacksRef.current?.nextStep?.(...args),
+    []
+  );
+  const stablePrevStep = useCallback(
+    (...args) => stepCallbacksRef.current?.prevStep?.(...args),
+    []
+  );
+  const stableNotifyInteraction = useCallback(
+    (...args) => stepCallbacksRef.current?.notifyInteraction?.(...args),
+    []
+  );
+
+  const actions = useMemo(
+    () => ({
+      triggerMilestone,
+      triggerMapIntroFromTab,
+      registerTarget,
+      unregisterTarget,
+      notifyInteraction: stableNotifyInteraction,
+      nextStep: stableNextStep,
+      prevStep: stablePrevStep,
+      skip,
+      dismiss,
+      dismissCoachMark: dismiss,
+      resetTips,
+    }),
+    [
+      triggerMilestone,
+      triggerMapIntroFromTab,
+      registerTarget,
+      unregisterTarget,
+      stableNotifyInteraction,
+      stableNextStep,
+      stablePrevStep,
+      skip,
+      dismiss,
+      resetTips,
+    ]
+  );
+
+  const status = useMemo(
+    () => ({
+      activeMilestone: activeMilestoneKey,
+      mapIntroPending,
+      mapIntroAwaitingTap,
+      // Exposed so screens can respect the lock themselves — DriverSos.js
+      // already destructures this for its "only once stationary" delay.
+      isDriving,
+    }),
+    [activeMilestoneKey, mapIntroPending, mapIntroAwaitingTap, isDriving]
+  );
+
+  const state = useMemo(
+    () => ({
+      currentStepIndex,
+      currentStep,
+      stepContext,
+      activeTargetLayout,
+      activePresentationId,
+      currentRoute: pathname,
+    }),
+    [
+      currentStepIndex,
+      currentStep,
+      stepContext,
+      activeTargetLayout,
+      activePresentationId,
+      pathname,
+    ]
+  );
 
   return (
-    <CoachMarkContext.Provider value={value}>
-      <View style={{ flex: 1 }} pointerEvents="box-none">
-        {children}
-        {shouldShowOverlay && (
-          <CoachMarkOverlay
-            milestone={activeMilestone}
-            step={currentStep}
-            stepIndex={currentStepIndex}
-            totalSteps={activeMilestone.steps.length}
-            targetLayout={activeTargetLayout}
-            stepContext={stepContext}
-            onNext={nextStep}
-            onPrev={prevStep}
-            onSkip={skip}
-            onDismiss={dismiss}
-          />
-        )}
-      </View>
-    </CoachMarkContext.Provider>
+    <CoachMarkActionsContext.Provider value={actions}>
+      <CoachMarkStatusContext.Provider value={status}>
+        <CoachMarkStateContext.Provider value={state}>
+          <View style={{ flex: 1 }} pointerEvents="box-none">
+            {children}
+            {shouldShowOverlay && (
+              <CoachMarkOverlay
+                milestone={activeMilestone}
+                step={currentStep}
+                stepIndex={currentStepIndex}
+                totalSteps={activeMilestone.steps.length}
+                targetLayout={activeTargetLayout}
+                stepContext={stepContext}
+                onNext={nextStep}
+                onPrev={prevStep}
+                onSkip={skip}
+                onDismiss={dismiss}
+              />
+            )}
+          </View>
+        </CoachMarkStateContext.Provider>
+      </CoachMarkStatusContext.Provider>
+    </CoachMarkActionsContext.Provider>
   );
 }
 
+/**
+ * The callbacks only. A consumer that just tells the guide something has
+ * happened — start this tour, the driver did this, reset the tips — subscribes
+ * here, and is then never re-rendered by a step transition, a re-measure or a
+ * milestone change: this value only moves on a route change or a driving-lock
+ * flip, both of which are moments the consumer wants to hear about anyway.
+ */
+export function useCoachMarkActions() {
+  return useContext(CoachMarkActionsContext);
+}
+
+/**
+ * Which milestone owns the screen, whether the vehicle is moving, and the
+ * Map-tour reservation flags. Changes on milestone transitions, not on step
+ * changes or target re-measures.
+ */
+export function useCoachMarkStatus() {
+  return useContext(CoachMarkStatusContext);
+}
+
+/**
+ * The current step and its measured target rectangle. The volatile group —
+ * subscribe only if the component genuinely has to know where the guide is.
+ */
+export function useCoachMarkState() {
+  return useContext(CoachMarkStateContext);
+}
+
+/**
+ * All three groups merged, for a consumer that needs more than one of them.
+ * Because it subscribes to every context, this re-renders on step transitions
+ * and target re-measures — prefer the narrower hooks above.
+ */
 export function useCoachMarks() {
-  return useContext(CoachMarkContext);
+  const actions = useContext(CoachMarkActionsContext);
+  const status = useContext(CoachMarkStatusContext);
+  const state = useContext(CoachMarkStateContext);
+  return useMemo(
+    () => ({ ...actions, ...status, ...state }),
+    [actions, status, state]
+  );
 }

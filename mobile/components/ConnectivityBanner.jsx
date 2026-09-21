@@ -28,7 +28,11 @@ import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
 import { useConnectivity } from "../lib/connectivity-context";
 import { formatLastSynced } from "../lib/offline-cache";
-import { useCoachMarks, CoachMarkTarget } from "./coachmarks";
+import {
+  useCoachMarkActions,
+  useCoachMarkStatus,
+  CoachMarkTarget,
+} from "./coachmarks";
 
 function pickVisual({ status, phase, pendingCount, gpsRecording, lastSuccessAt }) {
   const queued = Number(pendingCount) > 0 ? Number(pendingCount) : 0;
@@ -116,7 +120,10 @@ export function ConnectivityBanner() {
   const { status, phase, pendingCount, gpsRecording, lastSuccessAt } = useConnectivity();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { triggerMilestone, activeMilestone } = useCoachMarks();
+  const { triggerMilestone } = useCoachMarkActions();
+  // Only "is a guide open", which changes on milestone transitions — not the
+  // step or the measured rectangle. This banner sits above the whole app tree.
+  const { activeMilestone } = useCoachMarkStatus();
   const [reduceMotion, setReduceMotion] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(-8));

@@ -12,7 +12,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
-import { useCoachMarks } from "./coachmarks";
+import { useCoachMarkActions } from "./coachmarks";
 import { isMapTabIntent } from "../lib/map-intro";
 
 const waveLight = require("../assets/images/clay_wave_light.png");
@@ -48,7 +48,10 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { scheme } = useTheme();
-  const { triggerMapIntroFromTab } = useCoachMarks();
+  // Actions only: the tab bar starts the Map tour and reads nothing back. On the
+  // narrow actions context it is never re-rendered by the guide, which matters
+  // because this bar is mounted on every screen for the whole session.
+  const { triggerMapIntroFromTab } = useCoachMarkActions();
   const isDark = scheme === "dark";
 
   // Light/Dark token mappings matching the exact reference palette
