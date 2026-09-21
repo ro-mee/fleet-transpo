@@ -923,7 +923,7 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       // underway trip it spotlighted the wrong line and then left steps 2-3 with
       // no target at all — overlay hidden, milestone active and unable to
       // complete, which now also blocks every guide after it.
-      expect(tripScreen).toContain("if (loading || !trip || isTerminal || !isPreStart) return;");
+      expect(tripScreen).toContain("if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;");
       expect(tripScreen).toContain('triggerMilestone("trip_readiness")');
     });
 
