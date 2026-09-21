@@ -1051,3 +1051,22 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
     });
   });
 });
+
+describe("Inspection completion retry", () => {
+  const inspectScreen = readFileSync(
+    new URL("../app/(app)/inspection.js", import.meta.url),
+    "utf8"
+  );
+
+  it("re-fires pretrip_complete once the blocking guide dismisses", () => {
+    expect(inspectScreen).toContain('triggerMilestone("pretrip_complete")');
+    expect(inspectScreen).toContain("if (allAnswered && !activeMilestone) {");
+    expect(inspectScreen).toContain("[allAnswered, activeMilestone, triggerMilestone]");
+  });
+
+  it("stays off the volatile state context", () => {
+    expect(inspectScreen).toContain("useCoachMarkStatus()");
+    expect(inspectScreen).not.toContain("useCoachMarkState()");
+    expect(inspectScreen).not.toContain("useCoachMarks()");
+  });
+});

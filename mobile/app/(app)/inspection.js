@@ -10,7 +10,7 @@ import { api } from "../../lib/api";
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
-import { useCoachMarkActions, CoachMarkTarget } from "../../components/coachmarks";
+import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../components/coachmarks";
 
 const CHECKLIST = [
   { id: "cabin", label: "Cabin Cleanliness & Sanitation" },
@@ -53,6 +53,7 @@ export default function PreShiftInspection() {
   // Actions only. The checklist is the heaviest screen a guide runs on, so it
   // must not be re-rendered by a step transition or a target re-measure.
   const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
+  const { activeMilestone } = useCoachMarkStatus();
   const scrollRef = useRef(null);
 
   // Initial guidance: spotlight Pass / Fail on first inspection open
@@ -65,12 +66,15 @@ export default function PreShiftInspection() {
   const failedCount = Object.values(statuses).filter((s) => s === "FAIL").length;
   const answeredCount = Object.values(statuses).filter(Boolean).length;
 
-  // Complete inspection guidance: triggered when all 7 items are answered
+  // Complete inspection guidance: triggered when all 7 items are answered.
+  // Guarded + re-evaluated on milestone transitions so answering everything
+  // while pretrip/remarks is still open retries after it dismisses instead of
+  // being refused once and lost.
   useEffect(() => {
-    if (allAnswered) {
+    if (allAnswered && !activeMilestone) {
       triggerMilestone("pretrip_complete");
     }
-  }, [allAnswered, triggerMilestone]);
+  }, [allAnswered, activeMilestone, triggerMilestone]);
 
   const setStatus = (id, val) => {
     setStatuses((prev) => ({ ...prev, [id]: val }));
