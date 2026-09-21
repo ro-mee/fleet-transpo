@@ -16,7 +16,7 @@ import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
-import { useCoachMarkActions, CoachMarkTarget } from "../../../components/coachmarks";
+import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../../components/coachmarks";
 
 // Scheme-aware clay material (clayMaterials) — the old local copy baked in
 // light-mode edge strips that read as a harsh gray line in dark mode.
@@ -33,6 +33,7 @@ export default function TripDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
   const { triggerMilestone, dismiss } = useCoachMarkActions();
+  const { activeMilestone } = useCoachMarkStatus();
   const mats = clayMaterials(scheme === "dark");
   const dark = scheme === "dark";
 
@@ -158,9 +159,9 @@ export default function TripDetailsScreen() {
     // underway trip spotlighted the "this trip is underway" line with copy about
     // when a trip CAN begin, then left steps 2 and 3 with no target at all: the
     // overlay hid while the milestone stayed active and could never complete.
-    if (loading || !trip || isTerminal || !isPreStart) return;
+    if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;
     triggerMilestone("trip_readiness");
-  }, [loading, trip, isTerminal, isPreStart, triggerMilestone]);
+  }, [loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone]);
 
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.
@@ -384,15 +385,26 @@ export default function TripDetailsScreen() {
                   </CoachMarkTarget>
                 </>
               ) : (
-                // No verified start window — say so instead of guessing one.
-                <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
-                  <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
-                    <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />
-                    <Text style={[type.supporting, { flexShrink: 1 }]}>
-                      Start window isn&apos;t confirmed yet. Check with dispatch for your scheduled departure.
-                    </Text>
-                  </View>
-                </CoachMarkTarget>
+                // No verified start window — say so instead of guessing one. Both steps
+                // keep a live target so the milestone can always advance.
+                <>
+                  <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
+                    <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
+                      <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />
+                      <Text style={[type.supporting, { flexShrink: 1 }]}>
+                        Start window isn&apos;t confirmed yet. Check with dispatch for your scheduled departure.
+                      </Text>
+                    </View>
+                  </CoachMarkTarget>
+                  <CoachMarkTarget targetId="trip.pretrip_requirement" scrollRef={scrollRef}>
+                    <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color={colors.onSurfaceVariant} />
+                      <Text style={[type.supporting, { flexShrink: 1 }]}>
+                        Complete the required pre-trip inspection before departure. The start button unlocks once safety is confirmed.
+                      </Text>
+                    </View>
+                  </CoachMarkTarget>
+                </>
               )
             ) : (
               /* Not a CoachMarkTarget: this is the underway branch, and

@@ -930,6 +930,16 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
     it("retires the guide when the driver starts the trip", () => {
       expect(tripScreen).toContain("Promise.resolve(dismiss()).catch(() => {});");
     });
+
+    it("covers step 2 even with no verified start window", () => {
+      const matches = tripScreen.match(/targetId="trip\.pretrip_requirement"/g) || [];
+      expect(matches.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("re-fires trip_readiness once the blocking guide dismisses", () => {
+      expect(tripScreen).toContain("if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;");
+      expect(tripScreen).toContain("[loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone]");
+    });
   });
 
   describe("Presentation generation & fresh measurement contract", () => {
