@@ -1183,9 +1183,12 @@ describe("Scrim paints the surroundings, never the target", () => {
   it("clamps transient negative container origins and re-syncs after transitions", () => {
     // A mid-slide measure reads y ≈ −statusBar; adopting it offsets every
     // cutout by ~39dp until rotation (device log: origin 0 ↔ −39.11 on the
-    // same target). Fullscreen origins can never rest negative, so clamp;
-    // and re-measure per step plus once after the transition settles.
-    expect(overlay).toContain("Math.max(0, Math.round(");
+    // same target). Fullscreen origins can never rest negative, so clamp AT
+    // READ TIME — a clamp-only-on-adopt still renders stale Fast-Refresh
+    // state wrong. Re-measure per step plus once after the transition
+    // settles.
+    expect(overlay).toContain("const originX = Math.max(0, containerOrigin.x);");
+    expect(overlay).toContain("const originY = Math.max(0, containerOrigin.y);");
     expect(overlay).toContain("setTimeout(measure, 350)");
     expect(overlay).toContain("[step?.targetId]");
   });

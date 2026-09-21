@@ -77,13 +77,12 @@ export function CoachMarkOverlay({
   const [containerOrigin, setContainerOrigin] = useState({ x: 0, y: 0 });
 
   const adoptOrigin = (x, y) => {
-    // Window coordinates of a fullscreen container can never rest negative —
-    // a negative read is a mid-transition frame (route slide ≈ status-bar
-    // height; device log showed 0 ↔ −39.11 on the same target). Adopting it
-    // offsets every cutout by ~39dp until the next rotation, so clamp.
     // Rounded to whole dp to kill sub-pixel jitter between re-measures.
-    const nx = Math.max(0, Math.round(x));
-    const ny = Math.max(0, Math.round(y));
+    // Clamping happens at read time below (originX/originY), not here, so no
+    // stale or Hot-Reload-preserved state can ever offset a cutout: even a
+    // −39.11 carried over from an older bundle renders as 0.
+    const nx = Math.round(x);
+    const ny = Math.round(y);
     setContainerOrigin((prev) =>
       prev.x === nx && prev.y === ny ? prev : { x: nx, y: ny }
     );
@@ -112,10 +111,18 @@ export function CoachMarkOverlay({
     };
   }, [step?.targetId]);
 
-  // Spotlight geometry with 8dp breathing room
+  // Spotlight geometry with 8dp breathing room.
+  // The effective origin is clamped at READ time (not only when adopted):
+  // window coordinates of a fullscreen container can never rest negative — a
+  // negative value is a mid-transition frame (route slide ≈ status-bar
+  // height; device log showed 0 ↔ −39.11 on the same target) or state carried
+  // over by Fast Refresh from an older bundle. Clamping here means no stored
+  // value, however stale, can ever offset a cutout by ~39dp again.
+  const originX = Math.max(0, containerOrigin.x);
+  const originY = Math.max(0, containerOrigin.y);
   const pad = targetLayout?.padding ?? DEFAULT_PADDING;
-  const rawX = (targetLayout?.x ?? 0) - containerOrigin.x;
-  const rawY = (targetLayout?.y ?? 0) - containerOrigin.y;
+  const rawX = (targetLayout?.x ?? 0) - originX;
+  const rawY = (targetLayout?.y ?? 0) - originY;
   const rawW = targetLayout?.width ?? 0;
   const rawH = targetLayout?.height ?? 0;
 
@@ -156,14 +163,15 @@ export function CoachMarkOverlay({
     if (!__DEV__ || !targetLayout) return;
     const signature = [
       step?.targetId ?? "none",
-      `${containerOrigin.x},${containerOrigin.y}`,
+      `${originX},${originY}`,
       `${targetLayout.x},${targetLayout.y},${targetLayout.width},${targetLayout.height}`,
     ].join("|");
     if (geometryLogRef.current === signature) return;
     geometryLogRef.current = signature;
     console.warn("[coachmarks] spotlight geometry", {
       targetId: step?.targetId ?? null,
-      origin: containerOrigin,
+      origin: { x: originX, y: originY },
+      rawOrigin: containerOrigin,
       measured: {
         x: targetLayout.x,
         y: targetLayout.y,
@@ -184,6 +192,8 @@ export function CoachMarkOverlay({
   }, [
     targetLayout,
     containerOrigin,
+    originX,
+    originY,
     step,
     spotX,
     spotY,
