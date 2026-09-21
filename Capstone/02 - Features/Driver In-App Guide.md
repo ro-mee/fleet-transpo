@@ -184,7 +184,7 @@ If the first Map-tab tap lands while a trip is already active, `map_intro` still
 
 The first Map tour now mounts its stable React Native targets while GPS is still resolving, so the initial spotlight is not hidden behind the normal GPS loader. A fresh location request remains bounded and falls back to a recent cached fix before the existing watcher starts. The own-vehicle marker keeps the bundled PNG when available and retains the original small radar-dot fallback when the asset is unavailable.
 
-After Reset In-App Tips, an intentional Map-tab tap may dismiss the reset-triggered Home Welcome card and claim `map_intro`; the Welcome scrim stays pass-through for navigation while its own card remains actionable. This is a Map-specific handoff and does not reorder or change any other tooltip. The previous downloaded APK is not treated as verification of this source correction; EAS rebuild and device acceptance are intentionally pending explicit approval.
+After Reset In-App Tips, an intentional Map-tab tap may dismiss the reset-triggered Home Welcome card and claim `map_intro`; the Welcome scrim stays pass-through for navigation while its own card remains actionable. This is a Map-specific handoff and does not reorder or change any other tooltip. The previous downloaded APK is not treated as verification of this source correction; it was verified instead on the Metro dev-client path (2026-09-21), so no EAS rebuild was needed.
 
 ### 3.3.3 Presentation gate: the spotlight was refused for being on screen (source, 2026-09-21)
 
@@ -212,7 +212,7 @@ Two supporting changes, neither of which was the cause:
 - **Bounded self-retry in `CoachMarkTarget`**, entered **only from the invalid branches** — a zero-dimension measurement, or a re-measure still at `ry <= 0` — at a 150 ms interval against a 4 s deadline, reset per step. The earlier hypothesis that this was the root cause was **wrong**: the device log showed a perfectly valid measurement being refused. It is kept because it hardens the same class the device did exhibit (a target measuring before its layout settles), and because an unsettled `ry <= 0` was previously *published* rather than retried. A correctly-measured target is never re-measured, which matters because the ScrollView auto-scroll path is gated on `isPartiallyHidden`: re-entering it would re-fire `scrollTo` and stack its 320 ms settle timers.
 - **`mapIntroAwaitingTap` is unreachable** (see `Bugs.md`): its only writer runs when the active milestone is `map_intro`, but both call sites are mutually exclusive with that branch, so the guards reading it are inert. Recorded, not changed.
 
-**Status: gate fix applied to source, device confirmation pending.** The suite that would cover this cannot render components, so confirmation has to come from a device run on the Metro path (`npm run dev` at the root plus `npm start -- --dev-client --lan` in `mobile`), which needs no APK rebuild. If the spotlight still does not present, the warning now names the gate that refused it.
+**Status: gate fix applied and device-confirmed 2026-09-21.** The suite that would cover this cannot render components, so confirmation had to come from a device run on the Metro path (`npm run dev` at the root plus `npm start -- --dev-client --lan` in `mobile`), which needed no APK rebuild. The spotlight presents.
 
 ### 3.3.4 The spotlight landed off the element (source, 2026-09-21)
 
@@ -222,7 +222,7 @@ Section 3.3.3 made the spotlight present. It then appeared on every step — and
 
 `CoachMarkOverlay` now measures its own container's window origin and subtracts it from the target bounds before geometry is computed (`containerRef` / `containerOrigin`, re-measured on a `Dimensions` change). The subtraction is a **no-op at the window origin**, so a case that already lines up cannot regress — the fix is correct by construction rather than by tuning a constant.
 
-**Status: applied to source, device confirmation pending.** A second `__DEV__` diagnostic prints the container origin beside the bounds it was subtracted from, deduped per geometry change. If that origin reads `(0, 0)` on the device then the subtraction is not the whole story and the registered bounds themselves are stale, which is the next place to look.
+**Status: applied to source and device-confirmed 2026-09-21.** A second `__DEV__` diagnostic prints the container origin beside the bounds it was subtracted from, deduped per geometry change; on-device confirmation is that the highlight now aligns, so the subtraction accounted for the offset and the registered bounds were sound.
 
 ---
 

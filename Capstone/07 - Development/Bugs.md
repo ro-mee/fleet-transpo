@@ -60,7 +60,7 @@ The leaked database password was **rotated on
   "Fully booked / 0 / 0" despite eligible resources. **Closed 2026-08-18.** →
   [[BUG Availability Endpoints 500 False Fully Booked]]
 - **First Map tooltip refused for being on screen — the safe-viewport margin —
-  MEDIUM, FIXED IN SOURCE 2026-09-21; device acceptance has not run.** Reported
+  MEDIUM, FIXED AND DEVICE-CONFIRMED 2026-09-21.** Reported
   four times against the intent-driven `map_intro` tour: a fresh install claims the
   milestone and still shows no spotlight. The three earlier rounds all fixed
   *trigger-side* concerns — tabPress ordering, the Home Welcome handoff, the
@@ -92,8 +92,8 @@ The leaked database password was **rotated on
   **not** the cause: that was the first hypothesis and the device log disproved it.
   Two source-text assertions moved with the change (`lib/coach-marks.test.js:703`,
   `:772`).
-- **Coach-mark spotlight drawn in the wrong coordinate space — HIGH, FIXED IN
-  SOURCE 2026-09-21, device confirmation pending.** Follows directly from the
+- **Coach-mark spotlight drawn in the wrong coordinate space — HIGH, FIXED AND
+  DEVICE-CONFIRMED 2026-09-21.** Follows directly from the
   entry above: once the gate stopped refusing an on-screen target the spotlight
   presented on every step, but landed off the element — uniformly, on all of
   them. A uniform offset is a coordinate-space mismatch, not a per-target
@@ -110,9 +110,10 @@ The leaked database password was **rotated on
   (`CoachMarkOverlay.jsx`: `containerRef` / `containerOrigin`). Correct by
   construction, and a no-op at the window origin, so it cannot regress a case
   that already lines up. **A `__DEV__` line now prints the origin beside the
-  bounds it was subtracted from**, deduped per geometry change: if that origin
-  reads `(0,0)` on device then the subtraction is not the whole story and the
-  registered bounds themselves are stale, which is the next place to look.
+  bounds it was subtracted from**, deduped per geometry change. **Device-confirmed
+  2026-09-21**: the highlight lands on the target across the tour's steps, so the
+  subtraction accounted for the offset and the registered bounds were sound — the
+  stale-bounds fallback below is not needed.
 - **The coach-mark suite cannot observe any of this — OPEN, structural.** 55 of the
   60 cases in `mobile/lib/coach-marks.test.js` read the source with `readFileSync`
   and assert with `toContain`, and `mobile/` contains no `react-test-renderer`, no
@@ -120,8 +121,9 @@ The leaked database password was **rotated on
   `vitest` over `mobile/lib`. So "60/60 green" has never meant the tour appears, and
   a trigger-side fix and a presentation-side fix are indistinguishable to the gate.
   That is the mechanism by which four rounds of green suites reached a device with
-  no behaviour change, and it is why the gate fix above still needs a device run
-  before it counts as evidence. A genuinely runtime test here needs a renderer added
+  no behaviour change, and it is why both fixes above needed a device run before
+  they counted as evidence — the run they have now had (2026-09-21). A genuinely
+  runtime test here needs a renderer added
   as a devDependency; until then every claim about this feature is a claim about
   source text.
   `lib/map-intro.test.js` (5 cases) exercises the stage machine's pure logic and is
