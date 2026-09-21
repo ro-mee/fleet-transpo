@@ -1106,3 +1106,21 @@ describe("Fuel intro retry", () => {
     expect(seq.indexOf("await notifyInteraction")).toBeLessThan(seq.indexOf("openReceiptCamera"));
   });
 });
+
+describe("Incident retry", () => {
+  const incidentsScreen = readFileSync(
+    new URL("../app/(app)/incidents.js", import.meta.url),
+    "utf8"
+  );
+
+  it("re-fires incident once the blocking guide dismisses", () => {
+    expect(incidentsScreen).toContain('triggerMilestone("incident")');
+    expect(incidentsScreen).toContain("if (!activeMilestone) {");
+  });
+
+  it("stays off the volatile state context", () => {
+    expect(incidentsScreen).toContain("useCoachMarkStatus()");
+    expect(incidentsScreen).not.toContain("useCoachMarkState()");
+    expect(incidentsScreen).not.toContain("useCoachMarks()");
+  });
+});

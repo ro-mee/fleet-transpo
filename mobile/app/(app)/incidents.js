@@ -15,7 +15,7 @@ import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
-import { useCoachMarkActions, CoachMarkTarget } from '../../components/coachmarks';
+import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from '../../components/coachmarks';
 
 const INCIDENT_TYPES = [
   { id: "breakdown", label: "Vehicle Breakdown", icon: "car" },
@@ -47,6 +47,7 @@ export default function IncidentsScreen() {
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
   const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
+  const { activeMilestone } = useCoachMarkStatus();
   const scrollRef = useRef(null);
 
   const [type, setType] = useState(null);
@@ -65,10 +66,12 @@ export default function IncidentsScreen() {
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
-      triggerMilestone("incident");
+      if (!activeMilestone) {
+        triggerMilestone("incident");
+      }
     });
     return () => task?.cancel?.();
-  }, [triggerMilestone]);
+  }, [activeMilestone, triggerMilestone]);
   
   useEffect(() => {
     // Offline driver context: the vehicle shown (and submitted) resolves
