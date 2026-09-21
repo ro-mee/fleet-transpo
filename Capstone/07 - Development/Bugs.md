@@ -145,6 +145,18 @@ The leaked database password was **rotated on
   suite can assert rather than string-match (`lib/spotlight-geometry.test.js`,
   11 cases). Shape itself still needs a device: the `__DEV__` geometry line now
   reports `holeRadius` and `circular`.
+  **Update 2026-09-21 evening — device REJECTED the border trick, reverted.**
+  On the incident walkthrough the single-view scrim rendered inverted: RN draws
+  borders inside the view bounds, so the ~1200dp border filled the target box
+  itself dark and left the surroundings undimmed (user: "baliktad... naka-dark
+  imbis na ma-highlight... nag-ooverlap"). The same walkthrough showed the
+  container origin oscillating 0 ↔ −39.11 on one target, jumping the cutout
+  ~39dp — a mid-slide measure kept until rotation. Fix (`baefd3f`): dim is four
+  edge-to-edge `scrimBg` rectangles again (also the touch blockers); origins
+  clamped ≥ 0, rounded, re-measured per step + once 350ms after mount. Square
+  hole again (round local contour carries the shape cue); truly round hole
+  needs `react-native-svg` + rebuild — separate future task. Suite 27/255,
+  ESLint clean; visual re-confirmation needs one Metro reload.
 - **Every coach-mark consumer re-rendered on every provider render — MEDIUM,
   FIXED IN SOURCE 2026-09-21, not measured.** Found by reading
   `CoachMarkProvider.jsx` after the user asked whether only the Map tooltip had
