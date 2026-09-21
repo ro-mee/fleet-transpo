@@ -99,7 +99,7 @@ The leaked database password was **rotated on
   them. A uniform offset is a coordinate-space mismatch, not a per-target
   calculation error, and the mismatch is structural. `CoachMarkTarget` registers
   bounds from `measureInWindow`, which reports WINDOW coordinates, while
-  `CoachMarkOverlay` draws its four scrim rectangles and its cutout with
+  `CoachMarkOverlay` draws its scrim and its cutout with
   `StyleSheet.absoluteFill` inside the *provider's* container
   (`CoachMarkProvider.jsx:713`). Those are the same space only while that
   container sits exactly at the window origin — and it need not: the container
@@ -114,20 +114,99 @@ The leaked database password was **rotated on
   2026-09-21**: the highlight lands on the target across the tour's steps, so the
   subtraction accounted for the offset and the registered bounds were sound — the
   stale-bounds fallback below is not needed.
-- **The coach-mark suite cannot observe any of this — OPEN, structural.** 55 of the
-  60 cases in `mobile/lib/coach-marks.test.js` read the source with `readFileSync`
-  and assert with `toContain`, and `mobile/` contains no `react-test-renderer`, no
+- **The spotlight hole was always a square — MEDIUM, FIXED IN SOURCE 2026-09-21,
+  device confirmation pending.** Reported as "if circle, circle din dapat — not
+  fixed as square". The scrim was painted by four rectangles
+  (`CoachMarkOverlay.jsx`), which leave a rectangular hole *by construction*: no
+  arrangement of rectangles can leave a rounded one. `spotlightCutout` did receive
+  `borderRadius`, but its style is `backgroundColor: "transparent"` — it is a
+  hit-test shim, so its radius could never shape anything visible. The mismatch was
+  clearest on the `DriverSos` FAB, whose **local** contour already rendered a
+  perfect circle (`borderRadius: radius + padding` = 32 + 4 across a 72dp box)
+  inside a square scrim hole. Compounded on the Map tour, where the round controls
+  declare no radius at all — `standbyControl` is 48x48 with `borderRadius: 24` — so
+  `map.controls` and `map.layers` fell back to the default 12.
+  Fixed by painting the scrim with a **single** view whose content box *is* the
+  hole (a thick border, so only the ring paints, and the inner edge keeps
+  `borderRadius`), with the radius following the target:
+  `min(radius + padding, min(holeW, holeH) / 2)`. That is the rule the local
+  contour already used, so the two stay concentric rather than drifting apart, and
+  a fully-rounded target resolves to exactly half the hole — a circle stays a
+  circle, a pill becomes a stadium, a card stays a rounded rectangle. One paint
+  rather than four because the scrim is semi-transparent (`0.76` / `0.65`):
+  overlapping scrim views composite twice and leave a visible seam, which is what
+  rules out the obvious corner-patch fix. The four rectangles remain, now
+  **transparent**, as touch blockers — the shaped view cannot block, because its
+  bounds include the hole and it would swallow `passthrough` steps. Accepted
+  trade-off: the slivers inside the rectangular blocker region but outside a
+  rounded hole are dimmed yet touch-transparent, ~31dp² per corner at r=12.
+  The round Map targets now declare their radius. The rule is extracted to
+  `lib/spotlight-geometry.js`, making this the **first** coach-mark behaviour the
+  suite can assert rather than string-match (`lib/spotlight-geometry.test.js`,
+  11 cases). Shape itself still needs a device: the `__DEV__` geometry line now
+  reports `holeRadius` and `circular`.
+- **Every coach-mark consumer re-rendered on every provider render — MEDIUM,
+  FIXED IN SOURCE 2026-09-21, not measured.** Found by reading
+  `CoachMarkProvider.jsx` after the user asked whether only the Map tooltip had
+  been optimised. It had not: `React.memo` appears **nowhere** under
+  `components/coachmarks/`. Map only *felt* optimised because its own heavy
+  children are memoized (`TomTomMap`, `MapIntroPractice`), so a Map re-render
+  never rebuilt the native WebView. The context value was a plain object
+  literal (`const value = { … }`), and a context value is compared by identity,
+  so it changed on **every** provider render — a route change, a window resize,
+  a keyboard event, or one target settling — and all eleven consumers
+  re-rendered each time. The churn is bursty rather than per-frame, because
+  `commitWinner` already returned `prev` for identical bounds; but
+  `nextStep`/`prevStep` bump `activePresentationId`, so **every step transition**
+  invalidates every registration and each re-measure is another provider render:
+  roughly ten per step across the nine-step Map tour, each re-rendering every
+  mounted consumer. The tab layout sets no `lazy` / `unmountOnBlur` /
+  `freezeOnBlur`, so every visited tab stays mounted and stays in that set. The
+  worst blast radius was the screens with no memo barrier — `fuel-report.js`
+  (camera viewfinder), `inspection.js` (7-item checklist), `incidents.js` — plus
+  the always-alive `CurvedPillTabBar`, `DriverSos` and `ConnectivityBanner`.
+  Fixed by publishing three contexts partitioned by **change frequency** rather
+  than subject: `CoachMarkActionsContext` (callbacks only), `CoachMarkStatusContext`
+  (`activeMilestone`, `isDriving`, the Map-intro flags), `CoachMarkStateContext`
+  (`currentStep`, `activeTargetLayout`, `activePresentationId`, …). Each value is
+  `useMemo`-ed, `useCoachMarks()` still merges all three for a consumer needing
+  more than one, and the narrow `useCoachMarkActions()` / `useCoachMarkStatus()` /
+  `useCoachMarkState()` let **six of the eleven** consumers — the tab bar, the
+  trip screen, the checklist, incidents, Home and Help — subscribe to callbacks
+  alone and never re-render for tutorial activity. `nextStep`, `prevStep` and
+  `notifyInteraction` close over the current step, so they are published through
+  stable delegates reading a ref written at commit; `triggerMilestone` is
+  deliberately **not** delegated, because its identity change with `isDriving` is
+  what re-runs `inspection.js` / `incidents.js` / `fuel-report.js`'s trigger
+  effects when the driving lock releases. Verified: mobile library suite 27 files
+  / 239 tests, touched-file ESLint clean at `--max-warnings 0`.
+  **Nothing was measured** — this is a structural fix reasoned from the code, and
+  the suite has no renderer, so it can pin the structure but cannot count renders.
+  The two remaining recommendations from the same analysis were identified and
+  **not** applied: `freezeOnBlur: true` on the Tabs `screenOptions`, and memo
+  barriers on the fuel-report viewfinder and the inspection list.
+- **The coach-mark suite cannot observe any of this — OPEN, structural.** Most of
+  the 70 cases in `mobile/lib/coach-marks.test.js` read the source with
+  `readFileSync` and assert with `toContain` (23 `readFileSync` calls feed them;
+  a minority exercise simulated pure logic inline), and `mobile/` contains no
+  `react-test-renderer`, no
   `@testing-library/react-native` and no `render()` at all — the only runner is
-  `vitest` over `mobile/lib`. So "60/60 green" has never meant the tour appears, and
+  `vitest` over `mobile/lib`. So a green suite has never meant the tour appears, and
   a trigger-side fix and a presentation-side fix are indistinguishable to the gate.
   That is the mechanism by which four rounds of green suites reached a device with
-  no behaviour change, and it is why both fixes above needed a device run before
-  they counted as evidence — the run they have now had (2026-09-21). A genuinely
+  no behaviour change, and it is why all three fixes above needed a device run
+  before they counted as evidence. The context-partition item above is the same
+  limitation in a new place: its five new assertions pin the *structure* that
+  removes the re-renders, and cannot show that a render was removed. A genuinely
   runtime test here needs a renderer added
   as a devDependency; until then every claim about this feature is a claim about
   source text.
-  `lib/map-intro.test.js` (5 cases) exercises the stage machine's pure logic and is
-  not implicated.
+  Two pure-logic modules are the exception, and the pattern worth following:
+  `lib/map-intro.test.js` (5 cases) exercises the stage machine, and
+  `lib/spotlight-geometry.test.js` (11 cases) the hole's shape rule. Neither can
+  see a rendered pixel — which is why the shape item above remains device-pending
+  — but both assert behaviour instead of string presence, so a rewrite that keeps
+  the contract passes and one that breaks it fails.
 - **`mapIntroAwaitingTap` is unreachable — LOW, OPEN.** It is only ever set `true`
   inside `abandonActiveMilestone` when the active milestone is `map_intro`
   (provider `:297`), but both call sites are mutually exclusive with that branch:
