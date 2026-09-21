@@ -60,7 +60,9 @@ cd mobile && npx expo start
 > **Expo Go + stale LAN IP (seen 2026-09-13, recurred 2026-09-16, recurred 2026-09-20).** `mobile/.env` holds a hardcoded
 > `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:3000`, but the PC's DHCP lease can
 > change (e.g. `.5` → `.248`, then back `.248` → `.5` on 2026-09-16; `.200` →
-> `.193` on Ethernet on 2026-09-20). Symptom is
+> `.193` on Ethernet on 2026-09-20; `.193` → `.200` again on 2026-09-21 — the
+> phone reached Metro (`:8081` Established from `192.168.0.192`, firewall fine)
+> but every API call failed because `mobile/.env` still pointed at `.193`). Symptom is
 > `Network request failed. Check your connection (status 0)` — at login
 > (`POST /api/mobile/auth/login` never reaches the dev terminal) or as a cluster
 > of `Could not load fuel requests` + `Could not load trip for map` WARNs. Every
@@ -76,6 +78,14 @@ cd mobile && npx expo start
 > http://<IP>:3000/api/mobile/driver/ref` must answer HTTP 401 — that pair
 > proves the server side healthy and isolates the fault to the app's baked
 > URL or the phone's network.
+>
+> Metro-side check (seen 2026-09-21): the same `Network request failed` on the
+> phone at `192.168.0.200:8081` means the dev-client cannot reach Metro at all.
+> Run `Get-NetTCPConnection -LocalPort 8081` — if it shows only `TimeWait` rows
+> and no `Listen` row, Metro is simply not running (TimeWait = leftovers of a
+> dead session). Fix: `cd mobile && npm start -- --dev-client --lan` (plus root
+> `npm run dev` for the API), then confirm the phone is on the same WiFi/LAN
+> (192.168.0.x) and `http://<IP>:8081` loads in the phone browser.
 
 > **Local-only mobile iteration (2026-09-21).** Keep `mobile/.env` pointed at
 > the computer's current LAN IP and use the root `npm run dev` API together
