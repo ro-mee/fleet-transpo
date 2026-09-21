@@ -15,11 +15,15 @@ login; the guest experience is not implemented yet.
    fails without it — the table backs the refresh-token revocation list.
 4. Start the API from the repository root in a second terminal with
    `npm run dev` (default port `3000`).
-5. Run `npm start` from `mobile`.
+5. Run `npm start -- --dev-client --lan` from `mobile` for local Expo/Metro testing.
 
 Use your computer's current LAN IP for `EXPO_PUBLIC_API_URL` when testing on a
 phone; `localhost` refers to the phone, not the computer. Reload Expo after
-changing `.env` so the value is re-inlined into the bundle.
+changing `.env` so the value is re-inlined into the bundle. A downloaded
+preview/production APK has the API URL baked in and cannot be redirected to
+Metro without rebuilding. For an EAS development APK, build it once with
+`eas build -p android --profile development`, then use Metro for JS-only
+changes; native dependency or app-config changes still require a rebuild.
 
 ## Structure
 

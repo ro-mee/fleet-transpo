@@ -77,6 +77,13 @@ cd mobile && npx expo start
 > proves the server side healthy and isolates the fault to the app's baked
 > URL or the phone's network.
 
+> **Local-only mobile iteration (2026-09-21).** Keep `mobile/.env` pointed at
+> the computer's current LAN IP and use the root `npm run dev` API together
+> with `cd mobile && npm start -- --dev-client --lan`. This is the active path for Map and
+> tooltip fixes: it does not use the EAS preview/production URL and does not
+> require an APK rebuild. A downloaded preview/production APK has its API URL
+> baked into the bundle, so it cannot be switched to Metro at runtime.
+
 Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **487/487 tests across 46 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
 
 ## Mobile APK builds — CONFIRMED 2026-09-06
