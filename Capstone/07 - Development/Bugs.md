@@ -1659,3 +1659,597 @@ motion state. Its only eligibility check is an intentional Map-tab tap while
 the current driver's `map_intro` completion key is absent. GPS remains the
 separate prerequisite for the own-vehicle marker/live tracking path. Focused
 coach-mark/Map-intro tests pass **60/60** and no rebuild was run.
+
+## Fixed — 2026-09-22 — spotlight cutout "lumalagpas" / "nagooverlap", from a device log
+
+A `[coachmarks] spotlight geometry` log across the fuel/map/control steps
+reordered the diagnosis. Three findings fixed; one is **open and unchanged**.
+
+**Fixed — the arrow saturated at a hard-coded `280`.** `arrowOffset` was allowed
+up to 316 and then clamped to 280 in `CoachMarkTooltip`, so the arrow could not
+be drawn right of card-x 289. Measured on `map.controls` (`x: 320 w: 48`, screen
+384) that is a **~35dp miss** — the target centre is 344. A centred target
+(`fuel.request_button`, centre 192) landed at ~190, which is why it survived for
+so long. The overlay also computed the card as `min(screenWidth * 0.9, 340)`
+while the card lays out at `min(90%, moderateScale(340))` = 356.8 at 412dp.
+Both now route through `resolveTooltipCardWidth` / `resolveArrowOffset`, bounding
+the arrow by the card's own width. Residual on `map.controls`: ~5dp, inside the
+arrow's 9dp half-width.
+
+**Fixed — `useSafeAreaInsets()` (window space) was applied to `measureInWindow`
+boxes (root-view space).** The provider sits above the navigators, so its insets
+are window-space while every box it is handed is root-space. The difference is
+exactly `insets.top` (39.11), derived independently twice from the log:
+`map.js:1114` declares `top: insets.top + 16` (55.11) but measures **16**; and
+`styles.mapIntroPractice { bottom: 104 }` puts the container's bottom at 710.4,
+implying a screen height of **814.4** against the window's 853.33. The hole was
+**not** unaffected — this entry said it was, and the third report refuted it (see
+the next section) — but every tooltip `safeTop`/`safeBottom` clamp was off by
+39.11. `normalizeInsetsToMeasuredSpace` subtracts a container/window offset from
+the insets, though the offset it derives from the HEIGHT difference (0.33) is not
+the container's origin difference (39.11); that function is deliberately
+unchanged pending a device measurement.
+
+**Fixed — a mid-transition frame was adopted as a measurement.** One frame
+reported a **292.98dp element at 496.00dp** (203dp too tall) while
+`rawOrigin.y = −39`. The overlay now withholds a layout whose container origin is
+non-zero (`containerSettled` / `layoutRejected`, logged as
+`rejectedMidTransition`) and holds the last settled box until the re-measure
+ladder catches up.
+
+> **❌ REVERTED, same day — see the next section.** This gate was inverted and was
+> removed. The zeros it treated as "settled" are the container's initial
+> unmeasured state, so it was `true` exactly where the geometry is built, and it
+> zeroed every inset through the conversion below. The 496.00dp frame is real and
+> still unexplained; the gate was not a way to detect it.
+
+Also: `resolveSpotlightRect` gives symmetric edge padding (the old
+`Math.max(0, x − pad)` + independent sizing gave a target near an edge padding on
+one side only, so the ring sat off-centre) and snaps the hole's edges to whole dp
+(real boxes arrive as `49.77777099609375`, and four abutting translucent rects
+anti-alias independently at a fractional boundary). The tooltip card's height is
+now measured via `onMeasure` instead of assumed at 180/190/200dp — at a large
+system font scale the card outgrew its budget and the clamp pushed it over the
+hole. The `shape.circular` diagnostic was a bad test
+(`holeRadius >= min(spotW, spotH)/2` is true for any fully-rounded rect, so it
+called a 64×180 stadium "circular") and now reads
+`spotW === spotH && holeRadius >= spotW/2`.
+
+**OPEN — the shape defect itself, which is what the user is seeing.** The dim is
+four rectangles leaving a *rectangular* hole while the ring is rounded, so the
+four corners outside the arc stay **undimmed**: `map.layers` is a true circle
+(`holeRadius 32` on a 64×64 hole) inside a square hole, with ~21% of the hole lit
+around the round button. This is now the *only* shape cue, because
+`CoachMarkTarget`'s local contour was removed on 2026-09-22 to fix the
+doubled-ring artifact — removing it fixed the doubling and exposed the square
+hole. The one-paint border trick was already tried and reverted. The fix is a
+single `react-native-svg` even-odd `<Path>`, which needs a native dependency plus
+a dev-client rebuild, and it **cannot be verified from source** — deliberately not
+landed. It also forces dropping the 240ms hole tween: `Animated` cannot
+interpolate an SVG `d` string and `react-native-reanimated` is not a dependency.
+Since the tooltip already positions from final values, snapping the hole removes
+a desync rather than adding one.
+
+**OPEN (content, not geometry)** — `tour_fuel` declares `route: "/"` but carries
+steps targeting `/fuel-report` ids; the log shows it still on
+`home.shortcut_fuel` while `pathname` is `/fuel-report`, so the milestone stalls
+and later steps present nothing. `fuel.scan_entry` / `fuel.verify` only render in
+fuel-report modes not yet reached → "target never registered".
+
+**Verification**: `mobile/lib/spotlight-geometry.test.js` 25 → 36 tests. Mobile
+library suite 292 pass; touched-file ESLint clean; full suite 2152 pass with one
+5s timeout in `src/security-assessment/schema-contract.security.test.js` that
+passes in 243ms alone (load flake under the 184-file parallel run, unrelated).
+**No device run since these changes**, so the arrow, inset conversion, and
+placement clamps are unverified on hardware.
+
+## Fixed — 2026-09-22 — the origin "settle gate" was inverted, plus two tour-flow defects
+
+A **second** device log ("still not accurate yung highlight/spotlight medj off")
+overturned one of the fixes above and reported two sequencing defects in the
+walkthrough. The spotlight residual is unchanged; two of the three items here
+have definite fixes.
+
+**Fixed — the origin gate was inverted and zeroed every inset.** The gate above
+read `container` as `{height: 0, width: 0, x: 0, y: 0}` and called that
+*settled*, and as `{height: 853, width: 384, x: 0, y: −39}` and called that
+*mid-transition*. The zeros are the container's **initial, unmeasured** state, so
+the gate was `true` on the frames the geometry was actually built from and
+`false` on the real measurement — backwards. Two consequences:
+
+1. `normalizeInsetsToMeasuredSpace` was handed `containerHeight = 0` on exactly
+   those frames, giving `offset = windowHeight − 0 = 853.33`, so **every inset
+   was zeroed** (`insets.applied {top: 0, bottom: 0}`) and tooltips clamped to the
+   raw screen edges instead of the safe area. That is a direct cause of the
+   reported off-ness, not a cosmetic one.
+2. The premise fails on its own terms: for a root-mounted container the origin is
+   **never 0** (`y: −39` is a real measurement, not a transition artifact), so a
+   gate on a zero origin can never fire correctly in either direction.
+
+Both were removed. `const activeLayout = targetLayout;` replaces the gate, the
+conversion is guarded with `containerBox.height > 0 ? containerBox.height :
+SCREEN_HEIGHT`, and `rejectedMidTransition` is gone from the log, the signature
+and the dep array. `mobile/lib/coach-marks.test.js` now asserts the overlay does
+**not** contain `containerSettled` or `layoutRejected`, with a comment recording
+why, so the shape cannot come back without the test failing. The 496.00dp frame
+this gate was aimed at is real and remains **unexplained**.
+
+**Fixed — the incident category advanced without a selection.**
+`tour.incident.category` ("1. Select Category") had `interaction: "passthrough"`
+and no gate, so its own action button advanced to "2. Confirm Details" whether or
+not the driver had chosen a category — pressing the button skipped the
+classification the screen exists to teach. It now carries
+`requiresInteraction: true`, the same shape the Map practice swipes use. The
+category tap satisfies the gate: `notifyInteraction("incident.category", <id>)`
+sets `interactionSatisfiedRef` before calling `nextStep`. Without that the gate
+would refuse the very tap it waits for — `nextStep` returns early whenever
+`requiresInteraction` is set and the ref is unset — so the two edits are a pair
+and `mobile/lib/coach-marks.test.js` asserts their order. A notification with no
+category id does not count as a selection. `canSkip: true` stays: the gate makes
+the action button inert, so Skip is the only way out.
+
+Scoped to the **tour** milestone. Production `incident`'s category step is
+deliberately left ungated: it is that milestone's last step, so there is no next
+step to hold back, and its `canSkip: false` would leave no dismissal path at all
+for a driver who does not want to classify anything.
+
+**Fixed — the fuel tour skipped the Map tour and the START ROUTE swipe.** The
+fuel completion modal's CTA read `[ Next: Pre-Trip Inspection → ]` and pushed
+`/(app)/inspection?tour=1`, landing the driver in the pre-trip checklist that the
+Map tour's START ROUTE swipe is supposed to introduce — so the pre-trip appeared
+with no swipe. **This was drift from the spec, not a design choice**: Driver
+In-App Guide §3.7.4 specifies the action as `[ Next: Live Map & Trip Navigation
+Tour → ]` navigating to `/(app)/(tabs)/map`, and §3.7's flow diagram places
+`F[6. Fuel Logging] →|Gauge Modal → Receipt Scan Demo| G[7. Live Map Tour]` with
+`G →|Start Route Swipe| H[8. Pre-Trip Checkpoint]`. The CTA now matches, calling
+`triggerMapIntroFromTab({ source: "fuel-tour-complete" })` before the navigation.
+That is the sanctioned entry for the first Map tour — separate from the generic
+trigger so programmatic navigation alone cannot start it — and it sets
+`mapIntroPendingRef` synchronously, which holds the live-trip trigger off while
+its storage read resolves. Tellingly, `triggerMapIntroFromTab` was already
+destructured in `fuel-report.js` and never called: the handoff was intended and
+left half-wired.
+
+`inspection.js` triggering `pretrip` on mount needs no change — it is correct
+once the screen is only reachable through the swipe. `MapIntroPractice` opens its
+"Pre-Trip Inspection Required" modal from the stage-0 `handleStageSuccess`, so
+the checkpoint already follows the swipe rather than preceding it.
+
+**Verification**: coach-mark config + provider + fuel-screen tests added
+(`mobile/lib/coach-marks.test.js` 90 → 94 tests), including the gate/satisfier
+ordering and the reserve-before-navigate ordering. Full suite **184 files /
+2157 tests pass**; touched-file ESLint clean. **The spotlight residual ("medj
+off") is NOT fixed** — the shape defect below is unchanged and remains the
+dominant cue. **No device run since these changes.**
+
+
+## The Spotlight Was Drawn in the Wrong Coordinate Space — 39.11dp Too High, Every Step (2026-09-22, third report)
+
+**Symptom.** "Hindi pa rin accurate yung highlight, sobrang off, masyadong
+mataas" — the cutout sitting above the control it frames, consistently, by about
+a status bar. Reported after each of the two previous fixes, and correctly so:
+neither had touched the actual defect.
+
+**Root cause.** The hole was laid out in the wrong space. `measureInWindow`
+reports every view in ONE space, so a target box and the overlay container's own
+box are directly comparable — but the hole is rendered as a `position: absolute`
+child of the overlay's container, which means it is positioned in that
+container's **local** space. The container's local origin is its own top-left,
+measured at `{x: 0, y: −39.11}`, not `{0, 0}`. Using a measured `y` as a local `y`
+draws the hole 39.11dp above its target: exactly the reported symptom, on every
+step.
+
+**Why it survived five rounds.** The correction had been *deleted* earlier on the
+same day, on the reasoning that the container measures **853**dp tall against a
+window of **853.33** — "so the two ARE one space". Equal heights say nothing
+about the origin. Those numbers agree here only because this device's status bar
+(39.11) very nearly equals the difference between the root view's height and the
+window's; the origins differ by a full status bar. Each earlier fix reasoned
+about the target's *box* while the error lived in the *space that box was drawn
+into*. The `rawOrigin: {0,0}` readings that justified the deletion were the
+container's **unmeasured initial state** — the same misreading that had already
+produced one inverted gate.
+
+**Fix.** `toContainerSpace` (`mobile/lib/spotlight-geometry.js`) subtracts the
+container's measured origin from the target box. A no-op where the container does
+sit at the measured origin; the box is returned untouched while the container is
+unmeasured, so no default offset is ever invented. The tooltip's placement bounds
+moved with it — `VIEW_W` / `VIEW_H` are the container's box, not the window's —
+because leaving them was the same 39.11dp offset walking back into the clamps
+after being taken out of the hole.
+
+**Second defect closed by the same change.** `resolveSpotlightRect` reduces an
+axis' padding by `Math.min(pad, targetY, …)`. In measured space a target near the
+top of the screen has a **negative** `y`, so that clamp collapsed the padding to
+0 and rounded the hole's top edge to a negative value — above the viewport.
+Container-local `y` is ≥ 0 by construction, so a top-of-screen target now gets
+symmetric padding like any other edge.
+
+**Dead code removed.** `CoachMarkOverlay.jsx` carried a module-level
+`const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window")`
+that the component's own `useWindowDimensions` values shadowed and nothing read.
+(The reported "raworigin dead code" was, separately, comment-only: the identifier
+survived in three explanatory comments and in no executable line.)
+
+**How to confirm on device.** The geometry log now prints `containerOrigin`,
+`measuredWindow` (raw) and `measuredLocal` (converted) side by side. Expected:
+`measuredLocal.y − measuredWindow.y === −containerOrigin.y` (39.11), and
+`spotlight.y === measuredLocal.y − pad`. If `spotlight.y` still sits a status bar
+above `measuredWindow.y`, `containerOrigin.y` is the number to read.
+
+**Verification**: 9 new unit tests in `mobile/lib/spotlight-geometry.test.js`
+(36 → 45) covering `isMeasuredBox` and `toContainerSpace` — the device's real
+container box, the no-op at the origin, the unmeasured case, a null box, and
+shape preservation through the translation. The source-text test in
+`coach-marks.test.js` was rewritten to require the conversion **and** forbid an
+origin gate returning. Geometry + coach-mark suites **139 pass**; full suite
+**184 files / 2166 tests pass**; touched-file ESLint clean.
+
+**Not yet done — a device run.** The offset is verified against the container box
+the log already reported and against unit tests; the rendered result is not. Also
+still open from the same report: the inset conversion's model (its offset uses
+the height difference, 0.33, not the origin difference, 39.11) is deliberately
+unchanged; the four-rectangle shape defect stands; and `CoachMarkTarget`'s
+`y <= 0` guard is now suspect for the same reason — a legitimately top-anchored
+target measures a negative `y` in this space, so it can retry to its 4s deadline
+without ever registering, which is a candidate cause for any step still logging
+"target never registered".
+
+## The cutout's first frame was drawn before its correction existed — 2026-09-22 (fourth report)
+
+**Reported:** "its already fix naa, but unang render hindi maayos tas maalign sya,
+hindi ba pwede naka align agad?" — the cutout lands correctly, but only after being
+wrong for a frame and sliding into place.
+
+**Cause.** `toContainerSpace` cannot convert until the container has been measured,
+and that measurement does not exist on the first paint. So the first frame(s) drew
+the hole uncorrected — the same 39.11dp as the third report, but transiently — and
+the 240ms `Animated` tween then animated the correction. The geometry was right;
+only its *availability* lagged the first paint. This repo has no
+`react-native-reanimated`, so the hole's position can be tweened by `Animated` but
+never recomputed as a path — the correction can be *delayed*, never *instant*,
+unless the draw waits for it.
+
+**Fix (the driver's own suggestion).** Gate the cutout on **both** measurements and
+fall into the existing centered-card branch until they are present:
+
+```js
+const geometryReady = Boolean(targetLayout) && isMeasuredBox(containerBox);
+if (!geometryReady) { /* centered card over full scrim */ }
+```
+
+The cutout's first appearance is then already aligned instead of correct-then-sliding.
+
+**Two consequences, both load-bearing.**
+
+1. **`containerRef` had to be attached in the centered branch as well.** It existed
+   only on the target branch. Since the gate holds that branch shut precisely while
+   the container is unmeasured, the measurement that would open the gate could never
+   run — the gate would have deadlocked the overlay on the centered card forever.
+   That is the failure mode to check first if every cutout ever disappears at once.
+   The ref now appears exactly twice, and the source-text test asserts that count so
+   a refactor cannot silently reintroduce it.
+2. **The single attachment was itself a latent first-step bug.** On the first step of
+   a milestone the measurement effect found a null ref and `return`ed *before*
+   scheduling its 350ms recheck, so step 1 of every milestone ran with **no origin
+   correction** while later steps had one. That is part of why a milestone's first
+   cutout looked worse than the rest — the same 39.11dp, on the step a driver is most
+   likely to be watching.
+
+**Deliberately not done.** No fallback timer that opens the gate uncorrected after a
+deadline. A step with no target (the Welcome card) and an unmeasured container both
+take the centered branch, which matches the established behavior for a target
+measurement that never arrives — and the centered card keeps `Back` / `Next` / `Skip`
+live, so a stuck gate is navigable rather than a dead end. A fallback would re-draw
+the uncorrected hole, reintroducing the exact defect this gate exists to prevent.
+
+**Cost in the normal case: none.** The container is measured on mount (one frame)
+while the target measurement runs the provider's retry ladder, so the gate normally
+opens on the frame the target lands — no additional centered-card frames.
+
+**Verified:** assertions added to the existing source-text test in
+`mobile/lib/coach-marks.test.js` (the `geometryReady` condition, the gate, and the
+two-attachment count). Geometry + coach-mark suites **139 pass**; full suite
+**184 files / 2166 tests pass**; touched-file ESLint clean. **Not verified on a
+device** — the first-render ordering is reasoned from the measurement sequence, not
+observed.
+
+## Fixed — 2026-09-22 — the fuel tour raced two steps per tap, and the pre-trip tooltips could never run (fifth report)
+
+**Reported (fuel):** "pag ka pindot ko ng capture gauge lumalabas agad sa bg yung tooltip to tap request fuel dapat lalabas yun pagtapos na mag scan ng gauge" — plus the two tooltips after it (scan receipt, extracted data) simply absent.
+
+**Reported (pre-trip):** the pre-trip checkpoint offered a `Quick Pass (Tutorial Only)` that skipped the inspection, no tooltip explained how to answer (especially that FAIL needs a description), the "tap Complete Inspection" tooltip never appeared, and "Finish Tour" existed twice on one screen.
+
+Three independent defects.
+
+### 1. Every fuel step advanced twice
+
+`notifyInteraction(...)` **already** advances a `passthrough` step that has no
+`requiresInteraction` — the provider's own handler ends in `await nextStep()`. Three
+call sites then called `nextStep?.()` as well: on Request Fuel, on the gauge modal's
+completion, and on the receipt modal's completion. One driver action moved two steps,
+so `tour.fuel.scan_entry` and `tour.fuel.verify` were each skipped the moment the
+driver did anything. That is why they looked absent rather than broken: they were
+never presented.
+
+Worse, the gauge tooltip advanced on the **press** that opens the modal rather than on
+the modal's completion, so "Request fuel" appeared over the gauge modal in the
+background — the exact symptom reported.
+
+**Fix.** Removed all four premature/duplicate advances and made the gauge advance fire
+only when the modal completes. `nextStep` is no longer destructured in
+`app/(app)/fuel-report.js`; a test strips comments before asserting the identifier is
+gone, because the comment explaining the removal names it.
+
+### 2. The approval had no step of its own
+
+The runtime flow between "Request Fuel" and "Scan receipt" is a coordinator approval
+against the vehicle's tank and route, and the tour announced it — "Approved for
+35.50 L!" — on the *scan* step, before the driver had seen any approval. Added
+`tour.fuel.approval`, targeting a newly wrapped `fuel.approval` box, `observe` because
+the driver's next act is the receipt. The flow is now 6 steps and the titles renumber;
+`tour.fuel.verify`'s body also now states the extracted values can be **corrected**,
+not merely reviewed.
+
+### 3. The pre-trip tooltips were refused, not broken
+
+`pretrip`, `pretrip_remarks` and `pretrip_complete` all exist in `lib/coach-marks.js`
+and were each silently dropped. `CoachMarkProvider`'s trigger guard refused every
+milestone except `map_intro` while `map_intro` was active — and tapping
+`[ Open Inspection Screen → ]` leaves `map_intro` active at its start-swipe step,
+because the Map tab is *covered* by the inspection screen rather than unmounted.
+
+The guard's intent was right (one guide per screen; never pre-empt a guide the driver
+is looking at) and its **scope** was wrong: `map_intro` was no longer on screen at all,
+so it held a screen it was not on and stranded every later guide. It is now route-
+scoped — a guide whose route no longer matches the pathname is **parked**, not
+completed (a step the driver has not read must not be burned) and not abandoned (which
+for `map_intro` demands a fresh Map-tab tap and restarts at step 0, throwing away the
+practice stages already completed). It resumes at the step it was parked on when the
+pathname returns. The same-route refusal and the async `mapIntroPendingRef`
+reservation are both preserved. Full detail in `Driver In-App Guide` §3.7.6.
+
+### 4. Complete Inspection was not tappable while its tooltip was open
+
+`pretrip.complete` was `interaction: "blocked"`, so the cutout swallowed the tap — but
+the copy instructs *"Tap here"*. The instruction was untrue and the real button cost
+two taps (dismiss the tooltip, then tap). The earlier note calling this "a dead end"
+was **wrong**: the tooltip's own `[ Got it ]` always released the button. Changed to
+`passthrough`, which is what the copy promises; `blocked` stays reserved for actions
+that must not fire by accident (SOS, Start Trip, trip-progression swipe). A repository
+test asserted the old classification and now asserts this exception *with its reason*,
+rather than the list being quietly shortened.
+
+### 5. Two controls for one action, and a gate with a bypass
+
+- The pre-trip prompt's `[ Quick Pass (Tutorial Only) ]` skipped the inspection the
+  checkpoint exists to require. Removed — `[ Open Inspection Screen → ]` is now the
+  only option. `[ Quick Pass All ]` **inside** the checklist is untouched.
+- The practice card's `[ Finish Tour ✓ ]` duplicated the `map.practice.complete`
+  tooltip's `[ Finish Tour ]`. Removed; the tooltip's button is the single control, and
+  that step carries no `requiresInteraction` so it advances ungated.
+- Passing the inspection returns to the Map tab with `?pretrip=passed`; the practice
+  card now **seeds** its stage from that parameter, so the START ROUTE stage the
+  inspection just satisfied is not asked for a second time. A `setState`-in-effect
+  version of this was rejected: it is a cascading render and fails `lint:ci`
+  (`--max-warnings 0`).
+
+### Not changed, and why
+
+The incident autofill is `isTour`-gated and stays that way. It writes a fabricated
+"Flat tire on right rear wheel" description and an Unsplash photo; a driver filing a
+real report must never find those pre-filled. Only `DriverHomeCards.jsx` adds `?tour=1`,
+and only while the incident tour is active, so the plain Home shortcut correctly gets
+the production flow. See `Driver In-App Guide` §3.7.7.
+
+**Verified:** `mobile/lib/coach-marks.test.js` gained 12 tests — the 6-step fuel order,
+the approval step's target/mode/copy, the scan step no longer announcing an approval,
+the corrected-values copy, the absent press-time notification, the absent `nextStep`
+binding, the `fuel.approval` target, the fuel→pre-trip copy changes, the park/resume
+invariants (parking is neither completion nor abandonment; a same-route guide is still
+refused; bail-outs precede the destructive release), the pre-trip gate's single button,
+the absence of the duplicate Finish Tour, and the seeded return path. Coach-mark suite
+**106 pass**; full suite **2178 pass across 184 files**; touched-file ESLint clean.
+**Not verified on a device** — the resume timing follows from the effects' order, and
+the whole tour is a flow, so a device run remains the real acceptance test.
+
+## Fixed — 2026-09-22 — the overlay unmounted on every step change, and Quick Pass All had no FAIL to anchor to (sixth report)
+
+**Reported:** "parang nag gliglitch yung mga tooltip tas highlight" — the tooltip and
+its highlight visibly glitching between steps. Plus: "pag nag press ng quick all sa loob
+ng pre-trip dapat may isang failed dun para ma trigger yung tooltip" — Quick Pass All
+should leave one item failed so the FAIL/remarks tooltip has something to fire on.
+
+### 1. The overlay unmounted and remounted on every single step change
+
+`shouldShowOverlay` required `activeTargetLayout !== null`, while the freshness gate in
+the `spotlight` memo rejects any registration not stamped with the **current**
+presentation generation — and a step change bumps that generation. Together those
+guaranteed that for a window after *every* step transition the layout was null, the
+overlay unmounted, and four things went wrong in sequence:
+
+1. **The tooltip and the whole dim blinked** — the overlay's `overlayFade` and
+   `tooltipOpacity` are per-mount animation values, so a remount restarts both from 0.
+2. **The hole was drawn 39.11dp too high, then corrected** — a fresh mount means an
+   unmeasured container, and `toContainerSpace` cannot apply the origin correction while
+   the container box is `{0,0,0,0}`. The correction arrived a frame later and the 240ms
+   tween slid the ring down, wrapped in the fade-out/fade-in pair.
+3. **The centered fallback flashed** — the first-render gate (fourth report) painted the
+   centered card whenever the container was unmeasured, which after a step change is
+   *every* step, so the card hopped from the screen centre to the target.
+4. **The container was re-measured per step** — its effect was keyed on `step?.targetId`,
+   so each transition re-ran the measure plus its 350ms settle recheck.
+
+The origin correction from the third report was therefore never wrong; it was being
+**discarded and re-derived** on every step, once per mount.
+
+**Fix — the overlay now mounts for the whole guide, not per step.**
+
+- `shouldShowOverlay` is `Boolean(activeMilestone && isCurrentRouteValid)`. Whether the
+  current target has measured is the overlay's own business; the route check still tears
+  the overlay down on navigation, so the cross-screen contract is unchanged.
+- **A held rect carries the hole across the handoff.** `heldTargetLayout` is a pure memo
+  (no refs, no effects, no `setState`): when the current step's own layout is stale or
+  absent it falls back to the **previous step's** registration, read from `targets` via
+  `activeMilestone.steps[currentStepIndex - 1].targetId` — the same guide by construction,
+  route-checked, and only for a non-degenerate box. `activeTargetLayout` is
+  `spotlight.layout ?? heldTargetLayout`. The ring therefore stays where it was and then
+  *tweens* to the new target when the real measurement lands, which is what the 240ms hole
+  tween was built for. It is self-limiting: once the new target measures, the primary path
+  wins.
+- **The container is measured once per mount, not once per step.** Its effect depends on
+  mount plus dimension changes; the origin is a property of the window, not of a step. It
+  keeps its 350ms recheck, which covers a mount that happens mid-slide.
+- **A guide's first cutout snaps instead of sliding.** `presentedMilestoneRef` (written
+  and read only inside the effect, so `react-hooks/refs` stays satisfied) makes the
+  current spot the animation's starting value — no fly-in from a stale one — and
+  `presentedSpotRef` skips the fade-out/tween/fade-in when the spot signature is
+  unchanged, so a held rect that happens to equal the incoming measurement does not cause
+  a redundant fade dance.
+
+Two designs were tried and rejected by `lint:ci`'s `--max-warnings 0` before this one, and
+both rejections caught real problems: holding the rect in a **ref read during render**
+(`react-hooks/refs`) and mirroring it into **`useState` from an effect**
+(`react-hooks/set-state-in-effect` — a cascading render). Deriving it from `targets` needs
+neither.
+
+**The gate now has three outcomes, and a dead end was closed.** `stepNeedsHole` is false
+for a step with no target (the Welcome card), which presents centred **immediately** —
+that is a success case, not a missing measurement. Otherwise, with geometry not yet ready,
+the overlay draws the **scrim only, `pointerEvents="none"`**, so the card's first painted
+frame is already aligned instead of appearing centred and hopping. If geometry never
+arrives within `GEOMETRY_HOLD_MS` (600) it falls back to the centred card — without that, a
+target that never measures would leave a dimmed screen with **nothing to tap**, where the
+previous behavior showed no dim at all. The fallback stores the **step id** that timed out,
+not a boolean, so it cannot leak into the next step and no reset `setState` is needed.
+`ref={containerRef}` is now on **three** branches and the test asserts that count: every
+branch that can render while the container is unmeasured must carry the ref, or the
+measurement that opens the gate can never run.
+
+**The diagnostic now tells the truth about what is on screen.** While a held rect is being
+presented the spotlight *is* presenting, so the "not presenting" warning was suppressed —
+but suppressing it outright would silence exactly the case it exists for (a target that
+never registers, which holds indefinitely). It now reports `spotlight holding the previous
+step — <reason>` in that state, and keeps the distinct "not presenting" message for a
+genuine refusal, so a never-registering target still surfaces instead of hiding behind the
+hold.
+
+### 2. Quick Pass All hard-coded PASS, so the remarks tooltip could never fire
+
+Quick Pass All *did* notify — `notifyInteraction("inspection.pass_fail", { itemId:
+"cabin", status: "PASS" })` — but PASS takes the provider's **complete** branch, which
+triggers no remarks; and it wrote all seven items as `"PASS"` through a direct
+`setStatuses`, bypassing `setStatus`, the only path that calls
+`triggerMilestone("pretrip_remarks")` on a FAIL. That branch additionally requires
+`currentStep.targetId === "inspection.pass_fail"`, so it can only fire while that tip is
+showing. Net effect: pressing Quick Pass All dismissed the pass/fail tip and nothing else
+appeared.
+
+**Fix.** The statuses and the seeded remark now come from a pure, unit-tested module,
+`mobile/lib/inspection-tour.js`: all seven items PASS except `tires`, which is FAIL with a
+short description ("Low tire pressure on the front left — needs air before departure.").
+The description is **required** — `handleSubmit` refuses a FAIL without remarks ("Remarks
+Required"), so seeding the FAIL alone would have made the tour's own submit button a dead
+end. The handler routes that item through the production `setStatus(id, "FAIL")` path, so
+the notify and the remarks trigger happen exactly as a manual tap; the whole control stays
+`isTour`-guarded, so production inspections are untouched. The completion modal no longer
+claims a clean sheet: its header, its "7 of 7 Passed" line and its "Safe for Route
+Departure" badge are now derived from the real counts and read "1 flagged for dispatch"
+when an item failed.
+
+**Verified:** `mobile/lib/inspection-tour.test.js` (8 tests) covers the single-FAIL rule,
+the seeded remark, and that the input is not mutated; `coach-marks.test.js` gained
+assertions for the new gate shape, the held-rect fallback with its route and step guards,
+the absent per-step container dependency, the milestone-first snap, the three
+`containerRef` attachments, the holding-vs-blocked log messages, and that `inspection.js`
+routes the failure through `setStatus`. Coach-mark suite **111 pass**; `mobile/lib` **322
+pass**; full suite **2191 pass across 185 files**; touched-file ESLint clean under
+`--max-warnings 0`. **Not verified on a device** — the handoff is a timing behavior and the
+held rect is a visual claim, so a device run watching a step transition remains the real
+acceptance test. See `Driver In-App Guide` §3.7.8 and `Mobile Architecture` § "One guide
+at a time".
+
+## Fixed — 2026-09-22 — five type-scale keys that never existed, plus the review of the whole uncommitted guide (seventh report)
+
+Asked to review every uncommitted change for errors, dead code and conflicts
+before committing any of it. Two real defects came out of that review; the rest
+is recorded below as findings, deliberately left standing.
+
+### 1. Five call sites rendered at the bare React Native default
+
+`type.titleMd` and `type.bodySm` are not steps in the theme's type scale.
+`lib/theme.js` defines seventeen — display, headlineLg, headlineLgMobile,
+headlineMd, titleLg, bodyLg, bodyMd, labelLg, labelMd, body, supporting, data,
+label, caption, pageTitle, cardTitle, sectionTitle — and a style array
+**silently ignores an `undefined` entry**. So `style={[type.titleMd, …]}` did
+not warn, did not crash, did not fail a snapshot and did not fail lint: the text
+simply rendered at 14px in the system font. `permissions.js:37` is the clearest
+case — it pairs `type.titleMd` with `styles.cardTitle`, which is only
+`{ flexShrink: 1 }`, so that title was getting nothing from either source.
+
+**Fix.** Five sites mapped to the nearest existing step in the same family:
+`titleMd → cardTitle` (16, bodySemiBold) at `profile.js:271`, `devices.js:123`,
+`devices.js:186` and `permissions.js:37`; `bodySm → supporting` (14, body) at
+`profile.js:380`. Eleven further sites used the same four invented names
+(`titleMd`, `bodySm`, `labelSm`, `headlineSm`) in `DriverSos.js`,
+`inspection.js`, `MapIntroPractice.jsx` and the two new tutorial modals — all of
+them arrived with the uncommitted guide work, so they never existed at HEAD and
+were corrected there instead (`labelSm → labelMd` 12, `headlineSm → titleLg` 20).
+
+**Why it could happen at all.** Nothing checked a `type.<key>` reference against
+the scale. `mobile/lib/theme-scale.test.js` now does. It reads the scale out of
+`lib/theme.js` as source text (importing it would drag `react-native` into the
+node test environment through `lib/scaling.js`), walks `app/`, `lib/` and
+`components/` for files that genuinely bind the theme's `type` — by import or by
+destructuring `useTheme()` — and fails on any key outside the scale, naming the
+file, line and key. It was **proven to fail** on an injected bad key before
+being trusted.
+
+### 2. Two inert unmount guards, one with a comment that overclaimed
+
+`DriverSos.js` and `lib/driver-profile.js` each guarded a deferred callback with
+`let cancelled = false` / `if (cancelled) return`, while the same cleanup called
+`clearTimeout`. A timer cannot fire after `clearTimeout`, so the flag could never
+be true at its check — and in `driver-profile.js` the check ran *before* the
+awaited `load()`, so a fetch already in flight still resolved after unmount. The
+comment there claimed that protection ("cannot setState on an unmounted screen");
+it does not exist, and React 18+ makes those writes no-ops regardless. Both
+effects are now `setTimeout` + `clearTimeout` alone, with the re-checks that
+actually matter kept inside the SOS callback (`!isDriving && !open`), since the
+driving lock or the sheet can start within its 2s window.
+
+### 3. Reported, and deliberately left in place
+
+Found by the same review and **not** changed: the request was to fix the type
+keys and the guards first, and to leave the rest for a decision.
+
+- `TOUR_FUEL_ENTRY` (`lib/coach-marks.js`) is defined but never passed to
+  `triggerMilestone` anywhere, which also leaves two provider branches
+  unreachable; its first step id duplicates `TOUR_FUEL_FLOW`'s step 0.
+- `targetId="tab.map"` (`components/CurvedPillTabBar.js`) is mounted but
+  referenced by no milestone.
+- `tourSimulationCard` and `tourNextBtn` (`app/(app)/incidents.js`) are unused
+  styles.
+- `__resetDriverProfileCache` (`lib/driver-profile.js`) is exported and never
+  called.
+- `components/home/DriverHomeCards.jsx` pushes `/incidents?tour=1` and
+  `/fuel-report?tour=1` along the same paths the provider pushes after
+  completion, so a tap during the tour can leave two stack entries for one
+  destination.
+
+Checked and cleared, so they are **not** defects: the SOS "gate fight"
+(`DriverSos.js:87` exempts `tour_sos`, so an emergency never waits on a
+tutorial); the `home.shortcut_*` "missing targets" (expression props, not
+literals); the `map.*` / `trip.*` double mount sites (mutually exclusive route
+branches); and the redundant-but-harmless `id` prop on one `CoachMarkTarget`.
+An automated dead-style sweep was written, found to flag styles that are live
+(`styles.root`), and discarded rather than trusted — dead styles above were
+confirmed by targeted greps only.
+
+**Verified:** full suite **2195 pass across 186 files** (four of them the new
+guard); `eslint --max-warnings 0` clean; `git diff --check` clean; no conflict
+markers in the changed set. The type-scale fix stands as its own commit; the two
+guard cleanups ride with the commits that touch those effects, because the flag
+in `DriverSos.js` was introduced by this same uncommitted work and so had no HEAD
+state to correct separately. **Not verified on a device** — nothing here changes
+runtime behavior beyond text size.

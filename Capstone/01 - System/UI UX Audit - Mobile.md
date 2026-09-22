@@ -275,3 +275,18 @@ The launch path was still hitching despite native-driver animations. Source insp
 | `mobile/lib/launch-animation.test.js` | Pin the shorter timing and prevent the removed car Lottie from returning to the launch path. |
 
 **Verification:** 22 mobile library test files / 135 tests passed; targeted ESLint passed; Android export succeeded with 1,376 modules, 79 assets and a 4.58 MB Hermes bundle, with no `car animation.json` asset. Physical-device FPS and cold-start acceptance remain pending; the export is a compile/bundle check, not an on-device FPS claim.
+
+## Changes Applied — Round 8 (2026-09-22, Type-Scale References That Never Resolved)
+
+Reviewing the uncommitted guide work turned up five call sites referencing type-scale steps that do not exist in `lib/theme.js`: `type.titleMd` (four) and `type.bodySm` (one). A style array **silently ignores an `undefined` entry**, so these rendered at the bare React Native default instead of failing loudly — no warning, no crash, no failing test. `permissions.js:37` was the worst case: its key was missing *and* the style it was paired with is only `{ flexShrink: 1 }`, so that title got nothing from either source.
+
+| File(s) | Change |
+|---|---|
+| `mobile/app/(app)/(tabs)/profile.js` | Duty card title `type.titleMd → type.cardTitle`; photo-sheet blurb `type.bodySm → type.supporting`. |
+| `mobile/app/(app)/devices.js` | Empty-state heading and session row title `type.titleMd → type.cardTitle`. |
+| `mobile/app/permissions.js` | Permission row title `type.titleMd → type.cardTitle`. |
+| `mobile/lib/theme-scale.test.js` | New guard: reads the scale out of `lib/theme.js` as source text and fails on any `type.<key>` outside it, naming the file, line and key. |
+
+Each replacement is the nearest existing step in the same family rather than a new scale entry — `cardTitle` (16, bodySemiBold) for `titleMd`, `supporting` (14, body) for `bodySm` — so the seventeen-step scale stays the single source of truth. Eleven further sites in the then-uncommitted guide files used `titleMd`, `bodySm`, `labelSm` and `headlineSm`; those names never existed at HEAD, so they were corrected inside the commits that introduced them (`labelSm → labelMd`, `headlineSm → titleLg`).
+
+**Verification:** the guard was proven to fail on an injected bad key before being trusted; full suite **2195 pass across 186 files**; `eslint --max-warnings 0` clean. See `Bugs.md`, seventh report.
