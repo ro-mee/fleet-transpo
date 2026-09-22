@@ -268,7 +268,7 @@ export default function Profile() {
 
         <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <ClayCard variant="compact" style={styles.section}>
-          <Text style={[type.titleMd, { color: colors.onSurface }]}>{duty?.checkedIn ? 'On duty' : 'Driver duty'}</Text>
+          <Text style={[type.cardTitle, { color: colors.onSurface }]}>{duty?.checkedIn ? 'On duty' : 'Driver duty'}</Text>
           <Text style={[type.caption, { color: colors.onSurfaceVariant, marginVertical: 8 }]}>
             {dutyError || 'Standby location is shared while checked in and the app is open.'}
           </Text>
@@ -377,7 +377,7 @@ export default function Profile() {
               {/* Header */}
               <View style={styles.sheetHeader}>
                 <Text style={[type.titleLg, { color: colors.onSurface }]}>Profile Photo</Text>
-                <Text style={[type.bodySm, { color: colors.onSurfaceVariant, marginTop: 2 }]}>
+                <Text style={[type.supporting, { color: colors.onSurfaceVariant, marginTop: 2 }]}>
                   Update the photo used for your driver profile and attendance verification.
                 </Text>
               </View>

@@ -120,7 +120,7 @@ export default function LoggedInDevicesScreen() {
       ) : sessions.length === 0 ? (
         <View style={styles.centerContainer}>
           <ClayTile icon="desktop-outline" size={56} variant="surface" style={{ marginBottom: 16 }} />
-          <Text style={[type.titleMd, { color: colors.onSurface }]}>No active sessions</Text>
+          <Text style={[type.cardTitle, { color: colors.onSurface }]}>No active sessions</Text>
           <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, textAlign: 'center', marginTop: 8 }]}>
             You currently have no active sessions.
           </Text>
@@ -183,7 +183,7 @@ function SessionCard({ session, colors, type, isDark, isRevoking, onRevoke }) {
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
           <ClayTile icon={IconName} size={38} variant="primary" />
-          <Text style={[type.titleMd, { color: colors.onSurface, flex: 1 }]} numberOfLines={1}>
+          <Text style={[type.cardTitle, { color: colors.onSurface, flex: 1 }]} numberOfLines={1}>
             {session.device || "Unknown Device"}
           </Text>
         </View>

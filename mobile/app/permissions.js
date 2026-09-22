@@ -34,7 +34,7 @@ function PermissionCard({ icon, title, description, state }) {
       />
       <View style={styles.cardText}>
         <View style={styles.titleRow}>
-          <Text style={[type.titleMd, styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>{title}</Text>
+          <Text style={[type.cardTitle, styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>{title}</Text>
           {state && <ClayBadge label={presentation.label} tone={presentation.tone} size="sm" />}
         </View>
         <Text style={[type.bodyMd, { color: colors.onSurfaceVariant }]}>{description}</Text>
