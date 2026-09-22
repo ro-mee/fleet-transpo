@@ -77,14 +77,14 @@ export function DriverSos() {
         shadowOpacity: 0.22,
       };
   const [open, setOpen] = useState(false);
-  const { triggerMilestone, dismissCoachMark } = useCoachMarkActions();
+  const { triggerMilestone, dismissCoachMark, notifyInteraction } = useCoachMarkActions();
   // A guide being open, and the driving lock — both milestone-scale facts. This
   // button is mounted on every screen, so it stays off the step-driven state.
   const { activeMilestone, isDriving } = useCoachMarkStatus();
 
   // Never allow tutorial state to delay, intercept, or prevent a real emergency SOS action.
   useEffect(() => {
-    if (open && activeMilestone) {
+    if (open && activeMilestone && activeMilestone !== "tour_sos") {
       dismissCoachMark();
     }
   }, [open, activeMilestone, dismissCoachMark]);
@@ -101,6 +101,9 @@ export function DriverSos() {
       !activeMilestone &&
       positionReady
     ) {
+      // The re-checks inside the callback are the live guard (driving or the
+      // sheet can start within the 2s); clearTimeout is what stops the
+      // callback after the dependencies change or the screen unmounts.
       const timer = setTimeout(() => {
         if (!isDriving && !open) {
           triggerMilestone("sos");
@@ -362,8 +365,51 @@ export function DriverSos() {
             <Text style={[type.bodyMd, styles.body, { color: colors.onSurfaceVariant }]}>
               Send your live location directly to dispatch as a critical emergency. Report Issue remains for non-urgent concerns.
             </Text>
+            {activeMilestone === "tour_sos" ? (
+              <View
+                style={[
+                  styles.tutorialGuideBox,
+                  {
+                    backgroundColor: scheme === "dark" ? "rgba(40, 84, 72, 0.25)" : "#EAF5F0",
+                    borderColor: colors.primary,
+                  },
+                ]}
+              >
+                <View style={styles.tutorialGuideHeader}>
+                  <Ionicons name="school" size={16} color={colors.primary} />
+                  <Text style={[type.labelMd, { color: colors.primary, fontWeight: "700", marginLeft: 6 }]}>
+                    EMERGENCY OPTIONS EXPLAINED
+                  </Text>
+                </View>
+                <Text style={[type.supporting, { color: colors.onSurface, marginTop: 4, lineHeight: 18 }]}>
+                  • <Text style={{ fontWeight: "700" }}>Call 911:</Text> Instantly dials emergency services for critical life/safety emergencies.
+                </Text>
+                <Text style={[type.supporting, { color: colors.onSurface, marginTop: 2, lineHeight: 18 }]}>
+                  • <Text style={{ fontWeight: "700" }}>Share location:</Text> Silently transmits your live GPS coordinates directly to fleet dispatch.
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setOpen(false);
+                    notifyInteraction?.("sos.modal_actions", { action: "proceed_to_incident" });
+                  }}
+                  style={[styles.tutorialNextBtn, { backgroundColor: colors.primary }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Understood. Next: Report Incident"
+                >
+                  <Text style={[type.labelLg, { color: colors.onPrimary }]}>
+                    Understood — Next: Report Incident →
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
             <Pressable
-              onPress={() => Linking.openURL("tel:911")}
+              onPress={() => {
+                if (activeMilestone === "tour_sos") {
+                  AppAlert.alert("Simulation Mode", "This is practice only. In a real emergency, this opens phone dialer to 911 immediately.");
+                  return;
+                }
+                Linking.openURL("tel:911");
+              }}
               style={({ pressed }) => [styles.primary, mats.clayCta, { backgroundColor: colors.error, shadowColor: colors.shadow }, pressed && styles.pressed]}
               accessibilityRole="button"
               accessibilityLabel="Call emergency services"
@@ -372,7 +418,13 @@ export function DriverSos() {
               <Text style={[type.labelLg, { color: colors.onError }]}>Call emergency services (911)</Text>
             </Pressable>
             <Pressable
-              onPress={sendEmergencyLocation}
+              onPress={() => {
+                if (activeMilestone === "tour_sos") {
+                  AppAlert.alert("Simulation Mode", "This is practice only. In a real emergency, this broadcasts your live GPS directly to dispatch.");
+                  return;
+                }
+                sendEmergencyLocation();
+              }}
               disabled={sending}
               style={({ pressed }) => [styles.secondary, mats.clayCta, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }, pressed && styles.pressed, sending && styles.disabled]}
               accessibilityRole="button"
@@ -385,7 +437,17 @@ export function DriverSos() {
                 {sending ? "Sending emergency..." : "Share current location"}
               </Text>
             </Pressable>
-            <Pressable onPress={() => setOpen(false)} style={styles.cancel} accessibilityRole="button" accessibilityLabel="Close emergency actions">
+            <Pressable
+              onPress={() => {
+                setOpen(false);
+                if (activeMilestone === "tour_sos") {
+                  notifyInteraction?.("sos.modal_actions", { action: "proceed_to_incident" });
+                }
+              }}
+              style={styles.cancel}
+              accessibilityRole="button"
+              accessibilityLabel="Close emergency actions"
+            >
               <Text style={[type.labelLg, { color: colors.onSurfaceVariant }]}>Cancel</Text>
             </Pressable>
           </View>
@@ -490,6 +552,25 @@ const styles = StyleSheet.create({
   cancel: { minHeight: TOUCH_TARGET, justifyContent: "center", paddingHorizontal: moderateScale(16) },
   pressed: { opacity: 0.86, transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.6 },
+  tutorialGuideBox: {
+    width: "100%",
+    padding: moderateScale(12),
+    borderRadius: moderateScale(14),
+    borderWidth: 1.5,
+    marginVertical: moderateScale(8),
+  },
+  tutorialGuideHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  tutorialNextBtn: {
+    marginTop: moderateScale(10),
+    borderRadius: moderateScale(10),
+    paddingVertical: moderateScale(10),
+    paddingHorizontal: moderateScale(14),
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
 
 export default DriverSos;

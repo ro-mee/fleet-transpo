@@ -2,12 +2,15 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Animated,
+  Modal,
   PanResponder,
+  Pressable,
   StyleSheet,
   Text,
   Vibration,
   View,
 } from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
@@ -247,10 +250,25 @@ function TutorialSwipeButton({ stage, onSuccess, reduceMotion, colors, mats }) {
 
 function MapIntroPractice({ onStageSuccess }) {
   const { colors, scheme, type } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-  const [tutorialStage, setTutorialStage] = useState(0);
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const isDark = scheme === "dark";
+  const mats = clayMaterials(isDark);
+  const router = useRouter();
+  const params = useLocalSearchParams();
+  const pretripPassedFromRoute = params?.pretrip === "passed";
 
+  // Returning from the pre-trip inspection must not cost a second Start Route
+  // swipe.
+  //
+  // Seeded here rather than corrected in an effect because this card REMOUNTS on
+  // the way back: the Map tour is parked while the inspection screen covers the
+  // tab, which unmounts the card, so the initializer runs again with the
+  // parameter already true. (An effect would also have to write state
+  // synchronously, which is a cascading render and a lint failure under
+  // `--max-warnings 0`.)
+  const [tutorialStage, setTutorialStage] = useState(() =>
+    pretripPassedFromRoute ? advanceMapIntroStage(0, true) : 0
+  );
+  const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
       .then(setReduceMotion)
@@ -265,15 +283,39 @@ function MapIntroPractice({ onStageSuccess }) {
     };
   }, []);
 
+  const [showPretripPrompt, setShowPretripPrompt] = useState(false);
+  const [pretripCompleted, setPretripCompleted] = useState(
+    () => pretripPassedFromRoute
+  );
+
   const isComplete = tutorialStage >= MAP_INTRO_STAGE_COUNT;
   const stage = MAP_INTRO_STAGES[Math.min(tutorialStage, MAP_INTRO_STAGE_COUNT - 1)];
   const handleStageSuccess = useCallback(
     (data) => {
+      if (tutorialStage === 0 && !pretripCompleted) {
+        setShowPretripPrompt(true);
+        return;
+      }
       setTutorialStage((current) => advanceMapIntroStage(current, true));
-      onStageSuccess?.(data);
+      onStageSuccess?.({ success: true, ...data });
     },
-    [onStageSuccess]
+    [tutorialStage, pretripCompleted, onStageSuccess]
   );
+
+  // The tour has to advance past the start step the inspection just satisfied.
+  // This reports it once; the stage itself was seeded above, so nothing local is
+  // written here — and nothing may be, since writing state synchronously in an
+  // effect is both a cascading render and a lint failure.
+  //
+  // Guarded by a ref because the parameter keeps its value for the rest of the
+  // session, and a repeat report would skip a real practice stage.
+  const pretripReturnReportedRef = useRef(false);
+  useEffect(() => {
+    if (!pretripPassedFromRoute) return;
+    if (pretripReturnReportedRef.current) return;
+    pretripReturnReportedRef.current = true;
+    onStageSuccess?.({ success: true, stage: "start", pretrip: "passed" });
+  }, [pretripPassedFromRoute, onStageSuccess]);
 
   return (
     <View
@@ -351,11 +393,13 @@ function MapIntroPractice({ onStageSuccess }) {
       </View>
 
       {isComplete ? (
-        <View style={[styles.completeRow, { backgroundColor: colors.success + "14" }]}>
-          <Ionicons name="shield-checkmark-outline" size={18} color={colors.success} />
-          <Text style={[styles.completeText, { color: colors.onSurface }]}>
-            All five practice stages completed.
-          </Text>
+        <View style={styles.completeWrap}>
+          <View style={[styles.completeRow, { backgroundColor: colors.success + "14" }]}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.success} />
+            <Text style={[styles.completeText, { color: colors.onSurface }]}>
+              All five practice stages completed!
+            </Text>
+          </View>
         </View>
       ) : (
         <>
@@ -375,6 +419,52 @@ function MapIntroPractice({ onStageSuccess }) {
           />
         </>
       )}
+
+      {/* Pre-Trip Inspection Prompt Modal */}
+      <Modal
+        visible={showPretripPrompt}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPretripPrompt(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: isDark ? "#141D19" : "#FFFFFF" },
+            ]}
+          >
+            <View style={[styles.modalIconTile, { backgroundColor: colors.primaryContainer }]}>
+              <Ionicons name="shield-checkmark" size={28} color={colors.onPrimaryContainer} />
+            </View>
+            <Text style={[type.titleLg, { color: colors.onSurface, textAlign: "center", marginBottom: 6 }]}>
+              Pre-Trip Inspection Required
+            </Text>
+            <Text style={[type.supporting, { color: colors.onSurfaceVariant, textAlign: "center", marginBottom: 20 }]}>
+              In real operations, safety regulations require completing the vehicle safety check before departure.
+            </Text>
+            <View style={{ width: "100%", gap: 10 }}>
+              <Pressable
+                onPress={() => {
+                  setShowPretripPrompt(false);
+                  router.push("/(app)/inspection?tour=1&from=map");
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Open Inspection Screen"
+                style={({ pressed }) => [
+                  styles.modalPrimaryBtn,
+                  { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+                ]}
+              >
+                <Ionicons name="clipboard-outline" size={18} color={colors.onPrimary} />
+                <Text style={[type.labelLg, { color: colors.onPrimary }]}>
+                  Open Inspection Screen →
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -485,6 +575,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  completeWrap: {
+    gap: 10,
+    width: "100%",
+  },
   completeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -497,5 +591,42 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.bodyMedium,
     fontSize: moderateScale(11),
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+    zIndex: 9999,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalIconTile: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  modalPrimaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    width: "100%",
   },
 });

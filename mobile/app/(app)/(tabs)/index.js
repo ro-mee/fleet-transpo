@@ -1,7 +1,7 @@
 import { moderateScale } from '../../../lib/scaling';
-import { useCallback, useEffect, useMemo, useState, memo } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, memo } from "react";
 import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, ActivityIndicator, InteractionManager } from 'react-native';
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api, wasQueued, isTransportFailure } from "../../../lib/api";
@@ -66,6 +66,8 @@ const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirme
 export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { tour_step } = useLocalSearchParams();
+  const scrollRef = useRef(null);
   const { user } = useAuth();
   const { colors, type } = useTheme();
   const { unreadCount } = useNotificationFeed();
@@ -110,6 +112,15 @@ export default function Home() {
       }
     }, [driverId, triggerMilestone])
   );
+
+  useEffect(() => {
+    if (tour_step === "fuel") {
+      const timer = setTimeout(() => {
+        triggerMilestone("tour_fuel");
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [tour_step, triggerMilestone]);
 
   // Keep the GPS-age caption ticking on a calm 30s cadence without an immediate mount duplicate render.
   useEffect(() => {
@@ -414,6 +425,7 @@ export default function Home() {
         onProfile={goProfile} onNotifications={goNotifications} />
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[
           styles.scroll,
           { paddingBottom: insets.bottom + 100 },
@@ -496,7 +508,7 @@ export default function Home() {
           </Pressable>
         )}
 
-        <HomeQuickActions actions={shortcuts} />
+        <HomeQuickActions actions={shortcuts} scrollRef={scrollRef} />
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
         {loading ? (
           <>

@@ -18,6 +18,8 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AppAlert } from '../../components/AppAlert';
 import { RECEIPT_FRAME, receiptCropRect } from "../../lib/receipt-crop";
 import { ClayCard, ClayButton, ClayTile, ClayBadge } from '../../components/clay';
+import { FuelGaugeTutorialModal } from "../../components/coachmarks/simulation/FuelGaugeTutorialModal";
+import { ReceiptScanTutorialModal } from "../../components/coachmarks/simulation/ReceiptScanTutorialModal";
 import {
   useCoachMarkActions,
   useCoachMarkStatus,
@@ -28,13 +30,22 @@ export default function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
-  const { colors } = useTheme();
-  const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
+  const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate, tour } = useLocalSearchParams();
+  const isTour = tour === "1";
+  const { colors, scheme } = useTheme();
+  // `nextStep` is deliberately NOT destructured: every fuel step is `passthrough`,
+  // so the provider's own interaction handler already advances the step when
+  // `notifyInteraction` fires. Calling it here as well moved TWO steps per tap.
+  const { triggerMilestone, notifyInteraction, triggerMapIntroFromTab } = useCoachMarkActions();
   // Read only to hold the camera and scanner back while a guide is on screen —
   // "is one open", not which step. Keeps the viewfinder off the step-driven
   // state context.
   const { activeMilestone } = useCoachMarkStatus();
+  const [tourGaugeModalVisible, setTourGaugeModalVisible] = useState(false);
+  const [showTourReceiptModal, setShowTourReceiptModal] = useState(false);
+  const [showTourCompleteModal, setShowTourCompleteModal] = useState(false);
+  const [tourApproved, setTourApproved] = useState(false);
+  const hadTourFuelFlow = useRef(false);
 
   const [assignedTrip, setAssignedTrip] = useState(null);
   const driverId = resolveDriverId(user);
@@ -169,7 +180,7 @@ export default function FuelReport() {
   const latestFuelRequest = fuelRequests.find((request) => activeVehicleId
     ? String(request.vehicle_id) === activeVehicleId
     : String(request.trip_id) === String(activeTripId));
-  const canLogFuel = Boolean(id) || currentFuelRequest?.status === "Approved";
+  const canLogFuel = (isTour && tourApproved) || Boolean(id) || currentFuelRequest?.status === "Approved";
 
   useEffect(() => {
     if (
@@ -182,6 +193,12 @@ export default function FuelReport() {
       triggerMilestone("fuel_scan_intro");
     }
   }, [mode, canLogFuel, cameraOpen, scanning, activeMilestone, triggerMilestone]);
+
+  useEffect(() => {
+    if (isTour && !activeMilestone) {
+      triggerMilestone("tour_fuel_flow");
+    }
+  }, [isTour, activeMilestone, triggerMilestone]);
 
   const loadFuelRequests = useCallback(async () => {
     if (!hasAssignedVehicle || id) {
@@ -251,6 +268,15 @@ export default function FuelReport() {
   }, [loadFuelRequests]);
 
   const requestFuel = async () => {
+    if (isTour) {
+      setTourApproved(true);
+      // One action, one advance. `notifyInteraction` already advances a
+      // passthrough step (the provider's handler calls `nextStep` itself), so the
+      // extra `nextStep?.()` that used to sit here moved the tour TWO steps and
+      // skipped whichever tooltip came next.
+      notifyInteraction?.("fuel.request_button");
+      return;
+    }
     const value = Number(String(fuelLevelPercent).replace(/,/g, ""));
     if (!hasAssignedVehicle) {
       AppAlert.alert("No Assigned Vehicle", "A fuel request needs a vehicle currently assigned to you.");
@@ -636,6 +662,11 @@ export default function FuelReport() {
   };
 
   const handleSubmit = async () => {
+    if (isTour) {
+      notifyInteraction?.("fuel.submit_button");
+      setShowTourCompleteModal(true);
+      return;
+    }
     if (!liters || !cost) {
       AppAlert.alert("Missing Fields", "Enter Volume and Total Cost.");
       return;
@@ -862,14 +893,14 @@ export default function FuelReport() {
             </View>
 
             <Text style={[styles.vehicleModelTitle, { color: colors.onSurface }]} numberOfLines={1}>
-              {assignedTrip?.vehicle_model || assignedTrip?.model || (assignedTrip?.vehicle_plate || assignedTrip?.plate_number ? `Plate ${assignedTrip?.vehicle_plate || assignedTrip?.plate_number}` : "Assigned Fleet Vehicle")}
+              {assignedTrip?.vehicle_model || assignedTrip?.model || (assignedTrip?.vehicle_plate || assignedTrip?.plate_number ? `Plate ${assignedTrip?.vehicle_plate || assignedTrip?.plate_number}` : (isTour ? "Civic18S (Tour Vehicle)" : "Assigned Fleet Vehicle"))}
             </Text>
             
             <View style={styles.vehicleMetaRow}>
               <View style={[styles.platePill, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant + '40' }]}>
                 <Ionicons name="barcode-outline" size={12} color={colors.onSurfaceVariant} />
                 <Text style={[styles.plateText, { color: colors.onSurface }]}>
-                  {assignedTrip?.vehicle_plate || assignedTrip?.plate_number || "Active Vehicle"}
+                  {assignedTrip?.vehicle_plate || assignedTrip?.plate_number || (isTour ? "XYZ 5678" : "Active Vehicle")}
                 </Text>
               </View>
               <Text style={[styles.driverTagText, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
@@ -889,20 +920,27 @@ export default function FuelReport() {
               </View>
             </View>
 
-            {loadingRequests ? (
+            {loadingRequests && !isTour ? (
               <View style={styles.requestStatusRow}>
                 <ActivityIndicator size="small" color={colors.primary} />
                 <Text style={[styles.requestStatusText, { color: colors.onSurfaceVariant }]}>Checking approval…</Text>
               </View>
-            ) : currentFuelRequest?.status === "Approved" ? (
-              <View style={[styles.requestStatusBox, { backgroundColor: statusColorForTone(colors, "success").bg }]}>
-                <Ionicons name="checkmark-circle" size={20} color={statusColorForTone(colors, "success").fg} />
-                <View style={styles.methodCopy}>
-                  <Text style={[styles.requestStatusTitle, { color: statusColorForTone(colors, "success").fg }]}>Approved: {currentFuelRequest.approved_liters} L</Text>
-                  <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>You may now refuel and submit the receipt.</Text>
+            ) : ((currentFuelRequest?.status === "Approved" && !isTour) || (isTour && tourApproved)) ? (
+              // Spotlight target for `tour.fuel.approval`. Wraps the approval box
+              // itself — the thing the step explains — so the ring lands on the
+              // 35.50 L figure rather than on the card around it.
+              <CoachMarkTarget targetId="fuel.approval">
+                <View style={[styles.requestStatusBox, { backgroundColor: statusColorForTone(colors, "success").bg }]}>
+                  <Ionicons name="checkmark-circle" size={20} color={statusColorForTone(colors, "success").fg} />
+                  <View style={styles.methodCopy}>
+                    <Text style={[styles.requestStatusTitle, { color: statusColorForTone(colors, "success").fg }]}>
+                      Approved: {isTour ? "35.50" : currentFuelRequest.approved_liters} L
+                    </Text>
+                    <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>You may now refuel and submit the receipt.</Text>
+                  </View>
                 </View>
-              </View>
-            ) : currentFuelRequest?.status === "Pending" ? (
+              </CoachMarkTarget>
+            ) : currentFuelRequest?.status === "Pending" && !isTour ? (
               <View style={[styles.requestStatusBox, { backgroundColor: colors.surfaceContainerHighest }]}>
                 <Ionicons name="time-outline" size={20} color={colors.onSurfaceVariant} />
                 <View style={styles.methodCopy}>
@@ -952,14 +990,28 @@ export default function FuelReport() {
                       </View>
                     </View>
                   ) : (
-                    <ClayButton
-                      label="Capture gauge with camera"
-                      variant="tonal"
-                      icon="camera-outline"
-                      disabled={gaugeBusy}
-                      onPress={openGaugeCamera}
-                      style={{ alignSelf: 'stretch' }}
-                    />
+                    <CoachMarkTarget targetId="fuel.gauge_entry" radius={16} padding={6}>
+                      <ClayButton
+                        label="Capture gauge with camera"
+                        variant="tonal"
+                        icon="camera-outline"
+                        disabled={gaugeBusy}
+                        onPress={() => {
+                          if (isTour) {
+                            // Deliberately does NOT notify: the gauge has not been
+                            // scanned yet, only requested. Notifying here advanced
+                            // the tour to "Request fuel" while the capture modal was
+                            // still opening, so the tooltip appeared over a modal
+                            // the driver had not read. The advance belongs to the
+                            // modal's completion below, once the gauge is captured.
+                            setTourGaugeModalVisible(true);
+                            return;
+                          }
+                          openGaugeCamera();
+                        }}
+                        style={{ alignSelf: 'stretch' }}
+                      />
+                    </CoachMarkTarget>
                   )}
                   {gaugeBusy ? <ActivityIndicator size="small" style={{ marginTop: 8 }} /> : null}
                 </View>
@@ -975,15 +1027,17 @@ export default function FuelReport() {
                     onChangeText={setRequestPurpose}
                   />
                 </View>
-                <ClayButton
-                  label={requestingFuel ? "Submitting…" : "Request fuel"}
-                  variant="primary"
-                  icon="send-outline"
-                  loading={requestingFuel}
-                  disabled={requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy}
-                  onPress={requestFuel}
-                  style={{ alignSelf: 'stretch', marginTop: 8 }}
-                />
+                <CoachMarkTarget targetId="fuel.request_button" radius={16} padding={6}>
+                  <ClayButton
+                    label={requestingFuel ? "Submitting…" : "Request fuel"}
+                    variant="primary"
+                    icon="send-outline"
+                    loading={requestingFuel}
+                    disabled={requestingFuel || (!isTour && !hasAssignedVehicle) || !gaugePhotoUrl || gaugeBusy}
+                    onPress={requestFuel}
+                    style={{ alignSelf: 'stretch', marginTop: 8 }}
+                  />
+                </CoachMarkTarget>
               </>
             )}
           </ClayCard>
@@ -995,6 +1049,10 @@ export default function FuelReport() {
             <CoachMarkTarget targetId="fuel.scan_entry" radius={16} padding={6}>
               <ClayCard
                 onPress={async () => {
+                  if (isTour) {
+                    setShowTourReceiptModal(true);
+                    return;
+                  }
                   // Complete the intro first: its storage write is async, and opening the
                   // camera synchronously wins the race so the capture trigger sees the
                   // intro still active and must rely on its re-fire.
@@ -1176,17 +1234,19 @@ export default function FuelReport() {
               ) : null}
             </View>
 
-            <ClayButton
-              label={submitting ? "Saving Entry..." : scanning ? "Uploading Receipt..." : "Save Fuel Entry"}
-              variant="primary"
-              size="lg"
-              icon="checkmark"
-              iconPosition="right"
-              disabled={!canSubmit || submitting || scanning}
-              loading={submitting || scanning}
-              onPress={handleSubmit}
-              style={{ marginTop: 16 }}
-            />
+            <CoachMarkTarget id="fuel.submit_button" targetId="fuel.submit_button" radius={16} padding={6}>
+              <ClayButton
+                label={submitting ? "Saving Entry..." : scanning ? "Uploading Receipt..." : "Save Fuel Entry"}
+                variant="primary"
+                size="lg"
+                icon="checkmark"
+                iconPosition="right"
+                disabled={!canSubmit || submitting || scanning}
+                loading={submitting || scanning}
+                onPress={handleSubmit}
+                style={{ marginTop: 16 }}
+              />
+            </CoachMarkTarget>
           </ClayCard>
         ) : null}
 
@@ -1202,6 +1262,97 @@ export default function FuelReport() {
           </View>
         ) : null}
       </ScrollView>
+
+      <FuelGaugeTutorialModal
+        visible={tourGaugeModalVisible}
+        onClose={() => setTourGaugeModalVisible(false)}
+        onComplete={({ level, photoUrl }) => {
+          setFuelLevelPercent(String(level || 75));
+          setGaugeScanEstimate(level || 75);
+          setGaugePhotoUrl(photoUrl || "https://images.unsplash.com/photo-1551830820-330a71b99659?w=400&q=80");
+          setRequestPurpose("Shift operational refuel");
+          setTourGaugeModalVisible(false);
+          // The gauge is captured HERE, so this is where the tour advances to
+          // "Request fuel". `notifyInteraction` advances on its own.
+          notifyInteraction?.("fuel.gauge_entry");
+        }}
+      />
+
+      <ReceiptScanTutorialModal
+        visible={showTourReceiptModal}
+        onClose={() => setShowTourReceiptModal(false)}
+        onScanComplete={({ liters: scLiters, cost: scCost, station: scStation, fuelType: scType }) => {
+          setShowTourReceiptModal(false);
+          setEntryMethod("scan");
+          setMode("details");
+          setLiters(scLiters);
+          setCost(scCost);
+          setPricePerLiter("66.20");
+          setStation(scStation);
+          setReceiptFuelType(scType);
+          setReceiptScanData({ liters: Number(scLiters), total: Number(scCost), station: scStation });
+          const sampleReceiptImg = "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=600&q=80";
+          setReceiptUrl(sampleReceiptImg);
+          setReceiptAsset({ uri: sampleReceiptImg });
+          // Receipt scanned and the details view is up — advance to "verify the
+          // extracted data" exactly once.
+          notifyInteraction?.("fuel.scan_entry");
+        }}
+      />
+
+      {showTourCompleteModal && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', zIndex: 999, padding: 20 }]}>
+          <ClayCard style={{ width: '100%', maxWidth: 380, padding: 24, alignItems: 'center' }}>
+            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+              <Ionicons name="checkmark-circle" size={44} color={colors.primary} />
+            </View>
+            <Text style={{ fontFamily: fonts.displayBold, fontSize: 20, color: colors.onSurface, letterSpacing: -0.3, marginBottom: 6, textAlign: 'center' }}>
+              Fuel Log Completed!
+            </Text>
+            <Text style={{ fontFamily: fonts.body, fontSize: 13, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 18, lineHeight: 19 }}>
+              You completed the fuel workflow! Next, let&apos;s tour the Live Map and practice the trip progression swipes.
+            </Text>
+            <View style={{ width: '100%', backgroundColor: colors.surfaceContainerLow, borderRadius: 12, padding: 12, gap: 8, marginBottom: 20 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Simulated Volume:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.onSurface }}>35.50 Liters</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Simulated Cost:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.onSurface }}>₱2,350.00</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Gas Station:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.onSurface }}>Shell Station #1042</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Mode:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>Simulation (No API data sent)</Text>
+              </View>
+            </View>
+            <ClayButton
+              label="Next: Live Map & Trip Navigation Tour →"
+              variant="primary"
+              size="lg"
+              onPress={() => {
+                setShowTourCompleteModal(false);
+                // Driver In-App Guide §3.7.4: the fuel tour hands off to the
+                // Live Map tour, and the pre-trip checkpoint is reached only by
+                // the START ROUTE swipe inside it. Pushing straight to
+                // /inspection skipped that swipe — and with it the safety
+                // checkpoint the driver is meant to confirm there.
+                // `triggerMapIntroFromTab` is the sanctioned entry (the same one
+                // a Map-tab tap uses); it sets `mapIntroPendingRef` before the
+                // navigation lands, which is what holds the live-trip trigger
+                // off while its storage read resolves.
+                triggerMapIntroFromTab({ source: "fuel-tour-complete" });
+                router.push("/(app)/(tabs)/map");
+              }}
+              style={{ width: '100%' }}
+            />
+          </ClayCard>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }

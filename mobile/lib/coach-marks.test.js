@@ -89,6 +89,20 @@ describe("Coach Marks Configuration & Storage", () => {
       ]);
     });
 
+    it("makes the incident category a required tap before the next step", () => {
+      const tour = getMilestoneConfig("tour_incident_category");
+      const [categoryStep, detailsStep] = tour.steps;
+
+      expect(categoryStep.targetId).toBe("incident.category");
+      expect(categoryStep.requiresInteraction).toBe(true);
+      expect(categoryStep.interaction).toBe("passthrough");
+      // `canSkip` is the way out. The gate turns the action button into a
+      // no-op, so without Skip the driver would be held on a step that only a
+      // category tap can leave.
+      expect(categoryStep.canSkip).toBe(true);
+      expect(detailsStep.targetId).toBe("incident.details");
+    });
+
     it("ensures Live Trip step 1 does not claim turn-by-turn navigation", () => {
       const liveTrip = getMilestoneConfig("live_trip");
       expect(liveTrip).toBeDefined();
@@ -203,18 +217,29 @@ describe("Coach Marks Configuration & Storage", () => {
       expect(startTripStep.interaction).toBe("blocked");
       expect(startTripStep.actionText).toBe("Got it");
 
-      // Complete Inspection
-      const completeConfig = getMilestoneConfig("pretrip_complete");
-      expect(completeConfig.steps[0].targetId).toBe("inspection.complete");
-      expect(completeConfig.steps[0].interaction).toBe("blocked");
-      expect(completeConfig.steps[0].actionText).toBe("Got it");
-
       // Trip Progression Swipe
       const liveTripConfig = getMilestoneConfig("live_trip");
       const progressionStep = liveTripConfig.steps[2];
       expect(progressionStep.targetId).toBe("map.trip_progression");
       expect(progressionStep.interaction).toBe("blocked");
       expect(progressionStep.actionText).toBe("Got it");
+    });
+
+    it("lets Complete Inspection be tapped while its step is open", () => {
+      // The deliberate exception to the rule above, so the reason travels with
+      // it: this step's copy instructs "Tap here", and `blocked` swallows the
+      // tap on the cutout — the only way through was the tooltip's own "Got it"
+      // first, which made the instruction false and the button cost two taps.
+      //
+      // What "blocked" protects is an action that must not fire by accident:
+      // SOS, Start Trip, the trip-progression swipe. This is a plain submit, and
+      // on the tour path it writes nothing — `handleSubmit` opens the completion
+      // modal and returns when `isTour`.
+      const completeConfig = getMilestoneConfig("pretrip_complete");
+      expect(completeConfig.steps[0].targetId).toBe("inspection.complete");
+      expect(completeConfig.steps[0].interaction).toBe("passthrough");
+      expect(completeConfig.steps[0].actionText).toBe("Got it");
+      expect(completeConfig.steps[0].requiresInteraction).toBeUndefined();
     });
 
     it("guarantees safe interactive steps have passthrough mode", () => {
@@ -702,7 +727,59 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       // Its identity is in the deps of most screens' trigger effects. Letting it
       // change on every milestone transition would re-fire them, so the guard
       // lives in a ref and `activeMilestoneKey` stays out of these deps.
-      expect(provider).toMatch(/\[driverId, isDriving\]\s*\);/);
+      //
+      // `releaseActiveIfOffRoute` is the one addition, and it is safe to depend
+      // on because it is itself stable: the pathname it compares against is read
+      // from `pathnameRef`, not from the `pathname` state, precisely so a
+      // navigation does not change this callback's identity either.
+      expect(provider).toMatch(
+        /\[driverId, isDriving, releaseActiveIfOffRoute\]\s*\);/
+      );
+    });
+
+    it("parks an off-route guide instead of burning it or restarting it", () => {
+      // The Map tour stays active at its start-swipe step for the whole time the
+      // driver is inside the inspection screen. Refusing every other trigger
+      // while it did was what made the pre-trip tooltips unreachable.
+      expect(provider).toContain("const parkedMilestoneRef = useRef(null);");
+      expect(provider).toContain("const releaseActiveIfOffRoute = useCallback(");
+      expect(provider).toContain(
+        "const offRoute = !config || !isRouteMatch(pathnameRef.current, config.route);"
+      );
+
+      // A guide still on its own route keeps the screen — one guide per screen.
+      expect(provider).toContain("if (!offRoute) return false;");
+
+      // Parking is not abandonment: no `mapIntroAwaitingTap`, which would force
+      // a fresh Map-tab tap and restart the tour at step 0, throwing away the
+      // practice stages already completed. The helper's own body must not set
+      // it — the only writer is `abandonActiveMilestone`.
+      const helper = provider.slice(
+        provider.indexOf("const releaseActiveIfOffRoute = useCallback("),
+        provider.indexOf("// Triggering with driver isolation")
+      );
+      expect(helper).not.toContain("mapIntroAwaitingTap");
+
+      // Nor completion: a step the driver has not read must not be burned.
+      expect(helper).not.toContain("setCoachMarkCompleted");
+    });
+
+    it("resumes a parked guide only on its own route", () => {
+      // The resume is keyed on the pathname because the driver returns through a
+      // button in another screen; there is no call site to hang it off.
+      const resume = provider.slice(
+        provider.indexOf("// Resume a guide the driver navigated away from"),
+        provider.indexOf("// Intentional Map-tab entry point")
+      );
+      expect(resume).toContain("if (!parked) return;");
+      // A slot whose route has not come back keeps its occupant through
+      // unrelated navigations, so this returns without clearing it.
+      expect(resume).toContain("if (!isRouteMatch(pathname, config.route)) return;");
+      // The async Map-tab reservation wins the screen when it is in flight.
+      expect(resume).toContain("if (mapIntroPendingRef.current) return;");
+      expect(resume).toContain("if (!releaseActiveIfOffRoute(false)) return;");
+      // Restores the step it was parked on, not step 0.
+      expect(resume).toContain("Math.min(parked.stepIndex");
     });
   });
 
@@ -748,6 +825,23 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       expect(provider).toContain('activeKeyRef.current === "map_intro"');
       expect(provider).toContain("currentStep?.requiresInteraction");
       expect(provider).toContain("data?.success !== true");
+    });
+
+    it("lets a category tap satisfy the gate that requires it", () => {
+      // The gate and its satisfier have to live in the same branch. A
+      // `requiresInteraction` step refuses to advance until the ref is set, so
+      // a category branch that only called `nextStep` would swallow every tap.
+      const start = provider.indexOf('targetId === "incident.category" &&');
+      const branch = provider.slice(
+        start,
+        provider.indexOf("Incident Submit (Tour Mode)", start)
+      );
+
+      expect(branch).toContain("if (!data) return;");
+      expect(branch).toContain("interactionSatisfiedRef.current = currentStep.id;");
+      expect(
+        branch.indexOf("interactionSatisfiedRef.current = currentStep.id;")
+      ).toBeLessThan(branch.indexOf("await nextStep();"));
     });
 
     it("lets an intentional Map tap take priority over reset's Home welcome", () => {
@@ -1039,8 +1133,9 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       );
       // triggerMilestone must stay raw. It closes over `isDriving`, and several
       // screens trigger it from an effect whose only other deps are local state
-      // (inspection.js:61, incidents.js:71, fuel-report.js:183). That identity
-      // change is what re-runs those effects when the driving lock releases.
+      // (the `useLocalSearchParams()` object in inspection.js, incidents.js and
+      // fuel-report.js). That identity change is what re-runs those effects when
+      // the driving lock releases.
       expect(provider).not.toContain("?.triggerMilestone");
     });
 
@@ -1078,6 +1173,31 @@ describe("Inspection completion retry", () => {
     expect(inspectScreen).toContain("useCoachMarkStatus()");
     expect(inspectScreen).not.toContain("useCoachMarkState()");
     expect(inspectScreen).not.toContain("useCoachMarks()");
+  });
+
+  it("ensures Quick Pass All leaves one FAIL for the remarks tip to anchor to", () => {
+    // The tutorial's shortcut used to pass every item and notify with a
+    // hard-coded `status: "PASS"`, which took the provider's PASS branch: it
+    // completed the pass/fail tip and showed no remarks tip at all. Worse, the
+    // remarks tip targets `inspection.remarks`, which is mounted only by a FAILED
+    // item — so with a clean sheet the step had nothing to point at even if it
+    // had fired. The FAIL must go through `setStatus`, which is the only path
+    // that emits the pass/fail notification and triggers `pretrip_remarks`.
+    expect(inspectScreen).toContain("setStatuses(buildQuickPassStatuses(CHECKLIST));");
+    expect(inspectScreen).toContain('setStatus(QUICK_PASS_FAILED_ID, "FAIL");');
+    expect(inspectScreen).not.toContain('[item.id]: "PASS" }), {})');
+    // The remark is required, not cosmetic: handleSubmit refuses any FAIL without
+    // one, so without this the tour would strand on a "Remarks Required" alert
+    // that no tip explains.
+    expect(inspectScreen).toContain("[QUICK_PASS_FAILED_ID]: QUICK_PASS_FAIL_REMARK,");
+  });
+
+  it("keeps the tour completion modal honest about a flagged item", () => {
+    // It used to assert "All 7 vehicle safety items passed" and "7 of 7 Passed"
+    // unconditionally, which with a FAIL in the checklist is simply untrue.
+    expect(inspectScreen).not.toContain("7 of 7 Passed");
+    expect(inspectScreen).not.toContain("All 7 vehicle safety items passed.");
+    expect(inspectScreen).toContain("Flagged for Dispatch Review");
   });
 });
 
@@ -1125,6 +1245,161 @@ describe("Incident retry", () => {
   });
 });
 
+describe("Fuel tour hands off to the Live Map tour", () => {
+  const fuelScreen = readFileSync(
+    new URL("../app/(app)/fuel-report.js", import.meta.url),
+    "utf8"
+  ).replace(/\r\n/g, "\n");
+
+  it("routes the completed fuel tour into the Map tour, not straight to inspection", () => {
+    // Driver In-App Guide §3.7.4: the fuel tour's action navigates to the Live
+    // Map tour, and the pre-trip checkpoint is reached only by the START ROUTE
+    // swipe inside it. Pushing /inspection from here skipped that swipe — and
+    // the safety checkpoint with it (device-reported 2026-09-22).
+    expect(fuelScreen).not.toContain('router.push("/(app)/inspection?tour=1")');
+    expect(fuelScreen).toContain("Next: Live Map & Trip Navigation Tour →");
+    expect(fuelScreen).toContain('triggerMapIntroFromTab({ source: "fuel-tour-complete" })');
+    expect(fuelScreen).toContain('router.push("/(app)/(tabs)/map")');
+  });
+
+  it("reserves the Map tour before navigating to it", () => {
+    // `triggerMapIntroFromTab` sets `mapIntroPendingRef` synchronously, which is
+    // what holds the live-trip trigger off while its storage read resolves.
+    // Navigating first would let that trigger claim the screen the tour is for.
+    const handler = fuelScreen.slice(
+      fuelScreen.indexOf("Next: Live Map & Trip Navigation Tour")
+    );
+    expect(handler.indexOf("triggerMapIntroFromTab")).toBeLessThan(
+      handler.indexOf('router.push("/(app)/(tabs)/map")')
+    );
+  });
+});
+
+describe("Fuel tour advances exactly one step per driver action", () => {
+  const fuelScreen = readFileSync(
+    new URL("../app/(app)/fuel-report.js", import.meta.url),
+    "utf8"
+  ).replace(/\r\n/g, "\n");
+
+  it("orders the flow gauge → request → approval → receipt → verify → save", () => {
+    const flow = getMilestoneConfig("tour_fuel_flow");
+    expect(flow.steps.map((s) => s.id)).toEqual([
+      "tour.fuel.gauge_entry",
+      "tour.fuel.request_button",
+      "tour.fuel.approval",
+      "tour.fuel.scan_entry",
+      "tour.fuel.verify",
+      "tour.fuel.submit_button",
+    ]);
+  });
+
+  it("explains the coordinator approval on its own step, not on the scan step", () => {
+    const flow = getMilestoneConfig("tour_fuel_flow");
+    const approval = flow.steps.find((s) => s.id === "tour.fuel.approval");
+    expect(approval.targetId).toBe("fuel.approval");
+    expect(approval.body).toContain("35.50 L");
+    // Read-only: the driver's next act is the receipt, so this one must not
+    // demand a tap on anything.
+    expect(approval.interaction).toBe("observe");
+    expect(approval.requiresInteraction).toBeUndefined();
+
+    // The approval figure belongs to the approval step. On the scan step it
+    // announced an approval before the driver had seen one.
+    const scan = flow.steps.find((s) => s.id === "tour.fuel.scan_entry");
+    expect(scan.body).not.toContain("Approved");
+  });
+
+  it("tells the driver the extracted values can be corrected", () => {
+    const verify = getMilestoneConfig("tour_fuel_flow").steps.find(
+      (s) => s.id === "tour.fuel.verify"
+    );
+    expect(verify.body).toContain("correct it");
+  });
+
+  it("does not fire the gauge advance on the press that opens the modal", () => {
+    // The gauge tutorial modal fires `fuel.gauge_entry` when it completes. A
+    // second notification on the press that opens it advanced the tour a step
+    // up front, so "Request fuel" appeared over the modal in the background.
+    const press = fuelScreen.slice(
+      fuelScreen.indexOf("setTourGaugeModalVisible(true)")
+    );
+    const handler = press.slice(0, press.indexOf("}}"));
+    expect(handler).not.toContain('notifyInteraction?.("fuel.gauge_entry")');
+  });
+
+  it("leaves the single advance to the provider's interaction handler", () => {
+    // Every fuel step is `passthrough`, so `notifyInteraction` already advances
+    // the step. The explicit `nextStep?.()` calls that used to follow it moved
+    // TWO steps per action, racing past the receipt and extracted-data tooltips.
+    //
+    // Comments are stripped first: the code that replaced those calls explains
+    // why they are gone, and naming them in prose must not read as a call site.
+    const code = fuelScreen
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    expect(code).not.toContain("nextStep");
+    // Still destructured from the actions hook would leave it an unused binding.
+    expect(code).not.toMatch(
+      /const \{[^}]*\bnextStep\b[^}]*\} = useCoachMarkActions\(\)/
+    );
+  });
+
+  it("keeps the approval box registered as a spotlight target", () => {
+    expect(fuelScreen).toContain('<CoachMarkTarget targetId="fuel.approval">');
+  });
+});
+
+describe("Pre-trip is a real gate with tooltips behind it", () => {
+  const practice = readFileSync(
+    new URL("../components/MapIntroPractice.jsx", import.meta.url),
+    "utf8"
+  ).replace(/\r\n/g, "\n");
+
+  it("keeps only the inspection button in the pre-trip prompt", () => {
+    expect(practice).not.toContain("Quick Pass (Tutorial Only)");
+    expect(practice).toContain("Open Inspection Screen");
+    // The style that button used went with it.
+    expect(practice).not.toContain("modalSecondaryBtn");
+  });
+
+  it("leaves Finish Tour to the tooltip alone", () => {
+    // The practice card's own button was the second of two controls the driver
+    // saw for one action. `map.practice.complete` carries no
+    // `requiresInteraction`, so the tooltip's button advances ungated.
+    expect(practice).not.toContain("Finish Tour ✓");
+    expect(practice).not.toContain('finished: true');
+    expect(practice).toContain("All five practice stages completed!");
+    expect(practice).not.toContain("finishBtn");
+
+    const complete = getMilestoneConfig("map_intro").steps.at(-1);
+    expect(complete.actionText).toBe("Finish Tour");
+    expect(complete.requiresInteraction).toBeUndefined();
+  });
+
+  it("completes the start stage on the way back from the inspection", () => {
+    // The Map tour is parked while the inspection screen covers the tab, so this
+    // card unmounts and remounts — which is why the stage is SEEDED from the
+    // route parameter rather than corrected by an effect. The driver would
+    // otherwise be asked to swipe the stage the inspection just satisfied.
+    expect(practice).toContain(
+      "pretripPassedFromRoute ? advanceMapIntroStage(0, true) : 0"
+    );
+    // The tour still has to be told, once.
+    expect(practice).toContain("const pretripReturnReportedRef = useRef(false);");
+    expect(practice).toContain("if (pretripReturnReportedRef.current) return;");
+    expect(practice).toContain('pretrip: "passed"');
+    // No local state is written from that effect: it is a cascading render, and
+    // `lint:ci` runs with `--max-warnings 0`.
+    const report = practice.slice(
+      practice.indexOf("const pretripReturnReportedRef = useRef(false);"),
+      practice.indexOf("return (", practice.indexOf("const pretripReturnReportedRef"))
+    );
+    expect(report).not.toContain("setPretripCompleted");
+    expect(report).not.toContain("setTutorialStage");
+    expect(report).not.toContain("setShowPretripPrompt");
+  });
+});
+
 describe("Remaining tooltips keep the live-map wake-up-only discipline", () => {
   const entries = {
     inspection: "../app/(app)/inspection.js",
@@ -1160,6 +1435,13 @@ describe("Scrim paints the surroundings, never the target", () => {
     new URL("../components/coachmarks/CoachMarkOverlay.jsx", import.meta.url),
     "utf8"
   );
+  // Read alongside the overlay: the presentation lifecycle is split across the
+  // two files (the provider decides whether the overlay exists at all, the
+  // overlay decides what to draw), so the step-change tests below need both.
+  const provider = readFileSync(
+    new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+    "utf8"
+  );
 
   it("does not paint the dim with a border on a hole-sized view", () => {
     // React Native draws borders inside the view bounds: a ~1200dp border on
@@ -1180,16 +1462,188 @@ describe("Scrim paints the surroundings, never the target", () => {
     expect(overlay).toContain("left: animRight,");
   });
 
-  it("clamps transient negative container origins and re-syncs after transitions", () => {
-    // A mid-slide measure reads y ≈ −statusBar; adopting it offsets every
-    // cutout by ~39dp until rotation (device log: origin 0 ↔ −39.11 on the
-    // same target). Fullscreen origins can never rest negative, so clamp AT
-    // READ TIME — a clamp-only-on-adopt still renders stale Fast-Refresh
-    // state wrong. Re-measure per step plus once after the transition
-    // settles.
-    expect(overlay).toContain("const originX = Math.max(0, containerOrigin.x);");
-    expect(overlay).toContain("const originY = Math.max(0, containerOrigin.y);");
+  it("keeps the overlay mounted across a step change", () => {
+    // Fifth report (2026-09-22): "nag gliglitch yung mga tooltip tas highlight".
+    //
+    // `shouldShowOverlay` used to also require the active target's layout. The
+    // freshness gate rejects any registration not stamped with the CURRENT
+    // generation and every step change bumps that generation, so the layout was
+    // null for the ~80-480ms until the new target re-measured — and the whole
+    // overlay UNMOUNTED for that window: tooltip and dimming both vanished, then
+    // it came back with its entrance fade from 0.
+    //
+    // Worse, a remount resets `containerBox` to zeros, so the origin correction
+    // could not be applied and the hole was drawn 39.11dp high until the
+    // container re-measured, then corrected itself with a tween. That pair —
+    // blink, then a vertical jump — is the glitch. Ownership (milestone + route)
+    // is what belongs in this condition; a route change is what should tear the
+    // overlay down, and the route check is still there.
+    expect(provider).toContain(
+      "const shouldShowOverlay = Boolean(activeMilestone && isCurrentRouteValid);"
+    );
+    expect(provider).not.toContain("!currentStep?.targetId || activeTargetLayout !== null");
+  });
+
+  it("holds the previous step's rect across the handoff, so the hole never vanishes", () => {
+    // With the overlay kept mounted, the layout must still be non-null on the
+    // frames before the new target has measured — otherwise the gate would wait
+    // and the ring would disappear between steps instead of sliding.
+    //
+    // Scoped deliberately: the previous step comes from the ACTIVE milestone's
+    // own step array, so the hold cannot leak across guides, and it is
+    // route-checked like any other registration. The freshness invariant still
+    // governs fresh measurements; this only covers the frame between two steps of
+    // the guide already running.
+    expect(provider).toContain("const heldTargetLayout = useMemo(() => {");
+    expect(provider).toContain("activeMilestone?.steps?.[currentStepIndex - 1]?.targetId");
+    expect(provider).toContain("if (previousStepTargetId === currentStep.targetId) return null;");
+    expect(provider).toContain("const activeTargetLayout = spotlight.layout ?? heldTargetLayout;");
+    // Derived from state, not a ref: reading a ref during render is forbidden by
+    // `react-hooks/refs`, and state would need a setState inside an effect.
+    expect(provider).toContain("heldLayout={Boolean(heldTargetLayout)}");
+    expect(overlay).toContain("heldLayout = false,");
+    // A held frame is reported under its own wording rather than suppressed. The
+    // hold is only meant to last until the new target measures, so a held frame
+    // whose reason is "target never registered" is a real defect — silencing the
+    // report would hide exactly the silent failure this diagnostic exists to
+    // expose. Deduped, so a per-step hold does not flood the log.
+    expect(provider).toContain(
+      "`[coachmarks] spotlight holding the previous step — ${spotlight.reason}`"
+    );
+    expect(provider).toContain('`[coachmarks] spotlight not presenting — ${spotlight.reason}`');
+    expect(provider).toContain('`${holding ? "holding" : "blocked"}|${spotlight.reason}|${');
+  });
+
+  it("snaps on a milestone's first presentation and only tweens after that", () => {
+    // The anim values are created on the overlay's first render, which for a
+    // fresh milestone precedes the first container measurement — so their initial
+    // value came from a box the origin correction could not be applied to, and
+    // tweening from it drew the ring a status bar off for a frame before sliding
+    // it home. Snapping makes the hole's first painted position already correct.
+    // Held in refs, not state: both are read and written only inside the effect,
+    // and state would mean a setState in an effect body, which cascades a render
+    // (`react-hooks/set-state-in-effect`) for a value nothing renders from.
+    expect(overlay).toContain("if (presentedMilestoneRef.current !== milestoneKey) {");
+    expect(overlay).toContain("presentedMilestoneRef.current = milestoneKey;");
+    expect(overlay).toContain("presentedSpotRef.current = spotSignature;");
+    // And a re-measure that lands on the same box must not run the
+    // fade-out/tween/fade-in sequence, which reads as a flicker.
+    expect(overlay).toContain("if (presentedSpotRef.current === spotSignature) return;");
+  });
+
+  it("converts the measured box into the container's local space, with no origin gate", () => {
+    // Two roles were tried for the container box here. One was RIGHT and got
+    // removed anyway; the other was wrong and must stay gone.
+    //
+    // 1. Origin conversion — reinstated 2026-09-22, having been the missing piece
+    //    through five rounds of "lagpas / masyadong mataas". A `measureInWindow`
+    //    box is in the measured space, but the hole is drawn as a
+    //    `position: absolute` child of THIS container, so it is laid out in the
+    //    container's LOCAL space. Those differ by the container's origin —
+    //    `{x: 0, y: -39.11}` on the device — i.e. a full status bar.
+    //    It was deleted because the container measures 853dp tall against a
+    //    853.33dp window and that was read as "the two ARE one space". Equal
+    //    heights say nothing about the origin: 853 against 853.33 is this
+    //    device's two insets coinciding, while the origins differ by 39.11dp.
+    // 2. Origin gate — wrong, and forbidden. Gating on `origin.y === 0` read the
+    //    first device log's `rawOrigin: {0,0}` as the steady state, but those
+    //    were frames where the container had not been measured yet — zeros are
+    //    the initial state, not a settled one. Measured, the origin is
+    //    {x: 0, y: -39.11, width: 384, height: 853}, so it is never 0 and the
+    //    gate rejected every real frame.
+    expect(overlay).not.toContain("containerSettled");
+    expect(overlay).not.toContain("layoutRejected");
+    // The conversion goes through the tested module rather than inline.
+    expect(overlay).toContain("toContainerSpace({");
+    expect(overlay).toContain("box: targetLayout,");
+    expect(overlay).toContain("container: containerBox,");
+    // Placement bounds must follow the hole into container space, or the same
+    // 39.11dp offset walks straight back into the tooltip clamps.
+    expect(overlay).toContain(
+      "const VIEW_H = containerMeasured ? containerBox.height : SCREEN_HEIGHT;"
+    );
+    expect(overlay).toContain(
+      "const spaceBelow = VIEW_H - (spotY + spotH) - safeBottom;"
+    );
+    expect(overlay).toContain("height: Math.round(height)");
+    expect(overlay).toContain("normalizeInsetsToMeasuredSpace({");
+    // An unmeasured container must not read as "fully offset", or every inset is
+    // zeroed on exactly the frames the hole is first built from.
+    expect(overlay).toContain(
+      "containerBox.height > 0 ? containerBox.height : SCREEN_HEIGHT"
+    );
+    expect(overlay).toContain("resolveSpotlightRect({");
     expect(overlay).toContain("setTimeout(measure, 350)");
-    expect(overlay).toContain("[step?.targetId]");
+    // 3. First-render gate, 2026-09-22 (third report). The correction is unknown
+    //    until the container is measured, so the hole used to draw uncorrected
+    //    39.11dp high and then slide into place. Gating the cutout on BOTH
+    //    measurements makes its first appearance already aligned.
+    //
+    //    Fourth report (2026-09-22): the gate is now the WAIT, not the
+    //    presentation. The overlay used to render a centred card while the gate
+    //    was shut, and because a step change invalidated the layout (see the
+    //    provider's handoff fallback), that was every step — a centred card that
+    //    hopped to the target. Waiting draws the scrim alone, so the card's first
+    //    painted frame is already aligned, and the deadline keeps a
+    //    never-measurable target from being an undismissable dim.
+    expect(overlay).toContain(
+      "const hasHoleGeometry = Boolean(targetLayout) && isMeasuredBox(containerBox);"
+    );
+    expect(overlay).toContain("if (!hasHoleGeometry) {");
+    expect(overlay).toContain("GEOMETRY_HOLD_MS");
+    // The wait must be per-step, so a step that timed out cannot lend its
+    // fallback to a later step that has not waited.
+    expect(overlay).toContain("geometryTimeoutFor === step.id");
+    // And the gate must be able to OPEN. `containerRef` has to be attached in
+    // every branch that can render while the container is unmeasured: with the
+    // single attachment it once had, the measurement that opens the gate could
+    // never run, so the gate would deadlock the overlay forever. Three branches
+    // now (centred, waiting, targeted). Pinned by count so a refactor that drops
+    // one is caught here rather than on a device.
+    expect((overlay.match(/ref=\{containerRef\}/g) || []).length).toBe(3);
+    // The container's origin is a property of the window, not of the step, so
+    // re-measuring it per step only re-adopted a mid-transition origin and
+    // stacked another 350ms timer — jitter in the number that stabilizes the
+    // hole. Mount-only, with the delayed recheck kept for a mount mid-slide.
+    expect(overlay).not.toContain("[step?.targetId]");
+    expect(overlay).toContain("// Mount once, not per step.");
+  });
+});
+
+describe("SOS Compact Floating Bubble & Spotlight Contour", () => {
+  const overlay = readFileSync(
+    new URL("../components/coachmarks/CoachMarkOverlay.jsx", import.meta.url),
+    "utf8"
+  );
+  const tooltip = readFileSync(
+    new URL("../components/coachmarks/CoachMarkTooltip.jsx", import.meta.url),
+    "utf8"
+  );
+
+  it("configures SOS and TOUR_SOS with floating_bubble presentation", () => {
+    expect(COACH_MARK_MILESTONES.SOS.steps[0].presentation).toBe("floating_bubble");
+    expect(COACH_MARK_MILESTONES.TOUR_SOS.steps[0].presentation).toBe("floating_bubble");
+  });
+
+  it("docks the compact floating bubble beside the floating target with tailored horizontal arrows", () => {
+    expect(overlay).toContain("const isFloatingBubble =");
+    expect(overlay).toContain('tooltipArrowPos = "right";');
+    expect(overlay).toContain('tooltipArrowPos = "left";');
+    expect(overlay).toContain("compact={isFloatingBubble}");
+    expect(overlay).toContain('badge={isFloatingBubble ? "emergency" : null}');
+  });
+
+  it("supports compact bubble mode, emergency badge, and lateral arrows in CoachMarkTooltip", () => {
+    expect(tooltip).toContain('arrowPosition === "right"');
+    expect(tooltip).toContain('arrowPosition === "left"');
+    expect(tooltip).toContain('badge === "emergency"');
+    expect(tooltip).toContain("compact && styles.compactWrapper");
+    expect(tooltip).toContain("compact && styles.compactCard");
+  });
+
+  it("frames the spotlight cutout with a luminous accent ring matching the target shape", () => {
+    expect(overlay).toContain("borderRadius: holeRadius,");
+    expect(overlay).toContain("borderWidth: 2,");
+    expect(overlay).toContain("opacity: pulseAnim,");
   });
 });

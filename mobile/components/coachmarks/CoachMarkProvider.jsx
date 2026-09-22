@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { View, Keyboard, Dimensions, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { usePathname } from "expo-router";
+import { usePathname, useRouter } from "expo-router";
 import { getMilestoneConfig, isRouteMatch } from "../../lib/coach-marks";
 import { useIsDriving } from "../../lib/tracking";
 import {
@@ -103,6 +103,7 @@ export function CoachMarkProvider({ children, driverId }) {
   } catch {
     pathname = "/";
   }
+  const router = useRouter();
 
   const [activeMilestoneKey, setActiveMilestoneKey] = useState(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
@@ -140,6 +141,31 @@ export function CoachMarkProvider({ children, driverId }) {
   const mapIntroAwaitingTapRef = useRef(false);
   const mapIntroAttemptRef = useRef(0);
   const interactionSatisfiedRef = useRef(null);
+
+  // ── Parked milestone ──────────────────────────────────────────────────────
+  // One slot for a guide whose screen the driver navigated away from, held so
+  // it can resume when they come back. See `releaseActiveIfOffRoute` for when a
+  // guide is parked and why parking is neither completion nor abandonment.
+  const parkedMilestoneRef = useRef(null);
+
+  // Mirrors of the three values a park has to snapshot, for the same reason
+  // `activeKeyRef` and `overlayVisibleRef` exist: parking runs inside
+  // `triggerMilestone`, whose identity is in the deps of the screens' trigger
+  // effects. Reading the state directly would put `currentStepIndex`,
+  // `stepContext` and the pathname into those deps, so a step change or a
+  // navigation would re-fire every screen's trigger.
+  const currentStepIndexRef = useRef(0);
+  const stepContextRef = useRef(null);
+  const pathnameRef = useRef("/");
+  useLayoutEffect(() => {
+    currentStepIndexRef.current = currentStepIndex;
+  }, [currentStepIndex]);
+  useLayoutEffect(() => {
+    stepContextRef.current = stepContext;
+  }, [stepContext]);
+  useLayoutEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   const activeMilestone = useMemo(
     () => getMilestoneConfig(activeMilestoneKey),
@@ -373,7 +399,47 @@ export function CoachMarkProvider({ children, driverId }) {
     activePresentationId,
   ]);
 
-  const activeTargetLayout = spotlight.layout;
+  // ── Handoff fallback: hold the previous step's rect ───────────────────────
+  //
+  // A step change bumps the presentation generation, so the incoming step's
+  // target is stale-by-definition until it has re-measured (~80ms, and the
+  // settling ladder can take 480ms on a cold screen). Publishing `null` for that
+  // window is what made every step transition blink: the overlay's mount was
+  // gated on a layout, so it unmounted and came back with its entrance fade.
+  //
+  // The previous step's registration is still live and is the honest thing to
+  // draw for those frames — it is where the ring already is, and the existing
+  // hole tween then slides it to the new target as soon as that target measures.
+  // So the fallback is scoped as tightly as it can be: only for the step
+  // immediately before this one, only within the same milestone (the previous
+  // step comes from the active milestone's own array, so it cannot leak across
+  // guides), and only onto the same route.
+  //
+  // This does not weaken the freshness invariant. That rule exists so an overlay
+  // never draws from a rectangle measured before the current activation — a
+  // stale registration from an earlier visit. An adjacent step of the guide
+  // currently running is not that; it is the previous frame of the same
+  // presentation.
+  //
+  // Derived from `currentStepIndex` and `targets` rather than a ref or state:
+  // reading a ref during render is not allowed (`react-hooks/refs`), and holding
+  // this in state would need a setState inside an effect.
+  const previousStepTargetId =
+    currentStepIndex > 0
+      ? activeMilestone?.steps?.[currentStepIndex - 1]?.targetId ?? null
+      : null;
+  const heldTargetLayout = useMemo(() => {
+    if (spotlight.layout) return null;
+    if (!currentStep?.targetId || !previousStepTargetId) return null;
+    if (previousStepTargetId === currentStep.targetId) return null;
+    const held = targets[previousStepTargetId];
+    if (!held) return null;
+    if (held.width <= 0 || held.height <= 0) return null;
+    if (held.route && !isRouteMatch(pathname, held.route)) return null;
+    return held;
+  }, [spotlight.layout, currentStep?.targetId, previousStepTargetId, targets, pathname]);
+
+  const activeTargetLayout = spotlight.layout ?? heldTargetLayout;
 
   // Deduped by signature: the memo above re-runs on every re-measure, so a raw
   // log would bury the first — and only informative — line under its own
@@ -383,8 +449,21 @@ export function CoachMarkProvider({ children, driverId }) {
   const rejectReasonRef = useRef(null);
   useEffect(() => {
     if (!__DEV__) return;
+    // While a held layout is presented, the memo's rejection reason no longer
+    // describes what is on screen: something IS presented, it is just the
+    // previous step's rect. Saying "not presenting" on those frames would log on
+    // every step change — exactly the transitions the hold exists to make smooth.
+    //
+    // It is reported anyway, under its own wording, rather than suppressed. A
+    // hold is only supposed to last until the new target measures, so a held
+    // frame whose reason is "target never registered" is a real defect, and
+    // dropping the report would hide precisely the silent failure this
+    // diagnostic was built to expose.
+    const holding = Boolean(heldTargetLayout);
     const signature = spotlight.reason
-      ? `${spotlight.reason}|${currentStep?.targetId || "none"}`
+      ? `${holding ? "holding" : "blocked"}|${spotlight.reason}|${
+          currentStep?.targetId || "none"
+        }`
       : null;
     if (!signature) {
       rejectReasonRef.current = null;
@@ -392,25 +471,42 @@ export function CoachMarkProvider({ children, driverId }) {
     }
     if (rejectReasonRef.current === signature) return;
     rejectReasonRef.current = signature;
-    console.warn(`[coachmarks] spotlight not presenting — ${spotlight.reason}`, {
-      milestone: activeMilestoneKey,
-      targetId: currentStep?.targetId || null,
-      pathname,
-      detail: spotlight.detail,
-    });
-  }, [spotlight, currentStep?.targetId, activeMilestoneKey, pathname]);
+    console.warn(
+      holding
+        ? `[coachmarks] spotlight holding the previous step — ${spotlight.reason}`
+        : `[coachmarks] spotlight not presenting — ${spotlight.reason}`,
+      {
+        milestone: activeMilestoneKey,
+        targetId: currentStep?.targetId || null,
+        pathname,
+        detail: spotlight.detail,
+      }
+    );
+  }, [spotlight, currentStep?.targetId, activeMilestoneKey, pathname, heldTargetLayout]);
 
   // Route validity for the active milestone
   const isCurrentRouteValid = isRouteMatch(pathname, activeMilestone?.route);
 
-  // Overlay is presented ONLY if:
-  // 1. Milestone is active and current route matches the milestone route
-  // 2. Either the step has no target (e.g. Welcome card), OR the target is registered with valid bounds on the current screen
-  const shouldShowOverlay = Boolean(
-    activeMilestone &&
-    isCurrentRouteValid &&
-    (!currentStep?.targetId || activeTargetLayout !== null)
-  );
+  // Overlay is presented whenever a milestone owns this screen.
+  //
+  // It deliberately does NOT also require the target's layout. It used to, and
+  // that requirement is what made every step change blink: the freshness gate
+  // above rejects any registration not stamped with the CURRENT generation, and
+  // a step change bumps that generation — so for the ~80-240ms until the new
+  // target re-measured, `activeTargetLayout` was null, this was false, and the
+  // whole overlay UNMOUNTED. The tooltip and the dimming vanished, then it
+  // mounted again with its entrance fade from 0. Worse, a fresh mount resets
+  // `containerBox` to zeros, so the overlay could not apply the origin
+  // correction and drew the hole a status bar (39.11dp) too high until the
+  // container re-measured — the "highlight jumps" the driver sees.
+  //
+  // Whether the target has measured is the overlay's own concern now: it holds
+  // the previous step's rect across the handoff and slides to the new one. What
+  // belongs here is ownership — a milestone on its route — because that is what
+  // navigation legitimately breaks.
+  //
+  // A step with no target at all (the Welcome card) still presents centred.
+  const shouldShowOverlay = Boolean(activeMilestone && isCurrentRouteValid);
 
   // Whether a guide is on screen right now, mirrored into a ref.
   //
@@ -451,6 +547,64 @@ export function CoachMarkProvider({ children, driverId }) {
     bumpPresentationId();
   }, [bumpPresentationId]);
 
+  /**
+   * Makes the screen available to an incoming guide when the one holding it has
+   * been left behind by NAVIGATION.
+   *
+   * Returns true when the screen is free for the caller to claim.
+   *
+   * The ruling this implements: a guide the driver is still looking at keeps the
+   * screen (see the pre-emption guard below), but a guide whose route no longer
+   * matches the pathname is not on screen at all — it offers nothing to dismiss,
+   * and letting it hold the screen is what made the pre-trip tooltips
+   * unreachable. The Map tour stays active at its start-swipe step for the whole
+   * time the driver is inside the inspection screen, so `pretrip`,
+   * `pretrip_remarks` and `pretrip_complete` were each refused in silence while
+   * `map_intro`'s own overlay was hidden for being off-route.
+   *
+   * Parking is deliberately neither of the two existing exits:
+   *   - NOT completion — a step the driver has not read must not be burned.
+   *   - NOT `abandonActiveMilestone` — for `map_intro` that sets
+   *     `mapIntroAwaitingTap`, which demands a fresh Map-tab tap and restarts at
+   *     step 0. Driving into the inspection screen and back would have thrown
+   *     away the four practice stages already completed.
+   *
+   * `park` is false on the resume path, where the displaced guide has already
+   * been superseded by the one coming back and must not resurface later.
+   */
+  const releaseActiveIfOffRoute = useCallback(
+    (park) => {
+      const key = activeKeyRef.current;
+      if (!key) return true;
+
+      const config = getMilestoneConfig(key);
+      // An unrecognised key can never present again, so it is cleared rather
+      // than parked — parking it would wedge the slot forever.
+      const offRoute = !config || !isRouteMatch(pathnameRef.current, config.route);
+      if (!offRoute) return false;
+
+      if (park && config) {
+        parkedMilestoneRef.current = {
+          key,
+          stepIndex: currentStepIndexRef.current,
+          context: stepContextRef.current,
+        };
+      }
+
+      // Same clear as `abandonActiveMilestone`, minus the map_intro banner: this
+      // guide is coming back, so it is not awaiting a fresh tap.
+      overlayVisibleRef.current = false;
+      activeKeyRef.current = null;
+      setActiveMilestoneKey(null);
+      setCurrentStepIndex(0);
+      setStepContext(null);
+      interactionSatisfiedRef.current = null;
+      bumpPresentationId();
+      return true;
+    },
+    [bumpPresentationId]
+  );
+
   // Triggering with driver isolation, driving safety check, and a
   // no-pre-emption rule
   const triggerMilestone = useCallback(
@@ -459,11 +613,11 @@ export function CoachMarkProvider({ children, driverId }) {
 
       // An intentional Map-tab visit owns the first Map tour. Do not let a
       // Home focus trigger claim the screen while that reservation is async.
-      if (
-        milestoneKey !== "map_intro" &&
-        (mapIntroPendingRef.current || activeKeyRef.current === "map_intro")
-      ) {
-        return false;
+      // Nothing is active yet while that read is in flight, so there is no guide
+      // to park and the reservation simply wins.
+      if (milestoneKey !== "map_intro") {
+        if (mapIntroPendingRef.current) return false;
+        if (!releaseActiveIfOffRoute(true)) return false;
       }
 
       // Map-intro owns the first intentional Map visit. Keep the existing
@@ -511,6 +665,31 @@ export function CoachMarkProvider({ children, driverId }) {
         return false;
       }
 
+      if (milestoneKey === "sos") {
+        const tourSosDone = await isCoachMarkCompleted("tour_sos", 1, driverId);
+        if (tourSosDone) {
+          return false;
+        }
+      }
+
+      if (milestoneKey === "incident") {
+        const tourIncDone = await isCoachMarkCompleted("tour_incident_category", 1, driverId);
+        if (tourIncDone) {
+          return false;
+        }
+      }
+
+      if (
+        milestoneKey === "fuel_scan_intro" ||
+        milestoneKey === "fuel_scan_capture" ||
+        milestoneKey === "fuel_scan_verify"
+      ) {
+        const tourFuelDone = await isCoachMarkCompleted("tour_fuel_flow", 1, driverId);
+        if (tourFuelDone) {
+          return false;
+        }
+      }
+
       if (
         milestoneKey === "live_trip" &&
         (mapIntroPendingRef.current ||
@@ -530,15 +709,23 @@ export function CoachMarkProvider({ children, driverId }) {
       // And re-check the lock itself, for the same reason: it may have engaged
       // during the read.
       if (isDrivingRef.current) return false;
-      if (
-        milestoneKey !== "map_intro" &&
-        (mapIntroPendingRef.current || activeKeyRef.current === "map_intro")
-      ) {
-        return false;
+      // The same room-making as at the top, repeated because the await above
+      // yields: the driver can navigate in that window, which is exactly what
+      // makes the guide holding the screen become an off-route one.
+      if (milestoneKey !== "map_intro") {
+        if (mapIntroPendingRef.current) return false;
+        if (!releaseActiveIfOffRoute(true)) return false;
       }
 
       // Set synchronously, before the state lands, so the guard above is
       // accurate for anything that fires before the next render.
+      //
+      // A parked entry for this same key is dropped: this claim restarts the
+      // guide at step 0, so resuming the parked one later would replay a step
+      // the driver has already moved past.
+      if (parkedMilestoneRef.current?.key === config.key) {
+        parkedMilestoneRef.current = null;
+      }
       activeKeyRef.current = config.key;
       setStepContext(context);
       setCurrentStepIndex(0);
@@ -548,8 +735,57 @@ export function CoachMarkProvider({ children, driverId }) {
       setActivePresentationId(nextPresentationId);
       return true;
     },
-    [driverId, isDriving]
+    [driverId, isDriving, releaseActiveIfOffRoute]
   );
+
+  // Resume a guide the driver navigated away from, once they are back on its
+  // route — the other half of `releaseActiveIfOffRoute`.
+  //
+  // Keyed on the pathname, because the navigation IS the event: there is no
+  // call site to hang this off, since the driver returns by tapping a button in
+  // another screen (the inspection success modal pushes back to the Map tab).
+  // Step changes deliberately do not re-run it — the guide it restores is mid
+  // flow at the step it was parked on, and re-entering would reset progress.
+  useEffect(() => {
+    const parked = parkedMilestoneRef.current;
+    if (!parked) return;
+
+    const config = getMilestoneConfig(parked.key);
+    if (!config) {
+      // Unresolvable key: it can never present, so holding the slot would only
+      // block every later park.
+      parkedMilestoneRef.current = null;
+      return;
+    }
+    // Not our route yet. The slot KEEPS its occupant through unrelated
+    // navigations — only reaching its own route, or claiming its key, releases
+    // it.
+    if (!isRouteMatch(pathname, config.route)) return;
+
+    // The async Map-tab reservation owns the screen from the moment it is
+    // claimed, so a resume must not slip in front of it.
+    if (mapIntroPendingRef.current) return;
+    // Every bail-out above leaves the slot intact so the guide can come back on
+    // the next navigation. The driving lock is checked HERE, before the release
+    // below, because `releaseActiveIfOffRoute` clears as it goes: bailing after
+    // it would drop the guide holding the screen rather than parking it.
+    if (isDriving) return;
+    // A guide still on its own route keeps the screen. An off-route one is
+    // cleared rather than re-parked: the guide being restored here owns the
+    // slot, and the displaced one has already been superseded.
+    if (!releaseActiveIfOffRoute(false)) return;
+
+    parkedMilestoneRef.current = null;
+    activeKeyRef.current = config.key;
+    setStepContext(parked.context ?? null);
+    setCurrentStepIndex(
+      Math.min(parked.stepIndex, Math.max(config.steps.length - 1, 0))
+    );
+    setActiveMilestoneKey(config.key);
+    const nextPresentationId = activePresentationIdRef.current + 1;
+    activePresentationIdRef.current = nextPresentationId;
+    setActivePresentationId(nextPresentationId);
+  }, [pathname, isDriving, releaseActiveIfOffRoute]);
 
   // Intentional Map-tab entry point. This is deliberately separate from the
   // generic trigger so programmatic navigation and screen focus cannot start
@@ -592,9 +828,25 @@ export function CoachMarkProvider({ children, driverId }) {
           return false;
         }
 
+        // A parked Map tour means this tap is a RETURN, not a fresh start — the
+        // driver parked it by walking into the inspection screen, and a tab tap
+        // is one of the two ways back. Restarting at step 0 would throw away the
+        // practice stages already completed. The slot is consumed either way:
+        // once this claim lands, the resume effect has nothing left to restore.
+        //
+        // An abandoned tour leaves no slot (abandonment is not parking), so it
+        // still restarts at step 0 exactly as before.
+        const parked = parkedMilestoneRef.current;
+        const resumeFrom = parked?.key === config.key ? parked : null;
+        parkedMilestoneRef.current = null;
+
         activeKeyRef.current = config.key;
-        setStepContext(context);
-        setCurrentStepIndex(0);
+        setStepContext(resumeFrom ? resumeFrom.context ?? null : context);
+        setCurrentStepIndex(
+          resumeFrom
+            ? Math.min(resumeFrom.stepIndex, Math.max(config.steps.length - 1, 0))
+            : 0
+        );
         setActiveMilestoneKey(config.key);
         return true;
       } finally {
@@ -617,6 +869,17 @@ export function CoachMarkProvider({ children, driverId }) {
     const config = getMilestoneConfig(key);
     if (config) {
       await setCoachMarkCompleted(config.key, config.version, driverId);
+      if (key === "tour_sos") {
+        await setCoachMarkCompleted("sos", 1, driverId);
+      }
+      if (key === "tour_incident" || key === "tour_incident_category") {
+        await setCoachMarkCompleted("incident", 1, driverId);
+      }
+      if (key === "tour_fuel" || key === "tour_fuel_flow") {
+        await setCoachMarkCompleted("fuel_scan_intro", 1, driverId);
+        await setCoachMarkCompleted("fuel_scan_capture", 2, driverId);
+        await setCoachMarkCompleted("fuel_scan_verify", 1, driverId);
+      }
     }
 
     // The await above yields. If something else took the screen meanwhile — a
@@ -635,7 +898,26 @@ export function CoachMarkProvider({ children, driverId }) {
       setMapIntroAwaitingTap(false);
     }
     bumpPresentationId();
-  }, [driverId, bumpPresentationId]);
+
+    // Auto-advance sequence for the interactive onboarding walkthrough:
+    if (key === "welcome") {
+      setTimeout(() => {
+        triggerMilestone("tour_sos");
+      }, 300);
+    } else if (key === "tour_sos") {
+      setTimeout(() => {
+        triggerMilestone("tour_incident");
+      }, 300);
+    } else if (key === "tour_incident") {
+      setTimeout(() => {
+        router.push("/incidents?tour=1");
+      }, 120);
+    } else if (key === "tour_fuel") {
+      setTimeout(() => {
+        router.push("/fuel-report?tour=1");
+      }, 120);
+    }
+  }, [driverId, bumpPresentationId, triggerMilestone, router]);
 
   const nextStep = useCallback(async () => {
     if (!activeMilestoneKey) return;
@@ -672,8 +954,32 @@ export function CoachMarkProvider({ children, driverId }) {
   }, [currentStep, currentStepIndex, bumpPresentationId]);
 
   const skip = useCallback(async () => {
-    await completeActiveMilestone();
-  }, [completeActiveMilestone]);
+    const key = activeKeyRef.current;
+    if (key) {
+      const config = getMilestoneConfig(key);
+      if (config) {
+        await setCoachMarkCompleted(config.key, config.version, driverId);
+        if (key === "tour_sos") {
+          await setCoachMarkCompleted("sos", 1, driverId);
+        }
+        if (key === "tour_incident" || key === "tour_incident_category") {
+          await setCoachMarkCompleted("incident", 1, driverId);
+        }
+        if (key === "tour_fuel" || key === "tour_fuel_flow") {
+          await setCoachMarkCompleted("fuel_scan_intro", 1, driverId);
+          await setCoachMarkCompleted("fuel_scan_capture", 2, driverId);
+          await setCoachMarkCompleted("fuel_scan_verify", 1, driverId);
+        }
+      }
+    }
+    if (activeKeyRef.current !== key) return;
+    activeKeyRef.current = null;
+    setActiveMilestoneKey(null);
+    setCurrentStepIndex(0);
+    setStepContext(null);
+    interactionSatisfiedRef.current = null;
+    bumpPresentationId();
+  }, [driverId, bumpPresentationId]);
 
   const dismiss = useCallback(async () => {
     await completeActiveMilestone();
@@ -716,12 +1022,57 @@ export function CoachMarkProvider({ children, driverId }) {
         return;
       }
 
-      // Incident Category selection
+      // SOS Modal Actions
+      if (
+        targetId === "sos.modal_actions" &&
+        activeMilestoneKey === "tour_sos"
+      ) {
+        await completeActiveMilestone();
+        return;
+      }
+
+      // Tour shortcuts
+      if (
+        (targetId === "home.shortcut_incident" && activeMilestoneKey === "tour_incident") ||
+        (targetId === "home.shortcut_fuel" && (activeMilestoneKey === "tour_fuel" || activeMilestoneKey === "tour_fuel_entry")) ||
+        (targetId === "fuel.gauge_entry" && activeMilestoneKey === "tour_fuel_entry")
+      ) {
+        await completeActiveMilestone();
+        return;
+      }
+
+      // Incident Category selection. The selection is this step's required
+      // interaction, so it is what satisfies the gate — without this the gate
+      // would refuse the very advance the tap is asking for. `data` is the
+      // chosen category id; a notification carrying none did not come from a
+      // category card and must not count as a selection.
       if (
         targetId === "incident.category" &&
-        currentStep.targetId === "incident.category"
+        (currentStep.targetId === "incident.category" || currentStep.targetId === "tour.incident.category")
       ) {
+        if (currentStep.requiresInteraction) {
+          if (!data) return;
+          interactionSatisfiedRef.current = currentStep.id;
+        }
         await nextStep();
+        return;
+      }
+
+      // Incident Submit (Tour Mode)
+      if (
+        targetId === "incident.submit" &&
+        activeMilestoneKey === "tour_incident_category"
+      ) {
+        await completeActiveMilestone();
+        return;
+      }
+
+      // Map practice tour completion
+      if (
+        targetId === "map.trip_practice" &&
+        data?.finished === true
+      ) {
+        await completeActiveMilestone();
         return;
       }
 
@@ -813,8 +1164,9 @@ export function CoachMarkProvider({ children, driverId }) {
   //
   // `triggerMilestone` is deliberately left raw for the opposite reason: it
   // closes over `isDriving`, and several screens trigger it from an effect whose
-  // only other deps are their own local state (inspection.js:61, incidents.js:71,
-  // fuel-report.js:183). That identity change is what re-runs those effects the
+  // only other deps are their own local state (the `useLocalSearchParams()`
+  // object in inspection.js, incidents.js and fuel-report.js — a fresh object
+  // every render). That identity change is what re-runs those effects the
   // moment the driving lock releases, so a guide suppressed while moving appears
   // once parked. Freezing it would strand those triggers until something
   // unrelated changed. `registerTarget` is left raw for the same shape of
@@ -913,6 +1265,7 @@ export function CoachMarkProvider({ children, driverId }) {
                 stepIndex={currentStepIndex}
                 totalSteps={activeMilestone.steps.length}
                 targetLayout={activeTargetLayout}
+                heldLayout={Boolean(heldTargetLayout)}
                 stepContext={stepContext}
                 onNext={nextStep}
                 onPrev={prevStep}

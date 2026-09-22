@@ -11,6 +11,11 @@ import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
 import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../components/coachmarks";
+import {
+  QUICK_PASS_FAILED_ID,
+  QUICK_PASS_FAIL_REMARK,
+  buildQuickPassStatuses,
+} from "../../lib/inspection-tour";
 
 const CHECKLIST = [
   { id: "cabin", label: "Cabin Cleanliness & Sanitation" },
@@ -25,7 +30,8 @@ const CHECKLIST = [
 export default function PreShiftInspection() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { tripId } = useLocalSearchParams();
+  const { tripId, tour } = useLocalSearchParams();
+  const isTour = tour === "1" || tour === true;
   const { colors, type, scheme } = useTheme();
   const isDark = scheme === "dark";
   const raised = raisedControl(isDark);
@@ -36,7 +42,16 @@ export default function PreShiftInspection() {
   const [remarks, setRemarks] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [clientSubmissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  const [tripContext, setTripContext] = useState(null);
+  const [tripContext, setTripContext] = useState(() =>
+    isTour
+      ? {
+          trip_id: "TOUR-101",
+          plate_number: "ABC-1234",
+          model: "Toyota HiAce Commuter",
+        }
+      : null
+  );
+  const [showTourSuccessModal, setShowTourSuccessModal] = useState(false);
 
   useEffect(() => {
     if (!tripId) return;
@@ -111,6 +126,11 @@ export default function PreShiftInspection() {
     );
     if (missingRemarks) {
       AppAlert.alert("Remarks Required", `Please add details describing the issue found in ${missingRemarks.label}.`);
+      return;
+    }
+    if (isTour) {
+      notifyInteraction?.("inspection.complete");
+      setShowTourSuccessModal(true);
       return;
     }
     try {
@@ -199,6 +219,49 @@ export default function PreShiftInspection() {
             </Text>
           </View>
         </ClayCard>
+
+        {/* Quick Pass All in Tour Mode */}
+        {isTour && !allAnswered && (
+          <Pressable
+            onPress={() => {
+              // Every item but one passes. The single FAIL is deliberate: the
+              // tour's remarks tip targets the remark field, which mounts only
+              // for a failed item, so a clean sheet leaves that step with
+              // nothing to point at and the driver never sees how a failed
+              // check is described. See lib/inspection-tour.js.
+              //
+              // The FAIL goes through `setStatus` rather than the batch, so it
+              // takes the same path a manual tap does — that is what emits the
+              // pass/fail notification and triggers `pretrip_remarks`. The
+              // notify this replaced hard-coded `status: "PASS"`, which took the
+              // provider's PASS branch: it completed the pass/fail tip and
+              // showed no remarks tip at all.
+              setStatuses(buildQuickPassStatuses(CHECKLIST));
+              setStatus(QUICK_PASS_FAILED_ID, "FAIL");
+              // Required, not decorative: handleSubmit refuses any FAIL without
+              // a remark, and the tour has no tip explaining that alert.
+              setRemarks((prev) => ({
+                ...prev,
+                [QUICK_PASS_FAILED_ID]: QUICK_PASS_FAIL_REMARK,
+              }));
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Quick pass all tutorial items"
+            style={({ pressed }) => [
+              styles.quickFillBtn,
+              {
+                backgroundColor: isDark ? "rgba(40, 84, 72, 0.28)" : "rgba(234, 245, 240, 0.98)",
+                borderColor: colors.primary + "45",
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="flash-outline" size={16} color={colors.primary} />
+            <Text style={[type.labelMd, { color: colors.primary, fontFamily: fonts.bodySemiBold }]}>
+              Quick Pass All (Tutorial Mode)
+            </Text>
+          </Pressable>
+        )}
 
         {/* Checklist */}
         <View style={styles.checklist}>
@@ -401,6 +464,54 @@ export default function PreShiftInspection() {
           />
         </CoachMarkTarget>
       </View>
+
+      {/* Tour Completion Modal */}
+      {showTourSuccessModal && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', zIndex: 999, padding: 20 }]}>
+          <ClayCard style={{ width: '100%', maxWidth: 380, padding: 24, alignItems: 'center' }}>
+            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+              <Ionicons name="checkmark-circle" size={44} color={colors.primary} />
+            </View>
+            <Text style={{ fontFamily: fonts.displayBold, fontSize: 20, color: colors.onSurface, letterSpacing: -0.3, marginBottom: 6, textAlign: 'center' }}>
+              Pre-Trip Inspection Complete!
+            </Text>
+            <Text style={{ fontFamily: fonts.body, fontSize: 13, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 18, lineHeight: 19 }}>
+              {failedCount > 0
+                ? `${CHECKLIST.length - failedCount} of ${CHECKLIST.length} vehicle safety items passed. The flagged item was reported to dispatch so they can review it before departure. You are now ready to practice your route on the Live Map!`
+                : `All ${CHECKLIST.length} vehicle safety items passed. Dispatch has been notified. You are now ready to practice your route on the Live Map!`}
+            </Text>
+            <View style={{ width: '100%', backgroundColor: colors.surfaceContainerLow, borderRadius: 12, padding: 12, gap: 8, marginBottom: 20 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Inspected Items:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.onSurface }}>
+                  {CHECKLIST.length - failedCount} of {CHECKLIST.length} Passed
+                  {failedCount > 0 ? ` · ${failedCount} Flagged` : ''}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Safety Status:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: failedCount > 0 ? colors.error : colors.primary }}>
+                  {failedCount > 0 ? 'Flagged for Dispatch Review' : 'Safe for Route Departure'}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Mode:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>Simulation (No DB record)</Text>
+              </View>
+            </View>
+            <ClayButton
+              label="Next: Live Map Tour →"
+              variant="primary"
+              size="lg"
+              onPress={() => {
+                setShowTourSuccessModal(false);
+                router.push("/(app)/(tabs)/map?tour=1&pretrip=passed");
+              }}
+              style={{ width: '100%' }}
+            />
+          </ClayCard>
+        </View>
+      )}
     </View>
   );
 }
@@ -486,5 +597,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: moderateScale(16),
     paddingTop: moderateScale(12),
     borderTopWidth: 1,
+  },
+  quickFillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    width: "100%",
   },
 });

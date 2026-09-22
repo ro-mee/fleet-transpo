@@ -40,7 +40,8 @@ const ASSISTANCE_OPTIONS = [
 export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { tripId } = useLocalSearchParams();
+  const { tripId, tour } = useLocalSearchParams();
+  const isTour = tour === "1";
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
   const raised = raisedControl(isDark);
@@ -57,6 +58,7 @@ export default function IncidentsScreen() {
   const [expense, setExpense] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showTourSuccessModal, setShowTourSuccessModal] = useState(false);
   const [queuedOffline, setQueuedOffline] = useState(false);
 
   const [vehicleId, setVehicleId] = useState(null);
@@ -67,11 +69,15 @@ export default function IncidentsScreen() {
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
       if (!activeMilestone) {
-        triggerMilestone("incident");
+        if (isTour) {
+          triggerMilestone("tour_incident_category");
+        } else {
+          triggerMilestone("incident");
+        }
       }
     });
     return () => task?.cancel?.();
-  }, [activeMilestone, triggerMilestone]);
+  }, [activeMilestone, triggerMilestone, isTour]);
   
   useEffect(() => {
     // Offline driver context: the vehicle shown (and submitted) resolves
@@ -159,6 +165,11 @@ export default function IncidentsScreen() {
   const handleSubmit = async () => {
     if (!type) {
       AppAlert.alert("Incident Type Required", "Please select the category of the incident before submitting.");
+      return;
+    }
+    if (isTour) {
+      notifyInteraction?.("incident.submit");
+      setShowTourSuccessModal(true);
       return;
     }
     if (!description.trim()) {
@@ -338,6 +349,12 @@ export default function IncidentsScreen() {
                     key={t.id}
                     onPress={() => {
                       setType(t.id);
+                      if (isTour) {
+                        setDescription("Flat tire on right rear wheel, vehicle safely parked on shoulder.");
+                        setAssistance(["Tow Truck"]);
+                        setSeverity("medium");
+                        setPhotos([{ uri: "https://images.unsplash.com/photo-1578844251758-2f71da64c96f?w=400&q=80", mimeType: "image/jpeg" }]);
+                      }
                       notifyInteraction?.("incident.category", t.id);
                     }}
                     style={[
@@ -425,73 +442,75 @@ export default function IncidentsScreen() {
           </ClayCard>
         </View>
 
-        {/* Description */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
-            Incident Details
-          </Text>
-          <TextInput
-            style={[
-              styles.textarea,
-              { borderColor: colors.outlineVariant + '50', color: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
-            ]}
-            placeholder="Describe what happened, current situation, and any immediate needs..."
-            placeholderTextColor={colors.outline}
-            multiline
-            numberOfLines={5}
-            value={description}
-            onChangeText={setDescription}
-          />
-        </View>
+        {/* Description & Assistance */}
+        <CoachMarkTarget id="incident.details" targetId="incident.details" scrollRef={scrollRef} radius={16} padding={8}>
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+              Incident Details
+            </Text>
+            <TextInput
+              style={[
+                styles.textarea,
+                { borderColor: colors.outlineVariant + '50', color: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
+              ]}
+              placeholder="Describe what happened, current situation, and any immediate needs..."
+              placeholderTextColor={colors.outline}
+              multiline
+              numberOfLines={5}
+              value={description}
+              onChangeText={setDescription}
+            />
+          </View>
 
-        {/* Assistance Needed (optional) */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
-            Assistance Needed
-          </Text>
-          <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
-            Optional — tell dispatch what help you need so they can send it with the response.
-          </Text>
-          <View style={styles.assistGrid}>
-            {ASSISTANCE_OPTIONS.map((option) => {
-              const selected = assistance.includes(option);
-              return (
-                <Pressable
-                  key={option}
-                  onPress={() => toggleAssistance(option)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={`${option} assistance${selected ? ", selected" : ""}`}
-                  style={({ pressed }) => [
-                    styles.assistChip,
-                    raised,
-                    {
-                      backgroundColor: selected ? colors.primary : colors.surfaceContainerLow,
-                      borderColor: selected ? colors.primary : 'transparent',
-                      opacity: pressed ? 0.85 : 1,
-                      transform: [{ scale: pressed ? 0.97 : 1 }],
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={selected ? "checkmark" : "add"}
-                    size={14}
-                    color={selected ? colors.onPrimary : colors.onSurfaceVariant}
-                  />
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.assistChipText,
-                      { color: selected ? colors.onPrimary : colors.onSurface },
+          {/* Assistance Needed (optional) */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+              Assistance Needed
+            </Text>
+            <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+              Optional — tell dispatch what help you need so they can send it with the response.
+            </Text>
+            <View style={styles.assistGrid}>
+              {ASSISTANCE_OPTIONS.map((option) => {
+                const selected = assistance.includes(option);
+                return (
+                  <Pressable
+                    key={option}
+                    onPress={() => toggleAssistance(option)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`${option} assistance${selected ? ", selected" : ""}`}
+                    style={({ pressed }) => [
+                      styles.assistChip,
+                      raised,
+                      {
+                        backgroundColor: selected ? colors.primary : colors.surfaceContainerLow,
+                        borderColor: selected ? colors.primary : 'transparent',
+                        opacity: pressed ? 0.85 : 1,
+                        transform: [{ scale: pressed ? 0.97 : 1 }],
+                      },
                     ]}
                   >
-                    {option}
-                  </Text>
-                </Pressable>
-              );
-            })}
+                    <Ionicons
+                      name={selected ? "checkmark" : "add"}
+                      size={14}
+                      color={selected ? colors.onPrimary : colors.onSurfaceVariant}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.assistChipText,
+                        { color: selected ? colors.onPrimary : colors.onSurface },
+                      ]}
+                    >
+                      {option}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
-        </View>
+        </CoachMarkTarget>
 
         {/* Expense (optional) */}
         <View style={styles.section}>
@@ -516,36 +535,38 @@ export default function IncidentsScreen() {
         </View>
       
         {/* Photo Evidence */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
-            Photo Evidence (Optional)
-          </Text>
-          <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
-            Attach up to 3 photos of the damage or incident scene.
-          </Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
-            {photos.map((photo, index) => (
-              <View key={index} style={{ position: 'relative' }}>
-                <Image source={{ uri: photo.uri }} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerHighest }} />
-                <Pressable onPress={() => removePhoto(index)} style={{ position: 'absolute', top: -8, right: -8, backgroundColor: colors.error, borderRadius: 12, padding: 4, zIndex: 10 }}>
-                  <Ionicons name="close" size={16} color={colors.onError} />
-                </Pressable>
-              </View>
-            ))}
-            {photos.length < 3 && (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <Pressable onPress={() => pickImage(true)} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant + '50', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
-                  <Ionicons name="camera-outline" size={32} color={colors.onSurfaceVariant} />
-                  <Text style={{ fontSize: 10, color: colors.onSurfaceVariant, marginTop: 4 }}>Camera</Text>
-                </Pressable>
-                <Pressable onPress={() => pickImage(false)} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant + '50', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
-                  <Ionicons name="image-outline" size={32} color={colors.onSurfaceVariant} />
-                  <Text style={{ fontSize: 10, color: colors.onSurfaceVariant, marginTop: 4 }}>Gallery</Text>
-                </Pressable>
-              </View>
-            )}
+        <CoachMarkTarget id="incident.photos" targetId="incident.photos" scrollRef={scrollRef} radius={16} padding={6}>
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+              Photo Evidence (Optional)
+            </Text>
+            <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+              Attach up to 3 photos of the damage or incident scene.
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
+              {photos.map((photo, index) => (
+                <View key={index} style={{ position: 'relative' }}>
+                  <Image source={{ uri: photo.uri }} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerHighest }} />
+                  <Pressable onPress={() => removePhoto(index)} style={{ position: 'absolute', top: -8, right: -8, backgroundColor: colors.error, borderRadius: 12, padding: 4, zIndex: 10 }}>
+                    <Ionicons name="close" size={16} color={colors.onError} />
+                  </Pressable>
+                </View>
+              ))}
+              {photos.length < 3 && (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Pressable onPress={() => pickImage(true)} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant + '50', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="camera-outline" size={32} color={colors.onSurfaceVariant} />
+                    <Text style={{ fontSize: 10, color: colors.onSurfaceVariant, marginTop: 4 }}>Camera</Text>
+                  </Pressable>
+                  <Pressable onPress={() => pickImage(false)} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant + '50', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
+                    <Ionicons name="image-outline" size={32} color={colors.onSurfaceVariant} />
+                    <Text style={{ fontSize: 10, color: colors.onSurfaceVariant, marginTop: 4 }}>Gallery</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        </CoachMarkTarget>
 
       </ScrollView>
 
@@ -560,17 +581,63 @@ export default function IncidentsScreen() {
           },
         ]}
       >
-        <ClayButton
-          label={uploadingPhotos ? "Uploading Photos..." : submitting ? "Sending Alert..." : "Send Emergency Report"}
-          variant="danger"
-          size="lg"
-          icon="radio"
-          iconPosition="right"
-          disabled={submitting}
-          loading={submitting || uploadingPhotos}
-          onPress={handleSubmit}
-        />
+        <CoachMarkTarget id="incident.submit" targetId="incident.submit" radius={16} padding={6}>
+          <ClayButton
+            label={uploadingPhotos ? "Uploading Photos..." : submitting ? "Sending Alert..." : "Send Emergency Report"}
+            variant="danger"
+            size="lg"
+            icon="radio"
+            iconPosition="right"
+            disabled={submitting}
+            loading={submitting || uploadingPhotos}
+            onPress={handleSubmit}
+          />
+        </CoachMarkTarget>
       </View>
+
+      {/* Tour Mode Success Modal */}
+      {showTourSuccessModal && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: 24 }]}>
+          <ClayCard style={{ width: '100%', maxWidth: 400, padding: 28, alignItems: 'center' }}>
+            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center', marginBottom: 16 }}>
+              <Ionicons name="shield-checkmark" size={36} color={colors.primary} />
+            </View>
+            <Text style={{ fontFamily: fonts.displayBold, fontSize: 20, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 4, textAlign: 'center' }}>
+              Emergency Report Sent
+            </Text>
+            <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 13, color: colors.primary, marginBottom: 12, textAlign: 'center' }}>
+              TUTORIAL SIMULATION
+            </Text>
+            <Text style={{ fontFamily: fonts.body, fontSize: 14, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 20, lineHeight: 20 }}>
+              Fleet dispatch has received your vehicle information and live GPS coordinates. In a real emergency, assistance is deployed immediately.
+            </Text>
+            <View style={{ width: '100%', backgroundColor: colors.surfaceContainerLow, borderRadius: 12, padding: 14, marginBottom: 20, gap: 8 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Category:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.onSurface }}>Vehicle Breakdown</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Assistance:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.onSurface }}>Tow Truck</Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <Text style={{ fontSize: 12, color: colors.onSurfaceVariant }}>Live GPS:</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.primary }}>14.5995° N, 120.9842° E</Text>
+              </View>
+            </View>
+            <ClayButton
+              label="Next: Fuel Logging →"
+              variant="primary"
+              size="lg"
+              onPress={() => {
+                setShowTourSuccessModal(false);
+                router.push("/(app)/(tabs)?tour_step=fuel");
+              }}
+              style={{ width: '100%' }}
+            />
+          </ClayCard>
+        </View>
+      )}
 
       {/* Success Overlay */}
       {showSuccess && (
@@ -699,5 +766,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: 1,
+  },
+  tourSimulationCard: {
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    marginBottom: 16,
+  },
+  tourNextBtn: {
+    marginTop: 10,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

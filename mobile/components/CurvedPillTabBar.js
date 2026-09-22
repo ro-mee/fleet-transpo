@@ -12,7 +12,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
-import { useCoachMarkActions } from "./coachmarks";
+import { useCoachMarkActions, CoachMarkTarget } from "./coachmarks";
 import { isMapTabIntent } from "../lib/map-intro";
 
 const waveLight = require("../assets/images/clay_wave_light.png");
@@ -164,7 +164,7 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
     const iconColor = isFocused ? palette.activeIcon : palette.inactiveIcon;
     const textColor = isFocused ? palette.activeText : palette.inactiveText;
 
-    return (
+    const itemNode = (
       <Pressable
         key={tab.routeName}
         onPress={() => handleTabPress(tab.routeName)}
@@ -206,6 +206,16 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
         />
       </Pressable>
     );
+
+    if (tab.routeName === "map") {
+      return (
+        <CoachMarkTarget key={tab.routeName} targetId="tab.map" radius={24} padding={4}>
+          {itemNode}
+        </CoachMarkTarget>
+      );
+    }
+
+    return itemNode;
   };
 
   return (

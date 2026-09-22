@@ -11,6 +11,8 @@ import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
 import { homeMaterials as clayMaterials } from './materials';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
+import { useRouter } from 'expo-router';
+import { CoachMarkTarget, useCoachMarkActions, useCoachMarkStatus } from '../coachmarks';
 
 // Assignment controls retain their scheme-specific clay edges.
 const raisedControl = { borderTopWidth: 2, borderTopColor: '#FFFFFF55', borderBottomWidth: 3, borderBottomColor: '#00000028', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 5 };
@@ -101,7 +103,10 @@ function HomeClayIcon({ name, small = false }) {
   </View>;
 }
 
-export const HomeQuickActions = memo(function HomeQuickActions({ actions }) {
+export const HomeQuickActions = memo(function HomeQuickActions({ actions, scrollRef }) {
+  const router = useRouter();
+  const { activeMilestone } = useCoachMarkStatus();
+  const { notifyInteraction } = useCoachMarkActions();
   const [expanded, setExpanded] = useState(false);
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
@@ -117,10 +122,58 @@ export const HomeQuickActions = memo(function HomeQuickActions({ actions }) {
   };
 
   return <View style={[s.actions, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-    {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: toggleExpanded, toggle: true }] : [])].map(a => <Pressable key={a.label} onPress={a.action} disabled={a.disabled} accessibilityRole="button" accessibilityLabel={a.label} accessibilityState={{ disabled: !!a.disabled, ...(a.toggle ? { expanded } : {}) }} style={({ pressed }) => [s.shortcut, { flexBasis: wide ? '13%' : largeText || width < 350 ? '30%' : '18%', opacity: a.disabled ? 0.5 : pressed ? QUICK_ACTION_PRESS.pressedOpacity : 1 }, pressed ? { transform: [{ scale: QUICK_ACTION_PRESS.scale }] } : null]}>
-      <HomeClayIcon name={a.icon} />
-      <Text style={[type.caption, { color: colors.onSurface, textAlign: 'center' }]}>{a.label}</Text>
-    </Pressable>)}
+    {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: toggleExpanded, toggle: true }] : [])].map(a => {
+      const targetId = a.targetId || (a.label === 'Report Incident' ? 'home.shortcut_incident' : a.label === 'Fuel' ? 'home.shortcut_fuel' : null);
+      const handlePress = () => {
+        if (activeMilestone === 'tour_incident' && a.label === 'Report Incident') {
+          notifyInteraction('home.shortcut_incident');
+          router.push('/incidents?tour=1');
+          return;
+        }
+        if (activeMilestone === 'tour_fuel' && a.label === 'Fuel') {
+          notifyInteraction('home.shortcut_fuel');
+          router.push('/fuel-report?tour=1');
+          return;
+        }
+        a.action?.();
+      };
+
+      const pressableNode = (
+        <Pressable
+          key={a.label}
+          onPress={handlePress}
+          disabled={a.disabled}
+          accessibilityRole="button"
+          accessibilityLabel={a.label}
+          accessibilityState={{ disabled: !!a.disabled, ...(a.toggle ? { expanded } : {}) }}
+          style={({ pressed }) => [
+            s.shortcut,
+            !targetId && { flexBasis: wide ? '13%' : largeText || width < 350 ? '30%' : '18%' },
+            { opacity: a.disabled ? 0.5 : pressed ? QUICK_ACTION_PRESS.pressedOpacity : 1 },
+            pressed ? { transform: [{ scale: QUICK_ACTION_PRESS.scale }] } : null,
+          ]}
+        >
+          <HomeClayIcon name={a.icon} />
+          <Text style={[type.caption, { color: colors.onSurface, textAlign: 'center' }]}>{a.label}</Text>
+        </Pressable>
+      );
+
+      if (targetId) {
+        return (
+          <CoachMarkTarget
+            key={a.label}
+            targetId={targetId}
+            radius={18}
+            padding={4}
+            scrollRef={scrollRef}
+            style={{ flexBasis: wide ? '13%' : largeText || width < 350 ? '30%' : '18%' }}
+          >
+            {pressableNode}
+          </CoachMarkTarget>
+        );
+      }
+      return pressableNode;
+    })}
   </View>;
 });
 

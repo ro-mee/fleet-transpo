@@ -40,7 +40,7 @@ export const COACH_MARK_MILESTONES = {
         id: "pretrip.pass_fail",
         targetId: "inspection.pass_fail",
         title: "Mark each item",
-        body: "Inspect each item carefully. Choose PASS when the item is safe, or FAIL when you find a problem.",
+        body: "Work down the list and choose PASS for each item that is safe, or FAIL for one you find a problem with. Marking FAIL asks you to describe the issue, so dispatch knows what needs attention.",
         actionText: "Got it",
         canSkip: true,
         interaction: "passthrough",
@@ -77,7 +77,15 @@ export const COACH_MARK_MILESTONES = {
         body: "Tap here once all 7 items are checked. You must complete the inspection before you can start the trip.",
         actionText: "Got it",
         canSkip: true,
-        interaction: "blocked",
+        // `passthrough`, not `blocked`. The step's copy tells the driver to
+        // "tap here", and under `blocked` the cutout swallows that tap — the
+        // only way through was the tooltip's own "Got it" first, so the
+        // instruction was untrue and the real button took two taps to reach.
+        // Blocking is for actions that must not fire by accident (SOS, Start
+        // Trip, the trip-progression swipe); this one is a plain submit whose
+        // tour path writes nothing at all (`handleSubmit` returns after opening
+        // the completion modal when `isTour`).
+        interaction: "passthrough",
       },
     ],
   },
@@ -327,6 +335,7 @@ export const COACH_MARK_MILESTONES = {
         actionText: "Got it",
         canSkip: false,
         interaction: "blocked",
+        presentation: "floating_bubble",
       },
     ],
   },
@@ -371,6 +380,188 @@ export const COACH_MARK_MILESTONES = {
         actionText: "Got it",
         canSkip: false,
         interaction: "observe",
+      },
+    ],
+  },
+
+  TOUR_SOS: {
+    key: "tour_sos",
+    version: 1,
+    route: "/",
+    steps: [
+      {
+        id: "tour.sos.prompt",
+        targetId: "incident.sos",
+        title: "Emergency Assistance",
+        body: "Tap the floating SOS button to practice opening emergency actions. Don't worry, this is only a simulation.",
+        actionText: "Tap SOS",
+        canSkip: true,
+        interaction: "passthrough",
+        presentation: "floating_bubble",
+      },
+    ],
+  },
+
+  TOUR_INCIDENT: {
+    key: "tour_incident",
+    version: 1,
+    route: "/",
+    steps: [
+      {
+        id: "tour.incident.shortcut",
+        targetId: "home.shortcut_incident",
+        title: "Report an Incident",
+        body: "Tap Report Incident to notify dispatch about vehicle breakdowns, road hazards, or route delays.",
+        actionText: "Tap Report Incident",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+    ],
+  },
+
+  TOUR_INCIDENT_CATEGORY: {
+    key: "tour_incident_category",
+    version: 1,
+    route: "/incidents",
+    steps: [
+      {
+        id: "tour.incident.category",
+        targetId: "incident.category",
+        title: "1. Select Category",
+        body: "Tap any category (such as Vehicle Breakdown) to classify the situation for dispatch.",
+        actionText: "Select category",
+        canSkip: true,
+        // The category tap IS the step. Without this the card advances on its
+        // own button and the driver reaches "2. Confirm Details" having chosen
+        // nothing — the classification this screen exists to teach is skipped.
+        // Same shape as the Map practice swipes: the button states the required
+        // action and does nothing until the driver performs it, and `canSkip`
+        // keeps a way out.
+        requiresInteraction: true,
+        interaction: "passthrough",
+      },
+      {
+        id: "tour.incident.details",
+        targetId: "incident.details",
+        title: "2. Confirm Details & Assistance",
+        body: "FleetOps pre-fills sample breakdown details and requests assistance (e.g. Tow Truck).",
+        actionText: "Next →",
+        canSkip: true,
+        interaction: "observe",
+      },
+      {
+        id: "tour.incident.photos",
+        targetId: "incident.photos",
+        title: "3. Attach Photo Evidence",
+        body: "Attach up to 3 photos of vehicle damage, road hazards, or the scene to assist dispatch.",
+        actionText: "Next →",
+        canSkip: true,
+        interaction: "observe",
+      },
+      {
+        id: "tour.incident.submit",
+        targetId: "incident.submit",
+        title: "4. Send Emergency Report",
+        body: "Tap Send Emergency Report to practice sending the alert. In tutorial mode, no real incident is sent.",
+        actionText: "Tap Submit",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+    ],
+  },
+
+  TOUR_FUEL: {
+    key: "tour_fuel",
+    version: 1,
+    route: "/",
+    steps: [
+      {
+        id: "tour.fuel.shortcut",
+        targetId: "home.shortcut_fuel",
+        title: "Fuel Logging & Approval",
+        body: "Tap Fuel to submit fuel requests and scan receipts for fleet expense reimbursement.",
+        actionText: "Tap Fuel",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+    ],
+  },
+
+  TOUR_FUEL_ENTRY: {
+    key: "tour_fuel_entry",
+    version: 1,
+    route: "/fuel-report",
+    steps: [
+      {
+        id: "tour.fuel.gauge_entry",
+        targetId: "fuel.gauge_entry",
+        title: "1. Capture Fuel Gauge",
+        body: "Every fuel request requires a photo of your dashboard fuel gauge. Tap to practice capturing it.",
+        actionText: "Capture Gauge",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+    ],
+  },
+
+  TOUR_FUEL_FLOW: {
+    key: "tour_fuel_flow",
+    version: 1,
+    route: "/fuel-report",
+    steps: [
+      {
+        id: "tour.fuel.gauge_entry",
+        targetId: "fuel.gauge_entry",
+        title: "1. Capture Fuel Gauge",
+        body: "Every fuel request begins with a photo of your dashboard gauge. Tap to practice capturing it.",
+        actionText: "Capture Gauge",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+      {
+        id: "tour.fuel.request_button",
+        targetId: "fuel.request_button",
+        title: "2. Submit Fuel Request",
+        body: "Gauge reading extracted (~75%). Tap Request Fuel to submit for fleet coordinator approval.",
+        actionText: "Request Fuel",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+      {
+        id: "tour.fuel.approval",
+        targetId: "fuel.approval",
+        title: "3. Vehicle Fuel Check",
+        body: "Your request goes to the fleet coordinator, who approves a volume against your vehicle's tank and route. Here they approved 35.50 L — you may now refuel.",
+        actionText: "Got it",
+        canSkip: true,
+        interaction: "observe",
+      },
+      {
+        id: "tour.fuel.scan_entry",
+        targetId: "fuel.scan_entry",
+        title: "4. Scan Fuel Receipt",
+        body: "Tap Scan receipt to practice scanning your gas station receipt.",
+        actionText: "Scan Receipt",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+      {
+        id: "tour.fuel.verify",
+        targetId: "fuel.verify",
+        title: "5. Verify Extracted Data",
+        body: "Review the extracted liters (35.50 L), cost (₱2,350.00), and station (Shell). If the scan got any value wrong, tap that field and correct it before saving.",
+        actionText: "Next →",
+        canSkip: true,
+        interaction: "passthrough",
+      },
+      {
+        id: "tour.fuel.submit_button",
+        targetId: "fuel.submit_button",
+        title: "6. Save Fuel Entry",
+        body: "Tap Save Fuel Entry to record your fuel log in tutorial mode.",
+        actionText: "Save Entry",
+        canSkip: true,
+        interaction: "passthrough",
       },
     ],
   },

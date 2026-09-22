@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { moderateScale } from "../../lib/scaling";
+import { TOOLTIP_MAX_WIDTH } from "../../lib/spotlight-geometry";
 
 /**
  * CoachMarkTooltip
@@ -22,9 +23,12 @@ export function CoachMarkTooltip({
   onNext,
   onPrev,
   onSkip,
-  arrowPosition = "top", // 'top' | 'bottom' | 'none'
+  arrowPosition = "top", // 'top' | 'bottom' | 'left' | 'right' | 'none'
   arrowOffset = 40,
   style,
+  compact = false,
+  badge = null,
+  onMeasure,
 }) {
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
@@ -44,15 +48,44 @@ export function CoachMarkTooltip({
   }, [title, body]);
 
   return (
-    <View style={[styles.wrapper, style]}>
+    <View
+      style={[styles.wrapper, compact && styles.compactWrapper, style]}
+      // Report the card's real height so placement can stop guessing it. The
+      // card grows with copy length, the step counter and the action row, and
+      // every `Text` here scales with the system font scale.
+      onLayout={
+        onMeasure
+          ? (event) => onMeasure(event.nativeEvent.layout.height)
+          : undefined
+      }
+    >
       {/* Arrow pointing UP (when tooltip is positioned below target) */}
       {arrowPosition === "top" && (
         <View
           style={[
             styles.arrowTop,
             {
-              left: Math.max(16, Math.min(arrowOffset - 9, 280)),
+              // `arrowOffset` is the arrow's CENTRE and is already bounded
+              // within the card by `resolveArrowOffset`. The bare 280 that used
+              // to cap it here was not a property of the card at all: on a 412dp
+              // screen it stopped the arrow while the card reached 356.8, so any
+              // target on the right of the screen got an arrow aimed at empty
+              // card.
+              left: Math.max(0, arrowOffset - 9),
               borderBottomColor: cardBg,
+            },
+          ]}
+        />
+      )}
+
+      {/* Arrow pointing LEFT (when tooltip is docked to the right of target) */}
+      {arrowPosition === "left" && (
+        <View
+          style={[
+            styles.arrowLeft,
+            {
+              top: Math.max(10, arrowOffset - 8),
+              borderRightColor: cardBg,
             },
           ]}
         />
@@ -64,6 +97,7 @@ export function CoachMarkTooltip({
         accessibilityLiveRegion="polite"
         style={[
           styles.card,
+          compact && styles.compactCard,
           {
             backgroundColor: cardBg,
             borderColor: isDark ? "rgba(166, 199, 184, 0.20)" : "rgba(40, 84, 72, 0.12)",
@@ -96,14 +130,61 @@ export function CoachMarkTooltip({
           </View>
         )}
 
+        {/* Emergency / Action Badge */}
+        {badge === "emergency" && (
+          <View
+            style={[
+              styles.emergencyBadge,
+              {
+                backgroundColor: isDark
+                  ? "rgba(239, 68, 68, 0.15)"
+                  : "rgba(220, 38, 38, 0.08)",
+                borderColor: isDark
+                  ? "rgba(239, 68, 68, 0.30)"
+                  : "rgba(220, 38, 38, 0.18)",
+              },
+            ]}
+          >
+            <Ionicons
+              name="alert-circle"
+              size={moderateScale(13)}
+              color={isDark ? "#F87171" : "#DC2626"}
+            />
+            <Text
+              style={[
+                styles.emergencyBadgeText,
+                { color: isDark ? "#F87171" : "#DC2626" },
+              ]}
+            >
+              EMERGENCY ACTION
+            </Text>
+          </View>
+        )}
+
         {/* Title */}
-        <Text style={[styles.title, { color: colors.onSurface }]}>{title}</Text>
+        <Text
+          style={[
+            styles.title,
+            compact && styles.compactTitle,
+            { color: colors.onSurface },
+          ]}
+        >
+          {title}
+        </Text>
 
         {/* Body Text */}
-        <Text style={[styles.body, { color: colors.onSurfaceVariant }]}>{body}</Text>
+        <Text
+          style={[
+            styles.body,
+            compact && styles.compactBody,
+            { color: colors.onSurfaceVariant },
+          ]}
+        >
+          {body}
+        </Text>
 
         {/* Action Footer */}
-        <View style={styles.footer}>
+        <View style={[styles.footer, compact && styles.compactFooter]}>
           {showStepCounter ? (
             <View style={styles.stepBadge}>
               <View style={styles.dotsRow}>
@@ -134,13 +215,14 @@ export function CoachMarkTooltip({
             <View style={{ flex: 1 }} />
           )}
 
-          <View style={styles.btnRow}>
+          <View style={[styles.btnRow, compact && styles.compactBtnRow]}>
             {showBack && (
               <Pressable
                 onPress={onPrev}
                 hitSlop={8}
                 style={({ pressed }) => [
                   styles.secBtn,
+                  compact && styles.compactSecBtn,
                   pressed && {
                     backgroundColor: isDark
                       ? "rgba(255, 255, 255, 0.08)"
@@ -150,7 +232,7 @@ export function CoachMarkTooltip({
                 accessibilityRole="button"
                 accessibilityLabel="Go back to previous tip"
               >
-                <Text style={[styles.secBtnText, { color: colors.onSurfaceVariant }]}>
+                <Text style={[styles.secBtnText, compact && styles.compactBtnText, { color: colors.onSurfaceVariant }]}>
                   Back
                 </Text>
               </Pressable>
@@ -162,6 +244,7 @@ export function CoachMarkTooltip({
                 hitSlop={8}
                 style={({ pressed }) => [
                   styles.secBtn,
+                  compact && styles.compactSecBtn,
                   pressed && {
                     backgroundColor: isDark
                       ? "rgba(255, 255, 255, 0.08)"
@@ -171,7 +254,7 @@ export function CoachMarkTooltip({
                 accessibilityRole="button"
                 accessibilityLabel="Skip this guide"
               >
-                <Text style={[styles.secBtnText, { color: colors.onSurfaceVariant }]}>
+                <Text style={[styles.secBtnText, compact && styles.compactBtnText, { color: colors.onSurfaceVariant }]}>
                   Skip
                 </Text>
               </Pressable>
@@ -182,6 +265,7 @@ export function CoachMarkTooltip({
               hitSlop={4}
               style={({ pressed }) => [
                 styles.primaryBtn,
+                compact && styles.compactPrimaryBtn,
                 {
                   backgroundColor: colors.primary,
                   borderColor: isDark
@@ -193,7 +277,7 @@ export function CoachMarkTooltip({
               accessibilityRole="button"
               accessibilityLabel={actionText}
             >
-              <Text style={[styles.primaryBtnText, { color: colors.onPrimary }]}>
+              <Text style={[styles.primaryBtnText, compact && styles.compactBtnText, { color: colors.onPrimary }]}>
                 {actionText}
               </Text>
             </Pressable>
@@ -201,13 +285,26 @@ export function CoachMarkTooltip({
         </View>
       </View>
 
+      {/* Arrow pointing RIGHT (when tooltip is docked to the left of target) */}
+      {arrowPosition === "right" && (
+        <View
+          style={[
+            styles.arrowRight,
+            {
+              top: arrowOffset - 8,
+              borderLeftColor: cardBg,
+            },
+          ]}
+        />
+      )}
+
       {/* Arrow pointing DOWN (when tooltip is positioned above target) */}
       {arrowPosition === "bottom" && (
         <View
           style={[
             styles.arrowBottom,
             {
-              left: Math.max(16, Math.min(arrowOffset - 9, 280)),
+              left: arrowOffset - 9,
               borderTopColor: cardBg,
             },
           ]}
@@ -220,9 +317,14 @@ export function CoachMarkTooltip({
 const styles = StyleSheet.create({
   wrapper: {
     width: "90%",
-    maxWidth: moderateScale(340),
+    maxWidth: moderateScale(TOOLTIP_MAX_WIDTH),
     alignSelf: "center",
     zIndex: 9999,
+  },
+  compactWrapper: {
+    width: "auto",
+    maxWidth: moderateScale(240),
+    alignSelf: "auto",
   },
   card: {
     borderRadius: moderateScale(18),
@@ -235,6 +337,10 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 9,
   },
+  compactCard: {
+    padding: moderateScale(12),
+    borderRadius: moderateScale(14),
+  },
   welcomeBadge: {
     width: moderateScale(38),
     height: moderateScale(38),
@@ -244,6 +350,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: moderateScale(12),
   },
+  emergencyBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    paddingHorizontal: moderateScale(7),
+    paddingVertical: moderateScale(3),
+    borderRadius: moderateScale(6),
+    borderWidth: 1,
+    gap: moderateScale(4),
+    marginBottom: moderateScale(6),
+  },
+  emergencyBadgeText: {
+    fontFamily: fonts.displayBold || fonts.bodySemiBold,
+    fontSize: moderateScale(10),
+    letterSpacing: 0.5,
+    fontWeight: "700",
+  },
   title: {
     fontFamily: fonts.displayBold || fonts.bodySemiBold,
     fontSize: moderateScale(16),
@@ -251,17 +374,30 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     marginBottom: moderateScale(6),
   },
+  compactTitle: {
+    fontSize: moderateScale(14),
+    lineHeight: moderateScale(18),
+    marginBottom: moderateScale(4),
+  },
   body: {
     fontFamily: fonts.body,
     fontSize: moderateScale(13.5),
     lineHeight: moderateScale(19.5),
     marginBottom: moderateScale(16),
   },
+  compactBody: {
+    fontSize: moderateScale(12),
+    lineHeight: moderateScale(16.5),
+    marginBottom: moderateScale(10),
+  },
   footer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginTop: moderateScale(2),
+  },
+  compactFooter: {
+    marginTop: 0,
   },
   stepBadge: {
     flexDirection: "row",
@@ -293,12 +429,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: moderateScale(8),
   },
+  compactBtnRow: {
+    gap: moderateScale(6),
+  },
   secBtn: {
     minHeight: TOUCH_TARGET,
     paddingHorizontal: moderateScale(12),
     borderRadius: moderateScale(10),
     justifyContent: "center",
     alignItems: "center",
+  },
+  compactSecBtn: {
+    minHeight: moderateScale(32),
+    paddingHorizontal: moderateScale(8),
+    borderRadius: moderateScale(8),
   },
   secBtnText: {
     fontFamily: fonts.bodySemiBold,
@@ -317,9 +461,17 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
+  compactPrimaryBtn: {
+    minHeight: moderateScale(32),
+    paddingHorizontal: moderateScale(12),
+    borderRadius: moderateScale(8),
+  },
   primaryBtnText: {
     fontFamily: fonts.bodySemiBold,
     fontSize: moderateScale(13.5),
+  },
+  compactBtnText: {
+    fontSize: moderateScale(12),
   },
   arrowTop: {
     width: 0,
@@ -345,7 +497,36 @@ const styles = StyleSheet.create({
     borderRightColor: "transparent",
     marginTop: -1,
   },
+  arrowLeft: {
+    position: "absolute",
+    left: -8,
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderTopWidth: 8,
+    borderBottomWidth: 8,
+    borderRightWidth: 8,
+    borderLeftWidth: 0,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    zIndex: 10,
+  },
+  arrowRight: {
+    position: "absolute",
+    right: -8,
+    width: 0,
+    height: 0,
+    backgroundColor: "transparent",
+    borderStyle: "solid",
+    borderTopWidth: 8,
+    borderBottomWidth: 8,
+    borderLeftWidth: 8,
+    borderRightWidth: 0,
+    borderTopColor: "transparent",
+    borderBottomColor: "transparent",
+    zIndex: 10,
+  },
 });
 
 export default CoachMarkTooltip;
-
