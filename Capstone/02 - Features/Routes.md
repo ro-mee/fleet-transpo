@@ -108,6 +108,7 @@ Migration `108_location_geofence_radii.sql` (applied via `db:up`, verified live,
   - **Needs Setup**: Routes missing coordinates with warnings on routing impact.
   - **Recent Activity**: 30-day utilization volume against active routes.
 - **Inline Location Creation**: Operators can add new canonical locations with address and coordinate validation directly inside the route creation flow.
+  > **2026-09-23 — `locations.address_id` exists, but nothing writes to it yet.** Migration `122` added the address registry ([[addresses]]) and a nullable `locations.address_id` FK, so a canonical location can carry a structured, geocoded address record instead of only free text. `locations` keeps its existing `address`/`latitude`/`longitude` columns as a **maintained denormalization** for the geofence, route-resolver and TomTom hot paths — the same shape `routes.origin` has against `origin_location_id` (076) — so geofence evaluation gains no join. The dialog above is **not** migrated: it still uses the existing input and the Google Maps URL paste path. The registry's own API routes and component are live, but the blocking TomTom Search permission leaves the PH component mapping unverified — see [[Migrations]].
 - **TomTom Recalculation**: One-click recalculation triggers live TomTom routing queries to refresh distance and travel time estimates.
 
 ---

@@ -452,6 +452,9 @@ trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
 - Production auth requires a distinct `MOBILE_JWT_SECRET`, and the five `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` values. **Email OTP is the second factor since 2026-09-22**, so an unreachable or unconfigured mail provider means *no one can sign in at all* — the login gate fails closed rather than falling back, and this is a recorded single point of failure. `SMTP_PASS` is a Gmail App Password, which requires 2-Step Verification on the sending account. `MFA_ENCRYPTION_KEY` is **obsolete**: it protected the AES-256-GCM TOTP secrets in `employee_mfa`, which nothing reads now. It is retained only because it is the sole means of decrypting those secrets if the change were ever rolled back; do not set it on a new deployment.
 - Mobile EAS configuration is committed in `mobile/app.json` and `mobile/eas.json`. It links project `0c1651d5-7014-48da-8227-5d9f30ea1a23` to Expo owner `josephlopezzzz`; before building, run `eas whoami` and `eas project:info` from `mobile/`. An `Entity not authorized` / `action=READ` error is an Expo-account permission problem, not an app-runtime error; authenticate as the owner or obtain project access before changing the linked project ID.
 - Optional integrations use `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`, `BOOKING_API_URL`, `BOOKING_API_KEY`, AI provider keys, and TomTom (`NEXT_PUBLIC_TOMTOM_API_KEY` client, `TOMTOM_API_KEY` server). Missing integration keys degrade to documented fallbacks or disable the protected integration.
+  - **The TomTom server key must be authorized for both Routing and Search API v2** — separate permissions, granted **per key**. Measured 2026-09-23: the live `TOMTOM_API_KEY` answers `200` on `/routing/1/calculateRoute` but `403 {"code":"Forbidden","message":"You are not allowed to access this endpoint"}` on **both** `/search/2/search` and `/search/2/geocode` — the whole Search family, not one endpoint scoped off. The key is valid (Routing works) and the account does have Search, because `NEXT_PUBLIC_TOMTOM_API_KEY` returns `200` on the same search URL. The grant simply sits on the browser key, not the server key.
+  - **Can an existing key gain a permission? ANSWERED — yes.** This was open when first written, because TomTom's documentation was unreachable. It is now settled empirically rather than from docs: a Search grant was added to the existing `NEXT_PUBLIC_TOMTOM_API_KEY` and it went `403` → `200` on the same URL, same key, no code change. So Search can be added to `TOMTOM_API_KEY` in place; no new key is required.
+  - **Do not fix this by swapping keys.** `TOMTOM_API_KEY` is also the Routing key (`buildRouteUrl` → `getServerKey()`, `src/lib/tomtom.js:94`), so a Search-only replacement would break turn-by-turn navigation app-wide. Whatever ends up in `TOMTOM_API_KEY` needs **Routing and Search**. This is a portal setting, not application code — the provider sits behind `src/lib/address/provider.js`. Diagnose with `node scripts/check-address-provider.mjs`: it probes Routing first as a known-good baseline, prints the error body, and cross-probes the browser key to separate "the account lacks Search" from "this key is scoped out".
 - `next.config.mjs` — `turbopack.root` + security headers (CSP, HSTS, frame/nosniff, referrer policy). **No CORS here.** The CSP's `img-src` no longer admits every https host (narrowed 2026-09-17, SEC-CONFIG-004): it is `'self' data: blob:` plus the Supabase and app origins — derived from the same `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_APP_URL` env vars `src/lib/security/remote-url.js` uses, so the browser-side and server-side allowlists cannot drift — plus the three map hosts (`api.tomtom.com`, `*.basemaps.cartocdn.com`, `server.arcgisonline.com`). Without the map hosts the dispatch radar, incident map and live-locations map render blank; without the storage origin every receipt, avatar and vehicle photo breaks. **The write side enforces the same list.** Since 2026-09-18 (SEC-UPLOAD-008) any column that later binds to an `<img src>` is gated on write by `isAllowedStoredImageRef` (`src/lib/validation/index.js`), exposed to routes as the `mediaUrl` validation type — so the stored value and the rendered value are held to one allow-list rather than the CSP being the only line behind them. It is deliberately **stricter than the guard on the `data:` branch**: `isSafeRemoteMediaUrl` returns true for any `data:image/` prefix, which would admit `data:image/svg+xml,<svg …>`. `script-src` still carries `'unsafe-inline'` in production — moving it off needs a nonce and a `src/proxy.js` matcher widened past `/api/:path*`, which is deferred rather than done badly.
 - `src/proxy.js` — **Next 16's middleware** (export `proxy()`, matcher `/api/:path*`). CORS **lockdown, fail-closed**: same-origin/no-Origin requests pass; any other `Origin` gets 403; preflight is answered 204 only for the `NEXT_PUBLIC_APP_URL` origin. No auth in the proxy — protected handlers enforce auth per route; public protocol and service-token endpoints use explicit checks. Covered by `src/security-boundaries.test.js`.
 - Path alias: `@/* → ./src/*` (`jsconfig.json`).
@@ -497,6 +500,8 @@ fleet-transpo/
 │   │   ├── ui/                 # shadcn primitives (card, button, dialog, toast, query-feedback, phase-rail, ...)
 │   │   ├── tables/             # data-table, fleet-table
 │   │   ├── maps/               # live-locations-map
+│   │   ├── address/            # ★ address-validator (the one reusable address field),
+│   │   │                       #   address-map-preview (client-only Leaflet), use-address-search
 │   │   ├── drivers/            # assigned-vehicle-card, substitute-driver-card
 │   │   ├── dispatch/  reservations/
 │   │   ├── providers.jsx       # SessionProvider + QueryClientProvider
@@ -508,6 +513,9 @@ fleet-transpo/
 │   │   ├── workspaces.js       # ★ WORKS[role] per-role workspace (identity, accent, home, nav) + getWorkspace()
 │   │   ├── dispatch-policy.js  # ★ smart-queue thresholds (critical/high/medium minutes, vip/emergency flags)
 │   │   ├── tomtom.js           # ★ TomTom URLs + server-keyed route builder (two-key split, traffic/departAt/alternatives)
+│   │   ├── address/            # ★ address registry library — provider.js (abstraction) → providers/tomtom.js
+│   │   │                       #   (search/geocode/reverse, server key only), parse.js (payload → AddressValue),
+│   │   │                       #   postal.js, validate.js (the server write boundary), invalidate.js (anti-stale rule)
 │   │   ├── routing/            # route-cache.js — short-TTL live-route cache (rounded coords + departure buckets)
 │   │   ├── audit.js            # writeAudit() — the only audit_logs writer since 014b dropped the DB triggers
 │   │   ├── auth/               # api-auth, permissions.js (RBAC matrix), role-guard, mobile-token
@@ -1035,15 +1043,175 @@ traversal; neither check subsumes the other.
 
 ---
 
+### 4.11 Address validation & the location registry
+
+**One registry, not per-entity coordinates.** `addresses` (migration 122) holds every
+resolved address; `locations`, `drivers`, `drivers.emergency_contact_address_id` and
+`transportation_requests.pickup_location_id`/`dropoff_location_id` point at it by FK.
+Nothing gets its own `latitude`/`longitude` pair. `locations` keeps its existing
+`address` / `latitude` / `longitude` columns as a **maintained denormalization** for
+geofence evaluation, the route resolver and the TomTom hot paths — the same shape
+`routes.origin` already has against `origin_location_id` (076). The `addresses` row is
+authoritative; the `locations` columns are the read cache, which avoids adding a join to
+every geofence check.
+
+**Five values that are related but must never disagree:** raw input, formatted address,
+structured components, postal code, and coordinates + verification state. Two of them
+are routinely conflated and must not be: **"location verified" and "ZIP code provided"
+are separate facts.** A confident position with no postal code on record is a normal
+Philippine outcome, so `✓ Location verified` beside `⚠ ZIP code not provided` is an
+expected rendering rather than a contradiction. **No postal code is ever invented** —
+when the provider returns none, `postal_code` stays NULL, and `postal_code_source`
+(`provider` | `manual`) keeps a provider-supplied code distinguishable from one the
+operator typed. Structured components are best-effort: an unmapped field stays NULL
+rather than being guessed, because a wrong barangay is worse than an absent one.
+
+**The server never trusts the client.** `src/lib/address/validate.js` is the write
+boundary. A payload's `verified: true` is **discarded**; the server re-resolves the
+`provider_place_id` through the provider and uses *its own* coordinates. A submitted
+pair drifting more than 50 m from the re-resolved one is rejected as stale rather than
+silently stored. Operational addresses (a `locations` row, the hotel base) **must**
+arrive verified or the write is refused; personal addresses (driver residential,
+emergency contact) are advisory and save as unverified, badged but never blocking.
+Authorization is unchanged — the same `requirePermission` resources as the surrounding
+routes, no new roles, no relaxed checks.
+
+**Coordinates can never end up paired with the wrong address.** `src/lib/address/invalidate.js`
+is the single definition of staleness: editing an address clears latitude, longitude,
+components, verification and any *provider*-sourced postal code in the same operation
+that changes the text — so there is no instant in which the form holds new text beside an
+old coordinate, which makes "Address B with Latitude A" structurally unsubmittable rather
+than merely discouraged. A **manually entered** ZIP is the deliberate exception: it
+survives an edit, flagged as needing confirmation for the new address, because it is the
+operator's own assertion rather than a property of the address being replaced.
+
+**Provider.** TomTom Search API v2, reached only through `src/lib/address/provider.js`
+→ `providers/tomtom.js`. The **server** key is used and never reaches the browser.
+`/api/address/search` returns suggestion labels only (never coordinates);
+`/api/address/geocode` is the single place coordinates become authoritative.
+`src/components/address/address-validator.jsx` is **the** reusable address field — the
+one implementation, consumed in either form idiom this repo uses (`variant="plain"` for
+the Label+Input surfaces, `variant="floating"` for the `FloatingShell` forms). Typed
+text is never verification; only selecting a suggestion and having the server resolve it
+produces `verified: true`. `autoGeocode={false}` is the privacy control for personal
+addresses: typing costs no network request, and a `[Verify address]` button does.
+
+**The cascade is the primary path; search is an optional shortcut.** Because the provider
+above is refused, the form does not *depend* on it. The operator picks the real
+administrative hierarchy — Region → Province → City/Municipality → Barangay — from the
+`ph_*` tables (migration 123, see [[Geography Tables]]), so an address is structurally
+valid by construction with **no provider in the path at all**. This also closes a hole a
+geocoder could never close: a provider can confidently place a pin at a barangay whose name
+occurs in two different cities, and there is no way for it to know which one the operator
+meant. Picking a PSGC code is not a guess, and cannot be wrong in that way.
+
+**`ph_cities.province_code` is nullable, and the cascade depends on that.** Metro Manila has
+no provinces and several highly urbanised cities sit outside one; a `NOT NULL` province
+would force those rows into a fabricated province. So **Province is required unless the city
+has none** — the rule is answered by the data (`regionRequiresProvince`), never by a
+hardcoded region list, and a region with no provinces lists its cities off the `region_code`
+instead. A cascade that assumes four levels everywhere leaves Province permanently disabled
+and makes every NCR address unsaveable.
+
+**Server-side, the geography is derived, not accepted.** `src/lib/address/validate-structured.js`
+is a *sibling* of `validate.js`, not part of it: `validate.js` has a geocoder in it and this
+one has none, and merging them would mean one function with two mutually exclusive notions
+of "authoritative". The client's `regionName` / `provinceName` / `cityName` / `barangayName`
+are **discarded** — not compared, not reconciled — and replaced with the values resolved
+from the one thing the client is believed about: its choice of `psgc_barangay_code`. A
+client cannot file a Laguna barangay under Cebu City, because the city name is never read
+from the request. (Rejecting on a text mismatch was the first design and is worse in both
+directions: it catches nothing that ignoring does not already catch, and it strands an
+address whose barangay was renamed by plebiscite after it was saved.)
+
+**The pin is a claim, never a verification.** Dropping a pin records where an operator says
+the door is; it does not establish that the address exists there. Those rows carry
+`provider = 'manual'` and `verified` stays **false** — `resolveStructuredAddress` has no code
+path that sets it true — and the map component says so in words rather than leaving the
+operator to infer it. An address saves with no pin at all; the cascade is what makes it
+valid, not the coordinate.
+
+> **Operational caveat — the TomTom server key is not yet authorized for Search.**
+> As of 2026-09-23 the live `TOMTOM_API_KEY` returns `200` for
+> `/routing/1/calculateRoute` but `403 {"code":"Forbidden","message":"You are not
+> allowed to access this endpoint"}` for `/search/2/search`. Routing works; Search API
+> v2 is simply not enabled on that key. The two TomTom keys in `.env` are different, so
+> this is not a key mix-up. Until the permission is added in the TomTom portal, address
+> search returns no suggestions and **the PH component mapping in `parse.js` remains
+> unverified** — the unit tests cannot settle it, because they only assert that a field
+> the provider does not send stays NULL, which passes under either mapping. Run
+> `node scripts/check-address-provider.mjs` to see the raw payload.
+
+> **Migration state — foundation live, surfaces not yet migrated.** As of 2026-09-23 the
+> table, the library, both API routes, the component and the map preview exist and are
+> verified (76 library tests; `db:contract` 0 violations; `verify:anon` a refusal, not
+> `200 []`; lint clean; production build green). **No address form in the app has been
+> migrated yet.** The six real address surfaces — canonical location, hotel base
+> location, reservation pickup/drop-off, route origin/destination, driver residential
+> and driver emergency contact — still use their existing inputs, and the Google Maps
+> URL paste path is still in place. Operational surfaces are deliberately blocked behind
+> the provider permission above: requiring verification on a location that cannot be
+> verified would make locations unsaveable, which is a regression rather than a
+> half-finished feature.
+
+> **Cascade state — migration applied and fully verified; one environmental gate open.**
+> Migration `123` is **live** and every gate on it passed: `db:up` applied it cleanly;
+> `db:dump` wrote 65 tables / 133 FKs / 163 indexes / 24 triggers with every delta exactly
+> accounted for; `db:contract` reads 66 relations, **0 unclassified, 0 violations**; and
+> `verify:anon` scored all four `ph_*` tables **PASS — `HTTP 401 (42501)`, explicitly
+> refused**, not `200 []`. The refusal rather than an empty `200` is load-bearing here: the
+> tables are empty until the PSGC import runs, and on empty tables `200 []` would have been
+> INCONCLUSIVE rather than a pass.
+>
+> The library tests are green (51 passing across `structured.test.js` and
+> `validate-structured.test.js`) and `npm run lint` exits 0.
+>
+> **`npm run build` is green — but only under `CIRCLE_NODE_TOTAL=2`, and that is the whole
+> story.** The first failures here were `FATAL ERROR: … JavaScript heap out of memory` in the
+> build's worker pool ("Collecting page data using **11 workers**"), on GC lines reporting
+> heaps of only 14–27 **MB** — a machine with nothing left to give, not a leaking module.
+>
+> The obvious remedy was tried and **made it worse**: `NODE_OPTIONS=--max-old-space-size=4096`
+> died *earlier* in the build with a **Rust** allocator failure
+> (`memory allocation of 2078912 bytes failed`). Turbopack is Rust, so that is not the V8
+> heap — 2 MB was refused immediately after Node had been granted 4 GB, which puts the
+> constraint in the OS commit charge where no Node flag reaches it.
+>
+> The actual lever came out of Next's source rather than a guess:
+> `next/dist/build/index.js:309` `getNumberOfWorkers` computes
+> `Math.max(1, (process.env.CIRCLE_NODE_TOTAL || os.cpus().length) - 1)`. Eleven workers
+> means **12 logical CPUs**, one forked Node process per core, and that burst is what
+> exhausted the machine. `CIRCLE_NODE_TOTAL=2 npm run build` yields **1 worker** and the
+> build completes: compile ✓ 26.2s, TypeScript ✓, page data ✓, **212/212 static pages**, and
+> the five `/api/geo/*` handlers present in the emitted route table as `ƒ` (dynamic). The
+> page count moved 207 → 212 — exactly the five routes this work added.
+>
+> **Two things to carry forward.** `memoryBasedWorkersCount` is not an alternative: it floors
+> at a **minimum of 4**. And the flag is an **environment variable, not a repo change** —
+> nothing in the repository was modified to make the build pass, deliberately, because the
+> CPU/RAM mismatch is a property of this machine and `experimental: { cpus: 1 }` in
+> `next.config.mjs` would slow every build on a host that is not starved, CI included. The
+> consequence is that **plain `npm run build` still fails on this box**; a release cut from
+> here has to carry the flag. Next's bundled `memory-usage.md` guide was read and is
+> Webpack-only — it does not apply to a Turbopack build.
+>
+> Separately, the form is **inert until a PSGC export is imported**: only the 17 regions are
+> seeded, so every level below Region renders an empty state naming that cause, which is the
+> honest state rather than a bug.
+
 ## 5. Database Schema (PostgreSQL on Supabase)
 
-The checked-in `schema.sql` currently declares **50 tables, 1 view (`driver_stats`),
-103 foreign keys, 108 standalone indexes plus 15 unique indexes, 14 functions, and
-19 triggers**. It is the authoritative structure dump; §5.2 below is a reading aid,
-not the source. Dispatch numbers are random strings, while serial-backed tables
-still use PostgreSQL sequences in the live database.
+The checked-in `schema.sql` currently declares **61 tables, 1 view (`driver_stats`),
+128 foreign keys, 158 indexes, 15 functions, and 20 triggers** — measured from a live
+`npm run db:dump` on 2026-09-23, after migration 122. It is the authoritative structure
+dump; §5.2 below is a reading aid, not the source. Dispatch numbers are random strings,
+while serial-backed tables still use PostgreSQL sequences in the live database.
 
-There are **105 migration files** in `supabase/migrations/`, numbered through 102 (090 unused).
+Migrations are numbered through **122** (`122_address_registry.sql`, 2026-09-23); `090`
+is unused. **`npm run db:status` is the authoritative count — not `ls`.** The ledger
+records migrations whose files are gone (`113`, `114`, `115`, `120`, `121` as of
+2026-09-23), so a version can be spent without ever appearing on disk, and a number must
+never be chosen from the directory listing.
 Exactly four numeric versions are duplicated historically — **036, 037, 059, and
 060** each have two files, applied in filename order. The checked-in schema includes
 the server-backed session/MFA tables and the `idle_timeout_seconds` column from
@@ -1183,6 +1351,11 @@ places, so a migration has to be a safe no-op there.
 | **115** | `app_errors_rls.sql` | ★ security: `ENABLE ROW LEVEL SECURITY` on `app_errors` — closes SEC-DB-003 for that table. The anon key had been reading live rows, `stack` column included. Verified from the database side (RLS on, no anon policy) by the first `db:contract` run. |
 | **116** | `rls_gap_tables.sql` | ★ security: closes the rest of SEC-DB-003 (`ai_prompt_templates`, `trip_monitor_alerts` — RLS enabled) and all of SEC-DB-006 (`driver_stats` — `security_invoker = true`), plus `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on all three. **The revoke is load-bearing:** row security does not apply to `TRUNCATE`, so RLS alone would have left both tables emptyable with the public anon key. Rehearsed against live inside a rolled-back transaction before applying — 12/12 application queries identical, anon went from 40 visible `driver_stats` rows to `42501`. After: `verify:anon` EXPOSED 0, `db:contract` 0 violations |
 
+| **122** | `address_registry.sql` | ★ `addresses` — one normalized address registry (raw input, provider formatted address, PH structured components, postal code + its source, coordinates, verification state, provider + place id). Five nullable FKs point at it: `locations.address_id`, `drivers.address_id`, `drivers.emergency_contact_address_id`, `transportation_requests.pickup_location_id` and `dropoff_location_id`. **Nothing is backfilled and nothing is bulk-geocoded** — legacy rows keep `address_id = NULL` and are upgraded only when a human next edits them. RLS enabled **and** `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on the table **and its sequence**; the revoke is load-bearing, because row security does not apply to `TRUNCATE`. Verified: `verify:anon` returns an explicit refusal (HTTP 401 / SQLSTATE 42501), **not** `200 []`, and `db:contract` reports 0 violations |
+
+> Migrations `117`–`121` are not itemised in this table. `npm run db:status` is the
+> authoritative list, and the ledger — not the directory — decides which numbers are spent.
+
 > 042–046 are **reconciliation** migrations: the live database had drifted ahead of
 > the files, so replaying the history onto an empty database produced a schema the
 > app could not run against. They declare what already existed rather than
@@ -1236,6 +1409,7 @@ places, so a migration has to be a safe no-op there.
 | `audit_logs` | audit | the DB trigger functions were dropped (015); writes now come from the application — `writeAudit()` (`src/lib/audit.js`) is called across route/service modules |
 | `service_types`, `booking_channels`, `integration_log` | integration | |
 | `locations` | reference | named places with active/retired identity metadata (076, 080) |
+| **`addresses`** | ★ address registry | one normalized row per resolved address: raw input, provider formatted address, PH structured components (house/unit/building/street/subdivision/**barangay**/city/municipality/province/region), `postal_code` + `postal_code_source` (`provider` \| `manual`), coordinates, `verified`/`verified_at`, `provider` + `provider_place_id`. **No entity gets its own lat/lng pair** — every address-bearing record points here. Append-only, CHECK-guarded coordinate pairs (122) |
 | `mobile_refresh_tokens` | mobile auth | hashed, revocable, family-grouped, device metadata; RLS enabled by 100 (the app reaches it as the owner, so this is unaffected) |
 | `transportation_requests` | queue | 6-state `fleet_status` (review states removed, 037), `external_booking_id` UNIQUE, AI rec cols, `is_vip`/`is_emergency`/`derived_priority` (032) |
 | `reservation_events` | timeline | append-only |
@@ -1280,6 +1454,7 @@ use PostgreSQL sequences.
 - Partial UNIQUE: `uq_routes_active_direction` permits only one active, non-deleted route for each `(origin_location_id, destination_location_id)` pair while preserving inactive history. `routes` also enforce valid status/source values, positive estimates, and complete non-self endpoint pairs.
 - Route estimates carry `estimate_source` (`TomTom`, `Manual`, `Legacy / Unknown`) and `estimate_updated_at`; `locations.is_active`/`retired_at` preserve location identity across hotel renames and physical moves.
 - UNIQUE (driver_id, date) on attendance; positive service-interval / tank-capacity / efficiency guards; `idx_trips_end_time` partial index for the 90-day maintenance window.
+- `addresses` CHECKs (122): **coordinates are all-or-nothing** — `chk_addresses_coords_pair` permits either both `latitude` and `longitude` NULL or both present and in range, so a half-pair is unstorable; and `chk_addresses_formatted_not_blank` refuses a row whose `formatted_address` is empty or whitespace-only. Partial index `idx_addresses_verified` covers only verified rows.
 
 ---
 
@@ -1368,6 +1543,8 @@ is the only reservation concept, and `integration/` is its only door.
 - `notifications/` (GET/POST) — **self-scoped** GET (ops roles may pass `?employee_id=`); POST admin-directed. `notifications/[id]/read`, `notifications/read-all` (self-scoped), `notifications/[id]` (DELETE, self- or ops-scoped), `notifications/preferences` (GET/PUT) ★ — per-user event × channel toggle matrix (migration 037); PUT also accepts a `bulk` body (`{ channel, enabled, bulk: true }`) used by the mobile Push master toggle — OFF writes one explicit false row per event for the channel, ON deletes the channel's rows to restore `NOTIFICATION_EVENTS` defaults.
 - `search` (GET) ★ — global command-palette search across reservations, dispatches, drivers, vehicles (min 2 chars, LIMIT 5 per entity; any role).
 - `tomtom/route` (GET) ★ — server-keyed routing proxy (`origin`/`destination` as `lng,lat`, optional `departAt` + `alternatives=0-2`): decoded polyline, turn-by-turn instructions, distanceKm, travelTimeMin, trafficDelayMin, alternative summaries, `provenance: "live"`; all roles incl. driver.
+- `address/search` (GET) ★ — **address autocomplete** (min 3 chars; `?q=`, optional `lat`/`lon` proximity bias). Returns suggestions as `{placeId, label, secondary}` only — **never coordinates** — and an empty result is deliberately distinct from a failed request. Gated `maps:read`.
+- `address/geocode` (GET) ★ — the **single place coordinates become authoritative**: takes `?place_id=`, calls the provider server-side, and returns the server's own result. Reached only after an operator *selects* a suggestion; typed text is never verification. A client-sent `verified: true` is discarded on write and the write paths re-resolve (see §4.11). Gated `maps:read`.
 - `audit/` (GET) ★ — system audit log (system_admin only).
 - `system/activity` (GET) ★ — system console activity feed.
 - `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `settings/users`, `settings/connectors`, `manifest`, `status/sync`, `cron/sync`, `cron/reconcile` (service-token protected). The Routes registry stores canonical directional location pairs: reads include management/dispatcher, writes are limited to system_admin/admin/fleet_manager, endpoint edits lock after dispatch/trip use, and unused routes may be archived while historical routes are deactivated. `locations` hides retired identities by default; hotel rename preserves its location ID while a physical move versions and retires the old identity.
@@ -1765,6 +1942,23 @@ future developer/AI must know:
   entities. Do not add local status maps in pages; extend the central maps.
 - `command-palette.jsx` — full role-filtered page coverage + entity search
   (deferred, non-blocking); Pages remain visible during search.
+
+**Pointer affordance — one base rule, 2026-09-23**
+- Browsers give `<button>` `cursor: default`, so every clickable control had to
+  remember `cursor-pointer` by hand and the ones that forgot read as inert text.
+  `globals.css` now restores it for `button:not(:disabled)`,
+  `[role="button"]:not([aria-disabled="true"])`, `[role="tab"]`,
+  `[role="menuitem"]` and `[role="option"]`.
+- **It must stay inside `@layer base`.** Unlayered CSS outranks Tailwind's
+  utilities, so hoisting this rule out of the layer would silently kill every
+  explicit `cursor-not-allowed` on a disabled control and `cursor-default` where
+  a pointer would be a lie. Utilities win by design; that is the point.
+- `DatePicker` gained an optional `minAge` (bounded years/months/days, opens on
+  the boundary year, withholds the `Today` shortcut) and an `error` prop. The
+  driving-age rule itself sits in `src/lib/validation/age.js`
+  (`LEGAL_DRIVING_AGE = 18`) and is enforced in the picker, in `driverSchema`,
+  and in the `birthdate` spec of both `/api/drivers` routes — the API layer
+  being the one that counts, since the zod schema is only the form's resolver.
 
 **Design tokens**
 - Semantic colors exist as raw CSS vars AND Tailwind theme colors

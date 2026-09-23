@@ -10,7 +10,7 @@ source:
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-09-16
+last_verified: 2026-09-23
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -180,9 +180,47 @@ and the reinstate. Manual/legacy suspensions (reason NULL) are never touched by 
 Pure rule in `src/lib/drivers/compliance.js`; driver page carries a Reinstate banner
 for the lingering-flag case. → [[GAP Compliance Suspension Had No Inverse]]
 
+## Legal age — enforced 2026-09-23
+
+`drivers.birthdate` carries a **legal-age floor of 18 years**. PH LTO issues a
+professional driver's licence from 18 and every row in this registry is a licensed
+driver, so no driver may be recorded as younger than that.
+
+The rule lives in exactly one place: `src/lib/validation/age.js`
+(`LEGAL_DRIVING_AGE`, `legalAgeCutoff`, `isAtLeastAge`), a dependency-free module
+re-exported from `src/lib/validation/index.js`. It is deliberately separate from
+that barrel because the birthdate picker is a client component and importing the
+barrel would pull the security and storage helpers into the browser bundle.
+
+Enforced at three layers, all reading the same rule:
+
+| Layer | Where |
+|---|---|
+| The picker cannot offer it | `minAge={LEGAL_DRIVING_AGE}` on the `DatePicker` in `drivers/new` and `drivers/[id]/edit` |
+| The form rejects it | `driverSchema.birthdate` via `dateString("Birthdate", { minAge })` |
+| The API rejects it | `validate: (v) => isAtLeastAge(...)` on the `birthdate` spec in both `POST /api/drivers` and `PUT /api/drivers/[id]` |
+
+**The API layer is the one that matters.** `driverSchema` is only the form's
+resolver — it never runs on the server, because no application code runs on a
+direct API call. The routes validate through the declarative `validateBody` spec
+in `src/lib/validation/helpers.js`, so the rule is attached as that spec's
+`validate` hook rather than assumed to travel with the zod schema.
+
+**Why `legalAgeCutoff` builds a date from calendar parts instead of subtracting.**
+On Feb 29 a naive 18-year subtraction rolls to Mar 1, admitting a birthdate one
+day too young. The cutoff clamps the day to the target month's length and
+compares year → month → day, so a leap day cannot widen the floor. A person whose
+18th birthday is today passes; one day later does not.
+
+Blank stays valid — the field is optional, and the rule only ever restricts a date
+that was actually supplied. A live census before the change found **55 driver rows,
+53 with a null birthdate and 0 underage**, so no existing record is blocked by it.
+
 ## Database tables used
 
 `drivers` (23) · [[employees]] (47) · [[driver_vehicle_assignments]] · `driverincidents` · `driver_documents` · `driver_consents` · `driverattendance` **0 rows** · `driver_stats` (view) · [[mobile_refresh_tokens]] (57)
+
+> **2026-09-23 — `drivers.address_id` and `drivers.emergency_contact_address_id` exist, but nothing writes to them yet.** Migration `122` added the [[addresses]] registry and these two nullable FKs, so a driver's residential address and their next-of-kin's address can each become a structured, geocoded record rather than free text. The address inputs on `/drivers/new` and `/drivers/[id]/edit` are **not** migrated — they still write the existing text columns, which remain the read path for every row today. Design intent, not current behaviour: both are **advisory** — an unverified address saves and is badged rather than blocked — and a personal address is geocoded only when an operator explicitly asks, so typing costs no network request.
 
 ## Weekly work schedules & leave — CONFIRMED 2026-08-15
 

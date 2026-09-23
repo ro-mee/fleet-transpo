@@ -6,7 +6,7 @@ source:
   - src/app
   - src/components
   - package.json
-last_verified: 2026-08-11
+last_verified: 2026-09-23
 ---
 
 # Frontend
@@ -74,9 +74,65 @@ double-bezel tray for visual consistency, and their Month/Year selectors use `Ca
 in-popover dropdown with smooth auto-scroll to the selected option, check indicators, rotating chevrons, and outside-click
 dismissal that preserves the parent calendar popover state.
 
+**Date-range floors on `DatePicker` (2026-09-23):** an optional `minAge` prop turns the picker
+from a free calendar into a bounded one — the year list is capped at the legal-age
+boundary year, the boundary year's later months are disabled in `CalendarHeaderSelect`
+(new `disabledValues` prop), forward chevron navigation stops at the boundary, days past it
+are unselectable, and the calendar **opens on the boundary year** rather than today (for a
+birthdate, today is always out of range). The `Today` shortcut is withheld when `minAge` is
+set, since it would only ever jump to an invalid date. `maxAge` bounds the oldest year
+(default 80). The rule itself lives in `src/lib/validation/age.js`, not in the component —
+see [[Driver Management]]. Without `minAge` the picker behaves exactly as before, so the
+other ~16 call sites are unaffected. `DatePicker` also gained an `error` prop (danger ring +
+`AlertCircle` message) so a validation failure is visible rather than silently blocking
+submit.
+
+**Tailwind v4 moved the important modifier — and the old form fails silently
+(2026-09-23):** v4 parses importance as a **suffix** (`border-danger!`); the v3
+leading form (`!border-danger`) is not a candidate it recognizes, so it emits
+**no CSS and raises no error**. It reads as working code while doing nothing —
+the worst failure mode available. Four such classes had accumulated on
+`/settings/security`'s password fields, covering both the `invalid` and the Caps
+Lock border; they were the only leading-`!` utilities in `src/`, and they were
+removed. Prefer no `!` at all where `cn()` can do the job: `cn()` is
+`tailwind-merge`, so a later conflicting class evicts the earlier one, and
+`border-danger` alone drops `border-slate-200`. Mind the variants — a bare class
+does *not* evict `dark:border-slate-800`, which wins on source order in dark
+mode, so the dark counterpart has to be named explicitly.
+
+**Pointer affordance (2026-09-23):** browsers give `<button>` `cursor: default`, so every
+clickable control had to remember `cursor-pointer` by hand — and the ones that forgot read as
+inert text. A rule in `globals.css` restores it app-wide for `button:not(:disabled)`,
+`[role="button"]:not([aria-disabled="true"])`, `[role="tab"]`, `[role="menuitem"]` and
+`[role="option"]`. It sits in **`@layer base`, not unlayered** — unlayered CSS beats Tailwind's
+utilities, so an explicit `cursor-not-allowed` on a disabled control or `cursor-default` where
+a pointer would be a lie would stop working. Per-component fixes alongside it: `SelectTrigger`
+(the Sex/gender selector and every `FloatingSelect`), `TabsTrigger`, `DropdownMenuItem`
+(was `cursor-default`), the command-palette result rows, and the checkbox label on
+`/routes`.
+
 **Theme switching (standardized 2026-08-23, reworked 2026-09-05):** `use-theme.js` (`ThemeProvider`, `toggle`, `setMode`) flips the `.dark` class on `<html>`; all theme colors are CSS variables (`--bg`, `--sf`, `--fg`, …) consumed via Tailwind v4 `@theme inline`, and `color-scheme` is set per theme so scrollbars/form controls match. The blocking pre-paint script (`fleetops-theme` from `localStorage` → `.dark` on `<html>`) is delivered via `<Script strategy="beforeInteractive">` in `src/app/layout.js` — a raw `<script>` in `<head>` triggered React 19's never-executed-on-client dev warning (fixed 2026-09-06; same synchronous before-paint execution, no theme flash).
 - **View Transition path (supported browsers):** `document.startViewTransition()` + declarative CSS keyframes (`theme-reveal` / `theme-conceal` in `globals.css`) animating `clip-path: circle()` on the transition pseudo-layer (450ms, `cubic-bezier(0.22,1,0.36,1)`), expanding from the clicked toggle for light→dark and contracting back into it for dark→light. Origin/radius travel as `--theme-x/--theme-y/--theme-r`, set synchronously *before* `startViewTransition` with the initial clip in plain CSS — so the first paint is already a dot and the dark layer never flashes full-screen first. (An earlier WAAPI-after-`transition.ready` variant had exactly that pre-flash and was replaced.) Layering/`animation: none` resets live under `[data-theme-transition="expand"|"shrink"]`; cleanup is time-based (600ms) with a generation guard so a rapid re-toggle can't wipe the newer transition. (The old `@keyframes theme-expand/shrink` + `--theme-x/--theme-y`-only CSS approach is gone.)
 - **Fallback fade (no View Transition API, hidden tab, or VT throw):** `commitWithFade()` adds `html.theme-fade` (~350ms of `background-color`/`border-color`/`color`/`fill`/`stroke` transitions, toggle button excluded, `box-shadow` excluded) so the page cross-fades instead of snapping. `prefers-reduced-motion` keeps the instant cut in every path.
+
+**The address field (2026-09-23):** `src/components/address/address-validator.jsx` is the
+**one** address input in the application — there is no second implementation and no
+per-form address validation logic anywhere else. It is a controlled `value`/`onChange`
+combobox, so it drops into either form idiom this repo uses: `variant="plain"` (label +
+`Input`) for the locations dialog and the settings surfaces, `variant="floating"` for the
+`FloatingShell` forms — reusing the exported `FloatingShell` chrome rather than
+re-deriving it. Two things about it are contract rather than styling. **Typed text is
+never verification** — only choosing a suggestion and having the server resolve it
+produces a verified address, so arbitrary input is never treated as confirmed. And
+**"location verified" and "ZIP code provided" render as two independent chips**, because
+a confident position with no postal code on record is a normal Philippine outcome; the
+two must never collapse into a single valid/invalid verdict. Every state carries an icon
+*and* text inside an `aria-live="polite"` region, so colour is never the only signal.
+`autoGeocode={false}` is the privacy control for personal addresses: typing makes no
+network request, and an explicit `[Verify address]` button does. The optional map is
+`address-map-preview.jsx`, loaded through `dynamic(..., { ssr: false })` exactly like
+every other Leaflet surface here, and `showMap={false}` skips only the render — search,
+geocoding and coordinates all still work.
 
 ## Empty and missing routes — CONFIRMED
 
