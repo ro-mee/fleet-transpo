@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { requirePermission } from "@/lib/api/utils";
+import { requirePermission, handleError } from "@/lib/api/utils";
 import { signFuelReceipt } from "@/lib/fuel/receipt-storage";
 
 export async function GET(request) {
@@ -152,7 +152,6 @@ export async function GET(request) {
     });
 
   } catch (error) {
-    console.error("Fuel Analytics API Error:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return handleError(error);
   }
 }

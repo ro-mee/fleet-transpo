@@ -2438,3 +2438,72 @@ milestone is still planned.
 `eslint mobile/components/CurvedPillTabBar.js --max-warnings 0` clean. **Not
 verified visually** — this is a layout fix and the exact spacing has to be
 confirmed by reloading the app, which could not be done from here.
+
+## Fixed — 2026-09-23 — an auth rejection on the fuel analytics API was reported as a 500
+
+Found while exercising the repaired verification harnesses, not by the suite.
+
+### The finding
+
+`src/app/api/admin/analytics/fuel/route.js` hand-rolled its catch, so every
+failure became a 500 — including the routine ones:
+
+```js
+} catch (error) {
+  console.error("Fuel Analytics API Error:", error);
+  return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+}
+```
+
+An anonymous or signed-out request reaches `requirePermission(request,
+"reports", "read")` (line 8) → `resolveIdentity` → `AuthError("Unauthorized",
+401, "SESSION_INVALID")`, and that rejection was being reported as a server
+fault.
+
+Two consequences, one of them user-visible:
+
+- The web client's session bus keys off a **401** to trigger re-authentication
+  (`src/lib/api/client.js:24`). A 500 never reaches that branch, so an expired
+  session on the Fuel Analytics page rendered as a server error instead of
+  returning the user to sign-in.
+- The `code` field was dropped entirely, so a caller could not have
+  distinguished an expired session from a revoked one even had it branched on
+  the status.
+- Routine rejections were logged as faults, burying real 500s among them. The
+  log line that led here is exactly that — a 401 wearing a 500's clothes.
+
+### The fix
+
+`handleError` (`src/lib/api/utils.js:310`) exists for precisely this and is used
+by ~224 call sites. It maps `AuthError` to its own status and returns **before**
+the `writeAppError` branch, so expected 4xx control flow is never persisted.
+
+```js
+} catch (error) {
+  return handleError(error);
+}
+```
+
+The route's own `console.error` goes with it: `handleError` logs the rejection
+itself, and logs an `AuthError` at `warn` rather than `error`.
+
+### Verified — observed live, 2026-09-23
+
+The same request against the dev server, before and after the change:
+
+```
+before:  Test execution failed: Error: API returned 500: {"error":"Internal Server Error"}
+after:   Test execution failed: Error: API returned 401: {"error":"Unauthorized","code":"SESSION_INVALID"}
+```
+
+`code` now survives, which is the field the session bus actually consumes. Who
+is admitted has not changed: this alters only the status the refusal is reported
+as, and the verification was performed by an unauthenticated caller, who is
+still refused.
+
+### Not the same defect
+
+`analytics/fuel/resolve/route.js:46-51` also hand-rolls its catch, but it
+returns `error.status` before falling through, so its auth rejections already
+carry the correct status. It differs from `handleError` only in dropping `code`
+and in log level. Left as is — an inconsistency, not a bug of this class.
