@@ -5,6 +5,40 @@
 
 -- ============================ TABLES ============================
 
+CREATE TABLE addresses (
+  address_id integer DEFAULT nextval('addresses_address_id_seq'::regclass) NOT NULL,
+  raw_input text,
+  formatted_address text NOT NULL,
+  street_number varchar(50),
+  street_name varchar(255),
+  unit_number varchar(50),
+  building varchar(255),
+  subdivision varchar(255),
+  barangay varchar(255),
+  city varchar(255),
+  municipality varchar(255),
+  province varchar(255),
+  region varchar(255),
+  postal_code varchar(16),
+  postal_code_source varchar(16),
+  country varchar(100) DEFAULT 'Philippines'::character varying,
+  latitude numeric(10,7),
+  longitude numeric(10,7),
+  provider varchar(32),
+  provider_place_id text,
+  verified boolean DEFAULT false NOT NULL,
+  verified_at timestamptz,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  address_type varchar(16),
+  landmark varchar(255),
+  additional_details text,
+  psgc_barangay_code varchar(10),
+  CONSTRAINT chk_addresses_coords_pair CHECK ((((latitude IS NULL) AND (longitude IS NULL)) OR ((latitude IS NOT NULL) AND (longitude IS NOT NULL) AND ((latitude >= ('-90'::integer)::numeric) AND (latitude <= (90)::numeric)) AND ((longitude >= ('-180'::integer)::numeric) AND (longitude <= (180)::numeric))))),
+  CONSTRAINT chk_addresses_formatted_not_blank CHECK ((btrim(formatted_address) <> ''::text)),
+  CONSTRAINT addresses_pkey PRIMARY KEY (address_id)
+);
+
 CREATE TABLE ai_insights (
   insight_id integer DEFAULT nextval('ai_insights_insight_id_seq'::regclass) NOT NULL,
   insight_type varchar(100) NOT NULL,
@@ -398,6 +432,8 @@ CREATE TABLE drivers (
   standby_session_family uuid,
   standby_latitude numeric,
   standby_longitude numeric,
+  address_id integer,
+  emergency_contact_address_id integer,
   CONSTRAINT chk_driver_status CHECK (((driver_status)::text = ANY ((ARRAY['Available'::character varying, 'On Trip'::character varying, 'Off Duty'::character varying, 'On Leave'::character varying, 'Suspended'::character varying])::text[]))),
   CONSTRAINT drivers_pkey PRIMARY KEY (driver_id)
 );
@@ -635,6 +671,7 @@ CREATE TABLE locations (
   retired_at timestamptz,
   pickup_radius_m integer DEFAULT 100 NOT NULL,
   dropoff_radius_m integer DEFAULT 100 NOT NULL,
+  address_id integer,
   CONSTRAINT chk_locations_geofence_radii CHECK (((pickup_radius_m > 0) AND (pickup_radius_m <= 1000) AND (dropoff_radius_m > 0) AND (dropoff_radius_m <= 1000))),
   CONSTRAINT locations_pkey PRIMARY KEY (location_id)
 );
@@ -700,6 +737,44 @@ CREATE TABLE password_reset_tokens (
   used_at timestamptz,
   CONSTRAINT password_reset_tokens_pkey PRIMARY KEY (token_id),
   CONSTRAINT password_reset_tokens_token_hash_key UNIQUE (token_hash)
+);
+
+CREATE TABLE ph_barangays (
+  psgc_code varchar(10) NOT NULL,
+  city_code varchar(10) NOT NULL,
+  name varchar(255) NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT ph_barangays_pkey PRIMARY KEY (psgc_code)
+);
+
+CREATE TABLE ph_cities (
+  psgc_code varchar(10) NOT NULL,
+  region_code varchar(10) NOT NULL,
+  province_code varchar(10),
+  name varchar(255) NOT NULL,
+  is_city boolean DEFAULT false NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT ph_cities_pkey PRIMARY KEY (psgc_code)
+);
+
+CREATE TABLE ph_provinces (
+  psgc_code varchar(10) NOT NULL,
+  region_code varchar(10) NOT NULL,
+  name varchar(255) NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT ph_provinces_pkey PRIMARY KEY (psgc_code)
+);
+
+CREATE TABLE ph_regions (
+  psgc_code varchar(10) NOT NULL,
+  name varchar(255) NOT NULL,
+  short_name varchar(64),
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT ph_regions_pkey PRIMARY KEY (psgc_code)
 );
 
 CREATE TABLE push_outbox (
@@ -872,6 +947,8 @@ CREATE TABLE transportation_requests (
   is_vip boolean DEFAULT false NOT NULL,
   is_emergency boolean DEFAULT false NOT NULL,
   derived_priority varchar(20),
+  pickup_location_id integer,
+  dropoff_location_id integer,
   CONSTRAINT chk_transport_derived_priority CHECK (((derived_priority IS NULL) OR ((derived_priority)::text = ANY ((ARRAY['Overdue'::character varying, 'Critical'::character varying, 'High'::character varying, 'Medium'::character varying, 'Normal'::character varying, 'Future'::character varying])::text[])))),
   CONSTRAINT chk_transport_fleet_status CHECK (((fleet_status)::text = ANY ((ARRAY['Pending'::character varying, 'Scheduled'::character varying, 'Assigned'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT chk_transport_priority CHECK (((priority)::text = ANY ((ARRAY['Urgent'::character varying, 'High'::character varying, 'Medium'::character varying, 'Low'::character varying])::text[]))),
@@ -1067,6 +1144,7 @@ CREATE TABLE vehiclemaintenance (
   manager_approved_at timestamptz,
   manager_approved_by integer,
   repair_completed_by integer,
+  source_inspection_id integer,
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -1125,6 +1203,7 @@ CREATE TABLE web_sessions (
 -- ========================= FOREIGN KEYS =========================
 -- Separate so the tables above can be created in any order.
 
+ALTER TABLE addresses ADD CONSTRAINT addresses_psgc_barangay_code_fkey FOREIGN KEY (psgc_barangay_code) REFERENCES ph_barangays(psgc_code) ON DELETE SET NULL;
 ALTER TABLE ai_recommendations ADD CONSTRAINT ai_recommendations_user_id_fkey FOREIGN KEY (user_id) REFERENCES employees(employee_id);
 ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
 ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES employees(employee_id);
@@ -1156,7 +1235,9 @@ ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_maintenance_id_fkey F
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES employees(employee_id);
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE drivers ADD CONSTRAINT drivers_address_id_fkey FOREIGN KEY (address_id) REFERENCES addresses(address_id) ON DELETE SET NULL;
 ALTER TABLE drivers ADD CONSTRAINT drivers_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
+ALTER TABLE drivers ADD CONSTRAINT drivers_emergency_contact_address_id_fkey FOREIGN KEY (emergency_contact_address_id) REFERENCES addresses(address_id) ON DELETE SET NULL;
 ALTER TABLE drivers ADD CONSTRAINT drivers_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_location_vehicle_id_fkey FOREIGN KEY (location_vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -1191,12 +1272,17 @@ ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_trip_id_fkey FOREIGN KEY (tri
 ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE incident_comments ADD CONSTRAINT incident_comments_incident_id_fkey FOREIGN KEY (incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE incident_comments ADD CONSTRAINT incident_comments_user_id_fkey FOREIGN KEY (user_id) REFERENCES employees(employee_id);
+ALTER TABLE locations ADD CONSTRAINT locations_address_id_fkey FOREIGN KEY (address_id) REFERENCES addresses(address_id) ON DELETE SET NULL;
 ALTER TABLE mfa_recovery_codes ADD CONSTRAINT mfa_recovery_codes_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE mobile_refresh_tokens ADD CONSTRAINT mobile_refresh_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE notification_preferences ADD CONSTRAINT notification_preferences_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE notifications ADD CONSTRAINT notifications_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
 ALTER TABLE notifications ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id);
 ALTER TABLE password_reset_tokens ADD CONSTRAINT password_reset_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
+ALTER TABLE ph_barangays ADD CONSTRAINT ph_barangays_city_code_fkey FOREIGN KEY (city_code) REFERENCES ph_cities(psgc_code) ON DELETE CASCADE;
+ALTER TABLE ph_cities ADD CONSTRAINT ph_cities_province_code_fkey FOREIGN KEY (province_code) REFERENCES ph_provinces(psgc_code) ON DELETE CASCADE;
+ALTER TABLE ph_cities ADD CONSTRAINT ph_cities_region_code_fkey FOREIGN KEY (region_code) REFERENCES ph_regions(psgc_code) ON DELETE CASCADE;
+ALTER TABLE ph_provinces ADD CONSTRAINT ph_provinces_region_code_fkey FOREIGN KEY (region_code) REFERENCES ph_regions(psgc_code) ON DELETE CASCADE;
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_designated_driver_id_fkey FOREIGN KEY (designated_driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
@@ -1213,6 +1299,8 @@ ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_sched
 ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_schedules_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_dropoff_location_id_fkey FOREIGN KEY (dropoff_location_id) REFERENCES locations(location_id) ON DELETE SET NULL;
+ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_pickup_location_id_fkey FOREIGN KEY (pickup_location_id) REFERENCES locations(location_id) ON DELETE SET NULL;
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_requested_category_id_fkey FOREIGN KEY (requested_category_id) REFERENCES vehiclecategories(category_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_service_type_id_fkey FOREIGN KEY (service_type_id) REFERENCES service_types(service_type_id);
@@ -1241,6 +1329,7 @@ ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_inspected_by_fk
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_manager_approved_by_fkey FOREIGN KEY (manager_approved_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_repair_completed_by_fkey FOREIGN KEY (repair_completed_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_incident_id_fkey FOREIGN KEY (source_incident_id) REFERENCES driverincidents(incident_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_inspection_id_fkey FOREIGN KEY (source_inspection_id) REFERENCES vehicleinspection(inspection_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_category_id_fkey FOREIGN KEY (category_id) REFERENCES vehiclecategories(category_id);
@@ -1251,6 +1340,8 @@ ALTER TABLE web_sessions ADD CONSTRAINT web_sessions_employee_id_fkey FOREIGN KE
 -- ============================ INDEXES ===========================
 -- Constraint-backed indexes omitted: the constraints create them.
 
+CREATE INDEX idx_addresses_psgc_barangay_code ON public.addresses USING btree (psgc_barangay_code);
+CREATE INDEX idx_addresses_verified ON public.addresses USING btree (verified) WHERE verified;
 CREATE INDEX idx_ai_reference ON public.ai_recommendations USING btree (reference_type, reference_id);
 CREATE INDEX idx_ai_report_narrative_force_day ON public.ai_report_narratives USING btree (force_day);
 CREATE INDEX idx_ai_type ON public.ai_recommendations USING btree (recommendation_type);
@@ -1287,6 +1378,8 @@ CREATE INDEX idx_driverincidents_driver ON public.driverincidents USING btree (d
 CREATE INDEX idx_driverincidents_due_at ON public.driverincidents USING btree (due_at);
 CREATE INDEX idx_driverincidents_grounding_retry ON public.driverincidents USING btree (grounding_status, created_at DESC) WHERE ((deleted_at IS NULL) AND ((grounding_status)::text = ANY ((ARRAY['Pending'::character varying, 'Failed'::character varying])::text[])));
 CREATE INDEX idx_driverincidents_status ON public.driverincidents USING btree (status, incident_date DESC);
+CREATE INDEX idx_drivers_address_id ON public.drivers USING btree (address_id);
+CREATE INDEX idx_drivers_ec_address_id ON public.drivers USING btree (emergency_contact_address_id);
 CREATE INDEX idx_drivers_employee ON public.drivers USING btree (employee_id);
 CREATE INDEX idx_drivers_face ON public.drivers USING btree (face_image_url);
 CREATE INDEX idx_drivers_status ON public.drivers USING btree (driver_status);
@@ -1324,6 +1417,7 @@ CREATE INDEX idx_leave_balances_driver ON public.driver_leave_balances USING btr
 CREATE INDEX idx_leave_driver ON public.driver_leave_requests USING btree (driver_id, start_date DESC);
 CREATE INDEX idx_leave_status ON public.driver_leave_requests USING btree (status);
 CREATE INDEX idx_locations_active_name ON public.locations USING btree (is_active, name);
+CREATE INDEX idx_locations_address_id ON public.locations USING btree (address_id);
 CREATE INDEX idx_locations_name ON public.locations USING btree (name);
 CREATE INDEX idx_maintenance_date ON public.vehiclemaintenance USING btree (maintenance_date);
 CREATE INDEX idx_maintenance_status ON public.vehiclemaintenance USING btree (status);
@@ -1337,6 +1431,10 @@ CREATE INDEX idx_notifications_sent ON public.notifications USING btree (sent_at
 CREATE INDEX idx_notifications_user ON public.notifications USING btree (employee_id);
 CREATE INDEX idx_password_reset_tokens_employee ON public.password_reset_tokens USING btree (employee_id);
 CREATE INDEX idx_password_reset_tokens_expiry ON public.password_reset_tokens USING btree (expires_at);
+CREATE INDEX idx_ph_barangays_city_code ON public.ph_barangays USING btree (city_code);
+CREATE INDEX idx_ph_cities_province_code ON public.ph_cities USING btree (province_code);
+CREATE INDEX idx_ph_cities_region_code ON public.ph_cities USING btree (region_code);
+CREATE INDEX idx_ph_provinces_region_code ON public.ph_provinces USING btree (region_code);
 CREATE INDEX idx_push_outbox_employee ON public.push_outbox USING btree (employee_id, status);
 CREATE INDEX idx_push_outbox_pending ON public.push_outbox USING btree (status, id) WHERE (status = 'pending'::text);
 CREATE INDEX idx_push_outbox_unreviewed_errors ON public.push_outbox USING btree (created_at DESC) WHERE ((status = 'error'::text) AND (reviewed_at IS NULL));
@@ -1355,10 +1453,12 @@ CREATE INDEX idx_tracking_vehicle ON public.gpstracking USING btree (vehicle_id)
 CREATE INDEX idx_transport_requests_category ON public.transportation_requests USING btree (requested_category_id);
 CREATE INDEX idx_transport_requests_derived_priority ON public.transportation_requests USING btree (derived_priority);
 CREATE INDEX idx_transport_requests_driver ON public.transportation_requests USING btree (driver_id);
+CREATE INDEX idx_transport_requests_dropoff_location_id ON public.transportation_requests USING btree (dropoff_location_id);
 CREATE INDEX idx_transport_requests_external ON public.transportation_requests USING btree (external_booking_id);
 CREATE INDEX idx_transport_requests_flags ON public.transportation_requests USING btree (is_vip, is_emergency);
 CREATE INDEX idx_transport_requests_fleet_status ON public.transportation_requests USING btree (fleet_status);
 CREATE INDEX idx_transport_requests_pickup ON public.transportation_requests USING btree (pickup_datetime);
+CREATE INDEX idx_transport_requests_pickup_location_id ON public.transportation_requests USING btree (pickup_location_id);
 CREATE INDEX idx_transport_requests_reservation_number ON public.transportation_requests USING btree (reservation_number);
 CREATE INDEX idx_transport_requests_vehicle ON public.transportation_requests USING btree (vehicle_id);
 CREATE INDEX idx_trip_monitor_alerts_active ON public.trip_monitor_alerts USING btree (active, last_detected_at DESC);
@@ -1402,6 +1502,7 @@ CREATE UNIQUE INDEX uq_routes_active_direction ON public.routes USING btree (ori
 CREATE UNIQUE INDEX uq_sub_open_vehicle ON public.substitute_vehicle_schedules USING btree (vehicle_id) WHERE (effective_until IS NULL);
 CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehiclemaintenance_source_incident ON public.vehiclemaintenance USING btree (source_incident_id) WHERE (source_incident_id IS NOT NULL);
+CREATE UNIQUE INDEX uq_vehiclemaintenance_source_inspection ON public.vehiclemaintenance USING btree (source_inspection_id) WHERE (source_inspection_id IS NOT NULL);
 
 -- ============================= VIEWS ============================
 
@@ -1790,11 +1891,16 @@ CREATE TRIGGER trigger_notify_leave_requested AFTER INSERT ON public.driver_leav
 CREATE TRIGGER trigger_notify_leave_reviewed AFTER UPDATE ON public.driver_leave_requests FOR EACH ROW WHEN (((((new.status)::text = 'Approved'::text) OR ((new.status)::text = 'Declined'::text)) AND ((old.status)::text = 'Pending'::text))) EXECUTE FUNCTION notify_leave_reviewed();
 CREATE TRIGGER trigger_notify_maintenance_due AFTER INSERT OR UPDATE ON public.vehiclemaintenance FOR EACH ROW EXECUTE FUNCTION notify_maintenance_due();
 CREATE TRIGGER trigger_notify_trip_completed AFTER UPDATE ON public.trips FOR EACH ROW WHEN ((((new.trip_status)::text = 'Completed'::text) AND ((old.trip_status)::text <> 'Completed'::text))) EXECUTE FUNCTION notify_trip_completed();
+CREATE TRIGGER update_addresses_updated_at BEFORE UPDATE ON public.addresses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_dispatch_updated_at BEFORE UPDATE ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_driverattendance_updated_at BEFORE UPDATE ON public.driverattendance FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON public.drivers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_employees_updated_at BEFORE UPDATE ON public.employees FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_maintenance_updated_at BEFORE UPDATE ON public.vehiclemaintenance FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER update_ph_barangays_updated_at BEFORE UPDATE ON public.ph_barangays FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER update_ph_cities_updated_at BEFORE UPDATE ON public.ph_cities FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER update_ph_provinces_updated_at BEFORE UPDATE ON public.ph_provinces FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER update_ph_regions_updated_at BEFORE UPDATE ON public.ph_regions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_routes_updated_at BEFORE UPDATE ON public.routes FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_service_types_updated_at BEFORE UPDATE ON public.service_types FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_transportation_requests_updated_at BEFORE UPDATE ON public.transportation_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at();

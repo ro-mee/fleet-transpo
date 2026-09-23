@@ -202,6 +202,48 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Named places with active/retired identity metadata.",
   },
+  addresses: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "The address registry — home addresses for drivers, emergency-contact addresses for their next of kin, and the geocoded coordinates of both. A leaked row is a person's home location, which is the most dangerous thing in this schema to disclose after live GPS.",
+    rlsNote:
+      "Enabled at creation by migration 122, together with a REVOKE of the anon/authenticated privileges on the table AND its sequence. Both are needed: migration 100 was a one-time list of 20 tables rather than a standing rule, so a table created afterwards inherits nothing (SEC-DB-003), and enabling RLS on its own would still leave TRUNCATE reachable through the public anon key. This is a `private` table with no anon policy — the probe should refuse, never return `200 []`.",
+  },
+  // --- PSGC geography (the cascading address form's source of truth) --------
+  // Four tables added by migration 123. They hold no personal data at all —
+  // they are the published Philippine Standard Geographic Code hierarchy — but
+  // they are classified private anyway, for two reasons that are not the same
+  // reason: the application reads them over its own owner-role connection rather
+  // than through PostgREST, so nothing legitimate uses the anon path; and a
+  // writable anon path to `ph_barangays` would let anyone holding the key that
+  // ships in the browser bundle rewrite where a barangay sits in the hierarchy,
+  // which would silently repoint every address that references it.
+  ph_regions: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "The 17 stable Philippine regions, seeded by migration 123. Root of the address cascade. Not personal data, but read only through the API — see the group note.",
+    rlsNote:
+      "Enabled explicitly by migration 123 along with a REVOKE of anon/authenticated. Migration 100 was a one-time list of 20 tables, not a standing rule, so a table created afterwards inherits nothing (SEC-DB-003), and RLS alone would still leave TRUNCATE reachable through the public anon key. No sequence exists to revoke: the primary key is the natural PSGC code.",
+  },
+  ph_provinces: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Provinces, foreign-keyed to ph_regions. Populated by scripts/import-psgc.mjs, NOT seeded — see the migration header for why inventing them was refused.",
+    rlsNote: "Enabled and revoked by migration 123; same reasoning as ph_regions.",
+  },
+  ph_cities: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Cities and municipalities, keyed to a region and OPTIONALLY to a province. The nullability of province_code is load-bearing: Metro Manila has no provinces, and a NOT NULL province would force those addresses into a fabricated one.",
+    rlsNote: "Enabled and revoked by migration 123; same reasoning as ph_regions.",
+  },
+  ph_barangays: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Barangays — the ~42,000-row leaf of the hierarchy, and the level a stored address actually references via addresses.psgc_barangay_code.",
+    rlsNote:
+      "Enabled and revoked by migration 123; same reasoning as ph_regions. NOT YET VERIFIED against live: the migration had not been applied when this entry was written, so `npm run verify:anon` and `npm run db:contract` still have to run and must be read carefully. A refusal is a pass; `200 []` is INCONCLUSIVE and never a pass — this table is empty until the PSGC import runs, and an empty table is indistinguishable from a policy-denied one from outside. The DB-side grant list is what resolves it.",
+  },
   service_types: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Service catalogue. Reference data, but only ever read through the API.",

@@ -13,6 +13,13 @@ last_verified: 2026-08-11
 Supabase Postgres, project `dnxuphhxlzidvwtdqqkq`, db `postgres`, schema `public`.
 **38 base tables + 1 view (`driver_stats`) · 77 foreign keys.** All figures from a live read-only query on 2026-08-11, after migration 036.
 
+> **Superseded — 2026-09-23.** The schema has grown substantially since; a live
+> `npm run db:dump` after migration 123 reports **65 tables, 1 view, 133 foreign keys,
+> 163 standalone indexes, 15 functions, 24 triggers** (61 / 1 / 128 / 158 / 15 / 20 after
+> migration 122 — the deltas are exactly what `123` writes). The row counts and per-table
+> reads further down are from the 2026-08-11 query and have **not** been re-measured. Treat
+> this page's *shape* as current and its *numbers* as historical.
+
 ## The shape of it
 
 ```mermaid
@@ -92,6 +99,8 @@ Four objects existed with no migration file and one CHECK constraint differed. *
 **Core:** [[transportation_requests]] · [[dispatchschedules]] · [[trips]] · [[vehicles]] · [[drivers]] · [[employees]]
 **Relationship:** [[driver_vehicle_assignments]] · [[reservation_events]]
 **Boundary:** [[integration_log]]
+**Address:** [[addresses]] — the one address registry (migration 122). **No entity gets its own lat/lng pair**; `locations`, `drivers` and `transportation_requests` point at it by FK. Holds home addresses and next-of-kin addresses, so it is `private` with a revoke rather than RLS alone.
+**Geography:** [[Geography Tables]] — `ph_regions` / `ph_provinces` / `ph_cities` / `ph_barangays` (migration 123, **applied**; `schema.sql` not yet refreshed). The Philippine Standard Geographic Code hierarchy the cascading address form picks from; `addresses.psgc_barangay_code` points into it. All four `private` and revoked — not because they hold personal data, but because a writable anon path to `ph_barangays` would let anyone holding the public key repoint where a barangay sits in the hierarchy.
 **Dropped:** [[vehiclereservations]] — kept as a note because the *reason* it existed still explains the schema's shape
 
 ## Related

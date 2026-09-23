@@ -395,6 +395,204 @@ A follow-up migration can remove it once rollback is no longer wanted.
 live-exploitable (PostgREST cannot issue `TRUNCATE`; it needs a raw Postgres connection
 as `anon`) and belong in their own migration. Recorded in [[Bugs]].
 
+## 2026-09-23 — `123_psgc_geography.sql`
+
+`npm run db:status` before: **125 files, applied 124, pending 1, changed 0** → `123` was free,
+now applied. It was written in a session where command execution was refused, so the number
+sat unconfirmed until the gates could run; `db:status` is what confirmed it, and
+`ls supabase/migrations/` could not have — the ledger-but-missing set is
+`113_maintenance_repairer_identity`, `114_app_errors_rls`, `115_rls_gap_tables` and
+**`121_end_duty_maintenance_source`**, so `121` is spent without a file on disk.
+
+`npm run db:contract` after applying: **66 relations, 0 unclassified, 0 violations**, and all
+four `ph_*` tables read `RLS on; anon has no SELECT; no anon policy (deny-all for anon)`.
+`npm run verify:anon` then scored all four **PASS — `HTTP 401 (42501)`, explicitly refused**,
+not `200 []`. `npm run db:dump` wrote **65 tables, 1 view, 133 FKs, 163 standalone indexes,
+15 functions, 24 triggers**; against the pre-123 figures (61 / 1 / 128 / 158 / 15 / 20) every
+delta is exactly accounted for — +4 tables, +5 FKs, +5 indexes, +4 triggers — so nothing
+came along that this migration did not write.
+
+> **A contract exit code worth reading correctly.** Before the dump, `db:contract` exited `1`
+> while printing *0 violations*. That was the `phantom` count — entries the contract
+> classifies that `schema.sql` does not contain — which is deliberately not one of the
+> summary lines. The four `ph_*` entries were exactly that until the dump landed, and the
+> moment `db:dump` ran the same command exited **0** with the same clean summary. The gate was
+> working, not broken; a non-zero exit with no visible cause is the one to chase rather than
+> wave through.
+
+| Version | File | Purpose |
+|---|---|---|
+| **123** | `psgc_geography.sql` | Four reference tables — `ph_regions`, `ph_provinces`, `ph_cities`, `ph_barangays` — keyed on `psgc_code`, plus `address_type`, `landmark`, `additional_details` and `psgc_barangay_code` on `addresses`. Regions seeded (17); everything below them is imported. RLS **and** a full revoke on all four, no policies. |
+
+**The column that carries the design: `ph_cities.province_code` is NULLABLE.** Metro Manila
+has no provinces and several highly urbanised cities sit outside one. A `NOT NULL` province
+would force those into a fabricated province — the "do not force every Philippine address
+into an incorrect standardized format" rule — so nullability here is *meaningful data*, not
+missing data, and the cascading form reads it to decide whether Province is required. A
+cascade that assumes four levels everywhere makes every NCR address unsaveable. See
+[[Geography Tables]].
+
+**Only regions are seeded, deliberately.** Provinces, cities and barangays number in the
+thousands and tens of thousands; writing them from memory would assert specific barangays
+that may not exist. They come from `scripts/import-psgc.mjs` and the official PSA export,
+and they are the reason the form renders an empty state below Region until someone runs it.
+
+**RLS is enabled explicitly and all privileges are revoked from `anon`/`authenticated`.**
+Migration `100` was a one-time list of 20 tables, not a standing rule, so tables created
+after it do not inherit RLS (SEC-DB-003) — and the revoke is load-bearing rather than
+decorative, because row security does not apply to `TRUNCATE`. There is no sequence to
+revoke: the primary key is the natural `psgc_code`.
+
+**A security claim in this migration's contract entry had to be corrected mid-write.** The
+`ph_barangays` note in `scripts/lib/schema-contract.mjs` originally asserted that "the
+2026-09-23 probe returned a refusal, not `200 []`". No probe had been run and the migration
+is not applied — fabricated evidence inside the file whose whole purpose is to prevent it.
+It now says NOT YET VERIFIED. When the probe does run, `200 []` would be **INCONCLUSIVE,
+not a pass**: the tables are empty until the import runs, and an empty table is
+indistinguishable from a policy-denied one from outside.
+
+## 2026-09-24 — `124_barmm_region_code.sql` — written, NOT yet applied
+
+Corrects the one wrong row in `123`'s region seed: BARMM is `1900000000`, not
+`1500000000`. `15` was **ARMM**, which the Bangsamoro Organic Law abolished in 2019; the
+current source publishes BARMM at `19` and has no region `15` at all, and the 2017
+`jgngo/psgc-data` export agrees by still listing `15` as ARMM with no BARMM anywhere.
+
+**This one row blocks the entire import, not just the BARMM rows.** `import-psgc.mjs`
+resolves every stated parent and rejects the file as a unit before writing anything — so
+every BARMM province, city and barangay fails on a region the table does not hold, and the
+other sixteen regions' rows are refused along with them. The importer is behaving correctly;
+the seed is what is wrong.
+
+**It is a migration rather than a converter change on purpose.** `psgc-normalize.mjs`
+deliberately does not emit region rows, because the importer's region upsert is
+`name = EXCLUDED.name` and a data file would silently overwrite the display naming the
+address spec asks for. Special-casing the one bad row would put two authorities for regions
+in the same table, so the authority that is wrong — the seed — is the one corrected.
+
+**Renumbering a primary key, and the guard that makes the failure legible.**
+`ph_provinces.region_code` and `ph_cities.region_code` are the only foreign keys into
+`ph_regions` (confirmed against `schema.sql`), and neither is `DEFERRABLE`. An `UPDATE` of
+the parent key with children still pointing at it therefore dies mid-statement on
+`ph_provinces_region_code_fkey`, in a message that never mentions BARMM or ARMM. The `DO`
+block counts those children first and raises with the reason and the count instead. In the
+state this meets, that count is **0** — the four tables are empty below Region, because the
+import has never succeeded.
+
+| Version | File | Purpose |
+|---|---|---|
+| **124** | `barmm_region_code.sql` | `UPDATE ph_regions SET psgc_code = '1900000000' WHERE psgc_code = '1500000000'`, guarded. Idempotent: a no-op once 19 is present, and it deletes a leftover 15 only when no province or city references it. Touches no other table and no name. |
+
+**Applied 2026-09-24.** `db:status` showed it as the only pending file, so `124` was free and
+`121` remains the only ledger-only version above `123`. `npm run db:up` reported
+`124_barmm_region_code.sql ... ok`. `db:dump` then wrote **65 tables, 1 view, 133 FKs, 163
+standalone indexes, 15 functions, 24 triggers** — the same figures `123` produced, because a
+row rewrite is data rather than structure. **Migration `124` contributed nothing to
+`schema.sql`, and that is the correct result**, not a blind spot: the empty contribution is
+the claim being checked, and the numbers confirm it.
+
+### The `schema.sql` diff that was not empty, and what it uncovered
+
+The dump was expected to leave `schema.sql` unchanged. It did not — the diff was **106
+insertions spanning three migrations**, none of them `124`:
+
+| In the diff | From |
+|---|---|
+| `CREATE TABLE addresses`, `drivers_*_address_id_fkey`, `locations_address_id_fkey`, `transportation_requests_*_location_id_fkey`, `idx_addresses_verified`, the `address_id` indexes, `update_addresses_updated_at` | **`122`** |
+| the four `ph_*` tables, their FKs, indexes and triggers, `addresses_psgc_barangay_code_fkey`, `idx_addresses_psgc_barangay_code` | **`123`** |
+| `vehiclemaintenance_source_inspection_id_fkey`, `uq_vehiclemaintenance_source_inspection`, the `source_inspection_id` column itself | **nothing in this repo** |
+
+The first two are the uncommitted backlog of `122` and `123` — the plan treats this diff as the
+review artifact, and it had been sitting in the working tree rather than in a commit, which
+matters here because the vault auto-commits on a timer and could have attached it to an
+unrelated change.
+
+**The third is a real finding.** `vehiclemaintenance.source_inspection_id` — an `integer`
+column, a foreign key to `vehicleinspection(inspection_id)`, and a unique index on it — exists
+in the live database, and:
+- no file under `supabase/migrations/` creates it;
+- no code in `src/` or `mobile/` reads or writes it;
+- no Capstone note mentions it.
+
+**Almost certainly `121_end_duty_maintenance_source`**, the ledger entry the file for which is
+gone. That is a name match rather than proof — the ledger stores a checksum, not content — and
+`git log --all --diff-filter=D -- "supabase/migrations/121_*.sql"` returns **nothing**, so the
+file was never committed and is unrecoverable.
+
+Nothing was changed to "fix" this, deliberately. Re-creating a `121_` file is the wrong move:
+the ledger already holds a checksum for that name, so a differing file would surface as
+`changed` — trading one confusing state for another. Whether the column should be added to a
+fresh database, or dropped as dead, depends on whether it is abandoned or unfinished, and that
+is a decision for whoever knows. It is recorded here rather than left in a transcript.
+
+> **A filter's blind spot, caught by accident.** The first pass over this diff filtered on
+> `CREATE INDEX`, which does not match `CREATE UNIQUE INDEX` — so
+> `uq_vehiclemaintenance_source_inspection` was invisible to it, and the summary was
+> incomplete. The filter was widened to `CREATE|ALTER` at the top level. A summary artifact
+> that quietly omits a whole class of statement is the same failure mode as `200 []` read as a
+> pass: the answer looked complete and was not.
+
+## 2026-09-23 — `122_address_registry.sql`
+
+`npm run db:status`: no pending, no changed → applied. `db:dump` then reported
+**61 tables, 1 view, 128 FKs, 158 indexes, 15 functions, 20 triggers**.
+
+| Version | File | Purpose |
+|---|---|---|
+| **122** | `address_registry.sql` | `addresses` — one normalized registry for every resolved address (raw input, provider formatted address, PH structured components, postal code + source, coordinates, verification state, provider + place id), plus five nullable FKs onto it. Idempotent, **no policies**, **no `FORCE`**. |
+
+**Why a registry and not per-entity columns.** The obvious shape is a
+`latitude`/`longitude` pair on each address-bearing table. That was rejected: it
+duplicates the same address across entities, lets one copy drift from another, and makes
+"which coordinate belongs to this text?" a per-table question. Instead every address is
+one row, and `locations`, `drivers`, `drivers.emergency_contact_address_id` and
+`transportation_requests.pickup_location_id`/`dropoff_location_id` point at it.
+`locations` keeps its own `address`/`latitude`/`longitude` as a **maintained
+denormalization** for the geofence and route-resolver hot paths — the same shape
+`routes.origin` already has against `origin_location_id` (076) — so no join is added to
+geofence evaluation. The registry row is authoritative; those columns are the read cache.
+
+**Nothing was backfilled, and nothing is bulk-geocoded.** Existing rows keep
+`address_id = NULL` and go on reading from their existing text columns; a row is upgraded
+only when a human next edits it. Geocoding the whole database was explicitly out of
+scope pending a review of API cost, rate limits, accuracy and privacy — and the 403 below
+is a live demonstration of why that review has to come first.
+
+**The RLS pair — and this time the `schema.sql` diff is NOT empty.** The diff *is* a
+review artifact here, because the table, its five FKs and its six indexes are structure
+(`db:dump` grew by exactly those). What the diff still cannot show, per SEC-DB-004, is
+the security posture, so that was measured separately:
+
+- `ENABLE ROW LEVEL SECURITY` — migration `100` was a one-time list of 20 tables and new
+  tables inherit nothing, so a table created afterwards starts unprotected (SEC-DB-003).
+- `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on the table **and on
+  `addresses_address_id_seq`** — RLS does not apply to `TRUNCATE`, so RLS alone would
+  have left the table emptyable with the public anon key (the `116` lesson).
+
+**Verified after applying:** `db:contract` — 62 relations, **0 violations**,
+`addresses` = "RLS on; anon has no SELECT; no anon policy"; `verify:anon` — **`PASS
+addresses HTTP 401 (42501) — refused`**. That distinction is the whole point: `200 []`
+would have been INCONCLUSIVE, and INCONCLUSIVE has already been resolved against this
+project once (SEC-DB-003). `addresses` is the only table in the probe where `anon` holds
+no SELECT grant at all — the revoke did what 49 other tables returning `200 []` have not.
+
+**Also verified:** 76 address-library tests across 5 files; `npm run lint` 0 errors /
+0 warnings; `npm run build` green with `/api/address/search` and `/api/address/geocode`
+registered as dynamic routes.
+
+**Blocked, and not by this migration.** The provider is TomTom, reusing the existing
+server key — but that key is authorized for **Routing only**. It returns `200` on
+`/routing/1/calculateRoute` and `403 {"code":"Forbidden","message":"You are not allowed
+to access this endpoint"}` on `/search/2/search`. The two keys in `.env` are different,
+so this is not a mix-up: the Search API is simply not enabled for that key in the TomTom
+portal. Consequence for this note: **the PH component mapping in
+`src/lib/address/parse.js` is still an unverified assumption** — in particular that
+TomTom's `municipalitySubdivision` carries the barangay. The unit tests cannot settle it,
+because they only assert that a field the provider does not send stays NULL, which passes
+under either mapping. `node scripts/check-address-provider.mjs` probes Routing first as a
+known-good baseline and then Search, printing the error body — that pairing is what
+identified this as a key-permission problem rather than a bad key.
+
 ## Related
 
 [[Database Overview]] · [[DEBT Schema Drift From Migrations]] · [[Quick Reference]] · [[ADR-008 Manual Migration Procedure]] · [[ERD]] · [[SEC Database Password In Git History]]
