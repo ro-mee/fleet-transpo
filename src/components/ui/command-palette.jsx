@@ -24,7 +24,6 @@ const PAGE_COMMANDS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/reservations", label: "Reservations" },
   { href: "/reservations/queue", label: "Request Queue" },
-  { href: "/dispatch", label: "Dispatch Board" },
   { href: "/dispatch/calendar", label: "Dispatch Calendar" },
   { href: "/trips", label: "Trips" },
   { href: "/trips/active", label: "Active Trips" },

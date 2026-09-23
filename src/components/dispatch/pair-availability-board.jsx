@@ -122,7 +122,7 @@ export function PairAvailabilityBoard({
         ...exactOverlap.map((p) => ({
           ...p,
           block_reason: overlapReason(p.clashes[0]),
-          action: { label: "View Dispatch", href: "/dispatch" },
+          action: { label: "View Dispatch", href: p.clashes?.[0]?.dispatch_id ? `/dispatch/${p.clashes[0].dispatch_id}` : "/dispatch/calendar" },
         })),
         ...blocked,
       ]
@@ -415,10 +415,10 @@ export function PairAvailabilityBoard({
                 Manage pairings <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
               <Link
-                href="/dispatch"
+                href="/dispatch/calendar"
                 className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-border/60 bg-surface px-3.5 text-xs font-bold text-foreground transition-colors hover:border-primary/40"
               >
-                View dispatch board <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                View dispatch calendar <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
             </div>
           </div>
@@ -563,7 +563,7 @@ function ClashChips({ clashes }) {
             <span className="ml-2 font-medium text-foreground-secondary">{fmtRange(c)}</span>
           </span>
           <Link
-            href="/dispatch"
+            href={c.dispatch_id ? `/dispatch/${c.dispatch_id}` : "/dispatch/calendar"}
             className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-primary hover:underline"
           >
             View Dispatch <ArrowRight className="h-3 w-3" aria-hidden="true" />

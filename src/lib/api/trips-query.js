@@ -14,8 +14,8 @@
  * Origin and destination are NOT columns on trips: 007 dropped
  * trips.origin/destination on the reasoning that "these come from the route or
  * reservation". So they are resolved by joining outward — the originating
- * transportation request first, the route as fallback — which is the same
- * derivation the dispatch card does at src/components/dispatch/dispatch-card.jsx.
+ * transportation request first, the route as fallback — the same derivation
+ * the dispatch calendar shows in its event cards.
  *
  * The request is projected through an explicit json_build_object rather than
  * row_to_json(tr.*): that row carries guest name, booking reference, and

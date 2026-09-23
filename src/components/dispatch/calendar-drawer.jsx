@@ -29,7 +29,13 @@ import {
  * when a calendar event or cluster of events is clicked.
  */
 export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpenChange }) {
-  const [activeIdx, setActiveIdx] = useState(0);
+  // Open on the same event the card highlights (clusterDayEvents picks the
+  // VIP/Urgent trip as primaryEvent) instead of always chronological first.
+  const [activeIdx, setActiveIdx] = useState(() => {
+    if (!event?.isCluster || !event.events?.length) return 0;
+    const idx = event.events.findIndex((e) => e.id === event.primaryEvent?.id);
+    return idx >= 0 ? idx : 0;
+  });
 
   if (!event) return null;
 
@@ -168,6 +174,18 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
             <div className="flex items-center gap-2 rounded-2xl bg-amber-500/10 px-4 py-3 text-xs font-semibold text-amber-600 ring-1 ring-inset ring-amber-500/25 dark:text-amber-400">
               <Clock className="h-4 w-4 shrink-0 animate-pulse" />
               <span>Departing soon — scheduled within the next 30 minutes.</span>
+            </div>
+          )}
+
+          {/* Pending reassignment callout — broken commitment, act now */}
+          {isDispatch && currentEvent.status === "Pending Reassignment" && (
+            <div className="flex items-center gap-2 rounded-2xl bg-rose-500/10 px-4 py-3 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-500/25 dark:text-rose-400">
+              <ShieldAlert className="h-4 w-4 shrink-0" />
+              <span>
+                {currentEvent.unassigned
+                  ? "Resources were cleared — this trip needs a new vehicle and driver pair."
+                  : "Commitment broken — reassign or cancel this trip."}
+              </span>
             </div>
           )}
 
@@ -435,10 +453,17 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
           <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-10 rounded-full px-4">
             Close
           </Button>
+          {isDispatch && currentEvent.requestId && (
+            <Button variant="outline" asChild className="h-10 gap-2 rounded-full px-4">
+              <Link href={`/reservations/${currentEvent.requestId}`}>View reservation</Link>
+            </Button>
+          )}
           {isDispatch && currentEvent.dispatchId && (
             <Button asChild className="group h-10 gap-2 rounded-full px-5 shadow-sm">
               <Link href={`/dispatch/${currentEvent.dispatchId}`}>
-                Open dispatch record
+                {currentEvent.unassigned || currentEvent.status === "Pending Reassignment"
+                  ? "Assign resources"
+                  : "Open dispatch record"}
                 <ExternalLink className="h-3.5 w-3.5 transition-transform duration-200 ease-[cubic-bezier(.2,.8,.2,1)] group-hover:translate-x-0.5 group-hover:-translate-y-0.5" strokeWidth={1.8} />
               </Link>
             </Button>

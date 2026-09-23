@@ -176,10 +176,11 @@ export function CalendarEvent({
                       displayEvent.status === "Scheduled" && "bg-blue-500/20 text-blue-700 dark:text-blue-300",
                       displayEvent.status === "In Progress" && "bg-amber-500/20 text-amber-700 dark:text-amber-300",
                       displayEvent.status === "Completed" && "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
+                      displayEvent.status === "Pending Reassignment" && "bg-rose-500/25 text-rose-700 dark:text-rose-300 ring-1 ring-rose-500/40",
                       displayEvent.status === "Cancelled" && "bg-hover text-foreground-muted line-through"
                     )}
                   >
-                    {displayEvent.status}
+                    {displayEvent.status === "Pending Reassignment" ? "Reassign" : displayEvent.status}
                   </span>
                 )}
               </div>
@@ -259,7 +260,14 @@ export function CalendarEvent({
               {displayEvent.guestName || displayEvent.title}
             </span>
             {conflicted && <AlertTriangle className="h-3 w-3 shrink-0 text-danger" strokeWidth={1.8} aria-label="Conflict" />}
-            {displayEvent.unassigned ? (
+            {displayEvent.status === "Pending Reassignment" ? (
+              <span
+                className="shrink-0 rounded-full bg-danger/15 px-2 py-0.5 text-[9px] font-bold text-danger ring-1 ring-danger/30"
+                aria-label="Pending Reassignment"
+              >
+                Reassign
+              </span>
+            ) : displayEvent.unassigned ? (
               <span className="shrink-0 rounded-full bg-warning/15 px-2 py-0.5 text-[9px] font-bold text-warning ring-1 ring-warning/20">
                 Unassigned
               </span>

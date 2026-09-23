@@ -140,7 +140,7 @@ export function Sidebar() {
     (group.items || []).some((item) => item.href === "/incidents")
   );
   const dispatchVisible = visibleGroups.some((group) =>
-    (group.items || []).some((item) => item.href === "/dispatch")
+    (group.items || []).some((item) => item.href === "/dispatch/calendar")
   );
   const fuelVisible = visibleGroups.some((group) =>
     (group.items || []).some((item) => item.href === "/fuel")
@@ -195,7 +195,7 @@ export function Sidebar() {
     "/incidents": { count: incidentAttentionCount, tone: "danger", noun: "incident needing attention" },
     "/reservations/queue": { count: pendingRequestCount, tone: "warning", noun: "pending request" },
     "/fuel": { count: pendingFuelCount, tone: "warning", noun: "fuel request", suffix: " awaiting review" },
-    "/dispatch": { count: pendingReassignmentCount, tone: "danger", noun: "dispatch", suffix: " pending reassignment" },
+    "/dispatch/calendar": { count: pendingReassignmentCount, tone: "danger", noun: "dispatch", suffix: " pending reassignment" },
   };
 
   const allHrefs = useMemo(() => {

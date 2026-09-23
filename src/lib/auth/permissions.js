@@ -40,7 +40,13 @@ export const NAV_ROLES = {
   "/fleet/categories": ["admin", "super_admin", "fleet_manager"],
   "/reservations": ["super_admin", "admin", "fleet_manager", "dispatcher", "management"],
   "/reservations/queue": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  // Prefix gate for the whole /dispatch/* subtree (calendar, availability,
+  // [id]). The status-lane board was removed 2026-09-23 — calendar is the
+  // default view. Do NOT delete this key: getRequiredRolesForPath prefix-
+  // matches, so removing it would turn /dispatch/calendar and /dispatch/[id]
+  // into open routes at the page-guard layer.
   "/dispatch": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  "/dispatch/calendar": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/dispatch/availability": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/incidents": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],

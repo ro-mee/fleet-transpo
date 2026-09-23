@@ -103,6 +103,21 @@ describe("SA-RBAC sensitive settings separation", () => {
     }
   );
 
+  it("keeps the /dispatch prefix gate when calendar is the default dispatch surface", () => {
+    expect(NAV_ROLES["/dispatch"]).toEqual([
+      "admin",
+      "super_admin",
+      "fleet_manager",
+      "dispatcher",
+    ]);
+    expect(NAV_ROLES["/dispatch/calendar"]).toEqual([
+      "admin",
+      "super_admin",
+      "fleet_manager",
+      "dispatcher",
+    ]);
+  });
+
   it("ai_settings and system are super_admin-only in the matrix", () => {
     expect(rolesFor("ai_settings", "read")).toEqual(["super_admin"]);
     expect(rolesFor("ai_settings", "update")).toEqual(["super_admin"]);

@@ -100,6 +100,11 @@ export function ReservationCard({
                   {vehicleClass}
                 </Badge>
               )}
+              {r.dispatch_status === "Pending Reassignment" && (
+                <Badge variant="destructive" className="rounded-control font-semibold">
+                  Needs reassignment
+                </Badge>
+              )}
               <StatusBadge status={r.priority} entity="priority" className="rounded-control font-semibold" />
               {r.derived_priority && r.derived_priority !== r.priority && (
                 <StatusBadge status={r.derived_priority} entity="priority" className="rounded-control font-semibold" />

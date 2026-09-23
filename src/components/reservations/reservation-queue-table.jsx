@@ -141,6 +141,15 @@ export function getDerivedTags(r) {
 }
 
 function getStatusPill(r, bucket) {
+  // Interrupted commitment (incident/leave) outranks Copilot's proposal bucket:
+  // the dispatcher must re-pick a pair before anything else matters.
+  if (r.dispatch_status === "Pending Reassignment") {
+    return {
+      label: "Needs reassignment",
+      className:
+        "bg-red-100/90 dark:bg-red-950/60 text-red-900 dark:text-red-200 border border-red-500/30",
+    };
+  }
   // If Copilot has evaluated a proposal, prioritize that assessment
   if (bucket === "Ready for confirmation") {
     return {

@@ -107,20 +107,35 @@ export async function groundIncident({ incident, session, req = null }) {
   for (const dispatch of activeDispatches.rows || []) {
     if (dispatch.status === 'In Progress' && dispatch.request_id) {
       await withTransaction(async (tx) => {
-        // Cancel the dispatch schedule and trip
+        // Abort the run: cancel the trip, drop the dispatch commitment, and
+        // requeue the request (In Progress → Scheduled) so a replacement pair
+        // can be assigned immediately. The request is NOT cancelled — the guest
+        // still needs transport.
         await tx.query(`UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`, [dispatch.dispatch_id]);
-        await tx.query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [dispatch.dispatch_id]);
+        await tx.query(`UPDATE dispatchschedules SET status = 'Pending Reassignment', vehicle_id = NULL, driver_id = NULL WHERE dispatch_id = $1`, [dispatch.dispatch_id]);
 
-        // Cancel the request manually to ensure transactional safety
         const reason = `ABORTED: Vehicle involved in incident #${incident.incident_id}. Guest stranded. Replacement required immediately.`;
         await tx.query(
-          `UPDATE transportation_requests SET fleet_status = 'Cancelled', status_reason = $1, vehicle_id = NULL, driver_id = NULL WHERE request_id = $2`,
+          `UPDATE transportation_requests SET fleet_status = 'Scheduled', status_reason = $1, vehicle_id = NULL, driver_id = NULL WHERE request_id = $2`,
           [reason, dispatch.request_id]
         );
         await tx.query(
-          `INSERT INTO reservation_events (request_id, event_type, from_status, to_status, description, metadata) VALUES ($1, 'CANCELLED', 'In Progress', 'Cancelled', $2, $3)`,
+          `INSERT INTO reservation_events (request_id, event_type, from_status, to_status, description, metadata) VALUES ($1, 'INCIDENT_REQUEUED', 'In Progress', 'Scheduled', $2, $3)`,
           [dispatch.request_id, reason, JSON.stringify({ reason, incident_id: incident.incident_id })]
         );
+        // Re-derive priority outside the pure engine path: the request is back
+        // in ACTIVE_NOT_STARTED, so a past pickup becomes Overdue at the top
+        // of the queue. Best-effort — a priority miss must not roll back the requeue.
+        try {
+          const { recomputeDerivedPriority } = await import("@/services/priority.service");
+          const { rows: reqRows } = await tx.query(
+            `SELECT request_id, pickup_datetime, fleet_status, is_vip, is_emergency FROM transportation_requests WHERE request_id = $1`,
+            [dispatch.request_id]
+          );
+          if (reqRows[0]) await recomputeDerivedPriority(reqRows);
+        } catch (e) {
+          console.warn("incident requeue priority recompute failed:", e?.message || e);
+        }
       });
 
       // Notify the stranding-response chain: the dispatcher must arrange

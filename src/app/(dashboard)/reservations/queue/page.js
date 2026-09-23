@@ -22,6 +22,7 @@ import { smartQueueTab } from "@/lib/scheduling/smart-default-tab";
 import { cn } from "@/lib/utils";
 import {
   CalendarClock,
+  CalendarDays,
   CarFront,
   CheckCircle2,
   ChevronLeft,
@@ -37,6 +38,8 @@ import {
   TriangleAlert,
   XCircle,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
@@ -63,6 +66,9 @@ function useIsDesktop() {
 
 export default function UnifiedQueuePage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const reassignmentFilter = searchParams.get("filter") === "reassignment";
   const { can } = useRoleAccess();
   const isDesktop = useIsDesktop();
   const [lockedRequest,setLockedRequest] = useState(null);
@@ -125,7 +131,7 @@ export default function UnifiedQueuePage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch],
+    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch, reassignmentFilter],
     queryFn: () =>
       getTransportRequests({
         tab: fetchTab,
@@ -133,6 +139,7 @@ export default function UnifiedQueuePage() {
         pageSize: PAGE_SIZE,
         search: debouncedSearch || undefined,
         with_conflicts: "true",
+        filter: reassignmentFilter ? "reassignment" : undefined,
       }),
     refetchInterval: REFETCH_MS,
   });
@@ -253,6 +260,17 @@ export default function UnifiedQueuePage() {
               </Button>
             )}
             <Button
+              variant="outline"
+              size="sm"
+              className="h-9 rounded-xl text-xs font-semibold"
+              asChild
+            >
+              <Link href="/dispatch/calendar">
+                <CalendarDays className="w-4 h-4 mr-1.5" />
+                Dispatch calendar
+              </Link>
+            </Button>
+            <Button
               className={cn(heroButtonPrimaryClass)}
               onClick={() => pullMutation.mutate()}
               disabled={pullMutation.isPending}
@@ -266,7 +284,19 @@ export default function UnifiedQueuePage() {
 
       {/* ── Filters & Search Row (Preserved Lifecycle Tabs) ── */}
       <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface p-3.5 sm:flex-row sm:items-center sm:justify-between shadow-xs">
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Queue sections">
+        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Queue sections">
+          {reassignmentFilter && (
+            <button
+              type="button"
+              onClick={() => router.replace("/reservations/queue")}
+              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full text-xs font-bold border border-red-500/40 bg-red-100/90 text-red-900 dark:bg-red-950/60 dark:text-red-200 cursor-pointer transition-colors hover:bg-red-200/90 dark:hover:bg-red-900/60"
+              title="Clear reassignment filter"
+            >
+              <TriangleAlert className="w-3.5 h-3.5" aria-hidden="true" />
+              Needs reassignment
+              <XCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />
+            </button>
+          )}
           {QUEUE_TABS.map((id) => {
             const meta = TAB_META[id];
             const Icon = meta.icon;

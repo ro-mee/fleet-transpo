@@ -134,7 +134,7 @@ export const WORKS = {
         items: [
           { href: "/reservations", label: "Reservations", icon: CalendarCheck },
           { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
-          { href: "/dispatch", label: "Dispatch", icon: Send },
+          { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
           { href: "/trips", label: "Trips", icon: ClipboardList },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
@@ -232,8 +232,7 @@ export const WORKS = {
         label: "Transportation",
         items: [
           { href: "/reservations/queue", label: "Reservation Queue", icon: Inbox },
-          { href: "/dispatch", label: "Dispatch Board", icon: Send },
-          { href: "/dispatch/calendar", label: "Dispatch Calendar", icon: CalendarCheck },
+          { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
           { href: "/dispatch/availability", label: "Resource Availability", icon: Users },
           { href: "/trips", label: "Trips", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },

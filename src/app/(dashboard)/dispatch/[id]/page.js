@@ -234,8 +234,8 @@ export default function DispatchDetailPage() {
         title="Dispatch not found"
         description="It may have been removed, or the link is wrong."
         action={
-          <Button variant="outline" onClick={() => router.push("/dispatch")}>
-            Back to the board
+          <Button variant="outline" onClick={() => router.push("/dispatch/calendar")}>
+            Back to the calendar
           </Button>
         }
       />
@@ -279,8 +279,8 @@ export default function DispatchDetailPage() {
             variant="outline"
             size="icon"
             className="rounded-xl shrink-0"
-            onClick={() => router.push("/dispatch")}
-            aria-label="Back to the dispatch board"
+            onClick={() => router.push("/dispatch/calendar")}
+            aria-label="Back to the dispatch calendar"
           >
             <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
           </Button>

@@ -64,6 +64,7 @@ const TR_LIST_SELECT = `
   tr.source_system, tr.pickup_location, tr.dropoff_location, tr.pickup_datetime,
   tr.priority, tr.passenger_count, tr.fleet_status, tr.requested_vehicle_type,
   tr.estimated_distance, tr.estimated_duration, tr.booking_status, tr.status_reason,
+  ds.dispatch_id, ds.dispatch_status,
   CASE WHEN st.service_type_id IS NULL THEN NULL ELSE
     json_build_object('service_name', st.service_name)
   END AS service_types,
@@ -118,6 +119,7 @@ const TR_CARD_SELECT = `
   tr.estimated_distance, tr.estimated_duration, tr.booking_status, tr.status_reason,
   tr.special_requests, tr.created_at, tr.is_vip, tr.is_emergency,
   tr.derived_priority, tr.ai_driver_recommendation, tr.ai_vehicle_recommendation,
+  ds.dispatch_id, ds.dispatch_status,
   CASE WHEN st.service_type_id IS NULL THEN NULL ELSE
     json_build_object('service_name', st.service_name)
   END AS service_types,
@@ -134,9 +136,12 @@ const TR_CARD_SELECT = `
   END AS drivers
 `;
 
-// Mirrors the queue's auto-sort: derived priority rank first, then pickup time.
+// Mirrors the queue's auto-sort: Pending Reassignment first (interrupted
+// commitment the dispatcher must act on), then derived priority rank, then
+// pickup time.
 const TR_CARD_ORDER_BY = `
   ORDER BY
+    CASE WHEN ds.dispatch_status = 'Pending Reassignment' THEN 0 ELSE 1 END,
     CASE tr.derived_priority
       WHEN 'Overdue' THEN 1
       WHEN 'Critical' THEN 2
@@ -240,6 +245,13 @@ export async function GET(req) {
 
     if (sp.get("needs_assignment") === "true") where += ` AND ${NEEDS_ASSIGNMENT}`;
 
+    // Queue attention filter: only requests whose latest dispatch sits at
+    // Pending Reassignment (incident/leave interrupt). Matches dashboard links
+    // to /reservations/queue?filter=reassignment.
+    if (sp.get("filter") === "reassignment") {
+      where += ` AND ds.dispatch_status = 'Pending Reassignment'`;
+    }
+
     // Free-text search across the fields a dispatcher would actually type.
     const search = sp.get("search");
     if (search) {
@@ -257,13 +269,23 @@ export async function GET(req) {
       idx += 1;
     }
 
+    // Latest non-deleted dispatch per request — the queue's reassignment signal
+    // lives on dispatchschedules.status, not fleet_status (they deliberately
+    // diverge while a run is interrupted).
     const FROM = `
       FROM transportation_requests tr
       LEFT JOIN service_types st ON tr.service_type_id = st.service_type_id
       LEFT JOIN vehicles v ON tr.vehicle_id = v.vehicle_id
       LEFT JOIN vehiclecategories vc ON tr.requested_category_id = vc.category_id
       LEFT JOIN drivers d ON tr.driver_id = d.driver_id
-      LEFT JOIN employees de ON d.employee_id = de.employee_id`;
+      LEFT JOIN employees de ON d.employee_id = de.employee_id
+      LEFT JOIN LATERAL (
+        SELECT ds.dispatch_id, ds.status AS dispatch_status
+          FROM dispatchschedules ds
+         WHERE ds.request_id = tr.request_id AND ds.deleted_at IS NULL
+         ORDER BY ds.dispatch_id DESC
+         LIMIT 1
+      ) ds ON true`;
 
     // ── Paginated register / queue-tab read ────────────────────────────────
     if (wantsPagination) {

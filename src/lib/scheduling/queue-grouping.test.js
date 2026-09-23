@@ -6,7 +6,7 @@ const NOW = new Date(2026, 7, 4, 12, 0, 0);
 const todayISO = new Date(2026, 7, 4, 13, 0, 0).toISOString();
 const tomorrowISO = new Date(2026, 7, 5, 9, 0, 0).toISOString();
 
-const mk = (over) => ({ request_id: over.request_id ?? 1, fleet_status: over.fleet_status ?? L.PENDING, pickup_datetime: over.pickup_datetime ?? todayISO, derived_priority: over.derived_priority === undefined ? DERIVED_PRIORITY.NORMAL : over.derived_priority, is_vip: false, is_emergency: false });
+const mk = (over) => ({ request_id: over.request_id ?? 1, fleet_status: over.fleet_status ?? L.PENDING, pickup_datetime: over.pickup_datetime ?? todayISO, derived_priority: over.derived_priority === undefined ? DERIVED_PRIORITY.NORMAL : over.derived_priority, is_vip: false, is_emergency: false, ...(over.dispatch_status ? { dispatch_status: over.dispatch_status } : {}) });
 
 describe("bucketRequest", () => {
   it("In Progress requests go to inProgress", () => {
@@ -56,6 +56,16 @@ describe("compareByPriority", () => {
     const future = mk({ request_id: 2, derived_priority: DERIVED_PRIORITY.FUTURE });
     expect([none, future].sort(compareByPriority).map((r) => r.request_id)).toEqual([2, 1]);
   });
+
+  it("boosts Pending Reassignment above higher derived priorities", () => {
+    const overdue = mk({ request_id: 1, derived_priority: DERIVED_PRIORITY.OVERDUE });
+    const reassigned = mk({
+      request_id: 2,
+      derived_priority: DERIVED_PRIORITY.NORMAL,
+      dispatch_status: "Pending Reassignment",
+    });
+    expect([overdue, reassigned].sort(compareByPriority).map((r) => r.request_id)).toEqual([2, 1]);
+  });
 });
 
 describe("groupQueue", () => {
@@ -77,5 +87,17 @@ describe("groupQueue", () => {
     expect(g.inProgress.map((r) => r.request_id)).toEqual([3]);
     expect(g.completed.map((r) => r.request_id)).toEqual([4]);
     expect(g.cancelled.map((r) => r.request_id)).toEqual([5]);
+  });
+
+  it("puts reassignment interrupts at the top of the assigned lane", () => {
+    const normal = mk({ request_id: 1, fleet_status: L.ASSIGNED, derived_priority: DERIVED_PRIORITY.OVERDUE });
+    const interrupted = mk({
+      request_id: 2,
+      fleet_status: L.ASSIGNED,
+      derived_priority: DERIVED_PRIORITY.NORMAL,
+      dispatch_status: "Pending Reassignment",
+    });
+    const g = groupQueue([normal, interrupted], NOW);
+    expect(g.assigned.map((r) => r.request_id)).toEqual([2, 1]);
   });
 });

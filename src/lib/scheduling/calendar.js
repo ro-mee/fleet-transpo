@@ -12,6 +12,7 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
+import { DISPATCH_STATUS } from "@/lib/constants";
 
 // Phase 16 & Scheduling Board — the calendar's pure operational core.
 //
@@ -58,11 +59,22 @@ export const KIND_LABEL = {
 };
 
 const DISPATCH_TONE = {
-  Scheduled: "info",
-  "In Progress": "warning",
-  Completed: "success",
-  Cancelled: "secondary",
+  [DISPATCH_STATUS.SCHEDULED]: "info",
+  [DISPATCH_STATUS.IN_PROGRESS]: "warning",
+  [DISPATCH_STATUS.COMPLETED]: "success",
+  [DISPATCH_STATUS.CANCELLED]: "secondary",
+  // A broken commitment (incident/leave interrupt) — must read as urgent, never
+  // fall through to the secondary tone Cancelled uses.
+  [DISPATCH_STATUS.PENDING_REASSIGNMENT]: "danger",
 };
+
+/** True for a dispatch event sitting in Pending Reassignment. */
+export function isPendingReassignment(event) {
+  return (
+    event?.kind === EVENT_KIND.DISPATCH &&
+    event?.status === DISPATCH_STATUS.PENDING_REASSIGNMENT
+  );
+}
 
 const MINUTE_MS = 60_000;
 const DAY_MINUTES = 24 * 60;
@@ -183,6 +195,7 @@ export function dispatchToEvent(d, lookups = {}) {
     guestName,
     passengerCount,
     reservationNumber: request?.reservation_number || null,
+    requestId: request?.request_id ?? null,
     status: d.status,
     priority: d.priority || request?.priority || "Normal",
     vip: Boolean(request?.is_vip),

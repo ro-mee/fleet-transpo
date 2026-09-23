@@ -56,6 +56,7 @@ function LaneRow({ resource, events, conflicts, day, monoLabel, nowPct, onSelect
     return buckets.filter((b) => b.length > 0);
   }, [events]);
 
+  const conflictCount = events.filter((e) => conflicts.get(e.id)?.length).length;
   const height = Math.max(64, rows.length * 40 + 16);
 
   return (
@@ -83,6 +84,14 @@ function LaneRow({ resource, events, conflicts, day, monoLabel, nowPct, onSelect
             <span className={cn("truncate text-xs font-bold tracking-[-0.01em] text-foreground", monoLabel && "font-data")}>
             {resource.label}
           </span>
+          {conflictCount > 0 && (
+            <span
+              className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-danger/15 px-1 font-data text-[10px] font-bold text-danger ring-1 ring-danger/30"
+              title={`${conflictCount} conflicted trip${conflictCount === 1 ? "" : "s"} on this lane`}
+            >
+              {conflictCount}
+            </span>
+          )}
           {events.length > 0 && (
               <span className="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-hover px-1.5 font-data text-[10px] font-bold text-foreground-secondary ring-1 ring-border/50">
               {events.length}
@@ -159,6 +168,7 @@ export function LaneGrid({
 }) {
   const isVehicle = mode === "vehicle";
   const [filterQuery, setFilterQuery] = useState("");
+  const [sortBy, setSortBy] = useState("name");
   const [now, setNow] = useState(() => new Date());
   const { can } = useRoleAccess();
   const canAdd = isVehicle ? can("vehicles", "create") : can("drivers", "create");
@@ -198,17 +208,6 @@ export function LaneGrid({
     }));
   }, [isVehicle, vehicles, drivers]);
 
-  const filteredResources = useMemo(() => {
-    if (!filterQuery.trim()) return resources;
-    const q = filterQuery.toLowerCase();
-    return resources.filter(
-      (r) =>
-        r.label.toLowerCase().includes(q) ||
-        r.detail.toLowerCase().includes(q) ||
-        r.status.toLowerCase().includes(q)
-    );
-  }, [resources, filterQuery]);
-
   const dayEvents = useMemo(() => events.filter((e) => onDay(e, day)), [events, day]);
 
   const byResource = useMemo(() => {
@@ -221,6 +220,28 @@ export function LaneGrid({
     }
     return map;
   }, [dayEvents, resources, isVehicle]);
+
+  const filteredResources = useMemo(() => {
+    let list = resources;
+    if (filterQuery.trim()) {
+      const q = filterQuery.toLowerCase();
+      list = list.filter(
+        (r) =>
+          r.label.toLowerCase().includes(q) ||
+          r.detail.toLowerCase().includes(q) ||
+          r.status.toLowerCase().includes(q)
+      );
+    }
+    if (sortBy === "busy") {
+      list = [...list].sort(
+        (a, b) =>
+          (byResource.get(b.key)?.length || 0) - (byResource.get(a.key)?.length || 0) ||
+          Number(b.unavailable) - Number(a.unavailable) ||
+          a.label.localeCompare(b.label)
+      );
+    }
+    return list;
+  }, [resources, filterQuery, sortBy, byResource]);
 
   const unassigned = useMemo(
     () => dayEvents.filter((e) => (isVehicle ? e.vehicleId : e.driverId) == null),
@@ -282,6 +303,14 @@ export function LaneGrid({
               <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-success" />Available</span>
               <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-1.5 rounded-full bg-danger" />Unavailable</span>
             </div>
+            <button
+              type="button"
+              onClick={() => setSortBy((s) => (s === "name" ? "busy" : "name"))}
+              aria-label={`Lanes sorted by ${sortBy === "name" ? "name" : "busyness"} — click to switch`}
+              className="rounded-full bg-hover px-3 py-1.5 text-[11px] font-bold text-foreground-secondary ring-1 ring-border/50 transition-colors hover:bg-hover hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary"
+            >
+              Sort: {sortBy === "name" ? "Name" : "Busy first"}
+            </button>
             <span role="status" className="rounded-full bg-hover px-3 py-1.5 text-[11px] font-bold text-foreground-secondary ring-1 ring-border/50">
               {filteredResources.length === resources.length
                 ? `${resources.length} ${isVehicle ? "vehicles" : "drivers"}`
