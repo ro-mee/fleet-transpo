@@ -31,10 +31,15 @@ export function AuthProvider({ children }) {
     setSessionExpiredHandler(() => setUser(null));
   }, []);
 
-  const signIn = useCallback(async (email, password, { mfaCode = "" } = {}) => {
+  // `otpCode` is the six-digit code emailed to the account, or one of its
+  // recovery codes. The second factor is mandatory: the first call for a phone
+  // comes back 401 MFA_REQUIRED after the code has been sent, and the caller
+  // re-invokes this with the code. Re-invoking with an empty code is also the
+  // resend — the server refuses a second send inside its own cooldown.
+  const signIn = useCallback(async (email, password, { otpCode = "" } = {}) => {
     const data = await apiFetch("/api/mobile/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password, totpCode: mfaCode }),
+      body: JSON.stringify({ email, password, otpCode }),
       skipAuth: true,
     });
 

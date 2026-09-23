@@ -26,6 +26,16 @@ const read = p => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const repo = p => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
 const git = args => execFileSync('git', args, { cwd: new URL('../../', import.meta.url), encoding: 'utf8' });
 
+// `git ls-files` reports the INDEX, so a path deleted in the working tree but not
+// yet staged is still listed and then cannot be read off disk. A pending deletion
+// is tracked state in its own right — it shows in `git status` and lands in the
+// commit — and a scan that reads file *contents* has nothing to read for it.
+// Everything else must read, so a file that vanishes without git noticing still
+// throws rather than being skipped silently.
+const pendingDeletions = new Set(git(['ls-files', '--deleted']).split('\n').filter(Boolean));
+const trackedFiles = (...paths) =>
+  git(['ls-files', ...paths]).split('\n').filter(f => f && !pendingDeletions.has(f));
+
 beforeEach(() => {
   vi.clearAllMocks();
   txQuery.mockResolvedValue({ rows: [{ revision: 'rev-1' }] });
@@ -348,7 +358,7 @@ describe('SEC-LEAK-002 — persisted error records are redacted before insert', 
 
 describe('SEC-LEAK-003 — the application never logs a credential', () => {
   it('no token or password is passed to console', () => {
-    const files = git(['ls-files', 'src']).split('\n').filter(f => /\.(js|jsx)$/.test(f) && !/\.test\.js$/.test(f));
+    const files = trackedFiles('src').filter(f => /\.(js|jsx)$/.test(f) && !/\.test\.js$/.test(f));
     const offenders = [];
     for (const file of files) {
       for (const m of repo(file).matchAll(/console\.(log|warn|error|info)\(([^\n]{0,200})/g)) {

@@ -26,7 +26,8 @@ describe("trusted web device tokens", () => {
     expect(trustedDeviceTokenFromCookieHeader("other=value")).toBeNull();
   });
 
-  it("uses a 30-day HttpOnly cookie and expires it explicitly on revoke", () => {
+  it("uses a 7-day HttpOnly cookie and expires it explicitly on revoke", () => {
+    expect(TRUSTED_DEVICE_TTL_SECONDS).toBe(7 * 24 * 60 * 60);
     expect(trustedDeviceCookieOptions()).toMatchObject({
       httpOnly: true,
       sameSite: "lax",
@@ -36,13 +37,24 @@ describe("trusted web device tokens", () => {
     expect(trustedDeviceCookieOptions(0)).toMatchObject({ maxAge: 0, expires: new Date(0) });
   });
 
-  it("keeps trusted-device bypass outside TOTP consumption", () => {
+  it("honours a remembered browser before any code is issued", () => {
     const authSource = readFileSync(new URL("../auth.js", import.meta.url), "utf8");
-    const consumeIndex = authSource.indexOf("consumeFactor(tx, employee.employee_id, factorCode)");
-    const trustedGuardIndex = authSource.lastIndexOf("if (!trustedDevice) {", consumeIndex);
+    // The bypass must be resolved before the challenge is minted, or a trusted
+    // browser would be mailed a code it does not need — and, worse, an SMTP
+    // outage would sign out devices that had already proved themselves.
+    const issueIndex = authSource.indexOf("await issueLoginChallenge({");
+    const trustedGuardIndex = authSource.indexOf("if (!trustedDevice) {");
 
-    expect(consumeIndex).toBeGreaterThan(-1);
+    expect(issueIndex).toBeGreaterThan(-1);
     expect(trustedGuardIndex).toBeGreaterThan(-1);
-    expect(authSource.slice(trustedGuardIndex, consumeIndex)).toContain("if (!trustedDevice)");
+    expect(trustedGuardIndex).toBeLessThan(issueIndex);
+    // And it is still checked *after* the password, so the cookie alone is never
+    // sufficient to start a session.
+    expect(authSource.indexOf("bcrypt.compare")).toBeLessThan(trustedGuardIndex);
+  });
+
+  it("keys the bypass to auth_version, so a credential change retires it", () => {
+    const authSource = readFileSync(new URL("../auth.js", import.meta.url), "utf8");
+    expect(authSource).toMatch(/AND auth_version = \$3[\s\S]{0,260}employee\.auth_version/);
   });
 });

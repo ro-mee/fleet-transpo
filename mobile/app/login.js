@@ -16,8 +16,8 @@ import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
 import { ClayCard, ClayButton, ClayTile, ClayInput } from "../components/clay";
+import { OtpVerificationView } from "../components/otp/OtpVerificationView";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
-import { resolveDriverId } from "../lib/offline-cache";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -27,12 +27,22 @@ export default function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [mfaCode, setMfaCode] = useState("");
   const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaNotice, setMfaNotice] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const router = useRouter();
+
+  const handlePostLogin = async () => {
+    const consentVersion = await getAcceptedConsentVersion().catch(() => null);
+    if (consentVersion !== CURRENT_PRIVACY_POLICY_VERSION) {
+      router.replace("/consent");
+      return;
+    }
+    router.replace("/");
+  };
+
   const handleLogin = async () => {
     if (!username.trim() || !password) {
       setError("Please enter both username and password.");
@@ -41,20 +51,23 @@ export default function LoginScreen() {
     try {
       setError(null);
       setLoading(true);
-      const driver = await signIn(username.trim(), password, { mfaCode });
-      const driverId = resolveDriverId(driver);
-      const consentVersion = await getAcceptedConsentVersion().catch(() => null);
-      if (consentVersion !== CURRENT_PRIVACY_POLICY_VERSION) {
-        router.replace("/consent");
-        return;
-      }
-      router.replace("/");
+      await signIn(username.trim(), password);
+      await handlePostLogin();
     } catch (e) {
       if (e.message === "MFA_REQUIRED") {
+        // Valid credentials: the server has emailed a fresh 6-digit code.
+        // The OTP step owns everything from here — no code field on this
+        // form, no second tap after the code is complete.
         setMfaRequired(true);
-        setError("Enter the verification code from your authenticator app.");
-      } else if (mfaRequired && e.message === "MFA_INVALID") {
+        setMfaNotice("Enter the 6-digit code we emailed to your registered address.");
+      } else if (e.message === "MFA_INVALID") {
         setError("That verification code is invalid or already used.");
+      } else if (e.message === "OTP_UNDELIVERABLE") {
+        setError(
+          "No verification code could be sent to this account. Contact your administrator."
+        );
+      } else if (e.message === "MFA_UNAVAILABLE") {
+        setError("Verification is temporarily unavailable. Please try again shortly.");
       } else {
         setError(e.message || "Invalid credentials. Please try again.");
       }
@@ -62,6 +75,56 @@ export default function LoginScreen() {
       setLoading(false);
     }
   };
+
+  // Called by the OTP step for the automatic verification (final digit) and
+  // for recovery-code entry. Resolves with the driver on success so the OTP
+  // view can play its success animation before navigating.
+  const handleVerifyOtp = (otpCode) => signIn(username.trim(), password, { otpCode });
+
+  // Re-submitting the sign-in without a code IS the resend: the server
+  // issues a fresh challenge and answers MFA_REQUIRED again.
+  const handleResendOtp = async () => {
+    try {
+      await signIn(username.trim(), password, { otpCode: "" });
+    } catch (e) {
+      if (e.message === "MFA_REQUIRED") return;
+      throw e;
+    }
+  };
+
+  if (mfaRequired) {
+    return (
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={[styles.root, { backgroundColor: colors.background }]}
+      >
+        <ScrollView
+          contentContainerStyle={[
+            styles.scroll,
+            { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 32 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <OtpVerificationView
+            identifier={username.trim()}
+            notice={mfaNotice}
+            onVerify={handleVerifyOtp}
+            onResend={handleResendOtp}
+            onVerified={handlePostLogin}
+            onBack={() => {
+              setMfaRequired(false);
+              setMfaNotice(null);
+            }}
+          />
+
+          <Text style={[styles.footer, { color: colors.outline }]}>
+            FleetOps Tactical Driver Companion
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -116,20 +179,6 @@ export default function LoginScreen() {
             onChangeText={setUsername}
             returnKeyType="next"
           />
-
-          {mfaRequired ? (
-            <ClayInput
-              label="Verification code"
-              icon="shield-checkmark-outline"
-              placeholder="6-digit code or recovery code"
-              autoCapitalize="characters"
-              autoCorrect={false}
-              value={mfaCode}
-              onChangeText={setMfaCode}
-              returnKeyType="done"
-              onSubmitEditing={handleLogin}
-            />
-          ) : null}
 
           {/* Password field */}
           <ClayInput

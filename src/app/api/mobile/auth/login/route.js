@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { query, withTransaction } from "@/lib/db";
+import { query } from "@/lib/db";
 import { ok, err, handleError } from "@/lib/api/utils";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { checkAccountLockout, recordFailedAttempt, clearAccountLockout } from "@/lib/auth/account-lockout";
@@ -12,7 +12,10 @@ import {
   signAccessToken,
   signRefreshToken,
 } from "@/lib/auth/mobile-token";
-import { consumeFactor } from "@/lib/auth/mfa";
+import { recordNewDeviceAlert } from "@/lib/auth/new-device-alert";
+import { issueLoginChallenge, verifyLoginChallenge } from "@/lib/auth/email-otp";
+import { isDeliverableEmailAddress } from "@/lib/auth/otp-policy";
+import { isEmailConfigured, sendOtpEmail } from "@/lib/email/smtp";
 
 /**
  * POST /api/mobile/auth/login
@@ -128,48 +131,118 @@ export async function POST(req) {
       return err("No driver record is linked to this account", 403);
     }
 
-    const factorCode = body?.totpCode || body?.recoveryCode;
-    let mfaRows;
+    // Mandatory email OTP, mirroring the Credentials provider in src/lib/auth.js.
+    // There is no trusted-device equivalent here: a native client holds no
+    // cookie, so every mobile sign-in presents a code. That is deliberate — the
+    // drivers' phones are the least controlled devices in the fleet.
+    const otpCode = body?.otpCode || body?.totpCode || body?.recoveryCode;
+
+    // Fail closed before a code is issued. Driver accounts are the ones most
+    // likely to still carry a placeholder address, so this branch is expected
+    // to fire in practice, not just in theory.
+    if (!isEmailConfigured() || !isDeliverableEmailAddress(employee.email)) {
+      await writeAudit(req, null, {
+        action: "mfa_unavailable",
+        resource: "authentication",
+        resourceId: employee.employee_id,
+        newValues: {
+          channel: "mobile",
+          reason: isEmailConfigured() ? "undeliverable_address" : "smtp_unconfigured",
+        },
+      });
+      return err("OTP_UNDELIVERABLE", 503);
+    }
+
+    // Mints a code and mails it. `ok: false` means no code exists to ask for, so
+    // the caller must refuse; `ok: true` with a `delivery` of `cooldown` or
+    // `break_glass_held` means a usable code is already outstanding and no mail
+    // was sent on purpose.
+    const sendNewCode = async () => {
+      let issued;
+      try {
+        issued = await issueLoginChallenge({
+          employeeId: employee.employee_id,
+          ip: clientIp(req),
+          userAgent: req.headers?.get?.("user-agent") || null,
+        });
+      } catch {
+        return { ok: false, reason: "unavailable" };
+      }
+      if (issued?.ok) {
+        try {
+          await sendOtpEmail({ to: employee.email, code: issued.code });
+        } catch {
+          await writeAudit(req, null, {
+            action: "mfa_delivery_failure",
+            resource: "authentication",
+            resourceId: employee.employee_id,
+            newValues: { channel: "mobile" },
+          });
+          return { ok: false, reason: "delivery_failed" };
+        }
+        return { ok: true, delivery: "sent" };
+      }
+      // An administrator-issued emergency code is never mailed over: the person
+      // holding it is the one who cannot receive the email.
+      if (issued?.reason === "break_glass_held" || issued?.reason === "cooldown") {
+        return { ok: true, delivery: issued.reason };
+      }
+      return { ok: false, reason: "unavailable" };
+    };
+
+    if (!otpCode) {
+      // Also the resend path: the client re-submits. It only ever runs after the
+      // password verified, so no code reaches an unauthenticated caller.
+      const delivery = await sendNewCode();
+      if (!delivery.ok) return err("MFA_UNAVAILABLE", 503);
+      await writeAudit(req, null, {
+        action: "mfa_required",
+        resource: "authentication",
+        resourceId: employee.employee_id,
+        newValues: { channel: "mobile", delivery: delivery.delivery },
+      });
+      return err("MFA_REQUIRED", 401);
+    }
+
+    const [otpIpBucket, otpAccountBucket] = await Promise.all([
+      rateLimit(`otp-mobile-login:ip:${clientIp(req)}`, { limit: 5, windowMs: 60_000 }),
+      rateLimit(`otp-mobile-login:account:${employee.employee_id}`, { limit: 5, windowMs: 60_000 }),
+    ]);
+    if (!otpIpBucket.allowed || !otpAccountBucket.allowed) {
+      return err("Too many verification attempts. Try again in a minute.", 429);
+    }
+
+    let factor;
     try {
-      ({ rows: mfaRows } = await query(
-        `SELECT enabled_at FROM employee_mfa WHERE employee_id = $1 LIMIT 1`,
-        [employee.employee_id]
-      ));
+      factor = await verifyLoginChallenge({
+        employeeId: employee.employee_id,
+        authVersion: employee.auth_version,
+        code: otpCode,
+      });
     } catch {
       return err("MFA_UNAVAILABLE", 503);
     }
-    if (mfaRows[0]?.enabled_at) {
-      if (!factorCode) {
+    if (!factor.ok) {
+      // An expired or superseded code is not a wrong code: send a fresh one and
+      // ask again instead of spending an attempt on the clock.
+      if (factor.reason === "expired" || factor.reason === "stale") {
+        const delivery = await sendNewCode();
+        if (!delivery.ok) return err("MFA_UNAVAILABLE", 503);
         await writeAudit(req, null, {
           action: "mfa_required",
           resource: "authentication",
           resourceId: employee.employee_id,
-          newValues: { channel: "mobile" },
+          newValues: { channel: "mobile", delivery: delivery.delivery },
         });
         return err("MFA_REQUIRED", 401);
       }
-      const [mfaIpBucket, mfaAccountBucket] = await Promise.all([
-        rateLimit(`mfa-mobile-login:ip:${clientIp(req)}`, { limit: 5, windowMs: 60_000 }),
-        rateLimit(`mfa-mobile-login:account:${employee.employee_id}`, { limit: 5, windowMs: 60_000 }),
-      ]);
-      if (!mfaIpBucket.allowed || !mfaAccountBucket.allowed) {
-        return err("Too many verification attempts. Try again in a minute.", 429);
-      }
-      let factor;
-      try {
-        factor = await withTransaction((tx) => consumeFactor(tx, employee.employee_id, factorCode));
-      } catch {
-        return err("MFA_UNAVAILABLE", 503);
-      }
-      if (!factor.ok) {
-        await writeAudit(req, null, {
-          action: "mfa_failure",
-          resource: "authentication",
-          resourceId: employee.employee_id,
-          newValues: { channel: "mobile", reason: factor.reason },
-        });
-        return err("MFA_INVALID", 401);
-      }
+      await writeAudit(req, null, {
+        action: "mfa_failure",
+        resource: "authentication",
+        resourceId: employee.employee_id,
+        newValues: { channel: "mobile", reason: factor.reason },
+      });
+      return err("MFA_INVALID", 401);
     }
 
     const { token: refreshToken, familyId } = await signRefreshToken({
@@ -211,6 +284,18 @@ export async function POST(req) {
     }
 
     await clearAccountLockout(email);
+
+    // Before the audit row below, so this sign-in cannot count as its own
+    // precedent. Best-effort — it never throws and never blocks the login.
+    //
+    // Note the mobile channel collapses every phone to one device label (see
+    // new-device-alert.js), so in practice a driver is alerted at most once,
+    // on their first mobile sign-in. This is a web-strength control.
+    await recordNewDeviceAlert({
+      employee,
+      userAgent: req.headers?.get?.("user-agent") || null,
+      kind: "mobile",
+    });
 
     await writeAudit(req, null, {
       action: "login_success",

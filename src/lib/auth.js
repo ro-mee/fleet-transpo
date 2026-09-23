@@ -2,16 +2,20 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
-import { getAdminClient, query, withTransaction } from "@/lib/db";
+import { getAdminClient, query } from "@/lib/db";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
-import { consumeFactor } from "@/lib/auth/mfa";
+import { issueLoginChallenge, verifyLoginChallenge } from "@/lib/auth/email-otp";
+import { isDeliverableEmailAddress } from "@/lib/auth/otp-policy";
+import { isEmailConfigured, sendOtpEmail } from "@/lib/email/smtp";
 import { checkAccountLockout, recordFailedAttempt, clearAccountLockout, LOCKOUT_LIMIT } from "@/lib/auth/account-lockout";
 import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
+import { recordNewDeviceAlert } from "@/lib/auth/new-device-alert";
 import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
 import { hashTrustedDeviceToken, trustedDeviceTokenFromCookieHeader } from "@/lib/auth/trusted-device";
 import { signedUrlFor, isResolvableMediaRef } from "@/lib/storage/object-refs";
 import { AVATAR_BUCKETS } from "@/lib/drivers/media";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 
 export function isSafeAvatarUrl(url) {
   if (!url || typeof url !== "string") return false;
@@ -26,7 +30,6 @@ export const authOptions = {
       async authorize(credentials, req) {
         const email = credentials?.email;
         const password = credentials?.password;
-        const factorCode = credentials?.totpCode || credentials?.recoveryCode;
         if (!email || !password) return null;
 
         // Throttle login attempts per IP to blunt brute-force / credential
@@ -80,72 +83,153 @@ export const authOptions = {
           return null;
         }
 
-        let mfaRows;
-        try {
-          ({ rows: mfaRows } = await query(
-            `SELECT enabled_at FROM employee_mfa WHERE employee_id = $1 LIMIT 1`,
-            [employee.employee_id]
-          ));
-        } catch {
-          throw new Error("MFA_UNAVAILABLE");
-        }
-        if (mfaRows[0]?.enabled_at) {
-          let trustedDevice = false;
-          if (!factorCode) {
-            const trustedToken = trustedDeviceTokenFromCookieHeader(auditReq.headers.get("cookie"));
-            if (trustedToken) {
-              try {
-                const trusted = await query(
-                  `UPDATE trusted_web_devices
-                      SET last_used_at = NOW()
-                    WHERE employee_id = $1
-                      AND token_hash = $2
-                      AND auth_version = $3
-                      AND revoked_at IS NULL
-                      AND expires_at > NOW()
-                    RETURNING device_id`,
-                  [employee.employee_id, hashTrustedDeviceToken(trustedToken), employee.auth_version]
-                );
-                trustedDevice = Boolean(trusted.rows[0]);
-              } catch {
-                // A remembered-device lookup fails closed to normal MFA.
-                trustedDevice = false;
-              }
+        // Email OTP is the only second factor and it is not optional: there is
+        // no enrollment row to consult, no per-account switch and no bypass.
+        // `employee_mfa` is retained for rollback but is no longer read, so an
+        // account that never enrolled TOTP is now protected exactly like one
+        // that did.
+        //
+        // `totpCode` is still accepted because the released web and mobile
+        // clients send that field name; it carries an emailed code now.
+        const otpCode =
+          credentials?.otpCode || credentials?.totpCode || credentials?.recoveryCode;
+
+        // A remembered browser is an independent credential this server issued
+        // earlier, so it is honoured before mail is involved at all: an SMTP
+        // outage must not sign out a device that already proved itself.
+        let trustedDevice = false;
+        if (!otpCode) {
+          const trustedToken = trustedDeviceTokenFromCookieHeader(auditReq.headers.get("cookie"));
+          if (trustedToken) {
+            try {
+              const trusted = await query(
+                `UPDATE trusted_web_devices
+                    SET last_used_at = NOW()
+                  WHERE employee_id = $1
+                    AND token_hash = $2
+                    AND auth_version = $3
+                    AND revoked_at IS NULL
+                    AND expires_at > NOW()
+                  RETURNING device_id`,
+                [employee.employee_id, hashTrustedDeviceToken(trustedToken), employee.auth_version]
+              );
+              trustedDevice = Boolean(trusted.rows[0]);
+            } catch {
+              // A remembered-device lookup fails closed to normal OTP.
+              trustedDevice = false;
             }
           }
+        }
 
-          if (!factorCode && !trustedDevice) {
+        if (!trustedDevice) {
+          // Fail closed, before any code is issued. An undeliverable address is
+          // not a factor, and "let this one through" would make the gate
+          // decorative. A routable address that belongs to a stranger is worse
+          // still, and no runtime check can tell the two apart — that question
+          // belongs to `scripts/audit-otp-inbox-ownership.mjs`.
+          if (!isEmailConfigured() || !isDeliverableEmailAddress(employee.email)) {
+            await writeAudit(auditReq, null, {
+              action: "mfa_unavailable",
+              resource: "authentication",
+              resourceId: employee.employee_id,
+              newValues: {
+                channel: "web",
+                reason: isEmailConfigured() ? "undeliverable_address" : "smtp_unconfigured",
+              },
+            });
+            throw new Error("OTP_UNDELIVERABLE");
+          }
+
+          // Mints a code for this employee and mails it, reporting why when no
+          // mail went out. It never returns the code itself, so there is no
+          // path by which a caller receives one.
+          const sendNewCode = async () => {
+            let issued;
+            try {
+              issued = await issueLoginChallenge({
+                employeeId: employee.employee_id,
+                ip,
+                userAgent: auditReq.headers.get("user-agent") || null,
+              });
+            } catch {
+              throw new Error("MFA_UNAVAILABLE");
+            }
+            if (issued?.ok) {
+              try {
+                await sendOtpEmail({ to: employee.email, code: issued.code });
+              } catch {
+                await writeAudit(auditReq, null, {
+                  action: "mfa_delivery_failure",
+                  resource: "authentication",
+                  resourceId: employee.employee_id,
+                  newValues: { channel: "web" },
+                });
+                throw new Error("MFA_UNAVAILABLE");
+              }
+              return "sent";
+            }
+            // An administrator-issued emergency code is deliberately NOT
+            // replaced: the person holding it cannot receive the email, so
+            // mailing over it would destroy their only way in.
+            if (issued?.reason === "break_glass_held") return "break_glass_held";
+            if (issued?.reason === "cooldown") return "cooldown";
+            throw new Error("MFA_UNAVAILABLE");
+          };
+
+          // The audit fires whether or not mail actually left: the question it
+          // answers is "a second factor was demanded here", not "was it read".
+          const requireCode = async (delivery) => {
             await writeAudit(auditReq, null, {
               action: "mfa_required",
               resource: "authentication",
               resourceId: employee.employee_id,
-              newValues: { channel: "web" },
+              newValues: { channel: "web", delivery },
             });
             throw new Error("MFA_REQUIRED");
+          };
+
+          // No code supplied. This branch is also the resend path — the client
+          // re-submits the form. It only ever runs after the password verified,
+          // which is why no code is ever sent to an unauthenticated caller and
+          // there is no enumeration surface to defend.
+          if (!otpCode) {
+            await requireCode(await sendNewCode());
           }
-          if (!trustedDevice) {
-            const [mfaIpBucket, mfaAccountBucket] = await Promise.all([
-              rateLimit(`mfa-login:ip:${ip}`, { limit: 5, windowMs: 60_000 }),
-              rateLimit(`mfa-login:account:${employee.employee_id}`, { limit: 5, windowMs: 60_000 }),
-            ]);
-            if (!mfaIpBucket.allowed || !mfaAccountBucket.allowed) {
-              throw new Error("Too many verification attempts. Please try again in a minute.");
+
+          const [otpIpBucket, otpAccountBucket] = await Promise.all([
+            rateLimit(`otp-login:ip:${ip}`, { limit: 5, windowMs: 60_000 }),
+            rateLimit(`otp-login:account:${employee.employee_id}`, { limit: 5, windowMs: 60_000 }),
+          ]);
+          if (!otpIpBucket.allowed || !otpAccountBucket.allowed) {
+            throw new Error("Too many verification attempts. Please try again in a minute.");
+          }
+
+          let factor;
+          try {
+            factor = await verifyLoginChallenge({
+              employeeId: employee.employee_id,
+              authVersion: employee.auth_version,
+              code: otpCode,
+            });
+          } catch {
+            throw new Error("MFA_UNAVAILABLE");
+          }
+
+          if (!factor.ok) {
+            // A code that ran out of time is not a wrong code, and neither is
+            // one minted before a credential changed. Both are answered by
+            // sending a fresh code rather than by spending an attempt on the
+            // clock.
+            if (factor.reason === "expired" || factor.reason === "stale") {
+              await requireCode(await sendNewCode());
             }
-            let factor;
-            try {
-              factor = await withTransaction((tx) => consumeFactor(tx, employee.employee_id, factorCode));
-            } catch {
-              throw new Error("MFA_UNAVAILABLE");
-            }
-            if (!factor.ok) {
-              await writeAudit(auditReq, null, {
-                action: "mfa_failure",
-                resource: "authentication",
-                resourceId: employee.employee_id,
-                newValues: { channel: "web", reason: factor.reason },
-              });
-              throw new Error("MFA_INVALID");
-            }
+            await writeAudit(auditReq, null, {
+              action: "mfa_failure",
+              resource: "authentication",
+              resourceId: employee.employee_id,
+              newValues: { channel: "web", reason: factor.reason },
+            });
+            throw new Error("MFA_INVALID");
           }
         }
 
@@ -191,6 +275,14 @@ export const authOptions = {
 
         await clearAccountLockout(normalizedEmail);
 
+        // Before the audit row below, so this sign-in cannot count as its own
+        // precedent. Best-effort — it never throws and never blocks the login.
+        await recordNewDeviceAlert({
+          employee,
+          userAgent,
+          kind: "web",
+        });
+
         await writeAudit(auditReq, null, {
           action: "login_success",
           resource: "authentication",
@@ -202,7 +294,7 @@ export const authOptions = {
           id: String(employee.employee_id),
           email: employee.email,
           name: `${employee.first_name} ${employee.last_name}`,
-          role: employee.roles?.role_name,
+          role: normalizeRoleName(employee.roles?.role_name),
           employeeId: employee.employee_id,
           firstName: employee.first_name,
           lastName: employee.last_name,
@@ -220,7 +312,7 @@ export const authOptions = {
   callbacks: {
     async jwt({ token, user, trigger, session }) {
       if (user) {
-        token.role = user.role;
+        token.role = normalizeRoleName(user.role);
         token.employeeId = user.employeeId;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
@@ -237,7 +329,7 @@ export const authOptions = {
       return token;
     },
     async session({ session, token }) {
-      session.user.role = token.role;
+      session.user.role = normalizeRoleName(token.role);
       session.user.employeeId = token.employeeId;
       session.user.firstName = token.firstName;
       session.user.lastName = token.lastName;

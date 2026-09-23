@@ -402,6 +402,23 @@ CREATE TABLE drivers (
   CONSTRAINT drivers_pkey PRIMARY KEY (driver_id)
 );
 
+CREATE TABLE email_otp_challenges (
+  challenge_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+  employee_id integer NOT NULL,
+  code_hash char(64) NOT NULL,
+  purpose varchar(16) DEFAULT 'login'::character varying NOT NULL,
+  attempts smallint DEFAULT 0 NOT NULL,
+  max_attempts smallint DEFAULT 5 NOT NULL,
+  auth_version bigint NOT NULL,
+  consumed_at timestamptz,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  ip_address varchar(50),
+  user_agent text,
+  CONSTRAINT email_otp_challenges_purpose_check CHECK (((purpose)::text = ANY ((ARRAY['login'::character varying, 'break_glass'::character varying])::text[]))),
+  CONSTRAINT email_otp_challenges_pkey PRIMARY KEY (challenge_id)
+);
+
 CREATE TABLE employee_mfa (
   employee_id integer NOT NULL,
   secret_ciphertext text NOT NULL,
@@ -1141,6 +1158,7 @@ ALTER TABLE drivers ADD CONSTRAINT drivers_created_by_fkey FOREIGN KEY (created_
 ALTER TABLE drivers ADD CONSTRAINT drivers_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_location_vehicle_id_fkey FOREIGN KEY (location_vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
+ALTER TABLE email_otp_challenges ADD CONSTRAINT email_otp_challenges_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE employee_mfa ADD CONSTRAINT employee_mfa_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE employees ADD CONSTRAINT employees_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE employees ADD CONSTRAINT employees_role_id_fkey FOREIGN KEY (role_id) REFERENCES roles(role_id);
@@ -1273,6 +1291,7 @@ CREATE INDEX idx_drivers_status ON public.drivers USING btree (driver_status);
 CREATE INDEX idx_dva_driver_history ON public.driver_vehicle_assignments USING btree (driver_id, assigned_from DESC);
 CREATE INDEX idx_dva_vehicle_history ON public.driver_vehicle_assignments USING btree (vehicle_id, assigned_from DESC);
 CREATE INDEX idx_dws_driver ON public.driver_work_schedules USING btree (driver_id);
+CREATE INDEX idx_email_otp_challenges_employee_live ON public.email_otp_challenges USING btree (employee_id, consumed_at, expires_at);
 CREATE INDEX idx_employee_mfa_enabled ON public.employee_mfa USING btree (enabled_at);
 CREATE INDEX idx_employees_email ON public.employees USING btree (email);
 CREATE INDEX idx_employees_role ON public.employees USING btree (role_id);

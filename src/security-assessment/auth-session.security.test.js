@@ -139,10 +139,55 @@ describe('SEC-AUTH-002 — credential throttles fail closed where the edge guard
     expect(source.indexOf('checkAccountLockout')).toBeLessThan(source.indexOf('bcrypt.compare'));
   });
 
-  it('MFA verification has its own independent bucket', () => {
+  it('email OTP verification has its own independent bucket', () => {
     const source = read('lib/auth.js');
-    expect(source).toMatch(/rateLimit\(`mfa-login:ip:\$\{ip\}`/);
-    expect(source).toMatch(/rateLimit\(`mfa-login:account:\$\{employee\.employee_id\}`/);
+    expect(source).toMatch(/rateLimit\(`otp-login:ip:\$\{ip\}`/);
+    expect(source).toMatch(/rateLimit\(`otp-login:account:\$\{employee\.employee_id\}`/);
+  });
+
+  it('the second factor FAILS CLOSED when it cannot be delivered', () => {
+    // The property that matters most about email OTP, and the one an outage
+    // would erode: an unreachable mail provider, or an address on a domain that
+    // cannot receive mail, must refuse the login outright. There is no branch
+    // that issues a session in that state, and adding one would make the factor
+    // decorative. Both gates are asserted, because mobile is a separate code
+    // path and a fix applied to only one of them is the likely regression.
+    const web = read('lib/auth.js');
+    const mobile = read('app/api/mobile/auth/login/route.js');
+
+    for (const source of [web, mobile]) {
+      expect(source).toMatch(/isEmailConfigured\(\)/);
+      expect(source).toMatch(/isDeliverableEmailAddress\(employee\.email\)/);
+    }
+
+    // The refusal is on the path, and it throws rather than falling through to
+    // the object NextAuth turns into a session. `authorize` has no separate
+    // session-creation call — returning at all IS creating the session — so the
+    // assertion is that the throw precedes the return that carries the identity.
+    expect(web).toMatch(/OTP_UNDELIVERABLE/);
+    expect(web.indexOf('OTP_UNDELIVERABLE')).toBeLessThan(
+      web.indexOf('id: String(employee.employee_id)')
+    );
+    expect(mobile).toMatch(/isDeliverableEmailAddress/);
+  });
+
+  it('a remembered browser is checked before the mail path, so an SMTP outage cannot sign it out', () => {
+    // Ordering, not just presence: `trustedDevice` must be resolved before the
+    // deliverability refusal, or an outage would also break devices that had
+    // already proved themselves — turning a mail problem into a total lockout.
+    const source = read('lib/auth.js');
+    expect(source.indexOf('trustedDevice = Boolean(trusted.rows[0])')).toBeLessThan(
+      source.indexOf('OTP_UNDELIVERABLE')
+    );
+  });
+
+  it('the login gate never reads the dead TOTP enrollment table', () => {
+    // `employee_mfa` is retained for rollback but must not be consulted: a
+    // leftover row from the TOTP era would otherwise be the thing that decides
+    // whether a second factor is demanded. The factor is mandatory for every
+    // account now, so enrollment state is not an input at all.
+    expect(read('lib/auth.js')).not.toMatch(/FROM employee_mfa/);
+    expect(read('app/api/mobile/auth/login/route.js')).not.toMatch(/FROM employee_mfa/);
   });
 });
 
@@ -353,7 +398,14 @@ describe('SEC-AUTH-005 — login does not disclose whether an account exists', (
 
   it('failures and lockouts are audited', () => {
     const source = read('lib/auth.js');
-    for (const action of ['login_failure', 'login_success', 'mfa_required', 'mfa_failure']) {
+    for (const action of [
+      'login_failure',
+      'login_success',
+      'mfa_required',
+      'mfa_failure',
+      'mfa_unavailable',
+      'mfa_delivery_failure',
+    ]) {
       expect(source).toContain(`action: "${action}"`);
     }
     expect(source).toMatch(/type: "account_locked"/);
@@ -417,7 +469,7 @@ describe('SEC-DB-001 — the database authorization posture is application-layer
     // A resource/action typo resolves to DEFAULT_ROLES, not to everyone.
     const source = read('lib/api/utils.js');
     const defaults = source.slice(source.indexOf('const DEFAULT_ROLES'), source.indexOf(']', source.indexOf('const DEFAULT_ROLES')));
-    expect(defaults).toContain('system_admin');
+    expect(defaults).toContain('super_admin');
     expect(defaults).not.toContain('driver');
   });
 });

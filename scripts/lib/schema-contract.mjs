@@ -92,15 +92,21 @@ export const TABLES = Object.freeze({
   },
   trusted_web_devices: {
     classification: CLASSIFICATION.PRIVATE,
-    reason: "Hashed, revocable browser trust tokens that can bypass TOTP for 30 days.",
+    reason: "Hashed, revocable browser trust tokens that can bypass email OTP for 7 days.",
   },
   employee_mfa: {
     classification: CLASSIFICATION.PRIVATE,
-    reason: "Encrypted TOTP secrets and replay markers.",
+    reason:
+      "RETAINED BUT UNUSED — encrypted TOTP secrets and replay markers from the factor email OTP replaced (2026-09-22). Nothing reads this table; it is kept only because dropping it is irreversible and would have to move its contract entry and every caller in one change. Delete it in a later migration once rollback is no longer wanted.",
   },
   mfa_recovery_codes: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Hashed single-use recovery codes.",
+  },
+  email_otp_challenges: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Hashed single-use login codes bound to auth_version. Readable would allow code replay inside the expiry window; the attempt counter is the only brute-force ceiling.",
   },
   mobile_refresh_tokens: {
     classification: CLASSIFICATION.PRIVATE,

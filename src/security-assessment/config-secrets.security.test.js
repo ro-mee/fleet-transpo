@@ -26,6 +26,16 @@ const read = p => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 
 const git = args => execFileSync('git', args, { cwd: new URL('../../', import.meta.url), encoding: 'utf8' });
 
+// `git ls-files` reports the INDEX, so a path deleted in the working tree but not
+// yet staged is still listed and then cannot be read off disk. A pending deletion
+// is tracked state in its own right — it shows in `git status` and lands in the
+// commit — and a scan that reads file *contents* has nothing to read for it.
+// Everything else must read, so a file that vanishes without git noticing still
+// throws rather than being skipped silently.
+const pendingDeletions = new Set(git(['ls-files', '--deleted']).split('\n').filter(Boolean));
+const trackedFiles = (...paths) =>
+  git(['ls-files', ...paths]).split('\n').filter(f => f && !pendingDeletions.has(f));
+
 // next.config.mjs exports a function of `phase` — the documented Next.js idiom.
 // Accepting a plain object as well keeps these assertions about *behaviour* (what
 // the CSP says, whether the build guard fires) rather than about the export's
@@ -361,7 +371,7 @@ describe('SEC-CONFIG-005 — no credential material is tracked', () => {
   it('no tracked source file hardcodes a credential-shaped literal', () => {
     // Test files are excluded: a suite is expected to contain fake secrets, and
     // flagging them would drown the signal. Scripts are included.
-    const files = git(['ls-files', 'src', 'scripts']).split('\n')
+    const files = trackedFiles('src', 'scripts')
       .filter(f => /\.(js|jsx|mjs)$/.test(f) && !/\.test\.js$/.test(f));
     // Reviewed and benign — each is an assertion-checked fixture, not a credential:
     //   verify-register-account.mjs — the password for a throwaway probe account
@@ -398,7 +408,7 @@ describe('SEC-CONFIG-005 — no credential material is tracked', () => {
     //                                   routing key is the separate TOMTOM_API_KEY.
     const REVIEWED_PUBLIC = new Set(['NEXT_PUBLIC_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_TOMTOM_API_KEY']);
     const SECRET_SHAPED = /(SERVICE_ROLE|SECRET|PASSWORD|PASSWD|PRIVATE|CREDENTIAL|ACCESS_TOKEN|REFRESH_TOKEN|_KEY$)/i;
-    const files = git(['ls-files', 'src', 'scripts']).split('\n').filter(f => /\.(js|jsx|mjs)$/.test(f));
+    const files = trackedFiles('src', 'scripts').filter(f => /\.(js|jsx|mjs)$/.test(f));
     const offenders = [];
     for (const file of files) {
       for (const m of repo(file).matchAll(/NEXT_PUBLIC_[A-Z0-9_]+/g)) {
@@ -410,7 +420,7 @@ describe('SEC-CONFIG-005 — no credential material is tracked', () => {
   });
 
   it('the two reviewed public keys are the only credential-shaped NEXT_PUBLIC_ names', () => {
-    const files = git(['ls-files', 'src', 'scripts']).split('\n').filter(f => /\.(js|jsx|mjs)$/.test(f));
+    const files = trackedFiles('src', 'scripts').filter(f => /\.(js|jsx|mjs)$/.test(f));
     const names = new Set();
     for (const file of files) for (const m of repo(file).matchAll(/NEXT_PUBLIC_[A-Z0-9_]+/g)) names.add(m[0]);
     // Naming them lets this test fail loudly if a third one is ever introduced.
@@ -445,7 +455,11 @@ describe('SEC-CONFIG-006 — historical credential material', () => {
     expect(history.trim().length).toBeGreaterThan(0);
     const files = git(['show', '--name-only', '--format=', 'afb5239']).split('\n');
     expect(files).toContain('src/app/api/auth/fix-account/route.js');
-  });
+    // The pickaxe above searches every commit's diff, so it costs whatever the
+    // repository's history costs. That is ~1.3s on an idle checkout but crosses
+    // vitest's 5s default when the whole suite runs in parallel, which is a
+    // failing gate for a reason that has nothing to do with the assertion.
+  }, 30_000);
 
   it('that route is absent from the working tree', () => {
     expect(git(['ls-files'])).not.toMatch(/fix-account/);

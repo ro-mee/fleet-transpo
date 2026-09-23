@@ -15,6 +15,7 @@ import {
   Loader2,
   Lock,
   LogOut,
+  Mail,
   Monitor,
   RefreshCw,
   Shield,
@@ -35,67 +36,8 @@ import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------
-   Brand SVG Icons for Supported Authenticators & Browsers
+   Brand icons for the session list
 ------------------------------------------------------------------------- */
-
-function GoogleAuthIcon({ className = "h-7 w-7 sm:h-8 sm:w-8 shrink-0" }) {
-  return (
-    <svg className={className} viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        fill="#1A73E8"
-        d="M440 256c0 17.121-13.879 31-31 31H302l-46-93.01 49.651-85.995c8.56-14.826 27.518-19.907 42.345-11.347l.006.003c14.828 8.56 19.909 27.52 11.348 42.347L309.7 225H409c17.121 0 31 13.879 31 31Z"
-      />
-      <path
-        fill="#EA4335"
-        d="m348.002 415.349-.006.003c-14.827 8.559-33.785 3.479-42.345-11.347L256 318.01l-49.651 85.995c-8.56 14.826-27.518 19.907-42.345 11.347l-.006-.003c-14.828-8.56-19.909-27.519-11.348-42.347L202.3 287l53.7-2 53.7 2 49.65 86.002c8.56 14.828 3.48 33.787-11.348 42.347Z"
-      />
-      <path
-        fill="#FBBC04"
-        d="M256 193.99 242 232l-39.7-7-49.65-86.002c-8.56-14.828-3.479-33.787 11.348-42.347l.006-.003c14.827-8.559 33.785-3.479 42.345 11.347L256 193.99Z"
-      />
-      <path fill="#34A853" d="m248 225-36 62H103c-17.121 0-31-13.879-31-31s13.879-31 31-31h145Z" />
-      <path fill="#185DB7" d="M309.7 287H202.3l53.7-93.01L309.7 287Z" />
-    </svg>
-  );
-}
-
-function MicrosoftAuthIcon({ className = "h-7 w-7 sm:h-8 sm:w-8 shrink-0" }) {
-  return (
-    <Image
-      src="/brands/authenticators/microsoft.png"
-      alt=""
-      aria-hidden="true"
-      width={32}
-      height={32}
-      className={cn("object-contain", className)}
-      unoptimized
-    />
-  );
-}
-
-function AuthyIcon({ className = "h-7 w-7 sm:h-8 sm:w-8 shrink-0" }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="12" fill="#EC1C24" />
-      <path
-        fill="#FFFFFF"
-        d="M15.42 5.338c.274 0 .551.105.769.315l2.862 2.862c2.054 2.039 2.084 5.35.105 7.449a.21.21 0 0 1-.045.06l-.03.03-.03.03c-.015.015-.045.03-.06.045-2.098 1.978-5.41 1.948-7.463-.105l-2.863-2.863a1.05 1.05 0 0 1 0-1.499 1.05 1.05 0 0 1 1.5 0l2.861 2.863a3.23 3.23 0 0 0 4.542.03 3.244 3.244 0 0 0-.03-4.541l-2.863-2.862a1.05 1.05 0 0 1 0-1.5c.203-.209.472-.314.746-.314zM8.758 6.397a5.33 5.33 0 0 1 3.715 1.564l2.863 2.862c.42.42.42 1.08 0 1.5-.42.419-1.08.419-1.5 0L10.975 9.46a3.249 3.249 0 0 0-4.558-.015 3.243 3.243 0 0 0 .03 4.54l2.863 2.863c.42.42.42 1.08 0 1.499a1.05 1.05 0 0 1-1.499 0L4.95 15.484c-2.054-2.053-2.084-5.365-.105-7.463.015-.03.03-.045.045-.06l.03-.03.03-.03c.015-.015.045-.03.06-.045a5.355 5.355 0 0 1 3.748-1.46z"
-      />
-    </svg>
-  );
-}
-
-function OnePasswordIcon({ className = "h-7 w-7 sm:h-8 sm:w-8 shrink-0" }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="12" fill="#0A85EA" />
-      <path
-        fill="#FFFFFF"
-        d="M11.107 4.86c-.485 0-.727.001-.913.095a.87.87 0 0 0-.378.379c-.094.185-.095.428-.095.912v2.747c0 .12 0 .182.016.238q.02.075.065.138a1 1 0 0 0 .175.162l.695.564c.113.092.17.139.19.194a.22.22 0 0 1 0 .15c-.02.056-.077.102-.19.194l-.695.564a1 1 0 0 0-.175.162.4.4 0 0 0-.065.138 1 1 0 0 0-.016.238v6.019c0 .485 0 .728.095.913a.87.87 0 0 0 .378.378c.186.094.428.094.913.094h1.786c.485 0 .727 0 .913-.094a.87.87 0 0 0 .378-.378c.095-.185.095-.428.095-.913v-2.747c0-.12 0-.182-.016-.238a.4.4 0 0 0-.065-.138 1 1 0 0 0-.175-.162l-.695-.564c-.113-.092-.17-.138-.191-.193a.22.22 0 0 1 0-.152c.02-.055.078-.1.19-.193l.696-.564a1 1 0 0 0 .175-.162.4.4 0 0 0 .065-.138 1 1 0 0 0 .016-.238V6.246c0-.484 0-.727-.095-.912a.87.87 0 0 0-.378-.379c-.186-.094-.428-.094-.913-.094Z"
-      />
-    </svg>
-  );
-}
 
 function ChromeBrandIcon({ className = "h-10 w-10 sm:h-11 sm:w-11 shrink-0" }) {
   return (
@@ -300,44 +242,6 @@ function PasswordField({
   );
 }
 
-function AuthenticatorApps() {
-  return (
-    <div className="mt-6 pt-1">
-      <p className="text-xs font-semibold text-slate-900 dark:text-white">Supported Authenticator Apps</p>
-      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-4 sm:gap-5">
-        <div className="flex items-center gap-2.5">
-          <GoogleAuthIcon className="h-7 w-7 sm:h-8 sm:w-8 shrink-0" />
-          <div className="flex flex-col text-[11px] sm:text-xs font-medium leading-tight text-slate-700 dark:text-slate-300">
-            <span>Google</span>
-            <span>Authenticator</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <MicrosoftAuthIcon className="h-7 w-7 sm:h-8 sm:w-8 shrink-0" />
-          <div className="flex flex-col text-[11px] sm:text-xs font-medium leading-tight text-slate-700 dark:text-slate-300">
-            <span>Microsoft</span>
-            <span>Authenticator</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <AuthyIcon className="h-7 w-7 sm:h-8 sm:w-8 shrink-0" />
-          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Authy</span>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <OnePasswordIcon className="h-7 w-7 sm:h-8 sm:w-8 shrink-0" />
-          <span className="text-xs font-medium text-slate-700 dark:text-slate-300">1Password</span>
-        </div>
-      </div>
-      <p className="mt-4 text-[12px] text-slate-400 dark:text-slate-500">
-        Scan the QR code with your preferred authenticator app during setup.
-      </p>
-    </div>
-  );
-}
-
 /* -------------------------------------------------------------------------
    Main Security Settings Component
 ------------------------------------------------------------------------- */
@@ -350,20 +254,20 @@ export default function SecurityPage() {
     currentPassword: false,
     newPassword: false,
     confirmPassword: false,
-    mfaSetupPassword: false,
     mfaManagePassword: false,
   });
   const [sessions, setSessions] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState("");
   const [revoking, setRevoking] = useState("");
-  const [mfa, setMfa] = useState({ enabled: false, setupPending: false });
+  const [mfa, setMfa] = useState({
+    required: true,
+    emailConfigured: true,
+    recoveryCodesRemaining: 0,
+    codeTtlLabel: "",
+  });
   const [mfaLoading, setMfaLoading] = useState(true);
-  const [mfaSetupPassword, setMfaSetupPassword] = useState("");
-  const [mfaSetup, setMfaSetup] = useState(null);
-  const [mfaCode, setMfaCode] = useState("");
   const [mfaManagePassword, setMfaManagePassword] = useState("");
-  const [mfaManageCode, setMfaManageCode] = useState("");
   const [mfaBusy, setMfaBusy] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState([]);
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(securitySchema);
@@ -397,7 +301,14 @@ export default function SecurityPage() {
         if (cancelled) return;
         if (!sessionsResponse.ok) setSessionsError(sessionData.error || "Could not load active sessions.");
         else setSessions(sessionData.sessions || []);
-        if (mfaResponse.ok) setMfa({ enabled: Boolean(mfaData.enabled), setupPending: Boolean(mfaData.setupPending) });
+        if (mfaResponse.ok) {
+          setMfa({
+            required: mfaData.required !== false,
+            emailConfigured: mfaData.emailConfigured !== false,
+            recoveryCodesRemaining: Number(mfaData.recoveryCodesRemaining) || 0,
+            codeTtlLabel: mfaData.codeTtlLabel || "",
+          });
+        }
       } catch {
         if (!cancelled) setSessionsError("Could not load active sessions.");
       } finally {
@@ -471,56 +382,24 @@ export default function SecurityPage() {
     }
   };
 
-  const startMfaSetup = async () => {
-    setMfaBusy("setup");
-    try {
-      const data = await postJson("/api/auth/mfa/setup", { currentPassword: mfaSetupPassword });
-      setMfaSetup(data);
-      setMfaSetupPassword("");
-      setMfaCode("");
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setMfaBusy("");
-    }
-  };
-
-  const confirmMfa = async () => {
-    setMfaBusy("confirm");
-    try {
-      const data = await postJson("/api/auth/mfa/confirm", { code: mfaCode });
-      setMfa({ enabled: true, setupPending: false });
-      setMfaSetup(null);
-      setMfaCode("");
-      setRecoveryCodes(data.recoveryCodes || []);
-      toast.success("Two-factor authentication enabled. Save your recovery codes before signing in again.");
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setMfaBusy("");
-    }
-  };
-
-  const disableMfa = async () => {
-    if (!window.confirm("Disable two-factor authentication and sign out every device?")) return;
-    setMfaBusy("disable");
-    try {
-      await postJson("/api/auth/mfa/disable", { currentPassword: mfaManagePassword, code: mfaManageCode });
-      toast.success("Two-factor authentication disabled. Please sign in again.");
-      await signOut();
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setMfaBusy("");
-    }
-  };
-
+  /**
+   * Replaces the recovery-code set. The current password is the only gate, and
+   * deliberately so: this is the path someone takes when email is not reaching
+   * them, so requiring an emailed code here would be circular. The server
+   * rate-limits it per account.
+   */
   const regenerateRecoveryCodes = async () => {
     setMfaBusy("recovery");
     try {
-      const data = await postJson("/api/auth/mfa/recovery-codes", { currentPassword: mfaManagePassword, code: mfaManageCode });
+      const data = await postJson("/api/auth/mfa/recovery-codes", {
+        currentPassword: mfaManagePassword,
+      });
       setRecoveryCodes(data.recoveryCodes || []);
-      setMfaManageCode("");
+      setMfaManagePassword("");
+      setMfa((current) => ({
+        ...current,
+        recoveryCodesRemaining: (data.recoveryCodes || []).length,
+      }));
       toast.success("New recovery codes generated. Previous codes are no longer valid.");
     } catch (error) {
       toast.error(error.message);
@@ -727,55 +606,51 @@ export default function SecurityPage() {
           </div>
         </div>
 
-        {/* Card 2: Two-Factor Authentication */}
+        {/* Card 2: Email Verification — the second factor */}
         <div className="rounded-2xl border border-slate-200/80 dark:border-border/60 bg-white dark:bg-surface shadow-[0_1px_3px_rgba(0,0,0,0.03)] p-6 sm:p-7 flex flex-col justify-between">
           <div>
             <SectionHeader
-              icon={Smartphone}
-              title="Two-Factor Authentication"
-              description="Use an authenticator app as a second sign-in step for web and driver mobile access."
+              icon={Mail}
+              title="Email Verification"
+              description="Every sign-in is confirmed with a 6-digit code sent to your email. It is required for every account and cannot be switched off."
             />
 
-            {/* 2FA Status Panel */}
+            {/* Factor Status Panel */}
             <div
               className={cn(
                 "flex items-start gap-3.5 rounded-xl border p-4 transition-colors",
-                mfa.enabled
+                mfa.emailConfigured
                   ? "border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/50 dark:bg-emerald-950/20"
-                  : mfa.setupPending
-                    ? "border-amber-100 dark:border-amber-900/40 bg-amber-50/50 dark:bg-amber-950/20"
-                    : "border-sky-100/90 dark:border-sky-900/40 bg-gradient-to-r from-sky-50/70 via-slate-50/40 to-sky-50/30 dark:from-slate-900/60 dark:to-slate-900/30"
+                  : "border-red-100 dark:border-red-900/40 bg-red-50/60 dark:bg-red-950/25"
               )}
             >
               <Shield
                 aria-hidden="true"
                 className={cn(
                   "h-6 w-6 shrink-0 stroke-[1.5] mt-0.5",
-                  mfa.enabled ? "text-emerald-600 dark:text-emerald-400" : "text-slate-500 dark:text-slate-400"
+                  mfa.emailConfigured ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
                 )}
               />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white">2FA Status</span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white">Email code</span>
                   <span
                     className={cn(
                       "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium",
-                      mfa.enabled
+                      mfa.emailConfigured
                         ? "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300"
-                        : mfa.setupPending
-                          ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
-                          : "bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                        : "bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300"
                     )}
                   >
-                    {mfa.enabled ? "Enabled" : mfa.setupPending ? "Setup pending" : "Not configured"}
+                    {mfa.emailConfigured ? "Active" : "Undeliverable"}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                  {mfa.enabled
-                    ? "Authenticator codes are required at the next web or mobile login."
-                    : mfa.setupPending
-                      ? "Enrollment was started but has not been confirmed with an authenticator code."
-                      : "Protect both browser and driver app sign-ins with an authenticator."}
+                  {mfa.emailConfigured
+                    ? `Required at every sign-in on a new device. The code expires in ${
+                        mfa.codeTtlLabel || "a few minutes"
+                      } and can be used once.`
+                    : "The mail server is not reachable, so no sign-in can complete right now. Contact your administrator."}
                 </p>
               </div>
             </div>
@@ -788,9 +663,36 @@ export default function SecurityPage() {
                   <div className="h-3 w-3/4 rounded bg-slate-200/70 dark:bg-slate-800/70" />
                 </div>
               </div>
-            ) : mfa.enabled ? (
-              /* State: 2FA Enabled -> Manage factor */
+            ) : (
               <div className="mt-5 space-y-4">
+                <div className="flex items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-white">Recovery codes</p>
+                  <span
+                    className={cn(
+                      "inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium",
+                      mfa.recoveryCodesRemaining > 0
+                        ? "bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                        : "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
+                    )}
+                  >
+                    {mfa.recoveryCodesRemaining} unused
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Store these somewhere you can reach without email — they are the only way in when a code cannot be
+                  delivered. Each one signs you in once. If you run out, an administrator can issue a single-use
+                  emergency code for you.
+                </p>
+
+                {mfa.recoveryCodesRemaining === 0 && recoveryCodes.length === 0 && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-200/60 dark:border-amber-900/40 bg-amber-50/70 dark:bg-amber-950/30 p-3.5">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                      You have no unused recovery codes left. Generate a new set now, while you can still sign in.
+                    </p>
+                  </div>
+                )}
+
                 {recoveryCodes.length > 0 && (
                   <div className="space-y-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 p-4">
                     <div className="flex items-start gap-2">
@@ -805,32 +707,23 @@ export default function SecurityPage() {
                         <code key={code}>{code}</code>
                       ))}
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={copyRecoveryCodes}
-                        className="inline-flex items-center h-8 px-3 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                      >
-                        <Clipboard className="mr-1.5 h-3.5 w-3.5" />
-                        Copy codes
-                      </button>
-                      <button
-                        type="button"
-                        onClick={signOut}
-                        className="inline-flex items-center h-8 px-3 rounded-lg bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition-colors"
-                      >
-                        <LogOut className="mr-1.5 h-3.5 w-3.5" />
-                        Continue to sign in
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={copyRecoveryCodes}
+                      className="inline-flex items-center h-8 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <Clipboard className="mr-1.5 h-3.5 w-3.5" />
+                      Copy codes
+                    </button>
                   </div>
                 )}
 
                 <div className="space-y-3 border-t border-slate-100 dark:border-slate-800 pt-4">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white">Manage factor</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">Generate a new set</p>
                     <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                      Enter your current password and a current authenticator code. Disabling 2FA signs out every device.
+                      Confirm with your current password. This replaces every existing code, including any you saved
+                      earlier or shared with anyone.
                     </p>
                   </div>
                   <PasswordField
@@ -843,128 +736,34 @@ export default function SecurityPage() {
                     onToggle={() => toggleVisibility("mfaManagePassword")}
                     autoComplete="current-password"
                   />
-                  <div className="space-y-1.5">
-                    <label htmlFor="mfa-manage-code" className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      Authenticator code
-                    </label>
-                    <input
-                      id="mfa-manage-code"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      placeholder="6-digit authenticator code"
-                      value={mfaManageCode}
-                      onChange={(e) => setMfaManageCode(e.target.value)}
-                      className="flex h-11 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 px-3.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus-visible:outline-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 transition-all shadow-2xs"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap pt-1">
+                  <div className="pt-1">
                     <button
                       type="button"
-                      disabled={Boolean(mfaBusy)}
+                      disabled={Boolean(mfaBusy) || !mfaManagePassword}
                       onClick={regenerateRecoveryCodes}
-                      className="inline-flex items-center justify-center h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs disabled:opacity-50"
+                      className="inline-flex items-center justify-center h-10 px-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
                     >
-                      {mfaBusy === "recovery" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                      {mfaBusy === "recovery" ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                      )}
                       Regenerate recovery codes
                     </button>
-                    <button
-                      type="button"
-                      disabled={Boolean(mfaBusy)}
-                      onClick={disableMfa}
-                      className="inline-flex items-center justify-center h-10 px-4 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 border border-red-100 dark:bg-red-950/40 dark:text-red-400 dark:border-red-900/30 text-xs font-semibold transition-colors disabled:opacity-50"
-                    >
-                      {mfaBusy === "disable" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Shield className="mr-2 h-4 w-4" />}
-                      Disable 2FA
-                    </button>
                   </div>
                 </div>
-              </div>
-            ) : mfaSetup ? (
-              /* State: Setup in progress with QR code */
-              <div className="mt-5 space-y-4">
-                <div className="flex flex-col gap-4 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 p-4 sm:flex-row sm:items-center">
-                  <Image
-                    src={mfaSetup.qrCode}
-                    alt="Scan this QR code with an authenticator app"
-                    width={144}
-                    height={144}
-                    unoptimized
-                    className="h-36 w-36 self-center rounded-lg bg-white p-2 border border-slate-200 shadow-2xs"
-                  />
-                  <div className="min-w-0 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
-                    <p className="font-semibold text-slate-900 dark:text-white text-xs">Scan with your authenticator app</p>
-                    <p className="text-xs text-slate-500">If scanning is unavailable, enter this key manually:</p>
-                    <code className="block break-all rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 font-mono text-xs text-slate-900 dark:text-white">
-                      {mfaSetup.manualKey}
-                    </code>
-                    <p className="text-[11px] text-slate-400">Setup expires at {formatDate(mfaSetup.expiresAt)}.</p>
+
+                <div className="rounded-xl border border-slate-200/70 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 p-4">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" strokeWidth={1.75} />
+                    <p className="text-xs font-semibold text-slate-900 dark:text-white">Remembered browsers</p>
                   </div>
+                  <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Ticking &ldquo;remember this device&rdquo; lets a browser skip the code for 7 days — so the accurate
+                    description is one verification per device per week, not one per sign-in. Changing your password
+                    ends every remembered browser immediately. Revoke them under Session Management.
+                  </p>
                 </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="mfa-confirm-code" className="block text-xs font-semibold text-slate-800 dark:text-slate-200">
-                    Confirm with a code
-                  </label>
-                  <input
-                    id="mfa-confirm-code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    placeholder="6-digit authenticator code"
-                    value={mfaCode}
-                    onChange={(e) => setMfaCode(e.target.value)}
-                    className="flex h-11 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 px-3.5 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus-visible:outline-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 transition-all shadow-2xs"
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    type="button"
-                    disabled={mfaBusy === "confirm" || !mfaCode}
-                    onClick={confirmMfa}
-                    className="inline-flex items-center justify-center h-10 px-5 rounded-xl bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    {mfaBusy === "confirm" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Enable 2FA
-                  </button>
-                  <button
-                    type="button"
-                    disabled={Boolean(mfaBusy)}
-                    onClick={() => setMfaSetup(null)}
-                    className="inline-flex items-center justify-center h-10 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* State: 2FA Not Configured */
-              <div className="mt-4 space-y-4">
-                <PasswordField
-                  id="mfa-setup-password"
-                  name="mfaSetupPassword"
-                  label="Current password"
-                  value={mfaSetupPassword}
-                  onChange={(e) => setMfaSetupPassword(e.target.value)}
-                  visible={visibility.mfaSetupPassword}
-                  onToggle={() => toggleVisibility("mfaSetupPassword")}
-                  autoComplete="current-password"
-                  placeholder="Enter your current password"
-                />
-
-                <div>
-                  <button
-                    type="button"
-                    disabled={mfaBusy === "setup" || !mfaSetupPassword}
-                    onClick={startMfaSetup}
-                    className="inline-flex items-center justify-center h-11 px-5 rounded-xl bg-[#475569] hover:bg-[#334155] text-white dark:bg-slate-700 dark:hover:bg-slate-600 text-sm font-medium transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
-                  >
-                    {mfaBusy === "setup" ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : null}
-                    <span>{mfaBusy === "setup" ? "Preparing setup..." : "Set up authenticator"}</span>
-                    {mfaBusy !== "setup" && <ChevronRight className="ml-2 h-4 w-4 stroke-[2.5]" />}
-                  </button>
-                </div>
-
-                <AuthenticatorApps />
               </div>
             )}
           </div>

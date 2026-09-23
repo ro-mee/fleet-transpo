@@ -18,6 +18,10 @@ const STAFF_ROUTES = {
   driver: (id) => `/drivers/${id}`,
   incident: () => `/incidents`,
   leave_request: () => `/drivers/leave`,
+  // New-device sign-in notices (new-device-alert.js). reference_id carries the
+  // employee's own id, which the route ignores — it only has to be non-null for
+  // the href to resolve at all.
+  security: () => `/settings/security`,
 };
 
 const DRIVER_ROUTES = {

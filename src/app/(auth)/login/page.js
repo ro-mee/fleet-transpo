@@ -12,6 +12,12 @@ import {
   useReducedMotion,
 } from "framer-motion";
 import { rememberTrustedDevice, revokeTrustedDevice, signIn } from "@/services/auth.service";
+import {
+  OTP_RESEND_COOLDOWN_SECONDS,
+  OTP_TTL_SECONDS,
+  describeOtpTtl,
+  maskEmailAddress,
+} from "@/lib/auth/otp-policy";
 import { getSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -411,6 +417,10 @@ function MfaVerificationDialog({
   onVerify,
   onClose,
   onToggleRecovery,
+  onResend,
+  resendSeconds,
+  resendNotice,
+  email,
   recoveryMode,
   status,
   error,
@@ -493,7 +503,7 @@ function MfaVerificationDialog({
             </AnimatePresence>
 
             <DialogTitle className="mt-2.5 text-[1.45rem] font-bold tracking-[-0.025em] text-[#17213a] dark:text-slate-100">
-              {isVerifying ? "Verifying your code" : isSuccess ? "You're all set!" : "Two-Factor Authentication"}
+              {isVerifying ? "Verifying your code" : isSuccess ? "You're all set!" : "Email Verification"}
             </DialogTitle>
             <DialogDescription className="mx-auto mt-1.5 max-w-[24rem] text-sm leading-[1.45] text-[#536078] dark:text-slate-400">
               {isVerifying ? (
@@ -504,8 +514,11 @@ function MfaVerificationDialog({
                 "Enter one unused recovery code to continue to FleetOps."
               ) : (
                 <>
-                  Enter the 6-digit code from your authenticator app
+                  Enter the 6-digit code we emailed to
                   <br />
+                  <span className="font-semibold text-[#17213a] dark:text-slate-200">
+                    {maskEmailAddress(email)}
+                  </span>{" "}
                   to continue to FleetOps.
                 </>
               )}
@@ -554,11 +567,15 @@ function MfaVerificationDialog({
             )}
 
             <div className="mt-4 flex items-start gap-2.5 text-[#536078] dark:text-slate-400">
-              <Smartphone className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={1.6} />
+              {recoveryMode ? (
+                <Smartphone className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={1.6} />
+              ) : (
+                <Mail className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={1.6} />
+              )}
               <p className="text-sm leading-[1.45]">
                 {recoveryMode
-                  ? "Use a recovery code that has not been used before."
-                  : "Open your authenticator app (e.g. Google Authenticator, Authy, or Microsoft Authenticator) and enter the code."}
+                  ? "Each recovery code works once. Use one you saved when you set up your account."
+                  : `The code expires in ${describeOtpTtl(OTP_TTL_SECONDS)}. If it has not arrived, check your spam folder.`}
               </p>
             </div>
 
@@ -574,6 +591,24 @@ function MfaVerificationDialog({
             >
               {error || (isSuccess ? "Verification complete." : "")}
             </div>
+
+            {!recoveryMode && (
+              <div className="mt-2 text-center">
+                <button
+                  type="button"
+                  onClick={onResend}
+                  disabled={loading || isSuccess || resendSeconds > 0}
+                  className="text-[13px] font-semibold text-[#3475e8] underline-offset-2 transition-colors duration-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3475e8] focus-visible:ring-offset-2 focus-visible:ring-offset-[#f9fbff] disabled:cursor-default disabled:text-[#7b8599] disabled:no-underline dark:text-[#6f9bf0] dark:focus-visible:ring-offset-slate-950 dark:disabled:text-slate-500"
+                >
+                  {resendSeconds > 0 ? `Email a new code in ${resendSeconds}s` : "Email me a new code"}
+                </button>
+                {resendNotice && (
+                  <p className="mt-1 text-[12px] leading-relaxed text-[#536078] dark:text-slate-400">
+                    {resendNotice}
+                  </p>
+                )}
+              </div>
+            )}
 
             <label
               htmlFor="rememberDevice"
@@ -598,12 +633,12 @@ function MfaVerificationDialog({
               >
                 <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
               </span>
-              <span>Remember this device for 30 days</span>
+              <span>Remember this device for 7 days</span>
               <Info
                 className="h-4 w-4 text-[#536078] dark:text-slate-400"
                 strokeWidth={1.7}
                 aria-hidden="true"
-                title="This browser can skip MFA for 30 days"
+                title="This browser can skip the emailed code for 7 days"
               />
             </label>
 
@@ -620,7 +655,7 @@ function MfaVerificationDialog({
               className="mx-auto mt-3 flex h-[3rem] w-full max-w-[19rem] items-center justify-center gap-2.5 rounded-[0.9rem] border border-[#d1d9e8] bg-transparent px-5 text-sm font-semibold text-[#17213a] transition-colors duration-200 hover:bg-[#eef3fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3475e8] focus-visible:ring-offset-2 focus-visible:ring-offset-[#f9fbff] disabled:pointer-events-none disabled:opacity-50 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-900 dark:focus-visible:ring-offset-slate-950"
             >
               <RefreshCw className="h-[1.15rem] w-[1.15rem] text-[#536078] dark:text-slate-400" strokeWidth={1.8} />
-              {recoveryMode ? "Use authenticator app instead" : "Use a recovery code instead"}
+              {recoveryMode ? "Use an emailed code instead" : "Use a recovery code instead"}
             </button>
             </form>
           )}
@@ -640,6 +675,12 @@ export default function LoginPage() {
   const [mfaRecoveryMode, setMfaRecoveryMode] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(false);
   const [mfaStatus, setMfaStatus] = useState("idle");
+  // The server refuses to send a second code within OTP_RESEND_COOLDOWN_SECONDS
+  // of the first, so the button counts that window down rather than offering a
+  // resend that would silently do nothing. Imported from the shared policy
+  // module so the two cannot drift apart.
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const [resendNotice, setResendNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dismissedNotice, setDismissedNotice] = useState(false);
@@ -697,6 +738,17 @@ export default function LoginPage() {
     setError("");
   };
 
+  // Countdown for the resend affordance. Kept beside the lockout countdown above
+  // and shaped the same way, so the modal has one obvious "why is this disabled"
+  // idiom rather than two.
+  useEffect(() => {
+    if (resendSeconds <= 0) return undefined;
+    const timer = setTimeout(() => {
+      setResendSeconds((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [resendSeconds]);
+
   const handleMfaCodeChange = (nextCode) => {
     setMfaCode(nextCode);
     setMfaStatus("idle");
@@ -733,7 +785,7 @@ export default function LoginPage() {
     const verificationStartedAt = Date.now();
 
     try {
-      await signIn(email, password, { mfaCode: normalizedCode });
+      await signIn(email, password, { otpCode: normalizedCode });
       const session = await getSession();
       try {
         if (rememberDevice) await rememberTrustedDevice();
@@ -761,12 +813,61 @@ export default function LoginPage() {
       }
 
       if (err.message === "MFA_UNAVAILABLE") {
-        setError("Two-factor authentication is temporarily unavailable. Try again later.");
+        setError(
+          "Verification is temporarily unavailable, so no code could be sent. Please try again shortly."
+        );
+        setMfaStatus("error");
+        return;
+      }
+
+      if (err.message === "OTP_UNDELIVERABLE") {
+        setError(
+          "No verification code could be sent to this account, so the sign-in was stopped. Contact your administrator."
+        );
         setMfaStatus("error");
         return;
       }
 
       setError("We couldn't verify that code. Please try again.");
+      setMfaStatus("error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Re-sends the code.
+   *
+   * There is no resend endpoint: submitting the form with no code is the resend.
+   * `authorize` only runs after the password verified, so a stray caller cannot
+   * make this mail anybody, and the server's own cooldown is the throttle — which
+   * is why the button below mirrors that cooldown instead of trusting itself.
+   */
+  const handleResendCode = async () => {
+    if (loading || mfaStatus === "success" || resendSeconds > 0) return;
+    setError("");
+    setResendNotice("");
+    setLoading(true);
+    try {
+      // Never returns a session: the server answers MFA_REQUIRED whenever no
+      // code is supplied, which is exactly what is wanted here.
+      await signIn(email, password, { otpCode: "" });
+    } catch (err) {
+      if (err.message === "MFA_REQUIRED") {
+        setMfaCode("");
+        setMfaStatus("idle");
+        setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+        setResendNotice(`A new code is on its way to ${maskEmailAddress(email)}.`);
+        return;
+      }
+      if (err.message === "OTP_UNDELIVERABLE" || err.message === "MFA_UNAVAILABLE") {
+        setError(
+          "No verification code could be sent to this account. Contact your administrator."
+        );
+        setMfaStatus("error");
+        return;
+      }
+      setError("We couldn't send a new code. Please try again.");
       setMfaStatus("error");
     } finally {
       setLoading(false);
@@ -784,7 +885,9 @@ export default function LoginPage() {
       onSuccess: async () => {
         setLoading(true);
         try {
-          await signIn(email, password, { mfaCode });
+          // No code yet, so this call is what sends one: the server issues the
+          // challenge, emails it, and answers MFA_REQUIRED.
+          await signIn(email, password, { otpCode: "" });
           await redirectAfterSignIn();
         } catch (err) {
           if (err.message === "MFA_REQUIRED") {
@@ -794,6 +897,8 @@ export default function LoginPage() {
             setRememberDevice(false);
             setMfaStatus("idle");
             setError("");
+            setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+            setResendNotice("");
             return;
           }
           if (err.message === "MFA_INVALID") {
@@ -803,7 +908,15 @@ export default function LoginPage() {
             return;
           }
           if (err.message === "MFA_UNAVAILABLE") {
-            setError("Two-factor authentication is temporarily unavailable. Try again later.");
+            setError(
+              "Verification is temporarily unavailable, so no code could be sent. Please try again shortly."
+            );
+            return;
+          }
+          if (err.message === "OTP_UNDELIVERABLE") {
+            setError(
+              "No verification code could be sent to this account, so the sign-in was stopped. Contact your administrator."
+            );
             return;
           }
           // NextAuth collapses every authorize() failure (wrong password, IP
@@ -1110,6 +1223,10 @@ export default function LoginPage() {
         onVerify={handleMfaSubmit}
         onClose={closeMfaDialog}
         onToggleRecovery={toggleMfaRecoveryMode}
+        onResend={handleResendCode}
+        resendSeconds={resendSeconds}
+        resendNotice={resendNotice}
+        email={email}
         recoveryMode={mfaRecoveryMode}
         status={mfaStatus}
         error={error}

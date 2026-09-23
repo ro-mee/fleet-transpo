@@ -1,6 +1,19 @@
 import { createHash, randomBytes } from "node:crypto";
 
-export const TRUSTED_DEVICE_TTL_SECONDS = 30 * 24 * 60 * 60;
+/**
+ * How long a browser may skip the emailed code.
+ *
+ * Shortened from 30 days when the second factor moved to email OTP. The 30-day
+ * value was chosen against TOTP, where the thing being skipped lived on the
+ * user's own device; an emailed code protects a mailbox, so the window it can
+ * be skipped for should be a working week, not a month. A stolen laptop is
+ * therefore worth at most 7 days of access, and a password change still ends
+ * it immediately via `auth_version`.
+ *
+ * This is the reason the honest claim is "MFA at first sign-in per device",
+ * not "MFA on every sign-in" — see Authentication.md.
+ */
+export const TRUSTED_DEVICE_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const TRUSTED_DEVICE_COOKIE =
   process.env.NODE_ENV === "production"
     ? "__Host-fleetops-trusted-device"
