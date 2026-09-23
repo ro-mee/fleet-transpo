@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { query, getAdminClient } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
+import { LEGAL_DRIVING_AGE, isAtLeastAge } from "@/lib/validation/age";
 import { signDriverMedia, signDriverMediaList, toStoredMediaRef } from "@/lib/drivers/media";
 import { ROLE_IDS } from "@/lib/constants";
 import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
@@ -261,7 +262,17 @@ export async function POST(req) {
       license_image_url: { type: "mediaUrl", label: "License front scan" },
       license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
-      birthdate: { type: "date", label: "Birthdate" },
+      birthdate: {
+        type: "date",
+        label: "Birthdate",
+        // Server-side floor, not just the picker's: a driver must be of legal
+        // driving age. Enforced here because `driverSchema` is the form's
+        // resolver and no application code runs on a direct API call.
+        validate: (v) =>
+          isAtLeastAge(v, LEGAL_DRIVING_AGE)
+            ? null
+            : `Birthdate must be at least ${LEGAL_DRIVING_AGE} years ago.`,
+      },
       sex: { maxLength: 20, label: "Sex" },
       nationality: { maxLength: 100, label: "Nationality" },
       address: { maxLength: 255, label: "Address" },

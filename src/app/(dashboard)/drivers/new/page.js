@@ -41,6 +41,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { driverSchema } from "@/lib/validation/schemas";
+import { LEGAL_DRIVING_AGE } from "@/lib/validation/age";
 import { rotateBase64Image } from "@/lib/images";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { cn } from "@/lib/utils";
@@ -386,8 +387,13 @@ export default function NewDriverPage() {
                       id="birthdate"
                       label="Birthdate"
                       value={form.watch("birthdate")}
-                      onChange={(val) => form.setValue("birthdate", val)}
+                      onChange={(val) => form.setValue("birthdate", val, { shouldValidate: true })}
+                      minAge={LEGAL_DRIVING_AGE}
+                      error={form.formState.errors.birthdate?.message}
                     />
+                    <p className="text-[11px] text-foreground-muted mt-1.5">
+                      Must be at least {LEGAL_DRIVING_AGE} years old — years past that are not selectable.
+                    </p>
                   </div>
 
                   <Controller

@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
+import { LEGAL_DRIVING_AGE, isAtLeastAge } from "@/lib/validation/age";
 import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
 import { writeAudit } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
@@ -146,7 +147,15 @@ export async function PUT(req, { params }) {
       license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
       driver_status: { maxLength: 30, label: "Driver status" },
-      birthdate: { type: "date", label: "Birthdate" },
+      birthdate: {
+        type: "date",
+        label: "Birthdate",
+        // Same legal-age floor as POST /api/drivers — see the note there.
+        validate: (v) =>
+          isAtLeastAge(v, LEGAL_DRIVING_AGE)
+            ? null
+            : `Birthdate must be at least ${LEGAL_DRIVING_AGE} years ago.`,
+      },
       sex: { maxLength: 20, label: "Sex" },
       nationality: { maxLength: 100, label: "Nationality" },
       address: { maxLength: 255, label: "Address" },

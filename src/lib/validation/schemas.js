@@ -8,6 +8,8 @@ import {
   isPlateNumberPH,
   isIsoDate,
   isDateInPast,
+  isAtLeastAge,
+  LEGAL_DRIVING_AGE,
   isPassword,
 } from "./index";
 
@@ -30,6 +32,10 @@ const dateString = (label, opts = {}) =>
     .string()
     .refine((v) => !v || isIsoDate(v), `${label} must be a valid date.`)
     .refine((v) => !v || !opts.noPast || !isDateInPast(v), `${label} must not be in the past.`)
+    .refine(
+      (v) => !v || opts.minAge == null || isAtLeastAge(v, opts.minAge),
+      `${label} must be at least ${opts.minAge} years ago.`
+    )
     .optional()
     .or(z.literal(""));
 
@@ -138,7 +144,7 @@ export const driverSchema = z.object({
   license_back_image_url: z.string().optional(),
   address: z.string().max(255, "Address must be at most 255 characters.").optional().or(z.literal("")),
   sex: z.string().max(20, "Sex must be at most 20 characters.").optional().or(z.literal("")),
-  birthdate: dateString("Birthdate"),
+  birthdate: dateString("Birthdate", { minAge: LEGAL_DRIVING_AGE }),
   nationality: z.string().max(100, "Nationality must be at most 100 characters.").optional().or(z.literal("")),
   emergency_contact_name: optionalString({ max: 150 }),
   emergency_contact_address: optionalString({ max: 255 }),

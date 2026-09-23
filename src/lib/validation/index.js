@@ -103,6 +103,10 @@ export function isDateInFuture(value) {
   return new Date(`${String(value).slice(0, 10)}T00:00:00`) >= today;
 }
 
+// Age rules live in their own dependency-free module so the client-side
+// date picker can share them without pulling this barrel into the bundle.
+export { LEGAL_DRIVING_AGE, legalAgeCutoff, isAtLeastAge } from "./age";
+
 export function isTime(value) {
   return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 }

@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { format, addMonths, subMonths, setMonth, setYear, getDaysInMonth, startOfMonth, getDay } from "date-fns";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, ChevronDown, Check } from "lucide-react";
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, ChevronDown, Check, AlertCircle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { legalAgeCutoff } from "@/lib/validation/age";
 import { cn } from "@/lib/utils";
 
 const MONTHS = [
@@ -18,6 +19,7 @@ export function CalendarHeaderSelect({
   options,
   className,
   menuClassName,
+  disabledValues,
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const containerRef = React.useRef(null);
@@ -86,6 +88,7 @@ export function CalendarHeaderSelect({
         >
           {options.map((opt) => {
             const isSelected = opt.value === value;
+            const isDisabled = disabledValues?.includes(opt.value) ?? false;
             return (
               <button
                 key={opt.value}
@@ -93,15 +96,20 @@ export function CalendarHeaderSelect({
                 type="button"
                 role="option"
                 aria-selected={isSelected}
+                disabled={isDisabled}
+                aria-disabled={isDisabled}
                 onClick={() => {
+                  if (isDisabled) return;
                   onChange(opt.value);
                   setIsOpen(false);
                 }}
                 className={cn(
-                  "flex w-full items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left transition-colors cursor-pointer select-none",
-                  isSelected
-                    ? "bg-primary/10 text-primary font-bold"
-                    : "text-foreground hover:bg-hover hover:text-primary focus:bg-hover focus:text-primary outline-hidden"
+                  "flex w-full items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left transition-colors select-none",
+                  isDisabled
+                    ? "text-foreground-muted/40 cursor-not-allowed"
+                    : isSelected
+                    ? "bg-primary/10 text-primary font-bold cursor-pointer"
+                    : "text-foreground hover:bg-hover hover:text-primary focus:bg-hover focus:text-primary outline-hidden cursor-pointer"
                 )}
               >
                 <span>{opt.label}</span>
@@ -127,6 +135,9 @@ export function DatePicker({
   disablePast = false,
   minDate = null,
   maxDate = null,
+  minAge = null,
+  maxAge = null,
+  error,
   className,
 }) {
   const [open, setOpen] = React.useState(false);
@@ -140,8 +151,20 @@ export function DatePicker({
     return isNaN(d.getTime()) ? null : d;
   }, [value]);
 
+  // Legal-age floor. When `minAge` is set, the newest selectable date is the day
+  // the person would turn `minAge` — so an underage year can never be picked, and
+  // the calendar opens on that boundary year rather than on today (which, for a
+  // birthdate, is always out of range). Resolved once per mount: a form is never
+  // left open across a birthday boundary in any meaningful sense.
+  const legalAgeBoundary = React.useMemo(
+    () => (minAge == null ? null : legalAgeCutoff(minAge)),
+    [minAge]
+  );
+
   const [selectedDate, setSelectedDate] = React.useState(parsedDate);
-  const [viewDate, setViewDate] = React.useState(parsedDate || new Date());
+  const [viewDate, setViewDate] = React.useState(
+    parsedDate || legalAgeBoundary || new Date()
+  );
 
   // Keep internal state in sync with external value changes
   React.useEffect(() => {
@@ -175,7 +198,9 @@ export function DatePicker({
     return isNaN(d.getTime()) ? null : d;
   }, [maxDate]);
   const isOutsideRange = (dateObj) =>
-    (minDay && dateObj < minDay) || (maxDay && dateObj > maxDay);
+    (minDay && dateObj < minDay) ||
+    (maxDay && dateObj > maxDay) ||
+    (legalAgeBoundary && dateObj > legalAgeBoundary);
 
   const commitDate = (dateObj) => {
     if (!dateObj) {
@@ -192,9 +217,15 @@ export function DatePicker({
     onChange?.(formattedYmd);
   };
 
-  // Navigation handlers
+  // Navigation handlers. Forward navigation stops at the legal-age boundary so the
+  // calendar can't be walked into a month where every single day is unselectable.
   const handlePrevMonth = () => setViewDate((prev) => subMonths(prev, 1));
-  const handleNextMonth = () => setViewDate((prev) => addMonths(prev, 1));
+  const handleNextMonth = () =>
+    setViewDate((prev) => {
+      const next = addMonths(prev, 1);
+      if (legalAgeBoundary && startOfMonth(next) > legalAgeBoundary) return prev;
+      return next;
+    });
 
   const handleMonthChange = (monthIdx) => {
     setViewDate((prev) => setMonth(prev, monthIdx));
@@ -250,15 +281,30 @@ export function DatePicker({
   const nextMonthDays = Array.from({ length: nextMonthDaysCount }, (_, i) => i + 1);
 
   const currentYear = new Date().getFullYear();
-  // Broad year range (e.g. 1946 to 2041) for driver birthdates and future renewals
+  // Broad year range (e.g. 1946 to 2041) for driver birthdates and future renewals.
+  // With `minAge` the top end is pulled back to the legal-age boundary year, so the
+  // list itself never offers a year the person could not legally have been born in.
+  const oldestYear = currentYear - (maxAge ?? 80);
+  const newestYear = legalAgeBoundary ? legalAgeBoundary.getFullYear() : currentYear + 15;
   const yearOptions = React.useMemo(
-    () => Array.from({ length: 96 }, (_, i) => currentYear - 80 + i),
-    [currentYear]
+    () => Array.from({ length: newestYear - oldestYear + 1 }, (_, i) => oldestYear + i),
+    [oldestYear, newestYear]
   );
   const monthOptions = React.useMemo(
     () => MONTHS.map((m, idx) => ({ value: idx, label: m })),
     []
   );
+
+  // Months that fall entirely past the legal-age boundary, so they can't be
+  // navigated into from the boundary year.
+  const disabledMonths = React.useMemo(() => {
+    if (!legalAgeBoundary || viewDate.getFullYear() !== legalAgeBoundary.getFullYear()) {
+      return [];
+    }
+    return monthOptions
+      .filter((m) => m.value > legalAgeBoundary.getMonth())
+      .map((m) => m.value);
+  }, [legalAgeBoundary, viewDate, monthOptions]);
 
   const formattedDateString = selectedDate ? format(selectedDate, "MMM dd, yyyy") : "";
 
@@ -276,9 +322,9 @@ export function DatePicker({
           disabled={disabled}
           className={cn(
             "flex w-full items-center justify-between rounded-2xl p-[5px] text-left transition-all cursor-pointer",
-            "bg-gradient-to-b from-border/70 to-border/30 ring-1 ring-border/70 hover:ring-primary/50",
-            selectedDate ? "ring-primary/60" : "",
-            open && "ring-primary",
+            "bg-gradient-to-b from-border/70 to-border/30 ring-1 hover:ring-primary/50",
+            error ? "ring-danger/60" : selectedDate ? "ring-primary/60" : "ring-border/70",
+            open && !error && "ring-primary",
             "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             disabled && "opacity-50 cursor-not-allowed",
             className
@@ -326,6 +372,12 @@ export function DatePicker({
       )}
     </div>
 
+    {error && (
+      <p className="text-xs text-danger font-medium mt-1 px-1 flex items-center gap-1">
+        <AlertCircle className="w-3 h-3 shrink-0" /> {error}
+      </p>
+    )}
+
       <PopoverContent align="start" className="w-[260px] p-3.5 rounded-3xl border border-border/80 shadow-lg bg-surface">
         <div className="space-y-3">
           {/* Month / Year Header */}
@@ -345,6 +397,7 @@ export function DatePicker({
                 value={viewDate.getMonth()}
                 onChange={handleMonthChange}
                 options={monthOptions}
+                disabledValues={disabledMonths}
                 className="w-auto"
                 menuClassName="min-w-[125px]"
               />
@@ -444,15 +497,19 @@ export function DatePicker({
             >
               Clear
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handleToday}
-              className="h-7 text-xs font-semibold px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20"
-            >
-              Today
-            </Button>
+            {/* "Today" is meaningless once a legal-age floor is set — today is
+                always an invalid birthdate — so the shortcut is withheld. */}
+            {!legalAgeBoundary && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleToday}
+                className="h-7 text-xs font-semibold px-3 rounded-xl bg-primary/10 text-primary hover:bg-primary/20"
+              >
+                Today
+              </Button>
+            )}
           </div>
         </div>
       </PopoverContent>
