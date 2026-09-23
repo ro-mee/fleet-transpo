@@ -209,7 +209,13 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
 
     if (tab.routeName === "map") {
       return (
-        <CoachMarkTarget key={tab.routeName} targetId="tab.map" radius={24} padding={4}>
+        <CoachMarkTarget
+          key={tab.routeName}
+          targetId="tab.map"
+          radius={24}
+          padding={4}
+          style={styles.tabTarget}
+        >
           {itemNode}
         </CoachMarkTarget>
       );
@@ -376,6 +382,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingTop: 8,
     paddingBottom: 4,
+    zIndex: 125,
+  },
+  // The Map tab is wrapped in a CoachMarkTarget, whose root is an Animated.View.
+  // That wrapper has to carry the tab's flex box itself: a bare View defaults to
+  // flexGrow 0 / flexShrink 0, so without this it shrinks to its content while
+  // its sibling keeps `flex: 1` and absorbs the cluster's free space — the left
+  // cluster (Home + Map) then stops matching the right one (Trips + Profile).
+  // The same reason DriverHomeCards and DriverSos pass a style to their targets.
+  // zIndex mirrors tabItem's so the Map tab keeps stacking above the clay wave.
+  tabTarget: {
+    flex: 1,
+    height: "100%",
     zIndex: 125,
   },
   tabLabel: {
