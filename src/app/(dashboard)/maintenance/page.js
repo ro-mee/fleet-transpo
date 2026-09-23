@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FloatingField } from "@/components/ui/field";
+import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -504,35 +504,35 @@ export default function MaintenancePage() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FloatingField label="Vehicle" icon={Wrench} required error={fieldError("vehicle_id").error}>
-                  <select
-                    id="vehicle_id"
-                    value={formData.vehicle_id}
-                    onChange={(e) => setFormData({ ...formData, vehicle_id: e.target.value })}
-                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                  >
-                    <option value="">Select vehicle</option>
-                    {vehicles.map((v) => (
-                      <option key={v.vehicle_id} value={v.vehicle_id}>
-                        {v.plate_number} — {v.vehicle_name} ({v.model || "Standard"})
-                      </option>
-                    ))}
-                  </select>
-                </FloatingField>
+                <FloatingSelect
+                  label="Vehicle"
+                  icon={Wrench}
+                  required
+                  error={fieldError("vehicle_id").error}
+                  id="vehicle_id"
+                  value={formData.vehicle_id}
+                  onValueChange={(val) => setFormData({ ...formData, vehicle_id: val })}
+                  placeholder="Select vehicle"
+                >
+                  {vehicles.map((v) => (
+                    <SelectItem key={v.vehicle_id} value={v.vehicle_id}>
+                      {v.plate_number} — {v.vehicle_name} ({v.model || "Standard"})
+                    </SelectItem>
+                  ))}
+                </FloatingSelect>
 
-                <FloatingField label="Maintenance Type" icon={Tag}>
-                  <select
-                    id="maintenance_type"
-                    value={formData.maintenance_type}
-                    onChange={(e) => setFormData({ ...formData, maintenance_type: e.target.value })}
-                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                  >
-                    <option value="Routine">Routine Service</option>
-                    <option value="Repair">Repair</option>
-                    <option value="Emergency">Emergency</option>
-                    <option value="Inspection">Inspection</option>
-                  </select>
-                </FloatingField>
+                <FloatingSelect
+                  label="Maintenance Type"
+                  icon={Tag}
+                  id="maintenance_type"
+                  value={formData.maintenance_type}
+                  onValueChange={(val) => setFormData({ ...formData, maintenance_type: val })}
+                >
+                  <SelectItem value="Routine">Routine Service</SelectItem>
+                  <SelectItem value="Repair">Repair</SelectItem>
+                  <SelectItem value="Emergency">Emergency</SelectItem>
+                  <SelectItem value="Inspection">Inspection</SelectItem>
+                </FloatingSelect>
 
                 <div>
                   <DatePicker
@@ -598,34 +598,32 @@ export default function MaintenancePage() {
                   />
                 </FloatingField>
 
-                <FloatingField label="Priority Level" icon={Tag}>
-                  <select
-                    id="priority"
-                    value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                  >
-                    <option value="Low">Low</option>
-                    <option value="Normal">Normal</option>
-                    <option value="High">High</option>
-                    <option value="Urgent">Urgent</option>
-                  </select>
-                </FloatingField>
+                <FloatingSelect
+                  label="Priority Level"
+                  icon={Tag}
+                  id="priority"
+                  value={formData.priority}
+                  onValueChange={(val) => setFormData({ ...formData, priority: val })}
+                >
+                  <SelectItem value="Low">Low</SelectItem>
+                  <SelectItem value="Normal">Normal</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Urgent">Urgent</SelectItem>
+                </FloatingSelect>
 
-                <FloatingField label="Work Status" icon={Tag}>
-                  <select
-                    id="status"
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                  >
-                    <option value="Scheduled">Scheduled</option>
-                    <option value="In Progress">In Progress</option>
-                    <option value="Pending Inspection">Pending Inspection</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Cancelled">Cancelled</option>
-                  </select>
-                </FloatingField>
+                <FloatingSelect
+                  label="Work Status"
+                  icon={Tag}
+                  id="status"
+                  value={formData.status}
+                  onValueChange={(val) => setFormData({ ...formData, status: val })}
+                >
+                  <SelectItem value="Scheduled">Scheduled</SelectItem>
+                  <SelectItem value="In Progress">In Progress</SelectItem>
+                  <SelectItem value="Pending Inspection">Pending Inspection</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                  <SelectItem value="Cancelled">Cancelled</SelectItem>
+                </FloatingSelect>
 
                 <FloatingField label="Description &amp; Work Done" icon={FileText} className="md:col-span-2">
                   <textarea

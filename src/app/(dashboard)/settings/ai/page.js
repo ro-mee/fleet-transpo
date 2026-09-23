@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -672,23 +673,25 @@ export default function AiSettingsPage() {
                   <Label htmlFor="provider_class" className="text-xs font-semibold text-foreground">
                     Provider Type / Architecture <span className="text-danger">*</span>
                   </Label>
-                  <select
-                    id="provider_class"
+                  <Select
                     value={formData.provider_class}
-                    onChange={(e) => {
-                      setFormData({ ...formData, provider_class: e.target.value });
+                    onValueChange={(val) => {
+                      setFormData({ ...formData, provider_class: val });
                       setFetchedModelList([]);
                     }}
-                    className="flex h-9 w-full rounded-xl border border-border/80 bg-surface px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
-                    <option value="" disabled>Select provider type...</option>
-                    <option value="OpenAI">OpenAI</option>
-                    <option value="Gemini">Google Gemini</option>
-                    <option value="Anthropic">Anthropic Claude</option>
-                    <option value="Groq">Groq</option>
-                    <option value="DeepSeek">DeepSeek</option>
-                    <option value="Custom">Custom OpenAI-Compatible</option>
-                  </select>
+                    <SelectTrigger id="provider_class" className="h-9 text-xs">
+                      <SelectValue placeholder="Select provider type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="OpenAI">OpenAI</SelectItem>
+                      <SelectItem value="Gemini">Google Gemini</SelectItem>
+                      <SelectItem value="Anthropic">Anthropic Claude</SelectItem>
+                      <SelectItem value="Groq">Groq</SelectItem>
+                      <SelectItem value="DeepSeek">DeepSeek</SelectItem>
+                      <SelectItem value="Custom">Custom OpenAI-Compatible</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
@@ -758,16 +761,21 @@ export default function AiSettingsPage() {
                   <Label htmlFor="model_name" className="text-xs font-semibold text-foreground">Model Name</Label>
                   <div className="flex gap-2">
                     {fetchedModelList.length > 0 ? (
-                      <select
-                        id="model_name"
+                      <Select
                         value={formData.model_name}
-                        onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
-                        className="flex h-9 w-full rounded-xl border border-border/80 bg-surface px-3 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        onValueChange={(val) => setFormData({ ...formData, model_name: val })}
                       >
-                        {fetchedModelList.map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
+                        <SelectTrigger id="model_name" className="h-9 text-xs font-mono flex-1">
+                          <SelectValue placeholder="Select model..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {fetchedModelList.map((m) => (
+                            <SelectItem key={m} value={m} className="font-mono text-xs">
+                              {m}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     ) : (
                       <Input
                         id="model_name"

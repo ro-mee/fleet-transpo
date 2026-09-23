@@ -5,6 +5,7 @@ import { format, addMonths, subMonths, setMonth, setYear, getDaysInMonth, startO
 import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarClock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { CalendarHeaderSelect } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
 
 const MONTHS = [
@@ -93,12 +94,12 @@ export function DateTimePicker({
   const handlePrevMonth = () => setViewDate((prev) => subMonths(prev, 1));
   const handleNextMonth = () => setViewDate((prev) => addMonths(prev, 1));
 
-  const handleMonthChange = (e) => {
-    setViewDate((prev) => setMonth(prev, parseInt(e.target.value, 10)));
+  const handleMonthChange = (monthIdx) => {
+    setViewDate((prev) => setMonth(prev, monthIdx));
   };
 
-  const handleYearChange = (e) => {
-    setViewDate((prev) => setYear(prev, parseInt(e.target.value, 10)));
+  const handleYearChange = (yearNum) => {
+    setViewDate((prev) => setYear(prev, yearNum));
   };
 
   const handleSelectDay = (dayNum) => {
@@ -242,9 +243,16 @@ export function DateTimePicker({
   const nextMonthDaysCount = (7 - (totalGridCells % 7)) % 7;
   const nextMonthDays = Array.from({ length: nextMonthDaysCount }, (_, i) => i + 1);
 
-  // Year options list
+  // Year and month options list
   const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 15 }, (_, i) => currentYear - 2 + i);
+  const yearOptions = React.useMemo(
+    () => Array.from({ length: 40 }, (_, i) => currentYear - 10 + i),
+    [currentYear]
+  );
+  const monthOptions = React.useMemo(
+    () => MONTHS.map((m, idx) => ({ value: idx, label: m })),
+    []
+  );
 
   const formattedDateString = selectedDate ? format(selectedDate, "MMM dd, yyyy") : "";
   const formattedTimeString = `${String(hour).padStart(2, "0")} : ${String(minute).padStart(2, "0")} ${period}`;
@@ -315,29 +323,21 @@ export function DateTimePicker({
               </Button>
 
               <div className="flex items-center gap-1.5">
-                <select
+                <CalendarHeaderSelect
                   value={viewDate.getMonth()}
                   onChange={handleMonthChange}
-                  className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
-                >
-                  {MONTHS.map((m, idx) => (
-                    <option key={m} value={idx} className="bg-surface text-foreground">
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                  options={monthOptions}
+                  className="w-auto"
+                  menuClassName="min-w-[125px]"
+                />
 
-                <select
+                <CalendarHeaderSelect
                   value={viewDate.getFullYear()}
                   onChange={handleYearChange}
-                  className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
-                >
-                  {yearOptions.map((y) => (
-                    <option key={y} value={y} className="bg-surface text-foreground">
-                      {y}
-                    </option>
-                  ))}
-                </select>
+                  options={yearOptions.map((y) => ({ value: y, label: y.toString() }))}
+                  className="w-auto"
+                  menuClassName="min-w-[85px]"
+                />
               </div>
 
               <Button

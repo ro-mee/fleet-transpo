@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -183,16 +184,20 @@ export default function SystemErrorsPage() {
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
               <label className="text-[11px] font-semibold text-foreground-muted block mb-1">Source</label>
-              <select
-                value={filters.source}
-                onChange={(e) => setFilters({ ...filters, source: e.target.value })}
-                className="w-full rounded-2xl h-10 text-xs bg-surface border border-border/80 text-foreground px-3 font-semibold cursor-pointer outline-none focus:border-primary/60"
+              <Select
+                value={filters.source || "all"}
+                onValueChange={(val) => setFilters({ ...filters, source: val === "all" ? "" : val })}
               >
-                <option value="">All sources</option>
-                <option value="server">Server</option>
-                <option value="web">Web</option>
-                <option value="mobile">Mobile</option>
-              </select>
+                <SelectTrigger className="w-full rounded-2xl h-10 text-xs bg-surface border border-border/80 text-foreground px-3 font-semibold">
+                  <SelectValue placeholder="All sources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All sources</SelectItem>
+                  <SelectItem value="server">Server</SelectItem>
+                  <SelectItem value="web">Web</SelectItem>
+                  <SelectItem value="mobile">Mobile</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="text-[11px] font-semibold text-foreground-muted block mb-1">Start Date</label>

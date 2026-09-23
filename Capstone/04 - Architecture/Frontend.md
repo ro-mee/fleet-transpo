@@ -57,17 +57,22 @@ their save button. `FloatingField` inputs get a soft primary focus ring.
 Applies to `settings/users/new`, `reservations/new`, `drivers/new`,
 `fleet/vehicles/new`, plus the shared `edit` variants of the last two.
 
-**Form controls (same date):** all floating controls in `src/components/ui/field.jsx`
+**Form controls (same date, elevated 2026-09-23):** all floating controls in `src/components/ui/field.jsx`
 share a single double-bezel `FloatingShell` — an outer tray (`p-[5px]`,
 `bg-gradient-to-b from-border/70 to-border/30`, `ring-1 ring-border/70`) wrapping an
 inner `bg-surface` core with a hairline inset highlight (`rounded-[11px] min-h-[42px]`,
 `shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]`); focus promotes the ring to the
 primary hue with a soft glow, and `error` drives a `danger` ring + `AlertCircle` message.
-The floating pill label bridges the seam. `FloatingSelect` is the dropdown variant —
-`appearance-none` select with a lucide `ChevronDown` indicator — used for every raw
-`<select>` across the add pages (source system, category, priority, sex, license class,
-duty/vehicle status, role). `DatePicker` and `DateTimePicker` triggers use the same
-double-bezel tray for visual consistency.
+The floating pill label bridges the seam. `FloatingSelect` is the design-system dropdown variant
+wrapping Radix UI `Select` with a tactile trigger and `SelectItem` children (wired via `react-hook-form`
+`Controller` on creation/edit pages such as `/drivers/new` and `/maintenance`).
+All raw unstyled `<select>` elements and native OS combobox popups have been eradicated globally across
+dashboard filters and forms (`/maintenance`, `/system/errors`, `/system/audit`, `/settings/ai`) in favor of
+unified `Select` / `FloatingSelect` with glassmorphic menus (`bg-surface/95 backdrop-blur-md rounded-2xl border-border/80 shadow-2xl`,
+theme-matching hover, active checks, and `.custom-scrollbar`). `DatePicker` and `DateTimePicker` triggers use the same
+double-bezel tray for visual consistency, and their Month/Year selectors use `CalendarHeaderSelect` — an accessible
+in-popover dropdown with smooth auto-scroll to the selected option, check indicators, rotating chevrons, and outside-click
+dismissal that preserves the parent calendar popover state.
 
 **Theme switching (standardized 2026-08-23, reworked 2026-09-05):** `use-theme.js` (`ThemeProvider`, `toggle`, `setMode`) flips the `.dark` class on `<html>`; all theme colors are CSS variables (`--bg`, `--sf`, `--fg`, …) consumed via Tailwind v4 `@theme inline`, and `color-scheme` is set per theme so scrollbars/form controls match. The blocking pre-paint script (`fleetops-theme` from `localStorage` → `.dark` on `<html>`) is delivered via `<Script strategy="beforeInteractive">` in `src/app/layout.js` — a raw `<script>` in `<head>` triggered React 19's never-executed-on-client dev warning (fixed 2026-09-06; same synchronous before-paint execution, no theme flash).
 - **View Transition path (supported browsers):** `document.startViewTransition()` + declarative CSS keyframes (`theme-reveal` / `theme-conceal` in `globals.css`) animating `clip-path: circle()` on the transition pseudo-layer (450ms, `cubic-bezier(0.22,1,0.36,1)`), expanding from the clicked toggle for light→dark and contracting back into it for dark→light. Origin/radius travel as `--theme-x/--theme-y/--theme-r`, set synchronously *before* `startViewTransition` with the initial clip in plain CSS — so the first paint is already a dot and the dark layer never flashes full-screen first. (An earlier WAAPI-after-`transition.ready` variant had exactly that pre-flash and was replaced.) Layering/`animation: none` resets live under `[data-theme-transition="expand"|"shrink"]`; cleanup is time-based (600ms) with a generation guard so a rapid re-toggle can't wipe the newer transition. (The old `@keyframes theme-expand/shrink` + `--theme-x/--theme-y`-only CSS approach is gone.)

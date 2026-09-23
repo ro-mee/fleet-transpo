@@ -390,11 +390,24 @@ export default function NewDriverPage() {
                     />
                   </div>
 
-                  <FloatingSelect label="Sex" icon={User} id="sex" {...form.register("sex")}>
-                      <option value="">Select sex</option>
-                      <option value="M">Male</option>
-                      <option value="F">Female</option>
-                    </FloatingSelect>
+                  <Controller
+                    control={form.control}
+                    name="sex"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="Sex"
+                        icon={User}
+                        id="sex"
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Select sex"
+                        error={form.formState.errors.sex?.message}
+                      >
+                        <SelectItem value="M">Male</SelectItem>
+                        <SelectItem value="F">Female</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
 
                   <FloatingField label="Nationality" icon={Globe} className="md:col-span-2">
                     <input
@@ -451,10 +464,25 @@ export default function NewDriverPage() {
                     </p>
                   </div>
 
-                  <FloatingSelect label="Vehicle License Class" icon={IdCard} required id="license_class" {...form.register("license_class")}>
-                      <option value="B">Class B — Passenger Cars &amp; Light Vehicles</option>
-                      <option value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</option>
-                    </FloatingSelect>
+                  <Controller
+                    control={form.control}
+                    name="license_class"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="Vehicle License Class"
+                        icon={IdCard}
+                        required
+                        id="license_class"
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Select class"
+                        error={form.formState.errors.license_class?.message}
+                      >
+                        <SelectItem value="B">Class B — Passenger Cars &amp; Light Vehicles</SelectItem>
+                        <SelectItem value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
 
                   <FloatingField label="License Type" icon={ShieldCheck}>
                     <input

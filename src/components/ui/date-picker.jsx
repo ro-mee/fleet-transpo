@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { format, addMonths, subMonths, setMonth, setYear, getDaysInMonth, startOfMonth, getDay } from "date-fns";
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X, ChevronDown, Check } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,111 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
 ];
+
+export function CalendarHeaderSelect({
+  value,
+  onChange,
+  options,
+  className,
+  menuClassName,
+}) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const containerRef = React.useRef(null);
+  const selectedRef = React.useRef(null);
+
+  // Close on outside click or Escape
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  // Auto-scroll to selected option when opened
+  React.useEffect(() => {
+    if (isOpen && selectedRef.current) {
+      selectedRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [isOpen]);
+
+  const currentOption = options.find((opt) => opt.value === value) || options[0];
+
+  return (
+    <div ref={containerRef} className={cn("relative inline-block", className)}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        className={cn(
+          "flex items-center justify-between gap-1 rounded-xl px-2 py-1 text-xs font-bold transition-all cursor-pointer select-none",
+          "border border-border/80 bg-hover text-foreground hover:border-primary/40 hover:bg-hover/80",
+          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary",
+          isOpen && "ring-2 ring-primary/20 border-primary bg-surface shadow-xs"
+        )}
+      >
+        <span className="truncate">{currentOption?.label}</span>
+        <ChevronDown
+          className={cn(
+            "w-3.5 h-3.5 text-foreground-muted shrink-0 transition-transform duration-200",
+            isOpen && "rotate-180 text-primary"
+          )}
+        />
+      </button>
+
+      {isOpen && (
+        <div
+          role="listbox"
+          className={cn(
+            "absolute left-0 top-full mt-1.5 z-50 min-w-[110px] max-h-56 overflow-y-auto p-1 rounded-2xl",
+            "border border-border/80 bg-surface/95 backdrop-blur-md text-foreground shadow-2xl custom-scrollbar",
+            "animate-in fade-in-0 zoom-in-95",
+            menuClassName
+          )}
+        >
+          {options.map((opt) => {
+            const isSelected = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                ref={isSelected ? selectedRef : null}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => {
+                  onChange(opt.value);
+                  setIsOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left transition-colors cursor-pointer select-none",
+                  isSelected
+                    ? "bg-primary/10 text-primary font-bold"
+                    : "text-foreground hover:bg-hover hover:text-primary focus:bg-hover focus:text-primary outline-hidden"
+                )}
+              >
+                <span>{opt.label}</span>
+                {isSelected && (
+                  <Check className="w-3.5 h-3.5 text-primary stroke-[2.5] shrink-0 ml-1.5" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function DatePicker({
   value,
@@ -91,12 +196,12 @@ export function DatePicker({
   const handlePrevMonth = () => setViewDate((prev) => subMonths(prev, 1));
   const handleNextMonth = () => setViewDate((prev) => addMonths(prev, 1));
 
-  const handleMonthChange = (e) => {
-    setViewDate((prev) => setMonth(prev, parseInt(e.target.value, 10)));
+  const handleMonthChange = (monthIdx) => {
+    setViewDate((prev) => setMonth(prev, monthIdx));
   };
 
-  const handleYearChange = (e) => {
-    setViewDate((prev) => setYear(prev, parseInt(e.target.value, 10)));
+  const handleYearChange = (yearNum) => {
+    setViewDate((prev) => setYear(prev, yearNum));
   };
 
   const handleSelectDay = (dayNum) => {
@@ -145,7 +250,15 @@ export function DatePicker({
   const nextMonthDays = Array.from({ length: nextMonthDaysCount }, (_, i) => i + 1);
 
   const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 40 }, (_, i) => currentYear - 30 + i);
+  // Broad year range (e.g. 1946 to 2041) for driver birthdates and future renewals
+  const yearOptions = React.useMemo(
+    () => Array.from({ length: 96 }, (_, i) => currentYear - 80 + i),
+    [currentYear]
+  );
+  const monthOptions = React.useMemo(
+    () => MONTHS.map((m, idx) => ({ value: idx, label: m })),
+    []
+  );
 
   const formattedDateString = selectedDate ? format(selectedDate, "MMM dd, yyyy") : "";
 
@@ -228,29 +341,21 @@ export function DatePicker({
             </Button>
 
             <div className="flex items-center gap-1.5">
-              <select
+              <CalendarHeaderSelect
                 value={viewDate.getMonth()}
                 onChange={handleMonthChange}
-                className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary"
-              >
-                {MONTHS.map((m, idx) => (
-                  <option key={m} value={idx} className="bg-surface text-foreground">
-                    {m}
-                  </option>
-                ))}
-              </select>
+                options={monthOptions}
+                className="w-auto"
+                menuClassName="min-w-[125px]"
+              />
 
-              <select
+              <CalendarHeaderSelect
                 value={viewDate.getFullYear()}
                 onChange={handleYearChange}
-                className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary"
-              >
-                {yearOptions.map((y) => (
-                  <option key={y} value={y} className="bg-surface text-foreground">
-                    {y}
-                  </option>
-                ))}
-              </select>
+                options={yearOptions.map((y) => ({ value: y, label: y.toString() }))}
+                className="w-auto"
+                menuClassName="min-w-[85px]"
+              />
             </div>
 
             <Button

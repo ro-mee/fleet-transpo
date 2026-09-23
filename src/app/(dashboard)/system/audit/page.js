@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getInitials } from "@/lib/utils";
 import {
   ShieldCheck,
@@ -270,35 +271,43 @@ export default function SystemAuditPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <div>
               <label className="text-[11px] font-semibold text-foreground-muted block mb-1">Action Type</label>
-              <select
-                value={filters.action}
-                onChange={(e) => setFilters({ ...filters, action: e.target.value })}
-                className="w-full rounded-2xl h-10 text-xs bg-surface border border-border/80 text-foreground px-3 font-semibold cursor-pointer outline-none focus:border-primary/60"
+              <Select
+                value={filters.action || "all"}
+                onValueChange={(val) => setFilters({ ...filters, action: val === "all" ? "" : val })}
               >
-                <option value="">All Actions</option>
-                <option value="create">CREATE</option>
-                <option value="update">UPDATE</option>
-                <option value="delete">DELETE</option>
-                <option value="assign">ASSIGN</option>
-                <option value="dispatch">DISPATCH</option>
-                <option value="reject">REJECT</option>
-              </select>
+                <SelectTrigger className="w-full rounded-2xl h-10 text-xs bg-surface border border-border/80 text-foreground px-3 font-semibold">
+                  <SelectValue placeholder="All Actions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Actions</SelectItem>
+                  <SelectItem value="create">CREATE</SelectItem>
+                  <SelectItem value="update">UPDATE</SelectItem>
+                  <SelectItem value="delete">DELETE</SelectItem>
+                  <SelectItem value="assign">ASSIGN</SelectItem>
+                  <SelectItem value="dispatch">DISPATCH</SelectItem>
+                  <SelectItem value="reject">REJECT</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
               <label className="text-[11px] font-semibold text-foreground-muted block mb-1">Target Resource</label>
-              <select
-                value={filters.resource}
-                onChange={(e) => setFilters({ ...filters, resource: e.target.value })}
-                className="w-full rounded-2xl h-10 text-xs bg-surface border border-border/80 text-foreground px-3 font-semibold cursor-pointer outline-none focus:border-primary/60"
+              <Select
+                value={filters.resource || "all"}
+                onValueChange={(val) => setFilters({ ...filters, resource: val === "all" ? "" : val })}
               >
-                <option value="">All Resources</option>
-                <option value="transportation_requests">Transportation Requests</option>
-                <option value="driver_assignments">Driver Assignments</option>
-                <option value="fuel_logs">Fuel Logs</option>
-                <option value="vehicles">Vehicles</option>
-                <option value="trips">Trips</option>
-              </select>
+                <SelectTrigger className="w-full rounded-2xl h-10 text-xs bg-surface border border-border/80 text-foreground px-3 font-semibold">
+                  <SelectValue placeholder="All Resources" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Resources</SelectItem>
+                  <SelectItem value="transportation_requests">Transportation Requests</SelectItem>
+                  <SelectItem value="driver_assignments">Driver Assignments</SelectItem>
+                  <SelectItem value="fuel_logs">Fuel Logs</SelectItem>
+                  <SelectItem value="vehicles">Vehicles</SelectItem>
+                  <SelectItem value="trips">Trips</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div>

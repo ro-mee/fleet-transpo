@@ -560,3 +560,15 @@ no case for them either. Findings and fixes (`calendar/page.js`,
   link badges the reassignment count and targets `?filter=reassignment`.
 - Verified: `lint:ci` clean, full suite 191/2296 green, production build
   green. Browser acceptance pending. See [[Dispatch]].
+
+### Global Dropdown UI/UX Alignment & DatePicker Modernization (2026-09-23)
+
+- **Problem:** Native HTML `<select>` elements on Windows Chromium render unstyled Win32 popups with harsh blue (`#0066cc`) highlights, rigid square corners, and non-theme scrollbars. This was prominently visible in `DatePicker` and `DateTimePicker` month and year headers, as well as several dashboard filters and forms (`/maintenance`, `/system/errors`, `/system/audit`, `/settings/ai`). In addition, `FloatingSelect` on `/drivers/new` was erroneously paired with raw `<option>` elements and `form.register`, causing blank dropdown triggers.
+- **Remediation:**
+  1. **Select Component Elevation (`src/components/ui/select.jsx`):** Removed restrictive height locks (`h-[var(--radix-select-trigger-height)]`), upgraded `SelectContent` to `bg-surface/95 backdrop-blur-md rounded-2xl border-border/80 shadow-2xl`, refined `SelectItem` with rounded-xl padding, active check indicators, and added scroll buttons (`SelectScrollUpButton`, `SelectScrollDownButton`).
+  2. **Custom Scrollbar Utility (`src/app/globals.css`):** Introduced `.custom-scrollbar` with a subtle 5px pill thumb and theme-adaptive hover state matching FleetOps aesthetics.
+  3. **CalendarHeaderSelect in DatePicker & DateTimePicker (`src/components/ui/date-picker.jsx`, `src/components/ui/date-time-picker.jsx`):** Replaced native `<select>` dropdowns with an accessible, in-popover dropdown featuring smooth auto-scroll to the selected item, checkmark indicators, rotating chevrons, and outside-click dismissal that preserves the parent popover open state. Expanded year options to 96 years (`currentYear - 80` to `currentYear + 15`) to cover driver birthdates and future license renewals.
+  4. **Driver Creation Form Fix (`src/app/(dashboard)/drivers/new/page.js`):** Rewired `Sex` and `Vehicle License Class` `FloatingSelect` instances to use `react-hook-form` `Controller` with `SelectItem` elements.
+  5. **Dashboard Dropdown Alignment:** Converted all remaining raw `<select>` elements in `/maintenance` (modal form), `/system/errors` (source filter), `/system/audit` (action and target filters), and `/settings/ai` (provider and model selects) to unified Radix `Select` / `FloatingSelect`.
+- **Verification:** Vitest test suite (`date-picker.test.js` 2/2 green), ESLint clean across all modified files, 0 raw `<select>` occurrences remaining in application code.
+
