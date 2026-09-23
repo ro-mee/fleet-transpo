@@ -6,11 +6,29 @@ let _apiFetch = null;
 export function setApiFetch(fn) { _apiFetch = fn; }
 
 const QUEUE_KEY = '@offline_queue';
+// Bound the outbox: a long offline stretch grew one JSON array without
+// limit (storage-quota risk). Incidents are safety records and are never
+// dropped; the oldest non-incident action goes first.
+const MAX_QUEUE = 100;
 // Incident reports that permanently failed during replay (e.g. an expired
 // session mid-replay). They are never silently deleted like other dead
 // requests — the Activity Logs screen surfaces them for manual retry.
 const DEAD_LETTER_KEY = '@offline_dead_letter_incidents';
 let isSyncing = false;
+
+// In-memory mirror of the outbox length so api.js can skip the AsyncStorage
+// read + JSON.parse on every successful request. null = not yet known (cold
+// start): hasPendingWork() fails open, allows one drain, and the drain or
+// the first getPendingCount() converges the mirror.
+let knownPendingCount = null;
+
+/**
+ * Whether the outbox may hold work worth draining. Fails open while the
+ * count is unknown so a pre-existing queue is never stranded by this gate.
+ */
+export function hasPendingWork() {
+  return knownPendingCount === null || knownPendingCount > 0;
+}
 
 // ── Sync state pub/sub ───────────────────────────────────────────────────
 // PR #3.1: the connectivity banner needs live pending/syncing state without
@@ -44,7 +62,9 @@ export async function getPendingCount() {
   try {
     const raw = await AsyncStorage.getItem(QUEUE_KEY);
     const queue = raw ? JSON.parse(raw) : [];
-    return Array.isArray(queue) ? queue.length : 0;
+    const count = Array.isArray(queue) ? queue.length : 0;
+    knownPendingCount = count;
+    return count;
   } catch {
     return 0;
   }
@@ -163,8 +183,18 @@ export async function enqueueRequest(method, path, body) {
       body,
       timestamp: Date.now()
     });
-    
+
+    while (queue.length > MAX_QUEUE) {
+      const victim = queue.findIndex((item) => !isIncidentReport(item));
+      if (victim === -1) break; // all incidents — soft cap, keep them all
+      console.warn(
+        `[Sync] Dropping oldest queued ${queue[victim].method} ${queue[victim].path} (outbox cap ${MAX_QUEUE})`
+      );
+      queue.splice(victim, 1);
+    }
+
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    knownPendingCount = queue.length;
     console.log(`[Sync] Queued ${method} ${path}`);
     notifySync({ pendingCount: queue.length });
   } catch (error) {
@@ -184,10 +214,16 @@ export async function syncQueue() {
 
   try {
     const queueStr = await AsyncStorage.getItem(QUEUE_KEY);
-    if (!queueStr) return;
-    
+    if (!queueStr) {
+      knownPendingCount = 0;
+      return;
+    }
+
     let queue = JSON.parse(queueStr);
-    if (!Array.isArray(queue) || queue.length === 0) return;
+    if (!Array.isArray(queue) || queue.length === 0) {
+      knownPendingCount = 0;
+      return;
+    }
     
     isSyncing = true;
     console.log(`[Sync] Attempting to sync ${queue.length} queued requests...`);
@@ -235,6 +271,7 @@ export async function syncQueue() {
     }
     
     // Save any remaining items back to the queue
+    knownPendingCount = remainingQueue.length;
     if (remainingQueue.length !== queue.length) {
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(remainingQueue));
     }
