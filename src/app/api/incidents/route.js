@@ -13,7 +13,7 @@ export async function GET(req) {
     const conditions = ["i.deleted_at IS NULL"];
     const params = [];
 
-    if (session.user.role !== "system_admin" && session.user.role !== "hr_admin") {
+    if (session.user.role !== "super_admin" && session.user.role !== "hr_admin") {
       conditions.push(`(i.is_confidential = false OR e.employee_id = $${params.length + 1})`);
       params.push(session.user.employeeId);
     }

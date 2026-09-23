@@ -6,23 +6,63 @@ source:
   - src/lib/api/utils.js
   - supabase/migrations/028_remove_front_desk_roles.sql
   - docs/rbac-model.md
-last_verified: 2026-09-02
+last_verified: 2026-09-23
 ---
 
 # RBAC
 
 Role-based access control, **entirely in application code**. Six roles.
 
-## The six roles — CONFIRMED (live `roles` table, 2026-09-01)
+## The six roles — CONFIRMED (live `roles` table, 2026-09-01; canonical rename P1 2026-09-22)
 
 | id | name | Landing | Scope |
 |---|---|---|---|
-| 1 | `system_admin` | `/dashboard` | Everything — short-circuits the matrix |
+| 1 | `super_admin` | `/dashboard` | Everything — short-circuits the matrix |
 | 2 | `fleet_manager` | `/dashboard` | Vehicles, drivers, maintenance, documents |
 | 3 | `dispatcher` | `/dashboard` | The request queue: review, approve, assign, dispatch |
 | 4 | `driver` | `/driver` | Own trips only |
 | 7 | `management` | `/dashboard` | Read + analytics; **explicitly denied lifecycle verbs** |
 | 9 | `admin` | `/dashboard` | Admin operations |
+
+P1 compat window (2026-09-22, uncommitted): code canonical is `super_admin`
+(`src/lib/auth/role-names.js` `normalizeRoleName()` maps legacy `system_admin`
+to `super_admin` in identity, guards, nav, and sessions). DB still returns
+`system_admin` until the rename migration lands; both resolve identically.
+
+Super Admin cutover (2026-09-22, uncommitted worktree + live migration `118`):
+role_id 1 is now `super_admin` live (single holder, employee 8). Live-catalog
+audit found no other object holding the old literal — no policy, function,
+view, or trigger — so the migration is one idempotent UPDATE plus a
+one-shot `auth_version` bump forcing privileged re-login.
+
+P10 alias removal (2026-09-22, uncommitted, after live two-account testing):
+the `system_admin` tolerance is deleted — `normalizeRoleName()` is identity,
+`ROLES`/`ROLE_IDS`/`WORKS`/guards/UI carry only `super_admin`, unknown names
+fail closed in `canMutateAccount()`, and `SEC-RBAC-004`
+(`no-legacy-role.security.test.js`) fails the suite if the retired name
+reappears anywhere under `src/` or `scripts/`.
+- Privilege hierarchy (`src/lib/auth/privilege.js`): super_admin assigns
+  super_admin/admin/fleet_manager/dispatcher/management; admin assigns only
+  fleet_manager/dispatcher/management; driver via Drivers Directory only.
+  Target protection covers enable/disable AND credential reset: admin targets
+  are Super Admin-only (no Admin→Admin disable/reset).
+- Sensitive split: `ai_settings` and `system` matrix entries are super_admin-only;
+  `/settings/api`, `/settings/ai`, `/settings/ai/logs`, `/system/*` nav are
+  super_admin-only; `/api/settings/connectors` moved to `system.read`;
+  admin keeps dispatch/number-coding policies, fleet operations, and AI output.
+- Workspace: System Console regrouped (Security & Access incl. Security Center
+  + Privileged Accounts view, System Monitoring, Platform, Policies, Oversight,
+  Account); admin Operations Center drops API Access; general-settings
+  integrations section is super_admin-only.
+- Historical note: journal entries predating 2026-09-22 that say `system_admin`
+  refer to role_id 1, now `super_admin`. Old migration files unchanged.
+- Display-name leftovers fixed 2026-09-23 (hygiene pass): `ROLE_COLORS` in
+  `role-dashboard.jsx` and `DEFAULT_ROLE_DISTRIBUTION` in
+  `system-admin-cards.jsx` were still keyed `"system admin"` — after the
+  rename the computed key is `"super admin"`, so Super Admin never matched
+  the amber swatch and fell through to the palette order. Both keys now
+  `"super admin"`; the `SEC-RBAC-004` allowlist is unchanged (it only pins
+  `privilege.test.js` fail-closed denial of the retired literal).
 
 The gaps at 5, 6, 8 are the three hospitality roles removed by `028_remove_front_desk_roles.sql`.
 

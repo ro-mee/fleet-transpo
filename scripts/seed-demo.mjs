@@ -613,7 +613,7 @@ async function readReference(pool) {
   ref.employees = {
     dispatcher: byRole("dispatcher"),
     manager: byRole("fleet_manager"),
-    admin: byRole("system_admin"),
+    admin: byRole("super_admin"),
     staff: emp.filter((e) => e.role_name !== "driver").map((e) => e.employee_id).slice(0, 4),
   };
   return ref;

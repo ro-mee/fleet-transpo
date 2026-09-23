@@ -5,7 +5,7 @@ import { getExpenseReceiptSignedUrl } from "@/lib/expenses/receipt-storage";
 export async function GET(req, { params }) {
   try {
     // Only authorized roles can view expense receipts
-    await requireAuth(req, ["admin", "system_admin", "fleet_manager", "management"]);
+    await requireAuth(req, ["admin", "super_admin", "fleet_manager", "management"]);
     const id = Number(params.id);
     if (!Number.isInteger(id)) return err("Invalid expense ID", 400);
 

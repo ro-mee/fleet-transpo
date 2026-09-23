@@ -8,7 +8,7 @@ import { flushOutbox } from "@/services/push.service";
  *
  * One-click safe remediation: re-drives every pending push_outbox row through
  * the SAME flushOutbox() the dispatch flow uses — no parallel delivery logic,
- * no privilege bypass. system_admin only, throttled (Expo + DB are shared
+ * no privilege bypass. super_admin only, throttled (Expo + DB are shared
  * resources), and audit-logged like any other mutation.
  *
  * Response: { retried, delivered, still_failed, failures[] } (failures capped
@@ -17,7 +17,7 @@ import { flushOutbox } from "@/services/push.service";
  */
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin"]);
+    const session = await requireAuth(req, ["super_admin"]);
 
     const [ipBucket, accountBucket] = await Promise.all([
       rateLimit(`health-retry-push:ip:${clientIp(req)}`, { limit: 30, windowMs: 60_000 }),

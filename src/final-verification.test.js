@@ -46,7 +46,7 @@ describe("Final Adversarial Verification", () => {
 
   it("Test 6: Unauthorized Manager Approval", async () => {
     // Expected: the person who performed the repair cannot approve its completion.
-    // Verified by code review + route.test.js Test 11/12: hasRole(['system_admin',
+    // Verified by code review + route.test.js Test 11/12: hasRole(['super_admin',
     // 'admin', 'fleet_manager']) plus `beforeRow.repair_completed_by === session
     // .user.employeeId` (migration 113). NOT created_by — that names whoever
     // opened the ticket, which on an incident-sourced work order is the staff

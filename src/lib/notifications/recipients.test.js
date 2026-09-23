@@ -6,12 +6,12 @@ import {
 } from "./recipients";
 
 describe("notification routing: notificationRolesFor", () => {
-  it("derives from authority but strips the system_admin bypass", () => {
+  it("derives from authority but strips the super_admin bypass", () => {
     const roles = notificationRolesFor("incidents", "read");
     expect(roles).toContain("admin");
     expect(roles).toContain("fleet_manager");
     expect(roles).toContain("dispatcher");
-    expect(roles).not.toContain("system_admin");
+    expect(roles).not.toContain("super_admin");
   });
 
   it("route_to_maintenance resolves to the maintenance queue owners only", () => {
@@ -24,7 +24,7 @@ describe("notification routing: notificationRolesFor", () => {
     const roles = notificationRolesFor("incidents", "read", {
       exclude: [...SILENT_ROLES, "management"],
     });
-    expect(roles).not.toContain("system_admin");
+    expect(roles).not.toContain("super_admin");
     expect(roles).not.toContain("management");
     expect(roles).toContain("dispatcher");
   });

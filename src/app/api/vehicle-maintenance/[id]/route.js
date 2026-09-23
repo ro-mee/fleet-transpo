@@ -118,7 +118,7 @@ export async function PUT(req, { params }) {
 
     if (isTransitioningToCompleted) {
       const { hasRole } = await import("@/lib/auth/permissions");
-      if (!hasRole(session.user, ["system_admin", "admin", "fleet_manager"])) {
+      if (!hasRole(session.user, ["super_admin", "admin", "fleet_manager"])) {
         return err("Only a Fleet Manager or Admin can approve maintenance completion.", 403);
       }
 

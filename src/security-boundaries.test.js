@@ -20,37 +20,39 @@ afterEach(() => {
 
 describe("security boundaries", () => {
   it("prevents admin privilege escalation", () => {
-    expect(canAssignRole("admin", ROLE_IDS.system_admin)).toBe(false);
-    expect(canAssignRole("system_admin", ROLE_IDS.system_admin)).toBe(true);
+    expect(canAssignRole("admin", ROLE_IDS.super_admin)).toBe(false);
+    expect(canAssignRole("admin", ROLE_IDS.admin)).toBe(false);
+    expect(canAssignRole("super_admin", ROLE_IDS.super_admin)).toBe(true);
+    expect(canAssignRole("super_admin", ROLE_IDS.admin)).toBe(true);
   });
 
   it("derives server role lists from the RBAC matrix", () => {
     expect(rolesFor("reports", "read")).toEqual([
-      "system_admin", "admin", "fleet_manager", "management",
+      "super_admin", "admin", "fleet_manager", "management",
     ]);
     expect(rolesFor("maintenance", "create")).not.toContain("driver");
     expect(rolesFor("ai", "read")).not.toContain("driver");
-    expect(rolesFor("accounts", "update")).toEqual(["system_admin", "admin"]);
+    expect(rolesFor("accounts", "update")).toEqual(["super_admin", "admin"]);
     expect(rolesFor("dispatch_settings", "read")).toEqual([
-      "system_admin", "admin", "fleet_manager", "dispatcher",
+      "super_admin", "admin", "fleet_manager", "dispatcher",
     ]);
     expect(rolesFor("reservations", "recommend")).toEqual([
-      "system_admin", "admin", "fleet_manager", "dispatcher",
+      "super_admin", "admin", "fleet_manager", "dispatcher",
     ]);
     expect(rolesFor("drivers", "manage_account")).toEqual([
-      "system_admin", "admin", "fleet_manager",
+      "super_admin", "admin", "fleet_manager",
     ]);
     expect(rolesFor("ai", "scan_document")).toEqual([
-      "system_admin", "admin", "fleet_manager", "dispatcher",
+      "super_admin", "admin", "fleet_manager", "dispatcher",
     ]);
     expect(rolesFor("fuel_requests", "read")).toEqual([
-      "system_admin", "admin", "fleet_manager", "driver",
+      "super_admin", "admin", "fleet_manager", "driver",
     ]);
     expect(rolesFor("fuel", "read_all")).toEqual([
-      "system_admin", "admin", "fleet_manager", "dispatcher", "management",
+      "super_admin", "admin", "fleet_manager", "dispatcher", "management",
     ]);
     expect(rolesFor("notifications", "read")).toEqual([
-      "system_admin", "admin", "fleet_manager", "dispatcher", "driver", "management",
+      "super_admin", "admin", "fleet_manager", "dispatcher", "driver", "management",
     ]);
   });
 

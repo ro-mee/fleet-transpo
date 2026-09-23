@@ -24,7 +24,19 @@ describe("auth.service - signIn", () => {
     expect(nextAuthSignIn).toHaveBeenCalledWith("credentials", {
       email: "user@example.com",
       password: "validpassword",
-      totpCode: "",
+      otpCode: "",
+      redirect: false,
+    });
+  });
+
+  it("passes an emailed code through on the second call", async () => {
+    nextAuthSignIn.mockResolvedValue({ ok: true, error: null });
+
+    await signIn("user@example.com", "validpassword", { otpCode: "123456" });
+    expect(nextAuthSignIn).toHaveBeenCalledWith("credentials", {
+      email: "user@example.com",
+      password: "validpassword",
+      otpCode: "123456",
       redirect: false,
     });
   });

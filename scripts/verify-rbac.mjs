@@ -56,7 +56,7 @@ const ROUTES = [
 ];
 
 const ALL_ROLES = [
-  "system_admin", "admin", "fleet_manager", "dispatcher",
+  "super_admin", "admin", "fleet_manager", "dispatcher",
   "driver", "management",
 ];
 
@@ -170,8 +170,8 @@ for (const role of ["admin", "fleet_manager", "dispatcher"]) {
   );
 }
 check(
-  "can(): system_admin short-circuits to allowed",
-  VERBS.every((v) => can(employee("system_admin"), "reservations", v) === true)
+  "can(): super_admin short-circuits to allowed",
+  VERBS.every((v) => can(employee("super_admin"), "reservations", v) === true)
 );
 for (const role of ["management"]) {
   check(

@@ -38,7 +38,7 @@ export async function GET(req) {
 }
 
 // PUT replaces the driver's whole weekly schedule. Only the fleet manager (or a
-// system_admin) sets schedules — admin deliberately excluded (RBAC matrix).
+// super_admin) sets schedules — admin deliberately excluded (RBAC matrix).
 export async function PUT(req) {
   try {
     const session = await requirePermission(req, "driver_work_schedules", "update");

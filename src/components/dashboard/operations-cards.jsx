@@ -118,7 +118,7 @@ export function RequestPipelineCard({ requests = [], query, linkClass }) {
     );
   }
 
-  if (query?.isError) {
+  if (query?.isError && !query?.data && !requests.length) {
     return (
       <PanelCard title="Request pipeline" description="All requests by lifecycle status — movement through this funnel is the operation's throughput.">
         <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700">Request pipeline is unavailable.</div>
@@ -245,7 +245,7 @@ export function DocumentComplianceCard({ documents = { items: [], totals: {} }, 
     );
   }
 
-  if (query?.isError) {
+  if (query?.isError && !query?.data && !documents.items?.length) {
     return (
       <PanelCard title="Document compliance" description="Expired and upcoming expiries across tracked documents.">
         <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700">Document compliance is unavailable.</div>
@@ -384,7 +384,7 @@ export function MaintenancePressureCard({ maintenance = [], query, linkClass }) 
     );
   }
 
-  if (query?.isError) {
+  if (query?.isError && !query?.data && !maintenance.length) {
     return (
       <PanelCard title="Maintenance and incident pressure" description="The newest active maintenance records alongside incident severity totals.">
         <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700">Maintenance attention is unavailable.</div>
@@ -476,7 +476,7 @@ export function IncidentRiskCard({ incidents = {}, query }) {
     );
   }
 
-  if (query?.isError) {
+  if (query?.isError && !query?.data && !incidents.total && !incidents.open) {
     return (
       <PanelCard title="Incident risk" description="Counts from the current incident attention summary.">
         <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700">Incident risk is unavailable.</div>

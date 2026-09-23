@@ -16,6 +16,8 @@ import {
   getConnectors,
 } from "@/services/settings.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { useAuth } from "@/hooks/use-auth";
+import { isSuperAdmin } from "@/lib/auth/role-names";
 import { useTheme } from "@/hooks/use-theme";
 import {
   Globe,
@@ -92,6 +94,11 @@ const EMPTY_HOTEL = {
 export default function SettingsGeneralPage() {
   useRequireRole();
   const queryClient = useQueryClient();
+  const { employee } = useAuth();
+  // Integration infrastructure is Super Admin only — Admin keeps operational
+  // settings (hotel base, theme, display). The query never fires for Admin so
+  // no 403 surfaces in the UI.
+  const canViewIntegrations = isSuperAdmin(employee?.roles?.role_name);
   const { mode: sidebarMode, setMode: setSidebarMode } = useSidebar();
   const { mode: themeMode, setMode: setThemeMode } = useTheme();
 
@@ -103,6 +110,7 @@ export default function SettingsGeneralPage() {
   const { data: connectors, isLoading: connectorsLoading, refetch: refetchConnectors } = useQuery({
     queryKey: ["connectors"],
     queryFn: () => getConnectors(),
+    enabled: canViewIntegrations,
   });
 
   const [form, setForm] = useState(EMPTY_HOTEL);
@@ -499,7 +507,8 @@ export default function SettingsGeneralPage() {
         </div>
       </div>
 
-      {/* ── INTEGRATIONS & CONNECTORS ── */}
+      {/* ── INTEGRATIONS & CONNECTORS (Super Admin only) ── */}
+      {canViewIntegrations && (
       <div className={SHELL}>
         <Card className={INNER_CARD}>
           <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
@@ -620,6 +629,7 @@ export default function SettingsGeneralPage() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       <ConfirmDialog
         open={naiaConfirmOpen}

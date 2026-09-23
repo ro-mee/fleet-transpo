@@ -3,7 +3,7 @@ import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["admin", "system_admin", "fleet_manager", "management", "dispatcher"]);
+    await requireAuth(req, ["admin", "super_admin", "fleet_manager", "management", "dispatcher"]);
     
     const url = new URL(req.url);
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));

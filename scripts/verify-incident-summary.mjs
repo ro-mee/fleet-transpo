@@ -22,7 +22,7 @@ const call = async (handler, role, url, method = "GET") => {
   }
 };
 
-const summary = await call(incidents.GET, "system_admin", "http://localhost/api/incidents?summary=true");
+const summary = await call(incidents.GET, "super_admin", "http://localhost/api/incidents?summary=true");
 if (summary.status !== 200) throw new Error(`summary returned ${summary.status}`);
 const body = await summary.json();
 for (const key of ["total", "open", "unacknowledged", "critical_major_open", "assistance_open", "grounding_failed", "maintenance_pending", "attention"]) {

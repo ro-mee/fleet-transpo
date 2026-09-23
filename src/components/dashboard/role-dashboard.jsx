@@ -62,7 +62,6 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { PageEntrance } from "@/components/ui/page-entrance";
-import { QueryErrorBanner } from "@/components/ui/query-feedback";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { CardSkeleton, StatsGridSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -154,28 +153,11 @@ function InlineEmpty({ icon = Inbox, title, description, variant, action }) {
   return <EmptyState icon={icon} title={title} description={description} variant={variant} action={action} size="compact" />;
 }
 
-function QueryErrors({ items }) {
-  const failed = items.filter((item) => item.query?.isError);
-  if (!failed.length) return null;
-  return (
-    <div className="space-y-2">
-      {failed.map((item) => (
-        <QueryErrorBanner
-          key={item.title}
-          query={item.query}
-          title={item.title}
-          description={item.description || "This panel is unavailable; other dashboard data remains current."}
-        />
-      ))}
-    </div>
-  );
-}
-
 function FeedState({ queries, errorTitle = "This data is unavailable", children }) {
   const feeds = Array.isArray(queries) ? queries : [queries];
   if (feeds.some((query) => query?.isLoading)) return <div className="p-5"><CardSkeleton /></div>;
-  if (feeds.some((query) => query?.isError)) {
-    return <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700" role="alert">{errorTitle}. Use Retry in the alert above.</div>;
+  if (feeds.some((query) => query?.isError && !query?.data)) {
+    return <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700" role="alert">{errorTitle}.</div>;
   }
   return children;
 }
@@ -397,7 +379,7 @@ const ROLE_COLORS = {
   dispatcher: "#fb7185",
   admin: "#2563eb",
   management: "#c084fc",
-  "system admin": "#f59e0b",
+  "super admin": "#f59e0b",
 };
 const COLOR_PALETTE = ["#38bdf8", "#a855f7", "#f87171", "#fb7185", "#2563eb", "#c084fc", "#f59e0b", "#10b981", "#64748b"];
 
@@ -543,16 +525,34 @@ function SystemAdminDashboard({ queries }) {
 
   if (queries.users?.isLoading || queries.activity?.isLoading) return <LoadingDashboard />;
 
+  // Platform KPI strip — Super Admin answers "is FleetOps healthy, secure,
+  // and properly governed?" Every value comes from the queries above.
+  const privilegedCount = userList.filter((u) =>
+    ["super_admin", "admin"].includes(u.role_name)
+  ).length;
+  const criticalErrors = formattedErrors
+    .filter((e) => e.severity === "CRITICAL" || e.severity === "ERROR")
+    .reduce((sum, e) => sum + (Number(e.occurrences) || 0), 0);
+  const securityEvents = formattedAudit.filter((l) => l.type === "security").length;
+  const kpis = [
+    { label: "Total Users", value: userList.length },
+    { label: "Active Users", value: activeUsers.length },
+    { label: "Privileged Accounts", value: privilegedCount },
+    { label: "Critical Errors", value: criticalErrors },
+    { label: "Failed Sign-ins (24h)", value: Number(counters?.login_failed_24h || 0) },
+    { label: "Security Events", value: securityEvents },
+  ];
+
   return (
     <div className="space-y-5">
-      <QueryErrors items={[
-        { query: queries.users, title: "Account posture could not be loaded" },
-        { query: queries.sessions, title: "Your sessions could not be loaded" },
-        { query: queries.activity, title: "Platform activity could not be loaded" },
-        { query: queries.health, title: "System health could not be loaded" },
-        { query: queries.audit, title: "Audit activity could not be loaded" },
-        { query: queries.notifications, title: "Notifications could not be loaded" },
-      ]} />
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        {kpis.map((kpi) => (
+          <div key={kpi.label} className="rounded-2xl border border-border/60 bg-surface px-4 py-3">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-foreground-muted">{kpi.label}</p>
+            <p className="text-2xl font-extrabold text-foreground tabular-nums mt-1">{kpi.value}</p>
+          </div>
+        ))}
+      </div>
 
       {/* Top Row: System Usage Overview (~1.3fr) | System Health (1fr) | Account Posture (1fr) */}
       <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_1fr_1fr] gap-5 items-stretch">
@@ -604,15 +604,6 @@ function AdminDashboard({ queries }) {
 
   return (
     <div className="space-y-5">
-      <QueryErrors items={[
-        { query: queries.reservations, title: "Request volume could not be loaded" },
-        { query: queries.dispatches, title: "Dispatch progress could not be loaded" },
-        { query: queries.maintenance, title: "Maintenance attention could not be loaded" },
-        { query: queries.incidents, title: "Incident attention could not be loaded" },
-        { query: queries.documents, title: "Document compliance could not be loaded" },
-        { query: queries.fuelRequests, title: "Fuel requests could not be loaded" },
-      ]} />
-
       <Panel title="Operational attention" description={attentionTone === "success" ? "No exceptions need action. Counts rise here the moment something blocks service." : "Exceptions that may block service, ordered by current volume."} action={<Link href="/notifications" className={linkClass}>Notification center <ArrowRight className="h-3.5 w-3.5" /></Link>} className={attentionTone === "success" ? "border-success/25" : undefined}>
         <div className="grid divide-y divide-border/70 md:grid-cols-5 md:divide-x md:divide-y-0">
           {attention.map((item) => {
@@ -719,20 +710,6 @@ function FleetManagerDashboard({ queries }) {
 
   return (
     <div className="space-y-5">
-      <QueryErrors items={[
-        { query: queries.vehicles, title: "Vehicle readiness could not be loaded" },
-        { query: queries.drivers, title: "Driver readiness could not be loaded" },
-        { query: queries.assignments, title: "Driver–vehicle pairings could not be loaded" },
-        { query: queries.substitutes, title: "Substitute coverage could not be loaded" },
-        { query: queries.leave, title: "Leave coverage could not be loaded" },
-        { query: queries.maintenance, title: "Maintenance data could not be loaded" },
-        { query: queries.documents, title: "Compliance documents could not be loaded" },
-        { query: queries.fuelRequests, title: "Fuel requests could not be loaded" },
-        { query: queries.dispatches, title: "Upcoming schedules could not be loaded" },
-        { query: queries.utilization, title: "Vehicle utilization could not be loaded" },
-        { query: queries.driverPerformance, title: "Driver workload could not be loaded" },
-      ]} />
-
       <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-surface px-5 py-4 shadow-xs sm:flex-row sm:items-center" role="status">
         <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border shadow-sm", readinessGaps === 0 ? "border-success/25 bg-success/10 text-success-700" : "border-warning/25 bg-warning/10 text-warning-700")}>
           {readinessGaps === 0 ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
@@ -924,14 +901,6 @@ function DispatcherDashboard({ queries, queueGroups }) {
 
   return (
     <div className="space-y-5">
-      <QueryErrors items={[
-        { query: queries.reservations, title: "The transportation queue could not be loaded" },
-        { query: queries.dispatches, title: "Dispatch status could not be loaded" },
-        { query: queries.vehicles, title: "Vehicle status could not be loaded" },
-        { query: queries.driverStats, title: "Driver status could not be loaded" },
-        { query: queries.locations, title: "Live GPS positions could not be loaded" },
-      ]} />
-
       {pendingReassignment.length > 0 && (
         <Link href="/dispatch" className="flex items-center gap-3 rounded-2xl bg-danger-bg px-5 py-4 text-danger-700 transition-colors hover:bg-danger-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger">
           <AlertTriangle className="h-5 w-5 shrink-0" /><span className="flex-1 text-sm font-semibold">{pendingReassignment.length} dispatch{pendingReassignment.length === 1 ? " needs" : "es need"} reassignment now.</span><ArrowRight className="h-4 w-4" />
@@ -1115,7 +1084,7 @@ export function RoleDashboard({ role, employee }) {
         description={`Welcome${employee ? `, ${employee.first_name}` : ""}. ${config.description}`}
       />
 
-      {role === "system_admin" && <SystemAdminDashboard queries={queries} />}
+      {role === "super_admin" && <SystemAdminDashboard queries={queries} />}
       {role === "admin" && <AdminDashboard queries={queries} />}
       {role === "fleet_manager" && <FleetManagerDashboard queries={queries} />}
       {role === "dispatcher" && <DispatcherDashboard queries={queries} queueGroups={queueGroups} />}

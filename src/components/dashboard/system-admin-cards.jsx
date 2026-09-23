@@ -70,7 +70,7 @@ export const DEFAULT_ROLE_DISTRIBUTION = [
   { name: "dispatcher", count: 2, color: "#fb7185" },
   { name: "admin", count: 1, color: "#2563eb" },
   { name: "management", count: 1, color: "#c084fc" },
-  { name: "system admin", count: 1, color: "#f59e0b" },
+  { name: "super admin", count: 1, color: "#f59e0b" },
 ];
 
 export const DEFAULT_DISABLED_ROLES = [

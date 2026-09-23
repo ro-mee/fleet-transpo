@@ -6,7 +6,7 @@ import { requirePermission, ok, handleError } from "@/lib/api/utils";
  *
  * System administration audit trail. Reads the write-only audit_logs table
  * (populated by src/lib/audit.js from the write routes) and renders it for the
- * System Console. Restricted to system_admin — it exposes old/new values and
+ * System Console. Restricted to super_admin — it exposes old/new values and
  * the actor on every tracked mutation.
  *
  * Query params: action, resource, from, to, limit (max 500), offset.

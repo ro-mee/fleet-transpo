@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { rolesFor } from "@/lib/auth/permissions";
 import { ROLES } from "@/lib/constants";
+import { roleNamesForDb } from "@/lib/auth/role-names";
 
 // Notification recipient resolution — the routing half of the locked contract:
 //
@@ -8,17 +9,17 @@ import { ROLES } from "@/lib/constants";
 //   Notification routing: who NEEDS to know about this event? → notificationRolesFor()
 //     → specific employee_ids → dedupe → per-user notification rows
 //
-// rolesFor() intentionally injects system_admin as a universal authorization
+// rolesFor() intentionally injects super_admin as a universal authorization
 // bypass, so it must never be used directly as an operational recipient set:
 // every staff broadcast would page the System Console. This module derives
 // from it but strips non-operational roles, so a future MATRIX edit can only
 // widen/narrow *authority* — fan-out stays an explicit notification decision.
 //
 // Locked audience policy:
-// - system_admin: silent on routine fleet operations (system events only).
+// - super_admin: silent on routine fleet operations (system events only).
 // - management: informational/observational only; never action-required alerts.
 
-export const SILENT_ROLES = [ROLES.SYSTEM_ADMIN];
+export const SILENT_ROLES = [ROLES.SUPER_ADMIN];
 export const OBSERVER_ROLES = [ROLES.MANAGEMENT];
 
 /**
@@ -28,7 +29,7 @@ export const OBSERVER_ROLES = [ROLES.MANAGEMENT];
  * @param {string} resource permission resource, e.g. "incidents"
  * @param {string} action permission action, e.g. "read"
  * @param {object} [opts]
- * @param {string[]} [opts.exclude] extra roles to drop (default: system_admin)
+ * @param {string[]} [opts.exclude] extra roles to drop (default: super_admin)
  * @returns {string[]} role names
  */
 export function notificationRolesFor(resource, action, opts = {}) {
@@ -60,14 +61,15 @@ export function dedupeEmployeeIds(ids) {
  */
 export async function employeeIdsForRoles(roleNames) {
   if (!roleNames?.length) return [];
+  const expanded = [...new Set((roleNames || []).flatMap((r) => roleNamesForDb(r)))];
   const { rows } = await query(
     `SELECT e.employee_id
        FROM employees e
-       JOIN roles r ON r.role_id = e.role_id
+        JOIN roles r ON r.role_id = e.role_id
       WHERE r.role_name = ANY($1)
         AND e.deleted_at IS NULL
         AND e.role_id IS NOT NULL`,
-    [roleNames]
+    [expanded]
   );
   return (rows || []).map((r) => r.employee_id);
 }

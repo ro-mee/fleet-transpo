@@ -379,7 +379,7 @@ describe('SEC-DISP-003 — the write is always routed through the TOCTOU-guarded
 
 describe('SEC-DISP-004 — mass assignment and input tampering on the assign endpoint', () => {
   const PRIVILEGED = {
-    fleet_status: 'Completed', status: 'Assigned', role: 'system_admin', isAdmin: true,
+    fleet_status: 'Completed', status: 'Assigned', role: 'super_admin', isAdmin: true,
     approvalStatus: 'Approved', tripStatus: 'Completed', ownerId: 999, createdBy: 999,
     permission: '*', completedAt: '2026-01-01T00:00:00Z', vehicle_status: 'Available',
     dispatch_id: 4242, request_id: 999, employee_id: 999, is_admin: true, reviewed: true,
@@ -391,7 +391,7 @@ describe('SEC-DISP-004 — mass assignment and input tampering on the assign end
     const args = advanceReservation.mock.calls[0][0];
     expect(args.patch).toEqual({ vehicle_id: 7, driver_id: 4 });
     expect(Object.keys(args.patch).sort()).toEqual(['driver_id', 'vehicle_id']);
-    expect(JSON.stringify(args.metadata)).not.toContain('system_admin');
+    expect(JSON.stringify(args.metadata)).not.toContain('super_admin');
     expect(args.metadata.manual_review).toBe(false);
     expect(args.metadata.forced).toBe(false);
   });
@@ -460,7 +460,7 @@ describe('SEC-DISP-005 — assignment is a dispatcher-and-above authority', () =
     const allowed = rolesFor('reservations', 'assign');
     expect(allowed).toContain('dispatcher');
     expect(allowed).toContain('fleet_manager');
-    expect(allowed).toContain('system_admin');
+    expect(allowed).toContain('super_admin');
     expect(allowed).not.toContain('driver');
     expect(allowed).not.toContain('management');
   });

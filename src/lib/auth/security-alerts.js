@@ -1,6 +1,6 @@
 import { writeAudit } from "@/lib/audit";
 
-export const SECURITY_ALERT_TYPES = ["account_locked", "token_replay"];
+export const SECURITY_ALERT_TYPES = ["account_locked", "token_replay", "emergency_code_issued"];
 
 /**
  * Ring the alarm: a security-relevant event the admin must see. Writes a

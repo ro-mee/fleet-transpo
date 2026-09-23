@@ -11,7 +11,7 @@ import { writeAudit } from "@/lib/audit";
  * fails again). Same pattern as POST ../push-review: marks every currently
  * unreviewed AI error row reviewed instead of deleting it, so AI Logs keeps
  * full history with the reviewer's identity while health counts unreviewed
- * rows only. system_admin only, throttled, audit-logged.
+ * rows only. super_admin only, throttled, audit-logged.
  *
  * Ownership note: this does NOT move AI failures into app_errors — they stay
  * exclusively in ailogs, owned by the AI module. Review only clears the
@@ -21,7 +21,7 @@ import { writeAudit } from "@/lib/audit";
  */
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin"]);
+    const session = await requireAuth(req, ["super_admin"]);
 
     const [ipBucket, accountBucket] = await Promise.all([
       rateLimit(`health-review-ai:ip:${clientIp(req)}`, { limit: 30, windowMs: 60_000 }),

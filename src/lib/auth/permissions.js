@@ -11,9 +11,10 @@
 // role alone cannot express the row or machine scope (docs/rbac-model.md).
 
 import { ROLES } from "@/lib/constants";
+import { normalizeRoleName, normalizeRoleList } from "@/lib/auth/role-names";
 
 const KNOWN_ROLES = [
-  ROLES.SYSTEM_ADMIN,
+  ROLES.SUPER_ADMIN,
   ROLES.ADMIN,
   ROLES.FLEET_MANAGER,
   ROLES.DISPATCHER,
@@ -24,7 +25,7 @@ const KNOWN_ROLES = [
 export const AUTHENTICATED_ROLES = [...KNOWN_ROLES];
 
 export const NAV_ROLES = {
-  "/dashboard": ["system_admin", "admin", "fleet_manager", "dispatcher", "management"],
+  "/dashboard": ["super_admin", "admin", "fleet_manager", "dispatcher", "management"],
   "/driver": ["driver"],
   "/driver/trips": ["driver"],
   "/driver/vehicle": ["driver"],
@@ -32,52 +33,56 @@ export const NAV_ROLES = {
   "/driver/incidents": ["driver"],
   "/driver/profile": ["driver"],
   "/driver/schedule": ["driver"],
-  "/fleet": ["admin", "system_admin", "fleet_manager"],
-  "/fleet/vehicles": ["admin", "system_admin", "fleet_manager"],
-  "/fleet/assignments": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/fleet/documents": ["admin", "system_admin", "fleet_manager"],
-  "/fleet/categories": ["admin", "system_admin", "fleet_manager"],
-  "/reservations": ["system_admin", "admin", "fleet_manager", "dispatcher", "management"],
-  "/reservations/queue": ["admin", "system_admin", "fleet_manager", "dispatcher"],
-  "/dispatch": ["admin", "system_admin", "fleet_manager", "dispatcher"],
-  "/dispatch/availability": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/incidents": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/uvvrp": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/drivers": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/drivers/leave": ["admin", "system_admin", "fleet_manager"],
-  "/drivers/performance": ["admin", "system_admin", "fleet_manager", "management"],
+  "/fleet": ["admin", "super_admin", "fleet_manager"],
+  "/fleet/vehicles": ["admin", "super_admin", "fleet_manager"],
+  "/fleet/assignments": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/fleet/documents": ["admin", "super_admin", "fleet_manager"],
+  "/fleet/categories": ["admin", "super_admin", "fleet_manager"],
+  "/reservations": ["super_admin", "admin", "fleet_manager", "dispatcher", "management"],
+  "/reservations/queue": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  "/dispatch": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  "/dispatch/availability": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/incidents": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/uvvrp": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/drivers": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/drivers/leave": ["admin", "super_admin", "fleet_manager"],
+  "/drivers/performance": ["admin", "super_admin", "fleet_manager", "management"],
   "/executive": ["admin", "management"],
-  "/trips": ["admin", "system_admin", "fleet_manager", "dispatcher"],
-  "/tracking": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/tracking/live-map": ["admin", "system_admin", "fleet_manager", "dispatcher"],
-  "/tracking/history": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/routes": ["admin", "system_admin", "fleet_manager", "dispatcher"],
-  "/fuel": ["admin", "system_admin", "fleet_manager"],
-  "/fuel/analytics": ["admin", "system_admin", "fleet_manager", "management"],
-  "/maintenance": ["admin", "system_admin", "fleet_manager"],
-  "/maintenance/predictive": ["admin", "system_admin", "fleet_manager"],
-  "/ai": ["admin", "system_admin", "fleet_manager", "management"],
-  "/ai/insights": ["admin", "system_admin", "fleet_manager", "management"],
-  "/ai/predictive-maintenance": ["admin", "system_admin", "fleet_manager"],
-  "/reports": ["admin", "system_admin", "fleet_manager", "management"],
-  "/reports/cost": ["admin", "system_admin", "fleet_manager", "management"],
-  "/analytics": ["admin", "system_admin", "fleet_manager", "management"],
+  "/trips": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  "/tracking": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/tracking/live-map": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  "/tracking/history": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/routes": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  "/fuel": ["admin", "super_admin", "fleet_manager"],
+  "/fuel/analytics": ["admin", "super_admin", "fleet_manager", "management"],
+  "/maintenance": ["admin", "super_admin", "fleet_manager"],
+  "/maintenance/predictive": ["admin", "super_admin", "fleet_manager"],
+  "/ai": ["admin", "super_admin", "fleet_manager", "management"],
+  "/ai/insights": ["admin", "super_admin", "fleet_manager", "management"],
+  "/ai/predictive-maintenance": ["admin", "super_admin", "fleet_manager"],
+  "/reports": ["admin", "super_admin", "fleet_manager", "management"],
+  "/reports/cost": ["admin", "super_admin", "fleet_manager", "management"],
+  "/analytics": ["admin", "super_admin", "fleet_manager", "management"],
   "/notifications": AUTHENTICATED_ROLES,
-  "/notifications/templates": ["admin", "system_admin"],
+  "/notifications/templates": ["admin", "super_admin"],
   "/notifications/preferences": AUTHENTICATED_ROLES,
-  "/system/audit": ["system_admin"],
-  "/system/errors": ["system_admin"],
-  "/system/health": ["system_admin"],
-  "/settings/general": ["admin", "system_admin"],
-  "/settings/number-coding": ["admin", "system_admin"],
-  "/settings/dispatch": ["admin", "system_admin"],
-  "/settings/users": ["admin", "system_admin"],
-  "/settings/users/new": ["admin", "system_admin"],
-  "/settings/ai": ["admin", "system_admin"],
-  "/settings/ai/logs": ["admin", "system_admin"],
+  "/system/audit": ["super_admin"],
+  "/system/errors": ["super_admin"],
+  "/system/health": ["super_admin"],
+  "/settings/general": ["admin", "super_admin"],
+  "/settings/number-coding": ["admin", "super_admin"],
+  "/settings/dispatch": ["admin", "super_admin"],
+  "/settings/users": ["admin", "super_admin"],
+  "/settings/users/new": ["admin", "super_admin"],
+  // Platform configuration — Super Admin only. Admin keeps operational
+  // policies (dispatch, number-coding) and consumes AI output via /ai/*.
+  "/settings/api": ["super_admin"],
+  "/settings/ai": ["super_admin"],
+  "/settings/ai/logs": ["super_admin"],
+  "/settings/users?view=privileged": ["super_admin"],
   "/settings/profile": AUTHENTICATED_ROLES,
   "/settings/security": AUTHENTICATED_ROLES,
-  "/settings/api": ["admin", "system_admin"],
+  "/settings/security-center": ["super_admin"],
 };
 
 export function hasRole(employee, roleOrRoles) {
@@ -98,8 +103,9 @@ export function hasRole(employee, roleOrRoles) {
       : null) ||
     null;
   if (!userRole) return false;
-  const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
-  return roles.includes("*") || roles.includes(userRole);
+  const normalizedUser = normalizeRoleName(userRole);
+  const roles = normalizeRoleList(Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles]);
+  return roles.includes("*") || roles.includes(normalizedUser);
 }
 
 // Beyond CRUD, `reservations` carries lifecycle verbs — approve, assign,
@@ -139,7 +145,10 @@ const MATRIX = {
     reports: { create: true, read: true, update: true, delete: false },
     analytics: { read: true },
     ai: { read: true, update: true, scan_document: true, report_narrative: true },
-    ai_settings: { read: true, update: true },
+    // AI provider configuration is platform infrastructure — Super Admin only.
+    // Admin keeps consuming AI output through `ai` (insights, recommendations,
+    // predictive maintenance, report narratives).
+    ai_settings: { read: false, update: false },
     accounts: { create: true, read: true, update: true },
     settings: { read: true, update: true },
     dispatch_settings: { read: true, update: true },
@@ -153,7 +162,10 @@ const MATRIX = {
     search: { read: true },
     locations: { read_inactive: true },
     employees: { create: true, read: true, update: true, delete: false },
-    system: { read: true },
+    // Connector/integration status and other platform configuration are
+    // Super Admin only. Operational settings stay shared via `settings`,
+    // `dispatch_settings`, and `uvvrp`.
+    system: { read: false },
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   fleet_manager: {
@@ -309,32 +321,32 @@ const MATRIX = {
 
 export function can(employee, resource, action) {
   if (!employee || !employee.roles) return false;
-  const userRole = employee.roles.role_name;
+  const userRole = normalizeRoleName(employee.roles.role_name);
 
-  // system_admin can do everything
-  if (userRole === ROLES.SYSTEM_ADMIN) return true;
+  // super_admin can do everything
+  if (userRole === ROLES.SUPER_ADMIN) return true;
 
   return MATRIX[userRole]?.[resource]?.[action] === true;
 }
 
 // API routes can derive the same role list as the UI matrix without copying
-// policy into every handler. system_admin remains an explicit bypass, matching
+// policy into every handler. super_admin remains an explicit bypass, matching
 // can() above.
 export function rolesFor(resource, action) {
   return KNOWN_ROLES.filter((role) =>
-    role === ROLES.SYSTEM_ADMIN || MATRIX[role]?.[resource]?.[action] === true
+    role === ROLES.SUPER_ADMIN || MATRIX[role]?.[resource]?.[action] === true
   );
 }
 
 export function filterNavItems(navGroups, employee) {
   if (!employee) return [];
 
-  const userRole = employee?.roles?.role_name;
+  const userRole = normalizeRoleName(employee?.roles?.role_name);
 
   return navGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
-      const allowedRoles = NAV_ROLES[item.href];
+      const allowedRoles = normalizeRoleList(NAV_ROLES[item.href]);
       if (!allowedRoles) return true;
       return allowedRoles.includes("*") || (userRole && allowedRoles.includes(userRole));
     }).map((item) => {
@@ -342,7 +354,7 @@ export function filterNavItems(navGroups, employee) {
         return {
           ...item,
           children: item.children.filter((child) => {
-            const childRoles = NAV_ROLES[child.href];
+            const childRoles = normalizeRoleList(NAV_ROLES[child.href]);
             if (!childRoles) return true;
             return childRoles.includes("*") || (userRole && childRoles.includes(userRole));
           }),

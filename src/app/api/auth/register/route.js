@@ -4,15 +4,14 @@ import { requirePermission, ok, err, handleError, errValidation } from "@/lib/ap
 import { validateBody, isValidObject, normalizeName, normalizeEmail } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { ROLE_IDS } from "@/lib/constants";
+import { canAssignRole, assignRejectionHint } from "@/lib/auth/privilege";
+
+export { canAssignRole };
 
 const VALID_ROLE_IDS = new Set(Object.values(ROLE_IDS));
 
-export function canAssignRole(actorRole, roleId) {
-  return roleId !== ROLE_IDS.system_admin || actorRole === "system_admin";
-}
-
 // Account creation is admin-only. There is no public self-signup: only an
-// authenticated system_admin/admin may create employee accounts, and the
+// authenticated super_admin/admin may create employee accounts, and the
 // new account's role is taken from an explicit, validated role_id.
 export async function POST(req) {
   try {
@@ -38,7 +37,7 @@ export async function POST(req) {
       return err("Invalid role.", 400);
     }
     if (!canAssignRole(session.user.role, roleId)) {
-      return err("Only a system administrator can create another system administrator.", 403);
+      return err(assignRejectionHint(roleId), 403);
     }
 
     const lowerEmail = normalizeEmail(email);

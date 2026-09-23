@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { extractBearerToken, verifyAccessToken } from "@/lib/auth/mobile-token";
 import { IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
 import { rolesFor } from "@/lib/auth/permissions";
+import { normalizeRoleName, normalizeRoleList } from "@/lib/auth/role-names";
 import { omitStandbyStorage } from '@/lib/dispatch/location-relevance';
 import {
   normalizeContext,
@@ -12,7 +13,7 @@ import {
   writeAppError,
 } from "@/lib/app-errors";
 
-const DEFAULT_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
+const DEFAULT_ROLES = ["super_admin", "admin", "fleet_manager", "dispatcher", "management"];
 
 /**
  * Resolves the caller's identity from either auth scheme.
@@ -155,7 +156,7 @@ async function resolveCurrentIdentity(user, via = "session") {
     position: current.position,
     status: current.status,
     authVersion: Number(current.auth_version),
-    role: current.role_name,
+    role: normalizeRoleName(current.role_name),
     driverId: current.driver_id ?? null,
     sessionDetails,
   };
@@ -177,8 +178,9 @@ async function resolveDriverId(user) {
 
 export async function requireAuth(req, allowedRoles = DEFAULT_ROLES) {
   const session = await resolveIdentity(req);
-  const role = session.user.role;
-  if (!allowedRoles.includes("*") && !allowedRoles.includes(role)) {
+  const role = normalizeRoleName(session.user.role);
+  const normalizedAllowed = normalizeRoleList(allowedRoles);
+  if (!normalizedAllowed.includes("*") && !normalizedAllowed.includes(role)) {
     throw new AuthError(`Role '${role}' is not permitted`, 403);
   }
   return session;

@@ -1,6 +1,7 @@
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { query } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
+import { canMutateAccount } from "@/lib/auth/privilege";
 
 // Staff account management. Complements /api/auth/register (create) and the
 // Drivers directory (driver profiles): this is the index for EVERY employee
@@ -64,8 +65,10 @@ export async function PUT(req) {
       [employeeId]
     );
     if (!before.length) return err("Employee not found", 404);
-    if (before[0].role_name === "system_admin" && session.user.role !== "system_admin") {
-      return err("Only a system administrator may change a system administrator account.", 403);
+    // Privileged targets (Super Admin, Admin) are Super Admin-only. This also
+    // stops one Admin from disabling or re-enabling another Admin.
+    if (!canMutateAccount(session.user.role, before[0].role_name)) {
+      return err("Only a Super Admin may change a privileged account.", 403);
     }
 
     const { rows: updated } = await query(

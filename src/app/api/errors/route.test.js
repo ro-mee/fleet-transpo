@@ -48,7 +48,7 @@ describe("POST /api/errors", () => {
     const authCall = utils.requireAuth.mock.calls[0];
     expect(Array.isArray(authCall[1])).toBe(true);
     expect(authCall[1]).toContain("driver");
-    expect(authCall[1]).toContain("system_admin");
+    expect(authCall[1]).toContain("super_admin");
   });
 
   it("rejects source=server (server writes directly, never POSTs)", async () => {
@@ -113,7 +113,7 @@ describe("POST /api/errors", () => {
 
 describe("GET /api/errors", () => {
   function mockReads() {
-    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "system_admin" } });
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "super_admin" } });
     return vi.spyOn(db, "query").mockImplementation(async (sql, params) => {
       const s = String(sql);
       if (s.includes("GROUP BY a.fingerprint")) {
@@ -210,7 +210,7 @@ describe("GET /api/errors", () => {
   });
 
   it("404s unknown error_id and 400s malformed error_id", async () => {
-    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "system_admin" } });
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "super_admin" } });
     vi.spyOn(db, "query").mockResolvedValue({ rows: [] });
     expect((await GET(mockReq({ url: "http://x/api/errors?error_id=999" }))).status).toBe(404);
     expect((await GET(mockReq({ url: "http://x/api/errors?error_id=abc" }))).status).toBe(400);

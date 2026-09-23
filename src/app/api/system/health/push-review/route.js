@@ -11,13 +11,13 @@ import { writeAudit } from "@/lib/audit";
  * error counter would keep the Push row red forever). Marks every currently
  * unreviewed error row reviewed instead of deleting it: history is preserved
  * with the reviewer's identity, and health/activity counters — which count
- * unreviewed rows only — clear. system_admin only, throttled, audit-logged.
+ * unreviewed rows only — clear. super_admin only, throttled, audit-logged.
  *
  * Response: { reviewed_ids, count }.
  */
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin"]);
+    const session = await requireAuth(req, ["super_admin"]);
 
     const [ipBucket, accountBucket] = await Promise.all([
       rateLimit(`health-review-push:ip:${clientIp(req)}`, { limit: 30, windowMs: 60_000 }),

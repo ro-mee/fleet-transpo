@@ -7,11 +7,11 @@ export const ROLES = {
   DISPATCHER: "dispatcher",
   DRIVER: "driver",
   MANAGEMENT: "management",
-  SYSTEM_ADMIN: "system_admin",
+  SUPER_ADMIN: "super_admin",
 };
 
 export const ROLE_IDS = {
-  system_admin: 1,
+  super_admin: 1,
   fleet_manager: 2,
   dispatcher: 3,
   driver: 4,
@@ -20,7 +20,7 @@ export const ROLE_IDS = {
 };
 
 export const REGISTRATION_ROLES = [
-  { id: 1, name: "System Admin", value: "system_admin" },
+  { id: 1, name: "Super Admin", value: "super_admin" },
   { id: 2, name: "Fleet Manager", value: "fleet_manager" },
   { id: 3, name: "Dispatcher", value: "dispatcher" },
   { id: 4, name: "Driver", value: "driver" },
@@ -256,6 +256,14 @@ export const NOTIFICATION_EVENTS = {
   trip_start_overdue: {
     label: "Trip Has Not Started",
     defaults: { in_app: true, email: false, push: true },
+  },
+  // Account-owner "was that you?" notice from new-device-alert.js. This is the
+  // one event whose email channel is actually delivered: the producer sends it
+  // through lib/email/smtp. Every other event still defaults `email: true`
+  // without anything sending it — that remains open as BUG-NOTIF-001.
+  new_sign_in: {
+    label: "New Sign-In",
+    defaults: { in_app: true, email: true, push: true },
   },
 };
 

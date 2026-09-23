@@ -2,7 +2,7 @@ import { requireAuth, ok, handleError, AuthError } from "@/lib/api/utils";
 import { query } from "@/lib/db";
 import { IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
 
-const DASHBOARD_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
+const DASHBOARD_ROLES = ["super_admin", "admin", "fleet_manager", "dispatcher", "management"];
 
 /**
  * GET /api/auth/heartbeat

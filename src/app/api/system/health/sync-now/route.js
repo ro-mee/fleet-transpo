@@ -12,7 +12,7 @@ import { recordSyncHeartbeat } from "@/lib/system-health";
 /**
  * POST /api/system/health/sync-now
  *
- * Manual run of the scheduled maintenance sync for system_admin. Invokes the
+ * Manual run of the scheduled maintenance sync for super_admin. Invokes the
  * SAME service functions as the CRON_SECRET /api/cron/sync job (vehicle +
  * driver + compliance sync, error-log prune, success heartbeat) — the only
  * difference is the gate (human admin session instead of service token), so
@@ -24,7 +24,7 @@ import { recordSyncHeartbeat } from "@/lib/system-health";
  */
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin"]);
+    const session = await requireAuth(req, ["super_admin"]);
 
     const [ipBucket, accountBucket] = await Promise.all([
       rateLimit(`health-run-sync:ip:${clientIp(req)}`, { limit: 15, windowMs: 60_000 }),

@@ -4,6 +4,7 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { ROLE_IDS } from "@/lib/constants";
 import { writeAudit } from "@/lib/audit";
+import { isPrivilegedTarget } from "@/lib/auth/privilege";
 
 /**
  * PUT /api/drivers/[id]/account
@@ -55,6 +56,11 @@ export async function PUT(req, { params }) {
       return err("Linked employee record not found", 404);
     }
 
+    // Privileged accounts are never managed through the driver flow, even
+    // before the non-driver 409 below.
+    if (isPrivilegedTarget(employee.role_name)) {
+      return err("Privileged accounts cannot be managed through driver account setup.", 403);
+    }
     // Never silently demote a non-driver while configuring a driver account.
     // A legacy account with no role may still be promoted to driver.
     if (employee.role_name && employee.role_name !== "driver") {

@@ -2,19 +2,28 @@ import { signIn as nextAuthSignIn } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
 
 // Admin-only account creation. The endpoint (/api/auth/register) requires an
-// authenticated system_admin/admin session, validates the payload server-side,
+// authenticated super_admin/admin session, validates the payload server-side,
 // and answers 409 when the email is already taken — surfaced below as err.status.
 export async function createEmployeeAccount(payload) {
   return apiFetch("/api/auth/register", { method: "POST", body: payload });
 }
 
-export async function signIn(email, password, { mfaCode = "" } = {}) {
+/**
+ * Exchanges credentials for a session.
+ *
+ * `otpCode` carries the six-digit code emailed to the account, or one of the ten
+ * recovery codes. The second factor is mandatory for every account, so the first
+ * call for a new browser always fails with `MFA_REQUIRED` after the code has been
+ * sent; the caller then re-invokes this with the code in hand. That re-invocation
+ * is also the resend.
+ */
+export async function signIn(email, password, { otpCode = "" } = {}) {
   let result;
   try {
     result = await nextAuthSignIn("credentials", {
       email,
       password,
-      totpCode: mfaCode,
+      otpCode,
       redirect: false,
     });
   } catch (err) {

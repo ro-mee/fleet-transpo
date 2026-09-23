@@ -8,7 +8,7 @@ import { CRON_HEARTBEAT_KEY } from "@/lib/system-health";
  * Lightweight platform-health read for the System Console. Aggregates the
  * recent integration activity (the closest thing this system has to an
  * API/system-health feed) plus a few headline counters. Restricted to
- * system_admin.
+ * super_admin.
  *
  * NOTE: an earlier version of this route also read `automation_logs`, but
  * that table was deliberately dropped by migration 005 (`DROP automation

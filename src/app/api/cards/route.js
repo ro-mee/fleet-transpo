@@ -3,7 +3,7 @@ import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["admin", "system_admin", "fleet_manager"]);
+    await requireAuth(req, ["admin", "super_admin", "fleet_manager"]);
     
     // Get all cards with their current active assignment
     const { rows } = await query(`
@@ -25,7 +25,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["admin", "system_admin", "fleet_manager"]);
+    await requireAuth(req, ["admin", "super_admin", "fleet_manager"]);
     const body = await parseBody(req);
     
     if (!body.card_last_four || body.card_last_four.length !== 4) {

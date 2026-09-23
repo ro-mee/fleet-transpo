@@ -9,7 +9,7 @@ import { reconcileFailedDeliveries } from "@/services/outbound.service";
  * One-click safe remediation: retries every undelivered outbound
  * integration_log row through the SAME reconcileFailedDeliveries() the
  * CRON_SECRET /api/cron/reconcile job uses — same gateway, same
- * pending/failed semantics, no bypass. system_admin only, throttled
+ * pending/failed semantics, no bypass. super_admin only, throttled
  * (the Booking gateway is a shared external resource), audit-logged.
  *
  * Response: { gateway, retried, delivered, still_failed, failures[] }
@@ -18,7 +18,7 @@ import { reconcileFailedDeliveries } from "@/services/outbound.service";
  */
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin"]);
+    const session = await requireAuth(req, ["super_admin"]);
 
     const [ipBucket, accountBucket] = await Promise.all([
       rateLimit(`health-retry-integration:ip:${clientIp(req)}`, { limit: 30, windowMs: 60_000 }),

@@ -24,13 +24,13 @@ non-contiguous because rows 5/6/8 were the removed hospitality roles.
 
 | Role | `role_id` | Workspace | Authority |
 |---|---|---|---|
-| `system_admin` | 1 | System Console | Everything. `can()` short-circuits to `true` before the matrix is consulted. |
-| | | | Notification routing is deliberately separate: `system_admin` is **silent** on routine fleet operations (see `src/lib/notifications/recipients.js` — `notificationRolesFor()` strips the bypass that `rolesFor()` injects by design). |
+| `super_admin` | 1 | System Console | Everything. `can()` short-circuits to `true` before the matrix is consulted. Platform governance: security, privileged accounts, system health, audit, integrations, AI configuration. |
+| | | | Notification routing is deliberately separate: `super_admin` is **silent** on routine fleet operations (see `src/lib/notifications/recipients.js` — `notificationRolesFor()` strips the bypass that `rolesFor()` injects by design). |
 | `fleet_manager` | 2 | Fleet Operations | Full write on fleet, drivers, maintenance, fuel, and the reservation lifecycle. No deletes, no system config. |
 | `dispatcher` | 3 | Transportation Operations | Runs the queue: creates dispatches and trips, drives the reservation lifecycle. Read-only on vehicles, drivers and custodial pairings. |
 | `driver` | 4 | Driver Workspace | Own data only. Executes assigned trips, reports GPS, files fuel and incidents. |
 | `management` | 7 | Executive Center | Read-only. Reports, analytics, AI insights. No lifecycle verbs. |
-| `admin` | 9 | Operations Center | Full CRUD on operational domains, creates employee accounts, read-only on system config. |
+| `admin` | 9 | Operations Center | Full CRUD on operational domains, creates staff accounts (fleet manager, dispatcher, management — never admin or super_admin), read-only on operational policies. No system config, no AI provider config. |
 
 ## 2. Why enforcement is application-layer
 
@@ -78,8 +78,15 @@ excluded by default** and must be named explicitly.
 
 ## 3. Permission matrix
 
-Transcribed from `MATRIX` in `src/lib/auth/permissions.js`. `system_admin` is
+Transcribed from `MATRIX` in `src/lib/auth/permissions.js`. `super_admin` is
 omitted: it never reaches the matrix. Blank means denied.
+
+Super Admin-only platform resources: `ai_settings` (read/update),
+`system` (read — connector status and platform configuration), and the
+`/system/*`, `/settings/api`, `/settings/ai*` navigation surfaces. Admin
+consumes AI output through `ai` (insights, recommendations, predictive
+maintenance, narratives) and keeps `dispatch_settings`, `uvvrp`, and
+`settings` (hotel base, operational defaults).
 
 Verbs are `create` / `read` / `update` / `delete`, plus five lifecycle verbs on
 `reservations` — `approve`, `assign`, `dispatch`, `cancel`, `reschedule`. Lifecycle
@@ -102,7 +109,7 @@ different authority than editing its fields.
 | `analytics` | R | R | R | — | R |
 | `ai` | R | R | R | — | R |
 | `employees` | CRU | R | — | R | — |
-| `system` | R | — | — | — | — |
+| `system` | — (super_admin only) | — | — | — | — |
 | `fuelallocations` | RU | RU | — | — | R |
 | `scheduled_reports` | — | — | — | — | R |
 
@@ -141,11 +148,13 @@ Notable entries:
 |---|---|
 | `/dashboard` | all except `driver` |
 | `/driver`, `/driver/*` | `driver` only |
-| `/reservations` | admin, system_admin, fleet_manager, dispatcher, management |
-| `/reservations/queue` | admin, system_admin, fleet_manager, dispatcher |
+| `/reservations` | admin, super_admin, fleet_manager, dispatcher, management |
+| `/reservations/queue` | admin, super_admin, fleet_manager, dispatcher |
 | `/executive` | admin, management |
-| `/system/audit` | `system_admin` only |
-| `/settings/general`, `/settings/api`, `/settings/number-coding`, `/settings/users/new` | admin, system_admin |
+| `/system/audit`, `/system/errors`, `/system/health` | `super_admin` only |
+| `/settings/api`, `/settings/ai`, `/settings/ai/logs` | `super_admin` only |
+| `/settings/security-center` | `super_admin` only |
+| `/settings/general`, `/settings/number-coding`, `/settings/dispatch`, `/settings/users`, `/settings/users/new` | admin, super_admin |
 | `/settings/profile`, `/settings/security`, `/notifications`, `/notifications/preferences` | `*` |
 
 A driver navigating directly to `/dashboard` would render it — a UI-only exposure,
@@ -158,9 +167,19 @@ the ordinary `read` / `update` actions plus ownership assertions.
 
 ## 5. Accounts and sessions
 
-- **No public signup.** `POST /api/auth/register` is admin-only and 409s on a
-  duplicate email; it never silently overwrites a credential. The public register
-  page redirects to login.
+- **No public signup.** `POST /api/auth/register` is staff-only (accounts:create)
+  and 409s on a duplicate email; it never silently overwrites a credential.
+  The public register page redirects to login. Role assignment follows the
+  privileged hierarchy (`src/lib/auth/privilege.js`): super_admin grants
+  super_admin/admin/fleet_manager/dispatcher/management; admin grants only
+  fleet_manager/dispatcher/management; driver accounts are created through
+  the Drivers Directory. The Add-User picker offers only assignable roles and
+  confirms privileged grants; the server re-validates every submission.
+- **Target protection.** Enable/disable (`PUT /api/settings/users`) and
+  administrator-issued resets (`POST /api/auth/reset-token`) apply
+  `canMutateAccount()`: super_admin/admin targets are Super Admin-only, so
+  one Admin can never disable or reset another Admin. The Users UI renders
+  those rows as protected instead of offering doomed actions.
 - **Web sessions:** NextAuth Credentials, bcrypt against `employees.password_hash`,
   JWT session strategy, per-IP login rate limit of 5/min. Drivers land on `/driver`,
   everyone else on `/dashboard`.

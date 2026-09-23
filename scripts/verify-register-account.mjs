@@ -20,6 +20,7 @@ const appModule = (rel) => import(pathToFileURL(resolvePath(process.cwd(), "src"
 const { query } = await appModule("lib/db.js");
 const { ROLE_IDS } = await appModule("lib/constants.js");
 const registerRoute = await appModule("app/api/auth/register/route.js");
+const { canAssignRole } = await appModule("lib/auth/privilege.js");
 
 let pass = 0;
 const failures = [];
@@ -59,7 +60,7 @@ async function findAdmin() {
   const { rows } = await query(
     `SELECT e.employee_id FROM employees e
        LEFT JOIN roles r ON r.role_id = e.role_id
-      WHERE e.deleted_at IS NULL AND r.role_name IN ('system_admin','admin')
+      WHERE e.deleted_at IS NULL AND r.role_name IN ('super_admin','admin')
       LIMIT 1`
   );
   return rows[0]?.employee_id ?? null;
@@ -67,7 +68,7 @@ async function findAdmin() {
 
 const asAdmin = (employeeId) => {
   globalThis.__HARNESS_SESSION__ = {
-    user: { employeeId, role: "system_admin", email: "harness-admin@local" },
+    user: { employeeId, role: "super_admin", email: "harness-admin@local" },
   };
 };
 
@@ -167,6 +168,17 @@ try {
     "the duplicate request changed the stored credential — account-takeover path");
   check("existing name was NOT overwritten", after[0]?.first_name === "Probe",
     `first_name is now ${after[0]?.first_name}`);
+
+  // ── 5. Privilege hierarchy (pure predicate, no writes) ───────────────────
+  console.log("\n5. Only Super Admin grants privileged roles");
+  check("admin cannot assign super_admin", canAssignRole("admin", ROLE_IDS.super_admin) === false);
+  check("admin cannot assign admin", canAssignRole("admin", ROLE_IDS.admin) === false);
+  check("super_admin can assign super_admin", canAssignRole("super_admin", ROLE_IDS.super_admin) === true);
+  check("super_admin can assign admin", canAssignRole("super_admin", ROLE_IDS.admin) === true);
+  for (const id of [ROLE_IDS.fleet_manager, ROLE_IDS.dispatcher, ROLE_IDS.management]) {
+    check(`admin can assign role_id ${id}`, canAssignRole("admin", id) === true);
+    check(`super_admin can assign role_id ${id}`, canAssignRole("super_admin", id) === true);
+  }
 } finally {
   await cleanup();
   const { rows: leftover } = await query(

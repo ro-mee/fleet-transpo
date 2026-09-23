@@ -71,7 +71,7 @@ function eq(label, actual, expected, tol) {
 // Route invocation. Same seam scripts/verify-rbac.mjs uses: auth() is stubbed,
 // requireAuth and the handler body run as shipped, against the live database.
 // ---------------------------------------------------------------------------
-globalThis.__HARNESS_SESSION__ = { user: { employeeId: 8, role: "system_admin", email: "harness@local" } };
+globalThis.__HARNESS_SESSION__ = { user: { employeeId: 8, role: "super_admin", email: "harness@local" } };
 
 async function callReport(rel, params = `from=${FROM}&to=${TO}`) {
   const mod = await app(rel);

@@ -12,7 +12,7 @@ import { rolesFor, can, AUTHENTICATED_ROLES, NAV_ROLES, getRequiredRolesForPath 
 import { assertTripOwnership, assertDispatchOwnership, resolveDriverScope } from '@/lib/api/ownership';
 import { ROLES } from '@/lib/constants';
 
-const ALL_ROLES = [ROLES.SYSTEM_ADMIN, ROLES.ADMIN, ROLES.FLEET_MANAGER, ROLES.DISPATCHER, ROLES.DRIVER, ROLES.MANAGEMENT];
+const ALL_ROLES = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.FLEET_MANAGER, ROLES.DISPATCHER, ROLES.DRIVER, ROLES.MANAGEMENT];
 
 const sessionFor = (role, driverId = null) => ({ user: { role, driverId, employeeId: 1 } });
 
@@ -34,9 +34,9 @@ describe('SEC-RBAC-001 — authorization fails closed on every malformed identit
     }
   });
 
-  it('an unknown resource or action grants nobody but the system_admin bypass', () => {
-    expect(rolesFor('not_a_resource', 'read')).toEqual([ROLES.SYSTEM_ADMIN]);
-    expect(rolesFor('reservations', 'not_an_action')).toEqual([ROLES.SYSTEM_ADMIN]);
+  it('an unknown resource or action grants nobody but the super_admin bypass', () => {
+    expect(rolesFor('not_a_resource', 'read')).toEqual([ROLES.SUPER_ADMIN]);
+    expect(rolesFor('reservations', 'not_an_action')).toEqual([ROLES.SUPER_ADMIN]);
   });
 
   it('can() denies a missing employee, a missing role, and an unknown role', () => {
@@ -54,10 +54,10 @@ describe('SEC-RBAC-001 — authorization fails closed on every malformed identit
     }
   });
 
-  it('system_admin is a bypass, not a matrix row — it is included for every resource/action', () => {
+  it('super_admin is a bypass, not a matrix row — it is included for every resource/action', () => {
     for (const resource of ['reservations', 'vehicles', 'system', 'accounts', 'nonexistent']) {
       for (const action of ['read', 'update', 'delete', 'scan_document', 'nonexistent']) {
-        expect(rolesFor(resource, action)).toContain(ROLES.SYSTEM_ADMIN);
+        expect(rolesFor(resource, action)).toContain(ROLES.SUPER_ADMIN);
       }
     }
   });
@@ -79,7 +79,7 @@ describe('SEC-RBAC-002 — who may move a reservation through its lifecycle', ()
   it('every lifecycle authority is dispatcher-and-above only', () => {
     for (const action of AUTHORITIES) {
       const allowed = rolesFor('reservations', action);
-      expect(allowed.sort()).toEqual([ROLES.ADMIN, ROLES.DISPATCHER, ROLES.FLEET_MANAGER, ROLES.SYSTEM_ADMIN].sort());
+      expect(allowed.sort()).toEqual([ROLES.ADMIN, ROLES.DISPATCHER, ROLES.FLEET_MANAGER, ROLES.SUPER_ADMIN].sort());
       expect(allowed).not.toContain(ROLES.DRIVER);
       expect(allowed).not.toContain(ROLES.MANAGEMENT);
     }
@@ -142,9 +142,9 @@ describe('SEC-RBAC-002 — who may move a reservation through its lifecycle', ()
     expect(rolesFor('trips', 'update')).toContain(ROLES.DRIVER);
   });
 
-  it('no role may grant itself account authority except admin and system_admin', () => {
-    expect(rolesFor('accounts', 'update').sort()).toEqual([ROLES.ADMIN, ROLES.SYSTEM_ADMIN].sort());
-    expect(rolesFor('accounts', 'create').sort()).toEqual([ROLES.ADMIN, ROLES.SYSTEM_ADMIN].sort());
+  it('no role may grant itself account authority except admin and super_admin', () => {
+    expect(rolesFor('accounts', 'update').sort()).toEqual([ROLES.ADMIN, ROLES.SUPER_ADMIN].sort());
+    expect(rolesFor('accounts', 'create').sort()).toEqual([ROLES.ADMIN, ROLES.SUPER_ADMIN].sort());
   });
 
   it('every authority a role holds implies it can also read the resource', () => {
@@ -154,7 +154,7 @@ describe('SEC-RBAC-002 — who may move a reservation through its lifecycle', ()
     for (const resource of resources) {
       for (const action of ['create', 'update', 'delete', 'assign', 'approve', 'dispatch']) {
         for (const role of rolesFor(resource, action)) {
-          if (role === ROLES.SYSTEM_ADMIN) continue;
+          if (role === ROLES.SUPER_ADMIN) continue;
           expect(rolesFor(resource, 'read')).toContain(role);
         }
       }
@@ -168,11 +168,16 @@ describe('SEC-RBAC-002 — who may move a reservation through its lifecycle', ()
 
 describe('SEC-RBAC-003 — page-level route guards', () => {
   it('administrative pages are restricted to the administering roles', () => {
-    expect(NAV_ROLES['/system/audit']).toEqual([ROLES.SYSTEM_ADMIN]);
-    expect(NAV_ROLES['/system/errors']).toEqual([ROLES.SYSTEM_ADMIN]);
-    expect(NAV_ROLES['/system/health']).toEqual([ROLES.SYSTEM_ADMIN]);
-    expect(NAV_ROLES['/settings/users']).toEqual([ROLES.ADMIN, ROLES.SYSTEM_ADMIN]);
-    expect(NAV_ROLES['/settings/api']).toEqual([ROLES.ADMIN, ROLES.SYSTEM_ADMIN]);
+    expect(NAV_ROLES['/system/audit']).toEqual([ROLES.SUPER_ADMIN]);
+    expect(NAV_ROLES['/system/errors']).toEqual([ROLES.SUPER_ADMIN]);
+    expect(NAV_ROLES['/system/health']).toEqual([ROLES.SUPER_ADMIN]);
+    expect(NAV_ROLES['/settings/users']).toEqual([ROLES.ADMIN, ROLES.SUPER_ADMIN]);
+    // Platform configuration is Super Admin only; operational policies stay shared.
+    expect(NAV_ROLES['/settings/api']).toEqual([ROLES.SUPER_ADMIN]);
+    expect(NAV_ROLES['/settings/ai']).toEqual([ROLES.SUPER_ADMIN]);
+    expect(NAV_ROLES['/settings/ai/logs']).toEqual([ROLES.SUPER_ADMIN]);
+    expect(NAV_ROLES['/settings/dispatch']).toEqual([ROLES.ADMIN, ROLES.SUPER_ADMIN]);
+    expect(NAV_ROLES['/settings/number-coding']).toEqual([ROLES.ADMIN, ROLES.SUPER_ADMIN]);
   });
 
   it('no page outside the /driver tree admits the driver role', () => {
@@ -190,7 +195,7 @@ describe('SEC-RBAC-003 — page-level route guards', () => {
   it('an unlisted path falls back to the wildcard set, not to allow-all-roles', () => {
     expect(getRequiredRolesForPath('/some/unlisted/page')).toEqual(['*']);
     // A prefix match wins over the wildcard default.
-    expect(getRequiredRolesForPath('/system/audit/123')).toEqual([ROLES.SYSTEM_ADMIN]);
+    expect(getRequiredRolesForPath('/system/audit/123')).toEqual([ROLES.SUPER_ADMIN]);
   });
 });
 
@@ -220,7 +225,7 @@ describe('SEC-IDOR-001 — driver object-level access on trips', () => {
 
   it('operations roles act on any trip (the helper is a no-op for them)', async () => {
     query.mockResolvedValue({ rows: [tripRow] });
-    for (const role of [ROLES.DISPATCHER, ROLES.FLEET_MANAGER, ROLES.ADMIN, ROLES.SYSTEM_ADMIN]) {
+    for (const role of [ROLES.DISPATCHER, ROLES.FLEET_MANAGER, ROLES.ADMIN, ROLES.SUPER_ADMIN]) {
       await expect(assertTripOwnership(sessionFor(role, null), 55)).resolves.toMatchObject({ trip_id: 55 });
     }
   });

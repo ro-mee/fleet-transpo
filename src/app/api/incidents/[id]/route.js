@@ -98,9 +98,9 @@ export async function GET(req, props) {
     if (!rows[0]) return err("Incident not found", 404);
 
     if (
-      rows[0].is_confidential && 
-      session.user.role !== "system_admin" && 
-      session.user.role !== "hr_admin" && 
+      rows[0].is_confidential &&
+      session.user.role !== "super_admin" &&
+      session.user.role !== "hr_admin" &&
       rows[0].reporter_employee_id !== session.user.employeeId
     ) {
       return err("Forbidden", 403);

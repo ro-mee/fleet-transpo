@@ -159,7 +159,7 @@ export async function syncComplianceNotifications() {
   const todayStr = today.toISOString().split("T")[0];
 
   // Expiry-scan audience is deliberately staff-only (fleet_manager, admin):
-  // system_admin stays silent on routine ops; dispatcher and management act
+  // super_admin stays silent on routine ops; dispatcher and management act
   // on grounding/suspension alerts instead of raw expiry rows.
   const staffIds = await employeeIdsForRoles(["fleet_manager", "admin"]);
   if (staffIds.length === 0) return { created: 0 };

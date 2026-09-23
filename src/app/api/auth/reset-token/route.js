@@ -2,6 +2,7 @@ import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 import { issueResetToken } from "@/lib/auth/reset-token";
+import { canMutateAccount } from "@/lib/auth/privilege";
 
 /**
  * POST /api/auth/reset-token
@@ -31,8 +32,8 @@ export async function POST(req) {
     );
     const target = rows[0];
     if (!target) return err("Employee not found", 404);
-    if (target.role_name === "system_admin" && session.user.role !== "system_admin") {
-      return err("Only a system administrator may reset a system administrator account.", 403);
+    if (!canMutateAccount(session.user.role, target.role_name)) {
+      return err("Only a Super Admin may reset a privileged account.", 403);
     }
 
     let issued;

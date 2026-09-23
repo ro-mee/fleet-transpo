@@ -133,7 +133,7 @@ async function pickFixtures() {
   const { rows: admin } = await query(
     `SELECT e.employee_id FROM employees e
        LEFT JOIN roles r ON r.role_id = e.role_id
-      WHERE e.deleted_at IS NULL AND r.role_name IN ('system_admin','admin')
+      WHERE e.deleted_at IS NULL AND r.role_name IN ('super_admin','super_admin','admin')
       LIMIT 1`
   );
   return { drivers, adminId: admin[0]?.employee_id ?? null };
@@ -346,7 +346,7 @@ try {
   );
   check("no pairing was written by the refused calls", leaked.length === 0, `found ${leaked.length}`);
 
-  asRole(adminId, "system_admin");
+  asRole(adminId, "super_admin");
   const badDriver = await postAssign({ driver_id: 0, vehicle_id: V1.vehicle_id });
   check("missing/invalid driver_id is a 400", badDriver.status === 400, `got ${badDriver.status}`);
   const ghostDriver = await postAssign({ driver_id: 999999, vehicle_id: V1.vehicle_id });
@@ -413,7 +413,7 @@ try {
   check("dispatcher DELETE is refused with 403", dispatcherRelease.status === 403,
     `got ${dispatcherRelease.status}`);
 
-  asRole(adminId, "system_admin");
+  asRole(adminId, "super_admin");
   const released = await deleteAssign(forcedId, { release_reason: "harness release" });
   check("DELETE releases the pairing (200)", released.status === 200, `got ${released.status}`);
   const { rows: relRow } = await query(
@@ -445,7 +445,7 @@ try {
 
   const employee = (role) => ({ roles: { role_name: role } });
   const ALL_ROLES = [
-    "system_admin", "admin", "fleet_manager", "dispatcher",
+    "super_admin", "admin", "fleet_manager", "dispatcher",
     "driver", "management",
   ];
 
@@ -468,7 +468,7 @@ try {
       uiRead === apiAllowsRead, `GET returned ${apiRead.status}`);
   }
 
-  asRole(adminId, "system_admin");
+  asRole(adminId, "super_admin");
   await cleanupAssignments();
 
   // ══ 3. The conflict rule, and single/batch parity ══════════════════════════

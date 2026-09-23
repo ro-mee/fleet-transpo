@@ -22,7 +22,7 @@ function mockReq({ body, url = "http://x/api/ai/instructions" } = {}) {
 
 function mockAdmin() {
   vi.spyOn(utils, "requirePermission").mockResolvedValue({
-    user: { role: "system_admin", employeeId: 8 },
+    user: { role: "super_admin", employeeId: 8 },
   });
   vi.spyOn(auditLog, "writeAudit").mockResolvedValue();
 }
@@ -129,7 +129,7 @@ describe("DELETE /api/ai/instructions (Reset to Default)", () => {
 
 describe("GET /api/ai/instructions", () => {
   it("serves .md defaults with overridden:false when no DB rows exist", async () => {
-    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "system_admin", employeeId: 8 } });
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "super_admin", employeeId: 8 } });
     vi.spyOn(db, "query").mockResolvedValue({ rows: [] });
     const res = await GET(mockReq());
     expect(res.status).toBe(200);
@@ -142,7 +142,7 @@ describe("GET /api/ai/instructions", () => {
   });
 
   it("prefers the DB override and flags it", async () => {
-    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "system_admin", employeeId: 8 } });
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "super_admin", employeeId: 8 } });
     vi.spyOn(db, "query").mockImplementation(async (sql, params) => {
       if (params?.[0] === "main") return { rows: [{ content: "# Custom", version: 3 }] };
       return { rows: [] };

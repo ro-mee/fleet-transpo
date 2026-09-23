@@ -5,7 +5,7 @@
 // - Driver Accepted ONLY is eligible (the scan SQL enforces it);
 // - three thresholds with the right tier: window open (quiet Warning /
 //   heads-up channel), departure due (loud Alert / default), overdue
-//   (driver + dispatcher staff copy; management/system_admin never);
+//   (driver + dispatcher staff copy; management/super_admin never);
 // - catch-up: both thresholds crossed in one scan → only the later event;
 // - dedupe on repeated scans via the (employee, title, reference) re-check
 //   INSIDE the advisory-lock transaction;
@@ -178,7 +178,7 @@ describe("processTrip — thresholds and tiers", () => {
     const txCalls = mockTransaction();
     await processTrip({
       trip: tripRow(), policy: POLICY, preferenceRows: [],
-      dispatcherIds: [55, 56], // dispatchers (management/system_admin stripped upstream by notificationRolesFor)
+      dispatcherIds: [55, 56], // dispatchers (management/super_admin stripped upstream by notificationRolesFor)
       now: LATEST, fetchImpl: FETCH_FAIL,
     });
     const notif = inserts(txCalls, "notifications");

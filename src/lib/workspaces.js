@@ -33,8 +33,10 @@ import {
   Navigation,
   AlertTriangle,
   Fingerprint,
+  FileText,
   Activity,
 } from "lucide-react";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 
 const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
   {
@@ -46,7 +48,7 @@ const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
 ];
 
 export const WORKS = {
-  system_admin: {
+  super_admin: {
     name: "System Console",
     tagline: "Platform control, security and configuration.",
     accent: "neutral",
@@ -54,26 +56,59 @@ export const WORKS = {
     nav: [
       ...overview("/dashboard", "System Dashboard", LayoutDashboard),
       {
-        label: "Administration",
+        label: "Security & Access",
         items: [
-          { href: "/system/health", label: "System Health", icon: Activity },
-          { href: "/system/audit", label: "Audit Logs", icon: ShieldCheck },
-          { href: "/system/errors", label: "Error Log", icon: Bug },
           {
             href: "/settings/users",
             label: "User Management",
             icon: UserCog,
             children: [
               { href: "/settings/users", label: "All Users" },
+              { href: "/settings/users?view=privileged", label: "Privileged Accounts" },
               { href: "/settings/users/new", label: "Add User" },
             ],
           },
+          { href: "/settings/security-center", label: "Security Center", icon: Fingerprint },
+          { href: "/system/audit", label: "Audit Logs", icon: ShieldCheck },
+        ],
+      },
+      {
+        label: "System Monitoring",
+        items: [
+          { href: "/system/health", label: "System Health", icon: Activity },
+          { href: "/system/errors", label: "Error Monitoring", icon: Bug },
+          { href: "/settings/ai/logs", label: "AI & Automation Logs", icon: Database },
+        ],
+      },
+      {
+        label: "Platform",
+        items: [
           { href: "/settings/api", label: "API & Integrations", icon: KeyRound },
           { href: "/settings/ai", label: "AI Providers", icon: Brain },
-          { href: "/settings/ai/logs", label: "AI & Automation Logs", icon: Database },
-          { href: "/settings/number-coding", label: "Number Coding (UVVRP)", icon: CalendarCheck },
+          { href: "/settings/general", label: "System Configuration", icon: Settings },
+        ],
+      },
+      {
+        label: "Policies",
+        items: [
           { href: "/settings/dispatch", label: "Dispatch Policy", icon: Send },
-          { href: "/settings/general", label: "System Settings", icon: Settings },
+          { href: "/settings/number-coding", label: "Number Coding Policy", icon: CalendarCheck },
+          { href: "/notifications/templates", label: "Notification Templates", icon: FileText },
+        ],
+      },
+      {
+        label: "Oversight",
+        items: [
+          { href: "/uvvrp", label: "Coding Board (Live)", icon: MapPin },
+          { href: "/reports", label: "Reports & Analytics", icon: BarChart3 },
+          { href: "/notifications", label: "System Notifications", icon: Bell },
+        ],
+      },
+      {
+        label: "Account",
+        items: [
+          { href: "/settings/profile", label: "Profile", icon: UserCog },
+          { href: "/settings/security", label: "Security", icon: ShieldCheck },
         ],
       },
     ],
@@ -139,11 +174,11 @@ export const WORKS = {
             icon: Settings,
             children: [
               { href: "/settings/general", label: "General" },
-              { href: "/settings/users", label: "Users" },
+              { href: "/settings/users", label: "Staff Accounts" },
               { href: "/settings/users/new", label: "Add User" },
-              { href: "/settings/api", label: "API Access" },
               { href: "/settings/number-coding", label: "Number Coding" },
               { href: "/settings/dispatch", label: "Dispatch Policy" },
+              { href: "/notifications/templates", label: "Notification Templates" },
             ],
           },
         ],
@@ -281,5 +316,6 @@ export const WORKS = {
 };
 
 export function getWorkspace(role) {
-  return WORKS[role] || WORKS.admin;
+  const normalized = normalizeRoleName(role);
+  return WORKS[normalized] || WORKS.admin;
 }

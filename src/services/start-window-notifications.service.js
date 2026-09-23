@@ -33,7 +33,7 @@
 //     notifications row, a disabled push channel suppresses the outbox row
 //     (this is the first producer that reads notification_preferences).
 //   - Staff fan-out (overdue only) goes through the locked audience policy:
-//     dispatchers get operational copy; management/system_admin never do.
+//     dispatchers get operational copy; management/super_admin never do.
 //
 // Best-effort per trip by design: one trip's failure must never stop the
 // scan for the others, and the whole sync never throws (a producer failure
@@ -169,7 +169,7 @@ export async function processTrip({ trip, policy, preferenceRows, dispatcherIds,
   const event = THRESHOLD_EVENTS[threshold];
 
   // Audience: the driver for every threshold; dispatchers additionally on
-  // overdue (operational copy; management/system_admin never — locked
+  // overdue (operational copy; management/super_admin never — locked
   // audience policy). Every recipient is subject to their own preferences.
   const recipients = [];
   if (threshold === "overdue") {

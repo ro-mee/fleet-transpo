@@ -51,7 +51,9 @@ function aiStatus(envKey, rows, match) {
 
 export async function GET(req) {
   try {
-    await requirePermission(req, "settings", "read");
+    // Connector status reveals integration infrastructure (booking keys,
+    // AI providers, webhook secrets presence) — Super Admin only.
+    await requirePermission(req, "system", "read");
 
     const supabaseReady = [
       has("NEXT_PUBLIC_SUPABASE_URL"),

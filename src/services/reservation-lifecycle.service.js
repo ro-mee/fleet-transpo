@@ -243,7 +243,7 @@ export async function advanceReservation({
 /**
  * First arrival at Assigned: vehicle + driver secured. Notify the dispatch
  * chain (dispatcher/fleet_manager/admin via notificationRolesFor — never
- * system_admin, never a fabricated owner). Best-effort: never throws.
+  * super_admin, never a fabricated owner). Best-effort: never throws.
  */
 async function notifyTransportAssigned(request) {
   const recipients = await resolveNotificationRecipients({

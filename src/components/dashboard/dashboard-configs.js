@@ -1,5 +1,7 @@
+import { normalizeRoleName } from "@/lib/auth/role-names";
+
 export const DASHBOARD_CONFIGS = {
-  system_admin: {
+  super_admin: {
     title: "System Console",
     description: "Platform health, security and configuration at a glance.",
     queries: ["users", "sessions", "notifications", "audit", "activity", "health"],
@@ -26,5 +28,5 @@ export const DASHBOARD_CONFIGS = {
 };
 
 export function getDashboardConfig(role) {
-  return DASHBOARD_CONFIGS[role] || DASHBOARD_CONFIGS.admin;
+  return DASHBOARD_CONFIGS[normalizeRoleName(role)] || DASHBOARD_CONFIGS.admin;
 }

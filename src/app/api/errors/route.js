@@ -18,7 +18,7 @@ import { writeAppError } from "@/lib/app-errors";
  * POST: authenticated client crash reports (web ErrorBoundary, mobile
  *   ErrorBoundary). Server-side code never POSTs here — it calls
  *   writeAppError directly (see handleError in lib/api/utils.js).
- * GET: system_admin event + occurrence-group reads for System Health.
+ * GET: super_admin event + occurrence-group reads for System Health.
  *
  * Ownership (see lib/app-errors.js): this endpoint only receives failures
  * with no owning subsystem. AI provider/timeout/parse/quota events belong
@@ -30,7 +30,7 @@ import { writeAppError } from "@/lib/app-errors";
 // so an explicit array is required (and satisfies verify-route-auth, which
 // rejects bare requireAuth on mutating handlers).
 const REPORT_ROLES = [
-  "system_admin",
+  "super_admin",
   "admin",
   "fleet_manager",
   "dispatcher",
@@ -132,7 +132,7 @@ function parseWindow(sp) {
 /**
  * GET /api/errors
  *
- * Restricted to audit-read (system_admin) — rows carry reporter identity,
+ * Restricted to audit-read (super_admin) — rows carry reporter identity,
  * user agents, and raw failure text.
  *
  * Query params: source (web|mobile|server), fingerprint (exact),

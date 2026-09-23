@@ -98,7 +98,7 @@ const { rows: dispatchers } = await query(
   `SELECT e.employee_id, e.first_name, e.last_name
      FROM employees e
      LEFT JOIN roles r ON r.role_id = e.role_id
-    WHERE e.deleted_at IS NULL AND r.role_name IN ('dispatcher','fleet_manager','admin','system_admin')
+    WHERE e.deleted_at IS NULL AND r.role_name IN ('dispatcher','fleet_manager','admin','super_admin')
     ORDER BY CASE r.role_name WHEN 'dispatcher' THEN 1 ELSE 2 END
     LIMIT 1`
 );

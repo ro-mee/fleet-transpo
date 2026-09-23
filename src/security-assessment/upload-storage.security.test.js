@@ -40,7 +40,7 @@ vi.mock('@/lib/api/utils', async importOriginal => {
     // SEC-UPLOAD-008 exercises the admin driver routes, which authorize with
     // requirePermission instead. Granting it here is what lets the test reach
     // validateBody — the point is that the 400 comes from validation, not auth.
-    requirePermission: vi.fn(async () => ({ user: { role: 'system_admin', employeeId: 1, employee_id: 1 } })),
+    requirePermission: vi.fn(async () => ({ user: { role: 'super_admin', employeeId: 1, employee_id: 1 } })),
   };
 });
 

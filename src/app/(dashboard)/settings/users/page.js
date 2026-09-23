@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
@@ -19,6 +20,8 @@ import { Search, UserCog, UserPlus, ShieldAlert, RefreshCw, AlertTriangle, KeyRo
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { rolesFor } from "@/lib/auth/permissions";
+import { isSuperAdmin } from "@/lib/auth/role-names";
+import { isPrivilegedTarget, canMutateAccount } from "@/lib/auth/privilege";
 
 // Staff account index — every employee account (not driver profiles; those live
 // in the Drivers directory). Admins can review roles and disable/enable
@@ -29,6 +32,7 @@ const columnHelper = createColumnHelper();
 export default function UsersPage() {
   useRequireRole();
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -37,6 +41,10 @@ export default function UsersPage() {
   const [resetLink, setResetLink] = useState(null);
   const [copied, setCopied] = useState(false);
   const canIssueReset = rolesFor("accounts", "update").includes(user?.role);
+  const isSuper = isSuperAdmin(user?.role);
+  // Super Admin workspace links here as "Privileged Accounts" — Admin callers
+  // never see the tab and the server still enforces target protection.
+  const privilegedView = searchParams.get("view") === "privileged" && isSuper;
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -50,19 +58,24 @@ export default function UsersPage() {
   });
 
   const rows = useMemo(() => data?.rows ?? [], [data]);
+  const scopedRows = useMemo(
+    () => (privilegedView ? rows.filter((r) => isPrivilegedTarget(r.role_name)) : rows),
+    [rows, privilegedView]
+  );
   const filtered = useMemo(
     () =>
-      rows.filter((r) =>
+      scopedRows.filter((r) =>
         statusFilter === "all"
           ? true
           : statusFilter === "active"
           ? !r.deleted_at
           : Boolean(r.deleted_at)
       ),
-    [rows, statusFilter]
+    [scopedRows, statusFilter]
   );
-  const activeCount = rows.filter((r) => !r.deleted_at).length;
-  const inactiveCount = rows.length - activeCount;
+  const activeCount = scopedRows.filter((r) => !r.deleted_at).length;
+  const inactiveCount = scopedRows.length - activeCount;
+  const privilegedCount = useMemo(() => rows.filter((r) => isPrivilegedTarget(r.role_name)).length, [rows]);
 
   const toggleMutation = useMutation({
     mutationFn: ({ employee_id, action }) =>
@@ -109,7 +122,7 @@ export default function UsersPage() {
       columnHelper.accessor("role_name", {
         header: "Role",
         cell: (info) => (
-          <Badge variant={info.getValue() === "system_admin" ? "primary" : "default"} className="capitalize">
+          <Badge variant={info.getValue() === "super_admin" ? "primary" : "default"} className="capitalize">
             {(info.getValue() || "no role").replace(/_/g, " ")}
           </Badge>
         ),
@@ -145,7 +158,20 @@ export default function UsersPage() {
         cell: (info) => {
           const u = info.row.original;
           const disabled = Boolean(u.deleted_at);
-          const canResetTarget = canIssueReset && !disabled && (u.role_name !== "system_admin" || user?.role === "system_admin");
+          // Privileged targets are Super Admin-managed. An Admin sees a
+          // protected label instead of buttons that would only 403.
+          if (!canMutateAccount(user?.role, u.role_name)) {
+            return (
+              <div className="text-right">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground-muted" title="Managed by Super Admin">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  Protected account
+                </span>
+                <p className="text-[11px] text-foreground-muted">Managed by Super Admin</p>
+              </div>
+            );
+          }
+          const canResetTarget = canIssueReset && !disabled;
           return (
             <div className="text-right flex items-center justify-end gap-1">
               {canResetTarget && (
@@ -193,9 +219,13 @@ export default function UsersPage() {
     <div className="space-y-6 pb-12">
       <HeroHeader
         icon={UserCog}
-        title="User Management"
-        badge="Staff Accounts"
-        description="Every staff account across workspaces. Disable to revoke sign-in; enable to restore access."
+        title={privilegedView ? "Privileged Accounts" : "User Management"}
+        badge={privilegedView ? "Super Admin · Admin" : "Staff Accounts"}
+        description={
+          privilegedView
+            ? "Super Admin and Admin accounts. Every change here is audited."
+            : "Every staff account across workspaces. Disable to revoke sign-in; enable to restore access."
+        }
         actions={
           <Link href="/settings/users/new" className={cn("rounded-2xl h-10 px-4 text-xs font-semibold inline-flex items-center gap-2", heroButtonPrimaryClass)}>
             <UserPlus className="w-3.5 h-3.5" />
@@ -231,7 +261,36 @@ export default function UsersPage() {
           description="Manage roles and sign-in access."
           icon={UserCog}
           toolbar={
-            <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-full border border-border/60">
+            <div className="flex flex-wrap items-center gap-2">
+              {isSuper && (
+                <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-full border border-border/60">
+                  <Link
+                    href="/settings/users"
+                    aria-current={!privilegedView}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-[11px] font-bold transition-all",
+                      !privilegedView
+                        ? "bg-surface shadow-xs text-foreground border border-border/80"
+                        : "text-foreground-muted hover:text-foreground border border-transparent cursor-pointer"
+                    )}
+                  >
+                    All Users ({rows.length})
+                  </Link>
+                  <Link
+                    href="/settings/users?view=privileged"
+                    aria-current={privilegedView}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-[11px] font-bold transition-all",
+                      privilegedView
+                        ? "bg-surface shadow-xs text-foreground border border-border/80"
+                        : "text-foreground-muted hover:text-foreground border border-transparent cursor-pointer"
+                    )}
+                  >
+                    Privileged ({privilegedCount})
+                  </Link>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-full border border-border/60">
               {[
                 { id: "all", label: `All (${rows.length})` },
                 { id: "active", label: `Active (${activeCount})` },
@@ -251,6 +310,7 @@ export default function UsersPage() {
                   {chip.label}
                 </button>
               ))}
+              </div>
             </div>
           }
           emptyTitle={rows.length === 0 ? "No staff accounts yet" : "No accounts match"}

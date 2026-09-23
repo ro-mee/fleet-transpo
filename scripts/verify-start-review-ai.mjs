@@ -82,7 +82,7 @@ const { rows: dispatchers } = await query(
   `SELECT e.employee_id FROM employees e
      LEFT JOIN roles r ON r.role_id = e.role_id
     WHERE e.deleted_at IS NULL
-      AND r.role_name IN ('dispatcher','fleet_manager','admin','system_admin')
+      AND r.role_name IN ('dispatcher','fleet_manager','admin','super_admin')
     ORDER BY CASE r.role_name WHEN 'dispatcher' THEN 1 ELSE 2 END LIMIT 1`
 );
 if (dispatchers[0]) globalThis.__HARNESS_SESSION__.user.employeeId = dispatchers[0].employee_id;

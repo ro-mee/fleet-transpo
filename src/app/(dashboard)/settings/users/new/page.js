@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { createEmployeeAccount } from "@/services/auth.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { useAuth } from "@/hooks/use-auth";
+import { isSuperAdmin } from "@/lib/auth/role-names";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
 import {
@@ -18,6 +20,7 @@ import {
   Settings, Users, BarChart2, Wrench, Radio,
 } from "lucide-react";
 import { FloatingField } from "@/components/ui/field";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
@@ -26,8 +29,19 @@ import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 const ACCOUNT_ROLES = REGISTRATION_ROLES.filter((r) => r.value !== "driver");
 
+// Roles the signed-in actor may offer. The server re-validates every
+// submission — this only keeps the picker from offering a doomed choice.
+function rolesForActor(actorRole) {
+  if (isSuperAdmin(actorRole)) return ACCOUNT_ROLES;
+  return ACCOUNT_ROLES.filter((r) =>
+    ["fleet_manager", "dispatcher", "management"].includes(r.value)
+  );
+}
+
+const PRIVILEGED_VALUES = new Set(["super_admin", "admin"]);
+
 const ROLE_META = {
-  system_admin: {
+  super_admin: {
     icon: Shield,
     color: "text-rose-500",
     bg: "bg-rose-50 dark:bg-rose-950/40",
@@ -125,8 +139,11 @@ export default function AddUserPage() {
   useRequireRole();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [privilegeConfirm, setPrivilegeConfirm] = useState(null);
   const { active: capsOn, bind: capsBind } = useCapsLock();
+  const visibleRoles = rolesForActor(user?.role);
 
   const form = useForm({
     resolver: zodResolver(createUserSchema),
@@ -155,7 +172,7 @@ export default function AddUserPage() {
 
   const isSubmitting = createMutation.isPending;
 
-  const onSubmit = (data) => {
+  const submitPayload = (data) => {
     createMutation.mutate({
       email: data.email.trim().toLowerCase(),
       password: data.password,
@@ -163,6 +180,23 @@ export default function AddUserPage() {
       last_name: data.last_name.trim(),
       role_id: data.role_id,
     });
+  };
+
+  const selectedRoleValue = (() => {
+    const role = REGISTRATION_ROLES.find((r) => String(r.id) === String(selectedRoleId));
+    return role?.value ?? null;
+  })();
+  const isPrivilegedSelection = PRIVILEGED_VALUES.has(selectedRoleValue);
+
+  const onSubmit = (data) => {
+    // Privileged grants get an explicit confirmation — the action is audited
+    // server-side. Ordinary staff roles submit immediately.
+    if (isPrivilegedSelection && !privilegeConfirm) {
+      setPrivilegeConfirm(data);
+      return;
+    }
+    setPrivilegeConfirm(null);
+    submitPayload(data);
   };
 
   const formActions = (
@@ -289,7 +323,7 @@ export default function AddUserPage() {
                   name="role_id"
                   render={({ field }) => (
                     <>
-                      {ACCOUNT_ROLES.map((role) => (
+                      {visibleRoles.map((role) => (
                         <RoleCard key={role.id} role={role} selected={field.value === String(role.id)} onSelect={(val) => field.onChange(val)} />
                       ))}
                     </>
@@ -305,7 +339,7 @@ export default function AddUserPage() {
 
             {/* Role summary callout */}
             {selectedRoleId && (() => {
-              const role = ACCOUNT_ROLES.find((r) => String(r.id) === selectedRoleId);
+              const role = visibleRoles.find((r) => String(r.id) === selectedRoleId);
               const meta = role ? ROLE_META[role.value] : null;
               if (!role || !meta) return null;
               const Icon = meta.icon;
@@ -324,6 +358,22 @@ export default function AddUserPage() {
           </div>
         </div>
       </form>
+
+      <ConfirmDialog
+        open={Boolean(privilegeConfirm)}
+        onOpenChange={(open) => !open && setPrivilegeConfirm(null)}
+        variant="warning"
+        title="Grant privileged access?"
+        message={
+          selectedRoleValue === "super_admin"
+            ? "Super Admin has unrestricted FleetOps authorization. This action will be recorded in the audit log."
+            : "This role provides access to sensitive FleetOps administration functions. This action will be recorded in the audit log."
+        }
+        confirmLabel="Grant Access"
+        cancelLabel="Cancel"
+        loading={isSubmitting}
+        onConfirm={() => privilegeConfirm && submitPayload(privilegeConfirm)}
+      />
     </PageEntrance>
   );
 }

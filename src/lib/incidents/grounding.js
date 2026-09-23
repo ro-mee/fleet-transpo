@@ -125,7 +125,7 @@ export async function groundIncident({ incident, session, req = null }) {
 
       // Notify the stranding-response chain: the dispatcher must arrange
       // replacement transport immediately. ('guest_services'/'dispatch' were
-      // legacy names matching no live role — only system_admin was ever paged.)
+      // legacy names matching no live role — only super_admin was ever paged.)
       const { rows: gsRecipients } = await query(
         `SELECT e.employee_id
            FROM employees e

@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getRequiredRolesForPath } from "@/lib/auth/permissions";
+import { normalizeRoleName, normalizeRoleList } from "@/lib/auth/role-names";
 import { saveReturnTo } from "@/lib/auth/return-to";
 
 // The permission data and predicates live in ./permissions.js, which imports no
@@ -23,8 +24,8 @@ export function useRequireRole() {
   const { employee, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname() || "";
-  const requiredRoles = getRequiredRolesForPath(pathname);
-  const role = employee?.roles?.role_name;
+  const requiredRoles = normalizeRoleList(getRequiredRolesForPath(pathname));
+  const role = normalizeRoleName(employee?.roles?.role_name);
 
   const isOpenRoute = requiredRoles.includes("*");
   // No session (employee is null) is NOT the same as a session with no role.
