@@ -5,7 +5,7 @@ tags: [database, table, address, location, privacy]
 source:
   - supabase/migrations/122_address_registry.sql
   - supabase/migrations/123_psgc_geography.sql
-last_verified: 2026-09-23
+last_verified: 2026-09-24
 ---
 
 # `addresses`
@@ -97,10 +97,23 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   `address_id = NULL` and read from their existing text columns; a row is upgraded only
   when a human next edits it. The same holds for `psgc_barangay_code` — legacy rows are NULL
   until individually re-edited. Migration `123` deliberately declined a bulk backfill.
-- **No address surface writes to this table yet.** Migration `123` adds the cascading form
-  (`src/components/address/address-form-dialog.jsx`) and its server-side validator
-  (`src/lib/address/validate-structured.js`), but the six real address inputs in the app
-  still use their existing fields. Wiring them up is separate, per-surface work.
+- **One address surface writes to this table so far: the canonical-location dialog.**
+  Since 2026-09-24 `src/app/(dashboard)/routes/locations/page.js` picks through the cascade
+  and `POST`/`PUT /api/locations` resolve the pick server-side and write the `addresses` row
+  and `locations.address_id` in one transaction (the service is called with the caller's
+  `tx`, so the two commit together). The other surfaces — hotel settings, reservations,
+  driver residential and driver emergency contact — still use their existing fields.
+  Wiring them up is separate, per-surface work following the same shape.
+- **A registry row is never edited, only appended.** `saveAddress` always inserts and
+  repoints the referencing column; a superseded row is orphaned rather than mutated. That is
+  what makes "one entity's edit silently rewrites another's address" impossible —
+  `getAddress` is the only reader, and nothing joins by value.
+- **Re-opening the cascade on an existing address starts blank.** `GET /api/locations`
+  returns `address_id` but not the structured detail behind it, so the picker cannot
+  pre-fill. Reconstructing a `psgc_barangay_code` from stored text is the fuzzy name match
+  the whole design refuses, so the current address is shown read-only instead and picking a
+  new one replaces it. A loader for the structured detail is the obvious follow-up, and all
+  five surfaces will want it.
 - **`barangay` is mapped from TomTom's `municipalitySubdivision`, and that is an
   assumption, not a measurement.** The live server key is not authorized for TomTom's
   Search API (it returns 403; Routing works), so no real payload has been observed. The

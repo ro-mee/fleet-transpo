@@ -1070,9 +1070,17 @@ rather than being guessed, because a wrong barangay is worse than an absent one.
 boundary. A payload's `verified: true` is **discarded**; the server re-resolves the
 `provider_place_id` through the provider and uses *its own* coordinates. A submitted
 pair drifting more than 50 m from the re-resolved one is rejected as stale rather than
-silently stored. Operational addresses (a `locations` row, the hotel base) **must**
-arrive verified or the write is refused; personal addresses (driver residential,
-emergency contact) are advisory and save as unverified, badged but never blocking.
+silently stored. On **this** path — the provider one — an operational address (a
+`locations` row, the hotel base) must arrive verified or the write is refused, while
+personal addresses (driver residential, emergency contact) are advisory and save as
+unverified, badged but never blocking.
+**The cascade path is the exception, and it is not a gap.** `resolveStructuredAddress`
+stores an operational address with `verified: false` and `provider = 'manual'` and is not
+refused for it, because on that path the geocoder is not what makes the address valid —
+the picked PSGC hierarchy is. Refusing an unverified location would have made every
+canonical location unsaveable while the TomTom Search permission is missing, which is a
+regression rather than a half-finished feature. The two paths differ in *what
+establishes validity*, and each states its own answer in the `provider` column.
 Authorization is unchanged — the same `requirePermission` resources as the surrounding
 routes, no new roles, no relaxed checks.
 
@@ -1142,17 +1150,26 @@ valid, not the coordinate.
 > the provider does not send stays NULL, which passes under either mapping. Run
 > `node scripts/check-address-provider.mjs` to see the raw payload.
 
-> **Migration state — foundation live, surfaces not yet migrated.** As of 2026-09-23 the
-> table, the library, both API routes, the component and the map preview exist and are
-> verified (76 library tests; `db:contract` 0 violations; `verify:anon` a refusal, not
-> `200 []`; lint clean; production build green). **No address form in the app has been
-> migrated yet.** The six real address surfaces — canonical location, hotel base
-> location, reservation pickup/drop-off, route origin/destination, driver residential
-> and driver emergency contact — still use their existing inputs, and the Google Maps
-> URL paste path is still in place. Operational surfaces are deliberately blocked behind
-> the provider permission above: requiring verification on a location that cannot be
-> verified would make locations unsaveable, which is a regression rather than a
-> half-finished feature.
+> **Migration state — the first surface is migrated (2026-09-24).** The table, the library,
+> both API routes, the component, the map preview and the cascade are live and verified.
+> **One of the five address surfaces has moved: the canonical-location dialog**
+> (`src/app/(dashboard)/routes/locations/page.js`), which now shows the address read-only
+> with a *Pick address* button, opens `AddressFormDialog`, and posts `structured_address`.
+> `POST`/`PUT /api/locations` resolve it server-side, compose `formatted_address` from their
+> own reading of the barangay code, and write the `addresses` row and `locations.address_id`
+> inside **one transaction** — `saveAddress(value, { tx })` is called with the caller's
+> handle, so a location can never commit pointing at an address that did not. Both handlers
+> treat an **omitted** `address` as "leave it alone" and an **empty** one as a refusal, which
+> is what lets a rename not silently drop a location's address.
+>
+> The remaining four — hotel base location, reservation pickup/drop-off, driver residential
+> and driver emergency contact — still use their existing inputs, and the Google Maps URL
+> paste path stays until the last of them moves. **Known gap:** re-opening the picker on an
+> existing structured address starts blank; `GET /api/locations` returns `address_id` but no
+> detail behind it, and rebuilding a barangay code from stored text is the fuzzy match this
+> design refuses. The current address is shown read-only instead, and picking a new one
+> replaces it. A structured-detail loader is the obvious follow-up, and all five surfaces
+> want it.
 
 > **Cascade state — migration applied and fully verified; one environmental gate open.**
 > Migration `123` is **live** and every gate on it passed: `db:up` applied it cleanly;

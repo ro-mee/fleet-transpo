@@ -3,6 +3,8 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { isId, isValidObject, validateBody } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { isGoogleMapsUrl, resolveGoogleMapsCoordinates } from "@/lib/google-maps";
+import { saveAddress } from "@/services/address.service";
+import { resolveStructuredAddress } from "@/lib/address/validate-structured";
 
 function coordinateRule(label, min, max) {
   return (value) => {
@@ -18,7 +20,9 @@ function coordinateRule(label, min, max) {
 
 const locationSchema = {
   name: { required: true, maxLength: 255, label: "Location name", validate: (value) => typeof value === "string" ? null : "Location name must be text." },
-  address: { required: true, maxLength: 2000, label: "Address", validate: (value) => typeof value === "string" ? null : "Address must be text." },
+  // Optional since the cascade — a picked address arrives as `structured_address`
+  // and the server composes the text from its own resolution of it. See POST.
+  address: { maxLength: 2000, label: "Address", validate: (value) => value === undefined || value === null || typeof value === "string" ? null : "Address must be text." },
   maps_url: { maxLength: 2000, label: "Google Maps link", validate: (value) => !String(value || "").trim() || isGoogleMapsUrl(String(value).trim()) ? null : "Google Maps link must be a valid Google Maps URL." },
   pickup_radius_m: { label: "Pickup radius", validate: radiusRule("Pickup radius") },
   dropoff_radius_m: { label: "Drop-off radius", validate: radiusRule("Drop-off radius") },
@@ -47,7 +51,7 @@ function normalizeName(value) {
 async function loadLocation(tx, id) {
   const { rows } = await tx.query(
     `SELECT location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
-            created_at, is_active, retired_at
+            address_id, created_at, is_active, retired_at
        FROM locations
       WHERE location_id = $1
       LIMIT 1`,
@@ -93,9 +97,29 @@ export async function PUT(req, { params }) {
     if (!isValidObject(errors)) return errValidation(errors);
 
     const name = String(body.name).trim();
-    const address = String(body.address).trim();
     const coordinates = await resolveCoordinates(body);
     if (coordinates.error) return errValidation(coordinates.error);
+
+    // ── The address, in whichever of its two shapes arrived ──────────────────
+    // Same split as POST, for the same reasons: resolution happens HERE, outside
+    // the transaction, because a refused barangay is a 422 carrying field errors
+    // rather than a reason to unwind a write; the matching `saveAddress` runs
+    // inside it, so the address row and this location commit together.
+    const structured = body.structured_address ?? null;
+    const resolved = structured ? await resolveStructuredAddress(structured) : null;
+    if (resolved && !resolved.ok) {
+      return errValidation(resolved.errors ?? { structured_address: resolved.error });
+    }
+
+    // `null` means NOT SUPPLIED, which is what lets an edit that only renames a
+    // location omit the address entirely and leave the stored one — and its
+    // registry row — untouched. An empty string is a different thing: it was
+    // supplied, and refusing it beats silently reading it as an omission.
+    let addressText = null;
+    if (!resolved && body.address !== undefined && body.address !== null) {
+      addressText = String(body.address).trim();
+      if (!addressText) return errValidation({ address: "Address cannot be empty." });
+    }
 
     const result = await withTransaction(async (tx) => {
       const current = await loadLocation(tx, Number(id));
@@ -134,13 +158,27 @@ export async function PUT(req, { params }) {
       const nextPickupRadius = radiusOrNull(body.pickup_radius_m) ?? Number(current.pickup_radius_m) ?? 100;
       const nextDropoffRadius = radiusOrNull(body.dropoff_radius_m) ?? Number(current.dropoff_radius_m) ?? 100;
 
+      // Which address this location ends up carrying, and which registry row it
+      // points at. The third case is the one worth stating: a legacy string that
+      // CHANGED clears the link rather than carrying it. The registry row holds
+      // the geography and coordinates resolved from the text it was saved with,
+      // so keeping the pointer would have `getAddress` describe an address that
+      // no longer says that — the same stale-value failure the pin rule exists to
+      // prevent. The orphaned row is inert; a string that did NOT change keeps its
+      // link, which is what stops a rename from silently dropping the structured
+      // address.
+      const nextAddress = resolved ? resolved.value.formattedAddress : (addressText ?? current.address);
+      const addressId = resolved
+        ? await saveAddress(resolved.value, { tx })
+        : nextAddress === current.address ? current.address_id : null;
+
       if (versioned) {
         const inserted = await tx.query(
-          `INSERT INTO locations (name, address, latitude, longitude, is_active, pickup_radius_m, dropoff_radius_m)
-           VALUES ($1, $2, $3, $4, true, $5, $6)
+          `INSERT INTO locations (name, address, latitude, longitude, is_active, pickup_radius_m, dropoff_radius_m, address_id)
+           VALUES ($1, $2, $3, $4, true, $5, $6, $7)
            RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
-                     created_at, is_active, retired_at`,
-          [name, address, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius]
+                     address_id, created_at, is_active, retired_at`,
+          [name, nextAddress, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius, addressId]
         );
         await tx.query(
           `UPDATE locations
@@ -154,11 +192,11 @@ export async function PUT(req, { params }) {
       const updated = await tx.query(
         `UPDATE locations
             SET name = $1, address = $2, latitude = $3, longitude = $4,
-                pickup_radius_m = $5, dropoff_radius_m = $6
-          WHERE location_id = $7 AND is_active = true
+                pickup_radius_m = $5, dropoff_radius_m = $6, address_id = $7
+          WHERE location_id = $8 AND is_active = true
           RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
-                    created_at, is_active, retired_at`,
-        [name, address, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius, Number(id)]
+                    address_id, created_at, is_active, retired_at`,
+        [name, nextAddress, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius, addressId, Number(id)]
       );
       if (name !== current.name) {
         await tx.query(

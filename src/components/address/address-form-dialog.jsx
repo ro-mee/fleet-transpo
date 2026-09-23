@@ -114,6 +114,16 @@ export function AddressFormDialog({
   error,
   /** Hide the pin step for surfaces where a coordinate is meaningless. */
   showPinMap = true,
+  /**
+   * Hide the Home / Office / Other selector.
+   *
+   * For surfaces where the address belongs to a PLACE rather than a person — a
+   * canonical location, a hotel — "home" is not a smaller truth but a different
+   * kind of claim, and the default would store it without anyone asserting it.
+   * Such a caller gets `other`, which is what the column means when the
+   * distinction does not apply.
+   */
+  showTypeSelector = true,
 }) {
   const [value, setValue] = useState(initialValue ?? EMPTY_STRUCTURED_ADDRESS);
   const [touched, setTouched] = useState(false);
@@ -176,9 +186,13 @@ export function AddressFormDialog({
     event.preventDefault();
     setTouched(true);
     if (!complete || saving) return;
+    // The type is forced here rather than merely hidden above: a hidden control
+    // whose value still reaches the payload is the same stored claim with less
+    // explanation for it.
+    const submitted = showTypeSelector ? value : { ...value, type: "other" };
     // No clearing, no reset: if the server rejects this, the operator's input is
     // still here when the message comes back.
-    onSubmit?.(value);
+    onSubmit?.(submitted);
   }
 
   return (
@@ -191,10 +205,12 @@ export function AddressFormDialog({
 
         <form onSubmit={handleSubmit} className="space-y-6 p-6 pt-5">
           {/* ── What it is for ─────────────────────────────────────────────── */}
-          <div className="space-y-2.5">
-            <SectionLabel>Address type</SectionLabel>
-            <AddressTypeSelector value={value.type} onChange={setType} disabled={saving} />
-          </div>
+          {showTypeSelector && (
+            <div className="space-y-2.5">
+              <SectionLabel>Address type</SectionLabel>
+              <AddressTypeSelector value={value.type} onChange={setType} disabled={saving} />
+            </div>
+          )}
 
           {/* ── Where it is ────────────────────────────────────────────────── */}
           <div className="space-y-2.5">

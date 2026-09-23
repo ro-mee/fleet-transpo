@@ -24,6 +24,8 @@ import { can, useRequireRole } from "@/lib/auth/role-guard";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
+import { formatStructuredAddress } from "@/lib/address/structured";
+import { AddressFormDialog } from "@/components/address/address-form-dialog";
 import { createLocation, getLocations, updateLocation } from "@/services/location.service";
 import { isGoogleMapsUrl, parseGoogleMapsCoordinates } from "@/lib/google-maps";
 
@@ -41,13 +43,20 @@ function coordinateRule(label, min, max) {
 
 const locationSchema = {
   name: { required: true, maxLength: 255, label: "Location name", validate: (value) => typeof value === "string" ? null : "Location name must be text." },
-  address: { required: true, maxLength: 2000, label: "Address", validate: (value) => typeof value === "string" ? null : "Address must be text." },
+  // No `address` rule any more. The address is not typed here — it is picked
+  // through the cascade, and the server composes the stored text from its own
+  // resolution of the barangay code. What replaces the old `required: true` is
+  // the explicit check in `submitForm`.
   maps_url: { maxLength: 2000, label: "Google Maps link", validate: (value) => !String(value || "").trim() || isGoogleMapsUrl(String(value).trim()) ? null : "Google Maps link must be a valid Google Maps URL." },
   latitude: { label: "Latitude", validate: coordinateRule("Latitude", -90, 90) },
   longitude: { label: "Longitude", validate: coordinateRule("Longitude", -180, 180) },
 };
 
-const EMPTY_LOCATION = { name: "", address: "", maps_url: "", latitude: "", longitude: "" };
+// `address` is deliberately absent: the picked address lives in its own state
+// (`addressValue`), and the legacy text of the record being edited is read from
+// `editingLocation` directly. Mirroring it into this form object would give two
+// copies of one address and a way for them to disagree.
+const EMPTY_LOCATION = { name: "", maps_url: "", latitude: "", longitude: "" };
 
 function formatCoordinate(value) {
   const number = Number(value);
@@ -71,8 +80,24 @@ export default function LocationsPage() {
   const [editingLocation, setEditingLocation] = useState(null);
   const [formData, setFormData] = useState(EMPTY_LOCATION);
   const [formError, setFormError] = useState(null);
+  /** The picked structured address, or null when the operator has not picked one. */
+  const [addressValue, setAddressValue] = useState(null);
+  /**
+   * The cascade dialog. It and the location form are mutually exclusive — see
+   * the comment on the location `Dialog` below.
+   */
+  const [pickOpen, setPickOpen] = useState(false);
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(locationSchema);
   const linkedCoordinates = useMemo(() => parseGoogleMapsCoordinates(formData.maps_url), [formData.maps_url]);
+
+  /**
+   * What the address field shows: the pick in hand, or — when editing a record
+   * that predates the cascade — the legacy text it already carries. Never both,
+   * and never a composed guess at the structured detail behind legacy text.
+   */
+  const displayAddress = addressValue
+    ? formatStructuredAddress(addressValue)
+    : editingLocation?.address || "";
 
   const locationsQuery = useQuery({
     queryKey: ["locations"],
@@ -86,6 +111,7 @@ export default function LocationsPage() {
       queryClient.invalidateQueries({ queryKey: ["locations"] });
       setDialogOpen(false);
       setEditingLocation(null);
+      setAddressValue(null);
       setFormError(null);
       toast.success(location.versioned ? "Location version created; historical routes are preserved" : editingLocation ? "Location updated" : "Canonical location added");
     },
@@ -95,6 +121,8 @@ export default function LocationsPage() {
   function openNew() {
     setEditingLocation(null);
     setFormData({ ...EMPTY_LOCATION });
+    setAddressValue(null);
+    setPickOpen(false);
     setFormError(null);
     resetValidation();
     setDialogOpen(true);
@@ -104,11 +132,16 @@ export default function LocationsPage() {
     setEditingLocation(location);
     setFormData({
       name: location.name || "",
-      address: location.address || "",
       maps_url: "",
       latitude: location.latitude ?? "",
       longitude: location.longitude ?? "",
     });
+    // Cleared, not pre-filled. The list carries `address_id` but not the
+    // address detail behind it, and reconstructing a barangay code from stored
+    // TEXT is the fuzzy name match this whole design refuses. The current
+    // address stays on screen read-only; picking a new one replaces it.
+    setAddressValue(null);
+    setPickOpen(false);
     setFormError(null);
     resetValidation();
     setDialogOpen(true);
@@ -121,6 +154,14 @@ export default function LocationsPage() {
     const hasLongitude = String(formData.longitude).trim() !== "";
     const isValid = validate(formData);
     if (!isValid) return;
+    // The replacement for the old `address: { required: true }`. Either the
+    // operator picks one now, or the record already has one that this edit is
+    // leaving alone — there is no third state in which a location saves with no
+    // address, which is what the API enforcement below also says.
+    if (!addressValue && !editingLocation?.address) {
+      setFormError("Pick an address from the Philippine address cascade.");
+      return;
+    }
     if (hasLatitude !== hasLongitude) {
       setFormError("Enter both coordinates, or provide a Google Maps link.");
       return;
@@ -132,8 +173,11 @@ export default function LocationsPage() {
 
     const payload = {
       name: formData.name.trim(),
-      address: formData.address.trim(),
       maps_url: formData.maps_url.trim() || undefined,
+      // Sent ONLY when the operator actually picked one. Omitting it is what
+      // tells the API to leave both the stored text and its registry row as they
+      // are, which is what makes a rename not silently drop the address.
+      structured_address: addressValue ?? undefined,
     };
     if (hasLatitude && hasLongitude) {
       payload.latitude = Number(formData.latitude);
@@ -209,7 +253,13 @@ export default function LocationsPage() {
         stickyFirstColumn
       />
 
-      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setFormError(null); setEditingLocation(null); } }}>
+      {/* The picker and this form are MUTUALLY EXCLUSIVE: opening the cascade
+          closes this dialog, and finishing or cancelling opens it again. Both
+          are Radix dialogs, and leaving both mounted would stack two
+          `bg-black/60` overlays and two focus traps over one another for no
+          gain — the form's state lives in this component, not in the dialog, so
+          nothing is lost by unmounting it for the detour. */}
+      <Dialog open={dialogOpen && !pickOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) { setFormError(null); setEditingLocation(null); } }}>
         <DialogContent className="max-w-lg w-[95vw]">
           <DialogHeader>
             <DialogTitle>{editingLocation ? "Edit canonical location" : "Add canonical location"}</DialogTitle>
@@ -221,10 +271,44 @@ export default function LocationsPage() {
               <Input id="location_name" value={formData.name} onChange={(event) => setFormData((previous) => ({ ...previous, name: event.target.value }))} ref={registerField("name")} invalid={fieldError("name").invalid} placeholder="Enter the official location name" maxLength={255} autoFocus />
               {fieldError("name").error && <p className="text-xs text-danger">{fieldError("name").error}</p>}
             </div>
+            {/* The address is picked, not typed. The operator chooses a barangay
+                and the server derives the rest of the hierarchy from that code,
+                so what is stored is structurally valid by construction rather
+                than a string nothing can check. */}
             <div className="space-y-1.5">
-              <Label htmlFor="location_address">Address</Label>
-              <Input id="location_address" value={formData.address} onChange={(event) => setFormData((previous) => ({ ...previous, address: event.target.value }))} ref={registerField("address")} invalid={fieldError("address").invalid} placeholder="Enter the verified street address" maxLength={2000} />
-              {fieldError("address").error && <p className="text-xs text-danger">{fieldError("address").error}</p>}
+              {/* `htmlFor` points at the button, not at a text box: a `<label>`
+                  with nothing to label is announced as an orphan, and the
+                  button is the only control in this field. */}
+              <Label htmlFor="location_address_pick">Address</Label>
+              <div className="flex items-start gap-2">
+                <div className="min-h-10 flex-1 rounded-xl border border-border/70 bg-muted/20 px-3 py-2">
+                  {displayAddress ? (
+                    <p className="text-xs font-semibold leading-relaxed text-foreground-secondary">{displayAddress}</p>
+                  ) : (
+                    <p className="text-xs text-foreground-muted">No address picked yet.</p>
+                  )}
+                </div>
+                <Button
+                  id="location_address_pick"
+                  type="button"
+                  variant="outline"
+                  className="h-10 shrink-0"
+                  onClick={() => setPickOpen(true)}
+                >
+                  <MapPin className="mr-1.5 h-4 w-4" />
+                  {displayAddress ? "Replace address" : "Pick address"}
+                </Button>
+              </div>
+              {addressValue && (
+                <p className="text-xs text-success-700">
+                  Picked from the Philippine address cascade. Saving replaces this location&rsquo;s stored address.
+                </p>
+              )}
+              {!addressValue && editingLocation?.address_id && (
+                <p className="text-xs text-foreground-muted">
+                  This address predates the cascade. It is shown as stored and stays unchanged unless you pick a new one.
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="location_maps_url">Google Maps link</Label>
@@ -254,6 +338,33 @@ export default function LocationsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* The cascade, as its own dialog rather than a section of the form above.
+          `showPinMap={false}` because the LOCATION owns the pin — it has one
+          already, from the Maps link or the manual fields. Two coordinate pairs
+          for one place would be two things to keep in step, and the stale-value
+          hazard that creates is the one the address work exists to remove. One
+          point, one owner.
+          `showTypeSelector={false}` because home / office / other describes a
+          PERSON's address; a canonical location is neither, and defaulting it to
+          "home" would store a claim nobody made. See the dialog for where it
+          lands instead.
+          `initialValue` is the pick in hand, so reopening after a change starts
+          from what was chosen rather than from blank. */}
+      <AddressFormDialog
+        open={pickOpen}
+        onOpenChange={setPickOpen}
+        initialValue={addressValue ?? undefined}
+        showPinMap={false}
+        showTypeSelector={false}
+        title={addressValue ? "Replace address" : "Pick address"}
+        description="Choose the region, province, city or municipality, and barangay, then add the street detail. The full hierarchy is resolved by the server when you save."
+        submitLabel="Use this address"
+        onSubmit={(next) => {
+          setAddressValue(next);
+          setPickOpen(false);
+        }}
+      />
     </div>
   );
 }

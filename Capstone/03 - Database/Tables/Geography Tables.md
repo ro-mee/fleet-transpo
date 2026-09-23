@@ -267,10 +267,16 @@ the two gates working as a pair rather than an unanswered question.
 
 ## Not yet true
 
-- **The form has not been exercised end to end.** The cascade can now be driven for the first
-  time — CALABARZON → Laguna → Santa Rosa → Balibago is the path to try — and until someone
-  does, "the data is loaded" and "the form works" are two different claims, only the first of
-  which is established here.
+- **The form has not been exercised end to end.** It now has a real caller — since
+  2026-09-24 the canonical-location dialog (`src/app/(dashboard)/routes/locations/page.js`)
+  mounts it and posts `structured_address` to `/api/locations` — but wiring a caller is not
+  the same as driving it. CALABARZON → Laguna → Santa Rosa → Balibago is the path to try, and
+  until someone does, "the data is loaded", "the form is wired" and "the form works" are three
+  different claims, only the first two of which are established here.
+- **Only one of the five address surfaces is migrated.** Hotel settings, reservations, driver
+  residential and driver emergency contact still write their own columns. See [[addresses]]
+  for what the first migration did and the one gap it left (the picker cannot pre-fill an
+  existing structured address).
 - **Nothing schedules a re-import.** PSGC churn is real: barangays are created and renamed by
   plebiscite. The importer is re-runnable and idempotent, but this design creates that
   maintenance task and does not automate it.

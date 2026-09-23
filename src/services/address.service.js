@@ -25,6 +25,15 @@
 import { query } from "@/lib/db";
 import { isBlankAddress } from "@/lib/address/invalidate";
 
+// The last four columns are the STRUCTURED-path ones, added by migration 123
+// alongside the PSGC tables. They are here rather than in a second statement
+// because omitting them is silent and expensive: a picked address would store
+// its street line but no barangay code, which is the one value that makes it
+// re-resolvable. It would then be indistinguishable from a legacy free-text row,
+// and nothing downstream could tell that a cascade had ever produced it.
+//
+// They are nullable and absent on the provider path, so a geocoded address
+// writes NULL for all four, exactly as before.
 const INSERT_SQL = `
   INSERT INTO addresses (
     raw_input, formatted_address,
@@ -32,10 +41,12 @@ const INSERT_SQL = `
     barangay, city, municipality, province, region,
     postal_code, postal_code_source, country,
     latitude, longitude,
-    provider, provider_place_id, verified, verified_at
+    provider, provider_place_id, verified, verified_at,
+    address_type, landmark, additional_details, psgc_barangay_code
   ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-    $13, $14, $15, $16, $17, $18, $19, $20, $21
+    $13, $14, $15, $16, $17, $18, $19, $20, $21,
+    $22, $23, $24, $25
   )
   RETURNING address_id
 `;
@@ -86,6 +97,13 @@ export async function saveAddress(value, { tx } = {}) {
     // A verified row with no timestamp would be a row claiming a verification
     // that nothing dates.
     value.verified ? (value.verifiedAt ?? new Date().toISOString()) : null,
+    // The structured-path fields (`psgc_barangay_code` chief among them). All
+    // undefined on the provider path, which is what makes this write NULL for
+    // those callers rather than needing a second statement.
+    value.addressType ?? null,
+    value.landmark ?? null,
+    value.additionalDetails ?? null,
+    value.psgcBarangayCode ?? null,
   ]);
 
   return rows[0]?.address_id ?? null;
