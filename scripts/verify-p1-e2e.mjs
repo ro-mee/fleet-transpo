@@ -9,6 +9,44 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const BASE_URL = 'http://localhost:3000';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321';
 
+// ---------------------------------------------------------------------------
+// Throwaway rows are tracked so the finally block can soft-delete them.
+//
+// This runs against the LIVE database. Before mandatory email OTP an abandoned
+// fixture was junk; now it is an account on a reserved `@example.com` domain
+// that can neither sign in (the login gate refuses it) nor be removed through
+// the UI. Runs are timestamped, so every run used to add a fresh one.
+//
+// Soft-delete, not DELETE, matching verify-cancel-cascade / verify-trip-status /
+// verify-quickwins: `drivers.employee_id` carries no ON DELETE CASCADE, so a
+// hard delete would need an ordered unwinding across most of the schema.
+//
+// driver_vehicle_assignments, fuelallocations and fuelrequests have no
+// `deleted_at` column and so cannot be swept; they hang off parents that are
+// soft-deleted and go inert with them.
+// ---------------------------------------------------------------------------
+const createdEmployeeIds = [];
+const createdDriverIds = [];
+const createdVehicleIds = [];
+
+async function cleanup() {
+  const softDeletes = [
+    // fuelrecords first: it carries driver_id and vehicle_id.
+    ["fuelrecords", `driver_id = ANY($1::int[])`, createdDriverIds],
+    ["vehicles", `vehicle_id = ANY($1::int[])`, createdVehicleIds],
+    ["drivers", `driver_id = ANY($1::int[])`, createdDriverIds],
+    ["employees", `employee_id = ANY($1::int[])`, createdEmployeeIds],
+  ];
+  for (const [table, where, ids] of softDeletes) {
+    if (!ids.length) continue;
+    const { rowCount } = await pool.query(
+      `UPDATE ${table} SET deleted_at = NOW() WHERE ${where} AND deleted_at IS NULL`,
+      [ids]
+    );
+    if (rowCount) console.log(`cleanup: soft-deleted ${rowCount} ${table} row(s)`);
+  }
+}
+
 async function runTests() {
   console.log("Starting Fuel Verification Tests...");
 
@@ -23,6 +61,8 @@ async function runTests() {
       RETURNING driver_id, employee_id
     `);
     const driver1 = driverRows[0];
+    createdDriverIds.push(driver1.driver_id);
+    createdEmployeeIds.push(driver1.employee_id);
 
     const { rows: driver2Rows } = await pool.query(`
       WITH new_emp AS (
@@ -33,6 +73,8 @@ async function runTests() {
       RETURNING driver_id, employee_id
     `);
     const driver2 = driver2Rows[0];
+    createdDriverIds.push(driver2.driver_id);
+    createdEmployeeIds.push(driver2.employee_id);
 
     const { rows: vehicleRows } = await pool.query(`
       INSERT INTO vehicles (plate_number, vehicle_name, fuel_type, tank_capacity_l, fuel_efficiency_kmpl, fuel_level, mileage)
@@ -42,6 +84,7 @@ async function runTests() {
     `);
     const vehicleDiesel = vehicleRows[0];
     const vehicleGas = vehicleRows[1];
+    createdVehicleIds.push(vehicleDiesel.vehicle_id, vehicleGas.vehicle_id);
 
     // Create assignments
     await pool.query(`
@@ -229,6 +272,13 @@ async function runTests() {
   } catch (err) {
     console.error("Test failed:", err);
   } finally {
+    // Reported, never thrown: a cleanup failure must not replace the result the
+    // run was actually here to produce.
+    try {
+      await cleanup();
+    } catch (err) {
+      console.error("cleanup failed — fixture rows may remain:", err.message);
+    }
     await pool.end();
   }
 }

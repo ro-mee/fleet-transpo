@@ -8,7 +8,10 @@ source:
   - "src/lib/rate-limit.js"
   - "next.config.mjs"
   - "supabase/migrations/009_registration_policy.sql"
-last_verified: 2026-09-18
+  - "mobile/lib/biometric.js"
+  - "mobile/lib/app-lock.js"
+  - "mobile/lib/biometric-errors.js"
+last_verified: 2026-09-23
 ---
 
 # Security Audit
@@ -517,7 +520,17 @@ belongs to a stranger: the code is delivered, just not to the right person, so t
 is *silent* rather than loud. `scripts/audit-otp-inbox-ownership.mjs` is the out-of-band
 gate for that question, and the login modal masks the local part while showing the domain
 so a user can notice a wrong destination. Twelve accounts are still classified VERIFY
-OWNERSHIP and nineteen are unreachable; see [[Bugs]].
+OWNERSHIP; see [[Bugs]].
+The nineteen unreachable ones were identified the same day as harness debris:
+`scripts/verify-p1-e2e.mjs` and `scripts/verify-p2-analytics.mjs` created an employee row
+per run on the reserved `@example.com` domain and never removed it, which under mandatory
+email OTP made them accounts nobody could sign into or delete. Both now tear down what
+they create and `scripts/cleanup-harness-fixtures.mjs` sweeps the backlog (2026-09-23).
+**Reading the gate's output.** Its verdicts derive from `OTP_FIX_*` keys in the gitignored
+`.env.local`, so a working copy without that file used to print `0 owned` — which reads as
+a finding and is really an unasked question. It now reports ownership as **UNKNOWN**, not
+zero, when no key loaded. Same rule as the anon-key probe's refusal to call `200 []` a
+PASS (SEC-DB-003): absence of evidence is not a verdict.
 
 **Also found, not fixed:** 56 of 60 tables grant `TRUNCATE` to `anon`/`authenticated`,
 which RLS does not cover. Migration `116` fixed three of them. PostgREST cannot issue
@@ -528,6 +541,127 @@ connection as `anon`. Recommended as a separate migration.
 single point of failure (SMTP). The compensating controls are the fail-closed gate, the
 short TTL, the attempt ceiling and the two break-glass paths. Full details in
 [[Authentication]] and the Decision Log.
+
+## Biometric app lock — IMPLEMENTED, WITH STATED LIMITS 2026-09-23
+
+**What it is.** An optional, off-by-default local application lock on the mobile app:
+`AppLockProvider.locked` gates the authenticated tree, and the OS (Face ID / fingerprint
+via `expo-local-authentication` + the keystore/keychain ACL) is the only thing that can
+release it. No backend change: no route, no migration, no token, no biometric endpoint.
+Full design in [[Authentication]] and [[Mobile Architecture]].
+
+**Biometric data: none, anywhere.** FleetOps never collects, reads, stores, transmits or
+logs a fingerprint, face scan, template or image. The app receives one native result
+enum. Nothing biometric appears in `audit_logs`, analytics, or crash reports, and there
+is nothing to leak because nothing is captured.
+
+**What is stored on the device.**
+
+| Item | Protection | Contents |
+|---|---|---|
+| `fleetops_biometric_sentinel` (service `fleetops.biometric`) | `requireAuthentication: true` → Android `setUserAuthenticationRequired(true)`; iOS `biometryCurrentSet`, `WHEN_UNLOCKED_THIS_DEVICE_ONLY` | a **non-secret** unlock marker; reading it *is* the assertion |
+| `fleetops_biometric_meta` | default keychain service, ungated | lock on/off, employee/driver id, first name, method, timestamps |
+
+No password, no plaintext credential, and **no biometric data** is written to
+`AsyncStorage` or any ordinary local storage. Metadata is ungated on purpose — the lock
+screen must render its label without raising a prompt — and carries nothing that is
+useful to an attacker beyond which account last enabled the lock.
+
+**The honest boundary: this is a lock, not encryption.** The session refresh token stays
+in `fleetops_refresh_token`, readable, and is *not* behind the biometric gate. Both
+alternatives were tried on paper and fail on this platform: Android gates **writes** too,
+so re-sealing a copy after each 15-minute rotation prompts every 15 minutes; and
+re-sealing only at lock time hands back a superseded token whose presentation wipes the
+whole refresh family, signing the driver out. Leaving it readable is also what keeps
+background trip GPS alive while locked. The consequence, stated rather than implied:
+**a patched JS bundle or injected code inside the app sandbox defeats this lock.** It
+raises the cost of casual access; it is not a boundary against an attacker who controls
+the app's own code.
+
+**Revocation always wins.** Biometric success releases a local gate and mints nothing.
+Every server-side revocation path (Sign Out, admin revoke, `auth_version` bump, account
+disable, refresh expiry) still produces a 401 on the next request, including immediately
+after a successful unlock.
+
+**Enrollment tampering is handled by the OS, not by our code.** iOS `biometryCurrentSet`
+permanently invalidates the sentinel when the enrolled set changes — adding a fingerprint
+to a seized but unlocked phone does not open FleetOps. A settled read returning `null` is
+treated as `CREDENTIAL_INVALIDATED`: biometric login is switched off locally, the driver
+keeps their session, and the password path takes over. There is no fallback to an
+unprotected local credential.
+
+**Not protected against, and not claimed:**
+
+- **Rooted / jailbroken devices.** No integrity check exists anywhere in this repo — no
+  `jail-monkey`, SafetyNet, Play Integrity or `expo-device` usage — and the OS keystore is
+  the trust anchor, so on a rooted device that anchor is gone. Adding a "root detected =
+  secure" check was declined as unreliable in both directions.
+- **A compromised device-owner account**, server-side account compromise, or privileged
+  malware.
+- **The 5 minutes after an unlock**, by design.
+- **iOS app-switcher snapshots are best-effort.** Android sets `FLAG_SECURE` while the
+  privacy veil is up; iOS obscuring needs a native scene-delegate hook this app does not
+  have, and the JavaScript cover may land after the snapshot is taken.
+- **The backgrounded-not-yet-locked window** before the 5-minute threshold elapses.
+- **Weak biometrics on Android — closed, but worth knowing it needed closing.** The
+  installed `expo-local-authentication` types default `authenticateAsync` to
+  `biometricsSecurityLevel: 'weak'` on Android, which admits Class 2 camera-based face
+  unlock — materially weaker than a fingerprint. The lock is still safe because
+  `SecureStore.canUseBiometricAuthentication()` returns `false` unless the enrolled method
+  is *sufficiently secure*, and `getCapability()` consults it before the enable toggle is
+  offered at all, so a weak-biometric-only device cannot switch the lock on.
+
+**Language discipline.** This is a **convenience lock**. No claim of "bank-level
+security", "100% secure", or that biometrics replace the password. Password + mandatory
+email OTP remains the only way to establish a session, and the server remains the sole
+authority on whether one is valid.
+
+**Verification — run 2026-09-23, results below are actual output, not intent.**
+
+- `mobile/lib/app-lock.test.js` (18), `biometric-method.test.js` (14) and
+  `biometric-errors.test.js` (23) — **55 tests, all passing.** They pin the lock policy
+  (including fail-closed behaviour on a backwards clock), the platform-correct labels,
+  and the error/state matrix.
+- `npx eslint mobile/` — **0 problems.** This is the gate that caught a defect reading had
+  missed: a `react-hooks/refs` warning for assigning `enabledRef.current` during render in
+  `app-lock-context.jsx`. Plain `npm run lint` exits 0 on a warning, so only `lint:ci`
+  (`--max-warnings 0`) would have failed the pipeline; the ref is now written from an effect.
+- `npm run verify:auth` — **276 passed, 0 failed** across 276 exported HTTP methods. No
+  route gained or lost a guard.
+- `npm run db:status` — **122 files, applied 122, pending 0, changed 0.** No migration
+  was added or altered. (It also lists 4 ledger-only filenames — 113, 114, 115, 120 —
+  which are pre-existing gaps, now recorded in `AGENTS.md`.)
+
+The full-repo `vitest run` aborted on an out-of-memory fault late in the run, after ~140
+of 143 files and with no failures recorded before the abort. That is environmental and
+pre-existing (see the vitest memory note), not caused by this change; the three new
+suites ran to completion and reported their own counts. **Physical-device E2E on both
+platforms remains the outstanding gate.**
+
+One planned gate was **not** run: `npm run build`, the production web build. This change
+touches nothing under `src/**`, so it cannot affect that build — but that is reasoning
+rather than a measurement, and it is recorded as such instead of being listed above.
+
+**What the device run then found (2026-09-23).** The rebuilt dev client crashed on first
+launch: `AppPrivacyVeil` was imported as a *named* import from a default-only module, so it
+resolved to `undefined` and React rejected the element. One word — the braces — in
+`app/_layout.js`. It is fixed, and it is recorded here rather than quietly corrected
+because of what it says about the list above: **every automated gate in this section was
+structurally blind to it.** The lint setup is ESLint 9 with `eslint-config-next` and no
+`eslint-plugin-import`, so `import/named` — the one rule written for this exact mistake —
+is not enabled; the unit tests never render `app/_layout.js`; and no type checker runs on
+these `.js` files. Green lint and a green unit suite are not evidence that a screen
+renders. The unrun gate was the only one that could have caught it, and it caught it on the
+first launch.
+
+**Checked against the installed native typings, not just the docs** (`expo-local-authentication@17.0.9`,
+`expo-secure-store@15.0.8`): `requireAuthentication` → iOS `biometryCurrentSet` /
+Android `setUserAuthenticationRequired(true)` (the enrollment-invalidation claim above);
+`WHEN_UNLOCKED_THIS_DEVICE_ONLY` and `authenticationPrompt` present; and every member of
+the `LocalAuthenticationError` union mapped explicitly, with the test asserting on the
+full union. That check caught one real defect — the map keyed on `unavailable`, which the
+native layer never emits, so a genuinely unavailable sensor fell through to the generic
+message. The real code is `not_available`; it is now mapped, and a test pins it.
 
 ## Related
 

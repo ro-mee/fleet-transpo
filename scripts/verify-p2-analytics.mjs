@@ -6,6 +6,42 @@ const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const BASE_URL = 'http://localhost:3000';
 
+// ---------------------------------------------------------------------------
+// Throwaway rows are tracked so the finally block can soft-delete them.
+//
+// This runs against the LIVE database, and it used to leave its own employee
+// behind on EVERY run: the "CLEANUP ANY PREVIOUS TEST DATA" block below swept
+// fuelrecords and trips but never the `analytics_driver_<epoch>@example.com`
+// account it creates. Under mandatory email OTP that abandoned row is an
+// account that can neither sign in (the login gate refuses reserved domains)
+// nor be removed through the UI.
+//
+// Soft-delete, not DELETE, matching verify-cancel-cascade / verify-trip-status /
+// verify-quickwins: `drivers.employee_id` carries no ON DELETE CASCADE, so a
+// hard delete would need an ordered unwinding across most of the schema.
+// ---------------------------------------------------------------------------
+const createdEmployeeIds = [];
+const createdDriverIds = [];
+const createdVehicleIds = [];
+
+async function cleanup() {
+  const softDeletes = [
+    ["fuelrecords", `driver_id = ANY($1::int[])`, createdDriverIds],
+    ["trips", `driver_id = ANY($1::int[])`, createdDriverIds],
+    ["vehicles", `vehicle_id = ANY($1::int[])`, createdVehicleIds],
+    ["drivers", `driver_id = ANY($1::int[])`, createdDriverIds],
+    ["employees", `employee_id = ANY($1::int[])`, createdEmployeeIds],
+  ];
+  for (const [table, where, ids] of softDeletes) {
+    if (!ids.length) continue;
+    const { rowCount } = await pool.query(
+      `UPDATE ${table} SET deleted_at = NOW() WHERE ${where} AND deleted_at IS NULL`,
+      [ids]
+    );
+    if (rowCount) console.log(`cleanup: soft-deleted ${rowCount} ${table} row(s)`);
+  }
+}
+
 async function runTests() {
   console.log("Starting P2 Fuel Analytics Verification...");
 
@@ -19,6 +55,16 @@ async function runTests() {
     console.log("Cleaning previous test data...");
     await pool.query(`UPDATE fuelrecords SET deleted_at = NOW() WHERE client_submission_id LIKE 'sub-ana-%'`);
     await pool.query(`UPDATE trips SET deleted_at = NOW() WHERE distance IN (50, 200, 500) AND driver_id IN (SELECT driver_id FROM drivers WHERE license_number LIKE 'DL-ANA-%')`);
+    // The two statements above never covered the employee and driver rows, which
+    // is why every run leaked one more account. Sweep prior runs here so this
+    // script is idempotent rather than accumulating; the finally block handles
+    // the rows this run creates.
+    await pool.query(`
+      UPDATE drivers SET deleted_at = NOW()
+       WHERE license_number LIKE 'DL-ANA-%' AND deleted_at IS NULL`);
+    await pool.query(`
+      UPDATE employees SET deleted_at = NOW()
+       WHERE email LIKE 'analytics_driver_%@example.com' AND deleted_at IS NULL`);
 
     // --- 1. SETUP CONTROLLED TEST DATA ---
     console.log("Setting up controlled test data...");
@@ -29,9 +75,11 @@ async function runTests() {
       )
       INSERT INTO drivers (employee_id, license_number)
       SELECT employee_id, 'DL-ANA-' || EXTRACT(EPOCH FROM NOW()) FROM new_emp
-      RETURNING driver_id
+      RETURNING driver_id, employee_id
     `);
     const driverId = driverRows[0].driver_id;
+    createdDriverIds.push(driverId);
+    createdEmployeeIds.push(driverRows[0].employee_id);
 
     // Vehicle A: Baseline 8 km/L
     const { rows: vehARows } = await pool.query(`
@@ -48,6 +96,7 @@ async function runTests() {
       RETURNING vehicle_id
     `);
     const vehicleB = vehBRows[0].vehicle_id;
+    createdVehicleIds.push(vehicleA, vehicleB);
 
     // Insert trips for Vehicle A (Current Month): Trip 1 (50km), Trip 2 (50km)
     await pool.query(`
@@ -156,13 +205,23 @@ async function runTests() {
       console.log("\n🎉 ALL TESTS PASSED! Analytics API logic is verified.");
     } else {
       console.log("\n⚠️ SOME TESTS FAILED.");
-      process.exit(1);
+      // exitCode, not exit(): process.exit() terminates immediately and would
+      // skip the finally block, leaking the fixtures on exactly the runs that
+      // are already going wrong.
+      process.exitCode = 1;
     }
 
   } catch (err) {
     console.error("Test execution failed:", err);
   } finally {
-    pool.end();
+    // Reported, never thrown: a cleanup failure must not replace the result the
+    // run was actually here to produce.
+    try {
+      await cleanup();
+    } catch (err) {
+      console.error("cleanup failed — fixture rows may remain:", err.message);
+    }
+    await pool.end();
   }
 }
 

@@ -34,6 +34,14 @@ source:
   - src/app/(auth)/login/page.js
   - src/app/(auth)/forgot-password/page.js
   - src/app/(auth)/reset-password/page.js
+  - mobile/lib/app-lock.js
+  - mobile/lib/app-lock-context.jsx
+  - mobile/lib/biometric.js
+  - mobile/lib/biometric-method.js
+  - mobile/lib/biometric-errors.js
+  - mobile/components/AppLockScreen.jsx
+  - mobile/components/AppPrivacyVeil.jsx
+  - mobile/app/(app)/profile/security.js
 last_verified: 2026-09-23
 ---
 
@@ -357,7 +365,11 @@ hard dependency of every login with no graceful degradation; and an address that
 routable but belongs to a stranger fails *silently* — the code arrives, just not to the
 right person. That last one is not a code defect and cannot be fixed in code, which is why
 the inbox-ownership question is answered out of band by
-`scripts/audit-otp-inbox-ownership.mjs` rather than assumed.
+`scripts/audit-otp-inbox-ownership.mjs` rather than assumed. Because that answer is
+derived from the `OTP_FIX_*` keys in the gitignored `.env.local`, the script reports
+ownership as **UNKNOWN rather than zero** when no key loaded: an unloaded env and "none of
+these addresses are ours" must never print the same thing. What it can still say without
+that file is which accounts are unreachable on their face.
 
 - `web_sessions` records safe device metadata and bounded activity. The
   owner-scoped sessions API can list, revoke one, or revoke all other sessions;
@@ -560,6 +572,236 @@ scale, and that was declined. See the [[Decision Log]].
   quiet), again from the same one (expect silence), then tap it (must land on
   `/settings/security`). The mobile path has never been exercised at all.
 
+## Biometric app lock on mobile — IMPLEMENTED (2026-09-23)
+
+An **optional, off-by-default local application lock** on top of the existing
+mobile auth. It is not a factor, not a credential class, and **not a backend
+change** — no new route, no migration, no table, no token. Measured, not asserted:
+`npm run verify:auth` returns **276 passed / 0 failed** and `npm run db:status`
+**122 applied / 0 pending / 0 changed**. Neither figure moved.
+
+**The gap it closes.** `AuthProvider` (`mobile/lib/auth.js`) restores a session on
+cold start from `fleetops_access_token` + `fleetops_user` alone — no credential is
+re-presented and no server call is made. A phone picked up, handed over, or left on
+a depot bench therefore exposed the full driver UI for as long as the 30-day
+refresh family lived. Before this, nothing asked who was holding the phone.
+
+### Three concepts, kept apart
+
+```
+DEVICE AUTHENTICATION   (mobile OS)        expo-local-authentication + keystore/keychain ACL
+        │  releases the sentinel
+        ▼
+LOCAL APPLICATION LOCK  (FleetOps client)  AppLockProvider.locked → gates the (app) tree
+        │  unlocks the UI
+        ▼
+SERVER SESSION          (FleetOps backend) mobile_refresh_tokens family — unchanged, authoritative
+        │
+SIGN OUT                revokes the family AND destroys local biometric access
+```
+
+### FleetOps never touches biometric data
+
+The app receives one native result — succeeded / failed / cancelled / unavailable /
+not enrolled. There is no fingerprint, face scan, template or image anywhere in the
+design, none of it is stored, and **none of it is ever sent to the backend**. There
+is no biometric endpoint, no biometric token, and no second refresh-token family.
+
+### What is actually stored, and why it is not the session token
+
+Two `expo-secure-store` items:
+
+| Key | Service | Gated | Holds |
+|---|---|---|---|
+| `fleetops_biometric_sentinel` | `fleetops.biometric` | `requireAuthentication: true` | a **non-secret** device-local unlock marker |
+| `fleetops_biometric_meta` | default | no | `{ enabled, employeeId, driverId, firstName, method, enrolledAt, lastUnlockAt }` |
+
+The sentinel's **contents are meaningless** — reading it is the entire assertion,
+because the OS refuses the read until it has authenticated the driver. A separate
+keychain service is required rather than cosmetic: `expo-secure-store` documents that
+a `requireAuthentication` item "would not work in tandem with the `keychainService`
+value used for the others non-authenticated operations". The metadata is ungated so
+the lock screen can render its label without raising a prompt.
+
+**Why the refresh token is not behind the gate** — this was considered and rejected
+on evidence, not taste:
+
+1. On Android `requireAuthentication` puts the keystore key behind
+   `setUserAuthenticationRequired(true)`, which gates **every** operation including
+   writes. Re-sealing a copy after each 15-minute rotation would prompt the driver
+   every 15 minutes.
+2. Re-sealing *only* at lock time is worse: refresh rotation is single-use, and
+   presenting a consumed token wipes the whole family
+   (`src/app/api/mobile/auth/refresh/route.js`). Unlocking a stale copy would
+   detonate the driver's own session.
+3. Leaving the token readable is also what keeps the background trip GPS poster
+   (`mobile/lib/tracking.js`) alive while the app is locked.
+
+**So: this is an OS-enforced application lock, not encryption of the session token.**
+Stated plainly rather than implied otherwise.
+
+### Enrollment changes are handled by the platform
+
+iOS uses `biometryCurrentSet`, so the sentinel is **permanently invalidated** the
+moment the enrolled biometric set changes — adding a fingerprint, removing one, or
+re-enrolling Face ID. `getItemAsync` then resolves to `null`, which
+`verifyUnlock()` treats as `CREDENTIAL_INVALIDATED`: biometric login is switched off
+locally, the driver keeps their existing session, and the lock screen's password path
+takes over. It never silently downgrades to an unprotected local credential. A driver
+who adds a fingerprint must therefore re-enable with password + OTP — intended, and
+worth knowing.
+
+### LOCK is not SIGN OUT
+
+| | LOCK | SIGN OUT |
+|---|---|---|
+| Server family | **untouched**, still valid | **revoked** via the existing `/api/mobile/auth/logout` |
+| Local session | kept | cleared (`clearOfflineCache` → `clearBiometric` → `clearAll`) |
+| Biometric enrollment | kept | **destroyed** |
+| Way back in | biometric, on this device | password + emailed OTP, then re-offered |
+
+`signOut` gained exactly one call, ordered like the existing offline-cache wipe and
+deliberately **before** `clearAll()` so a failure cannot leave a live enrollment
+pointing at a dead session:
+
+```js
+await clearOfflineCache(resolveDriverId(stored));
+await clearBiometric();   // deletes sentinel (gated service) + meta; idempotent
+await clearAll();
+```
+
+The lock screen's "Sign in with password" is therefore an honest **sign-out**, behind
+a confirm: a new session needs the password *and* the emailed code, and the server
+will not mint one while the old family is alive.
+
+### Auto re-lock
+
+One exported constant, `APP_LOCK_TIMEOUT_MS = 5 * 60 * 1000` in `mobile/lib/app-lock.js`,
+chosen to match the web idle timeout (`IDLE_TIMEOUT_SECONDS = 300`,
+`src/lib/auth/session-policy.js`) so both channels agree on what "idle" means. It is
+**not** exposed as a user setting, and no other file holds the number.
+
+- **Cold start** → `initialLocked({ biometricEnabled })`; the locked flag is set before
+  the authenticated tree can mount.
+- **Resume** → `shouldLockOnResume()` compares against `backgroundedAt`.
+- **Backgrounding never revokes anything.** It records a timestamp.
+
+Two deliberate edges:
+
+- **`inactive` stamps the clock too**, not just `background` — on iOS the app-switcher
+  peek is exactly when an attacker would look, so it must count as leaving.
+- **Only a transition *out of* `active` re-stamps.** Otherwise a stray `inactive` deep
+  inside a backgrounded period (a system dialog) would silently extend the window.
+- **Fails closed** on a backwards device clock or a non-finite `now`: an attacker who
+  takes an unlocked phone and winds the clock back must not defeat the window, and the
+  cost of being wrong in this direction is one prompt. `app-lock.test.js` pins both.
+
+### Unlock never resurrects a session
+
+Biometric success releases a local gate and nothing else. The app continues on the
+tokens it already holds, through the existing `api.js` path, and the backend remains
+the authority. Every revocation path already defeats a successful unlock:
+
+| Revocation | Result after biometric unlock |
+|---|---|
+| Sign Out on this device | biometric already cleared; no session to unlock |
+| Admin revoke (`/api/auth/sessions`) | next request → 401 → login |
+| Password / email / role change (`auth_version`++) | refresh → 401 → login |
+| Account disabled or driver link removed | refresh → 401 → login |
+| Refresh past its 30-day TTL | refresh → 401 → login |
+
+A failed unlock never disables biometrics, and **a failed network request never
+disables it either** — only an OS-invalidated sentinel or an explicit user action
+does.
+
+### Where it lives in the UI
+
+Not a new Settings → Security section. The existing Settings screen stays
+display/accessibility only; the control is a **Biometric Login** row added to
+Profile → Privacy & Security (`PRIVACY_SECURITY_ROWS`), routing to
+`mobile/app/(app)/profile/security.js`, which shows a device-capability status
+(Available / Not available) beside the toggle. Enrollment is offered once, right
+after a successful password + OTP sign-in, and only when the device supports it, is
+enrolled, and secure storage is available; the offer is skipped when consent for the
+current privacy policy is still outstanding.
+
+A **login-screen biometric button was deliberately not built.** With sign-out
+clearing biometric, the app never lands on the login screen while biometric is
+enabled — cold start goes to the lock screen. Such a button would be unreachable UI.
+
+### Threat model
+
+**Protects against** — a phone taken, handed over, or left unattended while FleetOps
+is backgrounded or closed; casual access to driver PII after the window; a dismissible
+in-app dialog masquerading as a gate (the OS prompt is the gate); an added fingerprint
+on a seized but unlocked phone.
+
+**Does not protect against** — a rooted/jailbroken device (no integrity check exists
+in this repo, and the OS keystore *is* the trust anchor, so on a rooted device that
+anchor is gone); a patched JS bundle or injected code in the app sandbox (the lock is
+enforced by our JavaScript consulting an OS-gated item, not by encrypting the token —
+see above); the first 5 minutes after an unlock; a compromised device-owner account,
+server-side account compromise, or privileged malware; and **iOS app-switcher
+snapshots are best-effort only** — Android sets `FLAG_SECURE` while covered, but iOS
+obscuring needs a native scene-delegate hook this app does not have.
+
+Biometric authentication here is a **convenience lock**, not a claim of absolute
+security. The server remains the sole authority on session validity.
+
+### Files
+
+Create: `mobile/lib/app-lock.js` (+ `.test.js`), `mobile/lib/app-lock-context.jsx`,
+`mobile/lib/biometric.js`, `mobile/lib/biometric-method.js` (+ `.test.js`),
+`mobile/lib/biometric-errors.js` (+ `.test.js`), `mobile/components/AppLockScreen.jsx`,
+`mobile/components/AppPrivacyVeil.jsx`, `mobile/app/(app)/profile/security.js`.
+Modify: `mobile/lib/auth.js`, `mobile/app/_layout.js`, `mobile/app/(app)/_layout.js`,
+`mobile/app/(app)/(tabs)/profile.js`, `mobile/app/login.js`, `mobile/app.json`,
+`mobile/package.json`. **Nothing under `src/**`, and no migration.**
+
+`expo-local-authentication` also adds `android.permission.USE_BIOMETRIC`, declared
+explicitly in `mobile/app.json`. `expo-screen-capture` is **not** registered as a
+config plugin: its plugin adds `DETECT_SCREEN_CAPTURE` for the screenshot-listener
+feature, which this feature does not use — `preventScreenCaptureAsync()` sets
+`FLAG_SECURE` at runtime and needs no manifest permission.
+
+### Verification (run 2026-09-23)
+
+| Gate | Result |
+|---|---|
+| `mobile/lib/biometric-errors.test.js` | 23 passed |
+| `mobile/lib/app-lock.test.js` | 18 passed |
+| `mobile/lib/biometric-method.test.js` | 14 passed |
+| `npx eslint mobile/` | 0 problems |
+| `npm run verify:auth` | 276 passed / 0 failed (276 exported HTTP methods) |
+| `npm run db:status` | 122 applied / 0 pending / 0 changed |
+
+The tests pin the fail-closed clock behaviour, the platform-correct labels, and the
+error/state matrix. `verify:auth` and `db:status` are the load-bearing pair: together
+they demonstrate the "no backend change" claim above rather than asking for it to be
+taken on trust.
+
+**Lint found the one defect that reading had not.** `eslint mobile/` reported a
+`react-hooks/refs` warning for assigning `enabledRef.current` during render in
+`app-lock-context.jsx`. The assignment was deliberate and correct in behaviour —
+nothing in render reads the ref — but the rule is about the pattern, not the outcome,
+and plain `npm run lint` exits 0 on a warning, so a local loop would never surface it.
+Only `lint:ci` (`--max-warnings 0`) fails on it. The ref is now written from a
+`useEffect`; the one-commit lag is invisible because every reader is an `AppState`
+callback or an event handler.
+
+Two further defects came from reading the *installed native typings* rather than the
+docs, both recorded above: the error map keyed on `unavailable`, which the
+`LocalAuthenticationError` union never emits (the real code is `not_available`), and
+`canUseBiometricAuthentication()` being synchronous rather than a promise. The full
+union is now mapped explicitly and a test asserts on all of it, so the next drift
+fails loudly instead of silently degrading to a generic message.
+
+**Physical-device E2E on Android and iOS remains the outstanding gate.** Both packages
+are native modules, so it requires a fresh dev build (`npx expo run:android` /
+`run:ios`); a JS reload will not pick them up. `npm run build` (the production *web*
+build) was not run: the change touches nothing under `src/**`, so it cannot affect that
+build, but that is reasoning rather than a measurement and is recorded as such.
+
 ## Related
 
-[[RBAC]] · [[employees]] · [[Mobile Architecture]] · [[Why RLS Is Not A Boundary]] · [[Architecture]] · [[Backend]]
+[[RBAC]] · [[employees]] · [[Mobile Architecture]] · [[Why RLS Is Not A Boundary]] · [[Architecture]] · [[Backend]] · [[Security Audit]]

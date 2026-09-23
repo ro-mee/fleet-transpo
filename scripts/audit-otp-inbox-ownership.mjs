@@ -7,7 +7,11 @@
 // code is delivered to a stranger, and the real user still cannot sign in.
 //
 // Addresses confirmed as ours live in .env.local (gitignored) under OTP_FIX_*,
-// so ownership is recorded without committing personal addresses.
+// so ownership is recorded without committing personal addresses. That file is
+// absent from some working copies, though, and an empty OWNED set then reads
+// exactly like "no address is ours" — the same false confidence `200 []` caused
+// in SEC-DB-003. So whether any key was loaded is tracked separately, and a
+// missing .env.local is reported as UNKNOWN rather than as zero.
 //
 // Read-only. Writes nothing.
 //
@@ -28,6 +32,13 @@ const OWNED = new Set(
     .filter(([k, v]) => k.startsWith("OTP_FIX_") && v)
     .map(([, v]) => v.trim().toLowerCase())
 );
+
+// An empty OWNED is ambiguous, and the difference matters: "none of these
+// addresses are ours" and "we could not check" lead to opposite decisions. With
+// no keys loaded, no account can be confirmed OWNED, so every deliverable one
+// falls to VERIFY OWNERSHIP — which is the conservative answer, but it is an
+// absence of evidence and the summary must not present it as a finding.
+const OWNERSHIP_KNOWN = OWNED.size > 0;
 
 const { rows } = await query(
   `SELECT e.employee_id, e.email, e.status,
@@ -64,7 +75,21 @@ const show = (label, list, note) => {
   }
 };
 
-show("OWNED", buckets.OWNED, "confirmed as ours — codes reach the real user");
+if (!OWNERSHIP_KNOWN) {
+  console.log(
+    "\n! No OTP_FIX_* keys loaded — .env.local is missing from this working copy.\n" +
+      "! OWNED is UNKNOWN, not zero: nothing below was checked against a known-ours\n" +
+      "! set, so every deliverable account falls to VERIFY OWNERSHIP by default."
+  );
+}
+
+show(
+  OWNERSHIP_KNOWN ? "OWNED" : "OWNED (unknown — env not loaded)",
+  buckets.OWNED,
+  OWNERSHIP_KNOWN
+    ? "confirmed as ours — codes reach the real user"
+    : "cannot be assessed without .env.local"
+);
 show(
   "VERIFY OWNERSHIP",
   buckets["VERIFY OWNERSHIP"],
@@ -82,13 +107,24 @@ const blocked =
   buckets["FAILS CLOSED"].length + buckets["NO EMAIL"].length;
 const risk = buckets["VERIFY OWNERSHIP"].length;
 
-console.log(
-  `\n${total} active accounts: ${buckets.OWNED.length} owned, ` +
-    `${risk} unverified, ${blocked} unreachable.`
-);
+if (OWNERSHIP_KNOWN) {
+  console.log(
+    `\n${total} active accounts: ${buckets.OWNED.length} owned, ` +
+      `${risk} unverified, ${blocked} unreachable.`
+  );
+} else {
+  console.log(
+    `\n${total} active accounts: ownership UNKNOWN (not 0), ${risk} unverified, ` +
+      `${blocked} unreachable.`
+  );
+}
 if (blocked || risk) {
   console.log(
-    "Mandatory email OTP ships only when every account is OWNED — add confirmed\n" +
-      "addresses as OTP_FIX_* keys in .env.local (see scripts/apply-otp-employee-emails.mjs)."
+    OWNERSHIP_KNOWN
+      ? "Mandatory email OTP ships only when every account is OWNED — add confirmed\n" +
+        "addresses as OTP_FIX_* keys in .env.local (see scripts/apply-otp-employee-emails.mjs)."
+      : "Restore .env.local with the OTP_FIX_* keys and re-run for a real ownership\n" +
+        "verdict. The 'unverified' count above is not a finding — it is the absence of\n" +
+        "the data needed to decide. The unreachable count is real either way."
   );
 }

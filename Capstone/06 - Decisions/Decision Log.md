@@ -106,6 +106,12 @@ second, quieter door into the same room, and it is the one that gets left open.
   including the only `super_admin`. Three addresses were corrected before the factor
   changed. The 17 leaked test-fixture accounts and 19 no-role accounts remain
   unreachable — see [[Bugs]].
+- The out-of-band gate reports **UNKNOWN, never zero**, when `.env.local` is absent
+  (2026-09-23). Its `OWNED` set is built from `OTP_FIX_*` keys, so an unloaded env and
+  "no address is ours" produced byte-identical output — a false negative raised on the
+  exact question the gate exists to answer, and one that reads as a finding rather than a
+  gap. Same rule `AGENTS.md` applies to the anon-key probe's `200 []`: absence of evidence
+  is not a verdict.
 
 **Evidence:** `src/lib/auth/email-otp.js`, `src/lib/auth/otp-policy.js`,
 migration `119_email_otp_challenges.sql`,

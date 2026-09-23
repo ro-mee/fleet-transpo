@@ -282,8 +282,45 @@ The leaked database password was **rotated on
   **accounts nobody can sign into and nobody can clean up through the UI**, because their
   addresses are on the reserved, non-deliverable `example.com` domain. Fix is a
   teardown block per script (the `verify-register-account.mjs` finally-block hard-delete
-  is the pattern) **plus** a one-off cleanup. Not fixed; the user's call was to leave them
-  for now.
+  is the pattern) **plus** a one-off cleanup.
+  **Fixed 2026-09-23.** Only two scripts actually leaked: `verify-p1-e2e.mjs` and
+  `verify-p2-analytics.mjs`, whose `finally` blocks were `pool.end()` and nothing else.
+  `verify-cancel-cascade.mjs`, `verify-trip-status.mjs` and `verify-quickwins.mjs` already
+  soft-deleted what they created. Both offenders now track the ids they insert and
+  soft-delete `fuelrecords → trips → vehicles → drivers → employees` in the `finally`,
+  before `pool.end()`, wrapped so a cleanup failure logs rather than masking the test
+  result.
+  `verify-p2-analytics.mjs` had a second defect that made it *accumulate*, not merely
+  leak: its opening "CLEANUP PREVIOUS TEST DATA" block swept `fuelrecords` and `trips` but
+  never its own employee/driver rows, so each run added another
+  `analytics_driver_<epoch>@example.com` on top of the last. It now sweeps prior fixture
+  employees and drivers by address pattern as well, so repeat runs self-heal.
+  One trap found on the way: `verify-p2-analytics.mjs` called `process.exit(1)` on a
+  failing run, which terminates immediately and would have skipped the `finally` —
+  leaking fixtures on precisely the runs already going wrong. It sets `process.exitCode`.
+  The backlog is cleared by `scripts/cleanup-harness-fixtures.mjs`: dry-run by default,
+  `--apply` to mutate, and `--expect <n>` is required *with* `--apply`. Guards, any of
+  which aborts the whole run rather than skipping a row: a matched row with a non-NULL
+  `role_id` or `password_hash` (every leaked fixture has neither — the harnesses INSERT
+  name and email only, and `employees.role_id` is nullable, `schema.sql:437`), and a
+  candidate vehicle carrying any trip or fuel row from a non-fixture driver. Soft delete,
+  not `DELETE`: `drivers.employee_id` has no `ON DELETE CASCADE` (`schema.sql:1158`), nor
+  do `notifications` or `audit_logs`. **Accepted limitation:**
+  `driver_vehicle_assignments` (`schema.sql:250`), `fuelallocations` (`:503`) and
+  `fuelrequests` (`:554`) have no `deleted_at` column and cannot be swept; their parent
+  drivers and vehicles are soft-deleted so they stop surfacing in the app, but a raw
+  SELECT still finds them.
+  Four of the rows match **no current script** — `testdriver1@example.com`,
+  `testdriver2@example.com`, `test-driver-<n>@example.com` — debris from superseded
+  harness versions. That is why the cleanup matches observed address patterns rather than
+  only what today's two scripts produce.
+  **Applied 2026-09-23:** matched 19, and swept 19 employees / 18 drivers / 3 vehicles /
+  5 trips / 4 fuel records, leaving `0 fixture account(s) still active`. The audit went
+  from 36 active accounts with **19 unreachable** to **17 active with 0 unreachable**, and
+  the `VERIFY OWNERSHIP` bucket held the same 17 real accounts before and after — which is
+  the evidence the sweep stayed inside its guards. `driver_vehicle_assignments` (13 rows)
+  and `fuelrequests` (17 rows) were left behind by design; see the limitation above.
+  → [[Daily Notes/2026-09-23]]
 - **`employees.email` became security-critical with no ownership check (2026-09-22):**
   email OTP turns the address into the delivery channel for the second factor, and
   nothing in the system verifies that an address belongs to the employee it is attached
@@ -301,6 +338,25 @@ The leaked database password was **rotated on
   The 12 are the blocking item; Forgot-password doubles as a deliverability probe, since
   it uses the same channel. `admin@gmail.com` is the clearest single case — a generic
   handle that is almost certainly a stranger's mailbox.
+  **Corrected 2026-09-23: `admin@gmail.com` is not an account at all any more.** The
+  rollout reassigned employee 48 onto `crypticalrome@gmail.com` (released from employee 7
+  by `scripts/soft-delete-otp-collision.mjs`, which overwrites the column outright), so
+  `admin@gmail.com` matches **no** `employees` row. Because the Credentials lookup is
+  `WHERE email = $1 AND status='Active' AND deleted_at IS NULL`, signing in with it fails
+  before any second factor and renders the generic *"Incorrect email or password"* — the
+  OTP gate is never reached. Live re-run of `scripts/audit-otp-inbox-ownership.mjs`
+  (2026-09-23): **36 active accounts — 0 owned, 17 unverified, 19 unreachable**, employee
+  48 = `crypticalrome@gmail.com` (admin), employee 8 = `lorenteromejoseph@gmail.com`
+  (super_admin). The `OTP_FIX_*` fixes did land (employees 8, 48 and 1 all hold real
+  addresses), but **`.env.local` is now absent**, so the audit reports `0 owned` and both
+  fix scripts refuse to run. Watch the near-duplicate pair — `crypticalrome@gmail.com`
+  (employee 48, admin) vs `crypticalromes@gmail.com` (employee 39, driver).
+  **Fixed 2026-09-23:** the audit no longer prints `0 owned` off an unloaded env. An empty
+  `OWNED` set is ambiguous — "none of these addresses are ours" and "we could not check"
+  lead to opposite decisions — so it now tracks whether any `OTP_FIX_*` key loaded at all,
+  labels the bucket `OWNED (unknown — env not loaded)`, and says ownership could not be
+  assessed rather than reporting a count. Same failure class as the `200 []` verdict in
+  SEC-DB-003: absence of evidence rendered as a finding.
 - **56 of 60 tables grant `TRUNCATE` to `anon` and `authenticated` (2026-09-22, latent):**
   found while verifying migration `119`, by checking the grant list rather than just
   `relrowsecurity`. Row-level security **does not apply to `TRUNCATE`**, so a table with
