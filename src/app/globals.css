@@ -54,6 +54,26 @@
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05);
 }
 
+/*
+ * Pointer affordance for button-like controls.
+ *
+ * Browsers give <button> `cursor: default`, so every clickable control has had
+ * to remember `cursor-pointer` by hand — and the ones that forgot read as inert
+ * text. This restores the affordance app-wide, covering controls added later
+ * too. It lives in @layer base on purpose: an explicit utility still wins, so
+ * `cursor-not-allowed` on a disabled control and `cursor-default` where a
+ * pointer would be a lie both keep working.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"] {
+    cursor: pointer;
+  }
+}
+
 
 /*
  * Type scale — the canonical set. Prefer these before reaching for arbitrary

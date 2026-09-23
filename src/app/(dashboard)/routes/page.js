@@ -680,7 +680,7 @@ export default function RoutesPage() {
               {!previewLoading && !previewForCurrent && previewNotice && <p className="mt-2 text-xs text-warning-700">{previewNotice}</p>}
             </div>}
             {!editingRoute && canCreate && <div className="space-y-1">
-              <label className="flex items-center gap-2 text-sm text-foreground-secondary">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground-secondary">
                 <input type="checkbox" className="h-4 w-4 rounded border-border accent-primary" checked={Boolean(formData.also_create_return_route)} onChange={(event) => setFormData((previous) => ({ ...previous, also_create_return_route: event.target.checked }))} />
                 Also create the reverse route
               </label>

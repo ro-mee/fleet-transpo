@@ -13,7 +13,7 @@ const SelectTrigger = forwardRef(({ className, children, hideIcon = false, ...pr
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-10 w-full items-center justify-between rounded-xl border border-border bg-surface px-3 py-2 text-xs font-semibold text-foreground placeholder:text-foreground-muted/60 transition-all",
+      "flex h-10 w-full cursor-pointer items-center justify-between rounded-xl border border-border bg-surface px-3 py-2 text-xs font-semibold text-foreground placeholder:text-foreground-muted/60 transition-all",
       "hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:cursor-not-allowed disabled:opacity-50",
       className
     )}

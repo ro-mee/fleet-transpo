@@ -228,7 +228,7 @@ export function CommandPalette() {
                     onClick={() => navigate(it.href)}
                     onMouseMove={() => setActive(idx)}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left",
+                      "flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left",
                       idx === active ? "bg-hover" : "hover:bg-hover"
                     )}
                   >
