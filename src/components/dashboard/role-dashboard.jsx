@@ -588,7 +588,7 @@ function AdminDashboard({ queries }) {
   const activeMaintenance = maintenance.filter((item) => ["Scheduled", "In Progress"].includes(item.status));
   const attention = [
     { label: "Incident attention queue", value: queries.incidents.isLoading || queries.incidents.isError ? "—" : Number(incidents.attention || 0), sortValue: Number(incidents.attention || 0), href: "/incidents", icon: AlertTriangle },
-    { label: "Pending reassignment", value: queries.dispatches.isError ? "—" : (dispatches.pendingReassignment || []).length, sortValue: (dispatches.pendingReassignment || []).length, href: "/dispatch", icon: Navigation },
+    { label: "Pending reassignment", value: queries.dispatches.isError ? "—" : (dispatches.pendingReassignment || []).length, sortValue: (dispatches.pendingReassignment || []).length, href: "/reservations/queue?filter=reassignment", icon: Navigation },
     { label: "Expired / 30-day documents", value: queries.documents.isLoading || queries.documents.isError ? "—" : Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0), sortValue: Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0), href: "/fleet/documents", icon: FileWarning },
     { label: "Active maintenance work", value: queries.maintenance.isLoading || queries.maintenance.isError ? "—" : activeMaintenance.length, sortValue: activeMaintenance.length, href: "/maintenance", icon: Wrench },
     { label: "Pending fuel requests", value: queries.fuelRequests.isLoading || queries.fuelRequests.isError ? "—" : Number(fuel.counts?.pending || 0), sortValue: Number(fuel.counts?.pending || 0), href: "/fuel", icon: Fuel },
@@ -641,7 +641,7 @@ function AdminDashboard({ queries }) {
 
       <StatGrid cols={4}>
         <StatCard icon={Inbox} label="Open requests" value={queries.reservations.isError ? "—" : openRequests.length} trend="Not completed or cancelled" tone="warning" href="/reservations/queue" />
-        <StatCard icon={CalendarClock} label="Scheduled dispatches" value={queries.dispatches.isError ? "—" : (dispatches.scheduled || []).length} trend="Committed and waiting to depart" tone="info" href="/dispatch" />
+        <StatCard icon={CalendarClock} label="Scheduled dispatches" value={queries.dispatches.isError ? "—" : (dispatches.scheduled || []).length} trend="Committed and waiting to depart" tone="info" href="/dispatch/calendar" />
         <StatCard icon={Navigation} label="Trips in progress" value={queries.dispatches.isError ? "—" : (dispatches.inProgress || []).length} trend="Currently underway" tone="primary" href="/trips" />
         <StatCard icon={CheckCircle2} label="Completed today" value={queries.dispatches.isError ? "—" : completedToday} trend="Dispatches finished today" tone="success" href="/trips" />
       </StatGrid>
@@ -786,7 +786,7 @@ function FleetManagerDashboard({ queries }) {
         <Panel title="Maintenance pressure" description="Active work ordered by the API’s current maintenance date." action={<Link href="/maintenance" className={linkClass}>Maintenance register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
           <FeedState queries={queries.maintenance} errorTitle="Maintenance pressure is unavailable">{activeMaintenance.length ? <div className="divide-y divide-border/70">{activeMaintenance.slice(0, 6).map((item) => <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || "No work description recorded"} meta={formatDateTime(item.maintenance_date)} status={item.status} entity="maintenance" />)}</div> : <InlineEmpty icon={Wrench} title="No active maintenance work" description="New work orders will appear here once maintenance is scheduled." variant="waiting" />}</FeedState>
         </Panel>
-        <Panel title="Upcoming fleet schedule" description="Nearest scheduled departures and reassignment exceptions." action={<Link href="/dispatch" className={linkClass}>Dispatch board <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <Panel title="Upcoming fleet schedule" description="Nearest scheduled departures and reassignment exceptions." action={<Link href="/dispatch/calendar" className={linkClass}>Dispatch calendar <ArrowRight className="h-3.5 w-3.5" /></Link>}>
           <FeedState queries={queries.dispatches} errorTitle="The fleet schedule is unavailable">{nextDispatches.length ? <div className="divide-y divide-border/70">{nextDispatches.map((item) => <Row key={item.dispatch_id} icon={CalendarClock} title={`${item.vehicles?.plate_number || "Unassigned vehicle"} · ${item.transportation_requests?.guest_name || item.routes?.route_name || "Scheduled service"}`} detail={`${item.transportation_requests?.pickup_location || item.origin_location?.location_name || "Pickup unrecorded"} → ${item.transportation_requests?.dropoff_location || item.destination_location?.location_name || "Destination unrecorded"}`} meta={formatDateTime(item.scheduled_departure)} status={item.status} entity="dispatch" href={`/dispatch/${item.dispatch_id}`} />)}</div> : <InlineEmpty icon={CalendarClock} title="No upcoming dispatches" description="Scheduled departures will appear here once requests are assigned." variant="waiting" />}</FeedState>
         </Panel>
       </div>
@@ -839,7 +839,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
   // Action-zone derivations — all client-side from the already-polled feeds.
   // Queue rows carry nested vehicles/drivers objects (null when unassigned).
   // The clock lives in state and ticks every 60s so countdowns stay live
-  // without re-rendering on every frame (same cadence as use-departure-alerts).
+  // without re-rendering on every frame.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 60000);
@@ -864,7 +864,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
   const dispatchAttention = [
     { label: "Need assignment", value: unassignedQueue.length, href: "/reservations/queue", icon: Inbox },
     { label: "Unassigned · departing ≤30 min", value: departingRequests.length, href: "/reservations/queue", icon: CalendarClock },
-    { label: "Need reassignment", value: pendingReassignment.length, href: "/dispatch", icon: Navigation },
+    { label: "Need reassignment", value: pendingReassignment.length, href: "/reservations/queue?filter=reassignment", icon: Navigation },
     { label: "Delayed trips", value: delayedTrips.length, href: "/trips", icon: AlertTriangle },
   ];
   const dispatchTone = dispatchAttention.some((item) => item.value > 0) ? "danger" : "success";
@@ -902,7 +902,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
   return (
     <div className="space-y-5">
       {pendingReassignment.length > 0 && (
-        <Link href="/dispatch" className="flex items-center gap-3 rounded-2xl bg-danger-bg px-5 py-4 text-danger-700 transition-colors hover:bg-danger-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger">
+        <Link href="/reservations/queue?filter=reassignment" className="flex items-center gap-3 rounded-2xl bg-danger-bg px-5 py-4 text-danger-700 transition-colors hover:bg-danger-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger">
           <AlertTriangle className="h-5 w-5 shrink-0" /><span className="flex-1 text-sm font-semibold">{pendingReassignment.length} dispatch{pendingReassignment.length === 1 ? " needs" : "es need"} reassignment now.</span><ArrowRight className="h-4 w-4" />
         </Link>
       )}
@@ -943,7 +943,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
         <StatCard icon={Inbox} label="Needs dispatch review" value={queries.reservations.isError ? "—" : reviewCount} trend="Today and overdue, priority-sorted" tone="warning" />
         <StatCard icon={CalendarClock} label="Assigned next" value={queries.reservations.isError ? "—" : queueGroups.assigned.length} trend="Committed requests waiting to start" tone="info" />
         <StatCard icon={Navigation} label="Trips in progress" value={queries.dispatches.isError ? "—" : activeTrips.length} trend="Active dispatches" tone="primary" />
-        <StatCard icon={CheckCircle2} label="Departing ≤30 min" value={queries.dispatches.isError || queries.reservations.isError ? "—" : departingDispatches.length + departingRequests.length} trend="Runs and pickups leaving within the half hour" tone="info" href="/dispatch" />
+        <StatCard icon={CheckCircle2} label="Departing ≤30 min" value={queries.dispatches.isError || queries.reservations.isError ? "—" : departingDispatches.length + departingRequests.length} trend="Runs and pickups leaving within the half hour" tone="info" href="/dispatch/calendar" />
       </StatGrid>
 
       <Panel title="Next departures" description="Assigned runs and unassigned requests in time order — countdowns, assignment state, and Smart-match availability." action={<Link href="/reservations/queue" className={linkClass}>Open queue <ArrowRight className="h-3.5 w-3.5" /></Link>}>

@@ -301,7 +301,7 @@ export default function ReservationDetailPage() {
             <Button
               size="sm"
               onClick={() => {
-                if (r.vehicle_id && r.driver_id) { router.push(r.dispatches?.[0]?.dispatch_id ? '/dispatch/'+r.dispatches[0].dispatch_id : '/dispatch'); return; }
+                if (r.vehicle_id && r.driver_id) { router.push(r.dispatches?.[0]?.dispatch_id ? '/dispatch/'+r.dispatches[0].dispatch_id : '/dispatch/calendar'); return; }
                 const panel=document.getElementById('dispatch-copilot');panel?.scrollIntoView({block:'center'});panel?.focus();
               }}
               className="rounded-xl text-xs bg-primary hover:bg-primary/90 text-white font-semibold shadow-xs"

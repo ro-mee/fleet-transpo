@@ -124,6 +124,8 @@ the interactive preview is limited to one card per Home render.
 
 **Decoupling the sensor from the upload is the right shape**: position updates arrive at whatever rate the GPS produces them, but network traffic is bounded at one request per 30 s.
 
+- **Single publish per tick (2026-09-22):** trip → one full publish; responder → one `lastSentAt` publish; standby → one combined `{standbyObservedAt, lastSentAt, error:null}` publish (the old trailing `!tripId` publish double-fired on standby and re-rendered all subscribers every 30 s). Idle duty GET cadence is unchanged (every 30 s — a move onto the 60 s gate was planned and explicitly rejected to keep standby response ≤30 s).
+
 Background tracking **requires a custom dev build** (not Expo Go) — see the "Version warning" note below — and Android production release needs Play Store review. The old foreground-only decision is superseded: [[ADR-010 Foreground Only GPS]] → [[ADR-011 Background GPS Tracking]].
 
 ## Client-side role decoding — CONFIRMED (`mobile/lib/rbac.js`)
@@ -252,6 +254,7 @@ Driver-only global connectivity status, mounted once in `mobile/app/(app)/_layou
 - **429 silence follow-up (driver-visible "too many requests" on Home):** both 429 paths now carry `retry_after`; the client waits once per the hint (cap 10 s) and retries once silently — only a second consecutive 429 surfaces, session intact. Covered by `api-refresh.test.js` (+2). Full suite 714 passing.
 - **Untouched:** trip lifecycle, auth/refresh/queue semantics, GPS lifecycle, PR #1–#3 logic, geofence rules. Tap detail sheet deferred.
 - **Verified:** `connectivity-state.test.js` (8), full suite 686 passing, eslint warning-clean, `expo export -p android` bundles 1333 modules. Physical-device checklist (airplane-mode, drain, dark mode, map overlap, background→foreground) still requires a device — not claimed.
+- **Outbox gate + cap (2026-09-22):** `sync.js` keeps an in-memory `knownPendingCount` with fail-open `hasPendingWork()`; `api.js` only calls `syncQueue()` when work may exist (was: every success, dead if/else). The queue is capped at 100 — oldest non-incident dropped with a warn, incidents never dropped (soft cap if all incidents). Semantics otherwise locked: auth/FormData never queued, sequential drain, incident dead-letter quarantine.
 
 ## Offline Read Mode (2026-09-08)
 

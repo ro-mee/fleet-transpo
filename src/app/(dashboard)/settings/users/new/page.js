@@ -15,13 +15,12 @@ import { isSuperAdmin } from "@/lib/auth/role-names";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
 import {
-  Loader2, UserPlus, CheckCircle2, Eye, EyeOff,
+  Loader2, UserPlus, CheckCircle2,
   ShieldCheck, Mail, Lock, User, Truck, Shield,
-  Settings, Users, BarChart2, Wrench, Radio,
+  Settings, Users, BarChart2, Wrench, Radio, KeyRound,
 } from "lucide-react";
 import { FloatingField } from "@/components/ui/field";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
@@ -140,14 +139,12 @@ export default function AddUserPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const [showPassword, setShowPassword] = useState(false);
   const [privilegeConfirm, setPrivilegeConfirm] = useState(null);
-  const { active: capsOn, bind: capsBind } = useCapsLock();
   const visibleRoles = rolesForActor(user?.role);
 
   const form = useForm({
     resolver: zodResolver(createUserSchema),
-    defaultValues: { email: "", password: "", first_name: "", last_name: "", role_id: "" },
+    defaultValues: { email: "", first_name: "", last_name: "", role_id: "" },
   });
 
   // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form manages its own subscription store
@@ -155,18 +152,13 @@ export default function AddUserPage() {
 
   const createMutation = useMutation({
     mutationFn: createEmployeeAccount,
-    onSuccess: () => {
-      toast.success("Account created successfully!");
+    onSuccess: (_data, vars) => {
+      toast.success(`Account created — temporary password sent to ${vars.email}`);
       queryClient.invalidateQueries({ queryKey: ["employees"] });
       form.reset();
-      setShowPassword(false);
     },
     onError: (err) => {
-      toast.error(
-        err.status === 409 || err.status === 400
-          ? err.message || "That email address is already in use."
-          : err.message || "Failed to create account."
-      );
+      toast.error(err.message || "Failed to create account.");
     },
   });
 
@@ -175,7 +167,6 @@ export default function AddUserPage() {
   const submitPayload = (data) => {
     createMutation.mutate({
       email: data.email.trim().toLowerCase(),
-      password: data.password,
       first_name: data.first_name.trim(),
       last_name: data.last_name.trim(),
       role_id: data.role_id,
@@ -261,26 +252,29 @@ export default function AddUserPage() {
                 <p className="text-xs font-extrabold text-foreground flex items-center gap-2">
                   <Lock className="w-3.5 h-3.5 text-primary" /> Login Credentials
                 </p>
-                <p className="text-[11px] text-foreground-muted mt-0.5">The employee will use these to sign in to FleetOps.</p>
+                <p className="text-[11px] text-foreground-muted mt-0.5">A temporary password will be generated and emailed. The employee must change it on first sign-in.</p>
               </div>
               <div className="p-5 space-y-4">
                 <FloatingField label="Email Address" icon={Mail} required error={form.formState.errors.email?.message}>
                   <input id="email" type="email" {...form.register("email")} placeholder="employee@example.com" autoComplete="email"
                     className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/50 py-1 font-data" />
                 </FloatingField>
-                <FloatingField label="Initial Password" icon={Lock} required error={form.formState.errors.password?.message}>
-                  <div className="relative flex items-center">
-                    <input id="password" type={showPassword ? "text" : "password"} {...form.register("password")} placeholder="Min. 6 characters" autoComplete="new-password"
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/50 py-1 pr-8" {...capsBind} />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-0 text-foreground-muted hover:text-foreground p-1 cursor-pointer transition-colors duration-200"
-                      aria-label={showPassword ? "Hide password" : "Show password"}>
-                      {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </FloatingField>
-                <CapsLockHint on={capsOn} />
               </div>
+            </div>
+
+            {/* What happens next */}
+            <div className="flex items-start gap-3 px-4 py-3.5 rounded-2xl bg-info/8 border border-info/20">
+              <div className="w-7 h-7 rounded-lg bg-info/15 flex items-center justify-center shrink-0 mt-0.5">
+                <KeyRound className="w-3.5 h-3.5 text-info" />
+              </div>
+              <p className="text-[11.5px] text-foreground-secondary leading-relaxed">
+                <span className="font-bold text-foreground">What happens next:</span>{" "}
+                (1) a temporary password is emailed to this address, (2) the employee signs in
+                with it and a verification code, (3) they are required to set their own password
+                before the dashboard opens. The temporary password expires in 7 days — if it
+                expires, use <span className="font-bold text-foreground">Resend invite</span> on
+                the Users list to issue a new one.
+              </p>
             </div>
 
             {/* Driver notice */}

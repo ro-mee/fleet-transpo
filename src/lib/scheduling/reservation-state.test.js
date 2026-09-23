@@ -58,6 +58,14 @@ describe("canTransitionReservation", () => {
     expect(canTransitionReservation(L.CANCELLED, L.PENDING).ok).toBe(false);
   });
 
+  it("allows the deliberate reverse hop In Progress → Scheduled (incident requeue)", () => {
+    expect(canTransitionReservation(L.IN_PROGRESS, L.SCHEDULED).ok).toBe(true);
+    // Other reverse hops stay forbidden.
+    expect(canTransitionReservation(L.IN_PROGRESS, L.ASSIGNED).ok).toBe(false);
+    expect(canTransitionReservation(L.ASSIGNED, L.SCHEDULED).ok).toBe(false);
+    expect(canTransitionReservation(L.COMPLETED, L.SCHEDULED).ok).toBe(false);
+  });
+
   it("rejects unknown statuses", () => {
     expect(canTransitionReservation(L.PENDING, "Approved").ok).toBe(false);
   });
@@ -82,7 +90,11 @@ describe("transitionPath", () => {
   });
 
   it("returns null for unreachable targets", () => {
-    expect(transitionPath(L.IN_PROGRESS, L.SCHEDULED)).toBeNull();
+    // Reverse hop is intentional for incident aborts; other backward moves are not.
+    expect(transitionPath(L.IN_PROGRESS, L.SCHEDULED)).toEqual([L.IN_PROGRESS, L.SCHEDULED]);
+    expect(transitionPath(L.IN_PROGRESS, L.PENDING)).toBeNull();
+    // BFS must not invent Assigned → In Progress → Scheduled as a requeue path.
+    expect(transitionPath(L.ASSIGNED, L.SCHEDULED)).toBeNull();
     expect(transitionPath(L.COMPLETED, L.CANCELLED)).toBeNull();
   });
 });
@@ -91,7 +103,7 @@ describe("nextStatuses", () => {
   it("exposes the single forward hop plus Cancelled for non-terminal states", () => {
     expect(nextStatuses(L.PENDING)).toEqual([L.SCHEDULED, L.CANCELLED]);
     expect(nextStatuses(L.ASSIGNED)).toEqual([L.IN_PROGRESS, L.CANCELLED]);
-    expect(nextStatuses(L.IN_PROGRESS)).toEqual([L.COMPLETED, L.CANCELLED]);
+    expect(nextStatuses(L.IN_PROGRESS)).toEqual([L.COMPLETED, L.SCHEDULED, L.CANCELLED]);
   });
 
   it("returns none for terminal states", () => {

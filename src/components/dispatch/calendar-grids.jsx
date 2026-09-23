@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { format, isSameDay, isSameMonth } from "date-fns";
 import { CalendarEvent } from "@/components/dispatch/calendar-event";
 import {
+  EVENT_KIND,
   clusterDayEvents,
   dayPosition,
   groupByDay,
+  isPendingReassignment,
   onDay,
 } from "@/lib/scheduling/calendar";
 import { cn } from "@/lib/utils";
@@ -311,6 +313,11 @@ export function MonthGrid({ days, events, conflicts, anchor, onPickDay, onSelect
               const outside = !isSameMonth(day, anchor);
               const weekend = day.getDay() === 0 || day.getDay() === 6;
               const conflicted = dayEvents.filter((event) => conflicts.has(event.id)).length;
+              const gaps = dayEvents.filter(
+                (event) =>
+                  event.kind === EVENT_KIND.DISPATCH &&
+                  (event.unassigned || isPendingReassignment(event))
+              ).length;
               const shown = dayEvents.slice(0, 3);
 
               return (
@@ -344,6 +351,15 @@ export function MonthGrid({ days, events, conflicts, anchor, onPickDay, onSelect
                     </div>
 
                     <div className="flex items-center gap-1.5">
+                      {gaps > 0 && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-1 font-data text-[9px] font-bold text-warning-700 ring-1 ring-warning/30"
+                          title={`${gaps} trip${gaps === 1 ? "" : "s"} needing assignment or reassignment`}
+                        >
+                          <AlertTriangle className="h-3 w-3" strokeWidth={1.7} aria-hidden="true" />
+                          {gaps}
+                        </span>
+                      )}
                       {dayEvents.length > 0 && (
                         <span className="rounded-full bg-hover px-2 py-1 font-data text-[9px] font-bold tabular-nums text-foreground-secondary ring-1 ring-border/50">
                           {dayEvents.length}

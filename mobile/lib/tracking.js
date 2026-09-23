@@ -307,12 +307,22 @@ export function useActiveTripGpsPoster(enabled) {
               latitude: loc.coords.latitude, longitude: loc.coords.longitude,
               accuracy: loc.coords.accuracy, recorded_at: new Date(loc.timestamp).toISOString(),
             }, { queueOnFailure: false });
-            if (!cancelled) publishStatus({ standbyObservedAt: res?.observedAt ?? null });
+            if (!cancelled) {
+              publishStatus({
+                standbyObservedAt: res?.observedAt ?? null,
+                lastSentAt: new Date().toISOString(),
+                error: null,
+              });
+            }
           }
-          // The trip branch already published the full payload above; this
-          // second publish is only for the responder path (which has none).
-          // Publishing twice per tick re-rendered every subscriber for free.
-          if (!cancelled && !tripId) publishStatus({ lastSentAt: new Date().toISOString(), error: null });
+          // The trip branch publishes its full payload above; the responder
+          // path carries no other publish, so it gets lastSentAt here.
+          // Standby must be excluded: its branch already published — the old
+          // `!tripId` condition covered standby too and re-rendered every
+          // subscriber twice per 30s standby tick for free.
+          if (!cancelled && responderIncidentId && !tripId) {
+            publishStatus({ lastSentAt: new Date().toISOString(), error: null });
+          }
         } catch {
           // A dropped post is not worth interrupting the driver over; the next
           // tick retries. Only surface it so the chip can show it is stale.

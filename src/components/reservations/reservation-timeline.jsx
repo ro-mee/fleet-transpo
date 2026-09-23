@@ -52,6 +52,11 @@ const EVENT_STYLE = {
   [E.DISPATCH_CLOSED]: { icon: CheckCircle2, tone: "success", label: "Dispatch closed" },
   [E.CANCELLED]: { icon: Ban, tone: "secondary", label: "Cancelled" },
   [E.RESCHEDULED]: { icon: CalendarClock, tone: "warning", label: "Rescheduled" },
+  [E.INCIDENT_REQUEUED]: {
+    icon: TriangleAlert,
+    tone: "danger",
+    label: "Requeued after incident",
+  },
 };
 
 const FALLBACK = { icon: CircleDot, tone: "secondary", label: null };

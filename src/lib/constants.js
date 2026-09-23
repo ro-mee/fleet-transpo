@@ -115,6 +115,9 @@ export const RESERVATION_EVENT = {
   DISPATCH_CLOSED: "dispatch_closed",
   CANCELLED: "cancelled",
   RESCHEDULED: "rescheduled",
+  // Incident abort of an In Progress run: request requeues (In Progress →
+  // Scheduled) for a replacement pair instead of going Cancelled.
+  INCIDENT_REQUEUED: "INCIDENT_REQUEUED",
 };
 
 export const DISPATCH_STATUS = {

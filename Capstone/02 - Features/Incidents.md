@@ -86,7 +86,7 @@ disconnected duplicate report.
 | Strict State Machine | `api/incidents/[id]/route.js` | Incidents require `acknowledged_at` before resolution. Audit history via `incident_comments`. |
 | Incident Confidentiality | `api/incidents/route.js` | HR/Admin reports are shielded from general staff visibility based on role |
 | Dynamic SLAs | `api/driver/incidents/route.js`, `pg_cron` | `due_at` calculated server-side based on severity (Critical = 2h, Major = 24h). `pg_cron` idempotently processes breaches into `overdue_at` automatically. |
-| Active Trip Aborts | `src/lib/incidents/grounding.js` | Grounding an `In Progress` dispatch aborts the request entirely and pages Guest Services |
+| Active Trip Aborts | `src/lib/incidents/grounding.js` | Grounding an `In Progress` dispatch **requeues** the request (`fleet_status = Scheduled`, pair cleared, dispatch → `Pending Reassignment`, event `INCIDENT_REQUEUED`, priority re-derived so a past pickup becomes Overdue) and pages Guest Services — the guest is **not** cancelled. Scheduled dispatches already drop to `Pending Reassignment`. |
 | Maintenance completion restores availability | PUT `/api/vehicle-maintenance/[id]` calls `syncVehicleStatus` after `Completed` | Resolving the incident must not release a vehicle that still needs repair |
 | Resolution is documented | server-side required `actions_taken`; CHECK constrains status to Open/Resolved | Resolve-with-no-narrative was unauditable; status was free-form |
 | One incident, one repair record | automatic helper + incident row lock + unique `source_incident_id` index | Retries and concurrent reports cannot duplicate the work order |

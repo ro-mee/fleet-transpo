@@ -6,7 +6,7 @@ import {
   clearAll,
 } from "./storage";
 import { clearOfflineCache, resolveDriverId } from "./offline-cache";
-import { enqueueRequest, syncQueue, setApiFetch } from "./sync";
+import { enqueueRequest, syncQueue, setApiFetch, hasPendingWork } from "./sync";
 import { isTransportFailure } from "./connectivity-state";
 
 // Re-exported so screens share the one classification: transport failures
@@ -312,11 +312,12 @@ export async function apiFetch(path, options = {}) {
     throw new ApiError(body?.error || `Request failed (${res.status})`, res.status);
   }
 
-  // If we get here, the request was successful, so we can try to drain the queue in the background
-  if (init.method && ['POST', 'PUT', 'DELETE'].includes(init.method.toUpperCase())) {
-    syncQueue().catch(() => {});
-  } else {
-    // For GETs, also trigger a sync to ensure everything is caught up if the network is back
+  // Drain the outbox only when something is waiting. The old code hit
+  // AsyncStorage (read + JSON.parse) after EVERY success — both branches of
+  // the if/else were identical — for a queue that is empty almost always.
+  // hasPendingWork() fails open while the count is unknown, so the first
+  // success after cold start still drains and converges the mirror.
+  if (hasPendingWork()) {
     syncQueue().catch(() => {});
   }
 

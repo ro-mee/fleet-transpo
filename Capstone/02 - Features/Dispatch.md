@@ -23,6 +23,8 @@ The reservation-backed trip-start route revalidates the committed driver/vehicle
 
 Turns an approved request into a **committed booking of resources**: this vehicle, this driver, this window.
 
+**Default surface is `/dispatch/calendar` (2026-09-23):** the status-lane board at `/dispatch` is gone — the page now `redirect`s to the calendar. Sidebar, command palette, dashboard cards, detail back-links and availability deep-links all target `/dispatch/calendar`. `NAV_ROLES["/dispatch"]` remains as the **prefix gate** for the whole `/dispatch/*` subtree; removing it would open `/dispatch/calendar` and `/dispatch/[id]` to any authenticated role.
+
 ## Why it exists
 
 This is the point where the system makes a promise it can't take back. Two dispatchers acting at the same moment must not book the same van, and a vehicle with expired registration or a number-coding restriction must not go out. Everything here is about making that promise safely.
@@ -74,7 +76,7 @@ The app check is racy by nature (check-then-act across HTTP requests). The trigg
 
 - **Concurrent identical dispatch** → second one gets `P0001` → 409. Correct.
 - **Missing `scheduled_arrival`** → `COALESCE` treats it as a zero-length window; back-to-back bookings at the same instant do **not** conflict (half-open interval).
-- **`'Pending Reassignment'`** → the DB accepts it, the state machine rejects it: dead-end row. → [[BUG Pending Reassignment Not In State Machine]]
+- **`'Pending Reassignment'`** → first-class dispatch state (incident abort / leave); reassign or cancel from the queue pill. → [[BUG Pending Reassignment Not In State Machine]]
 - **Cancelled dispatch overlapping a live one** → allowed, and that's why a trigger was used instead of `EXCLUDE USING gist`.
 
 ## Reassigning a dispatch — CONFIRMED 2026-08-15
@@ -134,6 +136,68 @@ viewports, off-hours/weekend shading, event accent spines with Urgent/VIP dots
 (`vip` passthrough added to `dispatchToEvent`), "+N more" jumps to Day view.
 Motion is transform/opacity-only with reduced-motion fallbacks.
 → [[Driver Management]]
+
+### Calendar exception-first pass — 2026-09-23
+
+Because the calendar is now the default dispatch surface (and the landing spot
+for incident-requeued trips), it was audited against the dispatcher's real
+question — *"what needs me right now?"* — and reworked exception-first so every
+problem state speaks the same language in five places at once: event card, KPI,
+banner, filter chip, legend.
+
+- **`Pending Reassignment` is first-class.** `DISPATCH_TONE` had no entry, so
+  interrupted trips fell through to `secondary` — **gray, identical to
+  Cancelled** — and the card's status pill had no case. It now tones `danger`,
+  renders a rose "Reassign" pill (comfortable + compact; compact prefers it
+  over the amber Unassigned badge), and a new `isPendingReassignment(event)`
+  helper (`lib/scheduling/calendar.js`) is the single predicate the page, grid
+  and drawer share. `dispatchToEvent` also carries `requestId` for deep-links.
+  Pinned by `calendar.test.js` (every `DISPATCH_STATUS` maps to an explicit
+  tone; Pending Reassignment must be `danger`, never Cancelled's `secondary`).
+- **KPI row is exception-first (7 → 6 cards):** Needs attention (composite:
+  distinct conflicted + unassigned + reassignment events — replaces the
+  conflicts-only count) → Reassignment → Unassigned → In progress (toggles the
+  `In Progress` **status pill**) → Total trips (resets both filters) →
+  available drivers. The old Upcoming card was dropped (Scheduled is
+  now one status-pill tap away); the Available-vehicles card was removed
+  same-day on request (Available drivers remains).
+- **Dead `statusFilter` state given a control.** It was only ever reset, never
+  set — a Status pill row (Any / Scheduled / In progress / Completed /
+  Cancelled / **Reassignment** in solid danger) now drives it, next to an
+  expanded type-chip row: Needs attention, Needs Assignment, Reassignment,
+  Conflicts, VIP, Starting soon, Bookings, Maintenance, Leave & Rest.
+- **One "Action required" banner** replaces "Needs assignment": unassigned
+  **and** Pending-Reassignment dispatches (a reassignment can keep both ids —
+  `departure-alerts.js` — so the old unassigned-only filter missed it), sorted
+  reassignment-first, per-row reason copy, count badge, "View all" → the
+  attention filter.
+- **Group by: Driver | Vehicle.** `LANE.VEHICLE` existed in `LaneGrid` but no
+  control ever set it — Day pill and `D` hard-coded `LANE.DRIVER`. Day view now
+  has a lane-grouping pill switch; switching back to Day preserves the current
+  lane choice instead of resetting. **Removed later the same day (user):** the
+  Available-vehicles KPI card and the Vehicle button (and the Group-lanes-by
+  pill once only Driver remained) were deleted; day view is driver lanes only.
+- **Shareable URL.** The surface writes `?view= &lane= &filter= &status= `
+  back on change (defaults stay bare) alongside the existing `?date=`, and
+  reads them all on load — a dispatcher can share "week" or "vehicle lanes +
+  reassignment" links; refresh keeps state.
+- **Legend always visible** (was `hidden xl:flex` — vanished on laptops) with
+  Unassigned + Reassignment entries. **Search now includes the reservation #.**
+- **Lane grid:** per-lane conflict-count badge (rose) in the resource header
+  and a Sort: Name | Busy first toggle (busiest lanes, then unavailable, on
+  top). **Month grid:** per-day amber gap badge (unassigned + reassignment)
+  beside the existing conflict count. **Drawer:** opens a cluster on the same
+  VIP/Urgent `primaryEvent` the card highlights (was chronological `[0]`), a
+  rose reassignment callout, "View reservation" (`/reservations/{request_id}`)
+  and an "Assign resources" primary label when the trip is unassigned or
+  awaiting reassignment. **Header queue link** badges the window's
+  reassignment count and targets `/reservations/queue?filter=reassignment`
+  when > 0 (mirrors the dashboard links).
+
+Verified: `lint:ci` 0 warnings, `test:run` 191 files / 2296 tests (new
+`calendar.test.js` 3/3), production build green (204 pages). Live browser
+acceptance pending. → [[UI UX Audit - Web]] · [[ADR-013 Calendar Is The Dispatch Surface]]
+
 
 ## Availability is decided by the window, not the status label — CONFIRMED 2026-08-15
 

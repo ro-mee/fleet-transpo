@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   format,
@@ -22,6 +23,7 @@ import { LaneGrid } from "@/components/dispatch/calendar-lanes";
 import { CalendarDetailDrawer } from "@/components/dispatch/calendar-drawer";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { getDispatchCalendar } from "@/services/dispatch.service";
+import { DISPATCH_STATUS } from "@/lib/constants";
 import {
   CALENDAR_DENSITY,
   CALENDAR_VIEW,
@@ -30,6 +32,7 @@ import {
   dispatchToEvent,
   downtimeToEvent,
   findOverlaps,
+  isPendingReassignment,
   leaveToEvent,
   maintenanceToEvent,
   rangeFor,
@@ -45,7 +48,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  LayoutGrid,
   Maximize2,
   Minimize2,
   RefreshCw,
@@ -66,10 +68,24 @@ const VIEWS = [
 
 const TYPE_FILTERS = [
   { id: "all", label: "All Items" },
-  { id: "dispatches", label: "Bookings" },
+  { id: "attention", label: "Needs attention" },
   { id: "unassigned", label: "Needs Assignment" },
+  { id: "reassignment", label: "Reassignment" },
+  { id: "conflicts", label: "Conflicts" },
+  { id: "vip", label: "VIP" },
+  { id: "soon", label: "Starting soon" },
+  { id: "dispatches", label: "Bookings" },
   { id: "maintenance", label: "Maintenance" },
   { id: "leave", label: "Leave & Rest" },
+];
+
+const STATUS_FILTERS = [
+  { id: "all", label: "Any" },
+  { id: DISPATCH_STATUS.SCHEDULED, label: "Scheduled" },
+  { id: DISPATCH_STATUS.IN_PROGRESS, label: "In progress" },
+  { id: DISPATCH_STATUS.COMPLETED, label: "Completed" },
+  { id: DISPATCH_STATUS.CANCELLED, label: "Cancelled" },
+  { id: DISPATCH_STATUS.PENDING_REASSIGNMENT, label: "Reassignment" },
 ];
 
 const VEHICLE_DOWN = ["Under Maintenance", "Registration Expired", "Out of Service"];
@@ -220,18 +236,55 @@ function JumpToDate({ anchor, onPick }) {
 export default function DispatchCalendarPage() {
   useRequireRole();
 
-  const [view, setView] = useState(CALENDAR_VIEW.DAY);
-  const [laneMode, setLaneMode] = useState(LANE.DRIVER);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  // Deep-link: ?date=YYYY-MM-DD anchors the view; ?view=, ?lane=, ?filter=,
+  // ?status= restore the full surface so a dispatcher can share a URL.
+  const [view, setView] = useState(() => {
+    const raw = searchParams?.get("view");
+    return Object.values(CALENDAR_VIEW).includes(raw) ? raw : CALENDAR_VIEW.DAY;
+  });
+  const [laneMode, setLaneMode] = useState(() => {
+    const raw = searchParams?.get("lane");
+    // Lane grouping only makes sense on the Day surface; week/month force NONE.
+    if (view !== CALENDAR_VIEW.DAY) return LANE.NONE;
+    return Object.values(LANE).includes(raw) ? raw : LANE.DRIVER;
+  });
   const [density, setDensity] = useState(CALENDAR_DENSITY.COMFORTABLE);
-  const [anchor, setAnchor] = useState(() => new Date());
+  const [anchor, setAnchor] = useState(() => {
+    const raw = searchParams?.get("date");
+    if (!raw) return new Date();
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  });
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState(() => {
+    const raw = searchParams?.get("filter");
+    return TYPE_FILTERS.some((f) => f.id === raw) ? raw : "all";
+  });
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const raw = searchParams?.get("status");
+    return STATUS_FILTERS.some((f) => f.id === raw) ? raw : "all";
+  });
 
   // Selected event for detail drawer
   const [selectedEvent, setSelectedEvent] = useState(null);
+
+  // Mirror the shareable surface back into the URL (defaults stay bare).
+  useEffect(() => {
+    const params = new URLSearchParams();
+    const defaultLane = view === CALENDAR_VIEW.DAY ? LANE.DRIVER : LANE.NONE;
+    if (view !== CALENDAR_VIEW.DAY) params.set("view", view);
+    if (laneMode !== defaultLane) params.set("lane", laneMode);
+    if (typeFilter !== "all") params.set("filter", typeFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (!isSameDay(anchor, new Date())) params.set("date", format(anchor, "yyyy-MM-dd"));
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [router, pathname, view, laneMode, typeFilter, statusFilter, anchor]);
 
   const effectiveView = laneMode === LANE.NONE ? view : CALENDAR_VIEW.DAY;
   const { start, end, days } = useMemo(
@@ -342,27 +395,40 @@ export default function DispatchCalendarPage() {
   // Detect conflicts across all events
   const conflicts = useMemo(() => findOverlaps(rawEvents), [rawEvents]);
 
-  // Operational KPI metrics
-  const conflictCount = useMemo(() => {
-    let flags = 0;
-    for (const list of conflicts.values()) flags += list.length;
-    return Math.round(flags / 2);
-  }, [conflicts]);
-
   const dispatchEvents = useMemo(
     () => rawEvents.filter((e) => e.kind === EVENT_KIND.DISPATCH),
     [rawEvents]
   );
   const dispatchCount = dispatchEvents.length;
   const activeCount = dispatchEvents.filter((e) => e.status === "In Progress" || e.isStartingSoon).length;
-  const upcomingCount = dispatchEvents.filter((e) => e.status === "Scheduled").length;
+  const reassignmentCount = useMemo(
+    () => dispatchEvents.filter((e) => isPendingReassignment(e)).length,
+    [dispatchEvents]
+  );
   const unassignedCount = dispatchEvents.filter((e) => e.unassigned).length;
-  const unassignedEvents = dispatchEvents.filter((e) => e.unassigned);
+  // One banner for every dispatch that needs a dispatcher decision right now:
+  // resource gaps AND broken commitments (incident/leave interrupts).
+  const actionRequired = useMemo(() => {
+    const items = dispatchEvents.filter(
+      (e) => e.unassigned || isPendingReassignment(e)
+    );
+    return items.sort((a, b) => {
+      const reA = isPendingReassignment(a) ? 0 : 1;
+      const reB = isPendingReassignment(b) ? 0 : 1;
+      return reA - reB || a.start - b.start;
+    });
+  }, [dispatchEvents]);
+  // Distinct events that are conflicted, unassigned, or awaiting reassignment.
+  const attentionCount = useMemo(() => {
+    const ids = new Set();
+    for (const id of conflicts.keys()) ids.add(id);
+    for (const e of dispatchEvents) {
+      if (e.unassigned || isPendingReassignment(e)) ids.add(e.id);
+    }
+    return ids.size;
+  }, [conflicts, dispatchEvents]);
   const availableDriverCount = (data?.drivers || []).filter(
     (d) => d.driver_status === "Available"
-  ).length;
-  const availableVehicleCount = (data?.vehicles || []).filter(
-    (v) => v.vehicle_status === "Available"
   ).length;
   const blockedCount =
     (data?.vehicles || []).filter((v) => VEHICLE_DOWN.includes(v.vehicle_status)).length +
@@ -372,8 +438,18 @@ export default function DispatchCalendarPage() {
   const filteredEvents = useMemo(() => {
     return rawEvents.filter((e) => {
       // 1. Type filter
+      if (typeFilter === "attention") {
+        const exception =
+          e.kind === EVENT_KIND.DISPATCH &&
+          (e.unassigned || isPendingReassignment(e) || e.isStartingSoon);
+        if (!exception && !conflicts.has(e.id)) return false;
+      }
       if (typeFilter === "dispatches" && e.kind !== EVENT_KIND.DISPATCH) return false;
       if (typeFilter === "unassigned" && (!e.unassigned || e.kind !== EVENT_KIND.DISPATCH)) return false;
+      if (typeFilter === "reassignment" && !isPendingReassignment(e)) return false;
+      if (typeFilter === "conflicts" && !conflicts.has(e.id)) return false;
+      if (typeFilter === "vip" && (!e.vip || e.kind !== EVENT_KIND.DISPATCH)) return false;
+      if (typeFilter === "soon" && (!e.isStartingSoon || e.kind !== EVENT_KIND.DISPATCH)) return false;
       if (typeFilter === "maintenance" && e.kind !== EVENT_KIND.MAINTENANCE) return false;
       if (
         typeFilter === "leave" &&
@@ -392,17 +468,25 @@ export default function DispatchCalendarPage() {
         const matchesGuest = e.guestName?.toLowerCase().includes(q);
         const matchesDriver = e.driverDisplayName?.toLowerCase().includes(q);
         const matchesVehicle = e.vehicleDisplayName?.toLowerCase().includes(q);
+        const matchesReservation = e.reservationNumber?.toLowerCase().includes(q);
         const matchesRoute =
           e.pickupLocation?.toLowerCase().includes(q) ||
           e.dropoffLocation?.toLowerCase().includes(q);
-        if (!matchesTitle && !matchesGuest && !matchesDriver && !matchesVehicle && !matchesRoute) {
+        if (
+          !matchesTitle &&
+          !matchesGuest &&
+          !matchesDriver &&
+          !matchesVehicle &&
+          !matchesReservation &&
+          !matchesRoute
+        ) {
           return false;
         }
       }
 
       return true;
     });
-  }, [rawEvents, typeFilter, statusFilter, searchQuery]);
+  }, [rawEvents, conflicts, typeFilter, statusFilter, searchQuery]);
 
   const today = useCallback(() => setAnchor(new Date()), []);
   const step = useCallback(
@@ -480,22 +564,81 @@ export default function DispatchCalendarPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" className="rounded-full" asChild>
-            <Link href="/dispatch">
-              <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
-              Dispatch board
+            <Link
+              href={
+                reassignmentCount > 0
+                  ? "/reservations/queue?filter=reassignment"
+                  : "/reservations/queue"
+              }
+            >
+              <Clock className="mr-1.5 h-3.5 w-3.5" />
+              Reservation queue
+              {reassignmentCount > 0 && (
+                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 font-data text-[10px] font-bold text-white">
+                  {reassignmentCount}
+                </span>
+              )}
             </Link>
           </Button>
           <Button variant="outline" size="sm" className="rounded-full" asChild>
-            <Link href="/reservations/queue">
-              <Clock className="mr-1.5 h-3.5 w-3.5" />
-              Reservation queue
+            <Link href="/dispatch/availability">
+              <Users className="mr-1.5 h-3.5 w-3.5" />
+              Availability
             </Link>
           </Button>
         </div>
       </header>
 
-      {/* Reference-led operational KPI row */}
+      {/* Reference-led operational KPI row — exception-first */}
       <section aria-label="Dispatch summary" className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-7">
+        <StatCard
+          icon={attentionCount > 0 ? AlertTriangle : CheckCircle2}
+          value={attentionCount}
+          label="Needs attention"
+          trend={
+            attentionCount > 0
+              ? "Conflicts, gaps & reassignments"
+              : "Nothing needs action"
+          }
+          tone={attentionCount > 0 ? "danger" : "success"}
+          className="min-h-28 rounded-2xl p-3"
+          onClick={() => setTypeFilter((f) => (f === "attention" ? "all" : "attention"))}
+          active={typeFilter === "attention"}
+        />
+        <StatCard
+          icon={AlertTriangle}
+          value={reassignmentCount}
+          label="Reassignment"
+          trend={reassignmentCount > 0 ? "Broken commitments" : "None pending"}
+          tone={reassignmentCount > 0 ? "danger" : "neutral"}
+          className="min-h-28 rounded-2xl p-3"
+          onClick={() => setTypeFilter((f) => (f === "reassignment" ? "all" : "reassignment"))}
+          active={typeFilter === "reassignment"}
+        />
+        <StatCard
+          icon={AlertTriangle}
+          value={unassignedCount}
+          label="Unassigned"
+          trend="Trips needing resources"
+          tone={unassignedCount > 0 ? "warning" : "neutral"}
+          className="min-h-28 rounded-2xl p-3"
+          onClick={() => setTypeFilter((f) => (f === "unassigned" ? "all" : "unassigned"))}
+          active={typeFilter === "unassigned"}
+        />
+        <StatCard
+          icon={Sparkles}
+          value={activeCount}
+          label="In progress"
+          trend="Active or starting soon"
+          tone="success"
+          className="min-h-28 rounded-2xl p-3"
+          onClick={() =>
+            setStatusFilter((f) =>
+              f === DISPATCH_STATUS.IN_PROGRESS ? "all" : DISPATCH_STATUS.IN_PROGRESS
+            )
+          }
+          active={statusFilter === DISPATCH_STATUS.IN_PROGRESS}
+        />
         <StatCard
           icon={CarFront}
           value={dispatchCount}
@@ -509,71 +652,63 @@ export default function DispatchCalendarPage() {
           }}
           active={typeFilter === "all" && statusFilter === "all"}
         />
-        <StatCard icon={CalendarDays} value={upcomingCount} label="Upcoming" trend="Scheduled trips" tone="primary" className="min-h-28 rounded-2xl p-3" />
-        <StatCard icon={Sparkles} value={activeCount} label="In progress" trend="Active or starting soon" tone="success" className="min-h-28 rounded-2xl p-3" />
-        <StatCard
-          icon={AlertTriangle}
-          value={unassignedCount}
-          label="Unassigned"
-          trend="Trips needing resources"
-          tone="warning"
-          className="min-h-28 rounded-2xl p-3"
-          onClick={() => setTypeFilter((f) => (f === "unassigned" ? "all" : "unassigned"))}
-          active={typeFilter === "unassigned"}
-        />
-        <StatCard
-          icon={conflictCount > 0 ? AlertTriangle : CheckCircle2}
-          value={conflictCount}
-          label="Needs attention"
-          trend={conflictCount > 0 ? "Scheduling conflicts" : "No conflicts detected"}
-          tone={conflictCount > 0 ? "danger" : "success"}
-          className="min-h-28 rounded-2xl p-3"
-        />
         <StatCard icon={Users} value={availableDriverCount} label="Available drivers" trend={`of ${(data?.drivers || []).length}`} tone="success" className="min-h-28 rounded-2xl p-3" />
-        <StatCard icon={CarFront} value={availableVehicleCount} label="Available vehicles" trend={`of ${(data?.vehicles || []).length}`} tone="info" className="min-h-28 rounded-2xl p-3" />
       </section>
 
-      {unassignedEvents.length > 0 && (
-        <section className="overflow-hidden rounded-2xl border border-danger/40 bg-danger/5" aria-label="Trips needing assignment">
+      {actionRequired.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-danger/40 bg-danger/5" aria-label="Dispatches needing action">
           <div className="flex items-center justify-between border-b border-danger/20 px-4 py-2.5">
             <div className="flex items-center gap-2 text-danger">
               <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-              <h2 className="text-xs font-bold uppercase tracking-wide">Needs assignment</h2>
+              <h2 className="text-xs font-bold uppercase tracking-wide">Action required</h2>
               <span className="rounded-full bg-danger px-1.5 py-0.5 font-data text-[10px] font-bold text-white">
-                {unassignedCount}
+                {actionRequired.length}
               </span>
             </div>
-            <button type="button" onClick={() => setTypeFilter("unassigned")} className="text-xs font-bold text-danger hover:underline">
+            <button type="button" onClick={() => setTypeFilter("attention")} className="text-xs font-bold text-danger hover:underline">
               View all
             </button>
           </div>
           <div className="grid divide-y divide-danger/20 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-            {unassignedEvents.slice(0, 2).map((event) => (
-              <article key={event.id} className="flex min-w-0 items-center gap-3 px-4 py-3">
-                <p className="font-data shrink-0 text-sm font-bold tabular-nums text-danger">
-                  {formatTime(event.start)}
-                </p>
-                <div className="min-w-0 flex-1 border-l border-danger/20 pl-3">
-                  <p className="truncate text-sm font-bold text-foreground">
-                    {event.pickupLocation || "Pickup"} → {event.dropoffLocation || "Destination"}
+            {actionRequired.slice(0, 2).map((event) => {
+              const reason = isPendingReassignment(event)
+                ? event.unassigned
+                  ? "Reassignment · resources cleared"
+                  : "Needs reassignment"
+                : event.unassignedDriver && event.unassignedVehicle
+                  ? "Driver & vehicle unassigned"
+                  : event.unassignedDriver
+                    ? "Driver unassigned"
+                    : "Vehicle unassigned";
+              return (
+                <article key={event.id} className="flex min-w-0 items-center gap-3 px-4 py-3">
+                  <p className="font-data shrink-0 text-sm font-bold tabular-nums text-danger">
+                    {formatTime(event.start)}
                   </p>
-                  <p className="truncate text-[11px] text-foreground-secondary">
-                    {event.title} · {event.unassignedDriver ? "Driver" : "Vehicle"} unassigned
-                  </p>
-                </div>
-                <Button size="sm" className="h-8 shrink-0 rounded-full bg-danger px-4 text-xs text-white hover:bg-danger/90" asChild>
-                  <Link href={`/dispatch/${event.dispatchId}`}>Assign now</Link>
-                </Button>
-              </article>
-            ))}
+                  <div className="min-w-0 flex-1 border-l border-danger/20 pl-3">
+                    <p className="truncate text-sm font-bold text-foreground">
+                      {event.pickupLocation || "Pickup"} → {event.dropoffLocation || "Destination"}
+                    </p>
+                    <p className="truncate text-[11px] text-foreground-secondary">
+                      {event.title} · {reason}
+                    </p>
+                  </div>
+                  <Button size="sm" className="h-8 shrink-0 rounded-full bg-danger px-4 text-xs text-white hover:bg-danger/90" asChild>
+                    <Link href={`/dispatch/${event.dispatchId}`}>Assign now</Link>
+                  </Button>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
 
-      <div className="hidden items-center gap-x-3 text-xs text-foreground-muted xl:flex">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground-muted">
         <LegendDot className="bg-info" label="Scheduled" />
         <LegendDot className="bg-warning" label="In progress" />
         <LegendDot className="bg-success" label="Completed" />
+        <LegendDot className="bg-warning" label="Unassigned" />
+        <LegendDot className="bg-danger" label="Reassignment" />
         <LegendDot className="bg-danger" label="Maintenance" />
         <LegendDot className="bg-foreground-muted" label="Leave / rest" />
         {blockedCount > 0 && <span className="ml-auto font-medium">{blockedCount} resources out of service</span>}
@@ -625,7 +760,13 @@ export default function DispatchCalendarPage() {
                   aria-selected={effectiveView === v.id}
                   onClick={() => {
                     setView(v.id);
-                    setLaneMode(v.id === CALENDAR_VIEW.DAY ? LANE.DRIVER : LANE.NONE);
+                    setLaneMode((lane) =>
+                      v.id === CALENDAR_VIEW.DAY
+                        ? lane === LANE.NONE
+                          ? LANE.DRIVER
+                          : lane
+                        : LANE.NONE
+                    );
                   }}
                   className={cn(
                     PILL_BASE,
@@ -690,7 +831,7 @@ export default function DispatchCalendarPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search guest, driver, vehicle plate…"
+                placeholder="Search guest, driver, plate, reservation #…"
                 className="w-full bg-surface rounded-full border border-border/80 pl-8 pr-7 py-1 text-xs text-foreground placeholder:text-foreground-muted outline-none focus:border-primary transition-colors"
               />
               {searchQuery && (
@@ -705,7 +846,7 @@ export default function DispatchCalendarPage() {
             </div>
 
             {/* Type Filters */}
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               {TYPE_FILTERS.map((f) => (
                 <button
                   key={f.id}
@@ -715,6 +856,30 @@ export default function DispatchCalendarPage() {
                     "rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
                     typeFilter === f.id
                       ? "bg-foreground text-background"
+                      : "bg-surface-secondary/60 text-foreground-secondary hover:bg-hover hover:text-foreground"
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Status Filters */}
+            <div className="flex flex-wrap items-center gap-1 border-l border-border/60 pl-2">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-foreground-muted">
+                Status
+              </span>
+              {STATUS_FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setStatusFilter(f.id)}
+                  className={cn(
+                    "rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors",
+                    statusFilter === f.id
+                      ? f.id === DISPATCH_STATUS.PENDING_REASSIGNMENT
+                        ? "bg-danger text-white"
+                        : "bg-foreground text-background"
                       : "bg-surface-secondary/60 text-foreground-secondary hover:bg-hover hover:text-foreground"
                   )}
                 >

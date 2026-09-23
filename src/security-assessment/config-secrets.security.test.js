@@ -373,14 +373,11 @@ describe('SEC-CONFIG-005 — no credential material is tracked', () => {
     // flagging them would drown the signal. Scripts are included.
     const files = trackedFiles('src', 'scripts')
       .filter(f => /\.(js|jsx|mjs)$/.test(f) && !/\.test\.js$/.test(f));
-    // Reviewed and benign — each is an assertion-checked fixture, not a credential:
-    //   verify-register-account.mjs — the password for a throwaway probe account
-    //     on the reserved, non-deliverable .invalid domain; the script hard-deletes
-    //     the row in a finally block. It never authenticates it.
-    const REVIEWED_BENIGN = new Set(['scripts/verify-register-account.mjs']);
+    // No reviewed-benign exclusions: the register-account probe dropped its
+    // password literal when Add User moved to temp-password invites, so the
+    // allowlist that used to cover it is gone rather than left to grow.
     const offenders = [];
     for (const file of files) {
-      if (REVIEWED_BENIGN.has(file)) continue;
       const source = repo(file);
       for (const m of source.matchAll(/(password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*["']([^"']{16,})["']/gi)) {
         if (/process\.env|your-|change-me|placeholder|example|test|mock|\$\{/i.test(m[2])) continue;

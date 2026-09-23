@@ -16,6 +16,8 @@ last_verified: 2026-08-11
 
 [[Dispatch State Machine]] uses rank monotonicity, which is cheaper. Reservations don't fit that shape: the legal moves aren't a straight line, and some states are reachable from several places and not from others. Ranks encode *ordering*; an adjacency map encodes an arbitrary graph. (Note: [[Trip State Machine]] originally used ranks, but grew complex enough to be rewritten to an adjacency map like this one).
 
+**One deliberate reverse hop (2026-09-23):** `In Progress → Scheduled` is legal so an incident abort can requeue a run for a replacement pair instead of cancelling the guest's request. Every other backward hop stays forbidden. Event: `INCIDENT_REQUEUED`. See [[Incidents]] · [[ADR-014 Incident Abort Requeues Request]].
+
 ## `transitionPath` — the distinctive part
 
 ```

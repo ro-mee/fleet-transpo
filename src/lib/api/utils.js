@@ -16,6 +16,34 @@ import {
 const DEFAULT_ROLES = ["super_admin", "admin", "fleet_manager", "dispatcher", "management"];
 
 /**
+ * Paths a session with must_change_password may still call.
+ *
+ * The forced change itself, the profile endpoint (display fields used by the
+ * shell), and the heartbeat — which is what keeps an idle timeout from firing
+ * while the employee is filling in the set-password form. Everything else is
+ * refused with 403 PASSWORD_CHANGE_REQUIRED until the change happens; the
+ * frontend redirect to /set-password is only a hint, this is the boundary.
+ */
+const MUST_CHANGE_ALLOWED_PATHS = new Set([
+  "/api/auth/change-password",
+  "/api/auth/profile",
+  "/api/auth/heartbeat",
+]);
+
+function assertPasswordChangeGate(req, user) {
+  if (!user?.mustChangePassword) return;
+  let pathname = "";
+  try {
+    pathname = new URL(req.url).pathname;
+  } catch {
+    pathname = "";
+  }
+  if (!MUST_CHANGE_ALLOWED_PATHS.has(pathname)) {
+    throw new AuthError("You must set a permanent password before continuing.", 403, "PASSWORD_CHANGE_REQUIRED");
+  }
+}
+
+/**
  * Resolves the caller's identity from either auth scheme.
  *
  * Mobile sends `Authorization: Bearer <access token>`; the web app sends the
@@ -32,16 +60,15 @@ export async function resolveIdentity(req) {
     if (!claims) {
       throw new AuthError("Invalid or expired token", 401, "SESSION_INVALID");
     }
-    return {
-      user: await resolveCurrentIdentity({
-        employeeId: claims.employeeId,
-        role: claims.role,
-        driverId: claims.driverId,
-        authVersion: claims.authVersion,
-        familyId: claims.familyId,
-      }, "bearer"),
-      via: "bearer",
-    };
+    const user = await resolveCurrentIdentity({
+      employeeId: claims.employeeId,
+      role: claims.role,
+      driverId: claims.driverId,
+      authVersion: claims.authVersion,
+      familyId: claims.familyId,
+    }, "bearer");
+    assertPasswordChangeGate(req, user);
+    return { user, via: "bearer" };
   }
 
   const session = await auth();
@@ -53,6 +80,7 @@ export async function resolveIdentity(req) {
   const user = Object.prototype.hasOwnProperty.call(globalThis, "__HARNESS_SESSION__")
     ? { ...session.user, driverId: await resolveDriverId(session.user) }
     : await resolveCurrentIdentity(session.user, "session");
+  assertPasswordChangeGate(req, user);
   return { ...session, user, via: "session" };
 }
 
@@ -103,7 +131,7 @@ async function resolveCurrentIdentity(user, via = "session") {
 
   const { rows } = await query(
       `SELECT e.employee_id, e.email, e.first_name, e.last_name, e.position, e.status,
-              e.auth_version,
+              e.auth_version, e.must_change_password,
              r.role_name, d.driver_id
        FROM employees e
        LEFT JOIN roles r ON r.role_id = e.role_id
@@ -158,6 +186,7 @@ async function resolveCurrentIdentity(user, via = "session") {
     authVersion: Number(current.auth_version),
     role: normalizeRoleName(current.role_name),
     driverId: current.driver_id ?? null,
+    mustChangePassword: Boolean(current.must_change_password),
     sessionDetails,
   };
 }

@@ -8,24 +8,31 @@ const base = {
   role_id: "2",
 };
 
-describe("createUserSchema password parity", () => {
-  it("rejects the old 6-character floor", () => {
-    const result = createUserSchema.safeParse({ ...base, password: "Abc123" });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects passwords without a special character", () => {
-    const result = createUserSchema.safeParse({ ...base, password: "Abcdef12" });
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts a policy-compliant password", () => {
-    const result = createUserSchema.safeParse({ ...base, password: "Abcdef1!" });
+describe("createUserSchema invite flow", () => {
+  it("accepts the invite payload without a password", () => {
+    const result = createUserSchema.safeParse(base);
     expect(result.success).toBe(true);
   });
 
-  it("still requires all other fields", () => {
-    const result = createUserSchema.safeParse({ ...base, password: "Abcdef1!", email: "not-an-email" });
+  it("ignores a legacy password key (zod strips unknown keys)", () => {
+    const result = createUserSchema.safeParse({ ...base, password: "Abcdef1!" });
+    expect(result.success).toBe(true);
+    expect(result.data).not.toHaveProperty("password");
+  });
+
+  it("rejects an invalid email", () => {
+    const result = createUserSchema.safeParse({ ...base, email: "not-an-email" });
     expect(result.success).toBe(false);
+  });
+
+  it("still requires names and role", () => {
+    expect(createUserSchema.safeParse({ ...base, first_name: "" }).success).toBe(false);
+    expect(createUserSchema.safeParse({ ...base, last_name: "" }).success).toBe(false);
+    expect(createUserSchema.safeParse({ ...base, role_id: "" }).success).toBe(false);
+  });
+
+  it("rejects names with digits or special characters", () => {
+    expect(createUserSchema.safeParse({ ...base, first_name: "New2" }).success).toBe(false);
+    expect(createUserSchema.safeParse({ ...base, last_name: "User!" }).success).toBe(false);
   });
 });

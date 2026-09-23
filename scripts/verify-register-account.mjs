@@ -2,11 +2,18 @@
 //
 // The screen at /settings/users/new posts to POST /api/auth/register and
 // branches on the status code: 409 means "email taken", 400 means "invalid
-// role", 403 means "not an admin". If any of those drift, the form shows the
-// wrong message. This runs the REAL handler in-process against the live DB.
+// role / undeliverable email", 403 means "not an admin". If any of those
+// drift, the form shows the wrong message. This runs the REAL handler
+// in-process against the live DB.
 //
-// Creates one throwaway employee row and hard-deletes it at the end, including
-// on failure, so the table is left exactly as it was found.
+// Since the temp-password invite flow the admin never supplies a password:
+// the server generates one and emails it, so a "happy path" account creation
+// is no longer reachable here — the probe address sits on the reserved,
+// non-deliverable .invalid domain and is refused with 400 BEFORE any insert
+// (fail closed). The 409 path seeds its own row with a direct SQL INSERT and
+// hard-deletes it at the end, including on failure, so the table is left
+// exactly as it was found. The happy path lives in the mocked unit tests:
+// src/app/api/auth/register/route.invite.test.js
 //
 // Run: node --import ./scripts/route-harness-loader.mjs scripts/verify-register-account.mjs
 import { pathToFileURL } from "node:url";
@@ -46,7 +53,6 @@ const post = async (body) => {
 const TEST_EMAIL = "harness-adduser-probe@local.invalid";
 const VALID = {
   email: TEST_EMAIL,
-  password: "Str0ng!Passw0rd",
   first_name: "Probe",
   last_name: "Account",
   role_id: ROLE_IDS.dispatcher,
@@ -101,16 +107,13 @@ try {
   console.log("\n2. Server rejects what the form's schema rejects");
   asAdmin(adminId);
 
-  const weak = await post({ ...VALID, password: "short" });
-  check("weak password is rejected (400)", weak.status === 400, `got ${weak.status}`);
-
   const badEmail = await post({ ...VALID, email: "not-an-email" });
   check("malformed email is rejected (400)", badEmail.status === 400, `got ${badEmail.status}`);
 
   const badRole = await post({ ...VALID, role_id: 9999 });
   check("out-of-range role_id is rejected (400)", badRole.status === 400, `got ${badRole.status}`);
   check("invalid-role message is the one the form shows",
-    badRole.status === 400 && typeof badRole.data?.error === "string",
+    badRole.status === 400 && badRole.data?.error === "Invalid role.",
     `error field was ${JSON.stringify(badRole.data)}`);
 
   // The client schema applies PATTERNS.NAME to both name fields because the
@@ -119,6 +122,9 @@ try {
   const digitName = await post({ ...VALID, first_name: "Probe2" });
   check("name containing a digit is rejected (400)", digitName.status === 400,
     `got ${digitName.status} — client schema enforces PATTERNS.NAME, server should too`);
+  check("digit-name rejection cites the name rule",
+    typeof digitName.data?.error === "string" && /letters/i.test(digitName.data.error),
+    JSON.stringify(digitName.data));
 
   const shortName = await post({ ...VALID, first_name: "P" });
   check("single-character name is rejected (400)", shortName.status === 400,
@@ -130,31 +136,34 @@ try {
   check("no account created by invalid payloads", stillNone.length === 0,
     `found ${stillNone.length} row(s)`);
 
-  // ── 3. Happy path ──────────────────────────────────────────────────────────
-  console.log("\n3. Valid payload creates the account");
-  const created = await post(VALID);
-  check("returns 201", created.status === 201, `got ${created.status} ${JSON.stringify(created.data)}`);
-  check("returns an employee_id", Number.isInteger(created.data?.employee_id),
-    JSON.stringify(created.data));
+  // ── 3. Fail closed: no account without a deliverable invite ───────────────
+  console.log("\n3. A valid-shaped payload is refused when the invite cannot be delivered");
+  const undeliverable = await post(VALID);
+  check("refused with 400", undeliverable.status === 400, `got ${undeliverable.status}`);
+  check("fail-closed message (undeliverable address or missing SMTP)",
+    /cannot receive email|not configured/.test(undeliverable.data?.error || ""),
+    JSON.stringify(undeliverable.data));
+  check("payload without a password is NOT rejected for a missing password",
+    !/password is required/i.test(undeliverable.data?.error || ""),
+    JSON.stringify(undeliverable.data));
 
-  const { rows: row } = await query(
-    `SELECT employee_id, email, first_name, last_name, role_id, password_hash
-       FROM employees WHERE lower(email) = lower($1)`, [TEST_EMAIL]
+  const { rows: notCreated } = await query(
+    `SELECT employee_id FROM employees WHERE lower(email) = lower($1)`, [TEST_EMAIL]
   );
-  check("exactly one row exists", row.length === 1, `found ${row.length}`);
-  check("email stored lowercased", row[0]?.email === TEST_EMAIL.toLowerCase(), row[0]?.email);
-  check("role_id is the one submitted", row[0]?.role_id === ROLE_IDS.dispatcher,
-    String(row[0]?.role_id));
-  check("password is hashed, not stored in plaintext",
-    typeof row[0]?.password_hash === "string" &&
-      row[0].password_hash !== VALID.password &&
-      row[0].password_hash.startsWith("$2"),
-    "password_hash did not look like a bcrypt digest");
+  check("no account row was written", notCreated.length === 0, `found ${notCreated.length} row(s)`);
 
   // ── 4. The 409 path the form specifically handles ──────────────────────────
   console.log("\n4. Duplicate email answers 409 without touching the existing account");
-  const originalHash = row[0]?.password_hash;
-  const dupe = await post({ ...VALID, password: "An0ther!Password", first_name: "Attacker" });
+  // Seed directly: the invite flow cannot create a row for this address by
+  // design. The digest below is inert — nothing in this script authenticates it.
+  const SEEDED_DIGEST = "$2b$10$CwTycUXWu0LyK5UnIC6u.Xd3SfB7oXf4n2yqO9pP0qQ0rR1sS2tT";
+  await query(
+    `INSERT INTO employees (email, password_hash, first_name, last_name, role_id)
+     VALUES ($1, $2, 'Probe', 'Account', $3)`,
+    [TEST_EMAIL, SEEDED_DIGEST, ROLE_IDS.dispatcher]
+  );
+
+  const dupe = await post({ ...VALID, first_name: "Attacker" });
   check("returns 409", dupe.status === 409, `got ${dupe.status}`);
   check("message matches what the form surfaces",
     dupe.data?.error === "An account with this email already exists.",
@@ -164,7 +173,7 @@ try {
     `SELECT first_name, password_hash FROM employees WHERE lower(email) = lower($1)`, [TEST_EMAIL]
   );
   check("still exactly one row (no duplicate inserted)", after.length === 1, `found ${after.length}`);
-  check("existing password was NOT overwritten", after[0]?.password_hash === originalHash,
+  check("existing credential was NOT overwritten", after[0]?.password_hash === SEEDED_DIGEST,
     "the duplicate request changed the stored credential — account-takeover path");
   check("existing name was NOT overwritten", after[0]?.first_name === "Probe",
     `first_name is now ${after[0]?.first_name}`);

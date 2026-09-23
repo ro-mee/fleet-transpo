@@ -45,8 +45,14 @@ export function bucketRequest(request, now = new Date()) {
   return "today";
 }
 
-/** Compare two requests for the auto-sort: priority rank, then pickup time. */
+/** Compare two requests for the auto-sort: reassignment interrupt, priority rank, then pickup time. */
 export function compareByPriority(a, b) {
+  // Pending Reassignment is a broken commitment the dispatcher must fix now —
+  // it outranks derived priority so interrupted runs sit at the top of the tab.
+  const reA = a.dispatch_status === "Pending Reassignment" ? 0 : 1;
+  const reB = b.dispatch_status === "Pending Reassignment" ? 0 : 1;
+  if (reA !== reB) return reA - reB;
+
   const rankA = a.derived_priority ? (DERIVED_PRIORITY_RANK[a.derived_priority] ?? 6) : 7;
   const rankB = b.derived_priority ? (DERIVED_PRIORITY_RANK[b.derived_priority] ?? 6) : 7;
   if (rankA !== rankB) return rankA - rankB;

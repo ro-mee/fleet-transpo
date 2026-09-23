@@ -9,16 +9,20 @@ import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 //
 // STRICT LINEAR CHAIN (no parallel assignment branches):
 //   Pending → Scheduled → Assigned → In Progress → Completed
+// Plus one reverse hop for incident aborts: In Progress → Scheduled (requeue).
 // Cancellation is allowed from any non-terminal state and is handled separately
 // so it doesn't have to be repeated in every entry.
 
 // Allowed forward transitions. The chain is linear: each state has exactly one
-// outward edge.
+// outward edge — with one deliberate reverse hop: In Progress → Scheduled,
+// used only when an in-progress run is aborted (incident grounding) and the
+// request must re-enter the queue for a replacement pair. Terminal states have
+// no outward edges.
 const NEXT = {
   [L.PENDING]: [L.SCHEDULED],
   [L.SCHEDULED]: [L.ASSIGNED],
   [L.ASSIGNED]: [L.IN_PROGRESS],
-  [L.IN_PROGRESS]: [L.COMPLETED],
+  [L.IN_PROGRESS]: [L.COMPLETED, L.SCHEDULED],
   // Terminal states — no outgoing transitions.
   [L.COMPLETED]: [],
   [L.CANCELLED]: [],
@@ -108,6 +112,10 @@ export function transitionPath(from, to) {
     const current = path[path.length - 1];
     const neighbors = NEXT[current] || [];
     for (const next of neighbors) {
+      // The reverse requeue hop is legal only as a direct In Progress →
+      // Scheduled move (incident abort). BFS must not invent a multi-hop
+      // path like Assigned → In Progress → Scheduled.
+      if (current === L.IN_PROGRESS && next === L.SCHEDULED && path.length > 1) continue;
       if (next === to) return [...path, next];
       if (!visited.has(next)) {
         visited.add(next);

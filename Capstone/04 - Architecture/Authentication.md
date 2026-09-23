@@ -9,11 +9,16 @@ source:
   - src/lib/auth/mfa.js
   - src/lib/auth/trusted-device.js
   - src/lib/auth/sessions.js
+  - src/lib/auth/temp-password.js
+  - src/lib/auth/session-rotation.js
   - src/services/auth.service.js
+  - src/app/api/auth/register/route.js
   - src/app/api/auth/forgot-password/route.js
   - src/app/api/auth/reset-password/route.js
   - src/app/api/auth/reset-token/route.js
   - src/app/api/auth/change-password/route.js
+  - src/app/api/settings/users/[id]/resend-invite/route.js
+  - src/app/set-password/page.js
   - src/app/api/mobile/auth/login/route.js
   - src/app/api/mobile/auth/refresh/route.js
   - mobile/app/(app)/profile/change-password.js
@@ -27,6 +32,7 @@ source:
   - src/lib/auth/email-otp.js
   - src/lib/auth/otp-policy.js
   - supabase/migrations/119_email_otp_challenges.sql
+  - supabase/migrations/120_temp_password_invite.sql
   - src/app/api/auth/trusted-device/route.js
   - supabase/migrations/117_trusted_web_devices.sql
   - src/lib/auth/reset-token.js
@@ -173,6 +179,70 @@ behavior is:
   `allDevices` flag.
 
 Verified email delivery landed 2026-09-19 (SMTP/Nodemailer, forgot-password only); scheduled pruning of expired reset tokens remains explicitly unimplemented until its deployment decision is made.
+
+## Temporary password invitations — IMPLEMENTED (2026-09-23)
+
+Admin-created staff accounts no longer take a password on the form. **Add User**
+collects email + names + role only; the server generates a strong temporary
+password (16 chars, passes `isPassword`, `node:crypto.randomInt`, charset
+excludes `<>&` and quotes so email stays safe), emails it, and the employee must
+replace it at first sign-in. Drivers/mobile are out of scope.
+
+**Flow.**
+
+1. **Create (fail closed).** `POST /api/auth/register` (`accounts:create`)
+   validates → role checks → duplicate 409 → **deliverability precheck before
+   any INSERT** (`isEmailConfigured` + `isDeliverableEmailAddress`, each 400) →
+   generate + bcrypt(10) → INSERT with `must_change_password = true` and
+   `temp_credential_expires_at = now + 7 days` → `sendTempPasswordEmail`
+   (subject `Your FleetOps temporary password` — never the password value,
+   multipart HTML+text) → 201. **If the send fails the row is DELETEd**
+   (compensating), audited as `invite_email_failed`, answered 502: no account
+   survives an undelivered credential. The 201 response never contains the
+   password; audit `create.newValues` never contains the password or hash.
+2. **Login.** `authorize()` throws `TEMP_PASSWORD_EXPIRED` when the flag is set
+   and the expiry has passed — **before** the OTP branch, so no code is emailed
+   to an expired credential; the login page shows *"This temporary password has
+   expired. Ask your administrator to resend it."* Otherwise `mustChangePassword`
+   rides `authorize` → `jwt` → `session.user`.
+3. **Server gate (authoritative).** `assertPasswordChangeGate` in
+   `resolveIdentity` answers `403 PASSWORD_CHANGE_REQUIRED` for every path
+   outside the allowlist `MUST_CHANGE_ALLOWED_PATHS` = change-password (the
+   fix), profile (display name/avatar), heartbeat (keep-alive while the form is
+   open). The `DashboardLayout` redirect to `/set-password` (and its early
+   `return null`, so children never mount and fire 403s) is a **UX hint only**.
+   `/set-password` sits in `authRoutes` — it renders bare through the root
+   layout like the other recovery pages.
+4. **Rotate-and-stay.** Forced `POST /api/auth/change-password` (no
+   `currentPassword` re-check — the claim authorizes it) runs one transaction:
+   new hash, `auth_version + 1`, both invite flags cleared, optimistic lock on
+   the old hash (409 if it moved), every session revoked, pending reset tokens
+   deleted. After commit `mintRotatedSession` (`src/lib/auth/session-rotation.js`)
+   inserts a fresh `web_sessions` row and sets a new NextAuth cookie on the same
+   200 — the user lands on `/dashboard` **signed in, no second login**. The
+   voluntary Settings path is unchanged (`signInRequired: true` → sign out).
+5. **Resend.** `POST /api/settings/users/[id]/resend-invite` (`accounts:create`)
+   — only while `must_change_password` is still true (otherwise 400 pointing at
+   the one-time reset-link flow). Rotates hash + expiry + `auth_version` and
+   revokes sessions **in one transaction, then emails**; an email failure answers
+   502 *"press Resend invite again"* — the fresh password is unknown to everyone,
+   deliberately unlike create, where the row itself must not survive. Audit
+   `invite_resend`, `newValues` = `{ email }` only. The users list shows amber
+   **Password not set · expires …** plus a Resend invite action for pending rows.
+
+**Columns** (migration `120_temp_password_invite.sql`, no new tables → no RLS
+ceremony): `employees.must_change_password` (boolean NOT NULL DEFAULT false)
+and `employees.temp_credential_expires_at` (timestamptz, nullable).
+
+**Pinned by:** `src/security-boundaries.test.js` structural guards (register
+wiring, expiry-before-OTP order, gate allowlist, forced-path rotation),
+`src/app/api/auth/register/route.invite.test.js` (11 mocked route cases),
+`src/lib/auth/temp-password.test.js` (9), `src/lib/auth/session-rotation.test.js` (4).
+
+**Verified 2026-09-23:** vitest 2332/2332, lint clean, `verify:auth` 277/277,
+`verify:anon` 0 exposed + `db:contract` 0 violations, `db:check`/`db:status`
+clean, harness `verify-register-account.mjs` 29/29. Manual 10-step E2E
+(real mailbox) confirmed working by the operator, 2026-09-23.
 
 ## Driver credential screens on mobile — CONFIRMED (2026-09-13)
 

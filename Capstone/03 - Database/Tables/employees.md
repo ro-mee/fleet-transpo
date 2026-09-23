@@ -5,7 +5,8 @@ tags: [database, table, auth]
 source:
   - src/lib/auth.js
   - supabase/migrations/022_role_system.sql
-last_verified: 2026-08-11
+  - supabase/migrations/120_temp_password_invite.sql
+last_verified: 2026-09-23
 ---
 
 # Table: employees
@@ -23,6 +24,8 @@ last_verified: 2026-08-11
 | `password_hash` | bcryptjs. **Only 14 of 47 rows have one.** |
 | `role_id` | FK → `roles`. **Only 15 of 47 rows have one.** No role → no dashboard access. |
 | `deleted_at` | Soft delete. **29 rows are soft-deleted.** |
+| `must_change_password` | boolean NOT NULL DEFAULT false (migration 120). Set on temp-password invites; while true the server gate answers `403 PASSWORD_CHANGE_REQUIRED` on every path outside the change-password/profile/heartbeat allowlist, and login carries `mustChangePassword` until the forced change clears it. |
+| `temp_credential_expires_at` | timestamptz, nullable (migration 120). 7-day validity of the temporary password; login throws `TEMP_PASSWORD_EXPIRED` (before any OTP is emailed) once it has passed. Cleared together with the flag on the forced change. |
 
 ## The data is polluted — CONFIRMED
 

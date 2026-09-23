@@ -723,6 +723,12 @@ export default function LoginPage() {
 
   const redirectAfterSignIn = async (session) => {
     const activeSession = session || (await getSession());
+    // Forced first-login password change outranks any saved return-to target:
+    // the server gate rejects every other API call until it is done.
+    if (activeSession?.user?.mustChangePassword) {
+      router.replace("/set-password");
+      return;
+    }
     const targetUrl = getAndClearReturnTo(activeSession?.user?.role);
     router.push(targetUrl);
     router.refresh();
@@ -828,6 +834,12 @@ export default function LoginPage() {
         return;
       }
 
+      if (err.message === "TEMP_PASSWORD_EXPIRED") {
+        setError("This temporary password has expired. Ask your administrator to resend it.");
+        setMfaStatus("error");
+        return;
+      }
+
       setError("We couldn't verify that code. Please try again.");
       setMfaStatus("error");
     } finally {
@@ -864,6 +876,11 @@ export default function LoginPage() {
         setError(
           "No verification code could be sent to this account. Contact your administrator."
         );
+        setMfaStatus("error");
+        return;
+      }
+      if (err.message === "TEMP_PASSWORD_EXPIRED") {
+        setError("This temporary password has expired. Ask your administrator to resend it.");
         setMfaStatus("error");
         return;
       }
@@ -917,6 +934,10 @@ export default function LoginPage() {
             setError(
               "No verification code could be sent to this account, so the sign-in was stopped. Contact your administrator."
             );
+            return;
+          }
+          if (err.message === "TEMP_PASSWORD_EXPIRED") {
+            setError("This temporary password has expired. Ask your administrator to resend it.");
             return;
           }
           // NextAuth collapses every authorize() failure (wrong password, IP
