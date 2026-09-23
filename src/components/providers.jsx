@@ -17,7 +17,18 @@ export function Providers({ children }) {
         defaultOptions: {
           queries: {
             staleTime: 30 * 1000,
-            retry: 1,
+            retry: (failureCount, error) => {
+              if (
+                error?.status === 401 ||
+                error?.status === 403 ||
+                error?.code?.startsWith("SESSION_") ||
+                error?.message?.includes("401") ||
+                error?.message?.includes("Unauthorized")
+              ) {
+                return false;
+              }
+              return failureCount < 1;
+            },
             refetchOnWindowFocus: false,
           },
         },
