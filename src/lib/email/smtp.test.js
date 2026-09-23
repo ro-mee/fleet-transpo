@@ -12,12 +12,15 @@ import {
   sendPasswordResetEmail,
   sendOtpEmail,
   sendNewSignInAlertEmail,
+  sendTempPasswordEmail,
   resetEmailHtml,
   resetEmailText,
   otpEmailHtml,
   otpEmailText,
   newSignInAlertHtml,
   newSignInAlertText,
+  tempPasswordEmailHtml,
+  tempPasswordEmailText,
 } from "./smtp";
 
 const ENV_BACKUP = { ...process.env };
@@ -238,6 +241,98 @@ describe("otpEmailText / resetEmailText", () => {
     expect(text).toContain("https://app/reset-password?token=abc");
     expect(text).toContain("abc");
     expect(text).toContain("30 minutes");
+    expect(text).not.toContain("<");
+  });
+});
+
+describe("sendTempPasswordEmail", () => {
+  const expiresAt = new Date("2026-09-30T12:00:00Z");
+
+  it("refuses without credentials instead of silently dropping the invite", async () => {
+    delete process.env.SMTP_HOST;
+    await expect(
+      sendTempPasswordEmail({ to: "a@b.co", firstName: "Ada", tempPassword: "Ab1!x", expiresAt })
+    ).rejects.toThrow(/not configured/i);
+    expect(sendMailMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses missing fields", async () => {
+    await expect(sendTempPasswordEmail({ to: "", tempPassword: "Ab1!x", expiresAt })).rejects.toThrow(
+      /required/
+    );
+    await expect(
+      sendTempPasswordEmail({ to: "a@b.co", firstName: "Ada", tempPassword: "", expiresAt })
+    ).rejects.toThrow(/required/);
+    await expect(
+      sendTempPasswordEmail({ to: "a@b.co", firstName: "Ada", tempPassword: "Ab1!x", expiresAt: null })
+    ).rejects.toThrow(/required/);
+  });
+
+  it("sends multipart with the password in the body but NEVER in the subject", async () => {
+    sendMailMock.mockResolvedValue({ messageId: "smtp-4" });
+    const tempPassword = "Kx9!mpQ2rT7wZa4C";
+
+    await sendTempPasswordEmail({
+      to: "newbie@fleetops.ph",
+      firstName: "Ada",
+      tempPassword,
+      expiresAt,
+    });
+
+    const payload = sendMailMock.mock.calls[0][0];
+    expect(payload.from).toBe("fleetops@gmail.com");
+    expect(payload.to).toBe("newbie@fleetops.ph");
+    expect(payload.subject).toBe("Your FleetOps temporary password");
+    expect(payload.subject).not.toContain(tempPassword);
+    expect(payload.html).toContain(tempPassword);
+    expect(payload.text).toContain(tempPassword);
+    expect(payload.text).toBeTruthy();
+    expect(payload.html).toContain("2026-09-30");
+  });
+
+  it("surfaces an SMTP rejection instead of claiming delivery", async () => {
+    sendMailMock.mockRejectedValue(new Error("535 Authentication failed"));
+    await expect(
+      sendTempPasswordEmail({ to: "a@b.co", firstName: "Ada", tempPassword: "Ab1!x", expiresAt })
+    ).rejects.toThrow(/Authentication failed/);
+  });
+});
+
+describe("tempPasswordEmailHtml / tempPasswordEmailText", () => {
+  const expiresAt = new Date("2026-09-30T12:00:00Z");
+
+  it("html carries the password, expiry, OTP note and warning — email-safe markup", () => {
+    const html = tempPasswordEmailHtml({ firstName: "Ada", tempPassword: "Kx9!mpQ2", expiresAt });
+
+    expect(html).toContain("<!DOCTYPE html>");
+    expect(html).toContain("Kx9!mpQ2");
+    expect(html).toContain("2026-09-30");
+    expect(html).toContain("6-digit login verification code");
+    expect(html).toContain("did not expect this account");
+    expect(html).toContain("<table");
+    expect(html).not.toMatch(/<link|<style|http[^s].*\.(png|jpg)/);
+    // No password-shaped value may appear in anything resembling a header.
+    expect(html).not.toMatch(/subject/i);
+  });
+
+  it("html escapes the recipient name", () => {
+    const html = tempPasswordEmailHtml({
+      firstName: "<script>alert(1)</script>",
+      tempPassword: "Kx9!mpQ2",
+      expiresAt,
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+  });
+
+  it("text stands alone: password, expiry, resend path, OTP heads-up", () => {
+    const text = tempPasswordEmailText({ firstName: "Ada", tempPassword: "Kx9!mpQ2", expiresAt });
+
+    expect(text).toContain("Hi Ada");
+    expect(text).toContain("Kx9!mpQ2");
+    expect(text).toContain("2026-09-30");
+    expect(text).toContain("ask your administrator to resend it");
+    expect(text).toContain("separate 6-digit login verification code");
     expect(text).not.toContain("<");
   });
 });

@@ -450,6 +450,8 @@ CREATE TABLE employees (
   updated_by integer,
   password_hash text,
   auth_version bigint DEFAULT 1 NOT NULL,
+  must_change_password boolean DEFAULT false NOT NULL,
+  temp_credential_expires_at timestamptz,
   CONSTRAINT employees_pkey PRIMARY KEY (employee_id),
   CONSTRAINT employees_email_key UNIQUE (email)
 );

@@ -139,6 +139,121 @@ export async function sendNewSignInAlertEmail({ to, deviceLabel }) {
 }
 
 /**
+ * Sends the temporary-password invitation email.
+ *
+ * The password itself rides in the body (never the subject — subjects leak
+ * into notifications and provider logs). Multipart on purpose: a text part is
+ * what spam filters and screen readers actually read (see otpEmailText).
+ * The second 6-digit OTP email is announced here so it does not read as
+ * account takeover when it arrives minutes later.
+ */
+export async function sendTempPasswordEmail({ to, firstName, tempPassword, expiresAt }) {
+  if (!to || !tempPassword || !expiresAt) {
+    throw new Error("to, tempPassword and expiresAt are required");
+  }
+
+  const info = await buildTransporter().sendMail({
+    from: emailFrom(),
+    to,
+    subject: "Your FleetOps temporary password",
+    html: tempPasswordEmailHtml({ firstName, tempPassword, expiresAt }),
+    text: tempPasswordEmailText({ firstName, tempPassword, expiresAt }),
+  });
+  return info;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
+  );
+}
+
+function formatExpiryDate(expiresAt) {
+  return new Date(expiresAt).toISOString().slice(0, 10);
+}
+
+/**
+ * The plain-text half of the temporary-password invitation. Stands alone:
+ * the password, when it dies, how to renew it, and that a second (OTP)
+ * email from FleetOps is expected.
+ */
+export function tempPasswordEmailText({ firstName, tempPassword, expiresAt }) {
+  const expiryDate = formatExpiryDate(expiresAt);
+  return [
+    "FleetOps temporary password",
+    "",
+    `Hi ${firstName},`,
+    "",
+    "An account was created for you in FleetOps. Your temporary password is:",
+    "",
+    `    ${tempPassword}`,
+    "",
+    "Sign in with it at the login page. You will be required to choose your own",
+    "password immediately after signing in — the temporary one is replaced.",
+    "",
+    `This temporary password expires on ${expiryDate} (7 days from creation).`,
+    "If it expires, ask your administrator to resend it.",
+    "",
+    "You will also receive a separate 6-digit login verification code when you",
+    "sign in — that is normal; both messages come from FleetOps.",
+    "",
+    "If you did not expect this account, contact your administrator and ignore",
+    "this message.",
+    "",
+    "This is an automated message from FleetOps.",
+    "",
+  ].join("\n");
+}
+
+/**
+ * HTML half of the invitation, same hand-built table/inline-style constraints
+ * as the emails around it. The password is the single emphasized element.
+ */
+export function tempPasswordEmailHtml({ firstName, tempPassword, expiresAt }) {
+  const expiryDate = formatExpiryDate(expiresAt);
+  const safeName = escapeHtml(firstName || "");
+  const safePassword = escapeHtml(tempPassword);
+  return (
+    `<!DOCTYPE html><html><body style="margin:0;padding:0;background-color:#f3f3f3;">` +
+    `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">` +
+    `Your FleetOps temporary password — it expires on ${expiryDate}.` +
+    `</div>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f3f3;padding:32px 16px;">` +
+    `<tr><td align="center">` +
+    `<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;">` +
+    `<tr><td style="background-color:#111827;padding:28px 32px;">` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">FleetOps</div>` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#9ca3af;margin-top:4px;">Fleet &amp; Transportation Management</div>` +
+    `</td></tr>` +
+    `<tr><td style="padding:36px 36px 8px 36px;">` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:bold;color:#111827;margin:0 0 12px 0;">Your temporary password</div>` +
+    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#4b5563;margin:0 0 24px 0;">` +
+    `Hi ${safeName}, an account was created for you in FleetOps. Sign in with the temporary password below — you will be required to choose your own password immediately after signing in.` +
+    `</p>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;">` +
+    `<tr><td align="center" style="padding:24px;">` +
+    `<div style="font-family:'Courier New',Courier,monospace;font-size:26px;font-weight:bold;color:#111827;letter-spacing:3px;word-break:break-all;">${safePassword}</div>` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#6b7280;margin-top:12px;">Temporary password · expires ${expiryDate}</div>` +
+    `</td></tr></table>` +
+    `</td></tr>` +
+    `<tr><td style="padding:20px 36px 36px 36px;">` +
+    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:20px;color:#6b7280;margin:0;">` +
+    `This temporary password expires on ${expiryDate} (7 days). If it expires, ask your administrator to resend it. You will also receive a separate 6-digit login verification code when you sign in — that is normal; both messages come from FleetOps.` +
+    `</p>` +
+    `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:20px;color:#b91c1c;margin:12px 0 0 0;">` +
+    `If you did not expect this account, contact your administrator and ignore this message.` +
+    `</p>` +
+    `</td></tr>` +
+    `<tr><td style="padding:20px 36px;border-top:1px solid #f3f4f6;">` +
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#9ca3af;">` +
+    `Sent by FleetOps · Please do not reply to this email.` +
+    `</div></td></tr>` +
+    `</table></td></tr></table></body></html>`
+  );
+}
+
+/**
  * The plain-text half of the verification email.
  *
  * Not a formality. A message that carries only `text/html` and no alternative

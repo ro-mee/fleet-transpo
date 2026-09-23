@@ -61,6 +61,12 @@ export async function resetSessionPassword(newPassword, currentPassword, token) 
   return apiFetch("/api/auth/reset-password", { method: "POST", body: { newPassword, currentPassword, token } });
 }
 
+// Forced first sign-in change: no current-password field — the session claim
+// (mustChangePassword) is what authorizes it, and the response rotates the cookie.
+export function setInitialPassword(newPassword) {
+  return apiFetch("/api/auth/change-password", { method: "POST", body: { newPassword } });
+}
+
 export async function signOut() {
   const { signOut: nextSignOut } = await import("next-auth/react");
   await nextSignOut({ callbackUrl: "/login" });

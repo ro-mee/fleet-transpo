@@ -52,7 +52,7 @@ export const authOptions = {
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase
           .from("employees")
-          .select("employee_id, email, password_hash, first_name, last_name, position, status, auth_version, roles(role_name), avatar_url")
+          .select("employee_id, email, password_hash, first_name, last_name, position, status, auth_version, must_change_password, temp_credential_expires_at, roles(role_name), avatar_url")
           .eq("email", normalizedEmail)
           .eq("status", "Active")
           .is("deleted_at", null)
@@ -81,6 +81,18 @@ export const authOptions = {
             });
           }
           return null;
+        }
+
+        // A temporary invite password dies on its own schedule even though the
+        // hash still matches. Reject BEFORE any OTP is minted so no verification
+        // email goes out for a credential that cannot be used. Thrown messages
+        // reach the client (unlike `return null`, which becomes CredentialsSignin).
+        if (
+          employee.must_change_password &&
+          employee.temp_credential_expires_at &&
+          new Date(employee.temp_credential_expires_at).getTime() < Date.now()
+        ) {
+          throw new Error("TEMP_PASSWORD_EXPIRED");
         }
 
         // Email OTP is the only second factor and it is not optional: there is
@@ -305,6 +317,7 @@ export const authOptions = {
           image: avatarUrl,
           authVersion: employee.auth_version,
           sessionId,
+          mustChangePassword: Boolean(employee.must_change_password),
         };
       }
     })
@@ -322,6 +335,7 @@ export const authOptions = {
         token.avatarUrl = isSafeAvatarUrl(user.avatarUrl) ? user.avatarUrl : null;
         token.authVersion = user.authVersion;
         token.sessionId = user.sessionId;
+        token.mustChangePassword = Boolean(user.mustChangePassword);
       }
       if (trigger === "update" && session?.avatarUrl !== undefined) {
         token.avatarUrl = isSafeAvatarUrl(session.avatarUrl) ? session.avatarUrl : null;
@@ -340,6 +354,7 @@ export const authOptions = {
       session.user.image = token.avatarUrl || null;
       session.user.authVersion = token.authVersion;
       session.user.sessionId = token.sessionId;
+      session.user.mustChangePassword = Boolean(token.mustChangePassword);
       return session;
     }
   },

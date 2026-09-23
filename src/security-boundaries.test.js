@@ -208,4 +208,70 @@ describe("security boundaries", () => {
     expect(isSafeRemoteMediaUrl("https://user:pass@proj.supabase.co/a.png")).toBe(false);
     expect(isSafeRemoteMediaUrl(null)).toBe(false);
   });
+
+  // The temp-password invite flow: the admin never supplies or sees a
+  // password, the server marks the row for a forced first-login change, and
+  // a failed invite email removes the row again (fail closed).
+  it("register invites: fail closed, no client password field", () => {
+    const route = readFileSync(new URL("./app/api/auth/register/route.js", import.meta.url), "utf8");
+    expect(route).toContain("sendTempPasswordEmail");
+    expect(route).toContain("must_change_password");
+    expect(route).toMatch(/DELETE FROM employees/);
+    expect(route).not.toContain('type: "password"');
+    expect(route).toContain("isDeliverableEmailAddress");
+
+    const page = readFileSync(new URL("./app/(dashboard)/settings/users/new/page.js", import.meta.url), "utf8");
+    expect(page).not.toMatch(/type="password"/);
+    expect(page).not.toContain("showPassword");
+    expect(page).not.toContain('register("password")');
+  });
+
+  // Expired temporary passwords must die at the login gate (before any OTP
+  // email), and the must-change claim has to travel authorize → token →
+  // session so the forced-change redirect can fire.
+  it("login rejects expired temp passwords and carries the mustChangePassword claim", () => {
+    const authSource = readFileSync(new URL("./lib/auth.js", import.meta.url), "utf8");
+    expect(authSource).toContain("TEMP_PASSWORD_EXPIRED");
+    expect(authSource).toContain("must_change_password");
+    expect(authSource).toContain("temp_credential_expires_at");
+    expect(authSource).toMatch(/mustChangePassword:\s*Boolean\(employee\.must_change_password\)/);
+    expect(authSource).toMatch(/token\.mustChangePassword\s*=\s*Boolean\(user\.mustChangePassword\)/);
+    expect(authSource).toMatch(/session\.user\.mustChangePassword\s*=\s*Boolean\(token\.mustChangePassword\)/);
+    // Expiry must be checked before the OTP block so no code is emailed.
+    const expiryAt = authSource.indexOf("TEMP_PASSWORD_EXPIRED");
+    const otpAt = authSource.indexOf("await issueLoginChallenge"); // call site, not the import
+    expect(expiryAt).toBeGreaterThan(-1);
+    expect(otpAt).toBeGreaterThan(expiryAt);
+
+    const login = readFileSync(new URL("./app/(auth)/login/page.js", import.meta.url), "utf8");
+    expect(login).toContain("TEMP_PASSWORD_EXPIRED");
+    expect(login).toContain("/set-password");
+    expect(login).toMatch(/mustChangePassword/);
+  });
+
+  // The UI redirect is only a hint: resolveIdentity itself must refuse every
+  // non-allowlisted call for a session that still holds a temporary password.
+  it("gates must-change sessions server-side with PASSWORD_CHANGE_REQUIRED", () => {
+    const source = readFileSync(new URL("./lib/api/utils.js", import.meta.url), "utf8");
+    expect(source).toContain("PASSWORD_CHANGE_REQUIRED");
+    expect(source).toContain('"/api/auth/change-password"');
+    expect(source).toContain('"/api/auth/profile"');
+    expect(source).toContain('"/api/auth/heartbeat"');
+    expect(source).toMatch(/assertPasswordChangeGate\(req, user\)/g);
+    expect(source).toContain("must_change_password");
+    // Both auth schemes must pass through the gate (definition + 2 call sites).
+    expect(source.match(/assertPasswordChangeGate\(req, user\)/g)).toHaveLength(3);
+  });
+
+  // Forced first-login change = rotate-and-stay (fresh cookie in the response);
+  // the voluntary Settings path must keep its legacy signInRequired sign-out.
+  it("change-password rotates the session only on the forced path", () => {
+    const source = readFileSync(new URL("./app/api/auth/change-password/route.js", import.meta.url), "utf8");
+    expect(source).toMatch(/must_change_password = false/);
+    expect(source).toMatch(/temp_credential_expires_at = NULL/);
+    expect(source).toContain("mintRotatedSession");
+    expect(source).toContain("revokeEmployeeSessions");
+    expect(source).toContain('signInRequired: true'); // voluntary path unchanged
+    expect(source).not.toMatch(/newValues:\s*\{[^}]*password/);
+  });
 });

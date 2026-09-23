@@ -16,7 +16,7 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/hooks/use-role-access";
-import { Search, UserCog, UserPlus, ShieldAlert, RefreshCw, AlertTriangle, KeyRound, Copy } from "lucide-react";
+import { Search, UserCog, UserPlus, ShieldAlert, RefreshCw, AlertTriangle, KeyRound, Copy, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { rolesFor } from "@/lib/auth/permissions";
@@ -40,7 +40,9 @@ export default function UsersPage() {
   const [target, setTarget] = useState(null); // {employee, action: disable|enable}
   const [resetLink, setResetLink] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [resendTarget, setResendTarget] = useState(null);
   const canIssueReset = rolesFor("accounts", "update").includes(user?.role);
+  const canResendInvite = rolesFor("accounts", "create").includes(user?.role);
   const isSuper = isSuperAdmin(user?.role);
   // Super Admin workspace links here as "Privileged Accounts" — Admin callers
   // never see the tab and the server still enforces target protection.
@@ -104,6 +106,17 @@ export default function UsersPage() {
   });
   const { mutate: issueReset, isPending: resetPending } = resetMutation;
 
+  const resendMutation = useMutation({
+    mutationFn: (employee_id) =>
+      apiFetch(`/api/settings/users/${employee_id}/resend-invite`, { method: "POST", body: {} }),
+    onSuccess: (result) => {
+      toast.success(result?.message || "A new temporary password was emailed");
+      setResendTarget(null);
+      queryClient.invalidateQueries({ queryKey: ["staff-users"] });
+    },
+    onError: (e) => toast.error(e.message || "Failed to resend invitation"),
+  });
+
   const columns = useMemo(
     () => [
       columnHelper.accessor((row) => `${row.first_name} ${row.last_name}`, {
@@ -131,6 +144,20 @@ export default function UsersPage() {
         header: "Status",
         cell: (info) => {
           const disabled = Boolean(info.getValue());
+          const u = info.row.original;
+          if (!disabled && u.must_change_password) {
+            const exp = u.temp_credential_expires_at
+              ? new Date(u.temp_credential_expires_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+              : null;
+            return (
+              <span className="inline-flex items-center gap-1.5" title="Temporary password not yet replaced">
+                <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
+                <span className="text-xs font-medium text-warning">
+                  Password not set{exp ? ` · expires ${exp}` : ""}
+                </span>
+              </span>
+            );
+          }
           return (
             <span className="inline-flex items-center gap-1.5">
               <span
@@ -174,6 +201,19 @@ export default function UsersPage() {
           const canResetTarget = canIssueReset && !disabled;
           return (
             <div className="text-right flex items-center justify-end gap-1">
+              {canResendInvite && !disabled && u.must_change_password && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 rounded-full text-xs cursor-pointer"
+                  onClick={() => setResendTarget(u)}
+                  disabled={resendMutation.isPending}
+                  title="Email a new temporary password"
+                >
+                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+                  Resend invite
+                </Button>
+              )}
               {canResetTarget && (
                 <Button
                   variant="ghost"
@@ -212,7 +252,7 @@ export default function UsersPage() {
         },
       }),
     ],
-    [canIssueReset, issueReset, resetPending, user?.role]
+    [canIssueReset, canResendInvite, issueReset, resetPending, resendMutation.isPending, user?.role]
   );
 
   return (
@@ -376,6 +416,18 @@ export default function UsersPage() {
         cancelLabel="Keep as is"
         loading={toggleMutation.isPending}
         onConfirm={() => toggleMutation.mutate({ employee_id: target.employee.employee_id, action: target.action })}
+      />
+
+      <ConfirmDialog
+        open={Boolean(resendTarget)}
+        onOpenChange={(open) => !open && setResendTarget(null)}
+        variant="warning"
+        title="Resend invitation?"
+        message={`A new temporary password will be emailed to ${resendTarget?.email}. The previous temporary password stops working immediately.`}
+        confirmLabel="Send new password"
+        cancelLabel="Cancel"
+        loading={resendMutation.isPending}
+        onConfirm={() => resendTarget && resendMutation.mutate(resendTarget.employee_id)}
       />
     </div>
   );

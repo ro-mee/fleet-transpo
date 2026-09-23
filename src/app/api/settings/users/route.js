@@ -14,6 +14,7 @@ import { canMutateAccount } from "@/lib/auth/privilege";
 const EMPLOYEE_SELECT = `
   SELECT e.employee_id, e.first_name, e.last_name, e.email, e.phone,
          e.position, e.status, e.deleted_at, e.created_at,
+         e.must_change_password, e.temp_credential_expires_at,
          r.role_name
     FROM employees e
     LEFT JOIN roles r ON r.role_id = e.role_id

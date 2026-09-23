@@ -14,7 +14,7 @@ import { useRequireRole } from "@/hooks/use-role-access";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { getRequiredRolesForPath } from "@/lib/auth/role-guard";
 
-const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
+const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password", "/set-password"];
 
 function isRestrictedRoute(pathname) {
   const roles = getRequiredRolesForPath(pathname);
@@ -137,10 +137,19 @@ function RouteGuard({ pathname, children }) {
 export function DashboardLayout({ children }) {
   const { collapsed, peek } = useSidebar();
   const pathname = usePathname();
-  const { employee, loading } = useAuth();
+  const { employee, loading, user } = useAuth();
+  const router = useRouter();
 
   if (authRoutes.includes(pathname)) {
     return <>{children}</>;
+  }
+
+  // UX hint only — the server gate (403 PASSWORD_CHANGE_REQUIRED) is what
+  // actually blocks API access. Returning null also keeps protected children
+  // from mounting and firing requests that would only 403.
+  if (!loading && user?.mustChangePassword && pathname !== "/set-password") {
+    router.replace("/set-password");
+    return null;
   }
 
   // Protected route + session loading or logged out: no dashboard shell yet.
