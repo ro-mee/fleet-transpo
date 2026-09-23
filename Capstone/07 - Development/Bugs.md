@@ -368,10 +368,30 @@ The leaked database password was **rotated on
   that actually matters is unchanged: matches are confined to `@example.com` by the
   address patterns, a reserved domain `isDeliverableEmailAddress()` refuses, so no match
   can be an account anyone could sign into.
-  **Still missing: the script asserts nothing.** Every scenario only prints. A 201 where
-  a 409 belongs would read exactly like success — which is precisely how all four defects
-  above survived unnoticed. Adding assertions is the next piece of work on this harness
-  and the only thing that would have caught them.
+  **`verify-p2-analytics.mjs` had the same authentication gap, and now authenticates.**
+  It sent **no credentials at all** to `/api/admin/analytics/fuel`, so both of its fetches
+  came back 401 — reported as a 500 by that route until `7b3851c`, which is why the
+  harness spent its life failing on what looked like a server fault rather than a missing
+  token. The fixture employee now carries a role resolved from
+  `rolesFor("reports", "read")` rather than a hard-coded `admin`, deliberately skipping
+  `super_admin`: that is an explicit bypass in `rolesFor` (`permissions.js:343`), so a
+  fixture holding it would pass even if every real role had lost the grant. It mints a
+  real token family and destroys the token rows in the teardown, and the prior-fixture
+  sweep deletes them too, so they cannot accumulate as live 30-day sessions against
+  soft-deleted accounts. The second fetch also gained the status check the first already
+  had — without it an auth failure surfaced as *"Previous Month Fuel Spend is WRONG.
+  Expected 3500, got undefined"*, a data problem that was not one. Runs clean: all five
+  assertions pass, fixture role `admin`.
+  **Latent, not fixed:** the two overview assertions compare against absolute totals
+  (`5600`, `90`) while `analytics/fuel/route.js:26-36` aggregates over **all** vehicles
+  for the month. They pass only because the live database happens to hold no other
+  `Approved`/`Completed` fuel record in the test month. The first real fuel data to land
+  in a test month will break them for a reason that has nothing to do with the code under
+  test. They should measure a baseline instead of asserting a fixed total.
+  **Still missing: `verify-p1-e2e.mjs` asserts nothing.** Every scenario only prints. A 201
+  where a 409 belongs would read exactly like success — which is precisely how all four
+  defects above survived unnoticed. Adding assertions is the next piece of work on that
+  harness and the only thing that would have caught them.
   → [[Daily Notes/2026-09-23]]
 - **`employees.email` became security-critical with no ownership check (2026-09-22):**
   email OTP turns the address into the delivery channel for the second factor, and
