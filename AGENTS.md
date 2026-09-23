@@ -24,7 +24,7 @@ npm run db:dump     # refresh schema.sql from the live DB
 
 Rules when adding a migration:
 
-- Write `supabase/migrations/NNN_name.sql` and check `npm run db:status` first — do not reuse a number. **`ls supabase/migrations/` is not sufficient**: the ledger records migrations whose files are gone (as of 2026-09-18: `113_maintenance_repairer_identity`, `114_app_errors_rls`, `115_rls_gap_tables`), so a version can be spent without appearing on disk. `db:status` lists those under "in the ledger but missing from disk"; treat every version it shows as taken.
+- Write `supabase/migrations/NNN_name.sql` and check `npm run db:status` first — do not reuse a number. **`ls supabase/migrations/` is not sufficient**: the ledger records migrations whose files are gone (as of 2026-09-23: `113_maintenance_repairer_identity`, `114_app_errors_rls`, `115_rls_gap_tables`, `120_temp_password_invite`), so a version can be spent without appearing on disk. `db:status` lists those under "in the ledger but missing from disk"; treat every version it shows as taken. This list only ever grows — re-read `db:status` rather than trusting the version above.
 - Make it idempotent (`IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, `DROP ... IF EXISTS`). The live DB is ahead of the files in places, so a migration must be a safe no-op there.
 - Apply with `npm run db:up`, then `npm run db:dump` and commit the `schema.sql` diff. That diff is the review artifact — **except for RLS**, which `schema.sql` does not capture at all (it contains no policies), so an RLS migration needs a `pg_policies` query against live before it can be reviewed.
 - Verify presence via `information_schema` / `pg_constraint`, and re-run the app's real queries against live to confirm nothing broke.

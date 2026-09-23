@@ -41,6 +41,7 @@ const ACCOUNT_ROWS = [
 
 const PRIVACY_SECURITY_ROWS = [
   { title: "Change Password", icon: "key-outline", route: "/profile/change-password" },
+  { title: "Biometric Login", icon: "finger-print-outline", route: "/profile/security" },
   { title: "Privacy & Consent", icon: "lock-closed-outline", route: "/profile/privacy" },
   { title: "App Permissions", icon: "shield-checkmark-outline", route: "/profile/permissions" },
   { title: "Devices & Sessions", icon: "phone-portrait-outline", route: "/devices" },

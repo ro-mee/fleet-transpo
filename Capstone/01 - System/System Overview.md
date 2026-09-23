@@ -58,9 +58,11 @@ Cross-cutting: [[UVVRP Number Coding]], [[Fuel]], [[Maintenance]], [[Notificatio
 | Client | Stack | Auth | Users |
 |---|---|---|---|
 | Web dashboard | Next.js 16.2.11 App Router, React 19.2.4 | NextAuth v4 cookie/JWT | 5 staff roles |
-| Mobile | Expo SDK ~54, expo-router ~6 | Separate bearer JWT | drivers only |
+| Mobile | Expo SDK ~54, expo-router ~6 | Separate bearer JWT + optional biometric app lock | drivers only |
 
-Two independent auth systems by design. See [[Authentication]].
+Two independent auth systems by design. See [[Authentication]]. The mobile biometric
+lock is **not** a third one: it gates the local UI and mints nothing — password + email
+OTP remains the only way to create a session, and the backend stays the authority.
 
 ## Scale — CONFIRMED (live query 2026-08-11, after Phase 3)
 
@@ -108,5 +110,6 @@ Read [[Why RLS Is Not A Boundary]] before touching anything security-related.
 - 2026-09-16: driver profile-photo full sweep — shared `DriverAvatar` (`face → avatar → initials`, broken-URL fallback) on every staff driver surface (incidents, documents, trips, fuel, assignments, leave, reservations, dispatch, availability boards, live-map, dashboard coverage, executive snapshot, command palette); all driver-bearing APIs select both photo columns additively, RBAC unchanged → [[Driver Management]]
 - 2026-09-22: **email OTP replaced TOTP as the second factor** — mandatory for all staff and drivers on web and mobile, replacing opt-in authenticator codes. A 6-digit code is emailed to the account holder and verified inside the existing credential exchange, so no new public endpoint exists and a code is never sent to an unauthenticated caller. Migration `119_email_otp_challenges.sql` holds hashed single-use challenges (RLS + `REVOKE ALL` from `anon`/`authenticated`); break-glass is recovery codes plus admin-issued 15-minute emergency codes, with no environment bypass. Trusted devices shortened 30 → 7 days. `employee_mfa` is retained but unused. Accepted and recorded: this is a **weaker** factor than TOTP — both factors now live in one inbox — and Gmail SMTP is a hard dependency of every login, with the gate failing closed. Precondition to deploy: 21 of 35 live accounts could not receive mail, including the only `super_admin` → [[Authentication]]
 - 2026-09-22: **new-device sign-in notice** — an account owner is now told, in-app and by push, when their account is used from a device it has never been used from (`sessionDeviceLabel`, browser family + OS, compared against 90 days of `login_success` history). Previously nothing was raised for a login from anywhere. Device identity was chosen over IP location deliberately: IP geolocation resolves to the ISP's registered place, so Manila vs Makati (~10 km) is inside the error margin and a location rule would fire on the owner and miss an attacker. Covers the hole the OTP does not — the 7-day trusted-device bypass. No migration. Limits stated: the mobile channel collapses every phone to one label, so this is a **web-strength control** → [[Authentication]] · [[Decision Log]]
+- 2026-09-23: **optional biometric app lock on mobile (off by default, no backend change)** — `AuthProvider` restored a 30-day session on cold start from local storage alone, so a phone picked up or left on a bench exposed the full driver UI. Now `AppLockProvider` gates the `(app)` tree behind the OS prompt when the driver opts in, re-locking on cold start and after **5 minutes** backgrounded (one constant, `APP_LOCK_TIMEOUT_MS`, matching the web idle timeout). **FleetOps never collects, stores, or transmits biometric data** — the app receives one native result enum — and no route, migration, token or endpoint was added. Sign Out revokes the family *and* destroys the enrollment; LOCK touches neither the server session nor the credential. Stated limits: this is an OS-enforced **application lock, not encryption of the refresh token** (Android gates writes too, so a rotating token cannot live behind it), it does not survive a rooted device or a patched JS bundle, and iOS app-switcher obscuring is best-effort → [[Authentication]] · [[Mobile Architecture]] · [[Security Audit]]
 
 

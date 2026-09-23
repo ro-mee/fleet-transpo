@@ -13,6 +13,7 @@ import { IBMPlexMono_600SemiBold } from "@expo-google-fonts/ibm-plex-mono/600Sem
 // ^ Plus Jakarta Sans keeps the mobile interface warm, polished, and highly legible;
 //   IBM Plex Mono remains reserved for operational data.
 import { AuthProvider } from "../lib/auth";
+import { AppLockProvider } from "../lib/app-lock-context";
 import { initPush } from "../lib/notifications/push";
 import { ErrorBoundary } from "../components/error-boundary";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
@@ -20,6 +21,7 @@ import { SettingsProvider } from "../lib/settings-context";
 import { syncQueue } from "../lib/sync";
 import { AppAlertHost } from "../components/AppAlert";
 import { NotificationHost } from "../components/NotificationHost";
+import AppPrivacyVeil from "../components/AppPrivacyVeil";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { completeLaunch } from "../lib/launch";
 
@@ -67,6 +69,10 @@ function ThemedApp({ showLaunch, onLaunchDone }) {
       {/* Heads-up banners + toasts for the 3-tier notification system */}
       <NotificationHost />
       {showLaunch && <LaunchScreen onComplete={onLaunchDone} />}
+      {/* Opaque cover for the app-switcher snapshot while backgrounded. Topmost
+          on purpose: nothing a driver was looking at may end up in the OS
+          task-switcher thumbnail. */}
+      <AppPrivacyVeil />
     </ErrorBoundary>
   );
 }
@@ -121,14 +127,18 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <SettingsProvider>
-        <ThemeProvider>
-          <ThemedApp
-            showLaunch={showLaunch}
-            onLaunchDone={handleLaunchDone}
-          />
-        </ThemeProvider>
-      </SettingsProvider>
+      {/* The local app lock sits inside AuthProvider because it reads the signed-in
+          driver and must fall away with them; it needs no theme, but its screens do. */}
+      <AppLockProvider>
+        <SettingsProvider>
+          <ThemeProvider>
+            <ThemedApp
+              showLaunch={showLaunch}
+              onLaunchDone={handleLaunchDone}
+            />
+          </ThemeProvider>
+        </SettingsProvider>
+      </AppLockProvider>
     </AuthProvider>
   );
 }
