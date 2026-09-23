@@ -388,12 +388,58 @@ The leaked database password was **rotated on
   `Approved`/`Completed` fuel record in the test month. The first real fuel data to land
   in a test month will break them for a reason that has nothing to do with the code under
   test. They should measure a baseline instead of asserting a fixed total.
-  **Still missing: `verify-p1-e2e.mjs` asserts nothing.** Every scenario only prints. A 201
-  where a 409 belongs would read exactly like success — which is precisely how all four
-  defects above survived unnoticed. Adding assertions is the next piece of work on that
-  harness and the only thing that would have caught them.
+  **Fixed 2026-09-23: `verify-p1-e2e.mjs` now asserts.** Every scenario previously only
+  printed, so a 201 where a 409 belonged read exactly like success — which is how all four
+  defects above survived unnoticed. There is now a `check(label, condition, detail)`
+  collector that **records** failures instead of throwing, so one wrong response cannot
+  hide the scenarios after it; the run ends with a summary list and `process.exitCode = 1`
+  (**not** `process.exit()`, which would skip the `finally` block and leak fixtures on
+  exactly the runs already going wrong). Failures now also set the exit code from the
+  `catch`, which previously swallowed a crash and exited 0.
+  Assertions cover what each scenario actually proves, and two of them exist to stop old
+  misreadings from returning:
+  - **Scenario C is not a duplicate test.** It is named *"Cross-Driver Duplicate"* but
+    **never reaches `detectDuplicateReceipt`**: the tank-capacity gate (`route.js:250`) runs
+    before it (`:262`), and the fixture submits 40 L into a 50 L tank at 30% full (~35 L of
+    space), so it is refused on capacity. The assertions pin the refusal **and** the reason
+    (`/tank|capacity|quantity/i`), refusing to let a bare `409` stand in for the duplicate
+    rule — and the run prints an explicit warning. Even if it did reach it, Tier 2 does not
+    reject; it only flags (`transaction-integrity.js:118-134`). **The fixture is still
+    wrong** and Tier 2 remains untested as written; the comment says so rather than the
+    scenario quietly implying coverage.
+  - **F3 is the real cross-driver duplicate test** — Tier 1 on the transaction id F2 stored,
+    submitted by the *second* driver, which is the only way to prove the check is not scoped
+    to the submitting driver.
+  New DB-side assertions read the table rather than the response: a refused submission must
+  leave **no row** (409 is a rollback, not a partial write), an idempotent replay must not
+  store a second copy, and the accepted set must be exactly the five expected records.
   → [[Daily Notes/2026-09-23]]
-- **`employees.email` became security-critical with no ownership check (2026-09-22):**
+- **`possible_duplicate` is computed, then discarded — the Tier 2 duplicate flag has never
+  reached a record (2026-09-23, found while adding the assertions above):** in
+  `src/app/api/mobile/fuel/route.js` the flags object is serialised into the query `values`
+  at **line 206**, before the transaction opens. `detectDuplicateReceipt` then runs at
+  `:262` and `:275-277` sets `flags.possible_duplicate = true` — **on the already-serialised
+  object**, after `values` holds the pre-mutation copy. The `INSERT … RETURNING *` at `:279`
+  writes `values`, so the row and the `201` response carry the flags computed *before* the
+  duplicate check. Tier 2 is the **only** mechanism that flags a possible duplicate, and it
+  has never once persisted.
+  Evidence is reproducible inside the harness: Scenario F2 submits station Caltex, 10 L,
+  1500 against a database already holding exactly that record (Scenario E). Tier 1 cannot
+  fire — `receipt-12345` has not been seen — so Tier 2 matches and sets the flag, yet the
+  stored and returned flags are `{price_anomaly: true}` only. Two assertions in
+  `verify-p1-e2e.mjs` now cover this, one reading the response and one reading the stored
+  `flags` column, so the pair distinguishes *"the row never received the flag"* from *"the
+  row has it and the serialiser dropped it on the way out"*.
+  **Deliberately not fixed here.** Moving the write changes what real records store, so it
+  is left as a red assertion for a deliberate decision rather than a silent patch folded
+  into a test-harness change. **Related, and a comment that contradicts its code:**
+  `transaction-integrity.js:91-92` claims Tier 2 *"intentionally excludes the submitting
+  driver's own records"*, but the query at `:120-133` passes only
+  `[stationName, fuelDate, liters, amount]` — there is **no driver predicate at all**, so a
+  driver's own prior submission is what usually matches. Either the comment or the query is
+  wrong, and that has to be settled before the flag is made to persist.
+  → [[Daily Notes/2026-09-23]]
+
   email OTP turns the address into the delivery channel for the second factor, and
   nothing in the system verifies that an address belongs to the employee it is attached
   to. Two distinct failure modes, and they are not equally bad:
