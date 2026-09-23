@@ -121,7 +121,7 @@ impeccable (Operate critique + craft floor + mechanical detector), taste
 - `StatCard` gained an `href` prop: linked cards render Next `Link` with the
   existing `kpi-stat-card--interactive` tactile physics + focus ring + an
   `aria-label` (`stat-card.jsx`). Admin cards now navigate: open requests →
-  `/reservations/queue`, scheduled → `/dispatch`, in-progress/completed →
+  `/reservations/queue`, scheduled → `/dispatch/calendar` (board removed 2026-09-23; `/dispatch` redirects), in-progress/completed →
   `/trips`; System Admin cards → `/settings/users`, sessions →
   `/settings/security`.
 - Admin Operational Attention and Dispatcher Needs Attention now are per-cell styled:
@@ -518,3 +518,45 @@ existing notification feed and the existing preferences page.
   3. **Preserved cached card data:** In `src/components/dashboard/operations-cards.jsx`, updated `RequestPipelineCard`, `DocumentComplianceCard`, `MaintenancePressureCard`, and `IncidentRiskCard` to check `query?.isError && !query?.data` (and empty item checks). Cards now gracefully retain previously rendered charts, metric cards, and lists under the session-expired blur without flashing red.
   4. **Configured QueryClient retry rejection:** In `src/components/providers.jsx`, updated `defaultOptions.queries.retry` to immediately reject `401`, `403`, and session-expiration errors (`code.startsWith("SESSION_")`) to prevent redundant background retry floods.
 - **Verification:** Verified with full Vitest test suite (`2,280/2,280 tests passed across 189 test files`).
+
+### Dispatch calendar exception-first pass (2026-09-23)
+
+Follows the three-phase calendar-default work (board removal, queue
+reassignment pill, incident requeue). The calendar is now where a requeued
+trip lands, and it was mis-signalling the most urgent state: `DISPATCH_TONE`
+had no `Pending Reassignment` entry, so those events fell through to
+`secondary` — the same gray as **Cancelled** — and the status pill switch had
+no case for them either. Findings and fixes (`calendar/page.js`,
+`calendar-event.jsx`, `calendar-lanes.jsx`, `calendar-grids.jsx`,
+`calendar-drawer.jsx`, `lib/scheduling/calendar.js`):
+
+- **Same problem, five surfaces, one language.** Pending Reassignment now
+  tones `danger` with a rose "Reassign" pill (compact prefers it over
+  Unassigned), appears in the KPI row, the banner, a type chip, a status pill,
+  and the legend — the exception-first rule the queue already follows. Shared
+  `isPendingReassignment()` predicate; tone contract pinned by
+  `src/lib/scheduling/calendar.test.js`.
+- **Composite "Needs attention"** KPI (distinct conflicted + unassigned +
+  reassignment events) replaces the conflicts-only count; dedicated
+  Reassignment card added; Upcoming card dropped (status pills cover it).
+- **Fixed a dead control:** `statusFilter` state existed with a reset but no
+  UI ever set it — Status pill row added (Reassignment pill renders solid
+  danger). Type chips expanded (attention / reassignment / conflicts / VIP /
+  starting soon).
+- **"Action required" banner** merges unassigned + reassignment (the old
+  unassigned-only filter missed reassignments that keep both ids —
+  `departure-alerts.js`), reassignment-first with reason copy.
+- **Group by Driver | Vehicle** pill — `LANE.VEHICLE` was unreachable (Day
+  hard-coded driver lanes). **Removed again same day (user request):** the
+  Available-vehicles KPI card and the Vehicle button (with the now
+  single-option Group-lanes-by control) are gone; day view stays driver lanes.
+- **Shareable URL:** `?view= &lane= &filter= &status= ` written back alongside
+  `?date=`; refresh and shared links restore the surface.
+- **Legend no longer `hidden xl:flex`** (color grammar vanished on laptops);
+  search includes reservation #; lane rows gained conflict badges + a
+  Name | Busy-first sort; month cells gained a per-day gap badge; drawer opens
+  clusters on the highlighted primary event, adds a reassignment callout,
+  "View reservation", and an "Assign resources" label for gaps; header queue
+  link badges the reassignment count and targets `?filter=reassignment`.
+- Verified: `lint:ci` clean, full suite 191/2296 green, production build
+  green. Browser acceptance pending. See [[Dispatch]].

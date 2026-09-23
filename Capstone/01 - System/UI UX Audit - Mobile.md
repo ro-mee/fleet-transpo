@@ -266,6 +266,8 @@ Plan: `docs/superpowers/plans/2026-09-10-quick-action-navigation-responsiveness.
 
 ## Changes Applied — Round 7 (2026-09-19, Launch Animation Startup Lag)
 
+> **Superseded:** the car Lottie was **restored** on 2026-09-19 (see `Capstone/04 - Architecture/Mobile Architecture.md` § Launch Screen and `SYSTEM.md` "Mobile startup car animation restoration"); `launch-animation.test.js:37` now pins its inclusion. The 4.58 MB / no-car-asset figures below describe only the brief removal window and are not current.
+
 The launch path was still hitching despite native-driver animations. Source inspection found the 512x512 car Lottie carried about 588 KB of embedded raster data and was decoded during the first overlay frame; the native splash also hid at font-ready time while the persisted settings provider could still render no shell.
 
 | File(s) | Change |
@@ -290,3 +292,22 @@ Reviewing the uncommitted guide work turned up five call sites referencing type-
 Each replacement is the nearest existing step in the same family rather than a new scale entry — `cardTitle` (16, bodySemiBold) for `titleMd`, `supporting` (14, body) for `bodySm` — so the seventeen-step scale stays the single source of truth. Eleven further sites in the then-uncommitted guide files used `titleMd`, `bodySm`, `labelSm` and `headlineSm`; those names never existed at HEAD, so they were corrected inside the commits that introduced them (`labelSm → labelMd`, `headlineSm → titleLg`).
 
 **Verification:** the guard was proven to fail on an injected bad key before being trusted; full suite **2195 pass across 186 files**; `eslint --max-warnings 0` clean. See `Bugs.md`, seventh report.
+
+---
+
+## Changes Applied — Round 9 (2026-09-22, Performance Hardening)
+
+Static re-analysis pass (source-level; no device in environment). Plan: `docs/superpowers/plans/2026-09-22-mobile-performance-hardening.md`. Scope revised during planning: the idle-duty-to-60s task was **dropped by user decision** (standby response must stay ≤30 s); duty GET cadence unchanged.
+
+| # | Bottleneck | File(s) | Fix Applied |
+|---|------------|---------|-------------|
+| 1 | Outbox drain hit AsyncStorage (read + JSON.parse) after **every** API success — dead if/else, queue empty almost always | `lib/sync.js`, `lib/api.js` | In-memory `knownPendingCount` mirror + `hasPendingWork()` gate; fails open while unknown (cold start), converges on enqueue/drain/count. New `sync.test.js`. |
+| 2 | Standby path published status **twice** per tick (`!tripId` trailing publish also covered standby) — duplicate re-render of every subscriber each 30 s | `lib/tracking.js` | Standby's publish carries `lastSentAt` itself; trailing publish narrowed to responder-only. |
+| 3 | Offline outbox unbounded (one JSON array, storage-quota risk on long offline stretches) | `lib/sync.js` | Cap 100; oldest non-incident dropped with a warn; incidents never dropped (soft cap if all incidents). |
+| 4 | Round 7 claims the car Lottie is removed; it was restored 2026-09-19 (doc/code mismatch) | this note | Round 7 marked superseded; code + `launch-animation.test.js` are source of truth. |
+
+**Verification:** `npx vitest run mobile/lib` all green (incl. new `sync.test.js`: fail-open gate, enqueue/drain convergence, cap + incident exemption); ESLint `--max-warnings 0` on touched files; Android export: 1,401 modules, 79 assets and a 5.38 MB Hermes bundle (verbatim from `npx expo export --platform android`, 2026-09-23). On-device FPS / cold-start: **not claimed** (no device).
+
+**Analyzed, not fixed this round (2026-09-22 tap-delay review):** focus-fetches on trips/history/vehicle/profile fire synchronously with no staleness guard (Home's `runAfterInteractions` + 30 s pattern was never ported); `trip/[id]` revalidates `?status=all&limit=100` during the push transition; `notification-feed.jsx` calls `setNotifications(list)` unconditionally every 30 s (new array identity → header re-render). Likely secondary: dev-build timing (release build not measured). Deferred pending a release-build measurement.
+
+**Deferred with triggers:** FlatList lists if any list routinely exceeds ~50 rows; server-side active-only filter for the 60 s trips GET if field payloads grow; coach-mark settling-tick pause pending its own provider read; TomTomMap.js only if a device profile implicates it.

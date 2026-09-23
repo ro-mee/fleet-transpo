@@ -243,7 +243,8 @@ Relationships:
 > demoted to a legacy FK target — 015 and `dispatchschedules` still reference it,
 > so it is not dropped, but nothing new is written there and no UI reads it. The
 > `/reservations` register, the `/reservations/queue` workspace, both detail pages,
-> the dispatch board, and `/dispatch/calendar` all read `transportation_requests`.
+> and `/dispatch/calendar` (the default dispatch surface — `/dispatch` redirects
+> there) all read `transportation_requests`.
 
 ### 8.1 Ownership: Fleet never authors bookings
 

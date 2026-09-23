@@ -63,10 +63,11 @@ request → dispatch → trip without a manual search:
 | Trips log (`/trips`) | Dispatch # cell is a real link when `dispatch_id` exists. No Guest column — the list projection carries no request join. |
 | Reservation detail | Lifecycle is `<PhaseRail>` over Pending → Scheduled → Assigned → In Progress → Completed; raised-dispatch rows expose "View trip"; cancel uses `ConfirmDialog requireReason` (matches the queue). |
 | AI recommendation panel | After assign succeeds it shows "Dispatch {number} created" + a View-dispatch link from the endpoint's `dispatch_id`/`dispatch_number`. |
-| Dispatch board | Stat cards are summary-only; lane chips are the single filter. Reassign failures surface inline (see [[Dispatch]]). |
+| Dispatch calendar | Default dispatch surface (`/dispatch` redirects here); `?date=` deep-links land on the day. Queue ⇄ calendar header buttons. |
+| Reservation queue | Auto-sorts **Pending Reassignment first**, then derived priority; `?filter=reassignment` chip + API filter surface interrupted runs (incident/leave). |
 
 Driver names render as stored everywhere new (no lowercase+CSS-capitalize mangling of e.g.
-"MC Dela Cruz"); one known instance remains in `dispatch-card.jsx:240` (owned elsewhere).
+"MC Dela Cruz").
 
 ## Where this chain is broken today — CONFIRMED
 
