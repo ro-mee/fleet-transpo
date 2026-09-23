@@ -175,6 +175,71 @@ carrier IP rotation, which for a driver on mobile data is every single login.
 (`src/lib/constants.js`), `STAFF_ROUTES.security` (`src/lib/notifications/target.js`),
 `Capstone/04 - Architecture/Authentication.md` §"New-device sign-in notice".
 
+## 2026-09-23 — Temp password emailed at creation, not a one-time setup link
+
+**Decision:** when an admin creates a staff account, the server generates a
+strong temporary password (7-day expiry) and emails it. The employee signs in
+with it — plus the normal email OTP — and is forced to choose their own before
+the dashboard opens. **No magic setup link.** (Reverses the earlier leaning
+toward a link-style first-run flow.)
+
+**Rejected alternatives:**
+
+| Option | Why not |
+|---|---|
+| One-time setup link (forgot-password style) | No magic-link infrastructure exists beyond the reset token, and reusing it for first-run setup blurs "set up" with "I lost my password". Email OTP already trains users to expect two emails per login; a third channel (link + OTP + temp password) adds confusion for no security gain. |
+| Admin sets the password out-of-band (verbal/DM) | The credential would transit an unauthenticated channel and sit in chat history; audit cannot cover "typed somewhere else", and the whole point of the flow is that only the employee ever sees it. |
+| No password until first login (SSO-style defer) | There is no IdP; the credential store is `employees.password_hash` and every gate reads it. |
+
+**Consequences taken on purpose:**
+
+- Account creation now **fails closed on email delivery**: no SMTP configured or
+  an undeliverable address means **no row** (precheck 400 before INSERT; a send
+  failure after INSERT is compensated with a DELETE + `invite_email_failed`
+  audit + 502). Availability of email is a precondition of creating accounts.
+- Admins get a visible pending state (`Password not set · expires …` in the
+  users list) with a **Resend invite** action; resend rotates the credential in
+  a transaction and only then emails (failure → 502, press again — the fresh
+  password is unknown to everyone, unlike create where the row must not survive).
+- Audit `create` / `invite_resend` rows and log lines never carry the password
+  or its hash; the email subject never carries the password value.
+
+**Evidence:** `src/lib/auth/temp-password.js`, `src/app/api/auth/register/route.js`,
+`src/app/api/settings/users/[id]/resend-invite/route.js`, migration
+`120_temp_password_invite.sql`, `Capstone/04 - Architecture/Authentication.md`
+§"Temporary password invitations".
+
+## 2026-09-23 — Forced password change rotates the session and stays signed in
+
+**Decision:** the first-sign-in forced change (`mustChangePassword`) returns a
+**fresh session cookie on the success response** — *rotate-and-stay*. The user
+lands on `/dashboard` without logging in a second time. Voluntary password
+changes in Settings keep their existing `signInRequired: true` (sign out)
+behavior, unchanged.
+
+**Why:** the forced path is a setup step, not a security response — the user
+just proved the temp credential minutes ago. Forcing a second login would make
+the required screen feel like being logged out mid-task. The revocation that
+matters still happens: the transaction bumps `auth_version`, revokes every old
+session, deletes pending reset tokens, and only *then* mints the replacement
+(`mintRotatedSession` inserts the new `web_sessions` row **after** commit, so it
+survives its own revoke). The temp credential's session is dead either way —
+there is no security delta versus sign-out-and-back-in.
+
+**Rejected alternative:** complete the change, then sign out and re-login.
+Simpler (no cookie minting in the route) but punishes the user for complying,
+and buys nothing security-wise given the revocation above already ran.
+
+**Consequences:** the change-password route now has two honest response shapes —
+forced → 200 + `Set-Cookie` + `{ mustChangePassword: false }`; voluntary → 200 +
+`{ signInRequired: true }`. The rotated cookie carries `mustChangePassword:
+false`, which is also what unblocks the server gate and the layout redirect on
+the next request.
+
+**Evidence:** `src/lib/auth/session-rotation.js`,
+`src/app/api/auth/change-password/route.js`,
+`Capstone/04 - Architecture/Authentication.md` §"Temporary password invitations".
+
 ## What the pattern shows — INFERRED
 
 **Six of eleven decisions are well-evidenced; the rest are not.** And the well-evidenced ones are documented *in the code that implements them* — docstrings and migration headers — never in `docs/`.
