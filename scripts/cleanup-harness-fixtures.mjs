@@ -159,13 +159,26 @@ const c = counts[0];
 // sweep of a set that surprised us is exactly the outcome these exist to stop.
 const problems = [];
 
-// role_id is the load-bearing guard. Every leaked fixture has no role — the
-// harnesses INSERT `(first_name, last_name, email)` and nothing else
-// (`employees.role_id` is nullable, schema.sql:437) — while every account a human
-// provisioned has one. An address pattern alone must never decide that a real
-// account is disposable.
+// The role guard. It used to refuse ANY role, because every leaked fixture was
+// role-less — the harnesses inserted `(first_name, last_name, email)` and
+// nothing else (`employees.role_id` is nullable, schema.sql:437).
+//
+// That is no longer true of new fixtures. verify-p1-e2e.mjs now assigns
+// `driver`, because `resolveCurrentIdentity` (src/lib/api/utils.js:146) rejects
+// an identity with no role_name — which is what made it 401 at Scenario A and
+// leak a fixture on every run. So the guard permits `driver` and nothing else.
+//
+// What it is for has not changed: an account a human provisioned carries a role
+// someone chose, and no address pattern may decide on its own that such an
+// account is disposable. Every operation role — admin, super_admin,
+// fleet_manager, dispatcher, management — still aborts the whole run.
+//
+// The sweep is already restricted to `@example.com` by PATTERNS, a reserved
+// domain isDeliverableEmailAddress() refuses, so a match can never be an account
+// anyone could sign into. The has_password check below is the second lock, and
+// --expect is the third.
 for (const e of employees) {
-  if (e.role_id !== null) {
+  if (e.role_id !== null && e.role_name !== "driver") {
     problems.push(`employee ${e.employee_id} (${e.email}) has role "${e.role_name}" — not a fixture`);
   }
   if (e.has_password) {

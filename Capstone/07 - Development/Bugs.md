@@ -300,10 +300,9 @@ The leaked database password was **rotated on
   leaking fixtures on precisely the runs already going wrong. It sets `process.exitCode`.
   The backlog is cleared by `scripts/cleanup-harness-fixtures.mjs`: dry-run by default,
   `--apply` to mutate, and `--expect <n>` is required *with* `--apply`. Guards, any of
-  which aborts the whole run rather than skipping a row: a matched row with a non-NULL
-  `role_id` or `password_hash` (every leaked fixture has neither — the harnesses INSERT
-  name and email only, and `employees.role_id` is nullable, `schema.sql:437`), and a
-  candidate vehicle carrying any trip or fuel row from a non-fixture driver. Soft delete,
+  which aborts the whole run rather than skipping a row: a matched row carrying an
+  operation role or a `password_hash`, and a candidate vehicle carrying any trip or fuel
+  row from a non-fixture driver. Soft delete,
   not `DELETE`: `drivers.employee_id` has no `ON DELETE CASCADE` (`schema.sql:1158`), nor
   do `notifications` or `audit_logs`. **Accepted limitation:**
   `driver_vehicle_assignments` (`schema.sql:250`), `fuelallocations` (`:503`) and
@@ -320,6 +319,59 @@ The leaked database password was **rotated on
   the `VERIFY OWNERSHIP` bucket held the same 17 real accounts before and after — which is
   the evidence the sweep stayed inside its guards. `driver_vehicle_assignments` (13 rows)
   and `fuelrequests` (17 rows) were left behind by design; see the limitation above.
+  **Follow-up 2026-09-23 — `verify-p1-e2e.mjs` had never once passed.** The teardown
+  stopped the *leak*, but the script was still failing on every run, and that failure is
+  *why* the rows accumulated: each run created its fixture and abandoned it. Four
+  independent defects were stacked behind the first error, each visible only once the one
+  before it was cleared.
+  1. **The fixtures had no role.** The harness inserted employees as
+     `(first_name, last_name, email)` — no `role_id`. `resolveCurrentIdentity`
+     (`src/lib/api/utils.js:146`) rejects any identity whose `role_name` is null, so
+     every bearer request 401'd at Scenario A. The fixtures now resolve the `driver`
+     role and refuse loudly when it is absent.
+  2. **The tokens carried no `authVersion` or `familyId`.** `signAccessToken` alone is
+     not enough: `resolveCurrentIdentity` re-reads `auth_version` (`:151-153`) and
+     requires a live, unrevoked `mobile_refresh_tokens` row for the token's family
+     (`:155`, `:165-175`). A hand-signed token 401s with "Session expired. Please sign in
+     again." however valid its signature. The script now mints a real token family,
+     mirroring `POST /api/mobile/auth/login` (`route.js:248-272`) minus the password and
+     OTP steps a reserved-domain fixture can never pass — and deletes those rows in the
+     teardown, because they are credentials rather than junk and would otherwise outlive
+     the account as valid 30-day sessions.
+  3. **The receipt URL was built with a doubled separator.** `.env` sets
+     `NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co/` *with* a trailing slash and the
+     script appended `/storage/v1/...`. `isOwnedFuelImageUrl`
+     (`src/lib/fuel/receipt-storage.js:188`) matches the path as a **raw prefix**, so
+     `//storage/...` failed ownership and the endpoint answered 400 before reading any
+     fuel data — which is what made Scenario A look like a receipt problem rather than
+     an authentication one.
+  4. **A rejected scenario stranded its fuel request.** `uq_fuelrequests_open_vehicle`
+     (`supabase/migrations/066:55`) allows one request per vehicle with status
+     `Pending`/`Approved`. A *successful* submission resolves its request to `Fulfilled`
+     and leaves that predicate, but a **rejected** one does not — and Scenario C is
+     rejected by design (409, tank capacity), so its request stayed open on the vehicle
+     and the F3 insert collided with it. The harness now retires any open request for a
+     vehicle before raising a new one, which is what an approver would have to do anyway.
+     `Rejected`, not `Fulfilled`: no fuel was delivered, and `fuelrequests_status_check`
+     (`schema.sql:581`) permits only Pending/Approved/Rejected/Fulfilled — the first two
+     are inside the index predicate, so they would not clear it.
+  With all four cleared the script completes and the results are the right ones, not
+  merely non-crashing: A `201` with `flags: null`; B `201` with `driver_edited
+  {ai: 40, submitted: 42}`; C `409` tank capacity; D `201` flagged `fuel_type_mismatch`;
+  E `201` flagged `price_anomaly`; F1 `201` replaying the **same** `fuel_record_id`
+  (idempotent); F2 `201` with the transaction id stored; F3 `409` cross-driver
+  transaction duplicate. Re-running `cleanup-harness-fixtures.mjs` afterwards reports
+  **"Nothing to do"** — no rows accumulate.
+  **The cleanup guard was relaxed to match.** It used to abort on any non-NULL `role_id`,
+  on the premise that every leaked fixture was role-less. Defect 1 above retired that
+  premise, so the guard now permits `driver` and aborts on every other role. The lock
+  that actually matters is unchanged: matches are confined to `@example.com` by the
+  address patterns, a reserved domain `isDeliverableEmailAddress()` refuses, so no match
+  can be an account anyone could sign into.
+  **Still missing: the script asserts nothing.** Every scenario only prints. A 201 where
+  a 409 belongs would read exactly like success — which is precisely how all four defects
+  above survived unnoticed. Adding assertions is the next piece of work on this harness
+  and the only thing that would have caught them.
   → [[Daily Notes/2026-09-23]]
 - **`employees.email` became security-critical with no ownership check (2026-09-22):**
   email OTP turns the address into the delivery channel for the second factor, and

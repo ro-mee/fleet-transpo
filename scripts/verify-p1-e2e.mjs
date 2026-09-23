@@ -1,13 +1,21 @@
 import { loadEnvLocal } from './load-env.mjs';
 loadEnvLocal();
 import pg from 'pg';
-import { signAccessToken } from '../src/lib/auth/mobile-token.js';
+import { signAccessToken, signRefreshToken, hashToken, REFRESH_TOKEN_TTL_SECONDS } from '../src/lib/auth/mobile-token.js';
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 const BASE_URL = 'http://localhost:3000';
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321';
+
+// Trailing slashes stripped. `.env` sets this WITH one
+// (`https://<ref>.supabase.co/`) and every receipt_url below appends
+// `/storage/v1/...`, so the value used to come out with a doubled separator.
+// isOwnedFuelImageUrl matches the path as a RAW PREFIX
+// (src/lib/fuel/receipt-storage.js:188), so `//storage/...` failed ownership on
+// every scenario and the endpoint answered 400 before it read any fuel data —
+// which is why Scenario A reported a receipt problem rather than a result.
+const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || 'http://localhost:54321').replace(/\/+$/, '');
 
 // ---------------------------------------------------------------------------
 // Throwaway rows are tracked so the finally block can soft-delete them.
@@ -45,6 +53,77 @@ async function cleanup() {
     );
     if (rowCount) console.log(`cleanup: soft-deleted ${rowCount} ${table} row(s)`);
   }
+
+  // The bearer tokens minted below are real credentials, so they are destroyed
+  // rather than soft-deleted — matching soft-delete-otp-collision.mjs:117.
+  // Left in place they would outlive the fixture as valid 30-day sessions
+  // against a soft-deleted account.
+  if (createdEmployeeIds.length) {
+    const { rowCount } = await pool.query(
+      `DELETE FROM mobile_refresh_tokens WHERE employee_id = ANY($1::int[])`,
+      [createdEmployeeIds]
+    );
+    if (rowCount) console.log(`cleanup: deleted ${rowCount} mobile_refresh_tokens row(s)`);
+  }
+}
+
+// Mint a bearer token the API will actually accept.
+//
+// signAccessToken alone is not enough. resolveCurrentIdentity re-reads
+// `auth_version` and requires a live, unrevoked row in `mobile_refresh_tokens`
+// for the token's familyId (src/lib/api/utils.js:151-175), so a hand-signed
+// token 401s with "Session expired. Please sign in again." however correct its
+// signature is. This mirrors POST /api/mobile/auth/login (route.js:248-272),
+// minus the password and OTP steps — which a reserved-domain fixture can never
+// pass, because the OTP gate fails closed on `@example.com`.
+async function mintDriverToken({ employee_id, driver_id, auth_version }) {
+  const { token: refreshToken, familyId } = await signRefreshToken({
+    employeeId: employee_id,
+    authVersion: auth_version,
+  });
+  const accessToken = await signAccessToken({
+    employeeId: employee_id,
+    role: "driver",
+    driverId: driver_id,
+    authVersion: auth_version,
+    familyId,
+  });
+  await pool.query(
+    `INSERT INTO mobile_refresh_tokens
+       (employee_id, token_hash, family_id, expires_at, ip_address, user_agent)
+     VALUES ($1, $2, $3, NOW() + ($4 || ' seconds')::INTERVAL, $5, $6)`,
+    [employee_id, hashToken(refreshToken), familyId, REFRESH_TOKEN_TTL_SECONDS, null, "verify-p1-e2e"]
+  );
+  return accessToken;
+}
+
+// Open a fresh Approved fuel request for a vehicle.
+//
+// `uq_fuelrequests_open_vehicle` (supabase/migrations/066:55) allows only ONE
+// request per vehicle with status Pending or Approved. A successful submission
+// resolves its request to 'Fulfilled' and steps out of that predicate — but a
+// REJECTED submission leaves its request open, and Scenario C is rejected by
+// design (409, the tank only has so much room). That stranded request is what
+// the F3 insert then collided with.
+//
+// Retiring the stranded request first is what an approver would have to do
+// before raising a new one for the same vehicle, so the harness does the same
+// rather than weakening the index. `Rejected`, not `Fulfilled`: no fuel was
+// delivered, and `fuelrequests_status_check` (schema.sql:581) permits only
+// Pending/Approved/Rejected/Fulfilled — the first two are in the index
+// predicate, so they would not clear it.
+async function openFuelRequest(driverId, vehicleId, liters) {
+  await pool.query(
+    `UPDATE fuelrequests SET status = 'Rejected', updated_at = NOW()
+      WHERE vehicle_id = $1 AND status IN ('Pending', 'Approved')`,
+    [vehicleId]
+  );
+  const { rows } = await pool.query(`
+    INSERT INTO fuelrequests (driver_id, vehicle_id, status, requested_liters, recommended_liters, approved_liters, allocation_month)
+    VALUES ($1, $2, 'Approved', $3, $3, $3, date_trunc('month', CURRENT_DATE))
+    RETURNING fuel_request_id
+  `, [driverId, vehicleId, liters]);
+  return rows[0].fuel_request_id;
 }
 
 async function runTests() {
@@ -52,26 +131,52 @@ async function runTests() {
 
   try {
     // 1. Setup Test Data
+    //
+    // The fixtures must carry a real role. `resolveCurrentIdentity`
+    // (src/lib/api/utils.js:146) rejects any identity whose role_name is null,
+    // so a role-less employee makes every bearer request 401 — which is how
+    // this script spent its life failing at Scenario A and leaking a fixture on
+    // every run. Resolved rather than hard-coded, and refused loudly when
+    // absent, so a missing role fails here instead of three steps later
+    // disguised as an authentication problem.
+    const { rows: roleRows } = await pool.query(
+      `SELECT role_id FROM roles WHERE role_name = 'driver'`
+    );
+    if (!roleRows.length) {
+      throw new Error("No 'driver' role in roles — cannot build an authenticating fixture.");
+    }
+    const driverRoleId = roleRows[0].role_id;
+
+    // The CTE returns `auth_version` as well as the ids, because the token has
+    // to carry the value `resolveCurrentIdentity` will re-read from this same row.
     const { rows: driverRows } = await pool.query(`
       WITH new_emp AS (
-        INSERT INTO employees (first_name, last_name, email) VALUES ('Test', 'Driver', 'testdriver1-' || EXTRACT(EPOCH FROM NOW()) || '@example.com') RETURNING employee_id
+        INSERT INTO employees (first_name, last_name, email, role_id) VALUES ('Test', 'Driver', 'testdriver1-' || EXTRACT(EPOCH FROM NOW()) || '@example.com', $1) RETURNING employee_id, auth_version
+      ),
+      new_driver AS (
+        INSERT INTO drivers (employee_id, license_number, license_expiry)
+        SELECT employee_id, 'DL-TEST-001', '2030-12-31' FROM new_emp
+        RETURNING driver_id, employee_id
       )
-      INSERT INTO drivers (employee_id, license_number, license_expiry)
-      SELECT employee_id, 'DL-TEST-001', '2030-12-31' FROM new_emp
-      RETURNING driver_id, employee_id
-    `);
+      SELECT d.driver_id, d.employee_id, e.auth_version
+        FROM new_driver d JOIN new_emp e ON e.employee_id = d.employee_id
+    `, [driverRoleId]);
     const driver1 = driverRows[0];
     createdDriverIds.push(driver1.driver_id);
     createdEmployeeIds.push(driver1.employee_id);
 
     const { rows: driver2Rows } = await pool.query(`
       WITH new_emp AS (
-        INSERT INTO employees (first_name, last_name, email) VALUES ('Test', 'Driver2', 'testdriver2-' || EXTRACT(EPOCH FROM NOW()) || '@example.com') RETURNING employee_id
+        INSERT INTO employees (first_name, last_name, email, role_id) VALUES ('Test', 'Driver2', 'testdriver2-' || EXTRACT(EPOCH FROM NOW()) || '@example.com', $1) RETURNING employee_id, auth_version
+      ),
+      new_driver AS (
+        INSERT INTO drivers (employee_id, license_number, license_expiry)
+        SELECT employee_id, 'DL-TEST-002', '2030-12-31' FROM new_emp
+        RETURNING driver_id, employee_id
       )
-      INSERT INTO drivers (employee_id, license_number, license_expiry)
-      SELECT employee_id, 'DL-TEST-002', '2030-12-31' FROM new_emp
-      RETURNING driver_id, employee_id
-    `);
+      SELECT d.driver_id, d.employee_id, e.auth_version
+        FROM new_driver d JOIN new_emp e ON e.employee_id = d.employee_id
+    `, [driverRoleId]);
     const driver2 = driver2Rows[0];
     createdDriverIds.push(driver2.driver_id);
     createdEmployeeIds.push(driver2.employee_id);
@@ -99,17 +204,11 @@ async function runTests() {
     `, [vehicleDiesel.vehicle_id, vehicleGas.vehicle_id]);
 
     // Create Fuel Requests
-    const { rows: requestRows } = await pool.query(`
-      INSERT INTO fuelrequests (driver_id, vehicle_id, status, requested_liters, recommended_liters, approved_liters, allocation_month)
-      VALUES ($1, $2, 'Approved', 50, 50, 50, date_trunc('month', CURRENT_DATE)),
-             ($3, $4, 'Approved', 50, 50, 50, date_trunc('month', CURRENT_DATE))
-      RETURNING fuel_request_id
-    `, [driver1.driver_id, vehicleDiesel.vehicle_id, driver2.driver_id, vehicleGas.vehicle_id]);
-    const req1 = requestRows[0].fuel_request_id;
-    const req2 = requestRows[1].fuel_request_id;
+    const req1 = await openFuelRequest(driver1.driver_id, vehicleDiesel.vehicle_id, 50);
+    const req2 = await openFuelRequest(driver2.driver_id, vehicleGas.vehicle_id, 50);
 
-    const token1 = await signAccessToken({ employeeId: driver1.employee_id, role: 'driver', driverId: driver1.driver_id });
-    const token2 = await signAccessToken({ employeeId: driver2.employee_id, role: 'driver', driverId: driver2.driver_id });
+    const token1 = await mintDriverToken(driver1);
+    const token2 = await mintDriverToken(driver2);
 
     // Helper to call API
     async function submitFuel(token, payload) {
@@ -149,13 +248,10 @@ async function runTests() {
 
     // --- Scenario B: Driver Corrects AI
     console.log("\\n--- Testing Scenario B: Driver Corrects AI ---");
-    const { rows: reqBRows } = await pool.query(`
-      INSERT INTO fuelrequests (driver_id, vehicle_id, status, requested_liters, recommended_liters, approved_liters, allocation_month)
-      VALUES ($1, $2, 'Approved', 50, 50, 50, date_trunc('month', CURRENT_DATE)) RETURNING fuel_request_id
-    `, [driver1.driver_id, vehicleDiesel.vehicle_id]);
-    
+    const reqB = await openFuelRequest(driver1.driver_id, vehicleDiesel.vehicle_id, 50);
+
     const payloadB = {
-      fuel_request_id: reqBRows[0].fuel_request_id,
+      fuel_request_id: reqB,
       fuel_date: new Date().toISOString(),
       receipt_url: `${supabaseUrl}/storage/v1/object/sign/fuel-receipts/${driver1.driver_id}/receipt2.jpg?token=123`,
       client_submission_id: 'sub-edit-001-test',
@@ -187,13 +283,10 @@ async function runTests() {
 
     // --- Scenario D: Wrong Fuel Type ---
     console.log("\\n--- Testing Scenario D: Wrong Fuel Type ---");
-    const { rows: reqDRows } = await pool.query(`
-      INSERT INTO fuelrequests (driver_id, vehicle_id, status, requested_liters, recommended_liters, approved_liters, allocation_month)
-      VALUES ($1, $2, 'Approved', 20, 20, 20, date_trunc('month', CURRENT_DATE)) RETURNING fuel_request_id
-    `, [driver1.driver_id, vehicleDiesel.vehicle_id]);
+    const reqD = await openFuelRequest(driver1.driver_id, vehicleDiesel.vehicle_id, 20);
 
     const payloadD = {
-      fuel_request_id: reqDRows[0].fuel_request_id,
+      fuel_request_id: reqD,
       fuel_date: new Date().toISOString(),
       receipt_url: `${supabaseUrl}/storage/v1/object/sign/fuel-receipts/${driver1.driver_id}/receipt4.jpg?token=123`,
       client_submission_id: 'sub-wrongfuel-001-test',
@@ -207,13 +300,10 @@ async function runTests() {
 
     // --- Scenario E: Suspicious Price ---
     console.log("\\n--- Testing Scenario E: Suspicious Price ---");
-    const { rows: reqERows } = await pool.query(`
-      INSERT INTO fuelrequests (driver_id, vehicle_id, status, requested_liters, recommended_liters, approved_liters, allocation_month)
-      VALUES ($1, $2, 'Approved', 10, 10, 10, date_trunc('month', CURRENT_DATE)) RETURNING fuel_request_id
-    `, [driver1.driver_id, vehicleDiesel.vehicle_id]);
+    const reqE = await openFuelRequest(driver1.driver_id, vehicleDiesel.vehicle_id, 10);
 
     const payloadE = {
-      fuel_request_id: reqERows[0].fuel_request_id,
+      fuel_request_id: reqE,
       fuel_date: new Date().toISOString(),
       receipt_url: `${supabaseUrl}/storage/v1/object/sign/fuel-receipts/${driver1.driver_id}/receipt5.jpg?token=123`,
       client_submission_id: 'sub-price-001-test',
@@ -230,21 +320,15 @@ async function runTests() {
     console.log("Scenario F1 Response (Same client_submission_id):", resF1.status, resF1.data);
     
     const payloadF2 = { ...payloadE, client_submission_id: 'sub-price-002-test', receipt_transaction_id: 'receipt-12345' };
-    const { rows: reqFRows } = await pool.query(`
-      INSERT INTO fuelrequests (driver_id, vehicle_id, status, requested_liters, recommended_liters, approved_liters, allocation_month)
-      VALUES ($1, $2, 'Approved', 10, 10, 10, date_trunc('month', CURRENT_DATE)) RETURNING fuel_request_id
-    `, [driver1.driver_id, vehicleDiesel.vehicle_id]);
-    payloadF2.fuel_request_id = reqFRows[0].fuel_request_id;
+    const reqF2 = await openFuelRequest(driver1.driver_id, vehicleDiesel.vehicle_id, 10);
+    payloadF2.fuel_request_id = reqF2;
     
     const resF2 = await submitFuel(token1, payloadF2);
     console.log("Scenario F2 Response (Submit first time with transaction ID):", resF2.status, resF2.data);
     
     const payloadF3 = { ...payloadF2, client_submission_id: 'sub-price-003-test' };
-    const { rows: reqF3Rows } = await pool.query(`
-      INSERT INTO fuelrequests (driver_id, vehicle_id, status, requested_liters, recommended_liters, approved_liters, allocation_month)
-      VALUES ($1, $2, 'Approved', 10, 10, 10, date_trunc('month', CURRENT_DATE)) RETURNING fuel_request_id
-    `, [driver2.driver_id, vehicleGas.vehicle_id]);
-    payloadF3.fuel_request_id = reqF3Rows[0].fuel_request_id;
+    const reqF3 = await openFuelRequest(driver2.driver_id, vehicleGas.vehicle_id, 10);
+    payloadF3.fuel_request_id = reqF3;
     payloadF3.receipt_url = `${supabaseUrl}/storage/v1/object/sign/fuel-receipts/${driver2.driver_id}/receipt5.jpg?token=123`;
     
     const resF3 = await submitFuel(token2, payloadF3);
