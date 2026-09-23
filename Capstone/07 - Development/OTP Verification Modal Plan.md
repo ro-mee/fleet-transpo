@@ -157,6 +157,14 @@ under `mobile/.expo`, not by these files.
 
 ## Status
 
-Implemented for the existing TOTP/recovery-code MFA flow, including the
-server-backed trusted-device opt-in. Email OTP delivery remains a separate
-backend/provider decision.
+Implemented for the TOTP/recovery-code MFA flow, including the
+server-backed trusted-device opt-in.
+
+**Superseded 2026-09-22.** The flow this modal serves changed: email OTP replaced TOTP
+entirely, so the code now arrives by email rather than from an authenticator app. The
+modal geometry, the six cells, the auto-submit on the sixth digit and the
+trusted-device opt-in all survived unchanged — which is the point of this note, since
+the surface was built to be indifferent to where the code came from. What changed is
+only the copy (the masked destination address replaces the authenticator prompt), the
+recovery-code issuance gate, and the trusted-device window, now 7 days rather than 30.
+See [[Authentication]].

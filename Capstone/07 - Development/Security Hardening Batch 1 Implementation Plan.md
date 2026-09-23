@@ -14,7 +14,7 @@
 - DRY: reuse `rateLimit`, `peekRateLimit`, `clientIp`, `writeAudit`, `isPassword` — do not reimplement throttling, IP parsing, auditing, or password rules.
 - YAGNI: no new DB migration, no new email/push provider, no admin UI screen — alerting is audit rows plus a read API; dashboard/push is an explicit non-goal recorded in Task 6.
 - Every task ends with `npx eslint` on touched files; the final task runs `npm run verify:auth` (must stay 269/269 or better) and the full suite.
-- Never log, store, or return plaintext passwords, TOTP secrets, tokens, or cookie values; audit `newValues` carry only type/channel/reason metadata.
+- Never log, store, or return plaintext passwords, MFA secrets, tokens, or cookie values; audit `newValues` carry only type/channel/reason metadata.
 - `requirePermission(req, "reports", "read")` allows system_admin, admin, fleet_manager, management (`src/lib/auth/permissions.js` MATRIX) — correct audience for the alerts read API.
 
 ---

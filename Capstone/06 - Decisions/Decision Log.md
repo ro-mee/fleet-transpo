@@ -70,6 +70,111 @@ unsaved state; `saveReturnTo()` preserves the route, not the form. Mitigated by 
 wasn't", `Capstone/01 - System/Security Audit.md`, `src/lib/auth/session-policy.js`,
 migration `113_session_idle_timeout_5min.sql`.
 
+## 2026-09-22 — TOTP MFA replaced by mandatory email OTP
+
+**Decision:** the second factor is a 6-digit code emailed to `employees.email`.
+Mandatory for every account **including `driver`**, on web and mobile; TOTP removed
+entirely; `employee_mfa` left in place but unread. Trusted web devices shortened from
+30 days to 7. Break-glass is recovery codes plus admin-issued emergency codes, with
+**no environment-gated bypass**.
+
+**This is a deliberate downgrade and is recorded as one.** TOTP's secret lives on the
+user's own device and needs no third party; email OTP collapses both factors onto one
+inbox and makes Gmail SMTP a hard dependency of every login, with no graceful
+degradation. The stated reason is demonstrability — it demos without a phone. The
+cost was accepted knowingly rather than argued away. **The honest description of the
+resulting posture is "MFA at first login per device, per week"**, not "MFA on every
+login", because the 7-day trusted-device window is real and the docs say so.
+
+**Why the alternative was rejected.** Keeping TOTP and adding email OTP as a fallback
+was the obvious middle path. It was rejected because it doubles the surface (two
+factors to test, two ways to be locked out, two sets of recovery paths) to buy a
+property — device independence — that the 7-day trusted device already provides in
+practice. A bypass gated on an environment variable was rejected outright: it is a
+second, quieter door into the same room, and it is the one that gets left open.
+
+**Consequences taken on purpose:**
+
+- Gmail SMTP becomes a single point of failure for *all* authentication, not just
+  password reset. The gate fails closed when it is unreachable, so an SMTP outage is a
+  total login outage — an honest failure rather than a silent one.
+- An address that is routable but belongs to a stranger fails **silently**: the code is
+  delivered, just not to the right person. No code can detect this. It is why
+  `scripts/audit-otp-inbox-ownership.mjs` exists as an out-of-band gate, and why the
+  login modal shows the masked address with its domain intact.
+- Precondition, not follow-up: **21 of 35 live accounts could not receive mail**,
+  including the only `super_admin`. Three addresses were corrected before the factor
+  changed. The 17 leaked test-fixture accounts and 19 no-role accounts remain
+  unreachable — see [[Bugs]].
+
+**Evidence:** `src/lib/auth/email-otp.js`, `src/lib/auth/otp-policy.js`,
+migration `119_email_otp_challenges.sql`,
+`Capstone/04 - Architecture/Authentication.md` §"Email OTP as the second factor",
+`Capstone/01 - System/Security Audit.md` §"Email OTP replaced TOTP".
+
+## 2026-09-22 — Unfamiliar sign-ins are detected by device, not by location
+
+**Decision:** notify an account owner when their account is used from a device it
+has never been used from. Detect it on **device identity**, and build **no
+location signal at all**.
+
+Asked whether a sign-in from "another location" would be noticed, the honest answer
+was that *nothing at all* was raised for a login — the only alerts were
+`account_locked`, `token_replay` and `emergency_code_issued`. The gap that matters
+is not the ordinary attacker, who mandatory email OTP already stops at the code, but
+the **7-day trusted-device bypass**: a remembered browser skips the OTP entirely, so
+a stolen cookie would otherwise pass with nothing said.
+
+**Why device and not location.** IP geolocation maps *IP ranges to the ISP's
+registered place*, not to a user's position. The question that prompted this was
+Manila vs Makati — about 10 km apart, in the same country, served by the same
+providers, which is far inside the error margin of the data. A city rule would
+therefore be wrong **in both directions**: it would fire on the legitimate owner
+(their IP resolving to a neighbouring city) and stay silent for an attacker in the
+same metro. Building it would have produced a control that looks like coverage and
+provides none. Location only becomes meaningful at country scale; a country signal
+was offered and **declined** for scope, so there is no location detection in the
+system, by choice rather than omission.
+
+**What was chosen instead:** compare `sessionDeviceLabel(userAgent)` — browser family
++ OS, version deliberately dropped — against the employee's `login_success` history
+over 90 days. Version-dropping is what makes it usable: comparing raw user-agent
+strings would flag every browser auto-update, and comparing raw IPs would flag every
+carrier IP rotation, which for a driver on mobile data is every single login.
+
+**Consequences taken on purpose:**
+
+- **Mobile coverage is weak, and the code says so.** `sessionDeviceLabel` returns the
+  constant `"FleetOps Driver app"` for the mobile channel, so all driver sign-ins
+  share one label. A driver is notified at most once, on their first mobile sign-in.
+  Treat this as a **web-strength control**. Closing it needs the app to send a device
+  model/id — a follow-up, not an oversight.
+- **The remaining hole is stated rather than hidden:** an attacker presenting the same
+  browser family and OS as the owner is not detected, and if they replay a stolen
+  trusted-device cookie they bypass the OTP too. Strictly smaller than the previous
+  state, where nothing fired at all.
+- **`new_sign_in` delivers email, and it is the only event that does** (revised
+  2026-09-22 after the initial `email: false`). The first cut defaulted email off on the
+  grounds that no code delivers that channel. That was accurate but it left the alert
+  reachable only inside the app — useless for the case it exists for, an owner who is not
+  in the app while someone else uses their account. So the channel was wired for this
+  event instead of being declared off: `sendNewSignInAlertEmail` reuses the OTP transport,
+  and the default flipped to `true` so the toggle is honest. The consequence is a
+  **deliberate asymmetry** — the Email toggle now means something on one row of twelve and
+  remains inert on the other eleven ([[Bugs]] BUG-NOTIF-001). Resolving the rest is still
+  a decision, not a patch, but it now has a worked example to copy. Verified by sending a
+  real alert through the producer to the admin inbox: Gmail answered `250 2.0.0 OK`,
+  `accepted` the recipient, and the matching `notifications` and `push_outbox` rows were
+  written (`push_outbox.status = 'error'`, because that account has no `device_tokens`).
+- **No migration was needed** — `notifications`, `push_outbox` and `audit_logs`
+  already existed, and `security_alert` is an `audit_logs` row rather than its own
+  table, so no type constraint had to be widened.
+
+**Evidence:** `src/lib/auth/new-device-alert.js`, call sites in `src/lib/auth.js` and
+`src/app/api/mobile/auth/login/route.js`, `NOTIFICATION_EVENTS.new_sign_in`
+(`src/lib/constants.js`), `STAFF_ROUTES.security` (`src/lib/notifications/target.js`),
+`Capstone/04 - Architecture/Authentication.md` §"New-device sign-in notice".
+
 ## What the pattern shows — INFERRED
 
 **Six of eleven decisions are well-evidenced; the rest are not.** And the well-evidenced ones are documented *in the code that implements them* — docstrings and migration headers — never in `docs/`.

@@ -48,7 +48,7 @@ last_verified: 2026-09-19
 |---|---|
 | Supabase project | `dnxuphhxlzidvwtdqqkq`, db `postgres`, schema `public` |
 | Two privileged credentials | `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` — both bypass RLS → [[ADR-004 Dual Database Access]] |
-| Configuration is local `.env` plus hosting-provider environment variables | 12 local keys; production also requires `MOBILE_JWT_SECRET` and `MFA_ENCRYPTION_KEY`; no `.env.production` → [[Environment Setup]] |
+| Configuration is local `.env` plus hosting-provider environment variables | 23 local keys; production also requires `MOBILE_JWT_SECRET` and the five `SMTP_*`/`EMAIL_FROM` values — SMTP is now load-bearing for **every** login, not just password reset → [[Environment Setup]] |
 | No CI | no `.github/workflows/` |
 | Mobile is Expo and linked to EAS | `mobile/app.json` links project `0c1651d5-7014-48da-8227-5d9f30ea1a23` to owner `josephlopezzzz`; `mobile/eas.json` defines development, preview, and production profiles |
 | CORS is fail-closed | `src/proxy.js` allows same-origin/no-Origin requests and the configured `NEXT_PUBLIC_APP_URL` origin only → [[Technology Stack]] |
@@ -78,7 +78,7 @@ last_verified: 2026-09-19
 
 Ordered, and the first two are non-negotiable:
 
-1. **Add production env keys.** `MOBILE_JWT_SECRET` must be distinct from `NEXTAUTH_SECRET`; `MFA_ENCRYPTION_KEY` must be a stable dedicated 32-byte key; `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, and `BOOKING_GATEWAY` enable their protected integrations. Missing auth secrets fail closed; missing Booking keys leave the gateway mocked or reject inbound calls. → [[Things That Might Break]]
+1. **Add production env keys.** `MOBILE_JWT_SECRET` must be distinct from `NEXTAUTH_SECRET`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` must be a working mailbox provider because **email OTP is the second factor and every login depends on it**; `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, and `BOOKING_GATEWAY` enable their protected integrations. Missing auth secrets fail closed; missing Booking keys leave the gateway mocked or reject inbound calls. `MFA_ENCRYPTION_KEY` is obsolete since 2026-09-22 — do not set it on a new deployment. → [[Things That Might Break]]
 2. **Route-auth audit.** 162 routes, per-route discipline. `npm run verify:auth` currently checks 220 exported methods, including explicit service-token and public protocol exceptions. → [[Authentication]]
 3. **Verify EAS access before a mobile build.** From `mobile/`, run `eas whoami` and `eas project:info`. The linked project is owned by `josephlopezzzz`; an `Entity not authorized` / `action=READ` error means the logged-in Expo account lacks project access. Log in as the owner or have the owner grant access/transfer the project. Do not replace `extra.eas.projectId` unless intentionally creating a new EAS project.
 4. ~~**Lock CORS** to known origins.~~ **Done:** `src/proxy.js` is fail-closed and allows only the configured `NEXT_PUBLIC_APP_URL` browser origin.

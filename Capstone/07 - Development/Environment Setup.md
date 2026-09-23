@@ -6,7 +6,7 @@ source:
   - .env
   - package.json
   - mobile/package.json
-last_verified: 2026-09-03
+last_verified: 2026-09-23
 ---
 
 # Environment Setup
@@ -35,13 +35,16 @@ last_verified: 2026-09-03
 | Key | Consequence of absence |
 |---|---|
 | `MOBILE_JWT_SECRET` | **Required in production.** Mobile token signing fails closed; development/test may fall back to `NEXTAUTH_SECRET` with a warning. It must differ from `NEXTAUTH_SECRET` in production. **CONFIRMED 2026-09-06: its absence on Vercel was the cause of the mobile APK login returning 500 "Internal server error"** — credentials validated, then `getSigningKey()` threw (`src/lib/auth/mobile-token.js:35`). **RESOLVED same day:** secret generated, set as Production env var on Vercel, redeployed; live login + `/api/mobile/driver/ref` verified returning 200 with tokens. No APK rebuild needed — the fix is server-side only. Note: immediately after redeploy, one authenticated call can still 401 from a stale pre-redeploy instance; it clears within a minute. |
-| `MFA_ENCRYPTION_KEY` | **Required in production for MFA.** MFA setup/verification fails closed without a dedicated 32-byte hex/base64 AES-256-GCM key. Generate once and keep it stable after enrollment. |
+| `MFA_ENCRYPTION_KEY` | **Obsolete since 2026-09-22.** It protected the AES-256-GCM TOTP secrets in `employee_mfa`, and nothing reads that table now that email OTP is the second factor. Kept in place deliberately: it is the only thing that could decrypt the old secrets if the change were ever rolled back, and re-deriving it is impossible. Do **not** need to set it on a fresh deployment. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM` | **Now required for every login, not just password reset.** Email OTP is the second factor (see [[Authentication]]), so an unconfigured or unreachable mailbox provider means **nobody can sign in at all** — the gate fails closed rather than falling back. `SMTP_PASS` is a Gmail App Password, which requires 2-Step Verification on the sending account. This is a single point of failure by design and is recorded as an accepted cost. |
 | `CRON_SECRET` | Protected cron endpoints reject requests when the secret is unset. |
 | `BOOKING_WEBHOOK_SECRET` | The inbound webhook rejects requests because it cannot verify Booking. |
 | `BOOKING_GATEWAY` | Without `=http`, the gateway remains the **mock**. Nothing reaches Booking. → [[System Boundaries]] |
 | `OPENAI_API_KEY` | OpenAI is optional; Gemini scans remain available when configured, and deterministic scores still work. → [[AI Advisory]] |
 
-`MOBILE_JWT_SECRET` and `MFA_ENCRYPTION_KEY` must be added to the production hosting environment, not exposed through a `NEXT_PUBLIC_` variable. Vercel deployments need both values configured for the relevant environment and must be redeployed after adding them.
+**Dead npm dependencies (removed 2026-09-23 hygiene pass):** `otpauth` went with the TOTP factor (email OTP replaced it 2026-09-22); `qrcode` was its only remaining consumer via `qrDataUrl()` in `src/lib/auth/mfa.js` and was removed from `package.json` + lock when the review found zero imports. Neither is required for install or build.
+
+`MOBILE_JWT_SECRET` and the five `SMTP_*`/`EMAIL_FROM` values must be added to the production hosting environment, not exposed through a `NEXT_PUBLIC_` variable. Vercel deployments need them configured for the relevant environment and must be redeployed after adding them. Missing `MOBILE_JWT_SECRET` breaks mobile login; missing SMTP breaks **all** login.
 
 ## Two credentials, both total access
 

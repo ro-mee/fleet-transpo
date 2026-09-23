@@ -6,7 +6,7 @@ source:
   - supabase/migrations (notification triggers)
   - src/app/api/notifications
 last_verified: 2026-09-09
-related: ["[[Dispatch]]", "[[Trips]]"]
+related: ["[[Dispatch]]", "[[Trips]]", "[[Authentication]]"]
 ---
 
 # Feature: Notifications
@@ -45,11 +45,16 @@ flowchart LR
     N --> M["Mobile Alerts tab"]
 ```
 
-## Delivery is in-app only — CONFIRMED
+## Delivery is in-app only — SUPERSEDED (written before 2026-08-19)
+
+> **Superseded, not confirmed.** Real push shipped 2026-08-19 — see "Real push
+> delivery" and "Trigger-created notifications now push via an outbox" below.
+> Kept for the reasoning, which is still worth reading; the state it describes
+> is no longer true.
 
 Rows in a table, read by the web dashboard and the mobile **Alerts** tab. No email, no push. A driver who doesn't open the app doesn't find out.
 
-INFERRED: acceptable for a capstone demo; a real deployment would need push, and push can't come from a plpgsql trigger — it would need an outbox pattern or a Supabase webhook.
+INFERRED: acceptable for a capstone demo; a real deployment would need push, and push can't come from a plpgsql trigger — it would need an outbox pattern or a Supabase webhook. *(The outbox pattern is what shipped, and the webhook concern was solved by the outbox plus explicit `flushOutbox()` calls.)*
 
 ## Mobile 3-tier delivery — SHIPPED (2026-08-19)
 
@@ -220,6 +225,142 @@ Dedup is by `notification_id`, falling back to the content key only when an id i
 `notification_preferences` was **0 rows** and read by nothing until
 2026-09-09 — see "Notification preferences are now real" above. The
 start-window producer reads it; the mobile Push toggle bulk-writes it.
+
+## New-device sign-in notice — SHIPPED (2026-09-22)
+
+The first producer whose recipient is the **account owner about their own
+activity**. Every other event here is about operations (a trip, a dispatch, an
+incident); this one is about the account itself.
+
+**Trigger:** a successful sign-in from a device label this employee has not
+signed in from in the last **90 days**. The label is
+`sessionDeviceLabel(userAgent)` (`src/lib/auth/sessions.js:35`) — browser + OS,
+**no version**, so a Chrome update is not a new device. Reusing that helper is
+deliberate: it is already tested, and the version-blindness is the property
+that keeps this from firing every few weeks.
+
+**Ordering is the whole dedupe.** The check runs in both login gates
+(`src/lib/auth.js:280`, `src/app/api/mobile/auth/login/route.js:294`)
+**immediately before** the `writeAudit(login_success)` call. That is what stops
+the current sign-in counting as its own precedent, and it means a label can
+only ever fire once — no separate dedupe key, no advisory lock, no unique
+constraint. **No prior `login_success` at all → silent**, so a brand-new account
+is not told its own first login was suspicious.
+
+**Producer:** `src/lib/auth/new-device-alert.js` — `recordNewDeviceAlert()`.
+Reads `audit_logs` (`resource='authentication'`, `action='login_success'`,
+`resource_id = employee_id`, via `idx_audit_resource`) and maps each row's
+channel through `sessionDeviceLabel(ua, kind)`, so a web row labels as
+"Chrome on Windows" and a mobile row as "FleetOps Driver app".
+
+**Channels:** `in_app` + `push` + **`email`**, all honouring
+`notification_preferences` through the standard `loadPreferenceRows` /
+`channelEnabled` pair. `type='Alert'` → loud `default` push channel.
+
+`new_sign_in` is **the one event whose email channel is actually delivered**
+(2026-09-22). `sendNewSignInAlertEmail` (`src/lib/email/smtp.js`) reuses the
+same SMTP transport as the login OTP, and the producer calls it after the
+in-app row is committed — awaited, not detached, because a detached send can be
+lost when the invocation ends with the response, and this path runs once per
+device rather than once per login so the round trip costs the ordinary login
+nothing. It is gated exactly as the OTP is: skipped when the transport is
+unconfigured or the address is non-deliverable, so the abandoned `@example.com`
+fixtures cannot spend sender reputation on a bounce. It carries **no link** —
+the only base-URL source is the optional `NEXT_PUBLIC_APP_URL`, so a link could
+render as `localhost` in a real inbox. The email is sent **only if the `email`
+channel is enabled**, which makes that toggle meaningful for this event alone;
+every other event still offers an inert one (BUG-NOTIF-001).
+
+**Deep link:** `reference_type='security'` + `reference_id = employee_id`, with
+a new `security` entry in `STAFF_ROUTES` (`src/lib/notifications/target.js`).
+`reference_id` **must** be non-null — `getNotificationHref` returns null when
+the id is missing, and the tap would silently just mark the row read. Both the
+`notifications` and `push_outbox` rows carry the same pair, which is also what
+lets `flushOutbox` stamp `notifications.pushed_at`.
+
+**Best-effort, never blocking:** the whole routine is wrapped and cannot deny a
+valid sign-in — the same contract as `flushOutbox`. `flushOutbox({
+employeeIds: [id] })` is awaited *after* the writes and only when a signal
+actually fired, so the ordinary login path pays nothing. The push and email
+legs each carry **their own** catch as well: both sit after the in-app row is
+committed, so an unhandled failure in either would suppress the ones after it
+and report a delivered alert as an error. Push is the channel already known to
+reach nobody for an account with no `device_tokens` row, which is exactly the
+case that must not matter.
+
+**Honest scope — this is a web control.** `sessionDeviceLabel(ua, "mobile")`
+returns the **constant** `"FleetOps Driver app"`, ignoring the user agent
+entirely. So every driver phone collapses to one label: a driver is alerted at
+most once ever, and a second phone is indistinguishable from the first. Making
+mobile meaningful needs the app to send a device model/id. It is also a **coarse**
+control by design — an attacker reporting the same browser family + OS as the
+victim is not detected, and no location signal exists at all (a country check
+was considered and rejected: IP geolocation cannot separate two points inside
+the same metro, so it would fire on the owner and miss the attacker).
+
+**No migration** — `notifications`, `push_outbox` and `audit_logs` all already
+carried every column used.
+
+**A preference toggle came for free:** the preferences page renders one row per
+`NOTIFICATION_EVENTS` key, so `new_sign_in` appeared there with no UI work.
+
+**Gates green (2026-09-22).** Focused 44 (`new-device-alert.test.js` 26,
+`smtp.test.js` 18) · full suite 2280 tests / 189 files ·
+`eslint --max-warnings 0` clean · `npm run build` succeeds · `db:contract`
+(61 relations, 0 violations) and `verify:anon` (0 EXPOSED) unchanged, as
+expected with no schema change.
+
+**Sent for real, once.** The producer was driven against the live database for
+emp 48 (`crypticalrome@gmail.com`, admin) with a Firefox user agent — a family
+that account's history provably lacks, since all eight of its rows are Chrome.
+Result `{alerted: true, label: "Firefox on Windows"}`, and Gmail answered
+`250 2.0.0 OK` with the recipient `accepted` and none `rejected`. The
+`notifications` row (`type='Alert'`, `reference_type='security'`,
+`reference_id=48`) and the `push_outbox` row were both written; the latter came
+back `status='error'`, because that account has **0 `device_tokens` rows** — so
+push reaches it never, and the email is the only channel that would have.
+
+**A private window will NOT fire this for that account** — worth knowing before
+a demo. The label is browser family + OS, and a private window clears cookies,
+not the user agent, so an owner who already has `"Chrome on Windows"` history
+stays quiet. Triggering it on web needs a **different browser family or OS**
+(Firefox, Edge, a phone browser), not merely a fresh session.
+
+**Two live-data checks that could each have made this feature wrong, both
+run against the real database (read-only):**
+
+1. **User-agent coverage is total, so no false "new device" on first login.**
+   `audit_logs` holds 264 `login_success` rows across 10 employees and
+   **all 264 carry a non-blank `user_agent`**. The concern that historical nulls
+   would label as `"Browser on device"` and never match a real browser — making
+   every existing user look like a new device — does not apply here.
+2. **Mobile self-dedup holds.** All 64 `okhttp` rows (the app's UA) carry
+   `new_values->>'channel' = 'mobile'`, so they resolve to the constant
+   `"FleetOps Driver app"` and match the label the current mobile login passes
+   in. Had those rows lacked `channel`, they would have been parsed down the web
+   path and **every driver would have been alerted on every mobile sign-in**.
+   They do not. Web rows likewise carry `channel: 'web'` and parse normally.
+
+**Known false negative, from contaminated test data — not from a bug here.**
+`scratch-test.mjs` (committed, repo root) logs in as real drivers against the
+live mobile API and writes `login_success` rows with fabricated user agents
+(`MobileDeviceA/B/C`, `UserBDevice`, `PrivateIPDevice`, `PublicIPDevice`) and
+fake IPs (`123.123.123.123`, `8.8.8.8`). Those rows land on the same
+`"FleetOps Driver app"` label as genuine mobile logins, so they **suppress** the
+alert they should not. Concretely, employees 1 (Juan Dela Cruz) and 7 (Joseph
+Lims) have *no genuine login history at all* — every row is fabricated — so a
+real first sign-in from the app will be treated as a known device and stay
+silent. `curl/8.17.0` rows on employees 39 and 41 have the same effect but those
+accounts have ample genuine history. Removing the script and its rows is
+outstanding; the false negative persists until then.
+
+**Still unverified: no real sign-in has exercised the producer.** Both call
+sites are wired and correctly ordered before their `writeAudit` (confirmed by
+reading), and every run so far drove `recordNewDeviceAlert` directly rather than
+through a login. The remaining check is a human signing in from a browser family
+the account has never used (expect the notice, in-app and by email), then from
+the same one again (expect silence), and tapping the notification (must land on
+`/settings/security`). The mobile path remains unexercised entirely.
 
 ## Database tables used
 

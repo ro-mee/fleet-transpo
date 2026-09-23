@@ -116,6 +116,9 @@ operational visibility.
    state. Do not simulate per-device web sessions while web auth remains stateless.
 7. Add vetted TOTP MFA for privileged roles first, hashed recovery codes, and
    step-up checks for sensitive account/role/secret changes.
+   — **Done 2026-09-02, then reversed 2026-09-22:** MFA shipped as TOTP for *all*
+   roles and was subsequently replaced by mandatory email OTP. The "privileged roles
+   first" staging was never used; see the last section of this document.
 8. Finish defense-in-depth work: runtime non-owner DB role/RLS strategy, remaining
    upload validation, CSP nonce/hash evaluation, and semantic auth tests in CI.
 
@@ -165,11 +168,12 @@ current behavior.
   account checks use the same bcrypt work as existing accounts, and passwords
   over bcrypt's 72-byte input limit are rejected.
 
-Deferred by design: verified email delivery, TOTP/recovery-code MFA and
-privileged step-up, per-device web-session history, a scheduled token-pruning
-job, non-owner database/RLS enforcement, the remaining upload audit, and CSP
-nonce/hash evaluation. These require an explicit provider or deployment choice;
-the application does not present them as enabled.
+Deferred by design: verified email delivery, privileged step-up, per-device web-session
+history, a scheduled token-pruning job, non-owner database/RLS enforcement, the remaining
+upload audit, and CSP nonce/hash evaluation. These require an explicit provider or
+deployment choice; the application does not present them as enabled. (`TOTP/recovery-code
+MFA` left this list on 2026-09-02 and was itself replaced by email OTP on 2026-09-22 —
+see the last section of this document.)
 
 ## Security settings UX — 2026-09-02
 
@@ -301,7 +305,13 @@ focused security tests, lint, and the production build.
   access-denied error, but `--configLoader runner` runs the full suite at
   474/474 across 43 retained test files.
 
-## Session management and TOTP 2FA — 2026-09-02 (IMPLEMENTED)
+## Session management and TOTP 2FA — 2026-09-02 (IMPLEMENTED, SUPERSEDED 2026-09-22)
+
+> **Superseded.** Everything below about sessions still holds. Everything below about
+> the *factor* no longer describes the system: TOTP was removed on 2026-09-22 and
+> replaced by email OTP — see the last section of this document. `employee_mfa` is still
+> present in the database but nothing reads it, and `MFA_ENCRYPTION_KEY` is obsolete.
+> `GET /api/auth/mfa/setup|confirm|disable` no longer exist.
 
 The planned security-settings work is now implemented and server-enforced:
 
@@ -462,6 +472,62 @@ The 2026-09-02 note's line "Background polling does not synthesize activity" was
 **Regression guards added:** a structural assertion in `src/security-boundaries.test.js` that `lib/api/utils.js` contains no `UPDATE web_sessions SET last_seen_at`, and derived-value invariants in `src/lib/auth/idle-session.test.js` (warning and heartbeat interval must stay strictly inside the idle window) — the checks that would have caught the three-way 300s collision a naive constant change produces.
 
 **Severity:** the exposure window was the 12-hour absolute cap, not 1 hour, on every polling page — including with the window minimized. Full details in [[Authentication]].
+
+## Email OTP replaced TOTP — DECIDED AND IMPLEMENTED 2026-09-22
+
+**What changed.** The second factor is now a 6-digit code emailed to the account holder,
+mandatory for every account including `driver`, on web and mobile. TOTP enrollment,
+QR codes, shared secrets, AES-256-GCM secret storage and the three
+`/api/auth/mfa/setup|confirm|disable` routes are gone. `employee_mfa` is retained but
+unread.
+
+**This is a recorded downgrade, not an upgrade.** TOTP's secret lives on the user's
+device and needs no third party; email OTP collapses both factors onto one inbox and
+makes Gmail SMTP a hard dependency of every login. It was chosen because it demos
+without a phone, and accepted knowingly. The honest summary of the resulting posture is
+**"MFA at first login per device, per week"** — not "MFA on every login" — because
+trusted web devices still skip the code, now for 7 days instead of 30.
+
+**What holds it up.** Both factors are checked inside the existing credential exchange,
+so no new public endpoint was added and no enumeration surface exists: `authorize()` only
+runs after the password verifies. Issuing a challenge deletes the employee's live ones
+and inserts one, so "verify" means "the newest live challenge" with nothing on the wire.
+The controls that actually matter are the 5-minute TTL, the 5-attempt ceiling that burns
+the challenge, the 60-second send cooldown, and the table being unreachable from the anon
+key — **not** the SHA-256 digest, which is trivially enumerable over a 10^6 space and is
+documented as such at the call site.
+
+**Fail-closed behaviour.** If SMTP is unconfigured or the address is not deliverable, the
+login is refused with an honest message and audited as `mfa_unavailable`. There is no
+bypass, no environment-gated override, and no fallback that lets a login through.
+
+**Break-glass.** Two paths, both audited: recovery codes (10 per set, SHA-256 hashed,
+single-use, now regenerated on the current password rather than a TOTP code, because
+requiring an emailed code on the path taken when email fails is circular), and
+admin-issued 15-minute emergency codes returned in plaintext once for an operator to read
+aloud, which also raise a security alert. A live emergency code is never displaced by a
+self-service send — that guard closes the deadlock where the admin's hand-delivered code
+would be destroyed and replaced by an email the locked-out user cannot receive.
+
+**The finding this created, which code cannot fix.** Email OTP turns `employees.email`
+into a security-critical field, and **21 of 35 live accounts could not receive mail**
+before this change — including the only `super_admin`. Addresses were corrected first,
+as a precondition. What remains unfixable in code is an address that is routable but
+belongs to a stranger: the code is delivered, just not to the right person, so the failure
+is *silent* rather than loud. `scripts/audit-otp-inbox-ownership.mjs` is the out-of-band
+gate for that question, and the login modal masks the local part while showing the domain
+so a user can notice a wrong destination. Twelve accounts are still classified VERIFY
+OWNERSHIP and nineteen are unreachable; see [[Bugs]].
+
+**Also found, not fixed:** 56 of 60 tables grant `TRUNCATE` to `anon`/`authenticated`,
+which RLS does not cover. Migration `116` fixed three of them. PostgREST cannot issue
+`TRUNCATE`, so this is latent rather than a live remote hole — it requires a raw Postgres
+connection as `anon`. Recommended as a separate migration.
+
+**Severity:** the decision is a deliberate reduction in factor strength with a new
+single point of failure (SMTP). The compensating controls are the fail-closed gate, the
+short TTL, the attempt ceiling and the two break-glass paths. Full details in
+[[Authentication]] and the Decision Log.
 
 ## Related
 

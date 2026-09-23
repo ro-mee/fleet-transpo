@@ -356,6 +356,45 @@ Recorded in full in [[Bugs]]. Summary, because it is a statement about the schem
 
 INFERRED: this is the same class of failure as [[DEBT Schema Drift From Migrations]] — schema and code evolve independently. Both directions are now observable, and the destructive direction is gated.
 
+## 2026-09-22 — `119_email_otp_challenges.sql`
+
+`npm run db:status`: **no pending, no changed** → applied. `db:dump` produced a
+**19-line** `schema.sql` diff, all of it the new table plus its index.
+
+| Version | File | Purpose |
+|---|---|---|
+| **119** | `email_otp_challenges.sql` | `email_otp_challenges` — hashed single-use emailed login codes bound to `auth_version`, with `purpose` (`login` \| `break_glass`), `attempts`/`max_attempts`, `consumed_at` and `expires_at`. Idempotent, **no policies**, **no `FORCE`**. |
+
+This is the table behind email OTP replacing TOTP — see [[Authentication]] and the
+Decision Log.
+
+**The two things `schema.sql` cannot show, and how they were verified.** As usual the
+diff is blind to both, so neither was taken on faith:
+
+- `ENABLE ROW LEVEL SECURITY` — migration `100` was a one-time list of 20 tables and
+  new tables do not inherit it. Confirmed against the live catalog
+  (`relrowsecurity = true`, `pg_policies` empty).
+- `REVOKE ALL PRIVILEGES … FROM anon, authenticated` — RLS does **not** cover
+  `TRUNCATE`, so a table with RLS on and an anon grant is still one statement from
+  empty. Confirmed: zero `anon`/`authenticated` grants on the new table.
+
+`npm run verify:anon` returns **PASS with an explicit refusal (HTTP 401, SQLSTATE
+42501)** — a refusal, not `200 []`. That distinction is the whole point: `200 []` would
+have been INCONCLUSIVE, and INCONCLUSIVE has already been resolved against this project
+once (SEC-DB-003). `npm run db:contract` agrees, and the table is registered in
+`scripts/lib/schema-contract.mjs` so the offline gate covers it too.
+
+**`employee_mfa` was not dropped.** Its contract entry stays and its `reason` now records
+that it is retained but unread. Dropping it would trip the destructive-DDL gate in
+`schema-contract.security.test.js`, which requires the contract entry *and* every caller
+to move in one change — and the encrypted secrets it holds are irreversible to recreate.
+A follow-up migration can remove it once rollback is no longer wanted.
+
+**Also found while verifying, not fixed:** 56 of 60 tables grant `TRUNCATE` to
+`anon`/`authenticated`. Migration `116` fixed three; the rest are latent rather than
+live-exploitable (PostgREST cannot issue `TRUNCATE`; it needs a raw Postgres connection
+as `anon`) and belong in their own migration. Recorded in [[Bugs]].
+
 ## Related
 
 [[Database Overview]] · [[DEBT Schema Drift From Migrations]] · [[Quick Reference]] · [[ADR-008 Manual Migration Procedure]] · [[ERD]] · [[SEC Database Password In Git History]]

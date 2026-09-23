@@ -201,7 +201,7 @@ impeccable (Operate critique + craft floor + mechanical detector), taste
 
 ## Known remaining gaps (post-waves)
 - Per-device web session history isn't tracked (security page explains honestly).
-- Email delivery (reset links, notification email/push channels) still not implemented — UI copy no longer claims otherwise.
+- **Notification *email* delivery is not implemented, and the UI still claims it is** — corrected 2026-09-22. The earlier version of this line said "Email delivery (reset links, notification email/push channels) still not implemented — UI copy no longer claims otherwise", which was wrong on all three counts: password-reset email **is** delivered (`src/lib/email/smtp.js`), notification **push** **is** delivered (`src/services/push.service.js` + `push_outbox`), and the UI **does** still claim email delivery — the notification preferences page renders an **Email** toggle per event, described as "Send notifications via email", with 7 of 12 events defaulting it on, while no producer ever reads that channel. Filed as **BUG-NOTIF-001**; the fix is a decision (wire the channel, or remove the toggle), not a patch.
 - Trips list lacks a Guest column because `TRIPS_LIST_SELECT` doesn't expose request/guest fields (backend change required).
 - Dispatch reassign conflicts arrive as plain strings from `PUT /api/dispatch/[id]` (no structured `conflicts[]`) — inline rendering handles both shapes today.
 
@@ -233,12 +233,14 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
   recovery-code management, session fetching/revocation, confirmation prompts,
   API routes, and sign-out behavior are unchanged. The 72-byte helper now names
   the enforced unit accurately.
-- MFA loading, enabled, setup-pending, enrollment, and recovery states remain
-  factual. The supported-app row uses four small local SVG brand marks for Google
-  Authenticator, Microsoft Authenticator, Authy, and 1Password, while the helper
-  copy stays vendor-neutral and accurate to the RFC 6238 TOTP implementation.
-  Dark marks sit on a light-neutral icon surface for dark-mode visibility; the
-  adjacent app names remain the accessible labels. Session rows still use returned
+- MFA loading, required, and recovery states remain factual. The 2026-09-19
+  supported-app row (four local SVG brand marks for Google Authenticator,
+  Microsoft Authenticator, Authy, and 1Password, with vendor-neutral helper copy
+  accurate to the RFC 6238 TOTP implementation) was **removed on 2026-09-22**:
+  there is no authenticator app any more, so the row was deleted rather than
+  reworded, and the card now states that email OTP is mandatory and cannot be
+  switched off. The dark-mode icon-surface treatment went with it. Session rows
+  still use returned
   device, location, IP, and activity data only, with activity and sign-in times on
   separate lines for faster scanning; the row exposes only the working sign-out
   action, with no placeholder overflow control.
@@ -450,21 +452,69 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
   24px-class radius, top-right close control, lock/check hero mark, generous
   vertical rhythm, and no nested header/footer card chrome.
 - The reference layout now includes six compact OTP cells backed by one
-  accessible numeric input, a phone-icon authenticator helper row, the opt-in
-  “Remember this device for 30 days” affordance, automatic verification,
-  a “Having trouble?” divider, and an outlined recovery-code action.
+  accessible numeric input, a mail-icon helper row naming the **masked**
+  destination address, the opt-in “Remember this device for 7 days” affordance,
+  automatic verification, a “Having trouble?” divider, and an outlined
+  recovery-code action. (Revised 2026-09-22: the helper row was a phone-icon
+  authenticator prompt, and the remember-device window was 30 days.)
+- The masked address is shown with its **domain intact** on purpose —
+  `za••••••••@gmail.com`. Email OTP makes the destination mailbox the thing that
+  can be wrong in a way nothing else reveals, so a user whose address is at
+  `@yahoo.com` seeing `@gmail.com` has just been handed the one signal worth
+  showing. Masking the domain too would hide it.
 - Motion remains intentionally small but explicit: per-entry scale/tint, a
   blinking active caret, a short invalid-code shake, a lock scan while the
   server verifies, a drawn success check with restrained particles, and the
   confirmed state before role-aware navigation. The existing
   `MotionConfig reducedMotion="user"` governs the interaction.
-- The remember-device row is an explicit opt-in backed by a 30-day HttpOnly
-  cookie. The server stores only a SHA-256 hash in private
+- The remember-device row is an explicit opt-in backed by a **7-day** HttpOnly
+  cookie (shortened from 30 on 2026-09-22). The server stores only a SHA-256 hash
+  in private
   `trusted_web_devices`, checks expiry/revocation/current `auth_version`, and
-  revokes remembered devices on security-sensitive auth/session changes.
-- Email OTP remains a separate delivery feature; this surface currently
-  verifies TOTP/recovery codes.
+  revokes remembered devices on security-sensitive auth/session changes. Because
+  the window is real, the accurate claim is "one verification per device per
+  week", and the Settings card says so rather than implying a code on every login.
+- This surface verifies the emailed OTP or a recovery code. The previous line
+  here — "Email OTP remains a separate delivery feature; this surface currently
+  verifies TOTP/recovery codes" — is now inverted: the emailed code **is** the
+  feature, and TOTP is gone.
 - Verified with touched-file ESLint, production build, 61 focused auth/schema
   security tests, `db:contract`, and a live catalog check confirming RLS,
   revoked anon SELECT, and the unique token-hash constraint. Repo-wide lint
   still reports unrelated generated `mobile/.expo` bundle errors.
+
+### New-device sign-in notice (2026-09-22)
+
+No new surface was designed, and that is the point: the notice reuses the
+existing notification feed and the existing preferences page.
+
+- **One new row in Notification Preferences.** `notifications/preferences/page.js`
+  renders a toggle per `NOTIFICATION_EVENTS` entry, so adding the `new_sign_in`
+  key produced a **New Sign-In** row with In-App / Email / Push toggles and no UI
+  work at all. In-App is on and pinned (the page disables turning it off); Push
+  defaults on; **Email defaults off**, unlike 7 of the other 12 events — see
+  BUG-NOTIF-001 above, which is the reason.
+- **Copy is the whole interaction.** Title *"New sign-in to your account"*, body
+  *"We noticed a sign-in from Chrome on Windows. If this was you, no action is
+  needed. If it wasn't, change your password and tell your administrator."* The
+  device label is stated because it is what the owner can actually judge; no IP
+  address or location is shown, since none is collected for this purpose and the
+  coarse location data available is not trustworthy enough to display as evidence.
+- **The tap target is `/settings/security`** via a new `STAFF_ROUTES.security`
+  entry, and only for roles `getRequiredRolesForPath` says may open it. Drivers
+  have no matching entry, so for them the tap falls back to marking read rather
+  than landing on a guard redirect.
+- **Not verified in a browser.** The row's appearance and the notification's
+  rendering are untested in a live session; the mobile path has never been
+  exercised at all.
+
+### Dashboard Query Errors & Session Expiry Degradation Polish (2026-09-23)
+
+- **Root cause of background error flood:** When a user's web session expired after 5 minutes of inactivity, `SessionTimeoutDialog` rendered a centered modal over a blurred backdrop (`backdrop-blur-[2px] bg-[#0F172A]/[0.38]`). Meanwhile, concurrent dashboard queries (`reservations`, `dispatches`, `maintenance`, `incidents`, `documents`, `fuelRequests`) polling in the background received `HTTP 401 Unauthorized`.
+- In `src/components/dashboard/role-dashboard.jsx`, `<QueryErrors items={[ ... ]} />` iterated over all failed queries and mounted a vertical stack of 6–11 bright red `QueryErrorBanner` alerts with non-functional `[Retry]` buttons right behind the modal. Cards also wiped their contents into red "unavailable" panels.
+- **Remediation:**
+  1. **Removed top-level `<QueryErrors />` banner stacks:** Completely removed `<QueryErrors items={[ ... ]} />` across all four dashboards (`SystemAdminDashboard`, `AdminDashboard`, `FleetManagerDashboard`, `DispatcherDashboard`). Removed unused `QueryErrorBanner` import and deleted the `QueryErrors` helper.
+  2. **Refined `FeedState`:** Updated error predicate to `query?.isError && !query?.data` so cached feed data is retained, and removed obsolete copy `"Use Retry in the alert above."`.
+  3. **Preserved cached card data:** In `src/components/dashboard/operations-cards.jsx`, updated `RequestPipelineCard`, `DocumentComplianceCard`, `MaintenancePressureCard`, and `IncidentRiskCard` to check `query?.isError && !query?.data` (and empty item checks). Cards now gracefully retain previously rendered charts, metric cards, and lists under the session-expired blur without flashing red.
+  4. **Configured QueryClient retry rejection:** In `src/components/providers.jsx`, updated `defaultOptions.queries.retry` to immediately reject `401`, `403`, and session-expiration errors (`code.startsWith("SESSION_")`) to prevent redundant background retry floods.
+- **Verification:** Verified with full Vitest test suite (`2,280/2,280 tests passed across 189 test files`).

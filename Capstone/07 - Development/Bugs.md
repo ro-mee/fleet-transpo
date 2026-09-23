@@ -227,6 +227,32 @@ The leaked database password was **rotated on
   and everything reading it (`:332`, `:374`, `map.js:613`) is inert — the "an
   abandoned tour is reclaimed" safety valve does not exist. Not the cause of the
   missing spotlight; recorded so it is not mistaken for a working guard.
+- **BUG-NOTIF-001 — the Email notification channel is offered in the UI and
+  nothing delivers it — MEDIUM, OPEN (partially fixed 2026-09-22).**
+  `NOTIFICATION_CHANNELS` declares
+  `EMAIL` (`src/lib/constants.js:198`) and the preferences page renders an
+  **Email** toggle for every event, described as "Send notifications via
+  email" (`src/app/(dashboard)/notifications/preferences/page.js:14`). Seven of
+  the twelve entries in `NOTIFICATION_EVENTS` default it **on**, so a user sees
+  Email enabled and can toggle it either way. But **no producer ever reads the
+  channel**: every `channelEnabled` call site passes only `in_app` and `push`
+  (`assigned-trip-scan.service.js:45,50,55`,
+  `start-window-notifications.service.js:194,200`), and the sole
+  `channel: "email"` in the
+  repository is a test asserting the default resolves to `false`
+  (`preferences.test.js:28`). The row is honoured if written — nothing acts on
+  it. So the toggle is inert and the default advertises a channel that does not
+  exist. Found 2026-09-22 while adding `new_sign_in`.
+
+  **Partially fixed:** `new_sign_in` now reads the channel and delivers it
+  (`new-device-alert.js` → `sendNewSignInAlertEmail`), and its default was
+  flipped to `true` to match the six other events that advertise email. That
+  leaves the *remaining* eleven events as the open defect: their Email toggle
+  is still inert. The same decision still stands for them — wire the channel
+  (`sendOtpEmail`'s transport is the reuse path, as `new_sign_in` now proves)
+  or remove `EMAIL` from `NOTIFICATION_CHANNELS` and the toggle from the page.
+  Note the asymmetry this creates, which is worth resolving one way or the
+  other: the toggle is honest on exactly one row of twelve.
 
 ### Not yet filed as individual notes
 
@@ -245,6 +271,46 @@ The leaked database password was **rotated on
 - ~~**`no-undef` is disabled** for plain `.js`~~ → **enabled 2026-08-11**, with browser/node/serviceworker globals plus Expo's `__DEV__`. It found a 4th instance of the bug class within minutes. → [[BUG AuthError Not Imported]]
 - **No gate resolves imports.** After a symbol was deleted in Phase 3, `npm run test:run` **and** eslint both passed while three modules still imported it across five call sites. Vitest loads only what its tests reach; the flat eslint config doesn't run `import/no-unresolved`. This is a hole in the gates, not a bug in a file — worth filing as its own note if a CI job is ever set up. → [[Things I Should Not Forget]]
 - **Reports compute over empty tables — CONFIRMED, and it is not a code bug.** `/api/reports/financial`, `/fuel-consumption` and `/fleet-cost` all read `fuelrecords`, which has **0 rows**. The code is honest about it: `financial/route.js:15` guards the division (`totalDist ? … : 0`) and `fuel-consumption/route.js:22-30` returns an explicit zeroed shape when there are no records. So the endpoints return real zeros, not fabricated figures. The hazard is one of *presentation*, not correctness — a dashboard of zeros looks like a working system with a quiet month. Phase 4 item 14 (seed realistic data) is the fix. → [[Reports]]
+- **Verification scripts leak employee rows into the live database (2026-09-22):** the
+  live project carries **17 test-fixture accounts** that no verification run cleans up —
+  `Test Driver`, `Analytics Driver`, and timestamped addresses of the form
+  `testdriver1-1788084811.874075@example.com`. They are employee + driver rows, created
+  by `scripts/verify-*.mjs` runs against the real `DATABASE_URL` and abandoned when the
+  script exits. This is the same failure class as
+  [[DEBT Schema Drift From Migrations]]: the scripts assert against live state and then
+  leave it changed. Today they are junk rows; under mandatory email OTP they become
+  **accounts nobody can sign into and nobody can clean up through the UI**, because their
+  addresses are on the reserved, non-deliverable `example.com` domain. Fix is a
+  teardown block per script (the `verify-register-account.mjs` finally-block hard-delete
+  is the pattern) **plus** a one-off cleanup. Not fixed; the user's call was to leave them
+  for now.
+- **`employees.email` became security-critical with no ownership check (2026-09-22):**
+  email OTP turns the address into the delivery channel for the second factor, and
+  nothing in the system verifies that an address belongs to the employee it is attached
+  to. Two distinct failure modes, and they are not equally bad:
+  - **19 accounts sit on non-routable or placeholder domains** (`@example.com`,
+    `@fleetops.com`). These fail **loudly** — the login gate's
+    `isDeliverableEmailAddress()` refuses before a code is sent, so the account simply
+    cannot sign in and the reason is legible.
+  - **12 accounts have routable addresses whose ownership is unconfirmed** — real-looking
+    Gmail/Yahoo handles that may belong to strangers. These fail **silently**: the code
+    is delivered to someone, just possibly not the employee. Nothing in code can detect
+    this, which is why `scripts/audit-otp-inbox-ownership.mjs` exists as an out-of-band
+    readiness gate and why the login modal shows the destination domain.
+  Current audit state: **3 owned, 12 unverified, 19 unreachable** of 34 active accounts.
+  The 12 are the blocking item; Forgot-password doubles as a deliverability probe, since
+  it uses the same channel. `admin@gmail.com` is the clearest single case — a generic
+  handle that is almost certainly a stranger's mailbox.
+- **56 of 60 tables grant `TRUNCATE` to `anon` and `authenticated` (2026-09-22, latent):**
+  found while verifying migration `119`, by checking the grant list rather than just
+  `relrowsecurity`. Row-level security **does not apply to `TRUNCATE`**, so a table with
+  RLS enabled and an anon grant is still one statement from being emptied by anyone
+  holding the public anon key — the exact hazard `AGENTS.md` calls load-bearing and that
+  migration `116` fixed for three tables. **Honest exploitability caveat:** this is
+  *latent*, not a live remote hole. PostgREST cannot issue `TRUNCATE`, so reaching it
+  requires a raw Postgres connection authenticated as `anon`, which is not a path the
+  deployed app exposes. Recommended as its own migration
+  (`REVOKE ALL PRIVILEGES … FROM anon, authenticated` across the remainder). Not fixed.
 - **Checked and dismissed:** the `Math.random()` calls in `reservations/new/page.js:126-150` are a **labelled** demo-fill button (`handleRandomFill`, toast: *"Filled mock transport request data!"*). Recorded here so the next person doesn't re-flag it.
 
 ## 2026-09-18 — SEC-DB-003 / SEC-DB-004 (found by live probe, not by the suite)
@@ -2253,3 +2319,66 @@ guard cleanups ride with the commits that touch those effects, because the flag
 in `DriverSos.js` was introduced by this same uncommitted work and so had no HEAD
 state to correct separately. **Not verified on a device** — nothing here changes
 runtime behavior beyond text size.
+
+## Fixed — 2026-09-23 — the Map tab stopped matching its siblings (reported as "may nabago sa UI ng nav/tab")
+
+Reported by the owner against the built app: the bottom nav looked different
+from before. It was, and the cause was a committed change from the day before.
+
+### The finding
+
+`4b3d070`'s successor `22cbd46` (2026-09-22, the guided-tour commit) wrapped the
+Map tab item in `CoachMarkTarget` to publish a spotlight target:
+
+```jsx
+<CoachMarkTarget key={tab.routeName} targetId="tab.map" radius={24} padding={4}>
+```
+
+**No `style` prop was passed.** `CoachMarkTarget`'s root is an `Animated.View`
+(`components/coachmarks/CoachMarkTarget.jsx:452`) rendered with `style={style}`,
+so the wrapper was a bare `View` — and a bare RN `View` is `flexGrow: 0,
+flexShrink: 0`, not `flex: 1` like the item it wrapped (`styles.tabItem`,
+`CurvedPillTabBar.js`). Its siblings Home, Trips and Profile are still direct
+`flex: 1` children of a `justifyContent: "space-around"` row (`tabCluster`), so
+Home absorbed the whole cluster's free space while the wrapped Map item shrank to
+its content width. The left cluster (Home + Map) no longer matched the right
+cluster (Trips + Profile).
+
+The wrapper also took `tabItem`'s `zIndex: 125` out of the sibling stack, since
+that property now applied inside the wrapper instead of to a child of the row.
+
+### Why this was a mistake and not a design
+
+Two other targets wrap a child that is laid out by its parent's flex rules and
+**both pass a `style`** for exactly this reason — `DriverHomeCards.jsx:169`
+(`style={{ flexBasis: ... }}`) and `DriverSos.js:293` (`style={[styles.sosWrapper, …]}`).
+The tab bar was the only usage of that kind that omitted it.
+
+Checked and cleared, so **not** the same defect:
+`components/ConnectivityBanner.jsx:167` also omits `style`, but its parent
+`styles.shell` is a default column whose `alignItems: "stretch"` already makes
+the bare wrapper full width, so nothing collapses.
+
+### The fix
+
+The wrapper now carries the flex box the `Pressable` had, so the inner item fills
+it exactly as it filled the row before:
+
+```js
+tabTarget: { flex: 1, height: "100%", zIndex: 125 },
+```
+
+### Reported alongside, not changed
+
+The previous review already found that `targetId="tab.map"` is **mounted but
+referenced by no milestone** (see the "Reported, and deliberately left in place"
+section above). So this wrapper currently measures a target nobody consumes while
+being the sole cause of the regression. Reverting the wrap entirely is the smaller
+change and is the owner's call; the `style` fix keeps the target usable if the
+milestone is still planned.
+
+### Verified
+
+`eslint mobile/components/CurvedPillTabBar.js --max-warnings 0` clean. **Not
+verified visually** — this is a layout fix and the exact spacing has to be
+confirmed by reloading the app, which could not be done from here.

@@ -22,10 +22,11 @@ source:
   - mobile/lib/password-validation.js
   - src/app/api/auth/sessions/route.js
   - src/app/api/auth/mfa/route.js
-  - src/app/api/auth/mfa/setup/route.js
-  - src/app/api/auth/mfa/confirm/route.js
-  - src/app/api/auth/mfa/disable/route.js
   - src/app/api/auth/mfa/recovery-codes/route.js
+  - src/app/api/auth/mfa/emergency-code/route.js
+  - src/lib/auth/email-otp.js
+  - src/lib/auth/otp-policy.js
+  - supabase/migrations/119_email_otp_challenges.sql
   - src/app/api/auth/trusted-device/route.js
   - supabase/migrations/117_trusted_web_devices.sql
   - src/lib/auth/reset-token.js
@@ -33,7 +34,7 @@ source:
   - src/app/(auth)/login/page.js
   - src/app/(auth)/forgot-password/page.js
   - src/app/(auth)/reset-password/page.js
-last_verified: 2026-09-20
+last_verified: 2026-09-23
 ---
 
 # Authentication
@@ -92,7 +93,7 @@ next API request instead of waiting for the 15-minute expiry.
 Everything hangs off `src/lib/api/utils.js`:
 
 ```js
-const DEFAULT_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
+const DEFAULT_ROLES = ["super_admin", "admin", "fleet_manager", "dispatcher", "management"];
 
 resolveIdentity(req)   // Bearer token WINS over cookie session
 requireAuth(req, allowedRoles = DEFAULT_ROLES)
@@ -155,7 +156,7 @@ behavior is:
 - `POST /api/auth/forgot-password` self-serves since 2026-09-19: with SMTP credentials set it mints from the shared `issueResetToken()` issuer and emails the link + code via `src/lib/email/smtp.js` (Nodemailer; Resend SDK was installed and removed the same day before any production send); without a provider it keeps the uniform contact-admin wording. The message depends only on provider configuration, never on the lookup result, so enumeration safety holds either way. Delivery failures are warn-logged server-side and still answer generically. It does not claim that an email was sent when none was.
 - **Web recovery UI (2026-09-20):** `forgot-password/page.js` and `reset-password/page.js` share `recovery-shell.jsx`, which reuses the login page's normal ambient background, desktop brand panel, right-side `max-w-[27rem]` column, and double-bezel card positioning as a standard page layout—not a modal or nested login-page backdrop. Forgot-password keeps the email field neutral on first render and while incomplete; a syntactically valid address immediately shows the compact success feedback, while invalid feedback waits for blur or a submit attempt. The server's generic response remains verbatim, and a local resend affordance is included. Reset-password keeps the token and authenticated current-password paths, gates submission on the shared strong policy (8+ characters, upper/lowercase, number, special character, and 72 UTF-8-byte bcrypt limit), shows four lightweight requirement rows plus a secondary strength indicator, handles mismatch/verification/expired-link states, revokes sessions through the existing server route, and waits for an explicit fresh sign-in action after success. The UI does not weaken server validation or account-enumeration protections.
 - Authentication, session, and MFA events are written to `audit_logs` without storing
-  passwords, cookies, bearer tokens, OTPs, recovery codes, or plaintext TOTP secrets. PostgreSQL-backed
+  passwords, cookies, bearer tokens, OTPs, recovery codes, or plaintext MFA secrets. PostgreSQL-backed
   IP/account rate-limit buckets are shared across app instances and fail closed
   when the database is unavailable.
 - Mobile refresh rotation uses one transaction, a family UUID, single-use rows,
@@ -203,40 +204,161 @@ Verified: mobile suite 129/129, ESLint clean on all 7 touched files,
 `npm run verify:auth` 261/261 (no new backend surface). Physical-device E2E
 (airplane-mode errors, post-change forced re-login, admin-code reset) pending.
 
-## TOTP MFA and session management — CONFIRMED (2026-09-02)
+## Mobile OTP verification screen — IMPLEMENTED (2026-09-23)
 
-- Settings > Security starts enrollment only after the current password is
-  verified, returns an `otpauth://` URI/QR code, and requires a first six-digit
-  TOTP before enabling the factor. Secrets are encrypted with AES-256-GCM in
-  `employee_mfa`; production requires `MFA_ENCRYPTION_KEY`.
-- Ten recovery codes are generated on enable or regeneration. Only SHA-256
-  hashes are stored, each code is atomically single-use, and plaintext codes
-  are returned once to the already-authenticated operator.
-- TOTP verification uses the RFC 6238-compatible `otpauth` package with a
-  30-second period, six digits, ±1 step skew, and `last_used_step` replay
-  protection. Enrollment generates secrets with the v9-compatible
-  `new Secret().base32` API, and MFA attempts have independent IP/account
-  throttles.
-- Web and mobile credential exchanges check the enrolled factor before issuing
-  a session. Missing/invalid factors never create a web session or mobile token.
-- **Web MFA verification UX (2026-09-19):** after valid credentials return
-  `MFA_REQUIRED`, `src/app/(auth)/login/page.js` opens a centered compact
-  reference-matched modal with a pale blue-gray veil, subtle backdrop blur,
-  lock/check hero mark, six animated visual code cells, authenticator guidance,
-  recovery action, and automatic scan/check feedback. The cells are backed by one
-  accessible numeric input. The sixth digit auto-submits through the existing
-  `totpCode` contract; recovery codes remain available in a separate mode.
-  Invalid/replayed codes clear the input and restore focus, while confirmed
-  verification waits for the session before using the existing role-aware
-  return route. The remember-device row is an explicit opt-in backed by
-  `POST/DELETE /api/auth/trusted-device` and a 30-day HttpOnly opaque cookie.
-  Only a SHA-256 token hash is stored in the private `trusted_web_devices`
-  table; records are bound to `auth_version`, expiry, and revocation state.
-  Password, MFA, email, account, and session revocation changes invalidate
-  remembered devices through the shared auth lifecycle. Email OTP remains a
-  separate delivery/provider decision.
-- Enabling/disabling MFA increments `auth_version` and revokes all web/mobile
-  sessions. Password/email/role/account changes use the same revocation path.
+The MFA step that used to be a single inline `ClayInput` on the login form is
+now a dedicated verification step in FleetOps clay styling, mirroring the web
+`MfaVerificationDialog` behavior: **no confirm button — the final digit
+auto-verifies, the success check plays, and the app navigates with no second
+tap.** No new endpoint, no new screen route: `mobile/app/login.js` renders
+`OtpVerificationView` over the login shell while `mfaRequired` holds, keeping
+the username/password in memory for the verify/resend calls.
+
+- **Files.** `mobile/components/otp/OtpInput.jsx` (cells, digit pop, paste
+  distribute, backspace nav), `mobile/components/otp/OtpVerificationView.jsx`
+  (state machine, timer, resend, status), `mobile/lib/otp.js` + `otp.test.js`
+  (dependency-free mirrors of `OTP_CODE_DIGITS`/`OTP_TTL_SECONDS`/
+  `OTP_RESEND_COOLDOWN_SECONDS`, server-matching mask, MM:SS, sanitizer).
+- **Six cells, not four.** The design sketch shows four boxes, but the server
+  issues a 6-digit challenge — a four-digit entry could never verify — so the
+  screen renders six cells and auto-submits on the sixth digit, exactly like
+  the web modal. Backend response stays the source of truth throughout.
+- **Proportional squircles and 3–3 chunking (enhanced 2026-09-23).** Resolved
+  oversized cell height (`minHeight: 58` + `paddingVertical: 12`) and edge-to-edge
+  row stretch: cells are now compact ~44w × 48h squircles with `borderRadius: 12`
+  (matching control tokens) with zero extraneous font padding. The six inputs are
+  chunked into two 3-digit clusters separated by a subtle middle divider (`—`),
+  reducing cognitive strain and matching email delivery format. An animated pulsing
+  cursor pill guides active empty cells, accompanied by primary glow and theme-aware
+  tints. The verification view includes a security shield badge, an elevated email pill
+  chip, and refined footer layout.
+- **State machine.** ENTERING → VERIFYING → ERROR → ENTERING, or VERIFYING →
+  SUCCESS → consent check → `/`. Input and resend lock during verification;
+  the loader holds ≥500ms so the transition reads on fast networks; success
+  holds ~650ms then navigates. Errors shake subtly (~350ms), show
+  icon + message (never color-only), clear the cells, and refocus the first
+  one — except transport failures, which keep the code for a no-retype retry.
+- **Timer/resend.** 5:00 expiry countdown from the server TTL, 60s resend
+  cooldown (resend = re-sign-in with an empty code, so no new endpoint), masked
+  destination address, recovery-code fallback with auto-submit at 20 chars.
+- **Security.** Code lives in local state only — never logged, never in
+  analytics, cleared on error/back/unmount — and verification runs through the
+  existing `signIn` credential exchange.
+
+Verified: `mobile/lib/otp.test.js` 9/9 (client≡server contract pins),
+mobile suite 335/335 passing, ESLint clean on all touched files. Physical-device
+E2E (keyboard behavior, SMS autofill, light/dark states) pending.
+
+## Email OTP as the second factor and session management — CONFIRMED (2026-09-22)
+
+Replaces the TOTP scheme documented here from 2026-09-02. **This is a deliberate
+downgrade in factor strength and is recorded as one** — see Decision Log. It was chosen
+because it demos without a phone, and accepted knowing what it costs.
+
+- **The factor is a 6-digit code emailed to `employees.email`.** There is no enrollment,
+  no authenticator app, no QR code, no shared secret and no per-account switch: it is
+  mandatory for every role **including `driver`**, on both web and mobile. The only
+  variable is whether the server can currently *deliver* it.
+- **Where the check lives.** Both factors are checked inside the existing credential
+  exchange, so **no new public endpoint was added** and `verify:auth` does not move.
+  `authorize()` in `src/lib/auth.js` and the mirrored gate in
+  `src/app/api/mobile/auth/login/route.js` run only *after* the password verifies, which
+  is why a code is never emailed to an unauthenticated caller and there is no account
+  enumeration surface to protect.
+- **Challenge binding with nothing on the wire.** Mirroring `issueResetToken`
+  (`src/lib/auth/reset-token.js`), issuing *deletes* that employee's live unconsumed
+  challenges and inserts one. "Verify" therefore means "the newest live challenge for
+  this employee", the client contract is unchanged, and issuing a new code invalidates
+  the previous one by construction — which is also what removes the two-concurrent-logins
+  race. **Re-submitting the sign-in form is the resend**, so there is no resend endpoint
+  either.
+- **`email_otp_challenges`** (migration `119`) stores `code_hash` (SHA-256 hex),
+  `purpose` (`login` | `break_glass`), `attempts`/`max_attempts`, `auth_version`,
+  `consumed_at` and `expires_at`. RLS is enabled **and** `REVOKE ALL` is applied to
+  `anon`/`authenticated`, because row security does not cover `TRUNCATE`.
+- **The hash is not the protection, and the code says so.** A six-digit space is 10^6
+  values; a plain SHA-256 digest of it is enumerable offline instantly. What actually
+  holds is the 5-minute TTL (`OTP_TTL_SECONDS`), the 5-attempt ceiling
+  (`OTP_MAX_ATTEMPTS`, which *burns* the challenge), the 60-second send cooldown
+  (`OTP_RESEND_COOLDOWN_SECONDS`), and the table being unreachable from the anon key.
+  Policy constants live in `src/lib/auth/otp-policy.js`, dependency-free so the
+  `"use client"` modal cannot drift from the server.
+- **Fail closed, twice.** If `isEmailConfigured()` is false *or* the address is not
+  deliverable, the login is refused with an honest message and the event is audited as
+  `mfa_unavailable`. There is no fallback path that lets the login through. A remembered
+  browser is checked *before* the mail path so an SMTP outage cannot sign out a device
+  that already proved itself.
+- **`employee_mfa` is retained but no longer read.** Dropping it would be irreversible
+  (the secret column is encrypted) and the destructive-DDL gate requires its contract
+  entry and every caller to move in one change. It is dead weight kept for rollback, and
+  its contract `reason` says so.
+- **Recovery codes (break-glass 1).** Ten SHA-256-hashed single-use codes per set, as
+  before — but the issuance points moved, because TOTP enrollment used to be where they
+  came from. They are now issued at account creation and regenerated in Settings >
+  Security, gated on **the current password** rather than a TOTP code. That gate is
+  deliberately not an emailed code: this is the path someone takes when email is not
+  reaching them, and requiring a code here would be circular.
+- **Admin-issued emergency codes (break-glass 2).** `POST /api/auth/mfa/emergency-code`
+  issues a 15-minute single-use `break_glass` challenge and returns the plaintext **once**
+  for an operator to read aloud. Every issue writes an audit row **and** raises a security
+  alert. A live `break_glass` challenge is never displaced by a self-service send:
+  `issueLoginChallenge` returns `break_glass_held` and sends nothing, which closes the
+  deadlock where an admin's hand-delivered code would be destroyed and replaced by an
+  email the locked-out user cannot receive.
+- **Trusted web devices now last 7 days, shortened from 30.** `POST/DELETE
+  /api/auth/trusted-device`, HttpOnly opaque cookie, only a SHA-256 token hash stored,
+  bound to `auth_version`, expiry and revocation. With the longest window in force the
+  honest description is **"MFA at first login per device, per week"** — not "MFA on every
+  login" — and the settings page says so in as many words rather than implying otherwise.
+  Password, MFA, email, role, account and session-revocation changes all invalidate
+  remembered devices through the shared auth lifecycle.
+- **Web verification UX (2026-09-22):** after valid credentials return `MFA_REQUIRED`,
+  `src/app/(auth)/login/page.js` opens the same centered modal (pale blue-gray veil,
+  backdrop blur, lock/check hero, six animated cells backed by one accessible numeric
+  input) with the copy changed from authenticator guidance to **the masked destination
+  address**. Sending the domain through the mask is the point: a user whose address is at
+  `@yahoo.com` seeing `••••@gmail.com` has just been told their code is going to the wrong
+  mailbox, which is the one failure mode email OTP cannot otherwise distinguish. Recovery
+  mode and a resend affordance sit in the same modal; the sixth digit auto-submits.
+- **Delivery.** `sendOtpEmail` in `src/lib/email/smtp.js` reuses the same hand-built
+  table/inline-style template as the password-reset mail, over Gmail SMTP with an App
+  Password. The code is in the subject line so it is readable from an inbox list.
+- **Deliverability — check this first when a code "does not arrive".** Gmail files this
+  message under **Spam** for a recipient who has never corresponded with the sender: a
+  bare six-digit code, in a table layout, from a personal Gmail address is the exact
+  shape of a phishing code mail. Measured on 2026-09-22 — the send path was correct end
+  to end (`250 2.0.0 OK`, `accepted: [recipient]`, `rejected: []`, plus the gate's
+  `mfa_required … delivery:"sent"` row in `audit_logs`) and the message was sitting in
+  Spam. So `delivery:"sent"` means **Gmail accepted the message**, not that a human can
+  see it. Two mitigations, in order of reliability:
+  1. **Recipient-side, deterministic — required setup for any demo or pilot.** On each
+     account that will sign in, add a Gmail filter: From the `SMTP_USER` address →
+     *Never send it to Spam* (`Settings → Filters and blocked addresses`). Do it before
+     the demo, not during. Then open the first message → *Not spam*, and add the sender
+     to **Contacts**. "Not spam" alone only teaches the filter about that one message;
+     the filter is what survives a fresh code.
+  2. **Sender-side, probabilistic.** The message now sends `text/html` **and**
+     `text/plain` (`otpEmailText` / `resetEmailText`) — an HTML-only body is a recognised
+     spam signal, and the text part is also what a screen reader and an HTML-disabled
+     client actually read. Setting `EMAIL_FROM` to a display-name form
+     (`FleetOps <address>`) also presents better than a bare address. Neither is a
+     guarantee: the classifier is Google's, not ours.
+  If a code is missing and the audit row says `delivery:"sent"`, look in the recipient's
+  Spam folder, then in the sender's own inbox for an asynchronous **Mail Delivery
+  Subsystem** bounce — a 250 at the SMTP layer can still be followed by a bounce that
+  only lands on the sender. The footer says "please do not reply", but the From is a real
+  mailbox, so replies do arrive and a two-way thread is one of the strongest signals
+  available for keeping the mail out of Spam.
+- Password/email/role/account changes still increment `auth_version` and revoke all
+  web/mobile sessions and remembered devices via the shared revocation path.
+
+**Accepted costs, stated plainly:** both factors now depend on one inbox; Gmail SMTP is a
+hard dependency of every login with no graceful degradation; and an address that is
+routable but belongs to a stranger fails *silently* — the code arrives, just not to the
+right person. That last one is not a code defect and cannot be fixed in code, which is why
+the inbox-ownership question is answered out of band by
+`scripts/audit-otp-inbox-ownership.mjs` rather than assumed.
+
 - `web_sessions` records safe device metadata and bounded activity. The
   owner-scoped sessions API can list, revoke one, or revoke all other sessions;
   mobile refresh families are grouped as one session entry. Session listing includes
@@ -322,6 +444,121 @@ distinguishes three states — `employee` is null only when there is no session:
 - **Pre-existing defects observed but NOT fixed in this batch:** (1) `isSafeAvatarUrl` is declared inside `authorize()` yet called from the `jwt` callback (`src/lib/auth.js`, eslint `no-undef` x2, present on `main`) — needs a module-scope move; (2) `AssignmentsHeading` in `mobile/components/home/DriverHomeCards.jsx` contains an unclosed old return plus a duplicate `const { colors }` (present on `main`) — file cannot parse as committed.
 - **Follow-up fix (2026-09-16, implemented, uncommitted):** both defects above are now fixed — `isSafeAvatarUrl` moved back to module scope in `src/lib/auth.js` (lint clean, auth tests + `verify:auth` 270/0 green), and `AssignmentsHeading` in `DriverHomeCards.jsx` reduced to the single current implementation (duplicate import, stale return block, and duplicate `scheduleLink` style key removed; file lints clean).
 - **Login lockout UX (2026-09-16, implemented, uncommitted):** wrong-password failures now read `Incorrect email or password. Please check and try again.` (raw `CredentialsSignin` never surfaces). `GET /api/auth/login-status?email=` also peeks the per-account lockout bucket (unlocked accounts always answer `locked:false`, so it stays enumeration-safe) and the login page shows a live `50, 49, 48…` countdown with submit blocked until it reaches zero, then `The temporary lock has lifted — you can try signing in again.`
+
+## New-device sign-in notice — IMPLEMENTED (2026-09-22)
+
+Answers "would I know if someone signed in as me?" — previously **nothing was
+raised for a login of any kind**, from anywhere.
+
+- **What it is.** `src/lib/auth/new-device-alert.js`. On a successful login, if
+  this employee has no prior successful sign-in with the same
+  `sessionDeviceLabel(userAgent)` (`src/lib/auth/sessions.js:35`) within
+  `NEW_DEVICE_WINDOW_DAYS = 90`, the account owner is notified in-app, by push,
+  and by email: *"New sign-in to your account … from Chrome on Windows."*
+- **Where it runs.** Web `authorize` (`src/lib/auth.js`, immediately before the
+  `login_success` audit row) and `POST /api/mobile/auth/login`. One call site per
+  channel covers both the OTP path and the trusted-device bypass, which converge
+  before it.
+- **Ordering is load-bearing.** The call sits *before* the `login_success` write,
+  so the sign-in being judged cannot act as its own precedent — which is also
+  what makes the check self-deduping: once a label is in history it can never
+  fire again.
+- **History source.** `audit_logs` where `resource='authentication'`,
+  `action='login_success'`, `resource_id = employee_id`. `resource_id` carries
+  the employee id because `writeAudit` runs with a null session during login, so
+  `employee_id` is NULL on those rows and `idx_audit_employee` does not apply;
+  `idx_audit_resource (resource, resource_id)` does. The row's
+  `new_values->>'channel'` selects the label kind.
+- **Delivery.** The producer pattern of
+  `start-window-notifications.service.js`: `loadPreferenceRows` +
+  `channelEnabled` → one transaction inserting `notifications` (`type='Alert'`,
+  `reference_type='security'`) and `push_outbox` (`channel_id='default'`) →
+  `flushOutbox({ employeeIds })`. `notifications/preferences/page.js` renders a
+  toggle per `NOTIFICATION_EVENTS` entry, so the new `new_sign_in` event gets its
+  opt-out with no UI work.
+- **Email is wired for this event and no other.** After the in-app row is
+  committed, `sendNewSignInAlertEmail` (`src/lib/email/smtp.js`) sends through the
+  same SMTP transport as the login OTP, gated the same way (`isEmailConfigured`
+  plus `isDeliverableEmailAddress`, so the `@example.com` fixtures are skipped
+  rather than bounced). Awaited, because a detached send can be lost when the
+  invocation ends with the response, and this runs once per device rather than
+  once per login — the ordinary login pays nothing. No link is included: the only
+  base-URL source is the optional `NEXT_PUBLIC_APP_URL`, so a link could render as
+  `localhost` in a real inbox. Push and email each carry their own catch, since
+  both run after the in-app write and an unhandled failure in either would
+  suppress what follows and report a delivered alert as an error.
+- **`reference_id` must be non-null.** It holds the employee's own id.
+  `target.js` returns no href when it is null, and `flushOutbox` matches
+  `notifications.pushed_at` on `(employee_id, reference_type, reference_id)`
+  where `= NULL` never matches. `STAFF_ROUTES.security` maps to
+  `/settings/security`, then `getRequiredRolesForPath` drops it for roles that
+  cannot open the page.
+- **No migration.** `notifications`, `push_outbox` and `audit_logs` all already
+  existed.
+- **Best-effort by contract.** Modelled on `flushOutbox`: the whole routine is
+  wrapped, so a fault here is a missed notification and never a failed login.
+
+### Why no location or country signal
+
+Deliberately excluded, not overlooked. IP geolocation maps ranges to the ISP's
+registered place rather than to a user's position, so two points inside one
+metro cannot be separated — Manila vs Makati is ~10 km, far inside the error
+margin. Such a rule would fire on the legitimate owner and miss the attacker, so
+it would be wrong in both directions. Location only becomes meaningful at country
+scale, and that was declined. See the [[Decision Log]].
+
+### Limits — none of these are hidden by the code
+
+- **Mobile is much weaker than web.** `sessionDeviceLabel` returns the constant
+  `"FleetOps Driver app"` for the mobile channel, and the app sends no
+  device-identifying agent, so every driver sign-in on every phone shares one
+  label. In practice a driver is notified at most once, on their first mobile
+  sign-in, and a second phone is not distinguished. This is a **web-strength
+  control**; closing the gap needs the app to send a device model/id.
+- **The label is coarse by design.** Browser family + OS, no version — chosen so
+  a browser update or a carrier IP change is not a "new device". The cost is that
+  an attacker presenting the same family and OS as the owner is not detected.
+- **The trusted-device bypass is covered only when the attacker's browser
+  differs.** A stolen cookie replayed from the same browser family and OS passes
+  silently — and it skips the OTP, so nothing else catches it either.
+- **`new_sign_in` defaults `email: true` and actually delivers it** (changed
+  2026-09-22). The alert is the one notification event wired to email, because
+  it has to reach the owner when they are *not* in the app — the state a stolen
+  credential is used in. Every other event still defaults `email: true` with
+  nothing sending it, so its toggle remains inert ([[Bugs]] BUG-NOTIF-001).
+- **This does not close** the "dashboard widget and push delivery are explicit
+  follow-ups" note on the security-alert batch above — push delivery for
+  `account_locked` / `token_replay` / `emergency_code_issued` remains open. The
+  new-device notice is a separate producer that pushes directly.
+- **Fabricated `audit_logs` rows suppress the alert today.** `scratch-test.mjs`
+  (committed, repo root; left over from the declined location-signal work) signs
+  in as real drivers against the live mobile API and writes `login_success` rows
+  with invented agents (`MobileDeviceA/B/C`, `UserBDevice`, `PrivateIPDevice`,
+  `PublicIPDevice`) and fake IPs. Those rows are `channel='mobile'`, so they
+  label exactly like a genuine app login and count as precedent. Employees 1
+  (Juan Dela Cruz) and 7 (Joseph Lims) have **no genuine login history at all**,
+  so their real first sign-in from the app will be treated as known and stay
+  silent. The check is behaving correctly on the history it is given — the
+  history is wrong. Clearing the script and its rows is outstanding.
+- **Verified against live data (2026-09-22).** All 264 `login_success`
+  rows across 10 employees carry a non-blank `user_agent`, so no existing user
+  gets a false notice from a null agent on first login. Every mobile row carries
+  `channel='mobile'` and every web row `channel='web'`, so the two label paths
+  are self-consistent — the one shape that would have made every driver alert on
+  every mobile sign-in does not occur. 44 focused tests green, 2280 overall,
+  eslint clean, build succeeds, `db:contract`/`verify:anon` unchanged.
+- **One real send, from the producer to a live inbox** (emp 48, the admin, with a
+  Firefox agent its Chrome-only history lacks): Gmail answered `250 2.0.0 OK`,
+  `accepted` the recipient and rejected none, and both the `notifications` row
+  and the `push_outbox` row were written — the latter `status='error'`, since
+  that account has 0 `device_tokens` rows and push can never reach it. So email
+  is the only channel that would have reached this owner.
+- **Not to be confused with a login.** That run drove `recordNewDeviceAlert`
+  directly; no sign-in has produced the notice yet. Outstanding: sign in from a
+  browser family the account has never used (a **private window is not enough** —
+  it clears cookies, not the user agent, so a known `"Chrome on Windows"` stays
+  quiet), again from the same one (expect silence), then tap it (must land on
+  `/settings/security`). The mobile path has never been exercised at all.
 
 ## Related
 
