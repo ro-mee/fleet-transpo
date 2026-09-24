@@ -30,6 +30,20 @@ export const OTP_TTL_SECONDS = 300;
 export const OTP_MAX_ATTEMPTS = 5;
 
 /**
+ * Burned challenges allowed against one ACCOUNT before every code request and
+ * verification is frozen for `OTP_LOCKOUT_WINDOW_MS`.
+ *
+ * The per-challenge ceiling above resets on each resend, so it alone cannot
+ * stop a password holder looping `issue → 5 guesses → issue`; this is what
+ * stops that loop. Three burns is 15 wrong codes per fixed window — against a
+ * 10^6 space that is roughly one guess a minute.
+ */
+export const OTP_LOCKOUT_LIMIT = 3;
+
+/** Fixed window, measured from the account's first burn inside it. */
+export const OTP_LOCKOUT_WINDOW_MS = 15 * 60_000;
+
+/**
  * Minimum gap between self-service code sends for one account. Re-submitting
  * the sign-in form is the resend path, so this is what stops a locked-out user
  * (or anyone who has the password) from turning the SMTP transport into a

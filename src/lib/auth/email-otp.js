@@ -1,9 +1,12 @@
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { withTransaction } from "@/lib/db";
+import { peekRateLimit } from "@/lib/rate-limit";
 import { recoveryCodeHash } from "@/lib/auth/mfa";
 import {
   OTP_BREAK_GLASS_TTL_SECONDS,
   OTP_CODE_DIGITS,
+  OTP_LOCKOUT_LIMIT,
+  OTP_LOCKOUT_WINDOW_MS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
@@ -57,12 +60,30 @@ function digestsMatch(a, b) {
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
 }
 
+/** Bucket for the account-level OTP lock. Keyed by id, never by email. */
+export function otpLockoutKey(employeeId) {
+  return `lockout:otp:${employeeId}`;
+}
+
+/**
+ * Read-only: does NOT consume a hit. Fails closed — `peekRateLimit` answers
+ * `allowed: false` when the limiter's table is unreachable.
+ */
+export async function checkOtpLockout(employeeId) {
+  return peekRateLimit(otpLockoutKey(employeeId), {
+    limit: OTP_LOCKOUT_LIMIT,
+    windowMs: OTP_LOCKOUT_WINDOW_MS,
+  });
+}
+
 /**
  * Issues the challenge for one employee, or explains why it would not.
  *
  * Returns one of:
  *   { ok: true,  code, expiresAt }          a fresh code was minted
  *   { ok: false, reason: "cooldown", retryAfterSeconds }
+ *   { ok: false, reason: "otp_locked", retryAfterSeconds }  the account's
+ *                                              OTP lock is active
  *   { ok: false, reason: "break_glass_held" }  a live admin-issued code exists;
  *                                              do NOT email, prompt for that one
  *   { ok: false, reason: "no_account" }
@@ -74,6 +95,13 @@ function digestsMatch(a, b) {
  * them in the first place. So an existing break-glass challenge is left alone.
  */
 export async function issueLoginChallenge({ employeeId, purpose = OTP_PURPOSE_LOGIN, ip, userAgent }) {
+  // Account-level freeze: no code is minted — for either purpose — while the
+  // lock stands. Checked before the transaction so a locked account does no
+  // challenge work at all.
+  const lock = await checkOtpLockout(employeeId);
+  if (!lock.allowed) {
+    return { ok: false, reason: "otp_locked", retryAfterSeconds: lock.retryAfter };
+  }
   let outcome;
   await withTransaction(async (tx) => {
     const { rows: account } = await tx.query(

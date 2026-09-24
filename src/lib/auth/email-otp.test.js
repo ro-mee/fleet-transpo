@@ -10,6 +10,8 @@ import {
 } from "./email-otp";
 import {
   OTP_BREAK_GLASS_TTL_SECONDS,
+  OTP_LOCKOUT_LIMIT,
+  OTP_LOCKOUT_WINDOW_MS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
@@ -33,6 +35,15 @@ vi.mock("@/lib/db", () => ({
   query: vi.fn(),
   withTransaction: (fn) => fn(txImpl),
 }));
+
+// The account bucket is consulted by both entry points, so every test runs
+// through an allowed-by-default limiter; a locked-state test overrides it once.
+vi.mock("@/lib/rate-limit", () => ({
+  peekRateLimit: vi.fn(async () => ({ allowed: true, remaining: 3, retryAfter: 0 })),
+  rateLimit: vi.fn(async () => ({ allowed: true, remaining: 2, retryAfter: 0 })),
+}));
+import { peekRateLimit, rateLimit } from "@/lib/rate-limit";
+import { query } from "@/lib/db";
 
 /**
  * Builds a fake `tx` that answers by SQL substring and records every call.
@@ -77,6 +88,7 @@ function loginChallengeRow(overrides = {}) {
 
 beforeEach(() => {
   txImpl = null;
+  vi.clearAllMocks();
 });
 
 describe("generateOtpCode", () => {
@@ -158,6 +170,18 @@ describe("issueLoginChallenge", () => {
 
     expect(issued).toMatchObject({ ok: false, reason: "cooldown", retryAfterSeconds: 10 });
     expect(tx.calls.some((c) => c.sql.startsWith("INSERT INTO email_otp_challenges"))).toBe(false);
+  });
+
+  it("refuses to mint a code while the account's OTP lock is active", async () => {
+    vi.mocked(peekRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, retryAfter: 420 });
+    // txImpl is null: reaching the transaction at all would throw, so this also
+    // pins that the gate runs before any challenge work.
+    const issued = await issueLoginChallenge({ employeeId: 8 });
+    expect(issued).toEqual({ ok: false, reason: "otp_locked", retryAfterSeconds: 420 });
+    expect(peekRateLimit).toHaveBeenCalledWith("lockout:otp:8", {
+      limit: OTP_LOCKOUT_LIMIT,
+      windowMs: OTP_LOCKOUT_WINDOW_MS,
+    });
   });
 
   it("never replaces a live administrator-issued emergency code", async () => {
