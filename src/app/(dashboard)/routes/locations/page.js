@@ -346,10 +346,14 @@ export default function LocationsPage() {
           for one place would be two things to keep in step, and the stale-value
           hazard that creates is the one the address work exists to remove. One
           point, one owner.
-          `showTypeSelector={false}` because home / office / other describes a
-          PERSON's address; a canonical location is neither, and defaulting it to
-          "home" would store a claim nobody made. See the dialog for where it
-          lands instead.
+          `showTypeSelector={false}` because home / office / operational / other is
+          a choice about what a place IS, and a canonical location is one thing —
+          a stop the fleet serves. Letting an operator pick would invite "home"
+          for a hotel. The dialog applies `forcedType` to every save instead.
+          `forcedType="operational"` is the answer for this surface, and it is
+          also what makes the address form stop demanding a house number: an
+          operational address is the one type that does not require one, because
+          a terminal curb has no number to give. See `requiredDetailFields`.
           `initialValue` is the pick in hand, so reopening after a change starts
           from what was chosen rather than from blank. */}
       <AddressFormDialog
@@ -358,6 +362,7 @@ export default function LocationsPage() {
         initialValue={addressValue ?? undefined}
         showPinMap={false}
         showTypeSelector={false}
+        forcedType="operational"
         title={addressValue ? "Replace address" : "Pick address"}
         description="Choose the region, province, city or municipality, and barangay, then add the street detail. The full hierarchy is resolved by the server when you save."
         submitLabel="Use this address"

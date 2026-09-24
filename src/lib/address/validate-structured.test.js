@@ -266,3 +266,81 @@ describe("resolveStructuredAddress — the province-less region", () => {
     );
   });
 });
+
+describe("resolveStructuredAddress — the operational address type", () => {
+  it("stores `operational` rather than folding it to the default", async () => {
+    // The type reaches the row through `derived.type`, which came from the
+    // allowlist in `normalizeStructuredInput`. A type the allowlist rejects is
+    // silently replaced by `home`, so this is the assertion that the new value
+    // is genuinely storable and not merely declared.
+    expect(normalizeStructuredInput(request({ type: "operational" })).type).toBe("operational");
+
+    const result = await resolveStructuredAddress(request({ type: "operational" }), {
+      resolve: resolveAs(SANTA_ROSA),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value.addressType).toBe("operational");
+  });
+
+  it("saves without a house number, and invents none", async () => {
+    // The whole point: a curbside point has a road and a ZIP and no number. It
+    // must save with the number ABSENT — not "N/A", not "0", because either would
+    // be a fabricated fact about a real place that every later reader believes.
+    const result = await resolveStructuredAddress(
+      request({
+        type: "operational",
+        houseBuildingNumber: "",
+        streetRoad: "Andrews Avenue",
+        postalCode: "1300",
+        psgcBarangayCode: "1339000001",
+      }),
+      { resolve: resolveAs(MANILA) }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.value.components.houseNumber).toBeNull();
+    expect(result.value.formattedAddress).toBe(
+      "Andrews Avenue, Barangay Ermita, City of Manila, " +
+        "National Capital Region (NCR), 1300, Philippines"
+    );
+    // The composed address must not open on a stray separator where the number
+    // would have been — that is what a placeholder would leave behind.
+    expect(result.value.formattedAddress).not.toMatch(/^[,\s]/);
+  });
+
+  it("still refuses an operational address with no street", async () => {
+    // One field is relaxed, not the whole street-level rule.
+    const result = await resolveStructuredAddress(
+      request({ type: "operational", houseBuildingNumber: "", streetRoad: "" }),
+      { resolve: resolveAs(SANTA_ROSA) }
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.streetRoad).toBeTruthy();
+  });
+
+  it("still refuses a personal address with no house number", async () => {
+    // The exception must not have leaked into the default case.
+    for (const type of ["home", "office", "other"]) {
+      const result = await resolveStructuredAddress(
+        request({ type, houseBuildingNumber: "" }),
+        { resolve: resolveAs(SANTA_ROSA) }
+      );
+      expect(result.ok).toBe(false);
+      expect(result.errors.houseBuildingNumber).toBeTruthy();
+    }
+  });
+
+  it("reports the same refusal through the detail and geography stages", async () => {
+    // `resolveStructuredAddress` checks the street detail BEFORE the lookup, so
+    // the operational relaxation has to hold in stage 1 too — otherwise the
+    // request would be refused without ever reaching where the type is read.
+    const resolve = resolveAs(SANTA_ROSA);
+    const result = await resolveStructuredAddress(
+      request({ type: "operational", houseBuildingNumber: "", postalCode: "" }),
+      { resolve }
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors.postalCode).toBeTruthy();
+    expect(result.errors.houseBuildingNumber).toBeUndefined();
+  });
+});

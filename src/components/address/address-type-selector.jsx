@@ -1,20 +1,27 @@
 "use client";
 
 import { useRef } from "react";
-import { Building2, Home, MapPin } from "lucide-react";
+import { Building2, Home, MapPin, Truck } from "lucide-react";
 import { ADDRESS_TYPES } from "@/lib/address/structured";
 import { cn } from "@/lib/utils";
 
 // What the address is for. A single choice, so it is a radiogroup rather than a
 // row of buttons — `aria-checked` and arrow-key navigation are then free, and a
 // screen reader announces it as the set of options it actually is instead of
-// three unrelated buttons.
+// several unrelated buttons.
 //
 // Icons are paired with text rather than replacing it. An icon alone ("Home",
-// "Office", "Other") is a guess the operator has to make, and these three are
-// distinguished by meaning, not by shape.
+// "Office", "Other") is a guess the operator has to make, and these four are
+// distinguished by meaning, not by shape — which is why `operational` gets a
+// truck rather than a second building glyph. `Building` would have been the
+// literal choice for a terminal, and at 16px it is indistinguishable from the
+// `Building2` next to it, which is the one thing the icons must not be.
+//
+// The list comes from `ADDRESS_TYPES`, so a type added there appears here. The
+// icon map is the only thing that must be kept in step by hand, and an unmapped
+// value falls back to a pin rather than rendering nothing.
 
-const ICONS = { home: Home, office: Building2, other: MapPin };
+const ICONS = { home: Home, office: Building2, operational: Truck, other: MapPin };
 
 export function AddressTypeSelector({ value, onChange, disabled = false, className }) {
   const refs = useRef({});
@@ -38,10 +45,13 @@ export function AddressTypeSelector({ value, onChange, disabled = false, classNa
   }
 
   return (
+    // Two columns on a phone, one row of four from `sm` up. A fixed three would
+    // leave the fourth option alone on a second row, which reads as a different
+    // kind of choice from the other three.
     <div
       role="radiogroup"
       aria-label="Address type"
-      className={cn("grid grid-cols-3 gap-2", className)}
+      className={cn("grid grid-cols-2 gap-2 sm:grid-cols-4", className)}
     >
       {ADDRESS_TYPES.map((type, index) => {
         const Icon = ICONS[type.value] ?? MapPin;

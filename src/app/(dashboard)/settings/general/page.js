@@ -709,15 +709,19 @@ export default function SettingsGeneralPage() {
           the Latitude / Longitude fields below — one place, one point. A second
           pair here would be two values to keep in step, which is the stale-value
           hazard this work exists to remove.
-          `showTypeSelector={false}` because home / office / other describes a
-          PERSON's address; a hotel base is neither, and defaulting it to "home"
-          would store a claim nobody made. The dialog forces `other` at submit. */}
+          `showTypeSelector={false}` because home / office / operational / other is
+          a choice about what a place IS, and the hotel base is one thing — the
+          yard the fleet operates from. `forcedType="operational"` is the answer,
+          matching the canonical-location surface. It is also what stops the form
+          demanding a house number, which is the one field an operational address
+          does not need. See `requiredDetailFields`. */}
       <AddressFormDialog
         open={pickOpen}
         onOpenChange={setPickOpen}
         initialValue={addressValue ?? undefined}
         showPinMap={false}
         showTypeSelector={false}
+        forcedType="operational"
         title={addressValue ? "Replace address" : "Pick address"}
         description="Choose the region, province, city or municipality, and barangay, then add the street detail. The full hierarchy is resolved by the server when you save."
         submitLabel="Use this address"

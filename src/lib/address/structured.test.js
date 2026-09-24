@@ -12,10 +12,15 @@
 //      "4026, Philippines" final line and the omission of empty optional lines.
 import { describe, it, expect } from "vitest";
 import {
+  ADDRESS_TYPES,
+  ADDRESS_TYPE_VALUES,
   CASCADE_LEVELS,
   EMPTY_STRUCTURED_ADDRESS,
   clearBelow,
   clearDerivedFromDetails,
+  detailErrors,
+  isOperational,
+  requiredDetailFields,
   selectLevel,
   editDetail,
   missingLevels,
@@ -271,6 +276,116 @@ describe("structuredErrors", () => {
       { requiresProvince: false }
     );
     expect(errors.houseBuildingNumber).toBeTruthy();
+  });
+});
+
+describe("ADDRESS_TYPES", () => {
+  it("offers an operational type, and derives the accepted values from it", () => {
+    const values = ADDRESS_TYPES.map((type) => type.value);
+    expect(values).toContain("operational");
+    // `ADDRESS_TYPE_VALUES` is what the server validates against; deriving it is
+    // what stops the two lists disagreeing about whether a type is storable.
+    expect(ADDRESS_TYPE_VALUES).toEqual(values);
+  });
+
+  it("keeps every type labelled and described, including the new one", () => {
+    // A type with no label renders as an empty button in the radiogroup.
+    for (const type of ADDRESS_TYPES) {
+      expect(type.label).toBeTruthy();
+      expect(type.description).toBeTruthy();
+    }
+  });
+});
+
+describe("the operational exception", () => {
+  /** A picked address with every required field filled. */
+  const complete = {
+    ...EMPTY_STRUCTURED_ADDRESS,
+    regionCode: "R",
+    cityCode: "C",
+    barangayCode: "B",
+    houseBuildingNumber: "8572",
+    streetRoad: "Winding Creek Boulevard",
+    postalCode: "4026",
+  };
+
+  it("does not require a house number on an operational address", () => {
+    // The case this exists for: NAIA Terminal 3 - Arrivals (Bay 9) has a road and
+    // a ZIP and no number. Before this, the only ways to save it were to invent a
+    // number or not save it.
+    const errors = structuredErrors(
+      { ...complete, type: "operational", houseBuildingNumber: "" },
+      { requiresProvince: false }
+    );
+    expect(errors).toEqual({});
+  });
+
+  it("still requires the street and the ZIP on an operational address", () => {
+    // The relaxation is one field, not "operational addresses validate less".
+    const noStreet = structuredErrors(
+      { ...complete, type: "operational", streetRoad: "" },
+      { requiresProvince: false }
+    );
+    const noZip = structuredErrors(
+      { ...complete, type: "operational", postalCode: "" },
+      { requiresProvince: false }
+    );
+    expect(noStreet.streetRoad).toBeTruthy();
+    expect(noZip.postalCode).toBeTruthy();
+  });
+
+  it("still rejects a malformed ZIP on an operational address", () => {
+    // Format is not part of the exception — a three-digit ZIP is wrong wherever
+    // it appears.
+    const errors = structuredErrors(
+      { ...complete, type: "operational", houseBuildingNumber: "", postalCode: "402" },
+      { requiresProvince: false }
+    );
+    expect(errors.postalCode).toMatch(/4 digits/);
+  });
+
+  it("does NOT relax the house number for any other type", () => {
+    // The whole safety of the exception: it is scoped to one value. If any of
+    // these passed, the relaxation would have leaked into every personal address.
+    for (const type of ["home", "office", "other"]) {
+      const errors = structuredErrors(
+        { ...complete, type, houseBuildingNumber: "" },
+        { requiresProvince: false }
+      );
+      expect(errors.houseBuildingNumber).toBeTruthy();
+    }
+  });
+
+  it("does NOT relax it for a missing or unknown type either", () => {
+    // Absent `type` must take the STRICT branch. The failure that guards against
+    // is a caller that forgets the field being handed the loose rule by default.
+    for (const type of [undefined, null, "", "palace"]) {
+      expect(isOperational({ ...complete, type })).toBe(false);
+      expect(
+        structuredErrors({ ...complete, type, houseBuildingNumber: "" }, { requiresProvince: false })
+          .houseBuildingNumber
+      ).toBeTruthy();
+    }
+  });
+
+  it("reads the same rule the form reads", () => {
+    // `requiredDetailFields` is exported for the component's required marks; a
+    // field flagged required while the validator saves it empty (or the reverse)
+    // is the drift this function exists to prevent.
+    expect(requiredDetailFields({ type: "operational" })).toEqual(["streetRoad", "postalCode"]);
+    expect(requiredDetailFields({ type: "home" })).toEqual([
+      "houseBuildingNumber",
+      "streetRoad",
+      "postalCode",
+    ]);
+    // Same answer as `detailErrors`, asked the other way round.
+    const operational = { ...complete, type: "operational", houseBuildingNumber: "" };
+    expect(detailErrors(operational)).toEqual({});
+  });
+
+  it("is safe to ask about nothing at all", () => {
+    expect(isOperational(undefined)).toBe(false);
+    expect(isOperational({})).toBe(false);
   });
 });
 

@@ -42,6 +42,14 @@
 // is not the pin for "8573 Winding Creek", and requirement is that Address B is
 // never submitted with Address A's latitude. It is also why the form orders the
 // pin step LAST, so the natural way to fill it out never triggers this.
+//
+// ONE TYPE RELAXES ONE FIELD
+// --------------------------
+// Everything above describes rules that hold for every address. There is exactly
+// one exception, and it is deliberately narrow: an `operational` address (a hotel
+// base, an airport terminal) does not have to carry a house/building number,
+// because it does not have one. Every other field keeps every other rule, and no
+// other type is affected. See `requiredDetailFields`.
 
 /** The four geographic levels, outermost first. Order is load-bearing. */
 export const CASCADE_LEVELS = ["region", "province", "city", "barangay"];
@@ -50,6 +58,15 @@ export const CASCADE_LEVELS = ["region", "province", "city", "barangay"];
  * What an address is FOR. `home` is the default because most addresses entered
  * against a driver are where that driver lives.
  *
+ * `operational` exists because the other three are a PERSON's vocabulary. A hotel
+ * base and an airport terminal are neither homes nor offices, and "other" is the
+ * statement that no answer was available rather than an answer. Such a place is a
+ * point the fleet operates TO and FROM, and until this value existed the two
+ * operational surfaces recorded `other` — honest, and silent.
+ *
+ * It is also the only type that changes what is REQUIRED. See
+ * `requiredDetailFields` for that rule and why it is scoped to this one value.
+ *
  * The allowed set lives here rather than in the component so the server can
  * validate against the same list — a value the UI cannot produce should not be
  * storable, and restating the list is how those two drift apart.
@@ -57,6 +74,11 @@ export const CASCADE_LEVELS = ["region", "province", "city", "barangay"];
 export const ADDRESS_TYPES = Object.freeze([
   { value: "home", label: "Home", description: "Where someone lives" },
   { value: "office", label: "Office", description: "A place of work" },
+  {
+    value: "operational",
+    label: "Operational",
+    description: "A base, terminal or stop the fleet serves",
+  },
   { value: "other", label: "Other", description: "Anything else" },
 ]);
 
@@ -224,6 +246,63 @@ export const REQUIRED_MESSAGES = Object.freeze({
 const REQUIRED_DETAILS = ["houseBuildingNumber", "streetRoad", "postalCode"];
 
 /**
+ * The same list for an OPERATIONAL address, which is shorter by one field.
+ *
+ * An airport curb and a hotel entrance are places the fleet stops at, not
+ * doorsteps. They have a road and a ZIP; they have no house number, because
+ * nothing at a terminal bay was ever numbered. Demanding one leaves the operator
+ * two ways to proceed and both are wrong — type a number that does not exist, or
+ * leave the operational address unrecorded — and the first is the fabrication
+ * this whole module refuses to make anywhere else.
+ *
+ * WHAT IS *NOT* RELAXED, AND WHY THAT IS THE POINT
+ * ------------------------------------------------
+ * The house number only. A street/road is what makes the point addressable at
+ * all, and the ZIP is what a driver's navigation actually consumes; an
+ * "operational address" missing either is not a sparser address, it is a worse
+ * one. Nor is anything relaxed for `home`, `office` or `other` — a person's
+ * doorstep keeps every rule it had.
+ *
+ * THE TRADE, STATED PLAINLY
+ * -------------------------
+ * `type` is a claim the caller makes, so a client that wants to skip the house
+ * number can declare itself operational. That is accepted because the alternative
+ * — a general "optional" flag, or inferring the relaxation from a coordinate —
+ * would be indistinguishable from a bug and would relax the rule for surfaces
+ * that never asked. This is one named exception, on one field, gated on a value
+ * the server validates against a closed list.
+ */
+const OPERATIONAL_REQUIRED_DETAILS = ["streetRoad", "postalCode"];
+
+/**
+ * Whether this value is an operational address.
+ *
+ * `?? `-safe by construction: an absent or unknown `type` is NOT operational, so
+ * a caller that forgets the field gets the strict rule rather than the loose one.
+ *
+ * @param {object} value
+ * @returns {boolean}
+ */
+export function isOperational(value) {
+  return value?.type === "operational";
+}
+
+/**
+ * The non-geographic fields this particular address must carry.
+ *
+ * Exported because the FORM needs the same answer to decide which field shows a
+ * "required" mark. Leaving the component to restate the rule is how a field ends
+ * up flagged required while the validator is willing to save it empty — or, worse,
+ * flagged optional while the server refuses it.
+ *
+ * @param {object} value
+ * @returns {string[]}
+ */
+export function requiredDetailFields(value) {
+  return isOperational(value) ? OPERATIONAL_REQUIRED_DETAILS : REQUIRED_DETAILS;
+}
+
+/**
  * The required NON-geographic fields that are still empty.
  *
  * Split out because the server validates in two stages: the street-level detail
@@ -238,7 +317,9 @@ const REQUIRED_DETAILS = ["houseBuildingNumber", "streetRoad", "postalCode"];
 export function detailErrors(value) {
   const errors = {};
 
-  for (const field of REQUIRED_DETAILS) {
+  // Read through `requiredDetailFields` rather than the constant, so the
+  // operational exception applies here and everywhere else at once.
+  for (const field of requiredDetailFields(value)) {
     if (!isFilled(value[field])) errors[field] = REQUIRED_MESSAGES[field];
   }
 

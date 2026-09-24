@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils";
 import {
   EMPTY_STRUCTURED_ADDRESS,
   editDetail,
+  requiredDetailFields,
   structuredErrors,
 } from "@/lib/address/structured";
 import { AddressTypeSelector } from "./address-type-selector";
@@ -120,10 +121,20 @@ export function AddressFormDialog({
    * For surfaces where the address belongs to a PLACE rather than a person — a
    * canonical location, a hotel — "home" is not a smaller truth but a different
    * kind of claim, and the default would store it without anyone asserting it.
-   * Such a caller gets `other`, which is what the column means when the
-   * distinction does not apply.
+   * Such a caller gets `forcedType` instead.
    */
   showTypeSelector = true,
+  /**
+   * The `type` recorded when the selector is hidden. Ignored when it is shown.
+   *
+   * `operational` is what the two place-shaped surfaces pass, because that is
+   * what they are: a canonical location and a hotel base are points the fleet
+   * operates to and from, not somebody's home or office. Defaults to `other`,
+   * which is what they recorded before `operational` existed — a caller that does
+   * not say otherwise keeps the old answer rather than silently acquiring a new
+   * claim.
+   */
+  forcedType = "other",
 }) {
   const [value, setValue] = useState(initialValue ?? EMPTY_STRUCTURED_ADDRESS);
   const [touched, setTouched] = useState(false);
@@ -148,12 +159,37 @@ export function AddressFormDialog({
   // whether Metro Manila needs a province.
   const requiresProvince = useProvinceRequirement(value.regionCode);
 
+  /**
+   * The value the form is actually working with, type included.
+   *
+   * When the selector is hidden this applies `forcedType` for the WHOLE lifetime
+   * of the form, not only at submit — and that is the point, not a convenience.
+   * `operational` is the one type that does not require a house number, so a form
+   * validating the unforced `home` would demand one the server never asks for:
+   * the operator would be shown a required field with nothing to put in it, and
+   * Save would stay disabled with no way to satisfy it. Coercing the type at
+   * submit (which is all this file used to do) validates against a value the
+   * request will not carry — a disagreement that is invisible whenever the two
+   * rules happen to match, and only ever surfaces for the one type where they
+   * differ.
+   */
+  const effective = useMemo(
+    () => (showTypeSelector ? value : { ...value, type: forcedType }),
+    [value, showTypeSelector, forcedType]
+  );
+
   const errors = useMemo(
-    () => structuredErrors(value, { requiresProvince }),
-    [value, requiresProvince]
+    () => structuredErrors(effective, { requiresProvince }),
+    [effective, requiresProvince]
   );
   const remaining = Object.values(errors);
   const complete = remaining.length === 0;
+
+  // Which detail fields this address must carry — the same rule the validator
+  // applies, read from the same function, so the asterisk and the refusal can
+  // never name different fields.
+  const requiredDetails = useMemo(() => requiredDetailFields(effective), [effective]);
+  const isRequired = (field) => requiredDetails.includes(field);
 
   // Errors appear once the operator has engaged with the form. Seven "required"
   // messages on a form nobody has touched is noise, not help.
@@ -186,13 +222,12 @@ export function AddressFormDialog({
     event.preventDefault();
     setTouched(true);
     if (!complete || saving) return;
-    // The type is forced here rather than merely hidden above: a hidden control
-    // whose value still reaches the payload is the same stored claim with less
-    // explanation for it.
-    const submitted = showTypeSelector ? value : { ...value, type: "other" };
+    // `effective`, not `value`: the type was coerced above and the whole form
+    // has been validated against the coerced version. Sending `value` here would
+    // reintroduce the exact disagreement `effective` exists to remove.
     // No clearing, no reset: if the server rejects this, the operator's input is
     // still here when the message comes back.
-    onSubmit?.(submitted);
+    onSubmit?.(effective);
   }
 
   return (
@@ -234,7 +269,11 @@ export function AddressFormDialog({
                 field="houseBuildingNumber"
                 label="House / Building No."
                 icon={Hash}
-                required
+                // Optional for an operational address, and optional here for the
+                // same reason the validator makes it so — see
+                // `requiredDetailFields`. The mark follows the rule rather than
+                // restating it.
+                required={isRequired("houseBuildingNumber")}
                 value={value.houseBuildingNumber}
                 onValue={(next) => setField("houseBuildingNumber", next)}
                 error={showErrors ? errors.houseBuildingNumber : undefined}
@@ -245,7 +284,7 @@ export function AddressFormDialog({
                 field="postalCode"
                 label="ZIP code"
                 icon={MapPin}
-                required
+                required={isRequired("postalCode")}
                 value={value.postalCode}
                 onValue={(next) => setField("postalCode", next)}
                 // Strip non-digits rather than rejecting them at submit: a pasted
@@ -264,7 +303,7 @@ export function AddressFormDialog({
               field="streetRoad"
               label="Street / Road"
               icon={MapPin}
-              required
+              required={isRequired("streetRoad")}
               value={value.streetRoad}
               onValue={(next) => setField("streetRoad", next)}
               error={showErrors ? errors.streetRoad : undefined}
@@ -341,7 +380,7 @@ export function AddressFormDialog({
           )}
 
           {/* ── What will actually be saved ────────────────────────────────── */}
-          <AddressPreview value={value} />
+          <AddressPreview value={effective} />
 
           {/* The reason Save is disabled, present for exactly as long as it is. */}
           {showErrors && !complete && (

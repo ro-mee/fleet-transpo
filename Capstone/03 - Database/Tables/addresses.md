@@ -40,7 +40,7 @@ address-bearing records point here by FK instead.
 
 | Column | Type | Notes |
 |---|---|---|
-| `address_type` | varchar(16) | `home` \| `office` \| `other` |
+| `address_type` | varchar(16) | `home` \| `office` \| `operational` \| `other` — see below |
 | `landmark` | varchar(255) | a nearby place a driver would recognise |
 | `additional_details` | text | gate colour, floor, who to ask for |
 | `psgc_barangay_code` | varchar(10) | FK → `ph_barangays`, `ON DELETE SET NULL` |
@@ -55,6 +55,40 @@ city name is never read from the request. See [[Geography Tables]] and
 `landmark` and `additional_details` are deliberately **excluded from `formatted_address`**.
 They are instructions to a driver, not postal lines, and the composed address is what every
 downstream consumer reads.
+
+### `address_type`, and the one rule it changes
+
+The column carries **no CHECK constraint** — `varchar(16)` with the allowed set enforced in
+`src/lib/address/structured.js` (`ADDRESS_TYPES`, and `ADDRESS_TYPE_VALUES` derived from it).
+Adding `operational` therefore needed **no migration**: it is 11 characters, and the database
+was never the thing refusing it. That is worth stating because the opposite is easy to assume,
+and a migration written to "allow the new type" would have been a no-op with a version number
+spent on it.
+
+| Value | Meaning |
+|---|---|
+| `home` | where someone lives — the **default**, because most addresses entered against a driver are this |
+| `office` | a place of work |
+| `operational` | a base, terminal or stop the fleet serves |
+| `other` | anything else |
+
+`operational` exists because the first two and `other` are all a *person's* vocabulary. The two
+place-shaped surfaces — the canonical-location dialog and the hotel base — cannot honestly claim
+`home` or `office`, and `other` is the statement that no answer was available rather than an
+answer. Before it existed they recorded `other`; they now pass `forcedType="operational"` to
+`AddressFormDialog`, which applies it for the **whole lifetime of the form**, not only at submit.
+That detail matters: `operational` is the one type that relaxes a required field, so a form
+validating the unforced `home` would demand a house number the server never asks for, and Save
+would stay disabled with nothing the operator could type to satisfy it.
+
+**One type relaxes one field.** An `operational` address does not have to carry
+`street_number` (see `requiredDetailFields` in `src/lib/address/structured.js`): a terminal curb
+has a road and a ZIP and no number, and requiring one leaves the operator to invent a number or
+leave the address unrecorded. Everything else is unchanged — the street and the ZIP are still
+required on an operational address, and **no other type is affected**. The accepted trade is
+that `type` is a claim the caller makes, so a client wanting to skip the house number can now
+declare itself operational; that is preferred over a general "optional" flag, which would be
+indistinguishable from a bug and would relax the rule for surfaces that never asked.
 
 ## Referenced by
 

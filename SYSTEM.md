@@ -1182,6 +1182,28 @@ valid, not the coordinate.
 > The remaining two — driver residential and driver emergency contact — still use their
 > existing inputs, and the Google Maps URL paste path stays until the last of them moves.
 >
+> **`address_type` gained an `operational` value (2026-09-24), and it cost no migration.**
+> The column is `varchar(16)` with **no CHECK constraint** — the allowed set lives in
+> `src/lib/address/structured.js` and nowhere else — so the database was never what refused a
+> new value. `operational` joins `home` / `office` / `other` because those three are a *person's*
+> vocabulary: a canonical location and a hotel base are points the fleet operates to and from,
+> and both surfaces previously recorded `other`, which is the statement that no answer was
+> available rather than an answer. They now pass `forcedType="operational"` to
+> `AddressFormDialog`, applied for the whole lifetime of the form rather than only at submit —
+> see below for why that distinction is load-bearing.
+>
+> **It is also the one type that relaxes a required field.** An operational address does not
+> require a house/building number (`requiredDetailFields`), because an airport curb or a hotel
+> entrance has a road and a ZIP and no number — requiring one leaves the operator to invent a
+> number or leave the address unrecorded, and the first is the fabrication this layer refuses
+> everywhere else. The street and the ZIP stay required, and **no other type is affected**: a
+> personal address keeps every rule it had. The accepted trade is that `type` is a claim the
+> caller makes, so a client wanting to skip the house number can declare itself operational —
+> preferred over a general "optional" flag, which would be indistinguishable from a bug.
+> The coercion in the form is not cosmetic for the same reason: validating against the unforced
+> `home` would demand a house number the server never asks for, disabling Save with nothing the
+> operator could type.
+>
 > **Reservation pickup/drop-off is not one of them.** It was on the list, and the finding of
 > 2026-09-24 is that it should not have been: `transportation_requests.pickup_location` /
 > `.dropoff_location` are **text** naming a canonical location, kept verbatim as Booking's own
