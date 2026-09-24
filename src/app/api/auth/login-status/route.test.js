@@ -40,19 +40,28 @@ describe("GET /api/auth/login-status", () => {
     expect(checkOtpLockout).toHaveBeenCalledWith(7);
   });
 
+  it("keeps the IP verdict when a known account's OTP bucket allows", async () => {
+    vi.mocked(peekRateLimit).mockResolvedValue({ allowed: false, retryAfter: 30 });
+
+    const res = await GET(new Request(statusUrl("a@b.test")));
+
+    expect(await res.json()).toEqual({ locked: true, retryAfterSec: 30, reason: "ip" });
+    expect(checkOtpLockout).toHaveBeenCalledWith(7);
+  });
+
   it("answers locked:false for an unknown account — never an oracle", async () => {
     vi.mocked(db.query).mockResolvedValue({ rows: [] });
 
     const res = await GET(new Request(statusUrl("stranger@x.test")));
 
-    expect(await res.json()).toMatchObject({ locked: false });
+    expect(await res.json()).toEqual({ locked: false, retryAfterSec: 0, reason: "ip" });
     expect(checkOtpLockout).not.toHaveBeenCalled();
   });
 
   it("does not touch the employee table when no email is given", async () => {
     const res = await GET(new Request(statusUrl(null)));
 
-    expect(await res.json()).toMatchObject({ locked: false });
+    expect(await res.json()).toEqual({ locked: false, retryAfterSec: 0, reason: "ip" });
     expect(db.query).not.toHaveBeenCalled();
     expect(checkOtpLockout).not.toHaveBeenCalled();
   });
