@@ -2,21 +2,10 @@ import { withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { isId, isValidObject, validateBody } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
-import { isGoogleMapsUrl, resolveGoogleMapsCoordinates } from "@/lib/google-maps";
+import { isGoogleMapsUrl } from "@/lib/google-maps";
+import { resolveCoordinates } from "@/lib/locations/coordinates";
 import { saveAddress } from "@/services/address.service";
 import { resolveStructuredAddress } from "@/lib/address/validate-structured";
-
-function coordinateRule(label, min, max) {
-  return (value) => {
-    if ((typeof value !== "string" && typeof value !== "number") || String(value).trim() === "") {
-      return `${label} must be a number between ${min} and ${max}.`;
-    }
-    const number = Number(value);
-    return Number.isFinite(number) && number >= min && number <= max
-      ? null
-      : `${label} must be a number between ${min} and ${max}.`;
-  };
-}
 
 const locationSchema = {
   name: { required: true, maxLength: 255, label: "Location name", validate: (value) => typeof value === "string" ? null : "Location name must be text." },
@@ -58,29 +47,6 @@ async function loadLocation(tx, id) {
     [id]
   );
   return rows[0] || null;
-}
-
-async function resolveCoordinates(body) {
-  const mapsUrl = String(body.maps_url || "").trim();
-  const linkedCoordinates = await resolveGoogleMapsCoordinates(mapsUrl);
-  const latitudeInput = linkedCoordinates?.latitude ?? body.latitude;
-  const longitudeInput = linkedCoordinates?.longitude ?? body.longitude;
-  const latitudeError = coordinateRule("Latitude", -90, 90)(latitudeInput);
-  const longitudeError = coordinateRule("Longitude", -180, 180)(longitudeInput);
-  if (latitudeError || longitudeError) {
-    return {
-      error: {
-        maps_url: mapsUrl
-          ? "This Google Maps link could not be resolved to coordinates. Use a dropped-pin link or enter the coordinates manually."
-          : "Add a Google Maps link or enter both coordinates.",
-      },
-    };
-  }
-  return {
-    mapsUrl,
-    latitude: Number(Number(latitudeInput).toFixed(7)),
-    longitude: Number(Number(longitudeInput).toFixed(7)),
-  };
 }
 
 export async function PUT(req, { params }) {

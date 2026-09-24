@@ -129,7 +129,8 @@ export async function getAddress(addressId) {
             barangay, city, municipality, province, region,
             postal_code, postal_code_source, country,
             latitude, longitude, provider, provider_place_id,
-            verified, verified_at, created_at, updated_at
+            verified, verified_at, created_at, updated_at,
+            address_type, landmark, additional_details, psgc_barangay_code
        FROM addresses
       WHERE address_id = $1`,
     [id]
@@ -163,5 +164,20 @@ export async function getAddress(addressId) {
     provider: row.provider,
     providerPlaceId: row.provider_place_id,
     verifiedAt: row.verified_at ? new Date(row.verified_at).toISOString() : null,
+    // The structured-path fields, read back under the same names `saveAddress`
+    // takes them in and `resolveStructuredAddress` produces them.
+    //
+    // They were WRITTEN and not READ until now: the INSERT above has carried all
+    // four since migration 123, and this function returned none of them. That
+    // asymmetry is worth a comment because it is invisible from either end —
+    // the writer looked complete, the reader looked complete, and the only
+    // evidence was a `psgc_barangay_code` that went in and never came out. A
+    // picked address was indistinguishable from a legacy free-text one to every
+    // caller, and the sole way to confirm a save had stored its barangay code
+    // was to query the table by hand.
+    addressType: row.address_type,
+    landmark: row.landmark,
+    additionalDetails: row.additional_details,
+    psgcBarangayCode: row.psgc_barangay_code,
   };
 }

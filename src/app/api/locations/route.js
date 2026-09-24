@@ -4,26 +4,14 @@ import { resolveStructuredAddress } from "@/lib/address/validate-structured";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { isValidObject, validateBody } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
-import { isGoogleMapsUrl, resolveGoogleMapsCoordinates } from "@/lib/google-maps";
+import { isGoogleMapsUrl } from "@/lib/google-maps";
+import { resolveCoordinates } from "@/lib/locations/coordinates";
 import { rolesFor } from "@/lib/auth/permissions";
 
 /** Validated radius or null (→ DB default 100 m). Schema validation ran first. */
 function radiusOrNull(value) {
   if (value === undefined || value === null || String(value).trim() === "") return null;
   return Math.round(Number(value));
-}
-
-function coordinateRule(label, min, max) {
-  return (value) => {
-    if ((typeof value !== "string" && typeof value !== "number") || String(value).trim() === "") {
-      return `${label} must be a number between ${min} and ${max}.`;
-    }
-    const number = Number(value);
-    if (!Number.isFinite(number) || number < min || number > max) {
-      return `${label} must be a number between ${min} and ${max}.`;
-    }
-    return null;
-  };
 }
 
 const locationSchema = {
@@ -81,21 +69,12 @@ export async function POST(req) {
     if (!isValidObject(errors)) return errValidation(errors);
 
     const name = String(body.name).trim();
-    const mapsUrl = String(body.maps_url || "").trim();
-    const linkedCoordinates = await resolveGoogleMapsCoordinates(mapsUrl);
-    const latitudeInput = linkedCoordinates?.latitude ?? body.latitude;
-    const longitudeInput = linkedCoordinates?.longitude ?? body.longitude;
-    const latitudeError = coordinateRule("Latitude", -90, 90)(latitudeInput);
-    const longitudeError = coordinateRule("Longitude", -180, 180)(longitudeInput);
-    if (latitudeError || longitudeError) {
-      return errValidation({
-        maps_url: mapsUrl
-          ? "This Google Maps link could not be resolved to coordinates. Use a dropped-pin link or enter the coordinates manually."
-          : "Add a Google Maps link or enter both coordinates.",
-      });
-    }
-    const latitude = Number(Number(latitudeInput).toFixed(7));
-    const longitude = Number(Number(longitudeInput).toFixed(7));
+    // Which source decides the position — a pasted Maps link or explicit
+    // coordinates — is now one rule living in `src/lib/locations/coordinates.js`,
+    // shared with PUT. It used to be two copies that happened to agree.
+    const coordinates = await resolveCoordinates(body);
+    if (coordinates.error) return errValidation(coordinates.error);
+    const { latitude, longitude } = coordinates;
 
     // ── The address, in whichever of its two shapes arrived ──────────────────
     // A `structured_address` is the picked one. The server resolves it against
