@@ -15,7 +15,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
-import { ClayCard, ClayButton, ClayTile, ClayInput } from "../components/clay";
+import { ClayCard, ClayButton, ClayInput } from "../components/clay";
+import { AuthHeader } from "../components/auth/AuthHeader";
 import { OtpVerificationView } from "../components/otp/OtpVerificationView";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
 
@@ -140,19 +141,11 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ─── Branding ─── */}
-        <View style={styles.brand}>
-          <ClayTile
-            icon="car-sport"
-            size="lg"
-            backgroundColor={colors.primary}
-            color={colors.onPrimary}
-            style={styles.logoTile}
-          />
-          <Text style={[styles.appName, { color: colors.primary }]}>FleetOps</Text>
-          <Text style={[styles.tagline, { color: colors.onSurfaceVariant }]}>
-            Driver Portal Access
-          </Text>
-        </View>
+        <AuthHeader
+          icon="car-sport"
+          title="FleetOps"
+          tagline="Driver Portal Access"
+        />
 
         {/* ─── Form Card ─── */}
         <ClayCard variant="standard" style={styles.card}>
@@ -233,24 +226,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     gap: moderateScale(24),
-  },
-  brand: {
-    alignItems: "center",
-    gap: moderateScale(8),
-    marginBottom: moderateScale(4),
-  },
-  logoTile: {
-    marginBottom: moderateScale(4),
-  },
-  appName: {
-    fontSize: moderateScale(28),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(36),
-  },
-  tagline: {
-    fontSize: moderateScale(16),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(24),
   },
   card: {
     padding: moderateScale(20),

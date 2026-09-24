@@ -14,7 +14,8 @@ import { apiFetch, isTransportFailure } from "../lib/api";
 import { useTheme } from "../lib/theme-context";
 import { moderateScale } from "../lib/scaling";
 import { fonts } from "../lib/theme";
-import { ClayCard, ClayButton, ClayTile, ClayInput } from "../components/clay";
+import { ClayCard, ClayButton, ClayInput } from "../components/clay";
+import { AuthHeader } from "../components/auth/AuthHeader";
 import { AppAlert } from "../components/AppAlert";
 
 /**
@@ -87,19 +88,11 @@ export default function ForgotPasswordScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.brand}>
-          <ClayTile
-            icon="key-outline"
-            size="lg"
-            backgroundColor={colors.primary}
-            color={colors.onPrimary}
-            style={styles.logoTile}
-          />
-          <Text style={[styles.appName, { color: colors.primary }]}>Reset Password</Text>
-          <Text style={[styles.tagline, { color: colors.onSurfaceVariant }]}>
-            Enter your account email to start recovery
-          </Text>
-        </View>
+        <AuthHeader
+          icon="key-outline"
+          title="Reset Password"
+          tagline="Enter your account email to start recovery"
+        />
 
         <ClayCard variant="standard" style={styles.card}>
           <ClayInput
@@ -161,25 +154,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     gap: moderateScale(24),
-  },
-  brand: {
-    alignItems: "center",
-    gap: moderateScale(8),
-    marginBottom: moderateScale(4),
-  },
-  logoTile: {
-    marginBottom: moderateScale(4),
-  },
-  appName: {
-    fontSize: moderateScale(28),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(36),
-  },
-  tagline: {
-    fontSize: moderateScale(16),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(24),
-    textAlign: "center",
   },
   card: {
     padding: moderateScale(20),
