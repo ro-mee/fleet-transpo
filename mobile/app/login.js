@@ -29,7 +29,6 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [mfaRequired, setMfaRequired] = useState(false);
-  const [mfaNotice, setMfaNotice] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -60,7 +59,6 @@ export default function LoginScreen() {
         // The OTP step owns everything from here — no code field on this
         // form, no second tap after the code is complete.
         setMfaRequired(true);
-        setMfaNotice("Enter the 6-digit code we emailed to your registered address.");
       } else if (e.message === "MFA_INVALID") {
         setError("That verification code is invalid or already used.");
       } else if (e.message === "OTP_UNDELIVERABLE") {
@@ -109,17 +107,15 @@ export default function LoginScreen() {
         >
           <OtpVerificationView
             identifier={username.trim()}
-            notice={mfaNotice}
             onVerify={handleVerifyOtp}
             onResend={handleResendOtp}
             onVerified={handlePostLogin}
             onBack={() => {
               setMfaRequired(false);
-              setMfaNotice(null);
             }}
           />
 
-          <Text style={[styles.footer, { color: colors.outline }]}>
+          <Text style={[styles.footer, { color: colors.onSurfaceVariant }]}>
             FleetOps Tactical Driver Companion
           </Text>
         </ScrollView>
