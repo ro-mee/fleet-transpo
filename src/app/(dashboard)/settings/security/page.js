@@ -216,8 +216,19 @@ function PasswordField({
           placeholder={placeholder}
           className={cn(
             "flex h-11 w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40 pl-10 pr-10 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus-visible:outline-none focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500/20 transition-all shadow-2xs",
-            invalid && "caps-field-active !border-rose-400 dark:!border-rose-500 focus-visible:!border-rose-400 focus-visible:!ring-rose-400/20",
-            capsActive && "caps-field-active !border-rose-400 dark:!border-rose-500 focus-visible:!border-rose-400 focus-visible:!ring-rose-400/20"
+            // Two different states that must not share a class: a failed validation
+            // is an error (danger), Caps Lock is a hint that is never one.
+            // No `!` anywhere — Tailwind v4 only knows the SUFFIX form
+            // (`border-danger!`); the v3 leading `!border-danger` used here before
+            // is not a candidate v4 recognizes and silently emitted no CSS at all.
+            // These need no importance regardless: `cn()` is tailwind-merge, so
+            // each one simply displaces the conflicting base class above
+            // (`border-slate-200`, `focus-visible:border-blue-500`, `ring-blue-500/20`).
+            // `dark:border-danger` reads redundant but is load-bearing: it is what
+            // evicts `dark:border-slate-800`, which would otherwise win on source
+            // order in dark mode.
+            invalid && "border-danger dark:border-danger focus-visible:border-danger focus-visible:ring-danger/20",
+            capsActive && "caps-field-active focus-visible:ring-rose-400/20"
           )}
           {...bind}
         />

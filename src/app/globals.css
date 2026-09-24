@@ -439,15 +439,30 @@ html[data-theme-transition="shrink"]::view-transition-new(root) {
 }
 
 /* ── Caps Lock active states ──
-   Unlayered so they beat the global `* { border-color: var(--br) }` reset:
-   unlayered author CSS outranks layered utilities regardless of
-   specificity, which is why `border-danger/*` utilities alone cannot tint
-   these borders. */
+   Unlayered so they beat the global `* { border-color: var(--br) }` reset: for
+   NORMAL declarations unlayered author CSS outranks layered utilities, which is
+   why a plain `border-danger/*` utility alone cannot tint these borders.
+
+   Mind the asymmetry — for `!important` declarations the layer order REVERSES,
+   so an important utility would beat these rules. Tailwind v4 spells that
+   SUFFIX-first (`border-danger!`), never the v3 leading form (`!border-danger`):
+   the leading form is not a candidate v4 recognizes, so it emits no CSS at all
+   and reads as working code while doing nothing. Never pair `caps-field-active`
+   with an important border utility on the same element, or this file silently
+   stops being the source of truth. */
 .caps-field-active {
-  border-color: #f87171 !important;
+  /* rose-500, not rose-400. This border IS the state signal, and rose-400
+     measures 2.77:1 on the white input surface — under the 3:1 floor for
+     non-text UI boundaries (WCAG 1.4.11). rose-500 measures 3.67:1, and since
+     dark mode already used rose-500 both themes now carry the same hue. */
+  border-color: #f43f5e !important;
 }
 
-.caps-hint-pill,
+/* The hint rides one coral ramp — this surface, the rose-500 `Aa` badge and the
+   rose-600/rose-400 label in caps-lock-hint.jsx are a single family, and it is
+   deliberately NOT the red status ramp: the hint is a contextual state, never
+   an error. `.caps-hint-pill` was a dead selector (no consumer since the
+   speech-notch redesign) and is removed; the bubble is the only surface class. */
 .caps-hint-bubble {
   background-color: #fff1f2;
   border-color: rgba(254, 205, 211, 0.85);
@@ -457,7 +472,6 @@ html[data-theme-transition="shrink"]::view-transition-new(root) {
   border-color: rgba(244, 63, 94, 0.8) !important;
 }
 
-:where(.dark) .caps-hint-pill,
 :where(.dark) .caps-hint-bubble {
   background-color: #200c11;
   border-color: rgba(159, 18, 57, 0.6);

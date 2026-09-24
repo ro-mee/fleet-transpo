@@ -10,8 +10,11 @@ import { Select, SelectTrigger, SelectValue, SelectContent } from "@/components/
  * inset highlight. The floating pill label bridges the seam. Elevation comes
  * from the ring + inset highlight; the focus state promotes the ring to the
  * primary hue and adds a soft glow.
+ *
+ * Exported so controls with their own children — the address validator's
+ * combobox — reuse this chrome instead of re-deriving it and drifting.
  */
-function FloatingShell({ icon: Icon, label, required, error, hint, children, className }) {
+export function FloatingShell({ icon: Icon, label, required, error, hint, children, className }) {
   return (
     <div className={cn("relative pt-2", className)}>
       <div
