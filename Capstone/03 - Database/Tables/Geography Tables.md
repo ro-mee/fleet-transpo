@@ -275,10 +275,15 @@ the two gates working as a pair rather than an unanswered question.
   Balibago is the path to try, and until someone does, "the data is loaded", "the form is
   wired" and "the form works" are three different claims, only the first two of which are
   established here.
-- **Two of the five address surfaces are migrated.** Reservations, driver residential and
-  driver emergency contact still write their own columns. See [[addresses]] for what the
-  migrations did and the one gap they left (the picker cannot pre-fill an existing structured
-  address).
+- **Two address surfaces are migrated.** Driver residential and driver emergency contact
+  still write their own columns. **Reservations was on this list and is not an address
+  surface:** `transportation_requests.pickup_location` / `.dropoff_location` are text naming a
+  canonical location and are kept verbatim, so a reservation reaches a structured address
+  through the location it names. What it lacked was the other half of that link —
+  `pickup_location_id` / `dropoff_location_id`, FKs to `locations(location_id)` that nothing
+  wrote. They are now written at ingest (2026-09-24) and seeded into the route resolver; see
+  [[addresses]] for what the migrations did and the one gap they left (the picker cannot
+  pre-fill an existing structured address).
 - **Nothing schedules a re-import.** PSGC churn is real: barangays are created and renamed by
   plebiscite. The importer is re-runnable and idempotent, but this design creates that
   maintenance task and does not automate it.

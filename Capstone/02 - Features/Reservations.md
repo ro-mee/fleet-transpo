@@ -73,6 +73,74 @@ The **Restaurant** pill (and Airport / VIP / Group) is a **client-side location 
 
 `advanceReservation()` in `src/services/reservation-lifecycle.service.js` is the only function that should write `status`. It validates, writes, appends a [[reservation_events]] row, and emits an outbound event. → [[ADR-007 Single Writer For Reservation Status]]
 
+### The request → location link — 2026-09-24
+
+`pickup_location` and `dropoff_location` are **text**, and they stay the display value. They
+are Booking's own record of what Booking asked for, kept verbatim for the same reason
+`requested_vehicle_type` is (`src/lib/integration/ingest.js`) — refreshing them on a rename
+would rewrite the parent system's words.
+
+`pickup_location_id` / `dropoff_location_id` are the durable link to
+`locations(location_id)`. Migration `122` re-declared them on this table as "the durable link"
+that stops a rename from orphaning a reservation — but **nothing ever wrote one there**. They
+appeared in `schema.sql`, the migrations and these notes, and nowhere in `src/`, `mobile/` or
+`scripts/`. The defect `122` describes was live the whole time: every resolution was an
+exact-name match, so renaming a location silently dropped its requests back to
+`Legacy / Unknown` and could spawn a duplicate route under the new name.
+
+The pair is not new to the *concept*. Migration `007` gave the same two columns to
+`vehiclereservations` and backfilled them, matching on name **and** coordinates together — so
+the link was once real. That table was replaced by `transportation_requests`, and the link did
+not come with it: `122` brought the columns across and left the writer behind. Nothing in the
+schema could show that, which is why the gap survived review for so long.
+
+The link is now written at ingest by `linkRequestLocations()`
+(`src/services/route-resolver.service.js`), after the INSERT and **best-effort** — a request
+is fully usable unlinked, since an unlinked request resolves by name exactly as before, so a
+failure there is logged and swallowed rather than failing the ingest. It resolves each side
+independently (`dropoff_location` is nullable, and pickup == dropoff is a legitimate round
+trip that is not a routable route pair) using the resolver's own rule: exactly one active
+location, or nothing. An ambiguous match is left NULL, never guessed.
+
+`resolveRouteForRequest` and `resolveRequestEstimate` then seed from the link with
+`allowNameFallback: true` — the link is **preferred, not authoritative**. That qualifier is
+load-bearing rather than defensive: a physical move retires a location and creates a new one,
+so a link can outlive what it points at, and without the fallback a stale link would resolve
+*worse* than no link at all. Route creation (`/api/routes`, the radar, travel signals) keeps
+`allowNameFallback: false`, where an id remains the sole authority.
+
+Existing rows are linked once by `scripts/backfill-request-location-links.mjs` — **dry run by
+default**, `--apply` to write. It runs `linkRequestLocations()` against a handle that refuses
+writes, so what the dry run reviews is the code that will run, not a re-implementation of it.
+
+A request naming a **retired** location is skipped whole and reported, never half-linked. Its
+text is not unresolvable — it is attached to a decision that has not been made, and writing to
+the row pre-empts it. The rule lives in `scripts/lib/request-location-links.mjs` and is imported
+by both the script and the read-only review harness, so the excluded set is identical in both by
+construction rather than by agreement.
+
+**Production state after the 2026-09-24 backfill — verified, not assumed.** 11 requests (#486,
+#487, #490, #495, #499–#505) now hold a link. #487 has its drop-off only; its pickup names
+`Main Lobby`, which is in no registry at any state. 5 requests (#481–#485) were skipped
+untouched, their pickup naming the retired `NAIA Terminal 2` (#3). #488 and #489 are unchanged,
+neither side of either resolving. Verification diffed the live rows against a snapshot taken
+before the write: the 11 changed exactly as proposed, #481–#485 byte-identical including
+`updated_at`, and no `locations`, `routes` or `addresses` row touched.
+
+**What this did and did not change.** Those ten requests already resolved — their stored text
+matched location names exactly, and route #30 already existed for the pair. The link changes
+*durability*, not resolution: rename `NAIA Terminal 2 - Arrivals` and a linked request still
+resolves while an unlinked one orphans. It does **not** yet carry structured addresses to
+reservations, because no location holds an `address_id`; that needs the canonical-location
+address migration first. Read as: the link is written and resolves — not "reservations inherit
+structured addresses".
+
+Both ids are on the list and card projections in
+`src/app/api/integration/transport-requests/route.js`, so "the link is populated" is
+answerable from the API. **Nothing renders them yet** — the queue still shows the stored text.
+Showing the *linked location's* structured address beside it is a separate, deferred
+improvement.
+
 ## Files involved
 
 | File | Role |
@@ -83,6 +151,9 @@ The **Restaurant** pill (and Airport / VIP / Group) is a **client-side location 
 | `src/lib/scheduling/reservation-state.js` | Adjacency map, `transitionPath()` |
 | `src/lib/scheduling/priority.js` | Priority derivation |
 | `src/lib/integration/contracts.js` | Zod schemas, `normalizePriority()` |
+| `src/services/route-resolver.service.js` | `linkRequestLocations()` (the request → location link), `resolveRouteForRequest()`, `resolveRequestEstimate()` |
+| `scripts/backfill-request-location-links.mjs` | One-time backfill of the link for rows that predate it — dry run by default, skips a request naming a retired location |
+| `scripts/lib/request-location-links.mjs` | The retired-location freeze rule, imported by both the backfill and the read-only review harness so both exclude the same set |
 | `src/components/reservations/reservation-queue-table.jsx` | Compact semantic table with selectable rows, inline category text next to reference (`#RS-xxxx · Category`), trip attribute pill tags (`VIP`, `Airport`, `Restaurant`, `Group`), and Copilot status chips |
 | `src/app/(dashboard)/reservations/queue/page.js` | Persistent two-column queue workspace + Copilot aside coordinator |
 

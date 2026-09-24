@@ -58,13 +58,29 @@ downstream consumer reads.
 
 ## Referenced by
 
-Five nullable FKs, all `ON DELETE SET NULL`:
+Three nullable FKs, all `ON DELETE SET NULL`:
 
 - `locations.address_id` — the canonical location identity (also covers the hotel base)
 - `drivers.address_id` — driver residential address
 - `drivers.emergency_contact_address_id` — next-of-kin address
-- `transportation_requests.pickup_location_id` → `locations(location_id)`
-- `transportation_requests.dropoff_location_id` → `locations(location_id)`
+
+`transportation_requests.pickup_location_id` / `.dropoff_location_id` are **not** on that
+list, though they were once written down here as if they were. They point at
+`locations(location_id)`, not at this table: a request links to the canonical *place* it
+names and reaches a structured address **through** that location rather than holding one of
+its own. Nothing in the address layer writes them. They are filled at ingest by
+`linkRequestLocations()` (`src/services/route-resolver.service.js`), matched against the
+request's stored pickup/drop-off text — the same exact-name, exactly-one-match rule the route
+resolver uses, and left NULL rather than guessed when the text matches no single active
+location.
+
+**The pair has an origin worth knowing, because it makes the gap look like an oversight
+rather than a design.** Migration `007` gave a `pickup_location_id` / `dropoff_location_id`
+pair to **`vehiclereservations`** and backfilled it, matching on name *and* coordinates
+together. That table is gone — the `/api/reservations` tree was deleted with migration `036`
+— and `122` re-declared the pair on `transportation_requests`, where **nothing ever wrote
+one**. The newer table inherited the schema of a link without its writer, which is why the
+columns looked alive in every artifact and resolved nothing at runtime.
 
 `ON DELETE SET NULL` rather than a hard link because no `DELETE FROM locations` exists
 anywhere in the codebase — locations are retired, never hard-deleted — so the FKs
@@ -121,8 +137,8 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   returns `address_id` but not the structured detail behind it, so the picker cannot
   pre-fill. Reconstructing a `psgc_barangay_code` from stored text is the fuzzy name match
   the whole design refuses, so the current address is shown read-only instead and picking a
-  new one replaces it. A loader for the structured detail is the obvious follow-up, and all
-  five surfaces will want it.
+  new one replaces it. A loader for the structured detail is the obvious follow-up, and every
+  surface that picks an address will want it.
 - **`barangay` is mapped from TomTom's `municipalitySubdivision`, and that is an
   assumption, not a measurement.** The live server key is not authorized for TomTom's
   Search API (it returns 403; Routing works), so no real payload has been observed. The

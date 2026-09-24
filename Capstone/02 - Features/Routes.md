@@ -64,6 +64,12 @@ Centralized service used across booking ingestion, dispatch auto-creation, resch
 - Calculates automated TomTom distance and duration metrics with server-side caching.
 - If endpoints lack verified GPS coordinates, navigation gracefully omits route lines and ETAs rather than guessing fictitious paths.
 
+**2026-09-24 — the resolver now seeds from the request's durable link.** Both `resolveRouteForRequest` and `resolveRequestEstimate` pass `request?.pickup_location_id ?? request?.origin_location_id` (and the drop-off equivalent) with `allowNameFallback: true`. Until then the ID seed was unreachable: `origin_location_id`/`destination_location_id` exist only on `routes`, so passing `request?.origin_location_id` resolved to `undefined` for every request-shaped object and *all* resolution was name-only.
+
+`allowNameFallback` is what decides what an ID **means**, and the default (`false`) is today's behaviour, so `/api/routes`, the dispatch radar and travel signals are untouched — there an ID is the sole authority, because a name fallback would let route creation match a location the caller did not name. A request turns it on, because a link can outlive what it points at: a physical move retires the old location and creates a new one, and without the fallback a stale link would resolve *worse* than no link at all. The link is preferred; the stored text is the fallback. See [[Reservations]].
+
+`resolveRouteEndpoints` had no unit test before this — it was only ever mocked. It now has `src/services/route-resolver.test.js`, which pins the default-behaviour output and the fallback rules.
+
 ---
 
 ## Traffic-Aware Routing + Three-Leg Feasibility — PR #1 (2026-09-07)
@@ -116,7 +122,7 @@ Migration `108_location_geofence_radii.sql` (applied via `db:up`, verified live,
   >
   > **2026-09-24 — the hotel base location moved too.** `src/app/(dashboard)/settings/general/page.js` now shows the hotel address read-only with a *Pick address* / *Replace address* button, and `PUT /api/settings/hotel` resolves the pick the same way. Three differences, all from what that surface *is* rather than from the address layer: the address is stored in **two** places (`locations` **and** the `system_settings` JSON blob), so `address_id` is written to both in one transaction; the `physical_move` flag chooses between UPDATE-in-place and INSERT-then-retire, and `address_id` is threaded through **both** branches; and because it is a whole-form PUT that always sends every field, the omitted-vs-empty rule below does **not** apply there — a missing address is a missing field, not an instruction to leave the stored one alone. The hotel keeps its own Latitude/Longitude fields and its Google Maps link.
   >
-  > **Not migrated:** reservations, driver residential and driver emergency contact. The Google Maps URL paste path stays until the last of those moves ([[Migrations]]). **Known gap:** re-opening the picker on an existing structured address starts blank — the list returns `address_id` but no address detail behind it, and rebuilding a barangay code from stored text is the fuzzy match this design refuses.
+  > **Not migrated:** driver residential and driver emergency contact. Reservations is **not** an address surface — its pickup/drop-off are text naming a canonical location, and it reaches a structured address through that location (see the request → location link in [[Reservations]]). The Google Maps URL paste path stays until the last surface moves ([[Migrations]]). **Known gap:** re-opening the picker on an existing structured address starts blank — the list returns `address_id` but no address detail behind it, and rebuilding a barangay code from stored text is the fuzzy match this design refuses.
 - **TomTom Recalculation**: One-click recalculation triggers live TomTom routing queries to refresh distance and travel time estimates.
 
 ---

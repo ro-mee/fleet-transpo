@@ -59,9 +59,16 @@ const NEEDS_ASSIGNMENT = `(
   AND (tr.vehicle_id IS NULL OR tr.driver_id IS NULL)
 )`;
 
+// `pickup_location_id` / `dropoff_location_id` are the durable link to
+// `locations`, written at ingest and backfilled once for older rows. They are
+// exposed so "the link is populated" is answerable from the API rather than
+// only from SQL. The stored text above them stays the display value — it is
+// Booking's own record of what Booking asked for, and a rename must not
+// rewrite the parent system's words.
 const TR_LIST_SELECT = `
   tr.request_id, tr.reservation_number, tr.booking_reference, tr.guest_name,
   tr.source_system, tr.pickup_location, tr.dropoff_location, tr.pickup_datetime,
+  tr.pickup_location_id, tr.dropoff_location_id,
   tr.priority, tr.passenger_count, tr.fleet_status, tr.requested_vehicle_type,
   tr.estimated_distance, tr.estimated_duration, tr.booking_status, tr.status_reason,
   ds.dispatch_id, ds.dispatch_status,
@@ -112,9 +119,11 @@ const TR_SORTABLE = {
 // fields ReservationCard actually renders; the bucket predicates mirror
 // src/lib/scheduling/queue-grouping.js so grouping happens in SQL, not the
 // browser.
+// Same link columns as TR_LIST_SELECT above, for the same reason.
 const TR_CARD_SELECT = `
   tr.request_id, tr.reservation_number, tr.booking_reference, tr.guest_name,
   tr.source_system, tr.pickup_location, tr.dropoff_location, tr.pickup_datetime,
+  tr.pickup_location_id, tr.dropoff_location_id,
   tr.priority, tr.passenger_count, tr.fleet_status, tr.requested_vehicle_type,
   tr.estimated_distance, tr.estimated_duration, tr.booking_status, tr.status_reason,
   tr.special_requests, tr.created_at, tr.is_vip, tr.is_emergency,

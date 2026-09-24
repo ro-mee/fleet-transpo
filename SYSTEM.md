@@ -1046,9 +1046,12 @@ traversal; neither check subsumes the other.
 ### 4.11 Address validation & the location registry
 
 **One registry, not per-entity coordinates.** `addresses` (migration 122) holds every
-resolved address; `locations`, `drivers`, `drivers.emergency_contact_address_id` and
-`transportation_requests.pickup_location_id`/`dropoff_location_id` point at it by FK.
-Nothing gets its own `latitude`/`longitude` pair. `locations` keeps its existing
+resolved address; `locations.address_id`, `drivers` and
+`drivers.emergency_contact_address_id` point at it by FK.
+`transportation_requests.pickup_location_id`/`dropoff_location_id` are **not** address FKs —
+they point at `locations(location_id)`, linking a request to the canonical place it names, so
+a reservation inherits a structured address *through* its location rather than holding one of
+its own. Nothing gets its own `latitude`/`longitude` pair. `locations` keeps its existing
 `address` / `latitude` / `longitude` columns as a **maintained denormalization** for
 geofence evaluation, the route resolver and the TomTom hot paths — the same shape
 `routes.origin` already has against `origin_location_id` (076). The `addresses` row is
@@ -1150,7 +1153,7 @@ valid, not the coordinate.
 > the provider does not send stays NULL, which passes under either mapping. Run
 > `node scripts/check-address-provider.mjs` to see the raw payload.
 
-> **Migration state — two of the five surfaces are migrated (2026-09-24).** The table, the
+> **Migration state — two address surfaces are migrated (2026-09-24).** The table, the
 > library, both API routes, the component, the map preview and the cascade are live and
 > verified.
 >
@@ -1176,13 +1179,26 @@ valid, not the coordinate.
 > display link; the picker's pin is off (`showPinMap={false}`) for the same reason as the
 > location surface — one place, one point.
 >
-> The remaining three — reservation pickup/drop-off, driver residential and driver emergency
-> contact — still use their existing inputs, and the Google Maps URL paste path stays until
-> the last of them moves. **Known gap:** re-opening the picker on an existing structured
+> The remaining two — driver residential and driver emergency contact — still use their
+> existing inputs, and the Google Maps URL paste path stays until the last of them moves.
+>
+> **Reservation pickup/drop-off is not one of them.** It was on the list, and the finding of
+> 2026-09-24 is that it should not have been: `transportation_requests.pickup_location` /
+> `.dropoff_location` are **text** naming a canonical location, kept verbatim as Booking's own
+> record of what Booking asked for, so a reservation has no address of its own to migrate — it
+> reaches a structured address *through* the location it names. What was genuinely missing
+> there was the other half of that link. `pickup_location_id` / `dropoff_location_id` existed
+> as FKs to **`locations(location_id)`** (not to `addresses`, as §4.11 and the address notes
+> once said) and were written by nothing, so every resolution stayed an exact-name match and a
+> rename silently orphaned the request. They are now written at ingest by
+> `linkRequestLocations()` and seeded into the route resolver, which prefers the link and falls
+> back to the text. See [[Reservations]].
+>
+> **Known gap:** re-opening the picker on an existing structured
 > address starts blank; `GET /api/locations` returns `address_id` but no detail behind it,
 > and rebuilding a barangay code from stored text is the fuzzy match this design refuses. The
 > current address is shown read-only instead, and picking a new one replaces it. A
-> structured-detail loader is the obvious follow-up, and all five surfaces want it.
+> structured-detail loader is the obvious follow-up, and every migrated surface wants it.
 
 > **Cascade state — migration applied and fully verified; one environmental gate open.**
 > Migration `123` is **live** and every gate on it passed: `db:up` applied it cleanly;

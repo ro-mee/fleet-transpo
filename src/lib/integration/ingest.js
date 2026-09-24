@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { fleetStatusFromBooking } from "@/lib/integration/status-map";
 import { resolveVehicleCategory } from "@/lib/integration/category-resolver";
-import { resolveRequestEstimate } from "@/services/route-resolver.service";
+import { resolveRequestEstimate, linkRequestLocations } from "@/services/route-resolver.service";
 import { assignReservationNumber } from "@/lib/scheduling/reservation-number";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { RESERVATION_EVENT as E } from "@/lib/constants";
@@ -140,6 +140,20 @@ export async function ingestRequest(
       category_matched_on: category.matchedOn,
     },
   });
+
+  // Link the request to the canonical locations its text names. Best-effort:
+  // the request is already ingested and is fully usable without the link — an
+  // unlinked request resolves by name exactly as it did before these columns
+  // were ever written — so a failure here must be reported, not rethrown.
+  //
+  // After the insert because the link is an UPDATE on the row. The replayed
+  // webhook path returns before this for a different reason: a request already
+  // on file is the backfill's business, not redelivery's.
+  await linkRequestLocations({ query }, {
+    requestId: created.request_id,
+    pickup: created.pickup_location,
+    dropoff: created.dropoff_location,
+  }).catch((e) => console.warn("request location link failed:", e?.message || e));
 
   // Record the inbound event for audit / reconciliation. event_type is the
   // caller's, so a reconciliation query can still tell a pushed request from a
