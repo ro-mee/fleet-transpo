@@ -413,6 +413,33 @@ describe('SEC-AUTH-005 — login does not disclose whether an account exists', (
 });
 
 // ---------------------------------------------------------------------------
+// SEC-AUTH-006 — the account-level OTP lockout
+// ---------------------------------------------------------------------------
+
+describe('SEC-AUTH-006 — burned codes freeze the account, not just the challenge', () => {
+  it('the gate lives in the shared OTP layer, so both channels inherit it', () => {
+    const issue = read('lib/auth/email-otp.js');
+    expect(issue).toMatch(/checkOtpLockout\(employeeId\)/);
+    expect(issue).toMatch(/reason: "otp_locked"/);
+    expect(issue).toMatch(/reason === "attempts_exhausted"/);
+  });
+
+  it('the web channel maps otp_locked to the OTP_LOCKED token, retry-after only', () => {
+    const web = read('lib/auth.js');
+    expect(web).toMatch(/OTP_LOCKED:\$\{issued\.retryAfterSeconds\}/);
+    expect(web).toMatch(/OTP_LOCKED:\$\{factor\.retryAfterSeconds\}/);
+    // Same invariant as ACCOUNT_LOCKED: seconds and nothing else.
+    expect(web).not.toMatch(/OTP_LOCKED:[^`]*email/);
+  });
+
+  it('the trip raises the existing account_locked alert with the OTP factor', () => {
+    const web = read('lib/auth.js');
+    expect(web).toMatch(/factor\.lockTripped/);
+    expect(web).toMatch(/factor: "otp"/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SEC-DB-001 — RLS is not the boundary, and the repo says so
 // ---------------------------------------------------------------------------
 

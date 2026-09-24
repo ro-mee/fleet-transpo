@@ -6,7 +6,11 @@ import { getAdminClient, query } from "@/lib/db";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import { issueLoginChallenge, verifyLoginChallenge } from "@/lib/auth/email-otp";
-import { isDeliverableEmailAddress } from "@/lib/auth/otp-policy";
+import {
+  isDeliverableEmailAddress,
+  OTP_LOCKOUT_LIMIT,
+  OTP_LOCKOUT_WINDOW_MS,
+} from "@/lib/auth/otp-policy";
 import { isEmailConfigured, sendOtpEmail } from "@/lib/email/smtp";
 import { checkAccountLockout, recordFailedAttempt, clearAccountLockout, LOCKOUT_LIMIT } from "@/lib/auth/account-lockout";
 import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
@@ -180,6 +184,11 @@ export const authOptions = {
               }
               return "sent";
             }
+            // The account is frozen after three burned codes: no code is
+            // minted and the client is told how long to wait.
+            if (issued?.reason === "otp_locked") {
+              throw new Error(`OTP_LOCKED:${issued.retryAfterSeconds}`);
+            }
             // An administrator-issued emergency code is deliberately NOT
             // replaced: the person holding it cannot receive the email, so
             // mailing over it would destroy their only way in.
@@ -227,6 +236,19 @@ export const authOptions = {
             throw new Error("MFA_UNAVAILABLE");
           }
 
+          if (factor.lockTripped) {
+            await raiseSecurityAlert(auditReq, {
+              type: "account_locked",
+              employeeId: employee.employee_id,
+              details: {
+                channel: "web",
+                factor: "otp",
+                burns: OTP_LOCKOUT_LIMIT,
+                windowMinutes: OTP_LOCKOUT_WINDOW_MS / 60_000,
+              },
+            });
+          }
+
           if (!factor.ok) {
             // A code that ran out of time is not a wrong code, and neither is
             // one minted before a credential changed. Both are answered by
@@ -241,6 +263,9 @@ export const authOptions = {
               resourceId: employee.employee_id,
               newValues: { channel: "web", reason: factor.reason },
             });
+            if (factor.reason === "otp_locked") {
+              throw new Error(`OTP_LOCKED:${factor.retryAfterSeconds}`);
+            }
             throw new Error("MFA_INVALID");
           }
         }
