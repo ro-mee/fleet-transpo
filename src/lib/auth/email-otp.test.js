@@ -330,6 +330,87 @@ describe("verifyLoginChallenge", () => {
       reason: "expired",
     });
   });
+
+  it("refuses verification entirely while the account's OTP lock is active", async () => {
+    vi.mocked(peekRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, retryAfter: 420 });
+    // txImpl is null: any challenge or recovery lookup would throw, so the gate
+    // provably runs first — no attempt is spent while the account is frozen.
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "123456" });
+    expect(factor).toEqual({ ok: false, reason: "otp_locked", retryAfterSeconds: 420 });
+  });
+
+  it("spends exactly one account hit per burned challenge", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+
+    expect(factor).toMatchObject({ ok: false, reason: "attempts_exhausted", attemptsRemaining: 0 });
+    expect(rateLimit).toHaveBeenCalledTimes(1);
+    expect(rateLimit).toHaveBeenCalledWith("lockout:otp:8", {
+      limit: OTP_LOCKOUT_LIMIT,
+      windowMs: OTP_LOCKOUT_WINDOW_MS,
+    });
+  });
+
+  it("flags the burn that reaches the lockout ceiling", async () => {
+    vi.mocked(rateLimit).mockResolvedValueOnce({ allowed: true, remaining: 0, retryAfter: 0 });
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor.lockTripped).toBe(true);
+  });
+
+  it("leaves lockTripped unset on a burn that still has room", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor.lockTripped).toBeUndefined();
+  });
+
+  it("leaves the bucket alone on an ordinary wrong code", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow()] }],
+      ["UPDATE mfa_recovery_codes", { rows: [] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor.reason).toBe("invalid");
+    expect(rateLimit).not.toHaveBeenCalled();
+  });
+
+  it("clears the account bucket after a successful code", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow()] }],
+      ["UPDATE mfa_recovery_codes", { rows: [] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "123456" });
+    expect(factor).toEqual({ ok: true, method: "otp" });
+    expect(query).toHaveBeenCalledWith("DELETE FROM auth_rate_limits WHERE bucket_key = $1", ["lockout:otp:8"]);
+  });
+
+  it("clears the account bucket after a successful recovery code too", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [] }],
+      ["UPDATE mfa_recovery_codes", { rows: [{ recovery_code_id: 9 }] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "ABCDEF0123456789ABCD" });
+    expect(factor).toEqual({ ok: true, method: "recovery" });
+    expect(query).toHaveBeenCalledWith("DELETE FROM auth_rate_limits WHERE bucket_key = $1", ["lockout:otp:8"]);
+  });
 });
 
 describe("isDeliverableEmailAddress", () => {
