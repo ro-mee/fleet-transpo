@@ -116,7 +116,7 @@ Migration `108_location_geofence_radii.sql` (applied via `db:up`, verified live,
 - **Inline Location Creation**: Operators can add new canonical locations with address and coordinate validation directly inside the route creation flow.
   > **2026-09-24 — the address is now picked, not typed; `locations.address_id` is written.** The canonical-location dialog at `src/app/(dashboard)/routes/locations/page.js` no longer has a free-text Address input. It shows the location's address read-only with a **Pick address** button that opens `AddressFormDialog` (the Region → Province → City/Municipality → Barangay cascade), and the picked value is posted as `structured_address`. The API resolves it server-side, composes `formatted_address` from **its own** resolution of the barangay code, and writes both the `addresses` row and `locations.address_id` in one transaction ([[addresses]]).
   >
-  > **The pin stayed here, and that is deliberate.** `AddressFormDialog` is mounted with `showPinMap={false}`: the location already owns a coordinate (the Google Maps link / manual fields below it), and giving the address its own pin would mean two coordinate pairs for one place to keep in step. One point, one owner. `showTypeSelector` is also false — home/office/**operational**/other is a choice about what a *place* is, and a canonical location is one thing, so the dialog applies `forcedType="operational"` to every save rather than offering a choice that would invite "home" for a hotel.
+  > **The pin stayed here, and that is deliberate.** `AddressFormDialog` is mounted with `showPinMap={false}`: the location already owns a coordinate (the Google Maps link / manual fields below it), and giving the address its own pin would mean two coordinate pairs for one place to keep in step. One point, one owner — see [[ADR-015 Address Owns Administration, Location Owns The Point]]. `showTypeSelector` is also false — home/office/**operational**/other is a choice about what a *place* is, and a canonical location is one thing, so the dialog applies `forcedType="operational"` to every save rather than offering a choice that would invite "home" for a hotel.
   >
   > **`operational` is also what stops the form demanding a house number.** It is the one address type that does not require `houseBuildingNumber` (`requiredDetailFields` in `src/lib/address/structured.js`) — a terminal curb has a road and a ZIP and no number, and requiring one leaves the operator to invent a number or leave the address unrecorded. The street and the ZIP stay required, and no personal address is affected. The dialog applies the forced type for the **whole lifetime of the form**, not only at submit: validating against the unforced `home` would demand a house number the server never asks for, leaving Save disabled with nothing to type.
   >
@@ -131,7 +131,7 @@ Migration `108_location_geofence_radii.sql` (applied via `db:up`, verified live,
 
 ## Related
 
-[[Dispatch]] · [[Trips]] · [[Reservations]] · [[Database Overview]] · [[Feature Index]]
+[[Dispatch]] · [[Trips]] · [[Reservations]] · [[Database Overview]] · [[Feature Index]] · [[ADR-015 Address Owns Administration, Location Owns The Point]]
 
 
 ## PR 4.5 ? Context-aware dispatch (2026-09-13, implemented)

@@ -187,4 +187,4 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
 
 ## Related
 
-[[Migrations]] · [[Database Overview]] · [[Routes]] · [[Driver Management]] · [[Geography Tables]] · [[Why RLS Is Not A Boundary]]
+[[Migrations]] · [[Database Overview]] · [[Routes]] · [[Driver Management]] · [[Geography Tables]] · [[Why RLS Is Not A Boundary]] · [[ADR-015 Address Owns Administration, Location Owns The Point]]

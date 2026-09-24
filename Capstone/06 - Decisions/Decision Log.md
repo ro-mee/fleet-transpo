@@ -29,6 +29,7 @@ last_verified: 2026-08-11
 | [[ADR-011 Background GPS Tracking]] | Foreground + headless background task (AppState-driven) | ✅ Decision recorded 2026-08-19 |
 | [[ADR-013 Calendar Is The Dispatch Surface]] | Status-lane board removed; `/dispatch` redirects to calendar | ✅ Stated in code + workspaces, 2026-09-23 |
 | [[ADR-014 Incident Abort Requeues Request]] | In Progress abort → Scheduled requeue, not Cancelled | ✅ Stated in `grounding.js` + `reservation-state.js`, 2026-09-23 |
+| [[ADR-015 Address Owns Administration, Location Owns The Point]] | Structured address owns administrative data; location coordinates own the operational point | ✅ Stated in `structured.js` + the geofence schema, 2026-09-24 |
 
 ## 2026-09-07 — Notification routing separated from authorization
 
