@@ -13,7 +13,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { apiFetch, isTransportFailure } from "../lib/api";
 import { useTheme } from "../lib/theme-context";
 import { moderateScale } from "../lib/scaling";
-import { fonts } from "../lib/theme";
 import { ClayCard, ClayButton, ClayInput } from "../components/clay";
 import { AuthHeader } from "../components/auth/AuthHeader";
 import { AppAlert } from "../components/AppAlert";
