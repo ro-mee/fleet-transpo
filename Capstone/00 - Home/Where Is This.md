@@ -175,7 +175,7 @@ Notes: [[UVVRP Number Coding]]
 ```
 Settings UI             src/app/(dashboard)/settings/general/page.js
 Connector status        GET /api/settings/connectors   (env presence + aiproviders)
-Hotel base location     GET|PUT /api/settings/hotel    → system_settings.hotel_location
+Hotel base location     GET|PUT /api/settings/hotel    → system_settings.hotel_location + locations.address_id (picked via the cascade)
 NAIA route seed         POST /api/routes/seed-naia
 Theme store             src/hooks/use-theme.js         (light/dark/system, fleetops-theme)
 ```

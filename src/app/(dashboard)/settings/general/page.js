@@ -7,8 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { AddressFormDialog } from "@/components/address/address-form-dialog";
 import { toast } from "@/components/ui/toast";
 import { APP_NAME } from "@/lib/constants";
+import { formatStructuredAddress } from "@/lib/address/structured";
 import {
   getHotelLocationSettings,
   updateHotelLocationSettings,
@@ -115,6 +117,15 @@ export default function SettingsGeneralPage() {
 
   const [form, setForm] = useState(EMPTY_HOTEL);
   const [naiaConfirmOpen, setNaiaConfirmOpen] = useState(false);
+  /**
+   * The picked structured address, or null when the operator has not picked one.
+   * Held apart from `form.address` for the same reason the canonical-location
+   * dialog holds it apart: the composed text and the structured value are not
+   * interchangeable, and mirroring one into the other gives them a way to
+   * disagree.
+   */
+  const [addressValue, setAddressValue] = useState(null);
+  const [pickOpen, setPickOpen] = useState(false);
   // Hydrate the form once the server values arrive — using React's documented
   // "adjust state during render" pattern (setState guarded by a previous-value
   // check) rather than an effect: provably empty until real config lands, no
@@ -122,6 +133,9 @@ export default function SettingsGeneralPage() {
   const [hydratedFrom, setHydratedFrom] = useState(undefined);
   if (hotelData !== hydratedFrom) {
     setHydratedFrom(hotelData);
+    // A pick in hand is discarded whenever the server value changes: it was made
+    // against the configuration that just got replaced.
+    setAddressValue(null);
     setForm(
       hotelData
         ? {
@@ -173,8 +187,21 @@ export default function SettingsGeneralPage() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    updateMutation.mutate(form);
+    // Sent ONLY when the operator actually picked one. The API takes the stored
+    // text from its own resolution of the barangay code when this is present and
+    // falls back to `form.address` when it is not.
+    updateMutation.mutate({ ...form, structured_address: addressValue ?? undefined });
   };
+
+  /**
+   * What the address field shows: the pick in hand, or the stored text.
+   *
+   * The stored text is the fallback rather than a pre-filled picker because the
+   * server returns `address_id` with no detail behind it, and rebuilding a
+   * barangay code from stored TEXT is the fuzzy name match this design refuses.
+   * See the known gap in Capstone/03 - Database/Tables/addresses.md.
+   */
+  const displayAddress = addressValue ? formatStructuredAddress(addressValue) : form.address;
 
   const connectorCounts = useMemo(() => {
     const counts = { connected: 0, partial: 0, mock: 0, missing: 0 };
@@ -277,15 +304,45 @@ export default function SettingsGeneralPage() {
                   </div>
                 </div>
 
+                {/* The address is picked, not typed. The operator chooses a
+                    barangay and the server derives the rest of the hierarchy
+                    from that code, so what is stored is structurally valid by
+                    construction rather than a string nothing can check. */}
                 <div>
-                  <label htmlFor="hotel_address" className="text-xs font-bold text-foreground mb-1.5 block">Full Physical Address</label>
-                  <Input
-                    id="hotel_address"
-                    value={form.address}
-                    onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
-                    placeholder="Street, District, City, Country"
-                    className="h-10 rounded-xl border-border/80"
-                  />
+                  <label htmlFor="hotel_address_pick" className="text-xs font-bold text-foreground mb-1.5 block">
+                    Full Physical Address
+                  </label>
+                  <div className="flex items-start gap-2">
+                    <div className="min-h-10 flex-1 rounded-xl border border-border/80 bg-muted/20 px-3 py-2">
+                      {displayAddress ? (
+                        <p className="text-xs font-semibold leading-relaxed text-foreground-secondary">{displayAddress}</p>
+                      ) : (
+                        <p className="text-xs text-foreground-muted">No address picked yet.</p>
+                      )}
+                    </div>
+                    <Button
+                      id="hotel_address_pick"
+                      type="button"
+                      variant="outline"
+                      className="h-10 shrink-0 rounded-xl text-xs"
+                      disabled={!hotelData}
+                      onClick={() => setPickOpen(true)}
+                    >
+                      <MapPin className="w-4 h-4 mr-1.5" />
+                      {displayAddress ? "Replace address" : "Pick address"}
+                    </Button>
+                  </div>
+                  {addressValue && (
+                    <p className="text-[11px] text-success-700 mt-1.5">
+                      Picked from the Philippine address cascade. Saving replaces the hotel base address.
+                    </p>
+                  )}
+                  {!addressValue && displayAddress && (
+                    <p className="text-[11px] text-foreground-muted mt-1.5">
+                      Shown as stored. This box is read-only — the address is set by the picker, which
+                      writes the whole hierarchy behind the barangay you choose.
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -643,6 +700,30 @@ export default function SettingsGeneralPage() {
           seedNaiaMutation.mutate(undefined, {
             onSettled: () => setNaiaConfirmOpen(false),
           });
+        }}
+      />
+
+      {/* The cascade, as its own dialog rather than a section of the form above,
+          matching the canonical-location surface.
+          `showPinMap={false}` because the hotel base owns its own coordinates in
+          the Latitude / Longitude fields below — one place, one point. A second
+          pair here would be two values to keep in step, which is the stale-value
+          hazard this work exists to remove.
+          `showTypeSelector={false}` because home / office / other describes a
+          PERSON's address; a hotel base is neither, and defaulting it to "home"
+          would store a claim nobody made. The dialog forces `other` at submit. */}
+      <AddressFormDialog
+        open={pickOpen}
+        onOpenChange={setPickOpen}
+        initialValue={addressValue ?? undefined}
+        showPinMap={false}
+        showTypeSelector={false}
+        title={addressValue ? "Replace address" : "Pick address"}
+        description="Choose the region, province, city or municipality, and barangay, then add the street detail. The full hierarchy is resolved by the server when you save."
+        submitLabel="Use this address"
+        onSubmit={(next) => {
+          setAddressValue(next);
+          setPickOpen(false);
         }}
       />
     </div>

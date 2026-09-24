@@ -102,7 +102,7 @@ export async function PUT(req, { params }) {
 
     // ── The address, in whichever of its two shapes arrived ──────────────────
     // Same split as POST, for the same reasons: resolution happens HERE, outside
-    // the transaction, because a refused barangay is a 422 carrying field errors
+    // the transaction, because a refused barangay is a 400 carrying field errors
     // rather than a reason to unwind a write; the matching `saveAddress` runs
     // inside it, so the address row and this location commit together.
     const structured = body.structured_address ?? null;

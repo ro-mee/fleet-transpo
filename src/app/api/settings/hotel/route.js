@@ -1,6 +1,8 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError, errValidation } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { saveAddress } from "@/services/address.service";
+import { resolveStructuredAddress } from "@/lib/address/validate-structured";
 
 function coordinate(value, min, max) {
   const number = Number(value);
@@ -29,12 +31,33 @@ export async function PUT(req) {
     const session = await requirePermission(req, "settings", "update");
     const body = await parseBody(req);
     const hotelName = clean(body.hotel_name);
-    const address = clean(body.address);
     const latitude = coordinate(body.latitude, -90, 90);
     const longitude = coordinate(body.longitude, -180, 180);
     const googleMapsUrl = clean(body.google_maps_url);
+
+    // ── The address, in whichever of its two shapes arrived ──────────────────
+    // Same split as the canonical-location dialog. A picked address is resolved
+    // HERE, outside the transaction, because a refused barangay is a 400 carrying
+    // field errors rather than a reason to unwind a write; the matching
+    // `saveAddress` runs inside it, so the address row and the hotel's location
+    // commit together or not at all.
+    //
+    // The text comes from the server's OWN resolution of the barangay code, never
+    // from the string the client sent alongside it.
+    const structured = body.structured_address ?? null;
+    const resolved = structured ? await resolveStructuredAddress(structured) : null;
+    if (resolved && !resolved.ok) {
+      return errValidation(resolved.errors ?? { structured_address: resolved.error });
+    }
+    const address = resolved ? resolved.value.formattedAddress : clean(body.address);
+
     const errors = {};
     if (!hotelName) errors.hotel_name = "Hotel name is required.";
+    // Still required when nothing was picked. Unlike the canonical-location PUT,
+    // this is a whole-form save that always sends every field, so a missing
+    // address is a missing field rather than an instruction to leave the stored
+    // one alone — there is no "omitted" case to honour here. A picked address
+    // satisfies the requirement by construction.
     if (!address) errors.address = "Address is required.";
     if (latitude === null) errors.latitude = "Latitude must be between -90 and 90.";
     if (longitude === null) errors.longitude = "Longitude must be between -180 and 180.";
@@ -69,14 +92,28 @@ export async function PUT(req) {
         )).rows[0] || null;
       }
 
+      // Which registry row this base points at — the same three cases the
+      // canonical-location PUT uses. A pick replaces the link; an unchanged
+      // legacy string keeps it, so a pure rename does not drop a structured
+      // address; a CHANGED legacy string clears it, because the registry row
+      // holds the geography and coordinates resolved from the text it was saved
+      // with, and keeping the pointer would have `getAddress` describe an address
+      // that no longer says that.
+      //
+      // `oldLocation` may be null on a first save, hence the guard.
+      const addressId = resolved
+        ? await saveAddress(resolved.value, { tx })
+        : oldLocation && address === oldLocation.address ? oldLocation.address_id : null;
+
       let location;
       if (oldLocation && !physicalMove) {
         location = (await tx.query(
           `UPDATE locations
-              SET name = $1, address = $2, latitude = $3, longitude = $4, is_active = true, retired_at = NULL
-            WHERE location_id = $5
+              SET name = $1, address = $2, latitude = $3, longitude = $4, is_active = true, retired_at = NULL,
+                  address_id = $5
+            WHERE location_id = $6
           RETURNING *`,
-          [hotelName, address, latitude, longitude, oldLocation.location_id]
+          [hotelName, address, latitude, longitude, addressId, oldLocation.location_id]
         )).rows[0];
 
         // Keep the route text readable while preserving the same FK identity.
@@ -91,9 +128,9 @@ export async function PUT(req) {
         );
       } else {
         location = (await tx.query(
-          `INSERT INTO locations (name, address, latitude, longitude, is_active)
-           VALUES ($1,$2,$3,$4,true) RETURNING *`,
-          [hotelName, address, latitude, longitude]
+          `INSERT INTO locations (name, address, latitude, longitude, is_active, address_id)
+           VALUES ($1,$2,$3,$4,true,$5) RETURNING *`,
+          [hotelName, address, latitude, longitude, addressId]
         )).rows[0];
         if (oldLocation && physicalMove) {
           await tx.query(
@@ -117,6 +154,15 @@ export async function PUT(req) {
         longitude,
         google_maps_url: googleMapsUrl || "",
         location_id: Number(location.location_id),
+        // Recorded alongside `location_id` so the link to the address registry
+        // survives a read. The page does not use it yet — the picker cannot
+        // pre-fill from it, because the registry row's detail is not on this
+        // response and rebuilding a barangay code from stored TEXT is the fuzzy
+        // match this design refuses (see the known gap in
+        // Capstone/03 - Database/Tables/addresses.md). It is written now so that
+        // a loader has something to load FROM, and so the blob tells the same
+        // story as the `locations` row it mirrors.
+        address_id: addressId,
       };
       await tx.query(
         `INSERT INTO system_settings (setting_key, setting_value, updated_at, updated_by)

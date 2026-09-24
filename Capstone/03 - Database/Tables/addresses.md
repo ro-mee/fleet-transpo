@@ -97,13 +97,22 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   `address_id = NULL` and read from their existing text columns; a row is upgraded only
   when a human next edits it. The same holds for `psgc_barangay_code` — legacy rows are NULL
   until individually re-edited. Migration `123` deliberately declined a bulk backfill.
-- **One address surface writes to this table so far: the canonical-location dialog.**
-  Since 2026-09-24 `src/app/(dashboard)/routes/locations/page.js` picks through the cascade
-  and `POST`/`PUT /api/locations` resolve the pick server-side and write the `addresses` row
-  and `locations.address_id` in one transaction (the service is called with the caller's
-  `tx`, so the two commit together). The other surfaces — hotel settings, reservations,
-  driver residential and driver emergency contact — still use their existing fields.
-  Wiring them up is separate, per-surface work following the same shape.
+- **Two address surfaces write to this table so far.**
+  1. **The canonical-location dialog.** Since 2026-09-24
+     `src/app/(dashboard)/routes/locations/page.js` picks through the cascade and
+     `POST`/`PUT /api/locations` resolve the pick server-side and write the `addresses` row
+     and `locations.address_id` in one transaction (the service is called with the caller's
+     `tx`, so the two commit together).
+  2. **The hotel base location.** `src/app/(dashboard)/settings/general/page.js` +
+     `PUT /api/settings/hotel` do the same. This surface stores the address in **two** places
+     — the `locations` row *and* the `system_settings.setting_value` JSON blob — so
+     `address_id` is written to both, in the same transaction, from the same value. The
+     `physical_move` flag picks between UPDATE-in-place and INSERT-then-retire, and
+     `address_id` is threaded through both branches.
+
+  The remaining surfaces — reservations, driver residential and driver emergency contact —
+  still use their existing fields. Wiring them up is separate, per-surface work following the
+  same shape.
 - **A registry row is never edited, only appended.** `saveAddress` always inserts and
   repoints the referencing column; a superseded row is orphaned rather than mutated. That is
   what makes "one entity's edit silently rewrites another's address" impossible —

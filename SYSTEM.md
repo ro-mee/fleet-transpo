@@ -1150,26 +1150,39 @@ valid, not the coordinate.
 > the provider does not send stays NULL, which passes under either mapping. Run
 > `node scripts/check-address-provider.mjs` to see the raw payload.
 
-> **Migration state — the first surface is migrated (2026-09-24).** The table, the library,
-> both API routes, the component, the map preview and the cascade are live and verified.
-> **One of the five address surfaces has moved: the canonical-location dialog**
-> (`src/app/(dashboard)/routes/locations/page.js`), which now shows the address read-only
-> with a *Pick address* button, opens `AddressFormDialog`, and posts `structured_address`.
-> `POST`/`PUT /api/locations` resolve it server-side, compose `formatted_address` from their
-> own reading of the barangay code, and write the `addresses` row and `locations.address_id`
-> inside **one transaction** — `saveAddress(value, { tx })` is called with the caller's
-> handle, so a location can never commit pointing at an address that did not. Both handlers
-> treat an **omitted** `address` as "leave it alone" and an **empty** one as a refusal, which
-> is what lets a rename not silently drop a location's address.
+> **Migration state — two of the five surfaces are migrated (2026-09-24).** The table, the
+> library, both API routes, the component, the map preview and the cascade are live and
+> verified.
 >
-> The remaining four — hotel base location, reservation pickup/drop-off, driver residential
-> and driver emergency contact — still use their existing inputs, and the Google Maps URL
-> paste path stays until the last of them moves. **Known gap:** re-opening the picker on an
-> existing structured address starts blank; `GET /api/locations` returns `address_id` but no
-> detail behind it, and rebuilding a barangay code from stored text is the fuzzy match this
-> design refuses. The current address is shown read-only instead, and picking a new one
-> replaces it. A structured-detail loader is the obvious follow-up, and all five surfaces
-> want it.
+> **1. The canonical-location dialog** (`src/app/(dashboard)/routes/locations/page.js`) now
+> shows the address read-only with a *Pick address* button, opens `AddressFormDialog`, and
+> posts `structured_address`. `POST`/`PUT /api/locations` resolve it server-side, compose
+> `formatted_address` from their own reading of the barangay code, and write the `addresses`
+> row and `locations.address_id` inside **one transaction** — `saveAddress(value, { tx })` is
+> called with the caller's handle, so a location can never commit pointing at an address that
+> did not. Both handlers treat an **omitted** `address` as "leave it alone" and an **empty**
+> one as a refusal, which is what lets a rename not silently drop a location's address.
+>
+> **2. The hotel base location** (`src/app/(dashboard)/settings/general/page.js` +
+> `src/app/api/settings/hotel/route.js`) now does the same, with three differences that come
+> from what that surface is rather than from the address layer. Its address lives in **two**
+> places — the `locations` row *and* the `system_settings.setting_value` JSON blob — so
+> `address_id` is now written to both, in the same transaction, from the same value. The
+> `physical_move` flag chooses between an UPDATE in place and an INSERT that retires the old
+> location, and `address_id` is threaded through **both** branches. And it is a **whole-form
+> PUT that always sends every field**, so the omitted-vs-empty rule above deliberately does
+> *not* apply here: a missing address is a missing field, not an instruction to leave the
+> stored one alone. The hotel keeps its own Latitude/Longitude fields and its Google Maps
+> display link; the picker's pin is off (`showPinMap={false}`) for the same reason as the
+> location surface — one place, one point.
+>
+> The remaining three — reservation pickup/drop-off, driver residential and driver emergency
+> contact — still use their existing inputs, and the Google Maps URL paste path stays until
+> the last of them moves. **Known gap:** re-opening the picker on an existing structured
+> address starts blank; `GET /api/locations` returns `address_id` but no detail behind it,
+> and rebuilding a barangay code from stored text is the fuzzy match this design refuses. The
+> current address is shown read-only instead, and picking a new one replaces it. A
+> structured-detail loader is the obvious follow-up, and all five surfaces want it.
 
 > **Cascade state — migration applied and fully verified; one environmental gate open.**
 > Migration `123` is **live** and every gate on it passed: `db:up` applied it cleanly;

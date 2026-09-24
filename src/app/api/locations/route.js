@@ -104,7 +104,7 @@ export async function POST(req) {
     // composed string that get stored.
     //
     // Resolution happens HERE, outside the transaction, because it is validation:
-    // a refused barangay is a 422 carrying field errors, and unwinding a write to
+    // a refused barangay is a 400 carrying field errors, and unwinding a write to
     // report one would be theatre. The matching `saveAddress` call is INSIDE the
     // transaction, so the address row and the location pointing at it commit
     // together or not at all — which is the contract that function documents.

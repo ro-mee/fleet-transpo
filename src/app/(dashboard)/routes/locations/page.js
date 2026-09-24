@@ -304,9 +304,10 @@ export default function LocationsPage() {
                   Picked from the Philippine address cascade. Saving replaces this location&rsquo;s stored address.
                 </p>
               )}
-              {!addressValue && editingLocation?.address_id && (
+              {!addressValue && displayAddress && (
                 <p className="text-xs text-foreground-muted">
-                  This address predates the cascade. It is shown as stored and stays unchanged unless you pick a new one.
+                  Shown as stored. This box is read-only — the address is set by the picker, which
+                  writes the whole hierarchy behind the barangay you choose.
                 </p>
               )}
             </div>
