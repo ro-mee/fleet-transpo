@@ -274,7 +274,7 @@ Verified: mobile suite 129/129, ESLint clean on all 7 touched files,
 `npm run verify:auth` 261/261 (no new backend surface). Physical-device E2E
 (airplane-mode errors, post-change forced re-login, admin-code reset) pending.
 
-## Mobile OTP verification screen — IMPLEMENTED (2026-09-23)
+## Mobile OTP verification screen — IMPLEMENTED (2026-09-23, restructured 2026-09-24)
 
 The MFA step that used to be a single inline `ClayInput` on the login form is
 now a dedicated verification step in FleetOps clay styling, mirroring the web
@@ -300,8 +300,30 @@ the username/password in memory for the verify/resend calls.
   chunked into two 3-digit clusters separated by a subtle middle divider (`—`),
   reducing cognitive strain and matching email delivery format. An animated pulsing
   cursor pill guides active empty cells, accompanied by primary glow and theme-aware
-  tints. The verification view includes a security shield badge, an elevated email pill
-  chip, and refined footer layout.
+  tints. The verification view includes a security shield badge. *(The elevated email
+  pill chip and the multi-row footer originally described here were removed by the
+  2026-09-24 restructure below.)*
+- **Family brand block, one instruction, one meta row (restructured 2026-09-24).**
+  Presentation only — verification behaviour is frozen. The intro block (title +
+  description + email pill) is replaced by the shared `AuthHeader`
+  (`shield-checkmark-outline` / "Verify your identity" / tagline = the single
+  instruction, mask inlined: ``Enter the 6-digit code sent to ${masked}``), so the
+  card carries exactly one instruction instead of two that said the same thing. The
+  three-row footer (divider / expiry timer / "Didn't receive a code?" + resend)
+  collapses into **one meta row** — expiry left, resend right, recovery below — and
+  expired copy shortens to `Code expired` now that resend sits on the same row. Cells
+  follow recipe B: depth, not hue, carries progress (filled lifts to
+  `surfaceContainerLowest`, empty carves to `surfaceContainerHigh`, mirrored
+  light/dark; error/success keep their pre-existing tints), plus a filled-only lift
+  shadow; the 3|4 separator now fits its slot (`OTP_DASH`, row gap 6→8). The
+  duplicate `notice` channel is gone — `infoMsg` still seeds `useState(null)` and the
+  component still sets it itself for Resend; `login.js` dropped all four `mfaNotice`
+  sites in the same commit. One AA fix in scope: the OTP-branch app-tagline footer
+  `colors.outline` → `colors.onSurfaceVariant` (4.41:1 → 6.21:1); the form-branch
+  footer stays broken by explicit decision. Card padding `18/14` and status band
+  `minHeight: 26` unchanged. New shared pieces: `mobile/components/auth/AuthHeader.jsx`
+  (also consumed by login / forgot-password / reset-password) and
+  `mobile/lib/otp-cell-style.js` (+6 TDD tests).
 - **State machine.** ENTERING → VERIFYING → ERROR → ENTERING, or VERIFYING →
   SUCCESS → consent check → `/`. Input and resend lock during verification;
   the loader holds ≥500ms so the transition reads on fast networks; success
@@ -315,9 +337,13 @@ the username/password in memory for the verify/resend calls.
   analytics, cleared on error/back/unmount — and verification runs through the
   existing `signIn` credential exchange.
 
-Verified: `mobile/lib/otp.test.js` 9/9 (client≡server contract pins),
-mobile suite 335/335 passing, ESLint clean on all touched files. Physical-device
-E2E (keyboard behavior, SMS autofill, light/dark states) pending.
+Verified: `mobile/lib/otp.test.js` 9/9 (client≡server contract pins) — the mask
+contract itself was never touched; mobile suite **35 files / 395 tests** passing;
+ESLint `--max-warnings 0` clean on all 8 touched files; all four task reviews and a
+whole-branch review approved on `feat/otp-redesign` (5 commits, +227/−250).
+Physical-device E2E (keyboard behavior, SMS autofill, the four-palette visual states
+and the frozen behaviour list) **still pending** — see [[UI UX Audit - Mobile]],
+Round 11.
 
 ## Email OTP as the second factor and session management — CONFIRMED (2026-09-22)
 

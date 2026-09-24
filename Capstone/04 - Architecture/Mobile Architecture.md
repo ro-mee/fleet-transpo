@@ -18,6 +18,7 @@ source:
   - mobile/app/(app)/profile/change-password.js
   - mobile/app/forgot-password.js
   - mobile/app/reset-password.js
+  - mobile/components/auth/AuthHeader.jsx
   - mobile/lib/password-validation.js
   - mobile/components/CurvedPillTabBar.js
   - mobile/components/MapIntroPractice.jsx
@@ -159,6 +160,99 @@ existing credential endpoints (no new backend route — full detail in
   mutation uses `queueOnFailure: false` — never queued, offline is a plain
   connection error under the global banner. Profile/Settings stay silent about
   caching per the Offline Read Mode UX rule.
+- **Shared auth brand block (2026-09-24, extracted):** the `ClayTile → title →
+  tagline` block that was byte-identical across `login.js`, `forgot-password.js`
+  and `reset-password.js` now lives once in
+  `mobile/components/auth/AuthHeader.jsx` — `<AuthHeader icon title tagline />`,
+  **no back button** (each screen keeps its own above it). The now-unused
+  `brand`/`logoTile`/`appName`/`tagline` styles and `ClayTile` imports were
+  removed from all three screens. Deliberate, documented deviation: the shared
+  `appName`/`tagline` gain `textAlign: "center"` — single-line renders are
+  pixel-identical to before, and a *wrapped* tagline now centres instead of
+   left-aligning under the centred title (the OTP email mask wraps, and
+   `reset-password` already did this). Task 1 of the OTP redesign plan; the OTP
+   view consumes the same props contract next. Verified: `npx vitest run
+   mobile/lib` unchanged before/after at **34 files / 389 tests** green;
+   `npx eslint` `--max-warnings 0` clean on the four touched files. Device
+   visual check deferred to the human (plan Step 8). Commit `72f7642`.
+- **Pure OTP cell presentation module (2026-09-24, Task 2):**
+  `mobile/lib/otp-cell-style.js` extracts OTP cell fill + separator geometry
+  into a pure, unit-testable module (the only place `.jsx`-adjacent UI logic
+  can be tested, since `vitest.config.mjs` includes `mobile/lib/**`). Two
+  exports, both consumed by Task 3's `OtpInput.jsx` rewiring:
+  `otpCellFill({ status, filled, isDark, colors }) → string` implements
+  **recipe B — depth, not hue, carries progress**: filled cells lift
+  (`surfaceContainerLowest`), empty cells carve back (`surfaceContainerHigh`),
+  light and dark mirrored; error/success keep their pre-existing rgba tints
+  (behavioural states, not the progress channel); `focused` is deliberately
+  **not** a parameter — focus draws the ring/cursor and must never introduce a
+  third fill colour. `OTP_DASH = { rowGap: 8, separatorLeft: -8,
+  separatorWidth: 8, dashWidth: 7 }` fixes the 3|4 separator overrunning cell 3
+  (was a 12-wide box at left −12 in a gap of 6; box now equals the gap, 7px dash
+  fits with 0.5px clearance either side; raw dp — the component wraps values in
+  `moderateScale()`). Strict TDD: `mobile/lib/otp-cell-style.test.js` written
+   first and confirmed failing (module absent), then 6/6 green. Verified:
+   `npx vitest run mobile/lib` **35 files / 395 tests** green (+1 file, +6
+   tests); `npx eslint` `--max-warnings 0` clean on both files. Commit
+   `d00f974`.
+- **`OtpInput` rewired to the material model (2026-09-24, Task 3):**
+  `mobile/components/otp/OtpInput.jsx` now consumes the two Task 2 exports.
+  `resolveCellBg` is deleted and its call site replaced by
+  `otpCellFill({ status, filled, isDark, colors })` (recipe B — filled cells
+  lift, empty cells carve; error/success tints unchanged);
+  `resolveBorderColor` is untouched, so border colours do not move. The
+  `row`/`separator`/`separatorDash` styles now read `OTP_DASH` (row gap 6→8,
+  separator `left/width` −12/12 → −8/8 so the box equals the gap, dash width
+  `7` from `OTP_DASH.dashWidth` — the dash no longer overruns cell 3). The
+  `cellShadow` `Animated.View` gained a filled-only lift shadow
+  (`filled && !focused && status === "idle"` → `shadowColor: "#000"`,
+  offset `{0,2}`, `shadowOpacity: isDark ? 0.32 : 0.16`, `shadowRadius: 4`,
+  `elevation: 2`) so the depth channel reads even where the two fills sit
+  close in value. Purely visual: verification logic, focus ring, cursor and
+  pop animation are unchanged — Task 4 relies on that. No new unit test
+  (`.jsx` is outside vitest's include); the guard is the baseline suite plus
+  ESLint. Verified: `npx vitest run mobile/lib` **35 files / 395 tests**
+   green before and after (count unchanged); `npx eslint` `--max-warnings 0`
+   clean on the file. Device check (plan Step 8) deferred to the human.
+   Commit `f083b14` on `feat/otp-redesign`.
+- **OTP view restructured — AuthHeader, one instruction, one meta row
+  (2026-09-24, Task 4):** `mobile/components/otp/OtpVerificationView.jsx`
+  consumes the Task 1 `AuthHeader` (`icon="shield-checkmark-outline"`,
+  `title="Verify your identity"`, tagline carrying the single instruction —
+  masked variant now inlines the address: `Enter the N-digit code sent to
+  ${masked}`), replacing the intro `View` (title + description + email pill).
+  The duplicate-instruction channel is gone: the `notice` prop is removed from
+  the view and `infoMsg` seeds from `useState(null)` instead of the prop —
+  the *state* deliberately stays, because the component still assigns it
+  itself on MFA_REQUIRED-as-resend and on Resend ("A new code is on its
+  way…"). `login.js` drops all four `mfaNotice` sites in the same commit
+  (state, setter call, `notice={mfaNotice}` prop, `setMfaNotice(null)` in
+  `onBack`) so the prop never dangles. The card footer collapses from three
+  rows + divider (divider / expiry timer / "Didn't receive a code?" resend)
+  into **one meta row** — expiry left, resend right, `space-between` — with
+  the expired copy shortened to `"Code expired"` (the "resend a new code
+  below" tail was only there because Resend used to be two rows down) and
+  non-expired copy now `Expires in …` (was `Code expires in …`). Dead
+  styles removed: `intro`, `title`, `description`, `emailPill`,
+  `maskedEmail`, `divider`, `timerRow`, `timerText`, `resendRow`,
+  `resendHint`, `resendTap`, `resendLink`; added: `metaRow`, `metaItem`,
+  `metaText`, `metaLink`, `metaTap`. `card` (padding `18/14`), `statusArea`
+  (`minHeight: 26`), `statusRow`, `statusText`, `checkBadge`,
+  `recoveryTap`, `recoveryText`, `root`, `header`, `backBtn` untouched, as
+  is all verification logic (state machine, auto-submit, ≥500 ms loader
+  hold, transport-failure `keepCode`, back clearing, timers, recovery path).
+  In `login.js`, the one in-scope AA fix: the OTP-branch app-tagline footer
+  `colors.outline` → `colors.onSurfaceVariant` (4.41:1 → 6.21:1); the
+  form-branch copy of the same footer stays `colors.outline` by explicit
+  decision. Verified: `npx vitest run mobile/lib` **35 files / 395 tests**
+  green before and after (count unchanged; `otp.test.js` mask-parity pins
+  stay green — mask untouched); `npx eslint` `--max-warnings 0` on both
+  files exits 0 with no output; manual orphan greps for the 12 deleted
+  style names and `notice`/`mfaNotice`/`setMfaNotice` are clean (no
+  references in either file or elsewhere under `mobile/`; the `fonts`
+  import survives on `fonts.body`/`bodySemiBold`/`bodyMedium`). Device
+  checks (plan Steps 8–9) deferred to the human. Commit `3767e85` on
+  `feat/otp-redesign`.
 
 ## OS permission registry — CONFIRMED (`mobile/lib/permissions.js`)
 
