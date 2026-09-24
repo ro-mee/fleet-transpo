@@ -154,7 +154,7 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   `123` declined a bulk backfill and so did this one: it is scoped to three named locations
   and skips any row that is already linked, retired or renamed. The authority boundary it
   implements is [[ADR-015 Address Owns Administration, Location Owns The Point]].
-- **Two address surfaces write to this table so far.**
+- **Four address surfaces write to this table.**
   1. **The canonical-location dialog.** Since 2026-09-24
      `src/app/(dashboard)/routes/locations/page.js` picks through the cascade and
      `POST`/`PUT /api/locations` resolve the pick server-side and write the `addresses` row
@@ -166,10 +166,53 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
      `address_id` is written to both, in the same transaction, from the same value. The
      `physical_move` flag picks between UPDATE-in-place and INSERT-then-retire, and
      `address_id` is threaded through both branches.
+  3. **Driver residential address.** Since 2026-09-24
+     `src/components/address/address-picker-field.jsx` is mounted on `/drivers/new` and
+     `/drivers/[id]/edit`, and `POST`/`PUT /api/drivers` resolve the pick into
+     `drivers.address_id`. See (4) for the one structural difference.
+  4. **Driver emergency contact address.** The same component, the same two routes, writing
+     `drivers.emergency_contact_address_id` from `emergency_structured_address`. Both driver
+     addresses are saved in **one** transaction so a driver cannot point at one of the two
+     they picked.
 
-  The remaining surfaces — reservations, driver residential and driver emergency contact —
-  still use their existing fields. Wiring them up is separate, per-surface work following the
-  same shape.
+  **The driver surface is where `chk_addresses_coords_pair`'s second branch is exercised.**
+  Every row written before it — the three backfilled locations and the hotel — carries
+  NULL/NULL, because those surfaces pass `showPinMap={false}`: the location already owns a
+  point. A driver's home has no other coordinate owner, so the pin is enabled there and a
+  real latitude/longitude pair is stored. That is the decision in
+  [[ADR-015 Address Owns Administration, Location Owns The Point]], not a departure from it.
+
+  **Both driver routes fail hard, and only one of them is atomic.** The difference is exact
+  and worth stating rather than rounding off. `PUT`'s two `saveAddress` calls share one
+  `withTransaction`; the driver `UPDATE` runs *after* it as a plain `query`, so a registry
+  refusal costs a retry and writes nothing, while a driver-`UPDATE` failure leaves one
+  orphaned registry row — harmless, because the registry is append-only and nothing joins
+  it by value, and the caller still gets a failure. `POST` could not be atomic at all, and
+  for a structural reason worth recording — its employee and driver inserts went through the
+  **Supabase client** (PostgREST over HTTPS), and PostgREST is a separate HTTP service that
+  cannot be enrolled in a `pg` `BEGIN`/`COMMIT`. There was no way to make the two halves
+  share a transaction, so an address failure left a committed driver with both ids NULL,
+  surfaced as a `warning` on the response.
+
+  **`POST` is now atomic.** It writes the employee, both address rows and the driver on one
+  `pg` transaction — the two inserts moved off the Supabase client
+  onto `tx.query`, which is what buys the atomicity. Both were plain INSERTs with a
+  `RETURNING` and a unique-violation check; neither needed anything only PostgREST
+  provides. The addresses are written **before** the driver row, so their ids go straight
+  into its column list and there is no follow-up `UPDATE`. A failure anywhere rolls back all
+  of it: no employee, no driver, no address rows. The `warning` field is gone, and so is the
+  old hand-rolled compensation that soft-deleted the employee when the driver insert failed —
+  a rollback makes it dead code.
+
+  The two guard `SELECT`s still run outside the transaction, on the Supabase client. They
+  are reads; the authoritative guards are the unique constraints inside it, which is why a
+  `23505` is translated to the same 409 rather than assumed unreachable.
+
+  **Reservations is not on this list and is not an address surface.**
+  `transportation_requests.pickup_location` / `.dropoff_location` are text naming a
+  canonical location, and a reservation reaches a structured address **through** that
+  location via `linkRequestLocations()`. Wiring the driver surfaces up closes the list as it
+  stood; per-surface work following the same shape is what is left for any new surface.
 - **A registry row is never edited, only appended.** `saveAddress` always inserts and
   repoints the referencing column; a superseded row is orphaned rather than mutated. That is
   what makes "one entity's edit silently rewrites another's address" impossible —

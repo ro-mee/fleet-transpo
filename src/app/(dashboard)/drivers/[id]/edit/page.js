@@ -26,7 +26,6 @@ import {
   Briefcase,
   Calendar,
   Globe,
-  MapPin,
   Phone,
   Mail,
   UserCheck,
@@ -38,6 +37,7 @@ import {
   FileImage,
 } from "lucide-react";
 import Link from "next/link";
+import { AddressPickerField } from "@/components/address/address-picker-field";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { driverEditSchema } from "@/lib/validation/schemas";
 import { LEGAL_DRIVING_AGE } from "@/lib/validation/age";
@@ -61,6 +61,13 @@ export default function EditDriverPage() {
 
   const [isScanningFront, setIsScanningFront] = useState(false);
   const [isScanningBack, setIsScanningBack] = useState(false);
+
+  // The addresses picked through the cascade on THIS visit, held outside the
+  // form. Null means the operator has not picked one, which is what leaves the
+  // stored text and the registry row it points at untouched — see the payload
+  // builder at the bottom of this file.
+  const [pickedAddress, setPickedAddress] = useState(null);
+  const [pickedEmergencyAddress, setPickedEmergencyAddress] = useState(null);
 
   const { data: driver, isLoading, isError } = useQuery({
     queryKey: ["driver", id],
@@ -101,6 +108,15 @@ export default function EditDriverPage() {
     const backUrl = driver.license_back_image_url || "";
     if (imgUrl) setLicenseImagePreview(imgUrl);
     if (backUrl) setLicenseBackImagePreview(backUrl);
+
+    // A fresh load is a fresh edit: any pick made against the previous driver
+    // must not survive into this one. The stored address is NOT loaded into the
+    // picker — the API returns `address_id` but not the structured detail behind
+    // it, and rebuilding a barangay code from stored text is the fuzzy name
+    // match this design refuses — so the current address shows read-only and
+    // picking a new one replaces it.
+    setPickedAddress(null);
+    setPickedEmergencyAddress(null);
 
     form.reset({
       first_name: emp.first_name || "",
@@ -310,6 +326,12 @@ export default function EditDriverPage() {
     if (data.emergency_contact_address?.trim()) payload.emergency_contact_address = data.emergency_contact_address.trim();
     if (data.emergency_contact_phone?.trim()) payload.emergency_contact_phone = data.emergency_contact_phone.trim();
 
+    // Sent ONLY when the operator picked one on this visit. Omitting the field is
+    // what tells the API to leave the stored text and its registry row alone —
+    // which is what makes renaming a driver not silently drop their address.
+    if (pickedAddress) payload.structured_address = pickedAddress;
+    if (pickedEmergencyAddress) payload.emergency_structured_address = pickedEmergencyAddress;
+
     updateMutation.mutate(payload);
   };
 
@@ -442,9 +464,16 @@ export default function EditDriverPage() {
                     <input id="nationality" {...form.register("nationality")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
                   </FloatingField>
 
-                  <FloatingField label="Address" icon={MapPin} className="md:col-span-2">
-                    <input id="address" {...form.register("address")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
-                  </FloatingField>
+                  <div className="md:col-span-2">
+                    <AddressPickerField
+                      id="address_pick"
+                      label="Address"
+                      value={pickedAddress}
+                      onChange={setPickedAddress}
+                      stored={values.address}
+                      disabled={isSaving}
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -538,9 +567,15 @@ export default function EditDriverPage() {
                     <Label htmlFor="emergency_contact_phone" className="text-xs font-medium text-foreground-secondary">Contact Number (TEL. NO.)</Label>
                     <Input id="emergency_contact_phone" {...form.register("emergency_contact_phone")} className="rounded-xl bg-surface" />
                   </div>
-                  <div className="space-y-1.5 md:col-span-2">
-                    <Label htmlFor="emergency_contact_address" className="text-xs font-medium text-foreground-secondary">Address</Label>
-                    <Input id="emergency_contact_address" {...form.register("emergency_contact_address")} className="rounded-xl bg-surface" />
+                  <div className="md:col-span-2">
+                    <AddressPickerField
+                      id="emergency_contact_address_pick"
+                      label="Address"
+                      value={pickedEmergencyAddress}
+                      onChange={setPickedEmergencyAddress}
+                      stored={values.emergency_contact_address}
+                      disabled={isSaving}
+                    />
                   </div>
                 </div>
               </CardContent>

@@ -1,5 +1,7 @@
 import bcrypt from "bcryptjs";
-import { query, getAdminClient } from "@/lib/db";
+import { query, getAdminClient, withTransaction } from "@/lib/db";
+import { saveAddress } from "@/services/address.service";
+import { resolvePickedAddress } from "@/lib/address/picked";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
 import { LEGAL_DRIVING_AGE, isAtLeastAge } from "@/lib/validation/age";
@@ -246,6 +248,8 @@ export async function POST(req) {
       emergency_contact_name,
       emergency_contact_phone,
       emergency_contact_address,
+      structured_address,
+      emergency_structured_address,
       password,
     } = body;
 
@@ -282,6 +286,30 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
+    // ── The two addresses, in whichever of their two shapes arrived ──────────
+    // A driver carries a residential address and their next-of-kin's, and each
+    // can be a picked structured address, legacy free text, or nothing at all.
+    // Both picks are resolved HERE, before anything is written, because
+    // resolution is validation: a refused barangay is a 400 carrying field
+    // errors, and unwinding an employee row to report one would be theatre.
+    // Same order and same argument as POST /api/locations.
+    const residential = await resolvePickedAddress(body, "structured_address");
+    if (!residential.ok) return errValidation(residential.errors);
+    const emergency = await resolvePickedAddress(body, "emergency_structured_address");
+    if (!emergency.ok) return errValidation(emergency.errors);
+
+    // The value that goes into the TEXT column. A pick wins over the submitted
+    // string, because the server composed it from its own resolution of the
+    // barangay code — so the text and the registry row it will point at are
+    // guaranteed to describe the same place. That is what makes the mirroring a
+    // maintained denormalization rather than two facts free to disagree.
+    const residentialText = residential.value
+      ? residential.value.formattedAddress
+      : address || null;
+    const emergencyText = emergency.value
+      ? emergency.value.formattedAddress
+      : emergency_contact_address || null;
+
     const supabase = getAdminClient();
 
     // Reduce the submitted scans to their STORED form (a bucket-qualified object
@@ -305,8 +333,6 @@ export async function POST(req) {
       .is("deleted_at", null)
       .maybeSingle();
 
-    let employeeId;
-    let createdNewEmployee = false;
     let roleId = ROLE_IDS.driver;
     let passwordHash = null;
 
@@ -318,13 +344,11 @@ export async function POST(req) {
     }
 
     if (existingEmp) {
-      employeeId = existingEmp.employee_id;
-
       // Check if a driver profile already exists for this employee
       const { data: existingDriver } = await supabase
         .from("drivers")
         .select("driver_id")
-        .eq("employee_id", employeeId)
+        .eq("employee_id", existingEmp.employee_id)
         .is("deleted_at", null)
         .maybeSingle();
 
@@ -350,85 +374,132 @@ export async function POST(req) {
       if (existingEmp.password_hash) {
         passwordHash = null;
       }
-    } else {
-      // Create new Employee record via Supabase Client
-      const { data: newEmp, error: empError } = await supabase
-        .from("employees")
-        .insert({
-          first_name: normalizeName(first_name),
-          last_name: normalizeName(last_name),
-          email: normalizeEmail(empEmail),
-          phone: normalizePhone(phone) || null,
-          position: position || "Driver",
-          avatar_url: (storedLicenceFront && typeof storedLicenceFront === "string" && storedLicenceFront.length <= 512 && isAllowedStoredImageRef(storedLicenceFront)) ? storedLicenceFront : null,
-          role_id: roleId,
-          password_hash: passwordHash,
-        })
-        .select("employee_id")
-        .single();
+    }
 
-      if (empError) {
-        if (empError.code === "23505") {
-          return err(
-            `An employee with email "${empEmail}" already exists. Please provide a unique email.`,
-            409
+    // ── Employee, driver and both addresses: ONE transaction ─────────────────
+    // These three writes succeed together or fail together, and the reason they
+    // can is that all three now run on the SAME client. They used to be split:
+    // the employee and driver inserts went through the Supabase client (PostgREST
+    // over HTTPS) and only the addresses ran on `withTransaction`'s `pg` handle.
+    // PostgREST is a separate HTTP service — an HTTP request cannot be enrolled in
+    // a `pg` BEGIN/COMMIT — so no amount of care could have made that split
+    // atomic, and an address failure left a driver committed with both address ids
+    // NULL. Moving the two inserts onto `pg` is what buys the atomicity; both are
+    // plain INSERTs with a RETURNING and a unique-violation check, and neither
+    // needed anything only PostgREST provides.
+    //
+    // The ORDER matters and is not cosmetic: the address rows are written FIRST so
+    // their ids can go straight into the driver's INSERT. That is also why there
+    // is no longer a follow-up `UPDATE drivers SET address_id = ...` — the driver
+    // row is never visible, even mid-transaction, in a state without its
+    // addresses.
+    //
+    // The two guard SELECTs above stay OUTSIDE this transaction on purpose. They
+    // are reads, and the authoritative guards are the unique constraints inside it
+    // (`employees.email`, `drivers.employee_id`) — which is also why the 23505
+    // below is translated rather than assumed unreachable.
+    let driverId;
+
+    const avatarUrl =
+      storedLicenceFront &&
+      typeof storedLicenceFront === "string" &&
+      storedLicenceFront.length <= 512 &&
+      isAllowedStoredImageRef(storedLicenceFront)
+        ? storedLicenceFront
+        : null;
+
+    try {
+      driverId = await withTransaction(async (tx) => {
+        let empId;
+
+        if (existingEmp) {
+          empId = existingEmp.employee_id;
+        } else {
+          const { rows } = await tx.query(
+            `INSERT INTO employees
+               (first_name, last_name, email, phone, position, avatar_url, role_id, password_hash)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING employee_id`,
+            [
+              normalizeName(first_name),
+              normalizeName(last_name),
+              normalizeEmail(empEmail),
+              normalizePhone(phone) || null,
+              position || "Driver",
+              avatarUrl,
+              roleId,
+              passwordHash,
+            ]
           );
+          empId = rows[0]?.employee_id;
         }
-        return err(empError.message || "Failed to create employee record", 500);
+
+        if (!empId) {
+          throw new Error("Employee record was created but ID was not returned");
+        }
+
+        // The registry rows, before the driver that points at them. Both in this
+        // same transaction, so a driver can never end up pointing at one of the
+        // two the operator picked.
+        const addressId = residential.value ? await saveAddress(residential.value, { tx }) : null;
+        const emergencyAddressId = emergency.value
+          ? await saveAddress(emergency.value, { tx })
+          : null;
+
+        const { rows: driverRows } = await tx.query(
+          `INSERT INTO drivers
+             (employee_id, license_number, license_expiry, license_type, license_class,
+              years_of_experience, driver_status, address, sex, birthdate, nationality,
+              license_image_url, license_back_image_url, emergency_contact_name,
+              emergency_contact_phone, emergency_contact_address,
+              address_id, emergency_contact_address_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+           RETURNING driver_id`,
+          [
+            empId,
+            normalizeLicense(license_number),
+            license_expiry || null,
+            license_type || null,
+            license_class || null,
+            years_of_experience ? Number(years_of_experience) : 0,
+            driver_status || "Available",
+            residentialText,
+            sex || null,
+            birthdate || null,
+            nationality || null,
+            storedLicenceFront ?? null,
+            storedLicenceBack ?? null,
+            emergency_contact_name || null,
+            emergency_contact_phone || null,
+            emergencyText,
+            addressId,
+            emergencyAddressId,
+          ]
+        );
+
+        const newDriverId = driverRows[0]?.driver_id;
+        if (!newDriverId) {
+          throw new Error("Failed to insert driver record");
+        }
+
+        return newDriverId;
+      });
+    } catch (txError) {
+      // A duplicate email that raced the guard SELECT above — or a soft-deleted
+      // employee still holding the address, which the guard's `deleted_at IS NULL`
+      // does not see but the unique constraint does. Same 409 the pre-check
+      // returns, so the caller cannot tell which one fired; that is deliberate,
+      // since the predicate beneath them is the same.
+      if (txError?.code === "23505") {
+        return err(
+          `An employee with email "${empEmail}" already exists. Please provide a unique email.`,
+          409
+        );
       }
-
-      if (!newEmp?.employee_id) {
-        return err("Employee record was created but ID was not returned", 500);
-      }
-
-      employeeId = newEmp.employee_id;
-      createdNewEmployee = true;
-    }
-
-    // Step 2: Create Driver record linked to employeeId with Emergency Contact & Back License Image
-    const { data: newDriver, error: driverError } = await supabase
-      .from("drivers")
-      .insert({
-        employee_id: employeeId,
-        license_number: normalizeLicense(license_number),
-        license_expiry: license_expiry || null,
-        license_type: license_type || null,
-        license_class: license_class || null,
-        years_of_experience: years_of_experience ? Number(years_of_experience) : 0,
-        driver_status: driver_status || "Available",
-        address: address || null,
-        sex: sex || null,
-        birthdate: birthdate || null,
-        nationality: nationality || null,
-        license_image_url: storedLicenceFront ?? null,
-        license_back_image_url: storedLicenceBack ?? null,
-        emergency_contact_name: emergency_contact_name || null,
-        emergency_contact_phone: emergency_contact_phone || null,
-        emergency_contact_address: emergency_contact_address || null,
-      })
-      .select("driver_id")
-      .single();
-
-    if (driverError) {
-      console.error("Driver insert error:", driverError);
-      if (createdNewEmployee) {
-        await supabase
-          .from("employees")
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("employee_id", employeeId);
-      }
-      return err(driverError.message || "Failed to create driver record", 500);
-    }
-
-    const driverId = newDriver?.driver_id;
-    if (!driverId) {
-      if (createdNewEmployee) {
-        await supabase
-          .from("employees")
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("employee_id", employeeId);
-      }
-      return err("Failed to insert driver record", 500);
+      // Everything else rolls back — no employee, no driver, no address rows — and
+      // falls through to handleError as a 500. There is no compensation step here
+      // and no warning: nothing was committed, so there is nothing to undo.
+      throw txError;
     }
 
     // Fetch full record via raw SQL query to guarantee clean response
@@ -450,6 +521,9 @@ export async function POST(req) {
     `;
 
     const { rows } = await query(fetchSql, [driverId]);
+    // No `warning` field. The create either committed every address the operator
+    // picked or returned a 4xx/5xx above, so there is no partial success left for
+    // a caller to have to notice.
     return ok(await signDriverMedia(rows[0]), 201);
   } catch (e) {
     return handleError(e);

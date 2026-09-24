@@ -500,8 +500,12 @@ fleet-transpo/
 │   │   ├── ui/                 # shadcn primitives (card, button, dialog, toast, query-feedback, phase-rail, ...)
 │   │   ├── tables/             # data-table, fleet-table
 │   │   ├── maps/               # live-locations-map
-│   │   ├── address/            # ★ address-validator (the one reusable address field),
-│   │   │                       #   address-map-preview (client-only Leaflet), use-address-search
+│   │   ├── address/            # ★ address-form-dialog (the one reusable address field —
+│   │   │                       #   PSGC cascade) + address-picker-field (its row/button
+│   │   │                       #   wrapper); location-cascade, address-pin-map,
+│   │   │                       #   address-map-preview (client-only Leaflet),
+│   │   │                       #   address-validator + use-address-search (UNMOUNTED —
+│   │   │                       #   see §address)
 │   │   ├── drivers/            # assigned-vehicle-card, substitute-driver-card
 │   │   ├── dispatch/  reservations/
 │   │   ├── providers.jsx       # SessionProvider + QueryClientProvider
@@ -1100,15 +1104,26 @@ operator's own assertion rather than a property of the address being replaced.
 → `providers/tomtom.js`. The **server** key is used and never reaches the browser.
 `/api/address/search` returns suggestion labels only (never coordinates);
 `/api/address/geocode` is the single place coordinates become authoritative.
-`src/components/address/address-validator.jsx` is **the** reusable address field — the
-one implementation, consumed in either form idiom this repo uses (`variant="plain"` for
-the Label+Input surfaces, `variant="floating"` for the `FloatingShell` forms). Typed
-text is never verification; only selecting a suggestion and having the server resolve it
-produces `verified: true`. `autoGeocode={false}` is the privacy control for personal
-addresses: typing costs no network request, and a `[Verify address]` button does.
+`src/components/address/address-form-dialog.jsx` is **the** reusable address field — the
+one implementation every surface mounts, through `AddressPickerField`
+(`address-picker-field.jsx`) on the driver forms and directly on the locations dialog and
+the hotel settings. Typed text is never verification; only picking a barangay code and
+having the server resolve it produces a structured address.
 
-**The cascade is the primary path; search is an optional shortcut.** Because the provider
-above is refused, the form does not *depend* on it. The operator picks the real
+**`address-validator.jsx` is the earlier geocode-combobox field, and nothing mounts it.**
+It is the `variant="plain"`/`variant="floating"` controlled `value`/`onChange` component
+this section used to describe as the one address input: a suggestion list over
+`/api/address/search` plus a `[Verify address]` button over `/api/address/geocode`, with
+`autoGeocode={false}` as the privacy control for personal addresses. It lost its last
+caller on 2026-09-24, when the canonical-location dialog and the hotel settings moved to
+the cascade and the driver forms arrived on it — so all four surfaces now pick, and none
+types. The component and `use-address-search.js` behind it are **unreferenced but present**,
+kept only because the provider path they implement is the one TomTom's 403 currently
+blocks; deleting them is tracked separately.
+
+**The cascade is the only path in the UI; the provider is not in it.** Because the provider
+above is refused, the form does not *depend* on it — and since 2026-09-24 no surface even
+offers it. The operator picks the real
 administrative hierarchy — Region → Province → City/Municipality → Barangay — from the
 `ph_*` tables (migration 123, see [[Geography Tables]]), so an address is structurally
 valid by construction with **no provider in the path at all**. This also closes a hole a

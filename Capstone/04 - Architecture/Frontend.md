@@ -115,24 +115,39 @@ a pointer would be a lie would stop working. Per-component fixes alongside it: `
 - **View Transition path (supported browsers):** `document.startViewTransition()` + declarative CSS keyframes (`theme-reveal` / `theme-conceal` in `globals.css`) animating `clip-path: circle()` on the transition pseudo-layer (450ms, `cubic-bezier(0.22,1,0.36,1)`), expanding from the clicked toggle for light→dark and contracting back into it for dark→light. Origin/radius travel as `--theme-x/--theme-y/--theme-r`, set synchronously *before* `startViewTransition` with the initial clip in plain CSS — so the first paint is already a dot and the dark layer never flashes full-screen first. (An earlier WAAPI-after-`transition.ready` variant had exactly that pre-flash and was replaced.) Layering/`animation: none` resets live under `[data-theme-transition="expand"|"shrink"]`; cleanup is time-based (600ms) with a generation guard so a rapid re-toggle can't wipe the newer transition. (The old `@keyframes theme-expand/shrink` + `--theme-x/--theme-y`-only CSS approach is gone.)
 - **Fallback fade (no View Transition API, hidden tab, or VT throw):** `commitWithFade()` adds `html.theme-fade` (~350ms of `background-color`/`border-color`/`color`/`fill`/`stroke` transitions, toggle button excluded, `box-shadow` excluded) so the page cross-fades instead of snapping. `prefers-reduced-motion` keeps the instant cut in every path.
 
-**The address field (2026-09-23):** `src/components/address/address-validator.jsx` is the
-**one** address input in the application — there is no second implementation and no
-per-form address validation logic anywhere else. It is a controlled `value`/`onChange`
-combobox, so it drops into either form idiom this repo uses: `variant="plain"` (label +
-`Input`) for the locations dialog and the settings surfaces, `variant="floating"` for the
-`FloatingShell` forms — reusing the exported `FloatingShell` chrome rather than
-re-deriving it. Two things about it are contract rather than styling. **Typed text is
-never verification** — only choosing a suggestion and having the server resolve it
-produces a verified address, so arbitrary input is never treated as confirmed. And
-**"location verified" and "ZIP code provided" render as two independent chips**, because
-a confident position with no postal code on record is a normal Philippine outcome; the
-two must never collapse into a single valid/invalid verdict. Every state carries an icon
-*and* text inside an `aria-live="polite"` region, so colour is never the only signal.
-`autoGeocode={false}` is the privacy control for personal addresses: typing makes no
-network request, and an explicit `[Verify address]` button does. The optional map is
+**The address field (2026-09-23, superseded 2026-09-24):**
+`src/components/address/address-form-dialog.jsx` is the **one** address input in the
+application — there is no second implementation and no per-form address validation logic
+anywhere else. It is a dialog wrapping `LocationCascade` (Region → Province →
+City/Municipality → Barangay, off the `ph_*` tables) plus the detail fields, and it hands
+the caller the composed `structured_address`. **Every surface that used to be described
+here now mounts it:** the canonical-location dialog and the hotel settings call it
+directly, and the four driver fields (`/drivers/new` and `/drivers/[id]/edit`, residential
+and emergency contact) mount it through `address-picker-field.jsx`, a thin row that shows
+the current address read-only with a **Pick** / **Replace** button and owns no form state
+of its own.
+
+**`address-validator.jsx`, the free-text combobox this paragraph used to name as the one
+address input, is mounted nowhere.** It was a controlled `value`/`onChange` field over
+`/api/address/search` and `/api/address/geocode` (`variant="plain"` for Label+Input
+surfaces, `variant="floating"` for the `FloatingShell` forms, reusing the exported
+`FloatingShell` chrome). Its last caller moved to the cascade on 2026-09-24, so the
+component and `use-address-search.js` are now unreferenced but still present — dead code
+kept only because TomTom's Search API 403 blocks the path they implement. Two things it
+established are still contract rather than styling, and the cascade honours both.
+**Typed text is never verification** — in the cascade the one thing the client is believed
+about is its choice of `psgc_barangay_code`, and the server derives the rest. And
+**"location verified" and "ZIP code provided" render as two independent chips**, because a
+confident position with no postal code on record is a normal Philippine outcome; the two
+must never collapse into a single valid/invalid verdict. Every state carries an icon *and*
+text inside an `aria-live="polite"` region, so colour is never the only signal.
+`autoGeocode={false}` no longer applies anywhere — no mounted surface makes a network
+request while typing, because none of them is a typing field. The optional map is
 `address-map-preview.jsx`, loaded through `dynamic(..., { ssr: false })` exactly like
 every other Leaflet surface here, and `showMap={false}` skips only the render — search,
-geocoding and coordinates all still work.
+geocoding and coordinates all still work. `showPinMap={false}` on the location surfaces
+skips the pin only; see [[ADR-015 Address Owns Administration, Location Owns The Point]]
+for why a canonical location has no address pin while a driver's home now does.
 
 ## Empty and missing routes — CONFIRMED
 

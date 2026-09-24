@@ -155,10 +155,21 @@ Two notes on the state this leaves:
   address row it now points at says City of Parañaque. The verification asserts
   the legacy text is *unchanged*, not that it agrees — reconciling them would
   mean rewriting the field point (6) leaves alone.
-- **Personal address surfaces (driver residential, driver emergency contact) are
-  not migrated** and have no location behind them, so the ownership question does
-  not arise there. The Google Maps URL paste path stays until the last surface
-  moves.
+- **The personal address surfaces were migrated on 2026-09-24, and they are what put
+  point (3) under load.** Driver residential and driver emergency contact
+  (`drivers.address_id` / `drivers.emergency_contact_address_id`) now resolve a
+  picked address into the registry. They have no location behind them, so the
+  ownership question in (1) and (2) does not arise there — but the PIN question in
+  (3) does, and it is answered the other way: these two surfaces are the first to
+  enable the map pin, because a person's home has no other coordinate owner. That is
+  the boundary working as stated rather than an exception to it — (3) forbids a
+  *second* pin for a place that already has one, not a first pin for a place that has
+  none. See [[Driver Management]] and [[addresses]].
+- **The Google Maps URL paste path stays**, and it is now confined to the two surfaces
+  where a location's own coordinates are still the operational point (2) says they are:
+  the canonical-location dialog (`locations.maps_url`) and the hotel settings
+  (`system_settings.google_maps_url`). It is not on the driver surface, which has no
+  location coordinate to paste over — a home's point comes from the address pin instead.
 
 ## Revisit if
 

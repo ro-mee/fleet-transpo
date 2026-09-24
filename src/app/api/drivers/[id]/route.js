@@ -1,4 +1,6 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
+import { saveAddress } from "@/services/address.service";
+import { resolvePickedAddress } from "@/lib/address/picked";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
 import { LEGAL_DRIVING_AGE, isAtLeastAge } from "@/lib/validation/age";
@@ -164,6 +166,20 @@ export async function PUT(req, { params }) {
       return errValidation(errors);
     }
 
+    // ── The two addresses, in whichever of their two shapes arrived ──────────
+    // Same split as POST /api/drivers and as PUT /api/locations: resolution is
+    // validation, so it happens before any write, and a refused barangay is a
+    // 400 carrying field errors rather than a reason to unwind one.
+    //
+    // An omitted field resolves to `value: null`, which is what lets an edit
+    // that only renames a driver leave both the stored text and the registry row
+    // it points at exactly as they are. That is the rule the picker's "send it
+    // only when the operator actually picked one" behaviour depends on.
+    const residential = await resolvePickedAddress(body, "structured_address");
+    if (!residential.ok) return errValidation(residential.errors);
+    const emergency = await resolvePickedAddress(body, "emergency_structured_address");
+    if (!emergency.ok) return errValidation(emergency.errors);
+
     const {
       license_number,
       license_expiry,
@@ -212,7 +228,12 @@ export async function PUT(req, { params }) {
       driverPayload.years_of_experience = Number.isFinite(exp) ? exp : 0;
     }
     if (driver_status !== undefined) driverPayload.driver_status = driver_status;
-    if (address !== undefined) driverPayload.address = address || null;
+    // A picked address WINS over the submitted string, for the same reason it
+    // does on POST: the server composed it from its own resolution of the
+    // barangay code, so the text column and the registry row it is about to
+    // point at are guaranteed to describe the same place.
+    if (residential.value) driverPayload.address = residential.value.formattedAddress;
+    else if (address !== undefined) driverPayload.address = address || null;
     if (sex !== undefined) driverPayload.sex = sex || null;
     if (birthdate !== undefined) driverPayload.birthdate = birthdate || null;
     if (nationality !== undefined) driverPayload.nationality = nationality || null;
@@ -228,8 +249,32 @@ export async function PUT(req, { params }) {
     if (storedLicenceBack !== undefined) driverPayload.license_back_image_url = storedLicenceBack;
     if (emergency_contact_name !== undefined) driverPayload.emergency_contact_name = emergency_contact_name || null;
     if (emergency_contact_phone !== undefined) driverPayload.emergency_contact_phone = emergency_contact_phone || null;
-    if (emergency_contact_address !== undefined) driverPayload.emergency_contact_address = emergency_contact_address || null;
+    if (emergency.value) driverPayload.emergency_contact_address = emergency.value.formattedAddress;
+    else if (emergency_contact_address !== undefined) driverPayload.emergency_contact_address = emergency_contact_address || null;
     driverPayload.updated_at = new Date().toISOString();
+
+    // ── The registry rows, before the driver is pointed at them ──────────────
+    // One transaction for both addresses, so a driver can never end up pointing
+    // at one of the two they picked.
+    //
+    // A failure here fails the whole request, which is the opposite of what
+    // POST /api/drivers does — and deliberately so. There the driver row is
+    // already committed by the time this runs (the Supabase client cannot join
+    // a `pg` transaction), so the only honest options were a degraded success or
+    // unwinding a created account. Here nothing has been written yet, so a hard
+    // refusal costs the operator a retry and leaves no half-done state.
+    const savedAddressIds = (residential.value || emergency.value)
+      ? await withTransaction(async (tx) => ({
+          address_id: residential.value ? await saveAddress(residential.value, { tx }) : null,
+          emergency_contact_address_id: emergency.value ? await saveAddress(emergency.value, { tx }) : null,
+        }))
+      : null;
+
+    // Only the columns whose field was actually picked. Setting one to null
+    // because the OTHER was picked would clear an address the operator never
+    // touched — the same "omitted is not empty" rule, applied to the id.
+    if (residential.value) driverPayload.address_id = savedAddressIds.address_id;
+    if (emergency.value) driverPayload.emergency_contact_address_id = savedAddressIds.emergency_contact_address_id;
 
     // Update driver record via raw SQL query helper
     const driverKeys = Object.keys(driverPayload);

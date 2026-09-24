@@ -32,13 +32,13 @@ import {
   Briefcase,
   Calendar,
   Globe,
-  MapPin,
   Phone,
   Mail,
   UserCheck,
   UserPlus,
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { AddressPickerField } from "@/components/address/address-picker-field";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { driverSchema } from "@/lib/validation/schemas";
 import { LEGAL_DRIVING_AGE } from "@/lib/validation/age";
@@ -53,6 +53,14 @@ export default function NewDriverPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [submitError, setSubmitError] = useState("");
+
+  // The two addresses the operator picked through the cascade, held OUTSIDE the
+  // form because they are not form fields — nothing types into them, and the
+  // text the API stores is composed server-side from the barangay code. They are
+  // sent only when non-null, which is what tells the API to leave whatever is
+  // already stored alone.
+  const [pickedAddress, setPickedAddress] = useState(null);
+  const [pickedEmergencyAddress, setPickedEmergencyAddress] = useState(null);
 
   // Front & Back License Image Preview & Scan state
   const [licenseImagePreview, setLicenseImagePreview] = useState(null);
@@ -91,6 +99,10 @@ export default function NewDriverPage() {
   const createMutation = useMutation({
     mutationFn: createDriver,
     onSuccess: (data) => {
+      // Nothing here reports a partial save any more: POST /api/drivers writes the
+      // employee, the driver and both address rows in ONE transaction, so a
+      // failure on the address half fails the whole request and lands in onError
+      // below rather than arriving here as a success carrying a warning.
       toast.success("Driver registered successfully");
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
       queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
@@ -270,6 +282,12 @@ export default function NewDriverPage() {
     if (data.emergency_contact_address?.trim()) payload.emergency_contact_address = data.emergency_contact_address.trim();
     if (data.emergency_contact_phone?.trim()) payload.emergency_contact_phone = data.emergency_contact_phone.trim();
 
+    // Sent ONLY when the operator actually picked one. Omitting the field is what
+    // tells the API to leave the text it already has and write no registry row,
+    // so a form saved without touching the picker cannot drop an address.
+    if (pickedAddress) payload.structured_address = pickedAddress;
+    if (pickedEmergencyAddress) payload.emergency_structured_address = pickedEmergencyAddress;
+
     createMutation.mutate(payload);
   };
 
@@ -424,14 +442,22 @@ export default function NewDriverPage() {
                     />
                   </FloatingField>
 
-                  <FloatingField label="Address" icon={MapPin} className="md:col-span-2">
-                    <input
-                      id="address"
-                      {...form.register("address")}
-                      placeholder="e.g. 123 Rizal St., Sampaloc, Manila"
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                  {/* The address is picked, not typed — see the component's own
+                      header for why. `stored` is whatever text the field already
+                      carries, which on this page means a licence scan's
+                      extraction; it is displayed read-only and replaced, never
+                      edited, because a hand-typed address carries no barangay
+                      code and nothing can check it. */}
+                  <div className="md:col-span-2">
+                    <AddressPickerField
+                      id="address_pick"
+                      label="Address"
+                      value={pickedAddress}
+                      onChange={setPickedAddress}
+                      stored={values.address}
+                      disabled={isSubmitting}
                     />
-                  </FloatingField>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -574,14 +600,16 @@ export default function NewDriverPage() {
                     />
                   </FloatingField>
 
-                  <FloatingField label="Address" icon={MapPin} className="md:col-span-2">
-                    <input
-                      id="emergency_contact_address"
-                      {...form.register("emergency_contact_address")}
-                      placeholder="e.g. 123 Rizal St., Sampaloc, Manila"
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                  <div className="md:col-span-2">
+                    <AddressPickerField
+                      id="emergency_contact_address_pick"
+                      label="Address"
+                      value={pickedEmergencyAddress}
+                      onChange={setPickedEmergencyAddress}
+                      stored={values.emergency_contact_address}
+                      disabled={isSubmitting}
                     />
-                  </FloatingField>
+                  </div>
                 </div>
               </CardContent>
             </Card>

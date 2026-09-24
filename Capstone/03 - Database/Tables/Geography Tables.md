@@ -20,7 +20,8 @@ tables are what the cascading address form picks from, and what
 city out of.
 
 They exist because the geocoder route is blocked. TomTom's Search API answers `403` for the
-server key, so `AddressValidator` cannot resolve anything today. Picking from the real
+server key, so the `AddressValidator` combobox cannot resolve anything — and it is now
+mounted nowhere at all. Picking from the real
 hierarchy makes an address already structurally valid with **no provider in the path** —
 and it closes a hole a geocoder could never close, since a provider can confidently place a
 pin at a barangay whose name appears in two different cities.
@@ -267,17 +268,23 @@ the two gates working as a pair rather than an unanswered question.
 
 ## Not yet true
 
-- **The form has not been exercised end to end.** It now has two real callers — since
-  2026-09-24 the canonical-location dialog (`src/app/(dashboard)/routes/locations/page.js`)
-  and the hotel base location (`src/app/(dashboard)/settings/general/page.js`) both mount it
-  and post `structured_address`, to `/api/locations` and `/api/settings/hotel` respectively —
-  but wiring a caller is not the same as driving it. CALABARZON → Laguna → Santa Rosa →
-  Balibago is the path to try, and until someone does, "the data is loaded", "the form is
-  wired" and "the form works" are three different claims, only the first two of which are
-  established here.
-- **Two address surfaces are migrated.** Driver residential and driver emergency contact
-  still write their own columns. **Reservations was on this list and is not an address
-  surface:** `transportation_requests.pickup_location` / `.dropoff_location` are text naming a
+- **The form still has not been exercised end to end.** It now has **six** real callers,
+  all since 2026-09-24: the canonical-location dialog
+  (`src/app/(dashboard)/routes/locations/page.js`) and the hotel base location
+  (`src/app/(dashboard)/settings/general/page.js`) mount `AddressFormDialog` directly, and
+  the four driver fields — residential and emergency contact on `/drivers/new` and
+  `/drivers/[id]/edit` — mount it through `AddressPickerField`. They post
+  `structured_address` (or `emergency_structured_address`) to `/api/locations`,
+  `/api/settings/hotel` and `/api/drivers` respectively. But wiring a caller is not the same
+  as driving it. CALABARZON → Laguna → Santa Rosa → Balibago is the path to try, and until
+  someone does, "the data is loaded", "the form is wired" and "the form works" are three
+  different claims, only the first two of which are established here.
+- **Four address surfaces are migrated.** As of 2026-09-24 driver residential and driver
+  emergency contact no longer write their own columns: `/drivers/new` and `/drivers/[id]/edit`
+  pick through the cascade and `POST`/`PUT /api/drivers` resolve the barangay code server-side
+  into `drivers.address_id` / `drivers.emergency_contact_address_id`, mirroring the composed
+  address into the text columns so every existing reader is unaffected. **Reservations was on
+  this list and is not an address surface:** `transportation_requests.pickup_location` / `.dropoff_location` are text naming a
   canonical location and are kept verbatim, so a reservation reaches a structured address
   through the location it names. What it lacked was the other half of that link —
   `pickup_location_id` / `dropoff_location_id`, FKs to `locations(location_id)` that nothing
