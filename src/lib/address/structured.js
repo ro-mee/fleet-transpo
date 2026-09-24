@@ -384,7 +384,14 @@ export function composeStructuredLines(value) {
   // "Barangay Balibago" rather than "Balibago" — in a Philippine address the
   // level is normally written with its prefix, and without it a barangay name
   // reads like a street or a subdivision.
-  if (isFilled(value.barangayName)) lines.push(`Barangay ${value.barangayName}`);
+  //
+  // The prefix is added ONLY when the name does not already carry it. PSGC names
+  // the numbered barangays "Barangay 197" outright — every barangay of Manila
+  // and Pasay is named that way — so an unconditional prefix renders a large,
+  // real set of addresses as "Barangay Barangay 197". See `withBarangayPrefix`.
+  if (isFilled(value.barangayName)) {
+    lines.push(withBarangayPrefix(value.barangayName));
+  }
 
   pushIfFilled(lines, value.cityName);
 
@@ -421,6 +428,33 @@ export function formatStructuredAddress(value) {
 
 function pushIfFilled(lines, value) {
   if (isFilled(value)) lines.push(typeof value === "string" ? value.trim() : value);
+}
+
+/**
+ * A barangay name carrying its level prefix exactly once.
+ *
+ * The prefix exists because a bare barangay name reads like a street or a
+ * subdivision — "Balibago" alone could be either. But some barangays are NAMED
+ * with the prefix already: PSGC writes every one of Manila's and Pasay's
+ * numbered barangays as "Barangay 197", not "197". Prepending unconditionally
+ * therefore renders those as "Barangay Barangay 197".
+ *
+ * The test is for the word, not the string prefix, so "Barangay" must stand
+ * alone: `\b` after it means "Barangay 197" and "Barangay" itself match, while a
+ * hypothetical "Barangay197" does not, and neither does a name that merely
+ * mentions the word later ("Santo Niño, Barangay 5").
+ *
+ * Matching is case-insensitive and the supplied spelling is preserved — a name
+ * the data spells "barangay 197" is stored and rendered as "barangay 197", not
+ * rewritten to a capital B. This is presentation only: `barangayName` and the
+ * PSGC row behind it are never altered.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+function withBarangayPrefix(name) {
+  const trimmed = String(name).trim();
+  return /^barangay\b/i.test(trimmed) ? trimmed : `Barangay ${trimmed}`;
 }
 
 function joinParts(...parts) {

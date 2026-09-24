@@ -501,6 +501,81 @@ describe("composeStructuredLines", () => {
   });
 });
 
+// The prefix is added for readability — a bare barangay name reads like a street
+// or a subdivision — but some barangays are NAMED with it already, so an
+// unconditional prefix renders them "Barangay Barangay NNN". Every barangay of
+// Manila and Pasay is named that way, which is why this is a real set of
+// addresses rather than a curiosity. The rule under test is generic: it does not
+// name Pasay, Barangay 197 or Barangay 183 anywhere in the implementation.
+describe("the barangay prefix — added once, never twice", () => {
+  const formattedFor = (barangayName) =>
+    formatStructuredAddress({
+      ...EMPTY_STRUCTURED_ADDRESS,
+      streetRoad: "Street",
+      barangayName,
+      cityName: "City",
+      regionName: "Region",
+      postalCode: "1000",
+    });
+
+  it("prefixes a name that has no prefix of its own — Tambo", () => {
+    expect(formattedFor("Tambo")).toContain("Barangay Tambo");
+  });
+
+  it("still prefixes an unprefixed name exactly as it always did — Ermita", () => {
+    expect(formattedFor("Ermita")).toContain("Barangay Ermita");
+  });
+
+  it("leaves 'Barangay 197' alone, because that IS its name", () => {
+    expect(formattedFor("Barangay 197")).toContain("Barangay 197");
+    expect(formattedFor("Barangay 197")).not.toContain("Barangay Barangay");
+  });
+
+  it("leaves 'Barangay 183' alone too — the rule is generic, not about one city", () => {
+    expect(formattedFor("Barangay 183")).toContain("Barangay 183");
+    expect(formattedFor("Barangay 183")).not.toContain("Barangay Barangay");
+  });
+
+  it("matches an existing prefix case-insensitively, without rewriting the spelling", () => {
+    const formatted = formattedFor("barangay 197");
+    expect(formatted).toContain("barangay 197");
+    expect(formatted).not.toMatch(/barangay barangay/i);
+  });
+
+  it("does not rewrite an existing prefix's case to the canonical one", () => {
+    expect(formattedFor("BARANGAY 12")).toContain("BARANGAY 12");
+    expect(formattedFor("BARANGAY 12")).not.toMatch(/Barangay BARANGAY/i);
+  });
+
+  it("trims the supplied name before deciding", () => {
+    expect(formattedFor("  Tambo  ")).toContain("Barangay Tambo");
+    expect(formattedFor("  Barangay 197  ")).toContain("Barangay 197");
+    expect(formattedFor("  Barangay 197  ")).not.toContain("Barangay Barangay");
+  });
+
+  it("requires 'Barangay' to stand alone as a word, not merely to start the string", () => {
+    // "Barangay197" is one word and is not the prefix, so it takes one.
+    expect(formattedFor("Barangay197")).toContain("Barangay Barangay197");
+  });
+
+  it("does not mistake the word appearing later for an existing prefix", () => {
+    expect(formattedFor("Santo Niño, Barangay 5")).toContain("Barangay Santo Niño, Barangay 5");
+  });
+
+  it("renders the whole address correctly for a numbered barangay", () => {
+    // The shape the canonical-location migration depends on.
+    expect(formattedFor("Barangay 197")).toBe(
+      "Street, Barangay 197, City, Region, 1000, Philippines"
+    );
+  });
+
+  it("does not mutate the value it was handed — this is presentation only", () => {
+    const value = { ...EMPTY_STRUCTURED_ADDRESS, streetRoad: "Street", barangayName: "Barangay 197" };
+    composeStructuredLines(value);
+    expect(value.barangayName).toBe("Barangay 197");
+  });
+});
+
 describe("regionRequiresProvince", () => {
   it("assumes a province is required until the list arrives", () => {
     // Guessing "no province" while loading would let an incomplete address render
