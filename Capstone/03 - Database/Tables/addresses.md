@@ -143,10 +143,17 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
 
 ## Not yet true
 
-- **Nothing is backfilled and nothing is bulk-geocoded.** Legacy rows keep
-  `address_id = NULL` and read from their existing text columns; a row is upgraded only
-  when a human next edits it. The same holds for `psgc_barangay_code` — legacy rows are NULL
-  until individually re-edited. Migration `123` deliberately declined a bulk backfill.
+- **Three canonical locations were backfilled on 2026-09-24; nothing else has been, and
+  nothing is bulk-geocoded.** `#1 CoCo Star Hotel`, `#8 NAIA Terminal 2 - Arrivals` and
+  `#10 NAIA Terminal 3 - Arrivals (Bay 9)` took `address_id` **1, 2 and 3** via
+  `scripts/backfill-location-addresses.mjs` — the registry's first three rows — each with
+  `provider = 'manual'`, `verified = false` and NULL coordinates. Every other location and
+  every other address-bearing row keeps `address_id = NULL` and reads from its existing text
+  columns; a row is upgraded only when a human next edits it. The same holds for
+  `psgc_barangay_code` — untouched rows are NULL until individually re-edited. Migration
+  `123` declined a bulk backfill and so did this one: it is scoped to three named locations
+  and skips any row that is already linked, retired or renamed. The authority boundary it
+  implements is [[ADR-015 Address Owns Administration, Location Owns The Point]].
 - **Two address surfaces write to this table so far.**
   1. **The canonical-location dialog.** Since 2026-09-24
      `src/app/(dashboard)/routes/locations/page.js` picks through the cascade and

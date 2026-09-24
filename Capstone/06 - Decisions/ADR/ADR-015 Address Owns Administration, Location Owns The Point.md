@@ -131,19 +131,34 @@ authoritative; the text is display residue awaiting its surface's migration. It 
 not reconciled automatically, because reconciling it would mean rewriting a field
 this decision explicitly leaves alone.
 
-## Status of the work this decision came out of
+## Status of the work this decision came out of — APPLIED 2026-09-24
 
-**Dry-run only — nothing has been applied.** Three operational locations are in
-scope (`#1 CoCo Star Hotel`, `#8 NAIA Terminal 2 - Arrivals`,
+**Applied and verified.** Three operational locations are in scope
+(`#1 CoCo Star Hotel`, `#8 NAIA Terminal 2 - Arrivals`,
 `#10 NAIA Terminal 3 - Arrivals (Bay 9)`), against
-`scripts/backfill-location-addresses.mjs`. Both runs reported
-`6 writes refused at the guard` — three `INSERT INTO addresses`, three
-`UPDATE locations ...` — and `--apply` refuses to start without a snapshot.
+`scripts/backfill-location-addresses.mjs`. They took `address_id` **1, 2 and 3** —
+the registry's first three rows. `--apply` refuses to start without a snapshot,
+and the snapshot is written *before* the first write.
 
-Personal address surfaces (driver residential, driver emergency contact) are
-**not** migrated and have no location behind them, so the ownership question does
-not arise there. The Google Maps URL paste path stays until the last surface
-moves.
+All nine post-apply checks passed against that snapshot: exactly three new
+address rows (`0 → 3`), exactly three `address_id` changes and all on #1/#8/#10,
+no unrelated location changed, no coordinate changed, no legacy
+`locations.address` text changed, each row carrying its expected PSGC barangay
+code with an `operational` type and a NULL province, all three unverified
+(`verified = false`, `provider = 'manual'`), all three coordinate pairs NULL, and
+no house number on any row.
+
+Two notes on the state this leaves:
+
+- **The two facts still disagree for the hotel, and that is the expected
+  outcome.** The legacy text reads "CoCo Star Hotel, Manila, Philippines"; the
+  address row it now points at says City of Parañaque. The verification asserts
+  the legacy text is *unchanged*, not that it agrees — reconciling them would
+  mean rewriting the field point (6) leaves alone.
+- **Personal address surfaces (driver residential, driver emergency contact) are
+  not migrated** and have no location behind them, so the ownership question does
+  not arise there. The Google Maps URL paste path stays until the last surface
+  moves.
 
 ## Revisit if
 
