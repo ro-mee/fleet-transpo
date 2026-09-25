@@ -333,7 +333,10 @@ CREATE TABLE driverattendance (
   remarks text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
+  end_duty_outcome text,
+  end_duty_submission_id text,
   CONSTRAINT driverattendance_check_in_method_check CHECK (((check_in_method)::text = ANY ((ARRAY['manual'::character varying, 'face_recognition'::character varying])::text[]))),
+  CONSTRAINT driverattendance_end_duty_outcome_check CHECK (((end_duty_outcome IS NULL) OR (end_duty_outcome = ANY (ARRAY['Reported'::text, 'NoVehicle'::text, 'AutoClosed'::text])))),
   CONSTRAINT driverattendance_status_check CHECK (((status)::text = ANY ((ARRAY['Present'::character varying, 'Late'::character varying, 'Absent'::character varying, 'Half-Day'::character varying, 'On Leave'::character varying])::text[]))),
   CONSTRAINT driverattendance_pkey PRIMARY KEY (attendance_id)
 );
@@ -725,6 +728,7 @@ CREATE TABLE notifications (
   sent_at timestamptz DEFAULT now(),
   created_at timestamptz DEFAULT now(),
   pushed_at timestamptz,
+  deleted_at timestamptz,
   CONSTRAINT notifications_pkey PRIMARY KEY (notification_id)
 );
 
@@ -1426,6 +1430,8 @@ CREATE INDEX idx_mfa_recovery_codes_employee ON public.mfa_recovery_codes USING 
 CREATE INDEX idx_mobile_refresh_tokens_employee ON public.mobile_refresh_tokens USING btree (employee_id);
 CREATE INDEX idx_mobile_refresh_tokens_family ON public.mobile_refresh_tokens USING btree (family_id);
 CREATE INDEX idx_notification_preferences_employee ON public.notification_preferences USING btree (employee_id);
+CREATE INDEX idx_notifications_live_employee ON public.notifications USING btree (employee_id, sent_at DESC) WHERE (deleted_at IS NULL);
+CREATE INDEX idx_notifications_live_user ON public.notifications USING btree (user_id, sent_at DESC) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_notifications_read ON public.notifications USING btree (is_read);
 CREATE INDEX idx_notifications_sent ON public.notifications USING btree (sent_at);
 CREATE INDEX idx_notifications_user ON public.notifications USING btree (employee_id);
@@ -1489,6 +1495,7 @@ CREATE INDEX idx_vehicles_plate ON public.vehicles USING btree (plate_number);
 CREATE INDEX idx_vehicles_status ON public.vehicles USING btree (vehicle_status);
 CREATE INDEX idx_web_sessions_employee_active ON public.web_sessions USING btree (employee_id, revoked_at, expires_at);
 CREATE UNIQUE INDEX uq_ai_report_narrative_key ON public.ai_report_narratives USING btree (report, COALESCE(range_from, '*'::character varying), COALESCE(range_to, '*'::character varying));
+CREATE UNIQUE INDEX uq_attendance_driver_end_duty_submission ON public.driverattendance USING btree (driver_id, end_duty_submission_id) WHERE (end_duty_submission_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_driverincidents_driver_submission ON public.driverincidents USING btree (driver_id, client_submission_id) WHERE ((deleted_at IS NULL) AND (client_submission_id IS NOT NULL));
 CREATE UNIQUE INDEX uq_dva_active_driver ON public.driver_vehicle_assignments USING btree (driver_id) WHERE (assigned_until IS NULL);
 CREATE UNIQUE INDEX uq_dva_active_vehicle ON public.driver_vehicle_assignments USING btree (vehicle_id) WHERE (assigned_until IS NULL);
@@ -1518,6 +1525,33 @@ SELECT d.driver_id,
   GROUP BY d.driver_id;
 
 -- =========================== FUNCTIONS ==========================
+
+CREATE OR REPLACE FUNCTION public.auto_close_unreported_duties(p_now timestamp with time zone DEFAULT now())
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  closed integer;
+BEGIN
+  IF (p_now AT TIME ZONE 'Asia/Manila')::time < TIME '04:00' THEN
+    RETURN 0;
+  END IF;
+
+  UPDATE driverattendance
+     SET time_out          = NOW(),
+         end_duty_outcome  = 'AutoClosed',
+         remarks           = COALESCE(remarks || ' | ', '')
+                             || 'Auto-closed 04:00: no End Duty report submitted'
+   WHERE date < (p_now AT TIME ZONE 'Asia/Manila')::date
+     AND time_in IS NOT NULL
+     AND time_out IS NULL
+     AND end_duty_outcome IS NULL
+     AND status IN ('Present','Late','Half-Day');
+
+  GET DIAGNOSTICS closed = ROW_COUNT;
+  RETURN closed;
+END $function$
+;
 
 CREATE OR REPLACE FUNCTION public.calculate_trip_cost(trip_id uuid)
  RETURNS numeric
@@ -1848,6 +1882,27 @@ BEGIN
     );
   END IF;
   RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.purge_deleted_notifications(p_retention_days integer DEFAULT 90)
+ RETURNS integer
+ LANGUAGE plpgsql
+AS $function$
+DECLARE
+  v_count integer;
+BEGIN
+  IF p_retention_days IS NULL OR p_retention_days < 1 THEN
+    RETURN 0;
+  END IF;
+
+  DELETE FROM notifications
+  WHERE deleted_at IS NOT NULL
+    AND deleted_at < NOW() - make_interval(days => p_retention_days);
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
 END;
 $function$
 ;
