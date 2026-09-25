@@ -2,7 +2,9 @@
 
 **Status: partly verified.** Steps 5–8 were run against the running app on 2026-09-25 and every
 one passed as expected — recorded in `Capstone/07 - Development/Bugs.md`. **Steps 1–4 and 9–11
-are still owed.** The automated layer is green. Before that pass nothing here had been exercised
+are still owed** — with the caveat that three of step 11's four states are unreachable with
+the data that exists, measured rather than assumed; see section D. The automated layer is green.
+Before that pass nothing here had been exercised
 in a browser since the 2026-09-24 attempt failed at step 1 and produced the fix in Bugs.md,
 "Address B must never be submitted with Latitude A".
 
@@ -237,8 +239,9 @@ Open a row with an `address_id` and re-open its picker.
 
 **Expected:** pre-filled the same way as step 6. This surface fetches detail **lazily, on
 dialog open** — the list holds many rows and fetching detail for all of them is the N+1 the
-design avoids — so the first paint may be brief. A row whose address predates the registry
-shows its stored text read-only with a reason, as step 11 describes.
+design avoids — so the first paint may be brief. Three of the eleven locations are linked and
+those are the candidates here; the other eight are legacy, which is step 11's subject and not
+this one's. Note what a legacy row actually shows — **no reason line** — before expecting one.
 
 Note what this route carries: `GET /api/locations/[id]` gained `structured_address`, and it is
 the route the hotel base reads **through**, while gated on `settings: read` rather than the
@@ -256,19 +259,43 @@ not the address code.
 
 ## D. The boundary — step 11
 
-### 11. A legacy address still refuses, and says why
+### 11. A legacy address still refuses — and the reachable case is silent
 
-Open the picker on a driver or location whose `psgc_barangay_code` is NULL.
+**Measured 2026-09-25** (`scratch/probe-addresses.mjs`, counts only, no row contents): of the
+4 `addresses` rows, **0** has a NULL `psgc_barangay_code`. **55 of 56 drivers** and **8 of 11
+locations** have a NULL `address_id`, and 4 of those 8 locations carry display text.
 
-**Expected:** the picker opens **blank** and the stored text is shown read-only — with the
-reason, not a blank panel. A guard that refuses silently is indistinguishable from a bug.
+That matters, because the four states resolve to five screens and only one of them is
+reachable:
 
-| Reason shown | Cause |
-|---|---|
-| `no-address-id` | nothing is linked — a row predating the registry |
-| `no-psgc-code` | the address exists but is free text; the data was never captured |
-| `unknown-barangay` | the code is set but no longer resolves — PSGC data moved under the row |
-| `unavailable` | the read itself failed. A statement about us, not the address, and logged |
+| Referrer state | Reason | What the screen shows |
+|---|---|---|
+| `address_id` NULL, text present | `no-address-id` | stored text read-only, **no reason line** |
+| `address_id` NULL, no text | `no-address-id` | empty field, **no reason line** |
+| `address_id` set, row's code NULL | `no-psgc-code` | "Saved before the address cascade existed…" |
+| `address_id` set, code no longer resolves | `unknown-barangay` | "The barangay it was saved with is no longer…" |
+| the read itself failed | `unavailable` | "The saved address could not be loaded just now…" |
+
+**The reachable case is the one that says nothing, and that is correct.** `no-address-id` is
+deliberately absent from `PREFILL_REASON_MESSAGES` — there is no failure to explain — and a
+test asserts the key stays out. A row that never had a structured address has not been
+refused by anything.
+
+**What to actually do.** Open `/drivers/<id>/edit` for **any driver other than 59** — 55 of 56
+are legacy, so almost any row will do — and open the residential picker. Expect it **blank**,
+the stored text still shown, and **no reason line**. Then repeat on a legacy locations row;
+four of the eight show text, four show an empty field, and neither shows a reason.
+
+**A reason line on either of those screens is the bug.** Absence is the expected result, which
+is the reverse of what this step said before it was measured.
+
+**The other three reasons cannot be reached without writing.** `no-psgc-code` needs an
+`addresses` row with a NULL code and none exists; `unknown-barangay` needs a stored code that
+no longer resolves; `unavailable` needs a read that fails. Those paths are covered by
+`structured.test.js` at the unit level and **not exercised in a browser** — this step should
+not pretend otherwise. Reaching them for real means inserting an `addresses` row in a state no
+operator can produce, into the live project, where `addresses` is append-only. Ask first and
+say what it is for; it is not implied by "run the runbook".
 
 **Reconstructing a barangay from stored text is the one thing this design refuses**, and it is
 the reason the gap existed. If a legacy row ever opens pre-filled, that refusal has been
