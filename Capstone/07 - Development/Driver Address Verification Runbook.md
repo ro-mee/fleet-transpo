@@ -60,6 +60,59 @@ they occur.
 Turbopack, and halving the worker count cleared it. If the suite aborts with a heap error
 rather than a test failure, that is the OOM, not a red test.
 
+## What makes an address saveable — read this before step 1
+
+Every interactive step below fills an address dialog, and that dialog's submit button — labelled
+**"Use this address"** — is **disabled until every required field is filled**
+(`address-form-dialog.jsx:542`, `disabled={!complete || saving}`). A disabled button does nothing
+when clicked: no toast, no error beside the button. What is still missing is listed just above the
+footer as *"N required fields left"* followed by one line per field (`:506-525`). That list appears
+once the form has been touched or a region chosen, so it is on screen by the time you go looking
+for why the button will not press.
+
+**This is what the 2026-09-25 "emergency contact address not saved" report resolved to.** The
+operator reported the button greyed out. A dialog that cannot be submitted hands nothing to the
+page; the outer Save then omits the field, by design, because omitting it is what leaves an
+untouched address alone; and the server correctly writes nothing. So the save reports success
+having stored nothing. The database proves the "nothing written" half and cannot explain it — the
+greyed button explains it, and it came from the operator rather than from a query, which is why
+step 1 is a browser step at all.
+
+The requirement is not one list, because exactly one address type relaxes exactly one field
+(`src/lib/address/structured.js:350, 379, 405`):
+
+| Surface | Type | Required |
+|---|---|---|
+| Driver — residential and emergency (steps 1, 5–8, 11) | `home` | the four levels + house/building no. + street/road + ZIP |
+| Locations and hotel base (steps 9, 10) | `operational` | the same, **minus the house/building number** |
+
+**The four geographic levels**, in order: region → province → city or municipality → barangay.
+
+**Province is conditional**, and it is the one that reads as a defect in Metro Manila. It is
+required only when the chosen region has provinces at all (`regionRequiresProvince`,
+`structured.js:619`); NCR and the province-independent cities have none, so the level is skipped
+rather than fabricated. **It is transiently required anyway** — until that region's province list
+has loaded, the form assumes a province is needed rather than let an incomplete address read as
+complete (`:623`) — so Province appears and then drops out. Wait for the data rather than
+concluding the form is confused.
+
+**Never required, on any surface:** Unit / Floor / Building, Subdivision / Village, Landmark,
+Additional details — **and the map pin.** Step 2 fails the run when the pin is absent, but a
+missing pin never greys this button, so an address can be perfectly saveable and still fail that
+check. The two are unrelated and must not be diagnosed as one.
+
+Two ways to fill the form and still find the button greyed:
+
+- **A ZIP shorter than four digits.** The field is non-empty, so nothing looks wrong, but the test
+  is `/^\d{4}$/` (`structured.js:432`) and "142" fails it. The message names the rule: *"ZIP code
+  must be 4 digits (e.g. 1421)."*
+- **A skipped house/building number on a driver address.** Only `operational` may leave it blank
+  (`:379`), and the driver surfaces are `home` by construction — `AddressPickerField` hardcodes
+  `showTypeSelector={false}` with `forcedType="home"` (`address-picker-field.jsx:144, 81`), so a
+  driver dialog cannot declare itself operational to escape the rule. If the address genuinely has
+  no number, note that and stop there: inventing one is the fabrication this module refuses
+  everywhere else.
+
 ---
 
 ## A. The migration's own claims — steps 1–4
@@ -71,6 +124,12 @@ At `/drivers/new`:
 - Pick **both** addresses through the cascade — residential and emergency contact.
 - Drop a **pin** on the residential one.
 - Submit.
+
+Each dialog's **"Use this address"** stays disabled until all seven required fields are filled —
+the four levels plus house/building number, street/road and ZIP, with the province conditional and
+the pin optional. The list is in *"What makes an address saveable"* above; check it there rather
+than concluding the form is broken. A dialog that is never submitted hands nothing to the page, and
+the outer Save then omits that address and reports success having written none of it.
 
 Do the cascade first, then the detail fields, then the pin. That is the only order that works
 today, and step 7 is why.

@@ -37,13 +37,19 @@ The leaked database password was **rotated on
 
 ### Severity 2 — correctness hazards
 
-- **The address form discards work silently — both halves now fixed, browser
-  checks owed.** Reported 2026-09-25 as a picked emergency-contact address and a
+- **The address form discards work silently — both halves fixed, browser checks
+  run 2026-09-25 as runbook steps 5–8 (the operator's report; unlike steps 9–11
+  there is no machine trace either way).** Reported 2026-09-25 as a picked
+  emergency-contact address and a
   dropped residential pin both vanishing. The `addresses` table split the report in
   two: the emergency row was never written (client-side loss), while the residential
   row **did** arrive with its house number and no coordinates — so its pin was lost
   *before* the submit. **Half 1**, closing the dialog with Cancel / Escape /
-  backdrop losing the whole form, is fixed by a confirm-before-discard. **Half 2**
+  backdrop losing the whole form, is fixed by a confirm-before-discard — though
+  the operator later reported the submit button was **greyed out** on an
+  incomplete address, so "closed instead of submitted" is the symptom rather than
+  the cause, and the disabled button's own explanation stays under-stated (see
+  the date below). **Half 2**
   was two layers: the anti-stale rule clearing a dropped pin on any later edit went
   unannounced, and — the real reason nobody noticed — `address-pin-map.jsx` computed
   `hasPin` from `Number(null)`, which is `0`, so the map showed a marker and "Pin at
@@ -2819,6 +2825,27 @@ through one confirm. Submitting does not pass through it — the picker closes t
 dialog in its own `onSubmit`, after handing the value up — so a successful save
 never prompts. A submit in flight refuses the close rather than stranding its
 result.
+
+**The mechanism, narrowed the same day — the button was disabled, not bypassed.** Late on
+2026-09-25 the operator reported why the dialog was left: **"Use this address" was greyed out.**
+That is a different cause from choosing the wrong exit, and it moves where the gap actually is.
+The button is disabled while any required field is empty (`address-form-dialog.jsx:542`,
+`disabled={!complete || saving}`), so an incomplete address has **no submitting exit at all** —
+Cancel, Escape, the backdrop and the X are the only ones on offer, and every one of them discards.
+Selecting the cascade levels is not the same as handing a pick up: `onSubmit` is the only path that
+calls `onChange`, and on a disabled button it never runs.
+
+So this half is not "the operator closed the dialog instead of submitting it". It is "the operator
+could not submit it, and nothing on screen made the reason loud enough to find". The
+confirm-before-discard fix still helps — the prompt now interrupts the only available exit and
+offers *Keep editing* — but it treats the symptom: it fires **after** the operator has decided to
+leave, and it never says which field is missing. The runbook's *"What makes an address saveable"*
+section is the other half of the mitigation; a disabled button that states its reason as plainly as
+the notice beside the map does remains **open**.
+
+A greyed button is the operator's report rather than a measurement, and it is recorded as one. It
+is consistent with everything the database shows — no emergency row was written — and explains that
+fact at least as directly as the close does.
 
 ### Half 2 — the pin map could not show an empty pin, so a cleared one looked set. FIXED AND BROWSER-VERIFIED 2026-09-25
 
