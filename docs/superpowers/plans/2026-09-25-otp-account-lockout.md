@@ -2,6 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **SUPERSEDED IN PART (final review, 2026-09-25).** Everywhere this plan says
+> `/api/auth/login-status` peeks the OTP bucket and answers `reason:"otp"`
+> (Architecture above, Task 4, Task 5's client copy, Task 8's vault snippets) is
+> **no longer true**. Task 4 was implemented and then **removed in final
+> review**: resolving the email to an `employee_id` before answering makes
+> `locked:true` a conditional account-existence oracle on a public, unthrottled
+> endpoint while a lock stands. As built, login-status reports only the
+> `account`/`ip` verdicts it had before; the OTP countdown ships solely in the
+> direct `OTP_LOCKED:<sec>` token. The Task 4 body below is kept as the record
+> of what was tried — treat its route/test snippets as historical.
+
 **Goal:** Freeze an account's entire OTP surface (issue + verify, web + mobile + admin break-glass) for 15 minutes after 3 burned challenges, closing the `issue → 5 guesses → issue` loop.
 
 **Architecture:** One choke point — `src/lib/auth/email-otp.js` peeks a `lockout:otp:${employeeId}` bucket in the existing `auth_rate_limits` table at the top of `issueLoginChallenge` and `verifyLoginChallenge`, spends one hit after the transaction commits when an outcome is `attempts_exhausted`, and clears the bucket on success. Both channels (`src/lib/auth.js`, `src/app/api/mobile/auth/login/route.js`) translate the new `otp_locked` reason into an `OTP_LOCKED:<seconds>` token; `/api/auth/login-status` peeks the bucket so the web form can show a countdown; clients render the wait with shared `parseOtpLock`/`formatLockWait` helpers.

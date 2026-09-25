@@ -538,10 +538,15 @@ issue` at ~5 guesses/minute with no ceiling at all. Closed in the shared
 the admin emergency-code path (`OTP_LOCKED:<seconds>` token on web, 429 +
 `Retry-After` on mobile), the hit is consumed post-commit one per burn, success
 clears the bucket, the trip raises the `account_locked` alert with
-`factor: "otp"`, and `/api/auth/login-status` peeks the bucket for the web
-countdown (locked state only — still not an existence oracle). No migration —
+`factor: "otp"`. `/api/auth/login-status` deliberately does **not** report the
+OTP lock — a `locked:true` answer would have to resolve the email to an
+`employee_id` first, which is a conditional account-existence oracle while a
+lock stands (the branch that did this was removed in final review); the
+countdown reaches the locked-out user through the direct `OTP_LOCKED:<seconds>`
+token instead. No migration —
 `auth_rate_limits` from migration 087. Verified: `email-otp.test.js` lockout
-cases, new `login-status/route.test.js`, SEC-AUTH-006 source pins, mobile
+cases, `login-status/route.test.js` (an active OTP lock must produce no
+observable state), SEC-AUTH-006 source pins, mobile
 `otp.test.js` token-parity pins, full suite + touched-file lint green.
 
 ## Related

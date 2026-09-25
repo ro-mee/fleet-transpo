@@ -300,10 +300,15 @@ mint an emergency code for a locked account until the window expires.**
   so past struggle never makes the next typo half-way to a lock.
 - The limiter fails closed with everything else in `rate-limit.js`: a DB outage
   stops OTP — which it would anyway, since the challenge lives in the same DB.
+- **`/api/auth/login-status` does not report the OTP lock.** Task 4 added that
+  branch and claimed it stayed enumeration-safe; final review removed it,
+  because answering `locked:true` means resolving the email to an `employee_id`
+  first — a conditional account-existence oracle on a public, unthrottled
+  endpoint for as long as a lock stands. The countdown ships only in the direct
+  `OTP_LOCKED:<sec>` token (web `authorize` / mobile 429).
 
 **Evidence:** `src/lib/auth/email-otp.js`, `src/lib/auth/otp-policy.js`,
 `src/lib/auth.js`, `src/app/api/mobile/auth/login/route.js`,
-`src/app/api/auth/login-status/route.js`,
 `src/app/api/auth/mfa/emergency-code/route.js`,
 `docs/superpowers/specs/2026-09-25-otp-account-lockout-design.md`,
 `Capstone/04 - Architecture/Authentication.md` §"Account-level lockout".

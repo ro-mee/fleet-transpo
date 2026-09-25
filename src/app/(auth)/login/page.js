@@ -670,8 +670,10 @@ function MfaVerificationDialog({
 const otpLockMessage = (secs) =>
   `Too many incorrect codes. This account is temporarily locked. Try again in ${formatLockWait(secs)}.`;
 
-function loginLockMessage(reason, secs) {
-  if (reason === "otp") return otpLockMessage(secs);
+// Only "account" and "ip" are reachable here: login-status deliberately does
+// not report the OTP lock (a locked answer would prove the account exists), so
+// the OTP countdown arrives from the direct `OTP_LOCKED:<secs>` token above.
+function loginLockMessage(reason) {
   if (reason === "account")
     return "Too many incorrect attempts. This account is temporarily locked for your protection.";
   return "Too many login attempts from this network. Please wait a moment.";
@@ -984,7 +986,7 @@ export default function LoginPage() {
               if (status?.locked) {
                 const secs = status.retryAfterSec || 60;
                 setLockSeconds(secs);
-                setError(loginLockMessage(status?.reason, secs));
+                setError(loginLockMessage(status?.reason));
                 return;
               }
             }

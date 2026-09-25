@@ -23,7 +23,7 @@ Existing layers this sits on top of (all unchanged): 5 attempts/challenge (`OTP_
 | 7 | **Lock trip is surfaced: `lockTripped` on the outcome** | The consume that reaches the ceiling returns `lockTripped: true`, so call sites raise the existing `account_locked` security alert with `details: { channel, factor: "otp" }` — same alert type as the password lockout, no change to `SECURITY_ALERT_TYPES`. The `mfa_failure` audit already records `reason: "otp_locked"` for free (it logs `factor.reason`). |
 | 8 | **Success clears the bucket** | After a successful OTP *or* recovery-code verification, best-effort `DELETE` of the bucket (mirrors `clearAccountLockout`). A user who burned 2 codes then got in starts clean — past struggle must not make the next typo half-way to a lock. |
 | 9 | **Wire format = `OTP_LOCKED:<seconds>`** | Mirrors the existing `ACCOUNT_LOCKED:${retryAfter}` token (`auth.js:49`). Thrown by `authorize`, returned 429 by the mobile route. Clients parse the seconds for a countdown. Rejected a human-readable server string: copy belongs to the client, and the token keeps it translatable. |
-| 10 | **`/api/auth/login-status` learns the OTP bucket** | Web NextAuth collapses failures, so the page already re-queries this endpoint after a failed submit (`login/page.js:948`). Extend it: given `?email=`, resolve `employee_id` (read-only) and peek the OTP bucket; answer `{locked:true, retryAfterSec, reason:"otp"}`. It only ever reveals a *locked* state — an unlocked account still answers `locked:false`, so no existence oracle (same invariant as today). |
+| 10 | ~~**`/api/auth/login-status` learns the OTP bucket**~~ **SUPERSEDED — removed in final review** | **Original proposal:** Web NextAuth collapses failures, so the page already re-queries this endpoint after a failed submit (`login/page.js:948`); given `?email=`, resolve `employee_id` (read-only), peek the OTP bucket, answer `{locked:true, retryAfterSec, reason:"otp"}` — claimed as "only ever a *locked* state … so no existence oracle (same invariant as today)". **That claim was wrong:** the answer is only reachable for *existing* accounts, so `locked:true` is a conditional account-existence oracle on a public, unthrottled endpoint for as long as a lock stands. **As built:** login-status reports only the `account` and `ip` verdicts it always had and surfaces no OTP state at all. Countdown delivery is the direct `OTP_LOCKED:<sec>` token from `authorize` (web) / the mobile 429 `Retry-After`, plus — for a locked *password* holder — the pre-existing account/IP lock states on the same endpoint. |
 | 11 | **Fail closed, inherited** | `peekRateLimit`/`rateLimit` return `allowed:false` on a DB error (`rate-limit.js:51,82`). During an outage OTP stops working — which it would anyway, since the challenge lives in the same DB. |
 | 12 | **Trusted devices unaffected** | A remembered browser skips OTP entirely (`auth.js:112-134`) before any challenge exists. The lock governs the OTP path only; nothing to change there. |
 
@@ -46,7 +46,7 @@ Call sites then: `otp_locked` → `OTP_LOCKED:<sec>` (429 + `Retry-After` on mob
 
 **Client copy:**
 - Web verify step: "Too many incorrect codes. Try again in N minutes." — sets the existing `lockSeconds` countdown so the form stays frozen (`login/page.js:897`).
-- Web login-status path: same countdown, `reason === "otp"` branch alongside the existing `account`/`ip` messages (`login/page.js:955-957`).
+- Web login-status path: ~~same countdown, `reason === "otp"` branch~~ **removed with decision 10** — the endpoint answers only `account`/`ip`, so the OTP countdown comes solely from the `OTP_LOCKED:` token above (`login/page.js` keeps `otpLockMessage` for those direct-token paths).
 - Mobile OTP step: new branch in `OtpVerificationView.jsx` (after `MFA_INVALID`/`MFA_UNAVAILABLE`) showing minutes-remaining copy; initial-send lock surfaces in `mobile/app/login.js` catch alongside the existing `MFA_*` branches.
 - Admin emergency-code endpoint: `issued.reason === "otp_locked"` → 429 "That account is temporarily locked after too many incorrect codes. Try again in N minutes."
 
@@ -57,8 +57,8 @@ Call sites then: `otp_locked` → `OTP_LOCKED:<sec>` (429 + `Retry-After` on mob
 | Policy constants | `src/lib/auth/otp-policy.js` — `OTP_LOCKOUT_LIMIT = 3`, `OTP_LOCKOUT_WINDOW_MS = 15 * 60_000` |
 | Enforcement | `src/lib/auth/email-otp.js` — peek in `issueLoginChallenge`/`verifyLoginChallenge`; post-commit consume; `lockTripped`; success clear; exports `otpLockoutKey`/`checkOtpLockout` |
 | Web server | `src/lib/auth.js` — map `otp_locked` → `OTP_LOCKED:<sec>` (issue + verify branches), raise alert on `lockTripped` |
-| Web status | `src/app/api/auth/login-status/route.js` — peek OTP bucket by email, `reason:"otp"` |
-| Web UI | `src/app/(auth)/login/page.js` — handle `OTP_LOCKED:` in the three catch sites + `reason:"otp"` message |
+| Web status | ~~`src/app/api/auth/login-status/route.js` — peek OTP bucket by email, `reason:"otp"`~~ **removed with decision 10** — no change to the endpoint beyond its route test |
+| Web UI | `src/app/(auth)/login/page.js` — handle `OTP_LOCKED:` in the three catch sites (~~`reason:"otp"` message~~ dropped with decision 10) |
 | Mobile server | `src/app/api/mobile/auth/login/route.js` — `otp_locked` → 429 `OTP_LOCKED:<sec>`, alert on `lockTripped` |
 | Admin | `src/app/api/auth/mfa/emergency-code/route.js` — map `otp_locked` → 429 |
 | Mobile UI | `mobile/app/login.js`, `mobile/components/otp/OtpVerificationView.jsx` — `OTP_LOCKED:` branches |

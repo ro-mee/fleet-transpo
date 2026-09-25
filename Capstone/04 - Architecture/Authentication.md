@@ -392,9 +392,15 @@ because it demos without a phone, and accepted knowing what it costs.
   (`rateLimit` uses its own connection), one hit per burn; a successful OTP or
   recovery-code verification clears the bucket. Both channels speak the
   `OTP_LOCKED:<seconds>` token — web `authorize` throws it, the mobile route
-  answers 429 with `Retry-After` — and `/api/auth/login-status?email=` peeks the
-  bucket (locked state only, so it is still not an account-existence oracle) so
-  the web form shows a live countdown. Policy constants live in `otp-policy.js`
+  answers 429 with `Retry-After`, and that token (not the status endpoint) is
+  what carries the countdown to the web form. `/api/auth/login-status` does
+  **not** report the OTP lock: answering `locked:true` for it would need the
+  email resolved to an `employee_id` first, so the answer would be conditional
+  on the account existing — a public, unthrottled existence oracle for as long
+  as a lock stood. (An earlier draft added that branch and claimed it was still
+  enumeration-safe; it was removed in final review precisely because it was a
+  *conditional* oracle.) The endpoint keeps only the account and IP verdicts it
+  had before. Policy constants live in `otp-policy.js`
   (`OTP_LOCKOUT_LIMIT`, `OTP_LOCKOUT_WINDOW_MS`); `parseOtpLock`/`formatLockWait`
   there are mirrored by `mobile/lib/otp.js` with parity pins. The trip raises the
   existing `account_locked` security alert with `details.factor: "otp"`.
