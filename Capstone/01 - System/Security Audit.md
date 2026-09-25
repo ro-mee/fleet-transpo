@@ -529,6 +529,21 @@ single point of failure (SMTP). The compensating controls are the fail-closed ga
 short TTL, the attempt ceiling and the two break-glass paths. Full details in
 [[Authentication]] and the Decision Log.
 
+**Account-level OTP lockout (2026-09-25, implemented):** The 5-attempt ceiling
+burned a *challenge*, not the account — re-submitting the form minted a new code
+after the 60s cooldown, so a password holder could loop `issue → 5 guesses →
+issue` at ~5 guesses/minute with no ceiling at all. Closed in the shared
+`email-otp.js` choke point (both channels inherit it): 3 burned challenges in a
+15-minute fixed window freeze issuing, verifying, the recovery-code fallback and
+the admin emergency-code path (`OTP_LOCKED:<seconds>` token on web, 429 +
+`Retry-After` on mobile), the hit is consumed post-commit one per burn, success
+clears the bucket, the trip raises the `account_locked` alert with
+`factor: "otp"`, and `/api/auth/login-status` peeks the bucket for the web
+countdown (locked state only — still not an existence oracle). No migration —
+`auth_rate_limits` from migration 087. Verified: `email-otp.test.js` lockout
+cases, new `login-status/route.test.js`, SEC-AUTH-006 source pins, mobile
+`otp.test.js` token-parity pins, full suite + touched-file lint green.
+
 ## Related
 
 [[Authentication]] · [[Why RLS Is Not A Boundary]] · [[Bugs]] · [[Current State]]

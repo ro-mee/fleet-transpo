@@ -379,6 +379,25 @@ because it demos without a phone, and accepted knowing what it costs.
   (`OTP_RESEND_COOLDOWN_SECONDS`), and the table being unreachable from the anon key.
   Policy constants live in `src/lib/auth/otp-policy.js`, dependency-free so the
   `"use client"` modal cannot drift from the server.
+- **Account-level lockout (2026-09-25).** The 5-attempt ceiling burns a *challenge*,
+  and a resend mints a new one — so a password holder could loop
+  `issue → 5 guesses → issue` forever. Now `issueLoginChallenge` and
+  `verifyLoginChallenge` peek `lockout:otp:${employee_id}` in the existing
+  `auth_rate_limits` table (migration 087 — no new table, no migration): after
+  **3 burned challenges** the whole surface freezes for a **15-minute fixed
+  window** — no code issued, no code verified, recovery codes refused, and the
+  admin emergency-code path answers 429 (**no break-glass bypass**: the freeze is
+  self-healing, so the operator waits rather than gaining a second rule to
+  defend). The hit is spent **after** the verify transaction commits
+  (`rateLimit` uses its own connection), one hit per burn; a successful OTP or
+  recovery-code verification clears the bucket. Both channels speak the
+  `OTP_LOCKED:<seconds>` token — web `authorize` throws it, the mobile route
+  answers 429 with `Retry-After` — and `/api/auth/login-status?email=` peeks the
+  bucket (locked state only, so it is still not an account-existence oracle) so
+  the web form shows a live countdown. Policy constants live in `otp-policy.js`
+  (`OTP_LOCKOUT_LIMIT`, `OTP_LOCKOUT_WINDOW_MS`); `parseOtpLock`/`formatLockWait`
+  there are mirrored by `mobile/lib/otp.js` with parity pins. The trip raises the
+  existing `account_locked` security alert with `details.factor: "otp"`.
 - **Fail closed, twice.** If `isEmailConfigured()` is false *or* the address is not
   deliverable, the login is refused with an honest message and the event is audited as
   `mfa_unavailable`. There is no fallback path that lets the login through. A remembered
