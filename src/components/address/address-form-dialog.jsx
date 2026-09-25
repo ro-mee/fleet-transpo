@@ -14,17 +14,31 @@
 // that produces — a stored address carrying a coordinate from the text it used
 // to have — has no visible symptom.
 //
-// SAVE IS DISABLED UNTIL THE ADDRESS IS COMPLETE, and the reason is always on
-// screen. A greyed-out button with no explanation is the failure mode of that
-// pattern; the checklist above the footer names exactly which required fields are
-// still empty, using the same `structuredErrors` the server validates with, so
-// the disabled state cannot outlive the reason for it.
+// SAVE IS DISABLED UNTIL THE ADDRESS IS COMPLETE, and the reason is on screen
+// twice, at two distances, because one of them was not enough. The checklist
+// above the footer names exactly which required fields are still empty, using the
+// same `structuredErrors` the server validates with, so the disabled state cannot
+// outlive the reason for it. The footer repeats the count AT the disabled button.
+//
+// The second one exists because of 2026-09-25. An operator filled an emergency
+// contact address, found "Use this address" greyed out, closed the dialog, and
+// nothing was saved — with no toast and no error, because nothing had ever been
+// submitted. The explanation was there the whole time, forty pixels above the
+// control it explained, on a form long enough to scroll. "On screen" and "where
+// the person is looking" are different claims, and only the second one saves the
+// work.
+//
+// The two are gated differently, deliberately. The checklist waits for the form
+// to be touched, so that seven required messages do not greet a form nobody has
+// touched. The footer line does not, because a lone count is not seven messages
+// — and because the button is disabled from the very first frame, so a gate that
+// hides the reason there leaves a dead control with nothing to explain it.
 //
 // INPUT SURVIVES A FAILED SAVE. Nothing here clears `value` on error — the
 // operator's work is not discarded because the server said no. The server's
 // message is shown and the form stays exactly as it was.
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { AlertCircle, Building2, FileText, Hash, MapPin, StickyNote, Warehouse } from "lucide-react";
 import {
@@ -266,6 +280,16 @@ export function AddressFormDialog({
   );
   const remaining = Object.values(errors);
   const complete = remaining.length === 0;
+
+  /**
+   * Whether the submit button is dead AND something on screen should say why.
+   *
+   * One value read twice — by the footer's reason line and by the button's
+   * `aria-describedby` — so the description can never point at a line that is
+   * not rendered, and the two cannot disagree about when it applies.
+   */
+  const showIncompleteReason = !complete && !saving;
+  const incompleteReasonId = useId();
 
   // Which detail fields this address must carry — the same rule the validator
   // applies, read from the same function, so the asterisk and the refusal can
@@ -531,6 +555,28 @@ export function AddressFormDialog({
           )}
 
           <DialogFooter className="-mx-6 -mb-6 border-t border-border/60">
+            {/* The reason, AT the button it explains. No `role="status"` here:
+                the checklist above is already one, and two live regions for the
+                same fact announce it twice. The button points here with
+                `aria-describedby` instead — which also covers what a tooltip on
+                the button could not, since a disabled button does not reliably
+                receive pointer events. */}
+            {showIncompleteReason && (
+              <p
+                id={incompleteReasonId}
+                // The whole list on hover, but only when the count alone leaves
+                // something unsaid.
+                title={remaining.length > 1 ? remaining.join(" ") : undefined}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-foreground-muted"
+              >
+                <AlertCircle className="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
+                <span className="min-w-0">
+                  {remaining.length === 1
+                    ? `1 required field left: ${remaining[0]}`
+                    : `${remaining.length} required fields left`}
+                </span>
+              </p>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -539,7 +585,11 @@ export function AddressFormDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!complete || saving}>
+            <Button
+              type="submit"
+              disabled={!complete || saving}
+              aria-describedby={showIncompleteReason ? incompleteReasonId : undefined}
+            >
               {saving ? "Saving…" : submitLabel}
             </Button>
           </DialogFooter>

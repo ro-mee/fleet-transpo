@@ -48,8 +48,8 @@ The leaked database password was **rotated on
   backdrop losing the whole form, is fixed by a confirm-before-discard — though
   the operator later reported the submit button was **greyed out** on an
   incomplete address, so "closed instead of submitted" is the symptom rather than
-  the cause, and the disabled button's own explanation stays under-stated (see
-  the date below). **Half 2**
+  the cause; the button now states its own reason, build-verified with the browser
+  check still owed (see the dated section below). **Half 2**
   was two layers: the anti-stale rule clearing a dropped pin on any later edit went
   unannounced, and — the real reason nobody noticed — `address-pin-map.jsx` computed
   `hasPin` from `Number(null)`, which is `0`, so the map showed a marker and "Pin at
@@ -2841,11 +2841,34 @@ confirm-before-discard fix still helps — the prompt now interrupts the only av
 offers *Keep editing* — but it treats the symptom: it fires **after** the operator has decided to
 leave, and it never says which field is missing. The runbook's *"What makes an address saveable"*
 section is the other half of the mitigation; a disabled button that states its reason as plainly as
-the notice beside the map does remains **open**.
+the notice beside the map does was **open** until the same day — see below.
 
 A greyed button is the operator's report rather than a measurement, and it is recorded as one. It
 is consistent with everything the database shows — no emergency row was written — and explains that
 fact at least as directly as the close does.
+
+**Fixed 2026-09-25 — build-verified, browser pass owed.** The footer now carries the reason at the
+button it explains. `address-form-dialog.jsx` renders a line beside the submit button whenever the
+form is incomplete, naming the single remaining field (*"1 required field left: Select a
+barangay."*) and counting them when there are more, with the full list on `title`. The button points
+at it with `aria-describedby`.
+
+The gating is the fix, not the copy. The existing checklist is gated on `showErrors`
+(`touched || Boolean(value.regionCode)`), so on a form the operator had not yet touched it rendered
+**nothing** — leaving a dead button with no explanation anywhere on screen, which is precisely the
+state the report describes. The footer line is gated on `!complete && !saving` instead, so it is
+present from the first frame. The line's visibility and the button's `aria-describedby` are driven
+by one `showIncompleteReason` value, so the description can never point at a line that is not
+rendered.
+
+Known limit, stated rather than implied: `aria-describedby` on a **disabled** button is not reliably
+announced, because a disabled control is not focusable — it is reached in browse mode, not on focus.
+`aria-disabled` would change the click behaviour, so the visible line is the substantive fix.
+
+No browser pass has run against this yet, and this repo has no component test harness, so the
+verification so far is `eslint` clean plus a green `npm run build` (212/212 pages). The check owed
+is on the emergency-contact picker, where the report originated: open it and touch nothing, and the
+footer should already read *"7 required fields left"* — the case that was broken.
 
 ### Half 2 — the pin map could not show an empty pin, so a cleared one looked set. FIXED AND BROWSER-VERIFIED 2026-09-25
 
