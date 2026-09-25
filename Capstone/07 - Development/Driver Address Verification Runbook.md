@@ -1,8 +1,10 @@
 # Driver Address Verification Runbook
 
-**Status: owed.** The automated layer is green; nothing here has been run against a browser
-since the 2026-09-24 pass failed at step 1 and produced the fix in Bugs.md, "Address B must
-never be submitted with Latitude A".
+**Status: partly verified.** Steps 5–8 were run against the running app on 2026-09-25 and every
+one passed as expected — recorded in `Capstone/07 - Development/Bugs.md`. **Steps 1–4 and 9–11
+are still owed.** The automated layer is green. Before that pass nothing here had been exercised
+in a browser since the 2026-09-24 attempt failed at step 1 and produced the fix in Bugs.md,
+"Address B must never be submitted with Latitude A".
 
 This is the procedure for task #27. It replaces the four-step version embedded in
 `Capstone/10 - Project Journal/Daily Notes/2026-09-24.md:224` — that list is still the spine
@@ -177,10 +179,20 @@ Still on `/drivers/<id>/edit`, re-open the residential picker for the driver who
 captured through the cascade in the 2026-09-24 pass (`addresses` row 4, driver 59).
 
 **Expected:** the cascade shows the stored region/province/city/barangay — Caloocan with
-**no province line** — the detail fields are populated, and the pin sits where it was placed.
+**no province line** — and the detail fields are populated.
 
-Then change **one** field, save, reload, and re-open. The other fields must have survived;
-that round trip is the whole point of the loader.
+**The pin, on this row, is correctly absent.** Driver 59's `latitude`/`longitude` are NULL — row 4
+is the very row whose missing pin produced the 2026-09-25 report — so an empty map here is the
+right answer, not a regression. On a row that does have a pin, expect to find it where it was
+placed.
+
+**The round-trip half writes, and it is the only write in sections B and C.** Change exactly
+**one** detail field, save, reload, re-open — every other field must have survived, and
+`drivers.address` must equal the new row's `formatted_address`. Expect the save to add a **new**
+`addresses` row and move `drivers.address_id` off 4: `saveAddress` always inserts and repoints,
+and the registry is append-only by design. If this pass needs to stay read-only, close with
+Discard after the pre-fill check and skip the round trip — say which you did when you write it up,
+because a moved `address_id` changes the fingerprint in step 2.
 
 This is the check that closes the gap recorded in
 `Capstone/03 - Database/Tables/addresses.md`: the picker used to open blank because
@@ -268,8 +280,21 @@ crossed and the fix is a regression, not a feature.
 
 **The verifier prints a real person's home address.** That is deliberate: the operator has to
 confirm the stored place is the one they picked. It also means the output **must not be pasted
-into the Capstone vault, a report, or any committed file.** Use `--quiet` for verdicts only,
-with no values, whenever the output leaves your terminal.
+into the Capstone vault, a report, or any committed file.** Use `--quiet` whenever the output
+leaves your terminal.
+
+**`--quiet` was broken, and the direction of the break is worth keeping.** Until 2026-09-25 it
+suppressed the stored-rows block and the warning, then printed the address anyway — twice —
+inside the PASS detail strings, because the report loop appended every check's detail
+unconditionally. The script's own header promised "verdicts only, no values", and the first
+version of this note repeated that promise without reading the loop that implements it. Following
+it would have put a real home address into whatever the output was pasted into.
+
+It is fixed by marking the three checks whose detail quotes a stored column (`sensitive: true`)
+and withholding those under `--quiet`, printing `(withheld: --quiet)` in their place. Ids, PSGC
+codes, `manual` sources and booleans still print — none is personal, and they are most of what
+makes a failed run diagnosable from its output alone. **A new check that echoes a stored column
+must be marked**, or the flag quietly stops meaning what it says.
 
 The script is read-only by construction — every statement is a `SELECT` on `drivers`,
 `employees` and `addresses`, there is no DML or DDL in the file, and it never prints a

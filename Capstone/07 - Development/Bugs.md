@@ -2799,7 +2799,7 @@ That second row is what makes this two defects rather than one. They share a
 symptom (work disappears with no explanation) and share nothing else: different
 mechanism, different code path, and the first is fixed while the second is not.
 
-### Half 1 — closing the dialog discards everything, silently. FIXED 2026-09-25, browser check owed
+### Half 1 — closing the dialog discards everything, silently. FIXED AND BROWSER-VERIFIED 2026-09-25
 
 `address-picker-field.jsx:126` — `onSubmit` is the **only** path that calls
 `onChange`. `onOpenChange={setOpen}` at `:115` closes the dialog without handing
@@ -2820,7 +2820,7 @@ dialog in its own `onSubmit`, after handing the value up — so a successful sav
 never prompts. A submit in flight refuses the close rather than stranding its
 result.
 
-### Half 2 — the pin map could not show an empty pin, so a cleared one looked set. FIXED 2026-09-25
+### Half 2 — the pin map could not show an empty pin, so a cleared one looked set. FIXED AND BROWSER-VERIFIED 2026-09-25
 
 The stored row is the proof that this is not the same bug: the residential address
 **arrived**, so the dialog was submitted, so no close discarded it. Only the
@@ -2915,6 +2915,33 @@ cannot render, which is precisely why a bug of this shape survived in it.
 is certain, and every consequence in the table follows from it deterministically —
 but nobody has yet confirmed on screen that the map showed a marker at (0, 0). That
 one look would settle whether this is the reported loss or an adjacent bug.
+
+### Browser pass — 2026-09-25, steps 5–8. **Every step passed as expected.**
+
+Run by the operator against `/drivers/59/edit`, following
+`Capstone/07 - Development/Driver Address Verification Runbook.md`:
+
+| Step | What was confirmed on screen |
+|---|---|
+| 5 | the discard prompt appears after a change from every close path, and stays silent on an untouched form; a submit does not prompt |
+| 6 | the picker re-opens pre-filled — Caloocan with no province line, details populated, pin correctly absent |
+| 7 | the notice appears after a detail edit, and does **not** appear on "Clear pin" or on a type change |
+| 8 | an empty pin reads as empty — country zoom, no marker, no "Clear pin" button, the "Click the map to drop a pin" caption |
+
+**What this retires, and what it does not.** It retires the caveat directly above: the confirm's
+four close paths and the map's empty state are now exercised against the running app rather than
+read off the source. `hasPin` has **no automated coverage at all** — it lives in a Leaflet
+component the suite cannot render — so this pass is the only evidence it works, which is why it
+is recorded here rather than left as "fixed".
+
+It does **not** retroactively reproduce either original loss. The pre-fix behaviour was still
+never observed, so both root causes remain code readings that the fixes are consistent with. The
+layer-2 question is answered in the fixed direction only: the map does not show a marker at
+(0, 0) now, and nobody watched it when it did.
+
+**Steps 1–4 and 9–11 of the runbook remain owed.** Step 1 writes — an employee, a driver and two
+append-only `addresses` rows in the live project — so it needs a deliberate decision, and until
+it runs, the migration's own claims are still verified only against doubles.
 
 ## Resolved — 2026-09-25 — `PUT /api/drivers/59/account` returns 404 for a live driver — stale dev-server manifest, NOT a code defect
 

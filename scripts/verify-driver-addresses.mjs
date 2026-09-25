@@ -22,8 +22,19 @@
 // PRIVACY: the output contains a real person's home address. That is deliberate
 // — the operator has to confirm the stored place is the one they picked — but it
 // also means the output must NOT be pasted into the Capstone vault, a report, or
-// any other committed file. `--quiet` prints verdicts only, no values, for when
-// the output is going anywhere but a terminal.
+// any other committed file. `--quiet` withholds the details that quote stored
+// address TEXT — the composed `formatted_address` and the two mirrored driver
+// columns — and drops the stored-rows block. Ids, PSGC codes, `manual` sources and
+// booleans still print; use it when the output is going anywhere but a terminal.
+//
+// That withholding is marked PER CHECK rather than applied to the whole report,
+// because most details are harmless and useful — `(4)`, `(manual)`,
+// `(1380100167)` are the difference between a diagnosable run and a useless one.
+// A check whose detail echoes stored text carries `sensitive: true` (see the
+// three below). **Adding a check that prints a stored column means marking it**,
+// or `--quiet` silently stops meaning what this paragraph says it means — which
+// is exactly how it was wrong before: the flag suppressed the stored-rows block
+// and then printed the address anyway, twice, inside the PASS details.
 //
 // Run:
 //   node scripts/verify-driver-addresses.mjs --latest
@@ -93,9 +104,12 @@ const expectPin = pinArg !== "no";
 // checks
 // ---------------------------------------------------------------------------
 
-/** @type {{ok: boolean, name: string, detail?: string}[]} */
+/** @type {{ok: boolean, name: string, detail?: string, sensitive?: boolean}[]} */
 const checks = [];
-const check = (ok, name, detail) => checks.push({ ok: Boolean(ok), name, detail });
+// `sensitive` marks a detail that quotes a stored address column. Under `--quiet`
+// those details are withheld; every other detail still prints. See the header.
+const check = (ok, name, detail, sensitive = false) =>
+  checks.push({ ok: Boolean(ok), name, detail, sensitive });
 
 // Avoids printing a value that happens to be falsy-looking as if it were absent.
 const show = (value) => (value === null || value === undefined ? "NULL" : String(value));
@@ -263,7 +277,8 @@ async function main() {
     check(
       Boolean(row.formatted_address && row.formatted_address.trim()),
       `${label}: formatted_address is not blank`,
-      show(row.formatted_address)
+      show(row.formatted_address),
+      true // the composed address IS the personal value — withheld under --quiet
     );
 
     // `chk_addresses_coords_pair` makes a half-pair unstorable, so this failing
@@ -312,12 +327,14 @@ async function main() {
   check(
     Boolean(residential) && driver.residential_text === residential.formatted_address,
     "drivers.address equals the residential row's formatted_address",
-    `drivers.address=${show(driver.residential_text)}`
+    `drivers.address=${show(driver.residential_text)}`,
+    true // mirrors the residential row's address text
   );
   check(
     Boolean(emergency) && driver.emergency_text === emergency.formatted_address,
     "drivers.emergency_contact_address equals the emergency row's formatted_address",
-    `drivers.emergency_contact_address=${show(driver.emergency_text)}`
+    `drivers.emergency_contact_address=${show(driver.emergency_text)}`,
+    true // mirrors the emergency row's address text
   );
 
   // ---------------------------------------------------------------------------
@@ -327,7 +344,17 @@ async function main() {
   console.log("");
   for (const c of checks) {
     const mark = c.ok ? "PASS" : "FAIL";
-    const detail = c.detail && c.detail !== "NULL" ? `  (${c.detail})` : "";
+    // `--quiet` withholds only the details flagged as quoting a stored column.
+    // Everything else keeps its detail, because `(4)` and `(manual)` are not
+    // personal and are most of what makes a run diagnosable from the output alone.
+    // The marker is printed rather than omitted so a withheld value cannot be
+    // mistaken for a check that had no detail to give.
+    const detail =
+      quiet && c.sensitive
+        ? "  (withheld: --quiet)"
+        : c.detail && c.detail !== "NULL"
+          ? `  (${c.detail})`
+          : "";
     console.log(`  ${mark}  ${c.name}${detail}`);
   }
 
