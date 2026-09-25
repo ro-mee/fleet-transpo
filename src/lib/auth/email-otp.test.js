@@ -225,6 +225,18 @@ describe("issueLoginChallenge", () => {
 
     expect(await issueLoginChallenge({ employeeId: 999 })).toEqual({ ok: false, reason: "no_account" });
   });
+
+  it("gates issueEmergencyCode too — the admin path inherits the account lock", async () => {
+    vi.mocked(peekRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, retryAfter: 300 });
+    // txImpl is null: entering the transaction at all would throw, so this also
+    // pins that break-glass inherits the gate before any challenge work.
+    const issued = await issueEmergencyCode({ employeeId: 48 });
+    expect(issued).toEqual({ ok: false, reason: "otp_locked", retryAfterSeconds: 300 });
+    expect(peekRateLimit).toHaveBeenCalledWith("lockout:otp:48", {
+      limit: OTP_LOCKOUT_LIMIT,
+      windowMs: OTP_LOCKOUT_WINDOW_MS,
+    });
+  });
 });
 
 describe("verifyLoginChallenge", () => {
