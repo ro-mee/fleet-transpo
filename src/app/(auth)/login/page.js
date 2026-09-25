@@ -16,7 +16,9 @@ import {
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
   describeOtpTtl,
+  formatLockWait,
   maskEmailAddress,
+  parseOtpLock,
 } from "@/lib/auth/otp-policy";
 import { getSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -665,6 +667,16 @@ function MfaVerificationDialog({
   );
 }
 
+const otpLockMessage = (secs) =>
+  `Too many incorrect codes. This account is temporarily locked. Try again in ${formatLockWait(secs)}.`;
+
+function loginLockMessage(reason, secs) {
+  if (reason === "otp") return otpLockMessage(secs);
+  if (reason === "account")
+    return "Too many incorrect attempts. This account is temporarily locked for your protection.";
+  return "Too many login attempts from this network. Please wait a moment.";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -770,7 +782,7 @@ export default function LoginPage() {
   };
 
   const handleMfaSubmit = async (submittedCode = mfaCode) => {
-    if (loading || mfaStatus === "success") return;
+    if (loading || mfaStatus === "success" || lockSeconds > 0) return;
 
     const normalizedCode = mfaRecoveryMode
       ? submittedCode.trim()
@@ -840,6 +852,14 @@ export default function LoginPage() {
         return;
       }
 
+      const otpLockSecs = parseOtpLock(err.message);
+      if (otpLockSecs !== null) {
+        setLockSeconds(otpLockSecs);
+        setError(otpLockMessage(otpLockSecs));
+        setMfaStatus("error");
+        return;
+      }
+
       setError("We couldn't verify that code. Please try again.");
       setMfaStatus("error");
     } finally {
@@ -881,6 +901,13 @@ export default function LoginPage() {
       }
       if (err.message === "TEMP_PASSWORD_EXPIRED") {
         setError("This temporary password has expired. Ask your administrator to resend it.");
+        setMfaStatus("error");
+        return;
+      }
+      const otpLockSecs = parseOtpLock(err.message);
+      if (otpLockSecs !== null) {
+        setLockSeconds(otpLockSecs);
+        setError(otpLockMessage(otpLockSecs));
         setMfaStatus("error");
         return;
       }
@@ -940,6 +967,12 @@ export default function LoginPage() {
             setError("This temporary password has expired. Ask your administrator to resend it.");
             return;
           }
+          const otpLockSecs = parseOtpLock(err.message);
+          if (otpLockSecs !== null) {
+            setLockSeconds(otpLockSecs);
+            setError(otpLockMessage(otpLockSecs));
+            return;
+          }
           // NextAuth collapses every authorize() failure (wrong password, IP
           // throttle, frozen account) into "CredentialsSignin", so without
           // translation the user would stare at a cryptic code. Check the
@@ -951,11 +984,7 @@ export default function LoginPage() {
               if (status?.locked) {
                 const secs = status.retryAfterSec || 60;
                 setLockSeconds(secs);
-                setError(
-                  status?.reason === "account"
-                    ? "Too many incorrect attempts. This account is temporarily locked for your protection."
-                    : "Too many login attempts from this network. Please wait a moment."
-                );
+                setError(loginLockMessage(status?.reason, secs));
                 return;
               }
             }

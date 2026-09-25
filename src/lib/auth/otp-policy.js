@@ -67,6 +67,31 @@ export function describeOtpTtl(seconds) {
   return `${seconds} seconds`;
 }
 
+/** Wire prefix of the account-lock token both login channels speak. */
+export const OTP_LOCKED_PREFIX = "OTP_LOCKED:";
+
+/**
+ * Seconds from an `OTP_LOCKED:<seconds>` token, or null for anything else.
+ *
+ * Copy belongs to the client, so the server sends only the number. A caller
+ * branches on `parseOtpLock(message) !== null` — one helper decides both the
+ * branch and the countdown, and a malformed token falls through to the caller's
+ * generic message instead of a bogus wait.
+ */
+export function parseOtpLock(message) {
+  if (typeof message !== "string" || !message.startsWith(OTP_LOCKED_PREFIX)) return null;
+  const seconds = Number(message.slice(OTP_LOCKED_PREFIX.length));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
+}
+
+/** "7 minutes" / "45 seconds" / "1 second" — the wait a locked-out user reads. */
+export function formatLockWait(seconds) {
+  const total = Math.max(1, Math.ceil(Number(seconds) || 0));
+  if (total < 60) return `${total} second${total === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(total / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
 /**
  * Reserved and non-routable domains. Mail addressed to these cannot be
  * delivered, so the failure is loud: no code is sent and the login is refused.

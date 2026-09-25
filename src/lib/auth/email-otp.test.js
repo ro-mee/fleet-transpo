@@ -16,8 +16,10 @@ import {
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
   describeOtpTtl,
+  formatLockWait,
   isDeliverableEmailAddress,
   maskEmailAddress,
+  parseOtpLock,
 } from "./otp-policy";
 
 /**
@@ -460,5 +462,33 @@ describe("describeOtpTtl", () => {
     expect(describeOtpTtl(300)).toBe("5 minutes");
     expect(describeOtpTtl(900)).toBe("15 minutes");
     expect(describeOtpTtl(60)).toBe("1 minute");
+  });
+});
+
+describe("OTP_LOCKED token", () => {
+  it("parses the seconds the server sent", () => {
+    expect(parseOtpLock("OTP_LOCKED:900")).toBe(900);
+    expect(parseOtpLock("OTP_LOCKED:45")).toBe(45);
+  });
+
+  it("ignores every other message", () => {
+    expect(parseOtpLock("MFA_INVALID")).toBeNull();
+    expect(parseOtpLock("OTP_UNDELIVERABLE")).toBeNull();
+    expect(parseOtpLock(null)).toBeNull();
+    expect(parseOtpLock(undefined)).toBeNull();
+  });
+
+  it("refuses malformed seconds rather than inventing a wait", () => {
+    expect(parseOtpLock("OTP_LOCKED:")).toBeNull();
+    expect(parseOtpLock("OTP_LOCKED:abc")).toBeNull();
+    expect(parseOtpLock("OTP_LOCKED:0")).toBeNull();
+    expect(parseOtpLock("OTP_LOCKED:-30")).toBeNull();
+  });
+
+  it("speaks whole minutes and honest seconds for the lock copy", () => {
+    expect(formatLockWait(420)).toBe("7 minutes");
+    expect(formatLockWait(60)).toBe("1 minute");
+    expect(formatLockWait(45)).toBe("45 seconds");
+    expect(formatLockWait(1)).toBe("1 second");
   });
 });
