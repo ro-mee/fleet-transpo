@@ -286,9 +286,17 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   on the 13 changed files, and the production build compiles. The load-bearing result is
   `validate-structured.test.js` passing **29 tests unedited** — that is the proof the
   `geographyFromChain` extraction changed no behaviour, since the assertions that once
-  validated the inline block now validate the extracted function. **The route wiring
-  itself is unverified**: neither `[id]` route has a test, so that the picker visibly
-  reopens on a saved address is a browser claim, not a tested one.
+  validated the inline block now validate the extracted function. **The route wiring was
+  left unfinished, and is now half-covered.** `GET /api/drivers/[id]` gained
+  `route.get.test.js` later the same day: five tests over the attachment contract — both
+  keys always present, the two loaders not swapped, a refused load still returning the
+  driver with its reason, a driver with NULL address ids still served, an unknown driver
+  404ing without spending a load. It was **falsified rather than merely run**: swapping the
+  two load calls in the route makes exactly two of the five fail, with the anti-swap and
+  legacy-refusal tests failing and the other three correctly staying green.
+  **`GET /api/locations/[id]` still has no test file** — and it is the route the locations
+  page and the hotel base both read through — so the locations and hotel halves of the
+  prefill remain a browser claim, as does everything about what the cascade *renders*.
 - **`barangay` was mapped from TomTom's `municipalitySubdivision` — MEASURED
   2026-09-25, THE ASSUMPTION WAS FALSE, AND THE MAPPING IS GONE.** Four real
   Philippine reverse-geocode payloads were obtained and the field carries the
