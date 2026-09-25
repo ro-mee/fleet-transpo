@@ -232,7 +232,8 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   verify:driver-addresses -- --driver=<id>`) is the read-only check written for that pass —
   both ids set and distinct, the per-row fields, the coordinate pair, the mirrored text, and
   a fingerprint that must not move across a rename-only edit. It reads what was stored, so
-  the cascade interaction and the detail page's rendering still need a person at a browser.
+  the cascade interaction and the detail page's rendering still need a person at a browser —
+  `Capstone/07 - Development/Driver Address Verification Runbook.md` is that pass, written out.
 - **A registry row is never edited, only appended.** `saveAddress` always inserts and
   repoints the referencing column; a superseded row is orphaned rather than mutated. That is
   what makes "one entity's edit silently rewrites another's address" impossible —

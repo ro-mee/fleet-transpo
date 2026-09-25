@@ -30,8 +30,9 @@
 //   node scripts/verify-driver-addresses.mjs --driver=<id>
 //   node scripts/verify-driver-addresses.mjs --latest --pin=no --quiet
 //
-// `--latest` picks the highest `driver_id` — the newest driver — so the runbook does not
-// require finding a primary key first. The list UI shows row positions, not driver_ids, so
+// `--latest` picks the highest `driver_id` — the newest driver — so the runbook
+// (`Capstone/07 - Development/Driver Address Verification Runbook.md`) does not require
+// finding a primary key first. The list UI shows row positions, not driver_ids, so
 // reading an id off the screen is a guess; this replaces it with a SELECT.
 //
 // The pin check defaults to "the residential address has a real lat/lng pair",

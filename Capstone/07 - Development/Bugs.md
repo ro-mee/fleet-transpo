@@ -2774,7 +2774,8 @@ suite rather than described in a comment.
 That closes the class at the unit boundary. It does **not** close this entry:
 no driver has yet been created through the browser, so nothing here shows a real
 `POST` from a real form reaching Postgres. The manual pass resumes at step 1 of
-the runbook, and `scripts/verify-driver-addresses.mjs` reads the result. Until
+`Capstone/07 - Development/Driver Address Verification Runbook.md`, and
+`scripts/verify-driver-addresses.mjs` reads the result. Until
 that has run, the fix is verified against doubles and not against the app.
 
 ## Open — 2026-09-25 — two ways the address form discards work without saying so — Severity 2

@@ -1,0 +1,260 @@
+# Driver Address Verification Runbook
+
+**Status: owed.** The automated layer is green; nothing here has been run against a browser
+since the 2026-09-24 pass failed at step 1 and produced the fix in Bugs.md, "Address B must
+never be submitted with Latitude A".
+
+This is the procedure for task #27. It replaces the four-step version embedded in
+`Capstone/10 - Project Journal/Daily Notes/2026-09-24.md:224` — that list is still the spine
+of steps 1–4 below, but it predates the atomic `POST`, the pre-fill loader, the discard prompt
+and the pin notice, so it no longer covers what this migration can now get wrong.
+
+## Why a runbook and not more tests
+
+The route tests double `saveAddress` and the PSGC resolver. That is the right choice — it is
+what lets them assert control flow without a database — but it means **no test in this repo
+shows a driver row reaching Postgres, a pin landing as a real coordinate pair, or
+`/drivers/<id>` rendering.** "The route tests are green" and "the feature works" are two
+different claims, and only one of them has been checked.
+
+The database half of that gap is closed by `scripts/verify-driver-addresses.mjs`. The half
+that needs a person — the cascade interaction, the dialog's exit paths, the rendered page —
+is this document.
+
+## Before you start
+
+**Step 1 writes to the live database.** It creates an employee, a driver and two `addresses`
+rows in the project the app actually uses (`dnxuphhxlzidvwtdqqkq`, db `postgres`). There is no
+scratch database and no clean undo: the employee and driver can be soft-deleted, but
+`addresses` rows are append-only by design and are never edited. Confirm you want that before
+running it, and prefer a driver you would not mind existing.
+
+**Restart the dev server first.** A route directory added while the server is running is never
+registered, and the symptom is an **HTML 404 body** — not a JSON error from a handler. The
+2026-09-24 pass lost time to exactly this: `PUT /api/drivers/59/account` 404'd, and it was not
+a code defect. If a request 404s with an HTML body, restart before reading the handler.
+
+**Stop the dev server before any `npm run build`.** The worker pool OOMs with it running
+(task #17).
+
+Everything below except step 1 is read-only.
+
+## The automated layer — already green, re-run if you have touched the code
+
+| Gate | Command | Last result |
+|---|---|---|
+| Address suites | `npx vitest run --no-file-parallelism src/lib/address/structured.test.js src/lib/address/validate-structured.test.js src/services/address.service.test.js "src/app/api/drivers/route.test.js" "src/app/api/drivers/[id]/route.test.js" "src/app/api/locations/[id]/route.test.js"` | 147 passed, 4 files |
+| Lint | `npx eslint` on the changed files | clean |
+| Build | `CIRCLE_NODE_TOTAL=2 npm run build` | compiled in 42s, 212/212 pages |
+
+`CIRCLE_NODE_TOTAL=2` is not cargo cult: a bare build panicked with `os error 1450` under
+Turbopack, and halving the worker count cleared it. If the suite aborts with a heap error
+rather than a test failure, that is the OOM, not a red test.
+
+---
+
+## A. The migration's own claims — steps 1–4
+
+### 1. Create the driver — the only writing step
+
+At `/drivers/new`:
+
+- Pick **both** addresses through the cascade — residential and emergency contact.
+- Drop a **pin** on the residential one.
+- Submit.
+
+Do the cascade first, then the detail fields, then the pin. That is the only order that works
+today, and step 7 is why.
+
+### 2. The database half
+
+```
+npm run verify:driver-addresses -- --latest
+```
+
+`--latest` resolves the highest `driver_id`, which is the driver you just made. Pass
+`--driver=<id>` if you know the id; do **not** read a number off the list UI — it shows row
+positions, not primary keys, and that mistake has already cost one run.
+
+Add `--pin=no` if you deliberately dropped no pin. Add `--quiet` if the output is going
+anywhere but your terminal — see the privacy note below.
+
+**What must PASS**, and why each one is not padding:
+
+| Check | What a failure means |
+|---|---|
+| both ids set, distinct, resolvable | the partial success the atomic `POST` removed — an operator who picked two addresses must not end up with a driver holding NULL |
+| both rows: `provider='manual'`, `verified=false` | a dropped pin is an operator's claim about where a door is, not a provider verification |
+| both rows: `psgc_barangay_code` set | the cascade's fingerprint. NULL means the address arrived as free text, which would make every other PASS here misleading |
+| both rows: ZIP present, `postal_code_source='manual'` | the source column is what distinguishes a typed ZIP from a provider's |
+| residential: a real lat/lng pair | the first live exercise of `chk_addresses_coords_pair`'s both-present branch — every row written before this migration is NULL/NULL, because the location and hotel dialogs pass `showPinMap={false}` |
+| `drivers.address` = the row's `formatted_address` | the mirror. If it drifts, the page shows one place while the registry points at another |
+
+Exit codes: **0** every check passed, **1** at least one failed, **3** the script could not run
+(usually a missing `DATABASE_URL`).
+
+### 3. The detail page renders
+
+Open `/drivers/<id>`. Both addresses should render. This should be unchanged — the text
+columns are mirrored, which is what keeps every pre-existing reader working — but "should be
+unchanged" is a prediction, and this step is what tests it.
+
+### 4. Rename only — the omitted-field rule
+
+Edit that driver and change **only the name**. Do not open the pickers. Save.
+
+Then re-run step 2 and compare the **fingerprint line** at the end of the output: same two
+address ids, same `created_at` on both rows. It must be byte-identical.
+
+- A **different id** means a new registry row was appended — the omitted-vs-empty rule
+  leaking, turning a rename into a re-pick.
+- A **different `created_at`** would mean a row was rewritten, which the registry never does.
+
+`--latest` is safe for this comparison because renaming does not create a driver.
+
+---
+
+## B. The 2026-09-25 fixes — steps 5–8
+
+Both halves of Bugs.md "two ways the address form discards work without saying so" are fixed
+with their browser check owed. These are that check.
+
+### 5. The discard prompt
+
+Open `/drivers/<id>/edit` and open the residential picker. Change **nothing**, then close it —
+try each exit in turn: Cancel, Escape, the backdrop, the X.
+
+**Expected: no prompt, every time.** The picker compares the working value against the seed
+field by field, so a form nobody touched is not a form with unsaved work. An `initialValue`
+arriving short an optional text field must not trip it either — blank, `null` and a missing
+key all mean "no value here".
+
+Now change something and close.
+
+**Expected: a prompt, every time.** All four exits funnel through one confirm.
+
+Then a third case: change something and **submit**. **Expected: no prompt** — a successful
+save never prompts, because the picker closes the dialog itself after handing the value up.
+A submit in flight should refuse the close rather than strand its result.
+
+### 6. Pre-fill on an existing address
+
+Still on `/drivers/<id>/edit`, re-open the residential picker for the driver whose address was
+captured through the cascade in the 2026-09-24 pass (`addresses` row 4, driver 59).
+
+**Expected:** the cascade shows the stored region/province/city/barangay — Caloocan with
+**no province line** — the detail fields are populated, and the pin sits where it was placed.
+
+Then change **one** field, save, reload, and re-open. The other fields must have survived;
+that round trip is the whole point of the loader.
+
+This is the check that closes the gap recorded in
+`Capstone/03 - Database/Tables/addresses.md`: the picker used to open blank because
+`GET /api/locations` returned an `address_id` with no detail behind it.
+
+### 7. The pin-clearing notice
+
+With the picker open, drop a pin, then edit a street detail field or re-select the barangay.
+
+**Expected:** the pin is **cleared** — that rule is required and stays, since Address B must
+never be submitted with Latitude A — and a notice beside the map says so.
+
+This is the defect's real shape: the pin survives only if it is the **last** action on the
+form. The rule was never the bug; the invisibility was. Confirm the notice appears here and
+does **not** appear when you use the explicit "Clear pin" button — warning someone about the
+thing they just asked for is noise — and does not appear when you change the address *type*,
+which does not move the address and keeps the pin.
+
+### 8. The empty pin reads as empty
+
+Open a picker with **no** pin placed.
+
+**Expected:** the map opens at country zoom over the Philippines, **no marker**, no "Clear
+pin" button, and the line reads *"Click the map to drop a pin. The address saves without one."*
+
+A marker in the Gulf of Guinea at zoom 16, a "Pin at 0.00000, 0.00000" line, or an offered
+"Clear pin" button all mean the `Number(null) === 0` defect has returned. Confirm too that the
+map does **not** capture the page scroll until you press **"Enable wheel zoom"** — the wheel
+is handed over on request, not on focus, because a wheel-capturing map traps the page scroll
+mid-form.
+
+---
+
+## C. The other surfaces — steps 9–10
+
+The driver surface is the one with the pin and the two addresses; these two share the same
+dialog and the same loader, and neither has been opened in a browser either.
+
+### 9. Locations — `/routes/locations`
+
+Open a row with an `address_id` and re-open its picker.
+
+**Expected:** pre-filled the same way as step 6. This surface fetches detail **lazily, on
+dialog open** — the list holds many rows and fetching detail for all of them is the N+1 the
+design avoids — so the first paint may be brief. A row whose address predates the registry
+shows its stored text read-only with a reason, as step 11 describes.
+
+Note what this route carries: `GET /api/locations/[id]` gained `structured_address`, and it is
+the route the hotel base reads **through**, while gated on `settings: read` rather than the
+route's own `routes: read`. That reuse is safe only while every role holding `settings: read`
+also holds `routes: read` — true today (only `admin` and `super_admin`, and `admin` holds
+both). It is a dependency, not a coincidence, and a test now pins it.
+
+### 10. Hotel base — `/settings/general`
+
+Same expectation as step 9, sourced from `settings.location_id`. This is the cross-resource
+read named above; if it breaks while the locations page works, the permission matrix moved,
+not the address code.
+
+---
+
+## D. The boundary — step 11
+
+### 11. A legacy address still refuses, and says why
+
+Open the picker on a driver or location whose `psgc_barangay_code` is NULL.
+
+**Expected:** the picker opens **blank** and the stored text is shown read-only — with the
+reason, not a blank panel. A guard that refuses silently is indistinguishable from a bug.
+
+| Reason shown | Cause |
+|---|---|
+| `no-address-id` | nothing is linked — a row predating the registry |
+| `no-psgc-code` | the address exists but is free text; the data was never captured |
+| `unknown-barangay` | the code is set but no longer resolves — PSGC data moved under the row |
+| `unavailable` | the read itself failed. A statement about us, not the address, and logged |
+
+**Reconstructing a barangay from stored text is the one thing this design refuses**, and it is
+the reason the gap existed. If a legacy row ever opens pre-filled, that refusal has been
+crossed and the fix is a regression, not a feature.
+
+---
+
+## Reading the output — and where it may not go
+
+**The verifier prints a real person's home address.** That is deliberate: the operator has to
+confirm the stored place is the one they picked. It also means the output **must not be pasted
+into the Capstone vault, a report, or any committed file.** Use `--quiet` for verdicts only,
+with no values, whenever the output leaves your terminal.
+
+The script is read-only by construction — every statement is a `SELECT` on `drivers`,
+`employees` and `addresses`, there is no DML or DDL in the file, and it never prints a
+credential or connection string. It deliberately does not `SELECT *`: `raw_input`, the most
+sensitive column on that table, is left out rather than fetched and discarded.
+
+## What this runbook cannot cover
+
+- **Anything about a database other than live.** Every check reads the project the app uses.
+- **The geocoder path.** The TomTom provider layer is unreferenced and stays unmounted; every
+  address here is `provider = 'manual'`. Centring the pin map on an entered address is blocked
+  on the same portal permission (tasks #29, #31).
+- **That a rebuilt database matches.** That is migration `130_ledger_gap_reconstruction.sql`'s
+  claim, verified by `npm run db:dump` producing an empty diff — not by anything in a browser.
+
+## Recording the result
+
+If every step passes, task #27 closes and the "browser check owed" notes in
+`Capstone/07 - Development/Bugs.md` can be marked done, citing this run. If a step fails, it
+goes in the same file as an entry with the **observed** behaviour, the **expected** behaviour,
+and the stored row that separates them — which is how the 2026-09-25 pair was split into two
+defects with different mechanisms and different fixes.
