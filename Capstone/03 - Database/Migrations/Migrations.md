@@ -404,6 +404,13 @@ sat unconfirmed until the gates could run; `db:status` is what confirmed it, and
 `113_maintenance_repairer_identity`, `114_app_errors_rls`, `115_rls_gap_tables` and
 **`121_end_duty_maintenance_source`**, so `121` is spent without a file on disk.
 
+> **That list was both incomplete and misleading, and the correction is below.** Read it with
+> the 2026-09-25 section, which found five more ledger-only names (`125`–`129`), and which
+> establishes that `113`, `114` and `115` were **not losses at all** — they were renumbered,
+> and the ledger simply kept the old keys alongside the new. The paragraph above is left as
+> written because it is an accurate record of what `db:status` said on the day; it is not an
+> accurate statement of what was missing.
+
 `npm run db:contract` after applying: **66 relations, 0 unclassified, 0 violations**, and all
 four `ph_*` tables read `RLS on; anon has no SELECT; no anon policy (deny-all for anon)`.
 `npm run verify:anon` then scored all four **PASS — `HTTP 401 (42501)`, explicitly refused**,
@@ -525,6 +532,15 @@ the ledger already holds a checksum for that name, so a differing file would sur
 fresh database, or dropped as dead, depends on whether it is abandoned or unfinished, and that
 is a decision for whoever knows. It is recorded here rather than left in a transcript.
 
+**Resolved 2026-09-25 by `130_ledger_gap_reconstruction.sql`.** The question above turned out
+to be the wrong question: `121` is not a standalone decision. It is one of seven object-groups
+that live has and no file creates, and it rides along in the reconstruction with the other six.
+The "abandoned or unfinished?" choice was never needed — the column is **not** dropped, because
+dropping runs a destructive `DROP COLUMN` on production to remove something that costs nothing,
+while recreating it is a guaranteed no-op on live and reversible later. `121` also turned out
+not to be a lone stub: it is the first of a family, `121` → `125` → `126` → `129`, all
+end-duty. See the 2026-09-25 section below.
+
 > **A filter's blind spot, caught by accident.** The first pass over this diff filtered on
 > `CREATE INDEX`, which does not match `CREATE UNIQUE INDEX` — so
 > `uq_vehiclemaintenance_source_inspection` was invisible to it, and the summary was
@@ -616,6 +632,117 @@ mapping sat unverified for the whole life of this note because a 403 on `/search
 was read as "the Search API is unavailable", when one endpoint of that API was answering.
 Full account in `Capstone/03 - Database/Tables/addresses.md` and the 2026-09-25 section
 of `Capstone/07 - Development/Bugs.md`.
+
+## 2026-09-25 — `130_ledger_gap_reconstruction.sql`
+
+This started as task #20, "decide what to do about the undocumented `source_inspection_id`
+drift". That decision turned out to be the smallest part of it, and the answer to it was
+settled by construction rather than by judgement.
+
+**`db:status` reported nine ledger-only names, not the four recorded above.** The five
+unrecorded ones were `125_end_duty_outcome`, `126_duty_autoclose`,
+`127_notifications_soft_delete_retention`, `128_mobile_refresh_token_purge` and
+`129_end_duty_submission_id` — the whole end-duty family plus two retention jobs. `CLAUDE.md`
+says in its own policy section that this list "only ever grows — re-read `db:status` rather
+than trusting the version above." It had grown, and the note had not.
+
+### Three of the nine were not losses at all
+
+The directory listing contradicted the ledger: the three names recorded as missing were
+present one number higher, with a new `113_session_idle_timeout_5min.sql` sitting where they
+had been. Since `schema_migrations` stores a checksum per filename, this was checkable rather
+than arguable, and it was checked:
+
+| Ledger entry | Checksum | On disk | Checksum |
+|---|---|---|---|
+| `113_maintenance_repairer_identity` | `97240f2f…` | `114_maintenance_repairer_identity` | `97240f2f…` ✅ |
+| `114_app_errors_rls` | `8a02c5d3…` | `115_app_errors_rls` | `75c1c867…` ❌ |
+| `115_rls_gap_tables` | `e7b798c3…` | `116_rls_gap_tables` | `aa527de1…` ❌ |
+
+The two mismatches are the interesting part, and they resolve the other way: the ledger also
+holds rows at the **new** numbers, and those match disk exactly (`115_app_errors_rls` =
+`75c1c867…`). So all three were applied twice — once under the old numbering, then renumbered,
+**revised**, and applied again. The `maintenance_repairer_identity` pair is byte-identical, the
+same file under two names; the two RLS migrations were genuinely edited between applies.
+
+**The conclusion is that no RLS gap exists.** The current on-disk versions are the ones the
+live database runs, a rebuild replays them, and the only defect is three stale ledger keys
+that `db:status` will faithfully keep reporting forever.
+
+> **A retraction worth keeping.** Mid-investigation this was called a security finding, on the
+> reasoning that three RLS migration files had been deleted and `app_errors`,
+> `ai_prompt_templates` and `trip_monitor_alerts` would come back anon-readable on a rebuild.
+> That was escalated from a *name pattern* — three familiar filenames absent from the ledger —
+> without looking at the directory, which had them all along one number higher. The correct
+> move was one `ls` earlier. Two of the three names then turned out to differ in content as
+> well, so even the "renumbered, therefore identical" guess would have been wrong in a second
+> way. Both errors were caught by running a check rather than by reasoning harder.
+
+### `schema.sql` was stale, and that was the real find
+
+The three that *were* genuinely gone — `121`, plus the five — meant the review artifact did
+not describe production. `npm run db:dump` produced a **55-line diff** and moved the summary
+from `65 / 1 / 133 / 163 / 15 / 24` to `65 / 1 / **133** / **166** / **17** / 24`: exactly
++3 indexes, +2 functions, nothing else, every item attributable to `125`, `126`, `127` or
+`129`. Committed as `c0e5cf9`.
+
+This mattered more than the missing files. `schema.sql` is the input to `db:contract`, the
+offline schema gate and `verify:anon` — the three tools this repo relies on to catch anon
+exposure — and all three had been reading a schema that production does not run. Note that
+the dump is still blind to RLS, so the empty part of that diff for `113`/`114`/`115` says
+nothing either way (SEC-DB-004).
+
+### The reconstruction
+
+`130` re-creates the seven object-groups that live has and no file creates, from what the
+catalog still describes: `schema.sql` for the structure, `pg_get_functiondef` for the two
+function bodies, `cron.job` for the three schedules.
+
+| From | Objects |
+|---|---|
+| `121` | `source_inspection_id` (int, FK → `vehicleinspection`), `uq_vehiclemaintenance_source_inspection` |
+| `125` | `driverattendance.end_duty_outcome` + CHECK (`Reported`/`NoVehicle`/`AutoClosed`) |
+| `126` | `auto_close_unreported_duties()` + cron |
+| `127` | `purge_deleted_notifications()` + two partial notification indexes + cron |
+| `128` | cron only — an inline `DELETE`, which is why it left no structural trace at all |
+| `129` | `driverattendance.end_duty_submission_id` + `uq_attendance_driver_end_duty_submission` |
+
+**Its design constraint is that it must be inert on live.** Every statement is guarded, so it
+can only take effect where the objects are missing; a reconstruction from residue must not be
+able to damage the thing it was copied from. `121` uses `063`'s inline-`REFERENCES` idiom, the
+CHECK is added under a `pg_constraint` guard because `ADD CONSTRAINT` has no `IF NOT EXISTS`,
+and the cron jobs are matched on **name or command**.
+
+**Verified, not asserted.** After `db:up`, `db:dump` produced a **byte-identical `schema.sql`**
+— the same `65 / 1 / 133 / 166 / 17 / 24`, a zero-line diff — and `cron.job` still listed
+exactly four jobs. Nothing in production changed. That empty diff is the proof, and it is the
+same reasoning `124` used: the empty contribution *is* the claim being checked.
+
+> **A defect only running it could find.** The first draft guarded the schedules on command
+> text alone, because `jobname` had never actually been queried — only `command` and
+> `schedule` had. The guard worked on live (no job duplicated) but would have created the three
+> jobs under invented names on a fresh database. Live names them `duty-autoclose-sweep`,
+> `notifications-purge` and `mobile-refresh-token-purge`. Both are checked now. The ledger was
+> then rebaselined to the corrected file, which `cmdRebaseline`'s own docstring permits only
+> after verifying the live DB reflects the file's intent — which the empty dump had just shown.
+
+### What this cannot establish
+
+The ledger stores a checksum, and **a checksum cannot be inverted**. So the reconstruction is
+built from residue, and residue is not content. Specifically unknowable: whether any of the six
+also did something that leaves no structural trace. Migration `063` — the shipped twin of
+`121` — did exactly that, carrying an `UPDATE` that backfilled `source_incident_id` from a
+description regex. If any of the six did likewise, `130` closes only the visible part of the
+gap. The file header says so rather than leaving it to be rediscovered.
+
+`121` is the weakest section for this reason: `125`–`129` were reproduced from
+`pg_get_functiondef` and `cron.job` — the actual definitions, copied verbatim — while `121` was
+inferred from three objects in `schema.sql` plus a filename.
+
+**Also no longer open:** `source_inspection_id` is **not dropped**, and `121` is not a lone
+abandoned stub — it is the first of a family (`121` → `125` → `126` → `129`, all end-duty), so
+option (c) was ruled out and option (b) was settled by construction. The column is currently
+all-NULL in production: 35 maintenance rows, 0 carrying a value.
 
 ## Related
 

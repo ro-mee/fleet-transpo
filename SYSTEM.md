@@ -1337,15 +1337,24 @@ valid, not the coordinate.
 
 The checked-in `schema.sql` currently declares **61 tables, 1 view (`driver_stats`),
 128 foreign keys, 158 indexes, 15 functions, and 20 triggers** — measured from a live
-`npm run db:dump` on 2026-09-23, after migration 122. It is the authoritative structure
+`npm run db:dump` on 2026-09-25, after migration 130. It is the authoritative structure
 dump; §5.2 below is a reading aid, not the source. Dispatch numbers are random strings,
 while serial-backed tables still use PostgreSQL sequences in the live database.
+**Regenerate it whenever `db:status` shows a file you did not write.** On 2026-09-25 the
+artifact was found five migrations behind live — 125–129 had been applied with their files
+gone, and `128` was a bare `cron.schedule`, which `schema.sql` cannot capture at all because
+it emits the `public` schema only. Until it was refreshed, `db:contract`, the offline schema
+gate and `verify:anon` were all reading a schema production does not run.
 
-Migrations are numbered through **122** (`122_address_registry.sql`, 2026-09-23); `090`
-is unused. **`npm run db:status` is the authoritative count — not `ls`.** The ledger
-records migrations whose files are gone (`113`, `114`, `115`, `120`, `121` as of
-2026-09-23), so a version can be spent without ever appearing on disk, and a number must
-never be chosen from the directory listing.
+Migrations are numbered through **130** (`130_ledger_gap_reconstruction.sql`, 2026-09-25);
+`090` is unused. **`npm run db:status` is the authoritative count — not `ls`.** The ledger
+records migrations whose files are gone — as of 2026-09-25, six of them: `121`, `125`, `126`,
+`127`, `128`, `129` — so a version can be spent without ever appearing on disk, and a number
+must never be chosen from the directory listing. That list also carries three **stale
+renumbering keys** — `113_maintenance_repairer_identity`, `114_app_errors_rls`,
+`115_rls_gap_tables` — whose content is on disk at `114`/`115`/`116` under matching
+checksums. They are not losses, and reading every entry in the list as a lost file is the
+mistake this section previously made.
 Exactly four numeric versions are duplicated historically — **036, 037, 059, and
 060** each have two files, applied in filename order. The checked-in schema includes
 the server-backed session/MFA tables and the `idle_timeout_seconds` column from
@@ -1487,8 +1496,12 @@ places, so a migration has to be a safe no-op there.
 
 | **122** | `address_registry.sql` | ★ `addresses` — one normalized address registry (raw input, provider formatted address, PH structured components, postal code + its source, coordinates, verification state, provider + place id). Five nullable FKs point at it: `locations.address_id`, `drivers.address_id`, `drivers.emergency_contact_address_id`, `transportation_requests.pickup_location_id` and `dropoff_location_id`. **Nothing is backfilled and nothing is bulk-geocoded** — legacy rows keep `address_id = NULL` and are upgraded only when a human next edits them. RLS enabled **and** `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on the table **and its sequence**; the revoke is load-bearing, because row security does not apply to `TRUNCATE`. Verified: `verify:anon` returns an explicit refusal (HTTP 401 / SQLSTATE 42501), **not** `200 []`, and `db:contract` reports 0 violations |
 
-> Migrations `117`–`121` are not itemised in this table. `npm run db:status` is the
-> authoritative list, and the ledger — not the directory — decides which numbers are spent.
+| **130** | `ledger_gap_reconstruction.sql` | ★ **reconstruction, not recovered history.** Re-creates the seven object-groups six lost migrations (`121`, `125`–`129`) left on live with no file to build them: `vehiclemaintenance.source_inspection_id` + its partial-unique index, `driverattendance.end_duty_outcome` + CHECK, `driverattendance.end_duty_submission_id` + its partial-unique index, the functions `auto_close_unreported_duties` and `purge_deleted_notifications`, the two partial `idx_notifications_live_*` indexes, and three `cron.job` schedules. Derived from residue — `schema.sql` for structure, `pg_get_functiondef` for the bodies, `cron.job` for the schedules — because the ledger stores a **checksum**, which cannot be inverted. Every statement is guarded, so it is a proven **no-op on live**: `db:dump` produced a byte-identical `schema.sql` afterwards. A schema rebuilt from `supabase/migrations/` alone now matches live structurally. What it cannot establish: whether any of the six also did something leaving no structural trace — a data backfill, as the shipped twin `063` did. `121` in particular is inferred from three objects plus its filename; its contents are not known |
+
+> Migrations `117`–`129` are not itemised in this table, with the exception of `130`
+> above — which is listed precisely because it is the migration that writes down what
+> `125`–`129` did. `npm run db:status` is the authoritative list, and the ledger — not
+> the directory — decides which numbers are spent.
 
 > 042–046 are **reconciliation** migrations: the live database had drifted ahead of
 > the files, so replaying the history onto an empty database produced a schema the
@@ -1515,6 +1528,16 @@ places, so a migration has to be a safe no-op there.
 > policies rather than anything 100/114/115 added — so 100's "we intentionally do
 > NOT create explicit policies" deny-all posture holds only for the 25 tables that
 > carry no policy at all.
+>
+> **Corrected 2026-09-25.** The premise above — that `113`, `114` and `115` are
+> recorded as applied "with **no file on disk**" — does not hold. Their content is
+> on disk at `114`/`115`/`116`, and the checksums match, so those three ledger rows
+> are **stale renumbering keys**, not losses. The RLS conclusions are unaffected:
+> they were characterised against live rather than read off the files. The one
+> genuinely spent-but-fileless version at the time was `121`. The real lost set is
+> six — `121` and `125`–`129` — reconstructed by
+> `130_ledger_gap_reconstruction.sql`. See
+> `Capstone/03 - Database/Migrations/Migrations.md`.
 
 ### 5.2 Tables (final state)
 | Table | Domain | Notes |
