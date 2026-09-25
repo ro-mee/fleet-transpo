@@ -72,9 +72,43 @@ today, and step 7 is why.
 npm run verify:driver-addresses -- --latest
 ```
 
-`--latest` resolves the highest `driver_id`, which is the driver you just made. Pass
-`--driver=<id>` if you know the id; do **not** read a number off the list UI — it shows row
+Pass `--driver=<id>` if you know the id; do **not** read a number off the list UI — it shows row
 positions, not primary keys, and that mistake has already cost one run.
+
+**`--latest` means newest, not newest-of-this-pass.** It resolves the highest `driver_id`, which
+is the driver you just made *only if you made one*. Run it without creating a driver first and it
+silently targets whatever the newest row happens to be — and a failed pass writes nothing, so the
+old row stays newest. The FAILs then read like a regression when they are a baseline.
+
+**Read the resolved line before the verdicts.** It prints the row it chose and when that row was
+written:
+
+```
+--latest resolved to driver_id 59 (created 2026-09-25T01:52:02.669Z).
+If that is not the driver you just created, re-run with --driver=<id>.
+```
+
+Compare that instant against when the change you are testing landed:
+
+```
+git log -1 --format='%ad' --date=iso <sha>
+```
+
+Measured 2026-09-25: a run resolved to driver 59 at `created 2026-09-25T01:52:02.669Z` (+0800
+that is 09:52), while the two fixes under test had landed at **11:36** — an hour and forty-four
+minutes *after* the row was written. Four checks failed, and all four were the two
+already-documented defects: the emergency pick lost client-side, and the pin lost before submit.
+None was new. **A row older than the fix cannot confirm or refute the fix** — it only re-measures
+the bug that produced it.
+
+That run was still worth something, and the distinction is the point: the residential row passed
+everything the migration stores — the PSGC fingerprint, the ZIP and its `manual` source, the
+composed `formatted_address`, the mirror into `drivers.address` — and failed only on the pin.
+Storage worked before the fixes; what was being lost was client-side.
+
+If you meant to verify a specific row rather than the newest, pass `--driver=<id>` and say so in
+what you write up. `--latest` is a convenience for the common case, not a statement about which
+row you tested.
 
 Add `--pin=no` if you deliberately dropped no pin. Add `--quiet` if the output is going
 anywhere but your terminal — see the privacy note below.
