@@ -460,7 +460,9 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
       emergency.indexOf('no_account')
     );
     expect(lockBranch).toMatch(/,\s*429\s*\)/);
-    expect(lockBranch).toMatch(/Try again in \$\{wait\}/);
+    // The wait goes through the shared helper (singular "1 minute" at 60s), not
+    // a hand-rolled `${wait}` template.
+    expect(lockBranch).toMatch(/Try again in \$\{formatLockWait/);
   });
 });
 
