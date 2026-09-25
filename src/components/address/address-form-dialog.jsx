@@ -54,8 +54,7 @@ import { LocationCascade, useProvinceRequirement } from "./location-cascade";
 // same loading strategy as every other map in this app.
 const AddressPinMap = dynamic(() => import("./address-pin-map"), { ssr: false });
 
-// Matches FLOATING_INPUT_CLASS in address-validator.jsx — the floating shell's
-// own type scale, so every control in this grid lines up.
+// The floating shell's own type scale, so every control in this grid lines up.
 const FLOATING_INPUT_CLASS =
   "w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1";
 

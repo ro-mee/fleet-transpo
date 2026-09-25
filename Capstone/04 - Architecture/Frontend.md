@@ -128,13 +128,16 @@ the current address read-only with a **Pick** / **Replace** button and owns no f
 of its own.
 
 **`address-validator.jsx`, the free-text combobox this paragraph used to name as the one
-address input, is mounted nowhere.** It was a controlled `value`/`onChange` field over
-`/api/address/search` and `/api/address/geocode` (`variant="plain"` for Label+Input
+address input, is gone — deleted 2026-09-25.** It was a controlled `value`/`onChange` field
+over `/api/address/search` and `/api/address/geocode` (`variant="plain"` for Label+Input
 surfaces, `variant="floating"` for the `FloatingShell` forms, reusing the exported
-`FloatingShell` chrome). Its last caller moved to the cascade on 2026-09-24, so the
-component and `use-address-search.js` are now unreferenced but still present — dead code
-kept only because TomTom's Search API 403 blocks the path they implement. Two things it
-established are still contract rather than styling, and the cascade honours both.
+`FloatingShell` chrome). Its last caller moved to the cascade on 2026-09-24, and it was
+then kept as dead code "only because TomTom's Search API 403 blocks the path they
+implement". That reason had no expiry: the 403 never lifted, and #29 (centring the pin map)
+is blocked on the same portal permission, so "pending the 403" had no date attached to it.
+It went with `use-address-search.js`, `address-map-preview.jsx` behind it, and
+`src/lib/address/validate.js` — whose five exports nothing under `src/` imported. Two
+things it established are still contract rather than styling, and the cascade honours both.
 **Typed text is never verification** — in the cascade the one thing the client is believed
 about is its choice of `psgc_barangay_code`, and the server derives the rest. And
 **"location verified" and "ZIP code provided" render as two independent chips**, because a
@@ -142,10 +145,18 @@ confident position with no postal code on record is a normal Philippine outcome;
 must never collapse into a single valid/invalid verdict. Every state carries an icon *and*
 text inside an `aria-live="polite"` region, so colour is never the only signal.
 `autoGeocode={false}` no longer applies anywhere — no mounted surface makes a network
-request while typing, because none of them is a typing field. The optional map is
-`address-map-preview.jsx`, loaded through `dynamic(..., { ssr: false })` exactly like
-every other Leaflet surface here, and `showMap={false}` skips only the render — search,
-geocoding and coordinates all still work. `showPinMap={false}` on the location surfaces
+request while typing, because none of them is a typing field.
+
+**Open — the provider layer behind them is now unreferenced but still mounted.**
+`/api/address/search` and `/api/address/geocode` lost their only client with that
+component, and `src/lib/address/provider.js` + `providers/tomtom.js` lost their only
+callers with the routes. They were deliberately left in place rather than deleted with the
+rest: a route is a reachable endpoint rather than a dead file, and the provider is what a
+lifted 403 would use — `scripts/check-address-provider.mjs` is the tool for testing that,
+and it imports none of them, so it survives either way. `parse.js` is **not** part of this
+island: `validate-structured.js` and `invalidate.js` both import `emptyAddressValue` from
+it, and it carries the falsified-mapping fixtures from #30. `showPinMap={false}` on the
+location surfaces
 skips the pin only; see [[ADR-015 Address Owns Administration, Location Owns The Point]]
 for why a canonical location has no address pin while a driver's home now does.
 

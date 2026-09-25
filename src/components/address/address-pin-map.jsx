@@ -2,15 +2,14 @@
 
 // Click-to-place pin for the cascading address form.
 //
-// WHY THIS ONE IS A PICKER WHEN `address-map-preview.jsx` DELIBERATELY IS NOT
-// -------------------------------------------------------------------------
-// That component sits under an AddressValidator and shows the ONE coordinate a
-// provider resolved. It refuses click-to-place, and is right to: a hand-placed
-// pin there would be a coordinate with no address behind it, dressed up as a
-// verification. The operator would read "map agrees" where nothing agreed.
-//
-// Here the pin is asked for explicitly and is honest about what it is — an
-// operator's claim about where an address is. Two things keep it honest:
+// WHAT A DROPPED PIN IS, AND WHAT IT IS NOT
+// -----------------------------------------
+// The pin is asked for explicitly and is honest about what it is — an
+// operator's claim about where an address is. Nothing re-derives an address
+// from it and nothing treats it as a provider verification. The mounted
+// TomTom combobox this used to be contrasted against was deleted 2026-09-25
+// with the rest of its dead island; the distinction it drew is kept here
+// because the pin outlived it. Two things keep it honest:
 //
 //   * the row is written with `provider = 'manual'` and `verified = false`, so
 //     nothing downstream can mistake it for a provider verification, and

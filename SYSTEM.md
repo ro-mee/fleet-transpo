@@ -503,9 +503,8 @@ fleet-transpo/
 │   │   ├── address/            # ★ address-form-dialog (the one reusable address field —
 │   │   │                       #   PSGC cascade) + address-picker-field (its row/button
 │   │   │                       #   wrapper); location-cascade, address-pin-map,
-│   │   │                       #   address-map-preview (client-only Leaflet),
-│   │   │                       #   address-validator + use-address-search (UNMOUNTED —
-│   │   │                       #   see §address)
+│   │   │                       #   address-preview, address-type-selector,
+│   │   │                       #   searchable-select
 │   │   ├── drivers/            # assigned-vehicle-card, substitute-driver-card
 │   │   ├── dispatch/  reservations/
 │   │   ├── providers.jsx       # SessionProvider + QueryClientProvider
@@ -1110,16 +1109,28 @@ one implementation every surface mounts, through `AddressPickerField`
 the hotel settings. Typed text is never verification; only picking a barangay code and
 having the server resolve it produces a structured address.
 
-**`address-validator.jsx` is the earlier geocode-combobox field, and nothing mounts it.**
-It is the `variant="plain"`/`variant="floating"` controlled `value`/`onChange` component
-this section used to describe as the one address input: a suggestion list over
+**`address-validator.jsx` was the earlier geocode-combobox field, and it is gone.** It was
+the `variant="plain"`/`variant="floating"` controlled `value`/`onChange` component this
+section used to describe as the one address input: a suggestion list over
 `/api/address/search` plus a `[Verify address]` button over `/api/address/geocode`, with
 `autoGeocode={false}` as the privacy control for personal addresses. It lost its last
 caller on 2026-09-24, when the canonical-location dialog and the hotel settings moved to
 the cascade and the driver forms arrived on it — so all four surfaces now pick, and none
-types. The component and `use-address-search.js` behind it are **unreferenced but present**,
-kept only because the provider path they implement is the one TomTom's 403 currently
-blocks; deleting them is tracked separately.
+types. **Deleted 2026-09-25**, together with `use-address-search.js` and
+`address-map-preview.jsx` behind it, and with `src/lib/address/validate.js` — a module
+whose five exports (`ADDRESS_MODE`, `COORDINATE_MISMATCH_TOLERANCE_M`,
+`normalizeAddressInput`, `structuralError`, `resolveAddress`) nothing under `src/`
+imported. It had been kept "only because TomTom's 403 blocks the path they implement", a
+reason with no expiry: the permission has now been refused for the entire life of the
+feature. What the component established is still contract, and the cascade honours it —
+typed text is never verification, and "location verified" and "ZIP code provided" stay two
+independent chips.
+
+**Its two API routes are still mounted, and that was deliberate.** `/api/address/search`
+and `/api/address/geocode` lost their only client with it, as did `src/lib/address/provider.js`
+and `providers/tomtom.js` behind them — but a route is a live endpoint rather than a dead
+file, so they were left in place rather than assumed harmless. Removing them is a separate
+decision, tracked in [[Frontend]].
 
 **The cascade is the only path in the UI; the provider is not in it.** Because the provider
 above is refused, the form does not *depend* on it — and since 2026-09-24 no surface even

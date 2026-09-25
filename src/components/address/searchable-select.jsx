@@ -153,9 +153,8 @@ export function SearchableSelect({
             aria-invalid={error ? true : undefined}
             disabled={disabled || loading}
             className={cn(
-              // Matches FLOATING_INPUT_CLASS in address-validator.jsx — the
-              // floating shell's own type scale, so a combobox and a text input
-              // sitting in the same grid line up.
+              // The floating shell's own type scale, so a combobox and a text
+              // input sitting in the same grid line up.
               "flex w-full items-center gap-2 bg-transparent py-1 pr-6 text-left text-xs font-semibold text-foreground outline-hidden",
               "disabled:cursor-not-allowed disabled:opacity-60"
             )}
