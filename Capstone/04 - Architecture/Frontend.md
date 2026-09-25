@@ -147,15 +147,28 @@ text inside an `aria-live="polite"` region, so colour is never the only signal.
 `autoGeocode={false}` no longer applies anywhere — no mounted surface makes a network
 request while typing, because none of them is a typing field.
 
-**Open — the provider layer behind them is now unreferenced but still mounted.**
-`/api/address/search` and `/api/address/geocode` lost their only client with that
+**CLOSED 2026-09-25 — the provider layer was deleted rather than left mounted.**
+`/api/address/search` and `/api/address/geocode` had lost their only client with that
 component, and `src/lib/address/provider.js` + `providers/tomtom.js` lost their only
-callers with the routes. They were deliberately left in place rather than deleted with the
-rest: a route is a reachable endpoint rather than a dead file, and the provider is what a
-lifted 403 would use — `scripts/check-address-provider.mjs` is the tool for testing that,
-and it imports none of them, so it survives either way. `parse.js` is **not** part of this
-island: `validate-structured.js` and `invalidate.js` both import `emptyAddressValue` from
-it, and it carries the falsified-mapping fixtures from #30. `showPinMap={false}` on the
+callers with the routes. It was closed by deletion, because the argument that had kept it
+"pending the 403" does not survive reading the interface: **the mounted routes could never
+answer.** Every forward endpoint is `403`, and both provider calls fail open — `search()`
+returns `[]`, `geocode()` returns `null` — so `/search` answered an empty list forever and
+`/geocode` answered `502` forever (measured; see [[Bugs]]). The provider had three methods
+and the routes called exactly the two that were broken. `reverse()`, the one direction that
+answers `200`, was exported and called by nothing.
+
+The carve-out this paragraph used to make — *"a route is a reachable endpoint rather than a
+dead file, and the provider is what a lifted 403 would use"* — was wrong on its second half.
+`search`/`geocode` is a **typeahead combobox** interface, which is the `address-validator.jsx`
+this file already records as deleted; #29 (centring the pin map) needs address →
+coordinates, i.e. `structuredGeocode`, which was never one of the three. A lifted 403 would
+mean new code either way, so nothing was actually being preserved. `scripts/check-address-provider.mjs`
+survives and imports none of what went — it reads `load-env.mjs` and nothing else — so the
+ability to notice a lifted 403 is unchanged. `parse.js` was **not** part of the island and is
+not deleted: `validate-structured.js` and `invalidate.js` both import `emptyAddressValue`
+from it, and it carries the falsified-mapping fixtures from #30, so its parsing half now has
+no production caller and is kept as tested history. `showPinMap={false}` on the
 location surfaces
 skips the pin only; see [[ADR-015 Address Owns Administration, Location Owns The Point]]
 for why a canonical location has no address pin while a driver's home now does.

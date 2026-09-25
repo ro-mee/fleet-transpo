@@ -516,9 +516,10 @@ fleet-transpo/
 │   │   ├── workspaces.js       # ★ WORKS[role] per-role workspace (identity, accent, home, nav) + getWorkspace()
 │   │   ├── dispatch-policy.js  # ★ smart-queue thresholds (critical/high/medium minutes, vip/emergency flags)
 │   │   ├── tomtom.js           # ★ TomTom URLs + server-keyed route builder (two-key split, traffic/departAt/alternatives)
-│   │   ├── address/            # ★ address registry library — provider.js (abstraction) → providers/tomtom.js
-│   │   │                       #   (search/geocode/reverse, server key only), parse.js (payload → AddressValue),
-│   │   │                       #   postal.js, validate.js (the server write boundary), invalidate.js (anti-stale rule)
+│   │   ├── address/            # ★ address registry library — structured.js (the cascade value + rules),
+│   │   │                       #   validate-structured.js (the server write boundary), postal.js,
+│   │   │                       #   invalidate.js (anti-stale rule), picked.js, parse.js (tested history —
+│   │   │                       #   its only caller, providers/tomtom.js, was deleted 2026-09-25)
 │   │   ├── routing/            # route-cache.js — short-TTL live-route cache (rounded coords + departure buckets)
 │   │   ├── audit.js            # writeAudit() — the only audit_logs writer since 014b dropped the DB triggers
 │   │   ├── auth/               # api-auth, permissions.js (RBAC matrix), role-guard, mobile-token
@@ -1099,10 +1100,13 @@ than merely discouraged. A **manually entered** ZIP is the deliberate exception:
 survives an edit, flagged as needing confirmation for the new address, because it is the
 operator's own assertion rather than a property of the address being replaced.
 
-**Provider.** TomTom Search API v2, reached only through `src/lib/address/provider.js`
-→ `providers/tomtom.js`. The **server** key is used and never reaches the browser.
-`/api/address/search` returns suggestion labels only (never coordinates);
-`/api/address/geocode` is the single place coordinates become authoritative.
+**Provider — deleted 2026-09-25.** TomTom Search API v2 used to be reached through
+`src/lib/address/provider.js` → `providers/tomtom.js`, behind `/api/address/search` and
+`/api/address/geocode`; all four are gone. The routes had already lost their only client,
+and could not have served a new one: every **forward** endpoint answers `403`, so `search()`
+returned `[]` and `geocode()` returned `null` permanently — an endpoint that could only ever
+answer `502`. The one direction that answers `200` (`reverse`) was exported and called by
+nothing. The **server** key never reached the browser, and still does not. See [[Frontend]].
 `src/components/address/address-form-dialog.jsx` is **the** reusable address field — the
 one implementation every surface mounts, through `AddressPickerField`
 (`address-picker-field.jsx`) on the driver forms and directly on the locations dialog and
@@ -1126,11 +1130,13 @@ feature. What the component established is still contract, and the cascade honou
 typed text is never verification, and "location verified" and "ZIP code provided" stay two
 independent chips.
 
-**Its two API routes are still mounted, and that was deliberate.** `/api/address/search`
-and `/api/address/geocode` lost their only client with it, as did `src/lib/address/provider.js`
-and `providers/tomtom.js` behind them — but a route is a live endpoint rather than a dead
-file, so they were left in place rather than assumed harmless. Removing them is a separate
-decision, tracked in [[Frontend]].
+**Its two API routes are gone — removed 2026-09-25 (task #31).** `/api/address/search`,
+`/api/address/geocode`, `src/lib/address/provider.js` and `providers/tomtom.js` (with its
+test) were deleted together. They had been left mounted on the argument that *"a route is a
+live endpoint rather than a dead file"* — but the endpoint was measured to fail permanently:
+`search()` returns `[]` and `geocode()` returns `null` because every forward endpoint is
+`403`, so `/geocode` could only ever answer `502`. `scripts/check-address-provider.mjs` was
+kept and imports none of them, so a lifted `403` is still detectable. Reasoning: [[Frontend]].
 
 **The cascade is the only path in the UI; the provider is not in it.** Because the provider
 above is refused, the form does not *depend* on it — and since 2026-09-24 no surface even

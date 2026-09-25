@@ -3135,6 +3135,14 @@ address and wants the point. Both calls fail open — `search()` returns `[]`,
 `geocode()` returns `null` — so `/api/address/search` answers an empty list forever
 and `/api/address/geocode` answers `502` forever.
 
+**Both routes, and the provider behind them, were removed on 2026-09-25 (task #31)** —
+an endpoint that can only ever answer `502` is not worth keeping mounted, and the argument
+that had kept it until then ("the provider is what a lifted 403 would use") did not hold:
+the interface is a typed-address combobox, `search` → suggestions → `geocode(placeId)`,
+which is the deleted `address-validator.jsx`; #29 needs address → coordinates
+(`structuredGeocode`), so a lifted 403 would have meant new code either way. Full reasoning
+in [[Frontend]]. `scripts/check-address-provider.mjs` survives and imports none of it.
+
 That is not merely a dead feature. **It is why the `barangay` mapping in
 `src/lib/address/parse.js` sat unverified for so long** — the Search API was assumed
 to be the only way to see a real payload. **That assumption was wrong, and the

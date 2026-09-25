@@ -297,8 +297,10 @@ if (sawSearchFailure) {
         "  buildRouteUrl (src/lib/tomtom.js), so a Search-only replacement would\n" +
         "  break turn-by-turn navigation app-wide. It needs Routing AND Search.\n" +
         "\n" +
-        "  Configuration, not application code — the provider sits behind\n" +
-        "  src/lib/address/provider.js, so nothing above it changes."
+        "  Configuration, not application code. Note that the app no longer\n" +
+        "  consumes Search at all: src/lib/address/provider.js and the two\n" +
+        "  /api/address/* routes were deleted 2026-09-25, so a grant here\n" +
+        "  re-opens nothing by itself — #29 would need new code either way."
     );
   } else {
     console.log(

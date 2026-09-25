@@ -36,6 +36,17 @@
 //      correctly rather than degrading to an empty panel.
 //   3. A provider string reaches `components` only when its meaning was measured.
 //      `municipalitySubdivision` is the field that failed that test.
+//
+// CALLER STATUS — 2026-09-25: the mapping half below has no production caller.
+// `providers/tomtom.js` was its only reader, and it was deleted with the rest of the
+// unreferenced provider layer (`/api/address/search`, `/api/address/geocode`,
+// `provider.js`, task #31) — every forward-geocoding endpoint answers 403, so those
+// routes could only ever have returned `[]` and `502`. What stays in live use here is
+// the empty-value vocabulary: `emptyAddressValue` and `emptyComponents` are imported by
+// `validate-structured.js` and `invalidate.js`. `toAddressValue`, `parseReverseGeocode`
+// and `PH_COMPONENT_MAP` are kept deliberately — this file is where the measured
+// falsification above is recorded, and `parse.test.js` holds the four real payloads it
+// rests on. Tested history, not dead code to sweep.
 
 import { normalizePostalCode } from "./postal";
 
