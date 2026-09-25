@@ -288,9 +288,9 @@ the two gates working as a pair rather than an unanswered question.
   canonical location and are kept verbatim, so a reservation reaches a structured address
   through the location it names. What it lacked was the other half of that link —
   `pickup_location_id` / `dropoff_location_id`, FKs to `locations(location_id)` that nothing
-  wrote. They are now written at ingest (2026-09-24) and seeded into the route resolver; see
-  [[addresses]] for what the migrations did and the one gap they left (the picker cannot
-  pre-fill an existing structured address).
+  wrote. They are now written at ingest (2026-09-24) and seeded into the route resolver; a
+  picker CAN reopen an existing structured address (2026-09-25) — see [[addresses]] for how,
+  and for the one case that still cannot be reopened and refuses to guess.
 - **Nothing schedules a re-import.** PSGC churn is real: barangays are created and renamed by
   plebiscite. The importer is re-runnable and idempotent, but this design creates that
   maintenance task and does not automate it.

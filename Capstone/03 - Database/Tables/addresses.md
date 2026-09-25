@@ -5,7 +5,7 @@ tags: [database, table, address, location, privacy]
 source:
   - supabase/migrations/122_address_registry.sql
   - supabase/migrations/123_psgc_geography.sql
-last_verified: 2026-09-24
+last_verified: 2026-09-25
 ---
 
 # `addresses`
@@ -24,7 +24,7 @@ address-bearing records point here by FK instead.
 | `street_number`, `street_name` | varchar | house/building number and street |
 | `unit_number`, `building` | varchar | |
 | `subdivision` | varchar | Philippine subdivisions are a first-class component, not free text |
-| `barangay` | varchar | **the component the PH mapping is least certain about** — see below |
+| `barangay` | varchar | **PSGC-only since 2026-09-25** — the provider field that would fill it was measured to hold a district, so nothing provider-derived writes here. See below |
 | `city`, `municipality` | varchar | both kept: NCR cities and provincial municipalities are not the same thing |
 | `province`, `region` | varchar | |
 | `postal_code` | varchar(16) | **never invented** — NULL when the provider returns none |
@@ -51,6 +51,17 @@ city from the `ph_*` tables and derives those components itself rather than beli
 the client sent. A client cannot file a barangay of Santa Rosa under Cebu City, because the
 city name is never read from the request. See [[Geography Tables]] and
 `src/lib/address/validate-structured.js`.
+
+**That code crosses a wire, so it has exactly one name on both sides.** The form's value
+carries it as `psgcBarangayCode` and `normalizeStructuredInput` reads it under that same key —
+there is no mapping layer, and `CASCADE_LEVEL_KEYS` in `src/lib/address/structured.js` is where
+the form declares it. This is recorded because the opposite was true until 2026-09-24: the
+cascade wrote `barangayCode` while the server read `psgcBarangayCode`, so **every one of the
+four cascade surfaces returned 400 "Select a barangay." with a barangay selected**, and every
+test passed because each half built its own payload in its own vocabulary. Two tests now cross
+that boundary in both directions — one in `drivers/route.test.js`, one in
+`validate-structured.test.js`. A rename on either side fails there instead of in an operator's
+face. Full chain in `Capstone/07 - Development/Bugs.md`.
 
 `landmark` and `additional_details` are deliberately **excluded from `formatted_address`**.
 They are instructions to a driver, not postal lines, and the composed address is what every
@@ -213,24 +224,126 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   canonical location, and a reservation reaches a structured address **through** that
   location via `linkRequestLocations()`. Wiring the driver surfaces up closes the list as it
   stood; per-surface work following the same shape is what is left for any new surface.
+- **The driver path has not yet been exercised against the live database.** The three
+  backfilled locations are real rows and were checked as they landed; a driver's two
+  addresses have only ever been written in tests, which double `saveAddress` and the PSGC
+  resolver. Nothing so far shows a driver row reaching Postgres, or the pin arriving as a
+  real coordinate pair. `scripts/verify-driver-addresses.mjs` (`npm run
+  verify:driver-addresses -- --driver=<id>`) is the read-only check written for that pass —
+  both ids set and distinct, the per-row fields, the coordinate pair, the mirrored text, and
+  a fingerprint that must not move across a rename-only edit. It reads what was stored, so
+  the cascade interaction and the detail page's rendering still need a person at a browser.
 - **A registry row is never edited, only appended.** `saveAddress` always inserts and
   repoints the referencing column; a superseded row is orphaned rather than mutated. That is
   what makes "one entity's edit silently rewrites another's address" impossible —
   `getAddress` is the only reader, and nothing joins by value.
-- **Re-opening the cascade on an existing address starts blank.** `GET /api/locations`
-  returns `address_id` but not the structured detail behind it, so the picker cannot
-  pre-fill. Reconstructing a `psgc_barangay_code` from stored text is the fuzzy name match
-  the whole design refuses, so the current address is shown read-only instead and picking a
-  new one replaces it. A loader for the structured detail is the obvious follow-up, and every
-  surface that picks an address will want it.
-- **`barangay` is mapped from TomTom's `municipalitySubdivision`, and that is an
-  assumption, not a measurement.** The live server key is not authorized for TomTom's
-  Search API (it returns 403; Routing works), so no real payload has been observed. The
-  unit tests cannot settle it — they only assert that a field the provider does not send
-  stays NULL, which passes under either mapping. If the assumption is wrong, the correct
-  fix is to leave `barangay` NULL rather than mislabel it; never invent one.
-  **The cascading form does not depend on this.** It gets its barangay from a chosen PSGC
-  code, which is not a mapping and cannot be wrong in the same way.
+- **Re-opening the cascade on an existing address pre-fills it — CLOSED 2026-09-25.**
+  The gap: `GET /api/locations` returned `address_id` but no detail behind it, so the picker
+  could not pre-fill, and the current address was shown read-only. The fix is
+  `loadStructuredAddress(addressId)` in `src/services/address.service.js` — the inverse of
+  `saveAddress` on the structured path. It reads the stored `psgc_barangay_code` and resolves
+  the four levels through `resolveBarangayChain`, **the same function the write path calls**,
+  so the read and the write cannot drift. The geography mapping itself lives once, in
+  `geographyFromChain` (`src/lib/address/structured.js`), used by both directions.
+
+  **It still refuses to reconstruct a barangay from stored text**, which was the whole reason
+  for the gap. A row with no `psgc_barangay_code` cannot be reopened and says so, with a
+  distinct reason per cause (see `PREFILL_REASON_MESSAGES` in the same module):
+
+  | reason | cause |
+  |---|---|
+  | `no-address-id` | nothing is linked — a row predating the registry. The picker opens blank, exactly as before. |
+  | `no-psgc-code` | the address exists but is free text. The data was never captured; inventing it is the fuzzy match. |
+  | `unknown-barangay` | the code is set but no longer resolves — the PSGC data moved under the row. |
+  | `unavailable` | the read itself failed. Not a statement about the address but about us, and logged. |
+
+  The detail rides on the **existing** parent reads rather than a new endpoint, so no new
+  permission was invented: `GET /api/drivers/[id]` gained `structured_address` +
+  `emergency_structured_address`, and `GET /api/locations/[id]` gained `structured_address`.
+  **Both keys are always present** — a `null` value is never disambiguated by a missing
+  sibling.
+
+  Two consequences worth recording:
+  - `GET /api/locations/[id]` **did not exist** before this change; the file held `PUT` only
+    and `loadLocation` was its private helper. A `GET` was added, gated on `routes: read`,
+    the same permission the locations list already requires.
+  - The hotel page is gated on `settings: read` but loads its detail from
+    `/api/locations/[id]`, gated on `routes: read`. **This is a dependency on the permission
+    matrix, not a guarantee**: it is safe today only because `settings: read` is admin-only
+    and `admin` also holds `routes: read` (`src/lib/auth/permissions.js`). If a future role
+    gains `settings: read` without `routes: read`, the hotel picker breaks for that role.
+
+  A pick that submits the address that is already stored is **skipped, not saved**
+  (`isUnchangedPick`): the registry is append-only, so an identical re-save would write a
+  second row and orphan the first — a cost paid for opening the dialog and looking.
+
+  The round trip is tested as a round trip, through the real functions:
+  `address.service.test.js` now takes a form value through `resolveStructuredAddress` →
+  `saveAddress` → `loadStructuredAddress` and asserts the whole object comes back equal,
+  geometry, detail and pin included.
+
+  **Verified 2026-09-25:** 147 tests across the four address suites pass, ESLint is clean
+  on the 13 changed files, and the production build compiles. The load-bearing result is
+  `validate-structured.test.js` passing **29 tests unedited** — that is the proof the
+  `geographyFromChain` extraction changed no behaviour, since the assertions that once
+  validated the inline block now validate the extracted function. **The route wiring
+  itself is unverified**: neither `[id]` route has a test, so that the picker visibly
+  reopens on a saved address is a browser claim, not a tested one.
+- **`barangay` was mapped from TomTom's `municipalitySubdivision` — MEASURED
+  2026-09-25, THE ASSUMPTION WAS FALSE, AND THE MAPPING IS GONE.** Four real
+  Philippine reverse-geocode payloads were obtained and the field carries the
+  **district, not the barangay**:
+
+  | Point | `municipalitySubdivision` | the barangay, per TomTom's own `freeformAddress` |
+  |---|---|---|
+  | Caloocan 14.65, 120.97 | `Maypajo` | **Barangay 28** |
+  | Quezon City 14.676, 121.0437 | `Balara` | (agrees — Balara *is* a QC barangay) |
+  | Cebu City 10.3157, 123.8854 | `Guadalupe` | (agrees — Guadalupe *is* a Cebu City barangay) |
+  | Davao City 7.1907, 125.4553 | `Calinan` | (a district of Davao City, not a barangay) |
+
+  Caloocan is the proof: the provider's own freeform reads *"Tamban Street, Maypajo,
+  **Barangay 28**, Caloocan City…"* — it names the district and the barangay
+  separately, and the structured field `barangay` was populated from is the district.
+  Note the failure is **inconsistent**: two of the four happen to agree. That is
+  worse than a uniformly wrong field, because no downstream check can tell a correct
+  mapping from a mislabel.
+
+  **The fix is to map nothing.** `barangay` is absent from `PH_COMPONENT_MAP` in
+  `src/lib/address/parse.js`, so the field is not read at all and every
+  provider-derived address carries `barangay` NULL. The freeform is deliberately
+  **not** parsed for it either — that would be the same fuzzy inference the rest of
+  this design refuses, and three of the four payloads never spell the barangay out,
+  so such a parser would fill one address in four and leave the other three
+  indistinguishable from addresses that genuinely have no barangay. **The PSGC
+  cascade is the only source of a barangay**, and it derives one from a code the
+  operator chose rather than a string a provider sent. That is the boundary
+  [[ADR-015 Address Owns Administration, Location Owns The Point]] describes,
+  applied to the one component that had been trusting the provider.
+
+  The four payloads are kept verbatim as fixtures in `src/lib/address/parse.test.js`,
+  where Caloocan asserts both that the freeform contains "Barangay 28" and that
+  `barangay` is still null — so restoring the old mapping fails a test instead of
+  silently mislabelling a driver's home.
+
+  **This never reached a stored row.** The cascading form derives its barangay from a
+  chosen PSGC code, which is not a mapping and cannot be wrong this way, and
+  `validate-structured.js:252` sets `providerPlaceId: null` — so no write path could
+  store a provider-derived component. `resolveAddress`, the one function that would
+  resolve a place id on write, is imported by its own test and nothing else. The
+  mapping was **latent** for its whole life, and would have become live the moment
+  anything merged a provider result into a stored address.
+- **`province` was also wrong for Metro Manila, and is now corrected.** The same four
+  payloads: `countrySecondarySubdivision` is `Cebu` and `Davao del Sur` — real
+  provinces — but `Metro Manila`, which is a **region**, not a province (NCR has
+  none). `countrySubdivisionName` then returns `National Capital Region`, so the
+  provider was reporting the region twice under two names and one of them landed in
+  `province`. `parseComponents` now nulls `province` when either spelling of NCR
+  appears at either level, and does so **before** the province-to-region fallback so
+  the region cannot be copied back out of `province` into `region`. NCR is the only
+  region in the country without provinces, so the exception is a recorded fact rather
+  than a name heuristic — see `REGIONS_WITHOUT_PROVINCES`. Provincial addresses keep
+  their real province, and a provincial payload reporting no region still fills
+  `region` from `province`.
 - **`verified` stays `false` for every address the cascading form writes.** A dropped pin
   is an operator's claim about where a door is, not a provider verification. Those rows
   carry `provider = 'manual'`. Nothing in the UI may imply otherwise.

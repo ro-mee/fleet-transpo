@@ -1,10 +1,10 @@
-import { withTransaction } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { isId, isValidObject, validateBody } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { isGoogleMapsUrl } from "@/lib/google-maps";
 import { resolveCoordinates } from "@/lib/locations/coordinates";
-import { saveAddress } from "@/services/address.service";
+import { saveAddress, loadStructuredAddress } from "@/services/address.service";
 import { resolveStructuredAddress } from "@/lib/address/validate-structured";
 
 const locationSchema = {
@@ -47,6 +47,45 @@ async function loadLocation(tx, id) {
     [id]
   );
   return rows[0] || null;
+}
+
+/**
+ * One canonical location, including the structured address behind it.
+ *
+ * This handler is why the address detail is here rather than on the list: the
+ * locations page holds every row, and re-resolving a PSGC chain per row to
+ * populate a form that is usually closed is work nobody asked for. The picker
+ * fetches this when it OPENS, for the one row being edited.
+ *
+ * `loadLocation` is shared with the PUT below. It takes a handle carrying a
+ * `.query`, which a transaction provides and the pooled `query` function does
+ * not — hence the one-property wrapper rather than opening a transaction to read
+ * a single row.
+ */
+export async function GET(req, { params }) {
+  try {
+    // The same permission the locations list already requires, so this adds no
+    // new way to reach an address: whoever can see the list can see this.
+    await requirePermission(req, "routes", "read");
+
+    const id = (await params).id;
+    if (!isId(id)) return err("Location id is invalid", 400);
+
+    const location = await loadLocation({ query }, Number(id));
+    if (!location) return err("Location not found", 404);
+
+    // Never throws — see the loader's contract. `no-address-id` is the ordinary
+    // case here, not an error: most locations predate the address registry.
+    const address = await loadStructuredAddress(location.address_id);
+
+    return ok({
+      ...location,
+      structured_address: address.ok ? address.value : null,
+      structured_address_reason: address.ok ? null : address.reason,
+    });
+  } catch (e) {
+    return handleError(e);
+  }
 }
 
 export async function PUT(req, { params }) {

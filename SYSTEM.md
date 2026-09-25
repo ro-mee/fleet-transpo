@@ -1157,15 +1157,29 @@ path that sets it true — and the map component says so in words rather than le
 operator to infer it. An address saves with no pin at all; the cascade is what makes it
 valid, not the coordinate.
 
-> **Operational caveat — the TomTom server key is not yet authorized for Search.**
-> As of 2026-09-23 the live `TOMTOM_API_KEY` returns `200` for
-> `/routing/1/calculateRoute` but `403 {"code":"Forbidden","message":"You are not
-> allowed to access this endpoint"}` for `/search/2/search`. Routing works; Search API
-> v2 is simply not enabled on that key. The two TomTom keys in `.env` are different, so
-> this is not a key mix-up. Until the permission is added in the TomTom portal, address
-> search returns no suggestions and **the PH component mapping in `parse.js` remains
-> unverified** — the unit tests cannot settle it, because they only assert that a field
-> the provider does not send stays NULL, which passes under either mapping. Run
+> **Operational caveat — the TomTom server key is not authorized for forward
+> geocoding.** Re-measured 2026-09-25 across six endpoints: authorization is
+> **per-endpoint, not per-product**. `/routing/1/calculateRoute` and
+> `/search/2/reverseGeocode` return `200`; `/search/2/search`, `/search/2/geocode`,
+> `/search/2/structuredGeocode` and `/search/2/place` all return
+> `403 {"code":"Forbidden","message":"You are not allowed to access this endpoint"}`.
+> Routing works and **one Search endpoint works**, so the "Routing works; Search API v2
+> is simply not enabled" phrasing above was an inference from two endpoints and is
+> wrong. The two TomTom keys in `.env` are different, so this is not a key mix-up: the
+> forward paths are not enabled in the portal. Until they are, address search returns no
+> suggestions and the pin map cannot be centred on a typed address.
+>
+> **This no longer hides an unverified mapping, and it never had to.** The `barangay`
+> mapping was settled on 2026-09-25 through the reverse endpoint that *does* answer — a
+> field mapping is tested against a point, which is the reverse question, and that
+> endpoint had been returning `200` the whole time the check was filed as blocked. It
+> was **false**: `municipalitySubdivision` carries the **district**, not the barangay —
+> Caloocan returns `Maypajo` while the same payload's own `freeformAddress` reads
+> *"…Maypajo, **Barangay 28**, Caloocan City…"*, and the failure is inconsistent (Cebu
+> City's and Quezon City's values *are* real barangays, which is what makes it
+> undetectable downstream). `barangay` has been **removed** from `PH_COMPONENT_MAP`; the
+> PSGC cascade is the only source of one. The same payloads also showed `Metro Manila` —
+> a region, NCR having no provinces — landing in `province`, now corrected. Run
 > `node scripts/check-address-provider.mjs` to see the raw payload.
 
 > **Migration state — two address surfaces are migrated (2026-09-24).** The table, the
@@ -1231,11 +1245,37 @@ valid, not the coordinate.
 > `linkRequestLocations()` and seeded into the route resolver, which prefers the link and falls
 > back to the text. See [[Reservations]].
 >
-> **Known gap:** re-opening the picker on an existing structured
-> address starts blank; `GET /api/locations` returns `address_id` but no detail behind it,
-> and rebuilding a barangay code from stored text is the fuzzy match this design refuses. The
-> current address is shown read-only instead, and picking a new one replaces it. A
-> structured-detail loader is the obvious follow-up, and every migrated surface wants it.
+> **Re-opening the picker on an existing structured address now pre-fills it — closed
+> 2026-09-25.** The gap was that `GET /api/locations` returned `address_id` with no detail
+> behind it, so the current address was shown read-only and picking a new one replaced it.
+> The loader is `loadStructuredAddress(addressId)` in `src/services/address.service.js`: the
+> inverse of `saveAddress` on the structured path, reading the stored **`psgc_barangay_code`**
+> and resolving the four levels through `resolveBarangayChain` — the same function the write
+> path calls, so the two directions cannot drift. The nine geographic keys are built once, by
+> `geographyFromChain` in `src/lib/address/structured.js`, and used by both.
+>
+> **It still refuses to reconstruct a barangay from stored text**, which was the entire
+> reason the gap existed. A row with no `psgc_barangay_code` cannot be reopened and says so,
+> with a distinct reason per cause (`PREFILL_REASON_MESSAGES`): `no-address-id` (nothing
+> linked — the picker opens blank, as before), `no-psgc-code` (free text; the data was never
+> captured), `unknown-barangay` (the code no longer resolves), and `unavailable` (the read
+> itself failed — a statement about us, logged, never a 500).
+>
+> The detail rides on the **existing** parent reads rather than a new endpoint or a new
+> permission: `GET /api/drivers/[id]` gained `structured_address` +
+> `emergency_structured_address` (always both keys, so a `null` value is never disambiguated
+> by a missing sibling), and `GET /api/locations/[id]` gained `structured_address`. **That
+> last handler did not exist before** — the route held `PUT` only, with `loadLocation` as its
+> private helper — and the `GET` added there is gated on `routes: read`, the permission the
+> locations list already required. The hotel page (gated `settings: read`) loads its detail
+> from that route, which **depends on the permission matrix** rather than being guaranteed by
+> it; it holds only because `settings: read` is admin-only and admin reads routes.
+>
+> A pick equal to what is already stored is **skipped, not saved** (`isUnchangedPick`): the
+> registry is append-only, so an identical re-save writes a second row and orphans the first.
+> The round trip is tested as one, through the real functions —
+> `resolveStructuredAddress` → `saveAddress` → `loadStructuredAddress` → deep-equal — in
+> `src/services/address.service.test.js`.
 
 > **Cascade state — migration applied and fully verified; one environmental gate open.**
 > Migration `123` is **live** and every gate on it passed: `db:up` applied it cleanly;

@@ -52,6 +52,7 @@ import {
   ADDRESS_TYPE_VALUES,
   composeStructuredLines,
   detailErrors,
+  geographyFromChain,
   structuredErrors,
 } from "./structured";
 
@@ -165,19 +166,12 @@ export async function resolveStructuredAddress(input, opts = {}) {
   }
 
   // ── Stage 3: everything geographic is now DERIVED, not accepted ───────────
-  const derived = {
-    ...value,
-    regionCode: chain.region.code,
-    regionName: chain.region.name,
-    // `null` here is a real answer, not a miss: Metro Manila has no provinces.
-    provinceCode: chain.province?.code ?? null,
-    provinceName: chain.province?.name ?? null,
-    cityCode: chain.city.code,
-    cityName: chain.city.name,
-    barangayCode: chain.barangay.code,
-    barangayName: chain.barangay.name,
-    cityHasNoProvince: !chain.province,
-  };
+  // Built by `geographyFromChain`, which the loader reads a saved address back
+  // with. One function for both directions, so the geography this writes and the
+  // geography a re-open rebuilds cannot drift — `cityHasNoProvince` above all,
+  // since a row that saved with it true and reloaded with it false would render
+  // its province line back into an NCR address.
+  const derived = { ...value, ...geographyFromChain(chain) };
 
   // The SAME completeness rule the form's Save button applies, now with the
   // province requirement answered by the data instead of guessed.

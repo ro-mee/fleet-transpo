@@ -471,6 +471,8 @@ export default function EditDriverPage() {
                       value={pickedAddress}
                       onChange={setPickedAddress}
                       stored={values.address}
+                      initialStructured={driver?.structured_address ?? null}
+                      prefillReason={driver?.structured_address_reason ?? null}
                       disabled={isSaving}
                     />
                   </div>
@@ -574,6 +576,8 @@ export default function EditDriverPage() {
                       value={pickedEmergencyAddress}
                       onChange={setPickedEmergencyAddress}
                       stored={values.emergency_contact_address}
+                      initialStructured={driver?.emergency_structured_address ?? null}
+                      prefillReason={driver?.emergency_structured_address_reason ?? null}
                       disabled={isSaving}
                     />
                   </div>

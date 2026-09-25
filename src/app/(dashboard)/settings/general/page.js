@@ -10,7 +10,12 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AddressFormDialog } from "@/components/address/address-form-dialog";
 import { toast } from "@/components/ui/toast";
 import { APP_NAME } from "@/lib/constants";
-import { formatStructuredAddress } from "@/lib/address/structured";
+import {
+  formatStructuredAddress,
+  isUnchangedPick,
+  PREFILL_REASON_MESSAGES,
+} from "@/lib/address/structured";
+import { useStructuredAddress } from "@/hooks/use-structured-address";
 import {
   getHotelLocationSettings,
   updateHotelLocationSettings,
@@ -126,6 +131,18 @@ export default function SettingsGeneralPage() {
    */
   const [addressValue, setAddressValue] = useState(null);
   const [pickOpen, setPickOpen] = useState(false);
+  // The hotel base's saved address, loaded when the picker opens so the cascade
+  // reopens on it. Fetched from the LOCATION route, not from the settings one:
+  // the settings blob records `location_id` precisely so this is possible, and
+  // the location route is where the detail already lives with its own permission
+  // gate. NOTE that a role holding `settings: read` without `routes: read` would
+  // not be able to load it — no such role exists in the permission matrix today
+  // (settings is admin-only, and admin also reads routes), but this depends on
+  // that, so it is recorded in Capstone/03 - Database/Tables/addresses.md.
+  const { value: savedAddress, reason: savedAddressReason } = useStructuredAddress(
+    hotelData?.location_id,
+    pickOpen
+  );
   // Hydrate the form once the server values arrive — using React's documented
   // "adjust state during render" pattern (setState guarded by a previous-value
   // check) rather than an effect: provably empty until real config lands, no
@@ -196,10 +213,10 @@ export default function SettingsGeneralPage() {
   /**
    * What the address field shows: the pick in hand, or the stored text.
    *
-   * The stored text is the fallback rather than a pre-filled picker because the
-   * server returns `address_id` with no detail behind it, and rebuilding a
-   * barangay code from stored TEXT is the fuzzy name match this design refuses.
-   * See the known gap in Capstone/03 - Database/Tables/addresses.md.
+   * The stored text remains the DISPLAY even when the saved address can be
+   * reopened — it is the composed value the server stored, so it is the same
+   * string either way, and showing it does not depend on the loader having
+   * answered yet. The loader feeds the DIALOG, not this line.
    */
   const displayAddress = addressValue ? formatStructuredAddress(addressValue) : form.address;
 
@@ -337,10 +354,15 @@ export default function SettingsGeneralPage() {
                       Picked from the Philippine address cascade. Saving replaces the hotel base address.
                     </p>
                   )}
-                  {!addressValue && displayAddress && (
+                  {!addressValue && savedAddress && (
                     <p className="text-[11px] text-foreground-muted mt-1.5">
-                      Shown as stored. This box is read-only — the address is set by the picker, which
-                      writes the whole hierarchy behind the barangay you choose.
+                      Saved as a structured address. Opening the picker reopens the cascade on it, so
+                      a change to one field does not mean choosing every level again.
+                    </p>
+                  )}
+                  {!addressValue && displayAddress && !savedAddress && PREFILL_REASON_MESSAGES[savedAddressReason] && (
+                    <p className="text-[11px] text-foreground-muted mt-1.5">
+                      {PREFILL_REASON_MESSAGES[savedAddressReason]}
                     </p>
                   )}
                 </div>
@@ -714,19 +736,24 @@ export default function SettingsGeneralPage() {
           yard the fleet operates from. `forcedType="operational"` is the answer,
           matching the canonical-location surface. It is also what stops the form
           demanding a house number, which is the one field an operational address
-          does not need. See `requiredDetailFields`. */}
+          does not need. See `requiredDetailFields`.
+          `initialValue` is the pick in hand, else the hotel base's saved address, so
+          the cascade reopens on it rather than starting blank. */}
       <AddressFormDialog
         open={pickOpen}
         onOpenChange={setPickOpen}
-        initialValue={addressValue ?? undefined}
+        initialValue={addressValue ?? savedAddress ?? undefined}
         showPinMap={false}
         showTypeSelector={false}
         forcedType="operational"
-        title={addressValue ? "Replace address" : "Pick address"}
+        title={addressValue || savedAddress ? "Replace address" : "Pick address"}
         description="Choose the region, province, city or municipality, and barangay, then add the street detail. The full hierarchy is resolved by the server when you save."
         submitLabel="Use this address"
         onSubmit={(next) => {
-          setAddressValue(next);
+          // Reopening and closing is not a change. See `isUnchangedPick` — the
+          // registry is append-only, so submitting an identical address would
+          // write a second row and detach the first.
+          if (!isUnchangedPick(next, addressValue, savedAddress)) setAddressValue(next);
           setPickOpen(false);
         }}
       />

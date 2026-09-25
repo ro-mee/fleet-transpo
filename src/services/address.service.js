@@ -23,7 +23,9 @@
 // it, so a failed write cannot leave a dangling address behind.
 
 import { query } from "@/lib/db";
+import { resolveBarangayChain } from "@/lib/geo/psgc";
 import { isBlankAddress } from "@/lib/address/invalidate";
+import { EMPTY_STRUCTURED_ADDRESS, geographyFromChain } from "@/lib/address/structured";
 
 // The last four columns are the STRUCTURED-path ones, added by migration 123
 // alongside the PSGC tables. They are here rather than in a second statement
@@ -180,4 +182,105 @@ export async function getAddress(addressId) {
     additionalDetails: row.additional_details,
     psgcBarangayCode: row.psgc_barangay_code,
   };
+}
+
+/**
+ * Read a saved address back INTO THE FORM THAT WROTE IT.
+ *
+ * The inverse of `saveAddress` for the structured (cascade) path, so the picker
+ * can re-open on an address that already exists instead of starting blank. The
+ * mapping is taken from `INSERT_SQL` above and from the `components` block in
+ * `src/lib/address/validate-structured.js`, so the two directions are read side
+ * by side rather than remembered.
+ *
+ * WHY IT RE-RESOLVES THE BARANGAY RATHER THAN READING THE STORED NAMES
+ * -------------------------------------------------------------------
+ * The row stores a barangay NAME (`barangays.barangay`) and the cascade needs
+ * four CODES. Reading the name back and asking "which barangay is called this"
+ * is the fuzzy match this whole design refuses — it is wrong for exactly the
+ * names that are hardest to notice, since a city can hold two barangays of one
+ * name and the row does not record which one it meant. So the code is the only
+ * thing read, and `resolveBarangayChain` — the same function the WRITE path
+ * calls — turns it back into the four levels. A row whose stored name no longer
+ * matches its code therefore reloads with the CURRENT name, which is right: the
+ * code is the identity and the name is a label PSGC is free to revise.
+ *
+ * THE THREE REFUSALS, AND WHY THEY ARE NOT ONE
+ * --------------------------------------------
+ * "Cannot pre-fill" has three different causes and the operator is owed the
+ * difference. A single falsy return would be indistinguishable from a bug, and
+ * the one case that is NOT a defect — a legacy row that predates the structured
+ * path — would read as one:
+ *
+ *   * `no-address-id`     nobody has picked an address here yet, or this row
+ *                         predates the registry link. Nothing to load; the
+ *                         picker opens blank, as it always has.
+ *   * `no-psgc-code`      an address row exists but is free text. THIS IS THE
+ *                         HONEST ONE: the data needed to re-open the cascade was
+ *                         never captured, and inventing it is the fuzzy match
+ *                         above. Stays read-only.
+ *   * `unknown-barangay`  the code is set but no longer resolves. A real state —
+ *                         `resolveBarangayChain` returns null rather than
+ *                         throwing, and `validate-structured.js` already treats
+ *                         it as one — reached when the PSGC data moved under a
+ *                         saved row.
+ *
+ * A fourth, `unavailable`, is not a statement about the address but about us:
+ * the read itself failed. It is caught HERE rather than in each route because
+ * this function has exactly one job and it is not worth doing — pre-filling a
+ * form — and a caller that had to guard every call would be the same guard
+ * written twice. The alternative, letting it throw, would have `GET
+ * /api/drivers/[id]` return 500 for a driver's whole detail page because an edit
+ * form could not be pre-filled.
+ *
+ * @param {number|null} addressId
+ * @returns {Promise<{ok: true, value: object} | {ok: false, reason: string}>}
+ */
+export async function loadStructuredAddress(addressId) {
+  if (addressId === null || addressId === undefined) {
+    return { ok: false, reason: "no-address-id" };
+  }
+
+  try {
+    const address = await getAddress(addressId);
+    if (!address) return { ok: false, reason: "no-address-id" };
+
+    // A provider-path or legacy row. Named separately from the id being absent
+    // because the id IS present — there is simply nothing re-openable behind it.
+    if (!address.psgcBarangayCode) return { ok: false, reason: "no-psgc-code" };
+
+    const chain = await resolveBarangayChain(address.psgcBarangayCode);
+    if (!chain) return { ok: false, reason: "unknown-barangay" };
+
+    // Text fields are normalized to "" rather than left null, to match
+    // EMPTY_STRUCTURED_ADDRESS. The form's `isFilled` treats both as unfilled, but
+    // `detailErrors` and the preview call String methods on these, and a null that
+    // only ever arrives from the loader would be a crash reachable only by
+    // re-opening an existing address.
+    return {
+      ok: true,
+      value: {
+        ...EMPTY_STRUCTURED_ADDRESS,
+        ...geographyFromChain(chain),
+        type: address.addressType ?? EMPTY_STRUCTURED_ADDRESS.type,
+        houseBuildingNumber: address.components.houseNumber ?? "",
+        streetRoad: address.components.street ?? "",
+        unitFloorBuilding: address.components.unitNumber ?? "",
+        subdivisionVillage: address.components.subdivision ?? "",
+        landmark: address.landmark ?? "",
+        additionalDetails: address.additionalDetails ?? "",
+        postalCode: address.postalCode ?? "",
+        // The pin, as placed. Both or neither by the same CHECK constraint the
+        // form's own rule mirrors, so no pairing has to be re-derived here.
+        latitude: address.latitude,
+        longitude: address.longitude,
+      },
+    };
+  } catch (e) {
+    // Logged, not swallowed silently: a pre-fill that stops working should be
+    // findable. It is not re-thrown because the caller's only options are to
+    // degrade or to fail a view that is not about addresses.
+    console.warn("Address prefill failed:", e?.message ?? e);
+    return { ok: false, reason: "unavailable" };
+  }
 }

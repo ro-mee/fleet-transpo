@@ -24,8 +24,13 @@ import { can, useRequireRole } from "@/lib/auth/role-guard";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
-import { formatStructuredAddress } from "@/lib/address/structured";
+import {
+  formatStructuredAddress,
+  isUnchangedPick,
+  PREFILL_REASON_MESSAGES,
+} from "@/lib/address/structured";
 import { AddressFormDialog } from "@/components/address/address-form-dialog";
+import { useStructuredAddress } from "@/hooks/use-structured-address";
 import { createLocation, getLocations, updateLocation } from "@/services/location.service";
 import { isGoogleMapsUrl, parseGoogleMapsCoordinates } from "@/lib/google-maps";
 
@@ -87,6 +92,14 @@ export default function LocationsPage() {
    * the comment on the location `Dialog` below.
    */
   const [pickOpen, setPickOpen] = useState(false);
+  // The address already on the row being edited, loaded when the picker opens so
+  // the cascade reopens on it. Lazy because only this one row needs its PSGC
+  // chain re-resolved — doing it for every row of the list is work for a form
+  // that is usually closed.
+  const { value: savedAddress, reason: savedAddressReason } = useStructuredAddress(
+    editingLocation?.location_id,
+    pickOpen
+  );
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(locationSchema);
   const linkedCoordinates = useMemo(() => parseGoogleMapsCoordinates(formData.maps_url), [formData.maps_url]);
 
@@ -304,10 +317,15 @@ export default function LocationsPage() {
                   Picked from the Philippine address cascade. Saving replaces this location&rsquo;s stored address.
                 </p>
               )}
-              {!addressValue && displayAddress && (
+              {!addressValue && savedAddress && (
                 <p className="text-xs text-foreground-muted">
-                  Shown as stored. This box is read-only — the address is set by the picker, which
-                  writes the whole hierarchy behind the barangay you choose.
+                  Saved as a structured address. Opening the picker reopens the cascade on it, so a
+                  change to one field does not mean choosing every level again.
+                </p>
+              )}
+              {!addressValue && displayAddress && !savedAddress && PREFILL_REASON_MESSAGES[savedAddressReason] && (
+                <p className="text-xs text-foreground-muted">
+                  {PREFILL_REASON_MESSAGES[savedAddressReason]}
                 </p>
               )}
             </div>
@@ -354,20 +372,23 @@ export default function LocationsPage() {
           also what makes the address form stop demanding a house number: an
           operational address is the one type that does not require one, because
           a terminal curb has no number to give. See `requiredDetailFields`.
-          `initialValue` is the pick in hand, so reopening after a change starts
-          from what was chosen rather than from blank. */}
+          `initialValue` is the pick in hand, else the address already saved for this
+          location, so the cascade reopens on it rather than starting blank. */}
       <AddressFormDialog
         open={pickOpen}
         onOpenChange={setPickOpen}
-        initialValue={addressValue ?? undefined}
+        initialValue={addressValue ?? savedAddress ?? undefined}
         showPinMap={false}
         showTypeSelector={false}
         forcedType="operational"
-        title={addressValue ? "Replace address" : "Pick address"}
+        title={addressValue || savedAddress ? "Replace address" : "Pick address"}
         description="Choose the region, province, city or municipality, and barangay, then add the street detail. The full hierarchy is resolved by the server when you save."
         submitLabel="Use this address"
         onSubmit={(next) => {
-          setAddressValue(next);
+          // Reopening and closing is not a change. See `isUnchangedPick` — the
+          // registry is append-only, so submitting an identical address would
+          // write a second row and detach the first.
+          if (!isUnchangedPick(next, addressValue, savedAddress)) setAddressValue(next);
           setPickOpen(false);
         }}
       />

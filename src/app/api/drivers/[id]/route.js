@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { saveAddress } from "@/services/address.service";
+import { saveAddress, loadStructuredAddress } from "@/services/address.service";
 import { resolvePickedAddress } from "@/lib/address/picked";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
@@ -115,6 +115,16 @@ export async function GET(req, { params }) {
       console.warn("Driver account lookup skipped:", accErr);
     }
 
+    // ── The two saved addresses, reopened for the picker ─────────────────────
+    // Best-effort: the loader reports a failure to reopen as a `reason` instead
+    // of throwing, because this endpoint ALSO serves the driver detail page and a
+    // form that cannot be pre-filled must not take down a view that has nothing
+    // to do with editing. The form still opens blank, which is the old behaviour.
+    const [residential, emergency] = await Promise.all([
+      loadStructuredAddress(driver.address_id),
+      loadStructuredAddress(driver.emergency_contact_address_id),
+    ]);
+
     // Media columns hold object keys; resolve them to short-lived URLs for the
     // response. See `lib/drivers/media` — never persist what this returns.
     return ok(
@@ -123,6 +133,12 @@ export async function GET(req, { params }) {
         ...stats,
         trips,
         account,
+        // Both keys are always present, so a null `structured_address` never has
+        // to be disambiguated by reading a sibling that may be missing.
+        structured_address: residential.ok ? residential.value : null,
+        structured_address_reason: residential.ok ? null : residential.reason,
+        emergency_structured_address: emergency.ok ? emergency.value : null,
+        emergency_structured_address_reason: emergency.ok ? null : emergency.reason,
       })
     );
   } catch (e) {

@@ -155,13 +155,12 @@ export async function PUT(req) {
         google_maps_url: googleMapsUrl || "",
         location_id: Number(location.location_id),
         // Recorded alongside `location_id` so the link to the address registry
-        // survives a read. The page does not use it yet — the picker cannot
-        // pre-fill from it, because the registry row's detail is not on this
-        // response and rebuilding a barangay code from stored TEXT is the fuzzy
-        // match this design refuses (see the known gap in
-        // Capstone/03 - Database/Tables/addresses.md). It is written now so that
-        // a loader has something to load FROM, and so the blob tells the same
-        // story as the `locations` row it mirrors.
+        // survives a read. It is what the picker loads the saved address FROM:
+        // `useStructuredAddress` fetches `/api/locations/[id]` with this id when
+        // the cascade opens, so the form reopens on the hotel's current address
+        // rather than blank. The detail is not on THIS response and never should
+        // be — the location route is where it already lives, with its own
+        // permission gate.
         address_id: addressId,
       };
       await tx.query(

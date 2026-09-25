@@ -26,12 +26,30 @@
 // hierarchy and nothing downstream can re-resolve it. What it displays instead
 // is the address already on the record — the mirrored composed value, or legacy
 // free text that predates the cascade — and it says which of the two it is.
+//
+// REOPENING AN EXISTING ADDRESS
+// -----------------------------
+// `initialStructured` is the saved address, loaded by the page and passed in as
+// the DIALOG's seed. Opening the picker therefore reopens the cascade on what was
+// already chosen, and changing one field no longer means selecting all four
+// levels again.
+//
+// It seeds the dialog and nothing else. `value` keeps meaning "a pick the operator
+// made in this session", which is what the pages read to decide whether to submit
+// `structured_address` at all — so a pre-filled form that is saved untouched still
+// leaves the stored address alone rather than writing a second registry row for
+// the same place.
+//
+// The seed comes from a _code_, never from the stored text: see
+// `loadStructuredAddress`. An address saved before the cascade has no code, cannot
+// be reopened, and `prefillReason` is how the operator is told that rather than
+// left staring at a box that will not open.
 
 import { useState } from "react";
 import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { formatStructuredAddress } from "@/lib/address/structured";
+import { formatStructuredAddress, isUnchangedPick, PREFILL_REASON_MESSAGES } from "@/lib/address/structured";
 import { AddressFormDialog } from "./address-form-dialog";
 
 /**
@@ -41,6 +59,8 @@ import { AddressFormDialog } from "./address-form-dialog";
  * @param {object|null} props.value  the pick in hand, or null
  * @param {(next: object|null) => void} props.onChange
  * @param {string} [props.stored]    text already on the record, shown unpicked
+ * @param {object} [props.initialStructured]  the saved address, reopened for editing
+ * @param {string} [props.prefillReason]      why it could not be reopened, if it could not
  * @param {string} [props.dialogTitle]
  * @param {string} [props.dialogDescription]
  * @param {"home"|"office"|"operational"|"other"} [props.forcedType]
@@ -53,6 +73,8 @@ export function AddressPickerField({
   value,
   onChange,
   stored = "",
+  initialStructured = null,
+  prefillReason = null,
   dialogTitle,
   dialogDescription,
   submitLabel = "Use this address",
@@ -62,6 +84,13 @@ export function AddressPickerField({
 }) {
   const [open, setOpen] = useState(false);
   const display = value ? formatStructuredAddress(value) : stored;
+
+  // What the dialog opens on: a pick made in this session, else the saved
+  // address. The DIALOG's seed only — `value` stays what it always was, so the
+  // pages keep deciding whether to submit `structured_address` by whether the
+  // operator actually picked something.
+  const seed = value ?? initialStructured ?? undefined;
+  const canReopen = Boolean(value || initialStructured);
 
   return (
     <div className="space-y-1.5">
@@ -98,33 +127,34 @@ export function AddressPickerField({
           for this field.
         </p>
       )}
-      {!value && display && (
+      {!value && initialStructured && (
         <p className="text-xs text-foreground-muted">
-          Shown as stored. This box is read-only — picking an address replaces it with one the
-          server can check against the PSGC hierarchy.
+          Saved as a structured address. Opening the picker reopens the cascade on it, so a change
+          to one field does not mean choosing every level again.
         </p>
       )}
+      {!value && display && PREFILL_REASON_MESSAGES[prefillReason] && (
+        <p className="text-xs text-foreground-muted">{PREFILL_REASON_MESSAGES[prefillReason]}</p>
+      )}
 
-      {/* `initialValue` is the pick in hand, so reopening after a change starts
-          from what was chosen rather than from blank. The stored text is never
-          fed in: reconstructing a barangay code from stored text is the fuzzy
-          name match this design refuses, so an existing address is shown
-          read-only and is replaced rather than edited. */}
       <AddressFormDialog
         open={open}
         onOpenChange={setOpen}
-        initialValue={value ?? undefined}
+        initialValue={seed}
         showTypeSelector={false}
         forcedType={forcedType}
         showPinMap={showPinMap}
-        title={dialogTitle ?? (value ? "Replace address" : "Pick address")}
+        title={dialogTitle ?? (canReopen ? "Replace address" : "Pick address")}
         description={
           dialogDescription ??
           "Choose the region, province, city or municipality, and barangay, then add the street detail. The full hierarchy is resolved by the server when you save."
         }
         submitLabel={submitLabel}
         onSubmit={(next) => {
-          onChange(next);
+          // Opening an address and closing it again is not a change. Skipping
+          // `onChange` entirely — rather than setting it to `next` — also keeps
+          // the page's omitted-vs-provided rule honest. See `isUnchangedPick`.
+          if (!isUnchangedPick(next, value, initialStructured)) onChange(next);
           setOpen(false);
         }}
       />
