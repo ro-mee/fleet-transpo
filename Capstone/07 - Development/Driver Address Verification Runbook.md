@@ -288,7 +288,7 @@ locations page works, the permission matrix moved, not the address code.
 
 ### 11. A legacy address still refuses — and the reachable case is silent
 
-**Measured 2026-09-25** (`scratch/probe-addresses.mjs`, counts only, no row contents): of the
+**Measured 2026-09-25** (`npm run probe:addresses`, counts only, no row contents): of the
 4 `addresses` rows, **0** has a NULL `psgc_barangay_code`. **55 of 56 drivers** and **8 of 11
 locations** have a NULL `address_id`, and 4 of those 8 locations carry display text.
 
@@ -327,6 +327,39 @@ say what it is for; it is not implied by "run the runbook".
 **Reconstructing a barangay from stored text is the one thing this design refuses**, and it is
 the reason the gap existed. If a legacy row ever opens pre-filled, that refusal has been
 crossed and the fix is a regression, not a feature.
+
+## Re-measuring these counts
+
+Section D's numbers are a snapshot, and the pass itself moves them: step 1 alone takes
+`addr_total` from 4 to 6 and `drv_linked` from 1 to 2, and any step that saves moves them again.
+
+```
+npm run probe:addresses
+```
+
+It reads the live project and prints nine counts and nothing else — no row contents, no names, no
+addresses — so unlike the verifier, its output **can** go in these notes. It is deliberately not
+a gate: there is no pass or fail, because "no `no-psgc-code` row exists" is a fact about the data
+rather than a defect.
+
+| Count | The question it answers |
+|---|---|
+| `addr_no_psgc` | is `no-psgc-code` reachable at all? **0 means never** |
+| `addr_with_pin` | has any pin ever been stored? **0 means the step-2 pin check has never run** |
+| `addr_total` | how many registry rows exist — what a save will change |
+| `drv_legacy` / `drv_linked` | how many drivers are legacy, and how many subjects step 6 has |
+| `loc_legacy` / `loc_legacy_with_text` | how many locations step 11 can actually be run on |
+| `loc_linked` | the candidates for step 9 |
+| `loc_total` | the denominator in "N of M locations" |
+
+**Measured 2026-09-25, before the pass:** `addr_no_psgc` 0, `addr_total` 4, `addr_with_pin` 0,
+`drv_legacy` 55, `drv_linked` 1, `loc_legacy` 8, `loc_legacy_with_text` 4, `loc_linked` 3,
+`loc_total` 11.
+
+Re-run it and rewrite section D's inline figures when a pass moves them, rather than leaving a
+stale number that reads as drift. That is not hypothetical: step 11 was wrong precisely because
+it was written from intent, and a counts table nobody re-derives stops being evidence the same
+way the migration ledger's "missing files" list did.
 
 ---
 
