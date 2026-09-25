@@ -14,8 +14,23 @@ import {
 } from "@/lib/auth/mobile-token";
 import { recordNewDeviceAlert } from "@/lib/auth/new-device-alert";
 import { issueLoginChallenge, verifyLoginChallenge } from "@/lib/auth/email-otp";
-import { isDeliverableEmailAddress } from "@/lib/auth/otp-policy";
+import {
+  isDeliverableEmailAddress,
+  OTP_LOCKOUT_LIMIT,
+  OTP_LOCKOUT_WINDOW_MS,
+} from "@/lib/auth/otp-policy";
 import { isEmailConfigured, sendOtpEmail } from "@/lib/email/smtp";
+
+// The account-level OTP lock, in the token form both clients parse. 429 +
+// Retry-After so an intermediary honours the wait too.
+const otpLockedResponse = (retryAfterSeconds) =>
+  new Response(JSON.stringify({ error: `OTP_LOCKED:${retryAfterSeconds}` }), {
+    status: 429,
+    headers: {
+      "Content-Type": "application/json",
+      "Retry-After": String(retryAfterSeconds),
+    },
+  });
 
 /**
  * POST /api/mobile/auth/login
@@ -182,6 +197,9 @@ export async function POST(req) {
         }
         return { ok: true, delivery: "sent" };
       }
+      if (issued?.reason === "otp_locked") {
+        return { ok: false, reason: "otp_locked", retryAfterSeconds: issued.retryAfterSeconds };
+      }
       // An administrator-issued emergency code is never mailed over: the person
       // holding it is the one who cannot receive the email.
       if (issued?.reason === "break_glass_held" || issued?.reason === "cooldown") {
@@ -194,7 +212,12 @@ export async function POST(req) {
       // Also the resend path: the client re-submits. It only ever runs after the
       // password verified, so no code reaches an unauthenticated caller.
       const delivery = await sendNewCode();
-      if (!delivery.ok) return err("MFA_UNAVAILABLE", 503);
+      if (!delivery.ok) {
+        if (delivery.reason === "otp_locked") {
+          return otpLockedResponse(delivery.retryAfterSeconds);
+        }
+        return err("MFA_UNAVAILABLE", 503);
+      }
       await writeAudit(req, null, {
         action: "mfa_required",
         resource: "authentication",
@@ -222,6 +245,18 @@ export async function POST(req) {
     } catch {
       return err("MFA_UNAVAILABLE", 503);
     }
+    if (factor.lockTripped) {
+      await raiseSecurityAlert(req, {
+        type: "account_locked",
+        employeeId: employee.employee_id,
+        details: {
+          channel: "mobile",
+          factor: "otp",
+          burns: OTP_LOCKOUT_LIMIT,
+          windowMinutes: OTP_LOCKOUT_WINDOW_MS / 60_000,
+        },
+      });
+    }
     if (!factor.ok) {
       // An expired or superseded code is not a wrong code: send a fresh one and
       // ask again instead of spending an attempt on the clock.
@@ -242,6 +277,9 @@ export async function POST(req) {
         resourceId: employee.employee_id,
         newValues: { channel: "mobile", reason: factor.reason },
       });
+      if (factor.reason === "otp_locked") {
+        return otpLockedResponse(factor.retryAfterSeconds);
+      }
       return err("MFA_INVALID", 401);
     }
 

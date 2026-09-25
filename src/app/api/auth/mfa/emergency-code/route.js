@@ -74,6 +74,19 @@ export async function POST(req) {
           429
         );
       }
+      if (issued?.reason === "otp_locked") {
+        // Decision: no break-glass bypass of the lock. The freeze is 15 minutes
+        // and self-healing, so the operator waits rather than getting a second
+        // rule to defend.
+        const wait =
+          issued.retryAfterSeconds >= 60
+            ? `${Math.ceil(issued.retryAfterSeconds / 60)} minutes`
+            : `${issued.retryAfterSeconds} seconds`;
+        return err(
+          `That account is temporarily locked after too many incorrect codes. Try again in ${wait}.`,
+          429
+        );
+      }
       if (issued?.reason === "no_account") return err("No active account with that id", 404);
       return err("Could not issue an emergency code", 500);
     }

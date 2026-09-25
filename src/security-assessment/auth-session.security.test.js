@@ -437,6 +437,21 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     expect(web).toMatch(/factor\.lockTripped/);
     expect(web).toMatch(/factor: "otp"/);
   });
+
+  it('the mobile channel maps otp_locked and raises the same alert', () => {
+    const mobile = read('app/api/mobile/auth/login/route.js');
+    expect(mobile).toMatch(/issued\?\.reason === "otp_locked"/);
+    expect(mobile).toMatch(/factor\.reason === "otp_locked"/);
+    expect(mobile).toMatch(/OTP_LOCKED:\$\{[^}]+\}/);
+    expect(mobile).toMatch(/factor\.lockTripped/);
+    expect(mobile).toMatch(/factor: "otp"/);
+  });
+
+  it('the admin emergency path answers 429 with a wait, not a generic 500', () => {
+    const emergency = read('app/api/auth/mfa/emergency-code/route.js');
+    expect(emergency).toMatch(/issued\?\.reason === "otp_locked"/);
+    expect(emergency).toMatch(/,\s*429\)/);
+  });
 });
 
 // ---------------------------------------------------------------------------
