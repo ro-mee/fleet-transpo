@@ -451,6 +451,16 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     const emergency = read('app/api/auth/mfa/emergency-code/route.js');
     expect(emergency).toMatch(/issued\?\.reason === "otp_locked"/);
     expect(emergency).toMatch(/,\s*429\)/);
+    // The two assertions above can each be satisfied elsewhere in the file — the
+    // pre-existing per-admin rate limit is a single-line `…, 429)` call — so
+    // bind the status and the wait copy to the lock branch itself. The window
+    // runs from the branch to the `no_account` arm that follows it.
+    const lockBranch = emergency.slice(
+      emergency.indexOf('issued?.reason === "otp_locked"'),
+      emergency.indexOf('no_account')
+    );
+    expect(lockBranch).toMatch(/,\s*429\s*\)/);
+    expect(lockBranch).toMatch(/Try again in \$\{wait\}/);
   });
 });
 
