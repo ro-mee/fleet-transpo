@@ -272,6 +272,9 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
     matrix, not a guarantee**: it is safe today only because `settings: read` is admin-only
     and `admin` also holds `routes: read` (`src/lib/auth/permissions.js`). If a future role
     gains `settings: read` without `routes: read`, the hotel picker breaks for that role.
+    `route.get.test.js` now asserts this route asks for `routes: read`, for exactly this
+    reason — narrowing the permission should fail a test that points back here rather than
+    pass unnoticed.
 
   A pick that submits the address that is already stored is **skipped, not saved**
   (`isUnchangedPick`): the registry is append-only, so an identical re-save would write a
@@ -287,16 +290,26 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   `validate-structured.test.js` passing **29 tests unedited** — that is the proof the
   `geographyFromChain` extraction changed no behaviour, since the assertions that once
   validated the inline block now validate the extracted function. **The route wiring was
-  left unfinished, and is now half-covered.** `GET /api/drivers/[id]` gained
+  left unfinished, and both halves are now covered.** `GET /api/drivers/[id]` gained
   `route.get.test.js` later the same day: five tests over the attachment contract — both
   keys always present, the two loaders not swapped, a refused load still returning the
   driver with its reason, a driver with NULL address ids still served, an unknown driver
   404ing without spending a load. It was **falsified rather than merely run**: swapping the
   two load calls in the route makes exactly two of the five fail, with the anti-swap and
-  legacy-refusal tests failing and the other three correctly staying green.
-  **`GET /api/locations/[id]` still has no test file** — and it is the route the locations
-  page and the hotel base both read through — so the locations and hotel halves of the
-  prefill remain a browser claim, as does everything about what the cascade *renders*.
+  legacy-refusal tests failing and the other three correctly staying green. `GET
+  /api/locations/[id]` gained its own `route.get.test.js` the same day, six tests, covering
+  what is different about that route — the `isId` guard rejecting a malformed id **before**
+  any query is issued, the refusal reason surviving, a null `address_id` being forwarded
+  rather than short-circuited around, and the route still asking for `routes: read`.
+  Falsified the same way: forcing the response's `structured_address_reason` to a literal
+  `null` fails exactly the two reason-carrying tests and leaves the other four green.
+
+  **So what remains a browser claim is narrower than it was.** Both attachment contracts
+  are pinned. What no route test reaches is that the cascade *renders* the reopened
+  address, that a pick identical to what is stored writes no second registry row
+  (`isUnchangedPick` — the registry is append-only, so this is a row count, not a render),
+  and that the hotel's `settings: read` → `routes: read` borrow works at runtime rather
+  than only on paper.
 - **`barangay` was mapped from TomTom's `municipalitySubdivision` — MEASURED
   2026-09-25, THE ASSUMPTION WAS FALSE, AND THE MAPPING IS GONE.** Four real
   Philippine reverse-geocode payloads were obtained and the field carries the
