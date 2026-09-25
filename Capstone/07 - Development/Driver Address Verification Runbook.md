@@ -41,7 +41,9 @@ a code defect. If a request 404s with an HTML body, restart before reading the h
 **Stop the dev server before any `npm run build`.** The worker pool OOMs with it running
 (task #17).
 
-Everything below except step 1 is read-only.
+Everything below except step 1 is read-only — **provided every picker is closed with Discard.**
+Two steps write if it is not: step 6's round trip and step 9's save. Both are called out where
+they occur.
 
 ## The automated layer — already green, re-run if you have touched the code
 
@@ -188,7 +190,8 @@ is the very row whose missing pin produced the 2026-09-25 report — so an empty
 right answer, not a regression. On a row that does have a pin, expect to find it where it was
 placed.
 
-**The round-trip half writes, and it is the only write in sections B and C.** Change exactly
+**The round-trip half writes** — it is one of two writes in sections B and C, step 9's save
+being the other. Change exactly
 **one** detail field, save, reload, re-open — every other field must have survived, and
 `drivers.address` must equal the new row's `formatted_address`. Expect the save to add a **new**
 `addresses` row and move `drivers.address_id` off 4: `saveAddress` always inserts and repoints,
@@ -237,11 +240,30 @@ dialog and the same loader, and neither has been opened in a browser either.
 
 Open a row with an `address_id` and re-open its picker.
 
-**Expected:** pre-filled the same way as step 6. This surface fetches detail **lazily, on
-dialog open** — the list holds many rows and fetching detail for all of them is the N+1 the
-design avoids — so the first paint may be brief. Three of the eleven locations are linked and
-those are the candidates here; the other eight are legacy, which is step 11's subject and not
-this one's. Note what a legacy row actually shows — **no reason line** — before expecting one.
+**Expected:** pre-filled the same way as step 6. Three of the eleven locations are linked and
+those are the candidates here; the other eight are legacy, which is step 11's subject. The
+button reads **"Replace address"** on any row with an address and **"Pick address"** on one
+without, which tells you which you are looking at before you open anything.
+
+**This surface loads its detail lazily, and the second argument of
+`useStructuredAddress(location_id, pickOpen)` is `enabled` — nothing is fetched until the dialog
+opens.** Two consequences, both of which read as defects if you are not expecting them:
+
+- **On the first open the cascade paints blank and then fills**, because `initialValue` is
+  `undefined` until the fetch resolves and the dialog re-seeds during render. A brief blank is
+  the fetch; a blank that stays blank is the bug.
+- **The "Saved as a structured address" line appears only *after* that first open**, since it
+  renders on `savedAddress`, which is `undefined` while the hook is disabled. So **absence of the
+  line on an unopened form is not evidence that a row is legacy** — judge legacy only by whether
+  the picker comes back blank.
+
+**Saving here writes**, making it the second of sections B and C's two writes. Changing a field
+and saving appends a new `addresses` row and moves `locations.address_id` — the same
+append-and-repoint as step 6 — and takes `addr_total` from 4 to 5, so section D's counts stop
+matching. Close with **Discard** to keep this step read-only. A save that does land replaces the
+muted line with the green one:
+
+> Picked from the Philippine address cascade. Saving replaces this location's stored address.
 
 Note what this route carries: `GET /api/locations/[id]` gained `structured_address`, and it is
 the route the hotel base reads **through**, while gated on `settings: read` rather than the
@@ -251,9 +273,14 @@ both). It is a dependency, not a coincidence, and a test now pins it.
 
 ### 10. Hotel base — `/settings/general`
 
-Same expectation as step 9, sourced from `settings.location_id`. This is the cross-resource
-read named above; if it breaks while the locations page works, the permission matrix moved,
-not the address code.
+Same expectation as step 9, sourced from `settings.location_id` — the same lazy first-open
+blank, the same deferred hint line, the same write if you save, and one differing phrase:
+
+> Picked from the Philippine address cascade. Saving replaces the hotel base address.
+
+Whether the hotel base is one of the three linked rows is not known without opening it; the
+first open tells you. This is the cross-resource read named above; if it breaks while the
+locations page works, the permission matrix moved, not the address code.
 
 ---
 
