@@ -15,13 +15,17 @@ import {
   maskEmailAddress,
   isEmailLike,
   formatCountdown,
+  formatLockWait,
+  parseOtpLock,
   sanitizeOtpInput,
 } from "./otp";
 import {
   OTP_CODE_DIGITS as SERVER_DIGITS,
   OTP_TTL_SECONDS as SERVER_TTL,
   OTP_RESEND_COOLDOWN_SECONDS as SERVER_COOLDOWN,
+  formatLockWait as serverFormatLockWait,
   maskEmailAddress as serverMask,
+  parseOtpLock as serverParseOtpLock,
 } from "../../src/lib/auth/otp-policy.js";
 
 describe("OTP contract mirrors", () => {
@@ -75,5 +79,24 @@ describe("sanitizeOtpInput", () => {
   it("keeps digits only, capped at the code length", () => {
     expect(sanitizeOtpInput("12a34b567890")).toBe("123456");
     expect(sanitizeOtpInput(null)).toBe("");
+  });
+});
+
+describe("OTP_LOCKED token mirrors", () => {
+  it("parses the same token the server sends, like the mask pins", () => {
+    expect(parseOtpLock("OTP_LOCKED:900")).toBe(900);
+    expect(parseOtpLock("OTP_LOCKED:900")).toBe(serverParseOtpLock("OTP_LOCKED:900"));
+    expect(parseOtpLock("MFA_INVALID")).toBeNull();
+    expect(parseOtpLock("MFA_INVALID")).toBe(serverParseOtpLock("MFA_INVALID"));
+    expect(parseOtpLock(null)).toBe(serverParseOtpLock(null));
+    expect(parseOtpLock("OTP_LOCKED:abc")).toBe(serverParseOtpLock("OTP_LOCKED:abc"));
+  });
+
+  it("formats the wait exactly like the server copy helper", () => {
+    for (const secs of [1, 45, 60, 420, 900]) {
+      expect(formatLockWait(secs)).toBe(serverFormatLockWait(secs));
+    }
+    expect(formatLockWait(420)).toBe("7 minutes");
+    expect(formatLockWait(45)).toBe("45 seconds");
   });
 });

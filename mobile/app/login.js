@@ -19,6 +19,7 @@ import { ClayCard, ClayButton, ClayInput } from "../components/clay";
 import { AuthHeader } from "../components/auth/AuthHeader";
 import { OtpVerificationView } from "../components/otp/OtpVerificationView";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
+import { formatLockWait, parseOtpLock } from "../lib/otp";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -54,6 +55,7 @@ export default function LoginScreen() {
       await signIn(username.trim(), password);
       await handlePostLogin();
     } catch (e) {
+      const lockSecs = parseOtpLock(e?.message);
       if (e.message === "MFA_REQUIRED") {
         // Valid credentials: the server has emailed a fresh 6-digit code.
         // The OTP step owns everything from here — no code field on this
@@ -65,6 +67,8 @@ export default function LoginScreen() {
         setError(
           "No verification code could be sent to this account. Contact your administrator."
         );
+      } else if (lockSecs !== null) {
+        setError(`Too many incorrect codes. Try again in ${formatLockWait(lockSecs)}.`);
       } else if (e.message === "MFA_UNAVAILABLE") {
         setError("Verification is temporarily unavailable. Please try again shortly.");
       } else {

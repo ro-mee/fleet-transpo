@@ -22,8 +22,10 @@ import {
   OTP_TTL_SECONDS,
   OTP_VERIFY_MIN_MS,
   formatCountdown,
+  formatLockWait,
   isEmailLike,
   maskEmailAddress,
+  parseOtpLock,
   sanitizeOtpInput,
 } from "../../lib/otp";
 
@@ -147,6 +149,8 @@ export function OtpVerificationView({
           fail("No verification code could be sent to this account. Contact your administrator.", {
             keepCode: true,
           });
+        } else if (parseOtpLock(message) !== null) {
+          fail(`Too many incorrect codes.\nTry again in ${formatLockWait(parseOtpLock(message))}.`);
         } else if (e?.status === 0 || /network|connection|offline/i.test(message)) {
           // Transport failures belong to the connectivity banner; keep the
           // code so retrying needs no retyping.
@@ -204,7 +208,11 @@ export function OtpVerificationView({
     } catch (e) {
       if (!mountedRef.current) return;
       const message = e?.message || "The code could not be resent. Please try again.";
-      if (/cooldown|too many|wait/i.test(message)) {
+      const lockSecs = parseOtpLock(message);
+      if (lockSecs !== null) {
+        setErrorMsg(`Too many incorrect codes. Try again in ${formatLockWait(lockSecs)}.`);
+        setPhase("error");
+      } else if (/cooldown|too many|wait/i.test(message)) {
         setErrorMsg("Please wait a moment before requesting a new code.");
         setPhase("error");
       } else if (e?.status === 0 || /network|connection|offline/i.test(message)) {
