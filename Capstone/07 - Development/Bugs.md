@@ -2939,9 +2939,30 @@ never observed, so both root causes remain code readings that the fixes are cons
 layer-2 question is answered in the fixed direction only: the map does not show a marker at
 (0, 0) now, and nobody watched it when it did.
 
-**Steps 1–4 and 9–11 of the runbook remain owed.** Step 1 writes — an employee, a driver and two
-append-only `addresses` rows in the live project — so it needs a deliberate decision, and until
-it runs, the migration's own claims are still verified only against doubles.
+### Browser pass — 2026-09-25, steps 9–11 — the other two surfaces, and the boundary
+
+Run by the operator the same day, against `/routes/locations` and `/settings/general`. Both share
+the picker component but **not** the driver surface's pin map — `showPinMap={false}` on both — so
+nothing from steps 7 and 8 applies on either.
+
+| Step | What was confirmed on screen |
+|---|---|
+| 9 | a linked location's picker re-opens pre-filled; the saved-address hint line appears **after** the first open, not before it |
+| 10 | the same on the hotel base — the surface that reads its detail through `GET /api/locations/[id]` while gated on `settings: read` |
+| 11 | a legacy row opens blank with its stored text and **no reason line** — the reachable case, and the one that has to stay silent |
+
+**This is the first pass with a machine-checkable trace.** Steps 9–11 are read-only, and
+`npm run probe:addresses` afterwards returned figures byte-identical to the baseline — 4
+`addresses` rows, 3 linked locations, 1 linked driver, 0 pins. "No address was saved" is therefore
+confirmed against the database rather than taken from the report. The screen-level rows above are
+still the operator's report, as with steps 5–8; the probe is the part that is independently
+checked.
+
+**Steps 1–4 remain owed**, and the same probe says why that is not a formality: `addr_total` is
+still 4 and `addr_with_pin` is 0, so no step-1 driver exists and **`chk_addresses_coords_pair`'s
+both-present branch has never run against production**. Step 1 writes — an employee, a driver and
+two append-only `addresses` rows in the live project — so it needs a deliberate decision, and
+until it runs the migration's own claims are still verified only against doubles.
 
 ## Resolved — 2026-09-25 — `PUT /api/drivers/59/account` returns 404 for a live driver — stale dev-server manifest, NOT a code defect
 

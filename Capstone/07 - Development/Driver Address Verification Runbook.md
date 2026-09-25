@@ -1,10 +1,13 @@
 # Driver Address Verification Runbook
 
-**Status: partly verified.** Steps 5–8 were run against the running app on 2026-09-25 and every
-one passed as expected — recorded in `Capstone/07 - Development/Bugs.md`. **Steps 1–4 and 9–11
-are still owed** — with the caveat that three of step 11's four states are unreachable with
-the data that exists, measured rather than assumed; see section D. The automated layer is green.
-Before that pass nothing here had been exercised
+**Status: partly verified.** Steps 5–11 were run against the running app on 2026-09-25 and every
+one passed as expected — recorded in `Capstone/07 - Development/Bugs.md`. **Steps 1–4 are still
+owed**, and they are the ones that write. The 9–11 pass is the only one with a machine-checkable
+trace: all three are read-only, and `npm run probe:addresses` afterwards returned figures
+identical to the baseline, so "no address was saved" is confirmed against the database rather
+than reported. Step 11 carries a caveat measured rather than assumed — three of its four states
+are unreachable with the data that exists; see section D. The automated layer is green.
+Before these passes nothing here had been exercised
 in a browser since the 2026-09-24 attempt failed at step 1 and produced the fix in Bugs.md,
 "Address B must never be submitted with Latitude A".
 
