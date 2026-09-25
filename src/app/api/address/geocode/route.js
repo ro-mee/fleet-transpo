@@ -7,14 +7,26 @@
 // actually is. The response's coordinates, components and postal code are the
 // provider's, never the caller's.
 //
-// The client cannot forge this. Posting `verified: true` and a coordinate pair
-// straight to a write endpoint accomplishes nothing, because the write paths
-// re-resolve the place id through `resolveAddress()` and ignore whatever the
-// request claimed (see src/lib/address/validate.js).
+// The client cannot forge this — but not for the reason this comment used to
+// give. It claimed the write paths re-resolve the place id through
+// `resolveAddress()`. Nothing imports that function except its own test, so no
+// write path calls it, and the claim was false.
+//
+// The real mechanism is structural. A write path accepts a picked
+// `structured_address`, derives the region, province and city itself from
+// `psgc_barangay_code`, and writes the row with `provider = 'manual'`,
+// `verified = false` and `providerPlaceId: null` — see
+// src/lib/address/validate-structured.js. It has no parameter for a place id and
+// none for a `verified` flag, so there is no request shape in which this
+// response, or a client's imitation of it, could be stored as verified.
+//
+// The one coordinate a client DOES supply is the operator's pin, and it is
+// stored as exactly what it is: an unverified manual claim about where a door
+// is. The boundary is enforced on the write, not on this read.
 //
 // Coordinates ARE returned here, unlike from /search: the map preview needs
-// them. That is not a weakening — the server's refusal to trust them is what
-// makes them safe to hand over.
+// them. That is not a weakening — the write path's refusal to accept a
+// `verified` flag is what makes them safe to hand over.
 
 import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { addressGeocoder } from "@/lib/address/provider";

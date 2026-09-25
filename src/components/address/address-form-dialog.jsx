@@ -37,10 +37,12 @@ import {
 } from "@/components/ui/dialog";
 import { FloatingShell } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import {
   EMPTY_STRUCTURED_ADDRESS,
   editDetail,
+  isSameStructuredAddress,
   requiredDetailFields,
   structuredErrors,
 } from "@/lib/address/structured";
@@ -139,6 +141,34 @@ export function AddressFormDialog({
   const [value, setValue] = useState(initialValue ?? EMPTY_STRUCTURED_ADDRESS);
   const [touched, setTouched] = useState(false);
 
+  /**
+   * Whether the form is holding a real pin right now.
+   *
+   * Null-ness is the entire question. `value` is only ever written by the pin map
+   * (which rounds to six decimals) or seeded from the blank address, so there is
+   * no malformed pair to guard against here — bounds and finiteness are the map's
+   * own business. Spelled out as two comparisons rather than a numeric test
+   * because `Number(null)` is `0`, which is finite and in bounds; a numeric test
+   * would call the ABSENCE of a pin a pin at (0, 0).
+   */
+  const hasPin = value.latitude != null && value.longitude != null;
+
+  /**
+   * Set when an edit cleared the pin the operator placed.
+   *
+   * `editDetail` drops the pin on any detail change and `selectLevel` drops it on
+   * any level change — the barangay included. Both rules are required ("Address B
+   * must never be submitted with Latitude A") and both are tested. What is wrong
+   * is that they are SILENT: the pin step is deliberately last on a long form, so
+   * the map is far below whatever field was just edited and the operator is given
+   * no reason to look. This flag is what makes the rule's side effect visible.
+   *
+   * It is NOT set by the pin map's own "Clear pin" button. That is the operator
+   * asking for it, and warning someone about the thing they just requested is
+   * noise.
+   */
+  const [pinClearedByEdit, setPinClearedByEdit] = useState(false);
+
   // Re-seed when the dialog opens, and when an async-loaded `initialValue`
   // arrives for it. Adjusted DURING RENDER rather than in an effect: an effect
   // would paint one frame of the previous address before correcting itself,
@@ -151,7 +181,60 @@ export function AddressFormDialog({
     if (open || lastInitial !== initialValue) {
       setValue(initialValue ?? EMPTY_STRUCTURED_ADDRESS);
       setTouched(false);
+      // A fresh form starts with a fresh answer: the notice belongs to the pin
+      // this session dropped, not to whatever was on screen a moment ago.
+      setPinClearedByEdit(false);
     }
+  }
+
+  const [confirmDiscard, confirmDiscardDialog] = useConfirm();
+
+  /**
+   * Ask before a close that would throw away work.
+   *
+   * Every close path funnels through here — the Cancel button, Escape, the
+   * backdrop, and the header's X, which Radix reports alike as
+   * `onOpenChange(false)` — so the question is asked in one place and no path
+   * quietly skips it. Submitting does NOT come through here: the picker closes
+   * the dialog in its own `onSubmit`, after handing the value up, so a successful
+   * save never prompts.
+   *
+   * This is the gap that lost a picked emergency-contact address on 2026-09-25.
+   * The form already protected a FAILED submit — the value is deliberately not
+   * cleared when the server refuses, so the operator's input survives the round
+   * trip — but closing the dialog, the far more common exit, discarded
+   * everything and said nothing.
+   *
+   * The pin lost in the same report was NOT this: its address reached the server
+   * with its house number and no coordinates, so that dialog was submitted. See
+   * `pinClearedByEdit` below.
+   */
+  async function requestClose() {
+    // A submit in flight owns the dialog; closing would strand its result.
+    if (saving) return;
+
+    if (isSameStructuredAddress(value, initialValue)) {
+      onOpenChange?.(false);
+      return;
+    }
+
+    const discard = await confirmDiscard({
+      title: "Discard this address?",
+      message:
+        "This address form has unsaved changes. Closing now discards them — the address already on the record is not affected.",
+      confirmLabel: "Discard",
+      cancelLabel: "Keep editing",
+      variant: "warning",
+    });
+    if (discard) onOpenChange?.(false);
+  }
+
+  function handleOpenChange(next) {
+    if (next) {
+      onOpenChange?.(true);
+      return;
+    }
+    void requestClose();
   }
 
   // Shared with the cascade through the react-query cache — one request, one
@@ -198,6 +281,10 @@ export function AddressFormDialog({
   /** The one route an address detail takes into state — and the pin's death. */
   function setField(field, next) {
     setTouched(true);
+    // Read from the value being edited, before the edit lands: this is the moment
+    // the pin is about to be taken, and the notice has to be raised even though
+    // nothing about the pin appears in the edit itself.
+    if (hasPin) setPinClearedByEdit(true);
     setValue((previous) => editDetail(previous, field, next));
   }
 
@@ -215,6 +302,10 @@ export function AddressFormDialog({
 
   function handleGeography(next) {
     setTouched(true);
+    // Same rule, same silence: `selectLevel` → `clearBelow` takes the pin with
+    // every level change, the deepest one included — re-picking the barangay
+    // alone is enough to lose it.
+    if (hasPin) setPinClearedByEdit(true);
     setValue(next);
   }
 
@@ -231,7 +322,7 @@ export function AddressFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-3xl w-[95vw]">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -369,12 +460,42 @@ export function AddressFormDialog({
           {showPinMap && (
             <div className="space-y-2.5">
               <SectionLabel>Map pin</SectionLabel>
+
+              {/* Why the pin the operator just placed is not there any more.
+                  It sits with the map rather than beside the field that caused
+                  it, because the field is unknowable here — any of the nine
+                  details, or any level of the cascade, could be the one. Said
+                  plainly rather than apologised for: the rule is right, and the
+                  operator needs to know it exists before they lose a pin to it
+                  a second time. */}
+              {pinClearedByEdit && !hasPin && (
+                <div
+                  role="status"
+                  className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-bg/50 p-3"
+                >
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                  <div className="min-w-0 text-xs leading-relaxed text-foreground-secondary">
+                    <p className="font-bold text-foreground">Your pin was cleared.</p>
+                    <p className="mt-0.5">
+                      Editing the address after placing a pin drops it — a pin for the
+                      old address is not a pin for the new one. Save without one, or
+                      click the map again to put it back.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <AddressPinMap
                 latitude={value.latitude}
                 longitude={value.longitude}
-                onChange={({ latitude, longitude }) =>
-                  setValue((previous) => ({ ...previous, latitude, longitude }))
-                }
+                onChange={({ latitude, longitude }) => {
+                  // Placing a pin answers the notice. The map's own "Clear pin"
+                  // button arrives the same way and clears it too — which is
+                  // correct, since both mean the operator and the pin have
+                  // reached an understanding.
+                  setPinClearedByEdit(false);
+                  setValue((previous) => ({ ...previous, latitude, longitude }));
+                }}
               />
             </div>
           )}
@@ -415,7 +536,7 @@ export function AddressFormDialog({
               type="button"
               variant="outline"
               disabled={saving}
-              onClick={() => onOpenChange?.(false)}
+              onClick={requestClose}
             >
               Cancel
             </Button>
@@ -425,6 +546,13 @@ export function AddressFormDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* The discard confirmation, rendered as a sibling of `DialogContent`
+          rather than inside it. Both portal to `document.body`, so this is not
+          about where it lands in the DOM — it is so the prompt is never inside
+          the address `<form>`, where its buttons would sit in a form they have
+          nothing to do with. */}
+      {confirmDiscardDialog}
     </Dialog>
   );
 }

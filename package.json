@@ -13,6 +13,7 @@
     "verify:auth": "node scripts/verify-route-auth.mjs",
     "verify:anon": "node scripts/verify-anon-access.mjs",
     "verify:rls": "node scripts/verify-rls.mjs",
+    "verify:driver-addresses": "node scripts/verify-driver-addresses.mjs",
     "db:contract": "node scripts/verify-db-contract.mjs",
     "db:check": "node scripts/migrate.mjs check",
     "db:status": "node scripts/migrate.mjs status",

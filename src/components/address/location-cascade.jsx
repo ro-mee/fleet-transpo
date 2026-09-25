@@ -136,7 +136,9 @@ export function LocationCascade({ value, onChange, errors = {}, disabled = false
   }
 
   function handleBarangay(code, option) {
-    onChange(selectLevel(value, "barangay", { barangayCode: code, barangayName: option.name }));
+    onChange(
+      selectLevel(value, "barangay", { psgcBarangayCode: code, barangayName: option.name })
+    );
   }
 
   const provinceSkipped = Boolean(value.regionCode) && provincesLoaded && !requiresProvince;
@@ -208,7 +210,7 @@ export function LocationCascade({ value, onChange, errors = {}, disabled = false
         icon={Building}
         required
         disabled={disabled || !value.cityCode}
-        value={value.barangayCode}
+        value={value.psgcBarangayCode}
         valueLabel={value.barangayName}
         onChange={handleBarangay}
         options={barangaysQuery.data ?? []}

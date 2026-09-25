@@ -44,6 +44,14 @@ import { POST } from "./route";
 import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
 import { saveAddress } from "@/services/address.service";
+// The FORM's constructors, imported so the last describe can build the body the
+// browser actually sends rather than one written in the server's vocabulary.
+import {
+  CASCADE_LEVEL_KEYS,
+  EMPTY_STRUCTURED_ADDRESS,
+  editDetail,
+  selectLevel,
+} from "@/lib/address/structured";
 
 /** A resolved chain, shaped exactly like `resolveBarangayChain`'s return. */
 const SANTA_ROSA = {
@@ -404,5 +412,88 @@ describe("POST /api/drivers — an address failure fails the create", () => {
     expect(txCalls).toEqual([]);
     expect(supabaseWrites).toEqual([]);
     expect(saveAddress).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The payload the address form really submits
+// ---------------------------------------------------------------------------
+
+/**
+ * Every pick above is written by hand in the SERVER's vocabulary. That is the
+ * right default for testing what the route does with a valid request — and it is
+ * exactly why the route shipped accepting a body no browser sends.
+ *
+ * Until 2026-09-24 the cascade built its value with `selectLevel`, which wrote
+ * `barangayCode`, while `normalizeStructuredInput` read `psgcBarangayCode`. Both
+ * sides were tested against themselves, so both were green: creating a driver in
+ * the browser returned 400 "Select a barangay." with a barangay selected, and no
+ * test anywhere noticed. The fix renamed the form's key.
+ *
+ * This one starts from `EMPTY_STRUCTURED_ADDRESS` and `selectLevel` — the form's
+ * own constructors — so the body under test is the body the page builds. It is
+ * deliberately not "a test for the driver route": it is the crossing check that
+ * the two halves of the contract agree, and it is the reason a future rename on
+ * either side fails here instead of in an operator's face.
+ */
+describe("POST /api/drivers — the payload the address form actually builds", () => {
+  /** A value built the way `AddressFormDialog` builds one, via the real helpers. */
+  function formValue({ streetRoad, postalCode }) {
+    // From the form's own declaration of the key, not a hardcoded string, so this
+    // follows the rename rather than pinning a name that could go dead again.
+    const [codeKey] = CASCADE_LEVEL_KEYS.barangay;
+
+    let value = EMPTY_STRUCTURED_ADDRESS;
+    value = selectLevel(value, "region", {
+      regionCode: SANTA_ROSA.region.code,
+      regionName: SANTA_ROSA.region.name,
+    });
+    value = selectLevel(value, "province", {
+      provinceCode: SANTA_ROSA.province.code,
+      provinceName: SANTA_ROSA.province.name,
+    });
+    value = selectLevel(value, "city", {
+      cityCode: SANTA_ROSA.city.code,
+      cityName: SANTA_ROSA.city.name,
+      cityHasNoProvince: false,
+    });
+    value = selectLevel(value, "barangay", {
+      [codeKey]: SANTA_ROSA.barangay.code,
+      barangayName: SANTA_ROSA.barangay.name,
+    });
+    value = editDetail(value, "houseBuildingNumber", "8572");
+    value = editDetail(value, "streetRoad", streetRoad);
+    value = editDetail(value, "postalCode", postalCode);
+    return value;
+  }
+
+  it("accepts it, and records the barangay the operator picked", async () => {
+    saveAddress.mockResolvedValue(RESIDENTIAL_ID);
+    const { txCalls, state } = installDb();
+
+    const res = await POST(
+      request(
+        baseBody({
+          structured_address: formValue({
+            streetRoad: RESIDENTIAL_STREET,
+            postalCode: "4026",
+          }),
+        })
+      )
+    );
+
+    expect(res.status).toBe(201);
+    expect(state.committed).toBe(true);
+    expect(saveAddress).toHaveBeenCalledTimes(1);
+
+    // Not just "it saved": the code the operator picked is the one that reached
+    // `saveAddress`. A server that defaulted past a key it failed to read would
+    // still return a 201 with the geography half-empty.
+    const [saved] = saveAddress.mock.calls[0];
+    expect(saved.psgcBarangayCode).toBe(SANTA_ROSA.barangay.code);
+    expect(saved.components.barangay).toBe("Balibago");
+
+    const { columns } = columnsOf(findInsert(txCalls, "drivers"));
+    expect(columns.address_id).toBe(RESIDENTIAL_ID);
   });
 });

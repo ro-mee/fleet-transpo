@@ -6,19 +6,36 @@
 // wraps it in `{ results: [...] }` with `position` on the result; reverse wraps
 // it in `{ addresses: [{ address, position }] }`.
 //
-// PHILIPPINE COMPONENT MAPPING IS AN ASSUMPTION, NOT A GUARANTEE.
-// The names below are TomTom's global vocabulary, and which field carries the
-// barangay for a Philippine address was NOT verified against live data when this
-// was written. `PH_COMPONENT_MAP` is therefore a single, reviewable table rather
-// than field-by-field logic scattered through the function, so correcting it
-// after the live check is a one-line edit. Two rules hold regardless of what
-// that check finds:
+// PHILIPPINE COMPONENT MAPPING WAS CHECKED AGAINST LIVE DATA, AND THE BARANGAY
+// MAPPING FAILED. On 2026-09-25 four real reverse-geocode payloads were obtained
+// for Philippine points, and TomTom's `municipalitySubdivision` turned out to
+// carry the DISTRICT, not the barangay. Caloocan is the proof: it returns
+// "Maypajo" while the provider's own `freeformAddress` for the same point reads
+// "Tamban Street, Maypajo, Barangay 28, Caloocan City…" — it names the district
+// and the barangay separately, and the structured field holds the district.
+//
+// The failure is INCONSISTENT, which is worse than a uniformly wrong field: two
+// of the four (Cebu City's "Guadalupe", Quezon City's "Balara") happen to be real
+// barangays, and one (Davao's "Calinan") is another district. Nothing downstream
+// can tell a correct mapping from a mislabel, so the field is not mapped at all
+// rather than being mapped and hoped for.
+//
+// `barangay` is therefore ABSENT from the table, the freeform is NOT parsed for
+// it — that would be the same fuzzy inference this design refuses, and three of
+// the four payloads never spell the barangay out at all — and the authoritative
+// source for a Philippine barangay stays the PSGC cascade, which derives it from
+// a code the operator chose rather than a string a provider sent.
+//
+// `PH_COMPONENT_MAP` remains a single, reviewable table so a future correction is
+// a one-line edit. Three rules hold regardless:
 //
 //   1. A component the provider did not supply stays null. We never infer a
 //      barangay from a postal code, a city from a province, or anything else.
 //   2. `formattedAddress` is authoritative for display even when every
 //      structured component is null, so an unmapped address still renders
 //      correctly rather than degrading to an empty panel.
+//   3. A provider string reaches `components` only when its meaning was measured.
+//      `municipalitySubdivision` is the field that failed that test.
 
 import { normalizePostalCode } from "./postal";
 
@@ -27,20 +44,44 @@ export const PROVIDER_TOMTOM = "tomtom";
 /**
  * TomTom address field -> our component key.
  *
- * `province` deliberately reads `countrySecondarySubdivision` first and falls
- * back to `countrySubdivisionName`: for Metro Manila, TomTom reports the
- * province level as "Metro Manila" and there is no separate region, while for
- * provincial addresses the two differ (e.g. "Cebu" vs "Central Visayas").
- * `region` takes whatever is left.
+ * `barangay` is deliberately ABSENT. See the header: `municipalitySubdivision`
+ * was measured to carry the district — sometimes, inconsistently — and the
+ * freeform is not parsed for the barangay either. The authoritative barangay is
+ * a chosen PSGC code, never a provider string.
+ *
+ * `province` reads `countrySecondarySubdivision`, which is a real province for a
+ * provincial address ("Cebu", "Davao del Sur") but a REGION for Metro Manila
+ * ("Metro Manila"). That one is corrected in `parseComponents`, not here, because
+ * the correction depends on which region the address is in.
+ *
+ * `region` takes `countrySubdivisionName` — also measured: "Central Visayas",
+ * "Davao Region", "National Capital Region", all correct.
  */
 export const PH_COMPONENT_MAP = Object.freeze({
   houseNumber: "streetNumber",
   street: "streetName",
-  barangay: "municipalitySubdivision",
   city: "municipality",
   province: "countrySecondarySubdivision",
   region: "countrySubdivisionName",
 });
+
+/**
+ * The regions that have no province level, so a secondary-subdivision value for
+ * them is the region's own name repeated rather than a province.
+ *
+ * The Philippine Standard Geographic Code gives the National Capital Region no
+ * provinces, and TomTom reports "Metro Manila" at the province level for it while
+ * also reporting "National Capital Region" at the region level — the same region
+ * under two names, one of which would land in `province`. NCR is the only region
+ * in the country without provinces, so this set is exhaustive and closed: it is a
+ * recorded geographic fact, not a name heuristic, and it is the narrow exception
+ * to "map what the provider sent".
+ *
+ * Both spellings are listed because the provider uses both — `Metro Manila` at
+ * the province level, `National Capital Region` at the region level — and either
+ * one appearing at either level means the address is in NCR.
+ */
+const REGIONS_WITHOUT_PROVINCES = new Set(["Metro Manila", "National Capital Region"]);
 
 /** Trim a provider string, collapsing whitespace. Blank -> null, never "". */
 function text(value) {
@@ -105,7 +146,8 @@ export function emptyAddressValue(raw = "") {
  * Only mapped fields are read. `unitNumber`, `building` and `subdivision` have
  * no TomTom counterpart — a geocoder cannot know which floor of a building a
  * person lives on — so they stay null rather than being guessed at from the
- * freeform string.
+ * freeform string. `barangay` is null for the reason in the header: the field
+ * that would fill it was measured to hold the district.
  *
  * @param {object|null} address  TomTom `address`
  * @returns {object}             the component set
@@ -116,9 +158,23 @@ export function parseComponents(address) {
   for (const [key, providerField] of Object.entries(PH_COMPONENT_MAP)) {
     components[key] = text(address[providerField]);
   }
-  // Metro Manila reports no separate region, so the province value doubles as
-  // the region. This is a copy of a value the provider DID supply, not an
-  // inference — and it is only filled when the provider gave us no region.
+  // Metro Manila has no province, so the value TomTom reports at that level is
+  // the region's own name. Null it. This has to run BEFORE the fallback below:
+  // otherwise the fallback would copy the value straight back out of `province`
+  // and into `region`, which is where it came from in the first place.
+  //
+  // Either spelling is enough to identify NCR, so this reads both fields — a
+  // payload carrying only the region name is still recognised.
+  if (
+    REGIONS_WITHOUT_PROVINCES.has(components.province) ||
+    REGIONS_WITHOUT_PROVINCES.has(components.region)
+  ) {
+    components.province = null;
+  }
+  // A region the provider did not report is filled from a province it DID
+  // report. That is a copy of a supplied value, not an inference — and it is why
+  // the NCR correction above matters: for NCR there is no province left to copy,
+  // so both stay null rather than one being invented from a region.
   if (!components.region && components.province) components.region = components.province;
   components.country = text(address.country) || text(address.countryCode) || null;
   return components;
@@ -191,6 +247,12 @@ export function parseSearchResponse(payload) {
       if (!label || !result?.id) return null;
       // The secondary line names the locality, which is what disambiguates two
       // branches of the same street in different cities.
+      //
+      // This reads `municipalitySubdivision` — the field `parseComponents` just
+      // refused to map to `barangay` — and that is not an inconsistency. A
+      // district is a perfectly good answer to "where is this, roughly" and a
+      // bad answer to "which barangay is this", so the same field serves here and
+      // fails there. This string is never stored and never becomes a component.
       const secondary =
         text(address?.municipalitySubdivision) ||
         text(address?.municipality) ||

@@ -37,6 +37,24 @@ The leaked database password was **rotated on
 
 ### Severity 2 — correctness hazards
 
+- **The address form discards work silently — both halves now fixed, browser
+  checks owed.** Reported 2026-09-25 as a picked emergency-contact address and a
+  dropped residential pin both vanishing. The `addresses` table split the report in
+  two: the emergency row was never written (client-side loss), while the residential
+  row **did** arrive with its house number and no coordinates — so its pin was lost
+  *before* the submit. **Half 1**, closing the dialog with Cancel / Escape /
+  backdrop losing the whole form, is fixed by a confirm-before-discard. **Half 2**
+  was two layers: the anti-stale rule clearing a dropped pin on any later edit went
+  unannounced, and — the real reason nobody noticed — `address-pin-map.jsx` computed
+  `hasPin` from `Number(null)`, which is `0`, so the map showed a marker and "Pin at
+  0.00000, 0.00000" for a form that had no pin at all. Both fixed. Nothing
+  reproduced at a browser. See the dated section below.
+- ~~**`PUT /api/drivers/59/account` returned 404 for a live driver.**~~ **CLOSED
+  2026-09-25 — never a code defect.** The `curl` returned Next's own HTML not-found
+  page, and the route is present in `.next/server/` (the production build) while
+  being entirely absent from `.next/dev/server/` (the running dev server). The dev
+  server had simply never registered a route directory added while it was up.
+  Restarting it fixes the request; no source changed. → the dated section below.
 - ~~**The copilot had no deterministic scope boundary.**~~ **CLOSED
   2026-09-18.** `classifyCopilotScope()` in
   `src/lib/dispatch/copilot-intents.js` now routes courtesy, out-of-scope and
@@ -253,6 +271,27 @@ The leaked database password was **rotated on
   or remove `EMAIL` from `NOTIFICATION_CHANNELS` and the toggle from the page.
   Note the asymmetry this creates, which is worth resolving one way or the
   other: the toggle is honest on exactly one row of twelve.
+
+### Severity 3 — usability
+
+- **The pin map does not follow the address you entered — 2026-09-25.
+  PARTIALLY ADDRESSED.** Reported as *"the pin and the address input was not synced…
+  i still had to manually find my geographic location at the map."* Nothing is lost
+  here — the form works as designed, and the design leaves the operator to find their
+  own street. It cannot be fixed from local data: the `ph_*` tables carry no
+  coordinates (`schema.sql:742-778`), and it cannot be fixed by the provider either,
+  because **every forward-geocoding endpoint answers `403`** while only reverse
+  geocoding answers `200` — the wrong direction (`Migrations.md:583-591` says
+  "Routing only", which the 2026-09-25 measurement corrected). That is also why the
+  `barangay` mapping in `parse.js` sat unverified for so long — it has since been
+  measured and **removed**, and the `address-validator` UI that would have used it is
+  mounted by nothing (`SYSTEM.md:1113`). See the 2026-09-25 dated section below for
+  the measurement and the fix. **Done:** the wheel is now available behind one click
+  (`WheelZoom` in `address-pin-map.jsx`), which removes the ten `+` presses from
+  country zoom to street level. **Not done:** the map still does not open on the
+  address. See the dated section below for the remaining options (C needs the Search
+  API enabled on the key, D needs an external gazetteer) and the invariant that holds
+  across all of them.
 
 ### Not yet filed as individual notes
 
@@ -2625,3 +2664,498 @@ still refused.
 returns `error.status` before falling through, so its auth rejections already
 carry the correct status. It differs from `handleError` only in dropping `code`
 and in log level. Left as is — an inconsistency, not a bug of this class.
+
+## Fixed — 2026-09-24 — every address cascade returned "Select a barangay." with a barangay selected — Severity 2
+
+**Found by the manual pass, which is exactly what it was for.** Reported as: the
+driver create form shows red text reading "Select a barangay." after a barangay
+was picked, and `POST /api/drivers` answers **400** — nine times in the console,
+once per attempt.
+
+### The finding
+
+The cascading address form and the server that validates its output disagreed
+about the name of one field.
+
+| | key |
+|---|---|
+| The form's value, written by `selectLevel` | `barangayCode` |
+| `normalizeStructuredInput` read | **`psgcBarangayCode`** |
+
+Nothing on the client ever wrote `psgcBarangayCode`. The only producer in the
+whole repo was `buildStructuredInput`
+(`scripts/lib/location-address-backfill.mjs:97`) — **script-side**. So the
+request body carried no key the server read, `value.psgcBarangayCode` came out
+`null`, and `validate-structured.js:150` returned
+`{ error: "Select a barangay." }` — a 400 **before any write**. Failing closed,
+which is why no bad data exists.
+
+### Why every gate was green
+
+This is the part worth keeping. Each half was tested **against itself**:
+
+- `validate-structured.test.js`, `picked.test.js` and both route test files build
+  their request bodies with the **server's** key, `psgcBarangayCode`.
+- `structured.test.js` builds values with the **form's** key, `barangayCode`.
+
+Neither side ever handed the other its payload, so the mismatch was invisible to
+all of them. `npm run build` cannot see a runtime key name, and `npm test` was
+green throughout. The one shape that actually ships — the one a browser produces
+— was never exercised against the route.
+
+### Scope: four surfaces, not one
+
+`normalizeStructuredInput` is the single coercion every picked address passes
+through, so this was not driver-specific:
+
+- `/drivers/new` and `/drivers/[id]/edit` (both address fields)
+- `/routes/locations` — the canonical-location dialog
+- `/settings/general` — the hotel base
+
+**All four were unusable.** That also explains how it hid: addresses rows 1–3 are
+real cascade-shaped rows, but they were written by the backfill **script**, which
+does the mapping. The table looked like proof the path worked.
+
+**This makes the "four surfaces write to this table" claim in [[addresses]]
+false for the period between the cascade migration and this fix**, and it means
+every note written about the cascade UI in that window described a path that
+could not complete.
+
+### The fix
+
+The form's key was renamed to the server's, so there is one name end to end and
+no mapping layer at all:
+
+- `structured.js` — `EMPTY_STRUCTURED_ADDRESS.psgcBarangayCode`, and
+  `missingLevels` reads it.
+- `structured.js` — new `CASCADE_LEVEL_KEYS`, because `clearBelow` derived its
+  keys by concatenation (`${level}Code`) and the barangay level breaks that
+  pattern. Left derived, a rename would have cleared a `barangayCode` nothing
+  writes and left the real code standing when the city above it changed — the
+  stale-address failure `clearBelow` exists to prevent.
+- `validate-structured.js:182` — the `derived` block's geography, which spreads
+  `...value` and overwrites, now names the same key.
+- `location-cascade.jsx` (selection + select value) and `address-preview.jsx`
+  (its `hasGeography` probe).
+- `structured.test.js` — the value-shape assertions.
+
+**Not changed, deliberately:** `barangayCode` survives as a *function parameter*
+name in `psgc.js` and `geography.service.js` (it is a barangay code, and it never
+crosses a wire), and as the backfill script's own target vocabulary, whose
+`buildStructuredInput` already emitted the server's key.
+
+### What now catches this class
+
+Two tests that **cross the boundary**, in both directions, because that is the
+thing that was missing:
+
+1. `drivers/route.test.js` — "the payload the address form actually builds".
+   Constructs the body from `EMPTY_STRUCTURED_ADDRESS` + `selectLevel` and posts
+   it through POST, asserting 201 **and** that the picked code reached
+   `saveAddress`. A server that defaulted past a key it failed to read would
+   still have returned 201.
+2. `validate-structured.test.js` — "the form's value and the server's input
+   agree". Drives the form's constructors into `resolveStructuredAddress`, reads
+   the key from `CASCADE_LEVEL_KEYS` rather than a hardcoded string so it follows
+   a rename, and asserts that the *other* name (`barangayCode`) is **not**
+   accepted — so the tempting one-line "accept both" cannot silently return.
+
+### Status
+
+**Tests pass; the browser has not been retried.** The four suites touching this
+path — `structured.test.js`, `validate-structured.test.js`, `drivers/route.test.js`
+and `drivers/[id]/route.test.js` — ran green at **99 passed / 4 files** on
+2026-09-24, which is what the crossing tests are for: the route test builds its
+body from the form's own constructors and would have returned 400 before the
+rename, and `validate-structured.test.js` asserts that the **old** shape
+(`barangayCode`) is still not read, so the pre-fix behaviour is covered in the
+suite rather than described in a comment.
+
+That closes the class at the unit boundary. It does **not** close this entry:
+no driver has yet been created through the browser, so nothing here shows a real
+`POST` from a real form reaching Postgres. The manual pass resumes at step 1 of
+the runbook, and `scripts/verify-driver-addresses.mjs` reads the result. Until
+that has run, the fix is verified against doubles and not against the app.
+
+## Open — 2026-09-25 — two ways the address form discards work without saying so — Severity 2
+
+**Reported as one loss, and it is two.** The operator created a driver, picked an
+emergency-contact address through the cascade, and dropped a pin on the
+residential address. Both were gone afterwards. Asked directly, they confirmed
+**both** actions happened — the pick and the pin were not imagined.
+
+### What the database settled, and what it split
+
+`addresses` held exactly **four** rows. Rows 1–3 are the backfilled operational
+locations from the 2026-09-24 migration; row 4 is the driver's residential. So:
+
+| Half | Evidence | What it means |
+|---|---|---|
+| The emergency pick | no emergency registry row; `drivers.emergency_contact_address_id` and `drivers.emergency_contact_address` both NULL | never reached the server at all — lost client-side |
+| The residential pin | row 4 exists, with `psgc_barangay_code` set and a house number, but `latitude`/`longitude` **NULL** | the address **did** reach the server, so the dialog **was** submitted — the pin was lost *before* the submit, not by closing |
+
+That second row is what makes this two defects rather than one. They share a
+symptom (work disappears with no explanation) and share nothing else: different
+mechanism, different code path, and the first is fixed while the second is not.
+
+### Half 1 — closing the dialog discards everything, silently. FIXED 2026-09-25, browser check owed
+
+`address-picker-field.jsx:126` — `onSubmit` is the **only** path that calls
+`onChange`. `onOpenChange={setOpen}` at `:115` closes the dialog without handing
+anything up. So "Use this address" saves; **Cancel, Escape, the backdrop and the
+header's X all discard** the cascade selection, the street detail and the pin, and
+say nothing.
+
+The asymmetry is what makes it a defect rather than a design choice: the form goes
+out of its way to preserve the operator's input after a **failed** save
+(`address-form-dialog.jsx:23-25`, `:276-277` — nothing clears `value` on error),
+but the ordinary exit discards it. A failed submit is the rare path; a close is the
+common one.
+
+**Fix:** `isSameStructuredAddress` (`structured.js`) compares the working value
+against the seed field for field, and `requestClose` funnels every close path
+through one confirm. Submitting does not pass through it — the picker closes the
+dialog in its own `onSubmit`, after handing the value up — so a successful save
+never prompts. A submit in flight refuses the close rather than stranding its
+result.
+
+### Half 2 — the pin map could not show an empty pin, so a cleared one looked set. FIXED 2026-09-25
+
+The stored row is the proof that this is not the same bug: the residential address
+**arrived**, so the dialog was submitted, so no close discarded it. Only the
+coordinates are missing — the pin went before the submit.
+
+Two documented rules clear it, and both are asserted by tests:
+
+- `editDetail` (`structured.js`) nulls `latitude`/`longitude` on **any** address
+  detail edit — `structured.test.js:165`.
+- `selectLevel` → `clearBelow(level)` nulls them on **any** level selection,
+  the barangay included: `clearBelow("barangay")` is exactly
+  `["latitude", "longitude"]` — `structured.test.js:79`.
+
+Nothing else can clear it. `address-pin-map.jsx:98-109` writes only from an
+explicit map click or the explicit "Clear pin" button, never on mount, and
+`selectLevel` builds from the existing value so the street details survive.
+
+**The consequence: the pin survives only if it is the LAST action on the form.**
+Drop a pin, then fix a typo in the street, or re-select the barangay, and it is
+gone. The natural order — cascade, then details, then pin — is the only order that
+works, and that is not something an operator can be expected to know.
+
+The **rule stays**; it is required ("Address B must never be submitted with
+Latitude A") and the tests protect it. What was wrong was the invisibility, and it
+had two layers — the second of which is a bug found while writing the first fix.
+
+**Layer 1 — the absence of any notice.** The pin step is deliberately last on a
+long form, so whatever field was just edited is far above the map and the operator
+has no reason to look down. Nothing said the pin was dropped for their own
+protection. **Fixed:** a notice now appears beside the map when an edit clears a
+pin, distinguished from the explicit "Clear pin" button (which stays silent —
+warning someone about the thing they just asked for is noise). It is deliberately
+*not* raised by `setType`, because changing what an address is FOR does not move
+it, and that path keeps the pin.
+
+**Layer 2 — the map misreported an empty pin as a pin at (0, 0).**
+`address-pin-map.jsx` computed its own `hasPin` as
+
+```js
+const lat = Number(latitude);                       // Number(null) === 0
+const hasPin = Number.isFinite(lat) && ... Math.abs(lat) <= 90 ...;   // → true
+```
+
+`Number(null)` is `0`, which **is** finite and **is** within the bounds, so a form
+holding no pin at all computed `hasPin = true`. Every consequence followed from
+that one value, and each is visible:
+
+| Intended for an empty pin | What actually happened |
+|---|---|
+| `center={DEFAULT_CENTER}`, `zoom={COUNTRY_ZOOM}` | `[0, 0]` at zoom 16 — the Gulf of Guinea |
+| no marker | a `CircleMarker` at `(0, 0)` |
+| "Click the map to drop a pin." | "Pin at 0.00000, 0.00000. Click the map to move it." |
+| no "Clear pin" button | the button offered on an empty field |
+| `SyncView` re-centres when the pin leaves | never fired — `hasPin` never went false |
+
+`EMPTY_STRUCTURED_ADDRESS` stores `latitude: null`, so this was the state of every
+address form that had not been touched, on all four surfaces, since the pin step
+was added. The blank-address guard, `DEFAULT_CENTER`/`COUNTRY_ZOOM`, and
+`SyncView`'s whole reason for existing were all dead code.
+
+**This is the stronger explanation for the reported loss.** With the bug, the map
+did not merely fail to warn — after an edit cleared the pin it went on displaying a
+marker and the caption "Pin at 0.00000, 0.00000". So the operator's last look at the
+pin step said a pin was set. There was nothing to notice, because the control was
+lying rather than going quiet.
+
+**Fixed** by testing absence before either numeric check can mean anything:
+`latitude != null && longitude != null && Number.isFinite(lat) && ...`. Bounds and
+finiteness still guard a malformed pair; only the order changed. The fix restores
+the three dead paths to live ones.
+
+### Verification status — honest
+
+**Neither loss was reproduced in a browser, and none of these fixes has been
+exercised there.** The root causes are read off the code (the close path, the two
+clearing rules, the pin map's only writers, the `Number(null)` evaluation) together
+with one stored row.
+
+`structured.test.js` ran **59 passed / 1 file** on 2026-09-25, nine new and each
+named for the failure it guards — a changed detail, a moved pin, a changed type,
+and the false-prompt direction (`""`/`null`/missing compared as the same absence,
+`false` and `0` kept as values). ESLint is clean across the four changed files
+(`structured.js`, `structured.test.js`, `address-form-dialog.jsx`,
+`address-pin-map.jsx`).
+
+What that does **not** cover: the confirm's four close paths (Esc, Cancel, the
+backdrop, the X) and the map's behaviour when the pin leaves. **The `hasPin` fix
+has no automated coverage at all** — it lives in a Leaflet component the suite
+cannot render, which is precisely why a bug of this shape survived in it.
+
+**The layer-2 diagnosis is a code reading, not an observation.** `Number(null) === 0`
+is certain, and every consequence in the table follows from it deterministically —
+but nobody has yet confirmed on screen that the map showed a marker at (0, 0). That
+one look would settle whether this is the reported loss or an adjacent bug.
+
+## Resolved — 2026-09-25 — `PUT /api/drivers/59/account` returns 404 for a live driver — stale dev-server manifest, NOT a code defect
+
+**Reported as:** enabling driver login from the driver detail page fails, console
+reading `PUT http://localhost:3000/api/drivers/59/account 404 (Not Found)`, with a
+`[Fast Refresh] rebuilding / done in 228ms` immediately before it.
+
+**The route exists, and the handler was never the source.**
+
+- `src/app/api/drivers/[id]/account/route.js` exports `PUT(req, { params })` and
+  awaits `params` — the Next 16 shape.
+- Its only 404s are `:42` ("Driver not found") and `:56` ("Linked employee record
+  not found"). Neither is reachable for this id: a read-only query returned driver
+  **59** with `deleted_at = null` and employee **94** live with an email. The other
+  refusals are `:62` **403** (privileged target) and `:67` **409** (non-driver
+  role), so neither can produce the reported status.
+- Nor can the shared layer: `handleError` (`utils.js:310-341`) returns only
+  `AuthError.status` or 500 — it has **no 404 branch** — and `requirePermission`
+  throws 401/403 only.
+
+### The diagnostic, and what it answered
+
+```bash
+curl -s -w "\nHTTP %{http_code}\n" -X PUT http://localhost:3000/api/drivers/59/account \
+  -H "Content-Type: application/json" -d '{}'
+```
+
+It returned **HTTP 404 with Next's own HTML not-found page**, not a JSON body. That
+page carries the router's own account of the request:
+
+```
+"c": ["", "api", "drivers", "59", "account"]   ...   "children": ["/_not-found", ...]
+```
+
+The path *was* parsed and matched — and the app router still rendered the global
+not-found. So the response is Next refusing the request before any handler ran, and
+`apiFetch` (`src/lib/api/client.js:3-38`) surfaced it as the message "Not Found"
+because the body was not JSON.
+
+### The cause: the dev server has never registered the route
+
+The deciding evidence is on disk, in two build trees:
+
+| Tree | `.../drivers/[id]/account/route/...` present? |
+|---|---|
+| `.next/server/` (from `npm run build`) | **yes** — `route.js`, `app-paths-manifest.json`, `build-manifest.json`, `route.js.nft.json` |
+| `.next/dev/server/` (the running dev server) | **no — nothing at all** |
+| `.next/standalone/.next/server/` | yes |
+
+The dev tree *does* have its sibling `api/drivers/[id]/route/`, so the segment
+resolves; only the nested `account` child is absent from it. A route the production
+build compiles and registers cannot be a defect in the route — so the source is
+fine and the running dev server's manifest is simply missing a route directory that
+was added while it was up. Turbopack did not pick up the new nested dynamic route
+on its own; the `[Fast Refresh] rebuilding` line in the console was unrelated
+activity, and the 404 was not transient — it would have repeated indefinitely.
+
+**Resolution: restart the dev server.** No code change. The route and its tests were
+correct throughout.
+
+**What this cost, and the lesson:** the first instinct — "the handler must be
+returning 404" — was wrong, and proving that took reading two 404 branches,
+`handleError`, and `requirePermission`. The cheap check was the one run last. A
+request to a dev server that answers with an **HTML** 404 body is a routing
+problem, never a handler problem, and `apiFetch`'s fallback to `res.statusText`
+hides exactly that distinction — the console said "Not Found" where it could have
+said "not JSON, and the body is Next's not-found page".
+
+`app_errors` could never have answered this either way: a 404 from the handler comes
+from `err()`, which does not log, and a 404 from outside the handler never reaches
+`handleError`.
+
+## Open — 2026-09-25 — the pin map does not follow the address you entered — Severity 3 (usability), partially addressed
+
+Reported by the operator, verbatim: *"the pin and the address input was not synced.
+i still had to manually find my geographic location at the map after i input which
+doesnt go along with my goal."* This is not either of the two defects above — both
+of those lost data. Nothing is lost here. The form works exactly as designed; the
+design just leaves the operator to find their own street.
+
+### Why it cannot be fixed from local data (verified, not assumed)
+
+The cascade resolves Region → Province → City → Barangay entirely from the `ph_*`
+tables, and after a barangay is chosen there is **still no point to centre on**:
+
+| Table | Columns (`schema.sql`) |
+|---|---|
+| `ph_barangays` | `psgc_code`, `city_code`, `name`, timestamps (`:742-749`) |
+| `ph_cities` | `psgc_code`, `region_code`, `province_code`, `name`, `is_city`, timestamps (`:751-760`) |
+| `ph_provinces` / `ph_regions` | code, name, timestamps (`:762-778`) |
+
+Every `latitude`/`longitude` in the schema belongs to `addresses`, `locations`,
+`trips`, `drivers` (live + standby) or `gpstracking` — never to a geography table.
+And `scripts/lib/psgc-normalize.mjs:142-154` maps only `code` and `name` per level,
+so the import source carries no coordinates either. `address-pin-map.jsx`'s own
+comment stating "the PSGC tables carry no coordinates" is **correct**, and was
+re-verified against the live schema rather than taken on trust.
+
+### Why it cannot be fixed by the provider either — the forward direction is 403
+
+The one geocoder in the app is TomTom, through `src/lib/address/provider.js`. Its
+server key is **not** authorized for Routing only, which is what the earlier note
+said — that was inferred from two endpoints and is wrong. Measured 2026-09-25
+(status codes only, key never printed):
+
+| Endpoint | Direction | Status |
+|---|---|---|
+| `/routing/1/calculateRoute` | — | 200 |
+| `/search/2/reverseGeocode` | coordinates → address | **200** |
+| `/search/2/search` | address → coordinates | 403 |
+| `/search/2/geocode` | address → coordinates | 403 |
+| `/search/2/structuredGeocode` | address → coordinates | 403 |
+| `/search/2/place` | place id → address | 403 |
+
+Authorisation is therefore **per-endpoint, not per-product**: `/search/2/place` and
+`/search/2/reverseGeocode` both belong to TomTom's Search API, and one answers while
+the other refuses. **Every forward path is closed and the reverse one is open**,
+which is precisely the wrong way round for this defect — the operator knows the
+address and wants the point. Both calls fail open — `search()` returns `[]`,
+`geocode()` returns `null` — so `/api/address/search` answers an empty list forever
+and `/api/address/geocode` answers `502` forever.
+
+That is not merely a dead feature. **It is why the `barangay` mapping in
+`src/lib/address/parse.js` sat unverified for so long** — the Search API was assumed
+to be the only way to see a real payload. **That assumption was wrong, and the
+measurement has since been made through the door that was already open** (task #4,
+closed 2026-09-25 — see the next section). Reverse geocoding answers `200`, and four
+reverse payloads were enough to falsify the mapping: `municipalitySubdivision` carries
+the **district**. A 403 on every forward endpoint does not mean no payload can be
+inspected, only that the forward ones cannot.
+
+The corroborating detail: the UI built for that path is **mounted by nothing**.
+`SYSTEM.md:1113` — *"address-validator.jsx is the earlier geocode-combobox field, and
+nothing mounts it"* — confirmed by grep; the only references are comments in sibling
+files. Nothing regressed, because nothing was ever wired.
+
+### Task #4 closed — 2026-09-25: the mapping was measured, and it was wrong
+
+The four reverse payloads, and the fix they forced, are recorded in full in
+`Capstone/03 - Database/Tables/addresses.md` (the two `barangay` / `province` bullets
+under "Not yet true"). The short version:
+
+- `municipalitySubdivision` holds the **district**. Caloocan returns `Maypajo` while
+  TomTom's own freeform for the point reads *"…Maypajo, **Barangay 28**, Caloocan
+  City…"* — both names present, and the structured field holds the wrong one.
+- The failure is **inconsistent**: Cebu City's `Guadalupe` and Quezon City's `Balara`
+  are real barangays. Nothing downstream can tell a correct mapping from a mislabel.
+- **Fix: map nothing.** `barangay` is gone from `PH_COMPONENT_MAP`, the freeform is
+  not parsed for it, and the PSGC cascade remains the only source of a barangay.
+- The same payloads showed `countrySecondarySubdivision` = `Metro Manila`, a **region**
+  (NCR has no provinces), landing in `province`. Now nulled for NCR before the
+  province→region fallback can copy it back out.
+
+**This never reached a stored row.** `validate-structured.js:252` sets
+`providerPlaceId: null`, and every write path resolves a picked `structured_address`
+whose barangay comes from a PSGC code. The mapping was latent for its whole life.
+
+**The `geocode/route.js` comment was also false, and is corrected.** It claimed the
+write paths "re-resolve the place id through `resolveAddress()` and ignore whatever the
+request claimed". Nothing imports `resolveAddress` except its own test, so no write
+path calls it. The real mechanism is structural — a write path accepts a picked
+`structured_address`, derives region/province/city from `psgc_barangay_code`, and
+writes `provider = 'manual'`, `verified = false`, `providerPlaceId: null`. It has no
+parameter for a place id and none for a `verified` flag. The one coordinate a client
+does supply is the operator's pin, stored as the unverified manual claim it is. The
+old comment was true in conclusion and false in mechanism, which is the worse of the
+two — it would have sent a future reader to a function that does nothing.
+
+### What changed — 2026-09-25: the wheel is now available
+
+`scrollWheelZoom={false}` on the `MapContainer` is correct and stays the default: a
+wheel-capturing map inside a form swallows the page scroll. But with it, `+` was the
+only way in, and `COUNTRY_ZOOM` (6) to `PIN_ZOOM` (16) is **ten presses** before the
+operator is even at street level. That is most of what "manually find my geographic
+location" was.
+
+Added `WheelZoom` to `address-pin-map.jsx`: an "Enable wheel zoom" control in the
+header row that calls `map.scrollWheelZoom.enable()`. The wheel stays off until
+asked for, so the page still scrolls normally by default.
+
+**The obvious implementation was rejected for a reason worth keeping.** Enabling on
+focus and disabling on blur does not work here:
+
+- Clicking the map focuses it (`Keyboard._onMouseDown`, `leaflet-src.js:14009`) *and*
+  places the pin (`ClickToPlace`) — so the activating click would drop a pin on
+  whatever sat under the cursor at country zoom. A pin nobody chose, which is the
+  precise thing this component exists to refuse.
+- The `+` control is a `<button>`, so using it never focuses the container at all:
+  the wheel would have stayed dead for exactly the operator already struggling.
+
+`map.scrollWheelZoom` always exists even with the option `false` — verified at
+`leaflet-src.js:14194`, `Map.addInitHook('addHandler', 'scrollWheelZoom', …)`, which
+creates the handler unconditionally and enables it only if the option is truthy. So
+`enable()` after the fact is sound.
+
+### What this does NOT fix
+
+**The map still does not open on the address.** The operator still scrolls and pans
+to find their street — it is now a few motions instead of ten button presses. Calling
+that "synced" would be false, and it is not what was asked for. It is the part of the
+problem that needs no key, no data and no migration, so it was worth doing first and
+on its own.
+
+### The remaining options, and what each costs
+
+| | Change | Cost | Centres on | Status |
+|---|---|---|---|---|
+| A | Wheel zoom behind one click | done | — | **shipped** |
+| B | "Use my location" via `navigator.geolocation` | small | the device | not scoped — right for operational locations (operator is at the depot), wrong for a driver's home entered from paperwork |
+| C | Centre on a geocoded composed address | needs the key enabled | the street | preferred; **BLOCKED — see below** |
+| D | Real coordinates on the PSGC import | external dataset + migration | the barangay | fallback if the key cannot be enabled |
+
+**C is blocked, and the blocker is a portal permission, not code.** It requires a
+**forward** geocode — the operator has an address and wants the point — and every
+forward endpoint on this key answers `403`: `/search/2/search`, `/search/2/geocode`,
+`/search/2/structuredGeocode` and `/search/2/place`, all re-measured 2026-09-25. Only
+`/search/2/reverseGeocode` answers `200`, which is the opposite direction. **The
+decision was not to substitute D silently**: D is a different feature (a barangay
+centroid, not a street), it needs an external dataset this repo does not have, and
+choosing it on the operator's behalf would quietly change what "centres on the address"
+means. The TomTom portal permission has to be changed before C can be built at all.
+
+Note that C's *other* stated benefit is now moot: it was also expected to settle the
+`barangay` mapping, and that has been settled from the reverse payloads instead.
+
+**D is not free.** PSA's export carries no positions, so it means sourcing a barangay
+gazetteer from outside the repo. Partial coverage would be worse than none: the map
+would recentre for some addresses and not others with no way for the operator to tell
+why. Coverage must be checked before committing to it.
+
+### The invariant that holds across all of them
+
+**The map centres; it never places the pin.** A geocoded street centre or a barangay
+centroid moves the view. The pin stays something a person clicked, and is stored
+`provider = 'manual'`, `verified = false`. A centroid dressed as that claim would be
+exactly the false confidence the rest of this feature is built to refuse.
+
+### Verification status — honest
+
+- `address-pin-map.jsx` is a Leaflet component the suite cannot render, so the new
+  affordance has **no automated coverage**. ESLint is the only automated gate.
+- **Not yet browser-checked:** that "Enable wheel zoom" appears, that the wheel zooms
+  after clicking it and scrolls the page before, that a pin-placing click still works
+  with the wheel enabled, and that the control disappears afterwards.
+

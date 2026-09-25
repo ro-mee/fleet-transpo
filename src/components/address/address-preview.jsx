@@ -18,7 +18,9 @@ import { cn } from "@/lib/utils";
 
 export function AddressPreview({ value, className }) {
   const lines = composeStructuredLines(value);
-  const hasGeography = Boolean(value.regionCode || value.cityCode || value.barangayCode);
+  const hasGeography = Boolean(
+    value.regionCode || value.cityCode || value.psgcBarangayCode
+  );
   const notes = [value.landmark, value.additionalDetails].filter(
     (note) => typeof note === "string" && note.trim()
   );

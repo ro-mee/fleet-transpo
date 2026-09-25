@@ -55,6 +55,24 @@
 export const CASCADE_LEVELS = ["region", "province", "city", "barangay"];
 
 /**
+ * The value keys each level writes.
+ *
+ * Explicit rather than derived as `${level}Code`, which the barangay level
+ * breaks. Its code field is `psgcBarangayCode`: the name states WHICH authority's
+ * code it is, because that is the one geographic value the server is told rather
+ * than derives — everything else about the location comes from looking this code
+ * up. A derived key would clear a `barangayCode` that nothing writes and leave
+ * the real code standing when the city above it changed, which is precisely the
+ * stale-address failure `clearBelow` exists to prevent.
+ */
+export const CASCADE_LEVEL_KEYS = Object.freeze({
+  region: ["regionCode", "regionName"],
+  province: ["provinceCode", "provinceName"],
+  city: ["cityCode", "cityName"],
+  barangay: ["psgcBarangayCode", "barangayName"],
+});
+
+/**
  * What an address is FOR. `home` is the default because most addresses entered
  * against a driver are where that driver lives.
  *
@@ -104,14 +122,15 @@ export const EMPTY_STRUCTURED_ADDRESS = Object.freeze({
   type: "home",
 
   // Geographic levels. The `*Code` fields are PSGC codes and are what the server
-  // validates against; the `*Name` fields are the display copy.
+  // validates against; the `*Name` fields are the display copy. The barangay's
+  // code field is spelled out in full — see CASCADE_LEVEL_KEYS.
   regionCode: null,
   regionName: null,
   provinceCode: null,
   provinceName: null,
   cityCode: null,
   cityName: null,
-  barangayCode: null,
+  psgcBarangayCode: null,
   barangayName: null,
 
   // True when the selected city has no province (Metro Manila and the
@@ -146,10 +165,9 @@ export function clearBelow(level) {
   // whole form on a typo'd argument would be the worse failure.
   if (index === -1) return [];
 
-  const descendants = CASCADE_LEVELS.slice(index + 1).flatMap((name) => [
-    `${name}Code`,
-    `${name}Name`,
-  ]);
+  const descendants = CASCADE_LEVELS.slice(index + 1).flatMap(
+    (name) => CASCADE_LEVEL_KEYS[name]
+  );
 
   const reset = [...descendants, "latitude", "longitude"];
 
@@ -207,6 +225,92 @@ export function editDetail(previous, field, value) {
 }
 
 /**
+ * Whether two structured values describe the same address, field for field.
+ *
+ * It exists to answer one question the form cannot otherwise answer: would
+ * closing the dialog now throw away work the operator did? A dialog that
+ * discards a half-finished address without saying so is indistinguishable from
+ * one that forgot it. On 2026-09-25 a picked emergency address and a dropped pin
+ * were both lost that way, and nothing on screen explained either.
+ *
+ * Deliberately shallow AND total. The value shape is flat — strings, numbers,
+ * booleans and nulls — so a key-by-key `===` is exact and a deep compare would
+ * only add a way to be wrong. Total, because a key left out of the loop is a
+ * field whose change cannot raise the prompt, so the loop runs over the blank
+ * address's keys rather than over either argument's.
+ *
+ * A missing side is read as the blank address, so a dialog opened with no
+ * `initialValue` and left untouched compares as unchanged rather than dirty.
+ * Blank is ALSO normalised — `""`, `null` and `undefined` all mean "no value
+ * here" and compare equal. Without that, an `initialValue` that arrived missing
+ * an optional text field would read as a change the operator did not make, and
+ * the prompt would fire on a form nobody touched. `false` and `0` are values and
+ * are left alone.
+ *
+ * `type` is included. On a surface with the selector hidden it is never written
+ * through the form, so it compares equal; on one that offers the selector, a
+ * change of type alone is still work the operator would lose.
+ *
+ * @param {object|null|undefined} a
+ * @param {object|null|undefined} b
+ * @returns {boolean}
+ */
+export function isSameStructuredAddress(a, b) {
+  const blank = (value) => (value === "" || value === undefined || value === null ? null : value);
+  const left = a ?? EMPTY_STRUCTURED_ADDRESS;
+  const right = b ?? EMPTY_STRUCTURED_ADDRESS;
+  return Object.keys(EMPTY_STRUCTURED_ADDRESS).every(
+    (key) => blank(left[key]) === blank(right[key])
+  );
+}
+
+/**
+ * Why a saved address could not be reopened, in the operator's terms.
+ *
+ * Lives here beside `REQUIRED_MESSAGES` for the same reason: it is a field-to-copy
+ * map that more than one surface renders, and two copies of the same explanation
+ * is two chances for them to disagree. Both the picker and the canonical-location
+ * form show one of these, and each of the three describes a state that looks
+ * IDENTICAL from the outside — an address shown as text that will not open in the
+ * cascade. Without the line saying which it is, a row that legitimately cannot be
+ * edited and a row that failed to load read exactly the same.
+ *
+ * `no-address-id` is deliberately absent: it means there is no saved address, so
+ * there is nothing to explain. See `loadStructuredAddress` for the reasons.
+ */
+export const PREFILL_REASON_MESSAGES = Object.freeze({
+  "no-psgc-code":
+    "Saved before the address cascade existed, so it has no barangay code to reopen it with. Picking a new address replaces it.",
+  "unknown-barangay":
+    "The barangay it was saved with is no longer in the address database, so it cannot be reopened. Picking a new address replaces it.",
+  unavailable: "The saved address could not be loaded just now. Picking a new address replaces it.",
+});
+
+/**
+ * Whether a submitted pick would change anything, given what is already saved.
+ *
+ * The registry is APPEND-ONLY: a save writes a new `addresses` row and repoints
+ * the referrer, orphaning the previous one. So submitting the address that is
+ * already stored is not a no-op — it costs a row and detaches the one the record
+ * was pointing at. That is a real price for opening the picker, looking, and
+ * closing it again.
+ *
+ * Only counts when `picked` is empty: once the operator has made a pick on this
+ * visit, `picked` is what will be submitted and a `submitted` equal to `saved`
+ * means they picked something that happens to match the record — still their
+ * decision, and still worth recording as one, since the text column is mirrored
+ * from it either way.
+ *
+ * @param {object} submitted  what the dialog returned
+ * @param {object|null} picked  the pick already held for this visit
+ * @param {object|null} saved  the address already on the record
+ * @returns {boolean}
+ */
+export function isUnchangedPick(submitted, picked, saved) {
+  return !picked && isSameStructuredAddress(submitted, saved);
+}
+
+/**
  * The geographic levels that are still empty, given what has been chosen.
  *
  * `requiresProvince` is data-derived: false for a region with no provinces, which
@@ -221,7 +325,7 @@ export function missingLevels(value, { requiresProvince }) {
   if (!value.regionCode) missing.push("region");
   if (requiresProvince && !value.provinceCode) missing.push("province");
   if (!value.cityCode) missing.push("city");
-  if (!value.barangayCode) missing.push("barangay");
+  if (!value.psgcBarangayCode) missing.push("barangay");
   return missing;
 }
 
@@ -462,6 +566,42 @@ function joinParts(...parts) {
     .filter((p) => isFilled(p))
     .map((p) => String(p).trim())
     .join(" ");
+}
+
+/**
+ * The geographic half of an address value, from a resolved PSGC chain.
+ *
+ * This is the ONE place the nine geographic keys are built. Both directions of the
+ * structured path call it: the write side derives them from the code the operator
+ * picked (`src/lib/address/validate-structured.js`), and the loader rebuilds them
+ * from the code the row stored (`loadStructuredAddress`). Two copies would be two
+ * chances for them to disagree, and `cityHasNoProvince` is exactly the kind of
+ * derived flag that drifts silently — a row that saved with it true and reloaded
+ * with it false renders its province line back into an NCR address.
+ *
+ * `psgcBarangayCode` is carried through rather than renamed to `barangayCode`: it
+ * is the one geographic value the server is TOLD rather than derives, and it holds
+ * one name end to end. See `CASCADE_LEVEL_KEYS`.
+ *
+ * `province: null` is a real answer, not a miss — Metro Manila has no provinces —
+ * and it is what makes `cityHasNoProvince` true.
+ *
+ * @param {{region: object, province: object|null, city: object, barangay: object}} chain
+ *   as returned by `resolveBarangayChain` in `src/lib/geo/psgc.js`
+ * @returns {object}
+ */
+export function geographyFromChain(chain) {
+  return {
+    regionCode: chain.region.code,
+    regionName: chain.region.name,
+    provinceCode: chain.province?.code ?? null,
+    provinceName: chain.province?.name ?? null,
+    cityCode: chain.city.code,
+    cityName: chain.city.name,
+    psgcBarangayCode: chain.barangay.code,
+    barangayName: chain.barangay.name,
+    cityHasNoProvince: !chain.province,
+  };
 }
 
 /**

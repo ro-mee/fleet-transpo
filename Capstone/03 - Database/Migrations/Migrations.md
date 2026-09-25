@@ -585,13 +585,37 @@ server key — but that key is authorized for **Routing only**. It returns `200`
 `/routing/1/calculateRoute` and `403 {"code":"Forbidden","message":"You are not allowed
 to access this endpoint"}` on `/search/2/search`. The two keys in `.env` are different,
 so this is not a mix-up: the Search API is simply not enabled for that key in the TomTom
-portal. Consequence for this note: **the PH component mapping in
-`src/lib/address/parse.js` is still an unverified assumption** — in particular that
-TomTom's `municipalitySubdivision` carries the barangay. The unit tests cannot settle it,
-because they only assert that a field the provider does not send stays NULL, which passes
-under either mapping. `node scripts/check-address-provider.mjs` probes Routing first as a
-known-good baseline and then Search, printing the error body — that pairing is what
-identified this as a key-permission problem rather than a bad key.
+portal. `node scripts/check-address-provider.mjs` probes Routing first as a known-good
+baseline and then Search, printing the error body — that pairing is what identified this
+as a key-permission problem rather than a bad key.
+
+**Two corrections to the paragraph above, both made 2026-09-25.**
+
+*"Routing only" was an inference from two endpoints, and it was wrong.* A six-endpoint
+probe found authorization is **per-endpoint, not per-product**: `/search/2/reverseGeocode`
+answers `200` while `/search/2/place` — the *same product* — answers `403`. Every
+**forward** path is closed (`/search/2/search`, `/search/2/geocode`,
+`/search/2/structuredGeocode`, `/search/2/place`) and the reverse one is open. That is
+exactly the wrong way round for the address-entry feature this note is about, but it
+matters here for a different reason.
+
+*The mapping is no longer unverified — it was measured, and it is FALSE.* The claim that
+"the unit tests cannot settle it" was right, but the conclusion drawn from it was not:
+this note filed the check under "blocked by the Search API", and **it never was**. A
+field mapping is tested against a *point* — "what does the provider say is here?" — which
+is the question reverse geocoding answers, and that endpoint had been returning `200` the
+whole time. Four real reverse payloads settled it: `municipalitySubdivision` carries the
+**district**. Caloocan returns `Maypajo` while the provider's own freeform for the same
+point reads *"…Maypajo, **Barangay 28**, Caloocan City…"*. `barangay` has therefore been
+removed from `PH_COMPONENT_MAP` in `src/lib/address/parse.js`, and the same payloads
+showed `Metro Manila` — a region, NCR having no provinces — landing in `province`.
+
+The lesson worth keeping: *forward geocoding returning 403 does not mean no provider
+payload can be inspected.* It means one direction of question cannot be asked. The
+mapping sat unverified for the whole life of this note because a 403 on `/search/2/search`
+was read as "the Search API is unavailable", when one endpoint of that API was answering.
+Full account in `Capstone/03 - Database/Tables/addresses.md` and the 2026-09-25 section
+of `Capstone/07 - Development/Bugs.md`.
 
 ## Related
 

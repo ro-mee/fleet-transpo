@@ -12,6 +12,14 @@ import {
   normalizeStructuredInput,
   resolveStructuredAddress,
 } from "./validate-structured";
+// Imported so this file can drive the FORM's constructors into the server's
+// input — see "the form's value and the server's input agree" at the bottom.
+import {
+  CASCADE_LEVEL_KEYS,
+  EMPTY_STRUCTURED_ADDRESS,
+  editDetail,
+  selectLevel,
+} from "./structured";
 
 /** A resolved chain, shaped exactly like `resolveBarangayChain`'s return. */
 const SANTA_ROSA = {
@@ -342,5 +350,97 @@ describe("resolveStructuredAddress — the operational address type", () => {
     expect(result.ok).toBe(false);
     expect(result.errors.postalCode).toBeTruthy();
     expect(result.errors.houseBuildingNumber).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The form's payload and this module must agree on the key names
+// ---------------------------------------------------------------------------
+
+/**
+ * THE BUG THESE EXIST FOR, and why every other test in this file was green while
+ * the feature did not work.
+ *
+ * The cascade builds its value with `selectLevel`, and on 2026-09-24 that wrote
+ * `barangayCode` — the form's own key — while `normalizeStructuredInput` read
+ * `psgcBarangayCode`. Both halves were tested, against themselves: every test in
+ * this file builds its request with the SERVER's key, and `structured.test.js`
+ * builds values with the FORM's. Neither ever handed one to the other, so the
+ * mismatch was invisible and every gate passed. In the browser it surfaced as
+ * "Select a barangay." with a barangay selected, on all four cascade surfaces.
+ *
+ * The lesson is not "add a test for the driver route" — it is that a key crossing
+ * a boundary needs a test that CROSSES it. These two do, in opposite directions:
+ * one drives the form's constructors into this module, the other asserts the key
+ * this module reads is the key the form declares. A rename on either side fails
+ * here rather than in an operator's face.
+ */
+describe("the form's value and the server's input agree", () => {
+  /** A value built the way `AddressFormDialog` builds one, from the real helpers. */
+  function formValue({ barangayCode, streetRoad, postalCode, houseBuildingNumber = "8572" }) {
+    // Read the key from the form's OWN declaration rather than hardcoding it, so
+    // this test follows a rename instead of silently testing a dead name.
+    const [codeKey] = CASCADE_LEVEL_KEYS.barangay;
+
+    let value = EMPTY_STRUCTURED_ADDRESS;
+    value = selectLevel(value, "region", {
+      regionCode: SANTA_ROSA.region.code,
+      regionName: SANTA_ROSA.region.name,
+    });
+    value = selectLevel(value, "province", {
+      provinceCode: SANTA_ROSA.province.code,
+      provinceName: SANTA_ROSA.province.name,
+    });
+    value = selectLevel(value, "city", {
+      cityCode: SANTA_ROSA.city.code,
+      cityName: SANTA_ROSA.city.name,
+      cityHasNoProvince: false,
+    });
+    value = selectLevel(value, "barangay", {
+      [codeKey]: barangayCode,
+      barangayName: SANTA_ROSA.barangay.name,
+    });
+    value = editDetail(value, "houseBuildingNumber", houseBuildingNumber);
+    value = editDetail(value, "streetRoad", streetRoad);
+    value = editDetail(value, "postalCode", postalCode);
+    return value;
+  }
+
+  it("resolves a value built by the form's own constructors", async () => {
+    const result = await resolveStructuredAddress(
+      formValue({
+        barangayCode: SANTA_ROSA.barangay.code,
+        streetRoad: "Winding Creek Boulevard",
+        postalCode: "4026",
+      }),
+      { resolve: resolveAs(SANTA_ROSA) }
+    );
+
+    expect(result.ok).toBe(true);
+    // Not merely accepted — the code survived to the stored value, which is what
+    // proves the server actually READ it rather than defaulting past it.
+    expect(result.value.psgcBarangayCode).toBe(SANTA_ROSA.barangay.code);
+    expect(result.value.components.barangay).toBe("Balibago");
+    expect(result.value.components.city).toBe("Santa Rosa City");
+  });
+
+  it("reads the barangay code under the key the cascade declares", () => {
+    // The other direction, and the one that fails loudly on a one-sided rename:
+    // whatever key `CASCADE_LEVEL_KEYS` names for the barangay is the key this
+    // module must read. Renaming the form's key without this module would make
+    // this assertion send an unknown key and get `undefined` back.
+    const [codeKey] = CASCADE_LEVEL_KEYS.barangay;
+    expect(normalizeStructuredInput({ [codeKey]: SANTA_ROSA.barangay.code }).psgcBarangayCode).toBe(
+      SANTA_ROSA.barangay.code
+    );
+  });
+
+  it("refuses the same value with the barangay code under any other name", () => {
+    // The guard's own guard. If `barangayCode` were silently accepted as well —
+    // the tempting one-line "fix" — this test would be the thing that says the
+    // server is reading a field nothing writes.
+    expect(normalizeStructuredInput({ barangayCode: SANTA_ROSA.barangay.code }).psgcBarangayCode).toBe(
+      null
+    );
   });
 });

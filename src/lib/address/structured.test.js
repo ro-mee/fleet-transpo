@@ -20,6 +20,10 @@ import {
   clearDerivedFromDetails,
   detailErrors,
   isOperational,
+  isSameStructuredAddress,
+  isUnchangedPick,
+  geographyFromChain,
+  PREFILL_REASON_MESSAGES,
   requiredDetailFields,
   selectLevel,
   editDetail,
@@ -42,7 +46,7 @@ function filledAddress() {
     provinceName: "Cebu",
     cityCode: "0722170000",
     cityName: "Cebu City",
-    barangayCode: "0722170010",
+    psgcBarangayCode: "0722170010",
     barangayName: "Lahug",
     houseBuildingNumber: "12",
     streetRoad: "Salinas Drive",
@@ -72,7 +76,7 @@ describe("clearBelow", () => {
     expect(cleared).not.toContain("cityCode");
     expect(cleared).not.toContain("regionCode");
     expect(cleared).not.toContain("provinceCode");
-    expect(cleared).toContain("barangayCode");
+    expect(cleared).toContain("psgcBarangayCode");
   });
 
   it("clears nothing for the innermost level except the pin", () => {
@@ -97,7 +101,7 @@ describe("selectLevel — the anti-stale rule", () => {
     });
 
     expect(next.cityName).toBe("Mandaue City");
-    expect(next.barangayCode).toBeNull();
+    expect(next.psgcBarangayCode).toBeNull();
     expect(next.barangayName).toBeNull();
     expect(next.latitude).toBeNull();
     expect(next.longitude).toBeNull();
@@ -118,14 +122,14 @@ describe("selectLevel — the anti-stale rule", () => {
 
     expect(next.provinceCode).toBeNull();
     expect(next.cityCode).toBeNull();
-    expect(next.barangayCode).toBeNull();
+    expect(next.psgcBarangayCode).toBeNull();
     expect(next.latitude).toBeNull();
   });
 
   it("does not touch the typed address details", () => {
     // Re-selecting the barangay is not a reason to lose a typed street name.
     const next = selectLevel(filledAddress(), "barangay", {
-      barangayCode: "0722170011",
+      psgcBarangayCode: "0722170011",
       barangayName: "Apas",
     });
 
@@ -146,7 +150,7 @@ describe("selectLevel — the anti-stale rule", () => {
     });
 
     expect(next.cityHasNoProvince).toBe(true);
-    expect(isStructuredComplete({ ...next, barangayCode: "B" }, { requiresProvince: false })).toBe(
+    expect(isStructuredComplete({ ...next, psgcBarangayCode: "B" }, { requiresProvince: false })).toBe(
       true
     );
   });
@@ -191,7 +195,7 @@ describe("missingLevels — the province-less region", () => {
     regionName: "National Capital Region (NCR)",
     cityCode: "1339000000",
     cityName: "City of Manila",
-    barangayCode: "1339000001",
+    psgcBarangayCode: "1339000001",
     barangayName: "Ermita",
     cityHasNoProvince: true,
     houseBuildingNumber: "1",
@@ -236,7 +240,7 @@ describe("structuredErrors", () => {
       ...EMPTY_STRUCTURED_ADDRESS,
       regionCode: "R",
       cityCode: "C",
-      barangayCode: "B",
+      psgcBarangayCode: "B",
       houseBuildingNumber: "8572",
       streetRoad: "Winding Creek Boulevard",
       postalCode: "4026",
@@ -255,7 +259,7 @@ describe("structuredErrors", () => {
       ...EMPTY_STRUCTURED_ADDRESS,
       regionCode: "R",
       cityCode: "C",
-      barangayCode: "B",
+      psgcBarangayCode: "B",
       houseBuildingNumber: "1",
       streetRoad: "Street",
     };
@@ -303,7 +307,7 @@ describe("the operational exception", () => {
     ...EMPTY_STRUCTURED_ADDRESS,
     regionCode: "R",
     cityCode: "C",
-    barangayCode: "B",
+    psgcBarangayCode: "B",
     houseBuildingNumber: "8572",
     streetRoad: "Winding Creek Boulevard",
     postalCode: "4026",
@@ -593,5 +597,181 @@ describe("regionRequiresProvince", () => {
 describe("CASCADE_LEVELS", () => {
   it("is ordered outermost first, because clearBelow depends on it", () => {
     expect(CASCADE_LEVELS).toEqual(["region", "province", "city", "barangay"]);
+  });
+});
+
+describe("isSameStructuredAddress — would closing the dialog lose work?", () => {
+  // This predicate decides whether the address dialog asks before closing. Both
+  // directions are a defect: a false "same" silently discards a picked address or
+  // a dropped pin (what happened on 2026-09-25), and a false "different" prompts
+  // on a form nobody touched, which teaches the operator to click through the
+  // prompt without reading it. So each test names which failure it is guarding.
+
+  it("is true for the same value compared with itself", () => {
+    expect(isSameStructuredAddress(filledAddress(), filledAddress())).toBe(true);
+  });
+
+  it("is false when a detail changed — the pick itself is work", () => {
+    const next = editDetail(filledAddress(), "streetRoad", "Osmeña Boulevard");
+    expect(isSameStructuredAddress(next, filledAddress())).toBe(false);
+  });
+
+  it("is false when only the pin moved — a dropped pin is work too", () => {
+    // The 2026-09-25 loss that no detail comparison would have caught: a pin is
+    // the one thing on this form that costs a deliberate action and no typing.
+    const pinned = { ...filledAddress(), latitude: 10.32, longitude: 123.9 };
+    const unpinned = { ...filledAddress(), latitude: null, longitude: null };
+
+    expect(isSameStructuredAddress(pinned, unpinned)).toBe(false);
+    expect(isSameStructuredAddress(unpinned, pinned)).toBe(false);
+  });
+
+  it("is false when only the type changed", () => {
+    // The selector is hidden on the driver surfaces, where this compares equal and
+    // never matters; on one that offers it, a change of type is still a change.
+    expect(isSameStructuredAddress(filledAddress(), { ...filledAddress(), type: "work" })).toBe(
+      false
+    );
+  });
+
+  it("is true for a blank value against no initialValue — an untouched dialog does not prompt", () => {
+    // The add-mode dialog: `initialValue` is undefined, so `value` is seeded from
+    // the blank address. Nothing was typed, so there is nothing to discard and the
+    // prompt must stay out of the way.
+    expect(isSameStructuredAddress(EMPTY_STRUCTURED_ADDRESS, undefined)).toBe(true);
+    expect(isSameStructuredAddress(EMPTY_STRUCTURED_ADDRESS, null)).toBe(true);
+    expect(isSameStructuredAddress(EMPTY_STRUCTURED_ADDRESS, EMPTY_STRUCTURED_ADDRESS)).toBe(true);
+  });
+
+  it("treats an empty string, null and a missing key as the same absence", () => {
+    // An `initialValue` that arrived missing an optional text field would otherwise
+    // read as a change the operator never made, and prompt on a pristine form.
+    // Only BLANK fields are normalised: `type: "home"` is a value, and an object
+    // that dropped it is genuinely a different address.
+    const missing = { ...EMPTY_STRUCTURED_ADDRESS };
+    delete missing.postalCode;
+
+    expect(isSameStructuredAddress({ ...EMPTY_STRUCTURED_ADDRESS, postalCode: "" }, EMPTY_STRUCTURED_ADDRESS)).toBe(true);
+    expect(isSameStructuredAddress({ ...EMPTY_STRUCTURED_ADDRESS, postalCode: null }, EMPTY_STRUCTURED_ADDRESS)).toBe(true);
+    expect(isSameStructuredAddress(EMPTY_STRUCTURED_ADDRESS, missing)).toBe(true);
+  });
+
+  it("still sees a changed key that is present on only one side", () => {
+    // The consequence of comparing blank as absent: it must not swallow a real
+    // value. A loop over EMPTY's keys rather than either argument's is what makes
+    // an extra key visible at all.
+    expect(isSameStructuredAddress({ postalCode: "6000" }, EMPTY_STRUCTURED_ADDRESS)).toBe(false);
+    expect(isSameStructuredAddress({ postalCode: "6000" }, { postalCode: "6001" })).toBe(false);
+  });
+
+  it("compares false and 0 as values, not as absence", () => {
+    // `cityHasNoProvince: false` is the Metro Manila answer, not a missing one.
+    // Reading it as blank would make an NCR dialog compare equal to a Cebu one.
+    const ncr = { ...EMPTY_STRUCTURED_ADDRESS, cityHasNoProvince: true };
+    expect(isSameStructuredAddress(ncr, EMPTY_STRUCTURED_ADDRESS)).toBe(false);
+    expect(isSameStructuredAddress({ ...EMPTY_STRUCTURED_ADDRESS, latitude: 0 }, EMPTY_STRUCTURED_ADDRESS)).toBe(
+      false
+    );
+  });
+
+  it("does not mutate either argument", () => {
+    const a = filledAddress();
+    const b = filledAddress();
+    isSameStructuredAddress(a, b);
+    expect(a).toEqual(filledAddress());
+    expect(b).toEqual(filledAddress());
+  });
+});
+
+// ── One derivation, shared by both directions of the structured path ────────
+//
+// `geographyFromChain` is called by the server's validator (which BUILDS the
+// value it stores) and by the loader (which REBUILDS it from what was stored).
+// Two copies of these nine keys would be two chances to disagree, and the failure
+// that matters is `cityHasNoProvince`: a row that saved with it true and reloaded
+// with it false renders its province line straight back into a Metro Manila
+// address, as a blank or as a province that does not exist.
+describe("geographyFromChain", () => {
+  const SANTA_ROSA = {
+    region: { code: "0400000000", name: "CALABARZON (Region IV-A)" },
+    province: { code: "0403400000", name: "Laguna" },
+    city: { code: "0403416000", name: "Santa Rosa City" },
+    barangay: { code: "0403416001", name: "Balibago" },
+  };
+
+  // Metro Manila has no provinces, so `resolveBarangayChain` answers null for the
+  // province level. That is a real answer, not a miss.
+  const MANILA = {
+    region: { code: "1300000000", name: "National Capital Region" },
+    province: null,
+    city: { code: "1339000000", name: "City of Manila" },
+    barangay: { code: "1339010010", name: "Barangay 1" },
+  };
+
+  it("carries all four levels through", () => {
+    expect(geographyFromChain(SANTA_ROSA)).toEqual({
+      regionCode: "0400000000",
+      regionName: "CALABARZON (Region IV-A)",
+      provinceCode: "0403400000",
+      provinceName: "Laguna",
+      cityCode: "0403416000",
+      cityName: "Santa Rosa City",
+      psgcBarangayCode: "0403416001",
+      barangayName: "Balibago",
+      cityHasNoProvince: false,
+    });
+  });
+
+  it("nulls the province and says so when the city has none", () => {
+    const geography = geographyFromChain(MANILA);
+    expect(geography.provinceCode).toBeNull();
+    expect(geography.provinceName).toBeNull();
+    expect(geography.cityHasNoProvince).toBe(true);
+  });
+
+  it("keeps `cityHasNoProvince` false, not merely absent, for a provincial city", () => {
+    // `false` is the answer here, not a missing value — see isSameStructuredAddress.
+    expect(geographyFromChain(SANTA_ROSA).cityHasNoProvince).toBe(false);
+  });
+
+  it("keeps the barangay code under the name the client and the column both use", () => {
+    // Not `barangayCode`. It is the one geographic value the server is TOLD rather
+    // than derives, so it carries one name end to end — see CASCADE_LEVEL_KEYS.
+    expect(geographyFromChain(SANTA_ROSA).psgcBarangayCode).toBe("0403416001");
+    expect(geographyFromChain(SANTA_ROSA)).not.toHaveProperty("barangayCode");
+  });
+});
+
+describe("isUnchangedPick — reopening is not editing", () => {
+  const SAVED = { ...EMPTY_STRUCTURED_ADDRESS, psgcBarangayCode: "0403416001", cityName: "Santa Rosa City" };
+
+  it("is true when nothing was picked and the dialog returned what was saved", () => {
+    expect(isUnchangedPick(SAVED, null, SAVED)).toBe(true);
+  });
+
+  it("is false once the operator has picked something themselves", () => {
+    // Their decision, and the mirrored text column follows it either way.
+    expect(isUnchangedPick(SAVED, SAVED, SAVED)).toBe(false);
+  });
+
+  it("is false when the dialog returned a different address", () => {
+    const changed = { ...SAVED, psgcBarangayCode: "0403416002" };
+    expect(isUnchangedPick(changed, null, SAVED)).toBe(false);
+  });
+
+  it("is false when there is nothing saved to be unchanged from", () => {
+    // A first pick: `saved` is null, so it never compares equal to a real address.
+    expect(isUnchangedPick(SAVED, null, null)).toBe(false);
+  });
+});
+
+describe("PREFILL_REASON_MESSAGES", () => {
+  it("explains every reason except the one that means there is no address", () => {
+    expect(Object.keys(PREFILL_REASON_MESSAGES).sort()).toEqual([
+      "no-psgc-code",
+      "unavailable",
+      "unknown-barangay",
+    ]);
+    expect(PREFILL_REASON_MESSAGES).not.toHaveProperty("no-address-id");
   });
 });
