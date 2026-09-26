@@ -31,6 +31,12 @@ const DRIVER_ROUTES = {
   driver: () => `/driver/profile`,
   incident: () => `/driver/incidents`,
   leave_request: () => `/driver/schedule`,
+  // End Duty reminders (end-duty-reminder.service.js). Web has no equivalent of
+  // the mobile End Duty screen, so this lands on the driver area rather than a
+  // page that would have to grow a second implementation of the same flow. Only
+  // DRIVER_ROUTES carries it: a staff role has no duty to end, so STAFF_ROUTES
+  // deliberately omits it and a staff tap resolves to null (mark-read).
+  duty: () => `/driver`,
 };
 
 /** @param {object} notification notification row (reference_type, reference_id, link) */

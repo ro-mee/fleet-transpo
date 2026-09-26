@@ -19,6 +19,8 @@ import {
   timeToHeadToPickup,
   tripNotStartedDriver,
   tripNotStartedStaff,
+  endDutyReminder,
+  endDutyStillNotReported,
 } from "./copy";
 
 // Every driver-facing variant. Staff variants are exercised separately —
@@ -290,5 +292,52 @@ describe("copy module — trip start-window group", () => {
     for (const field of ["title", "message", "pushBody"]) {
       expect(tripNotStartedDriver({ pickup: PICKUP_UTC })[field]).not.toContain("Juan");
     }
+  });
+});
+
+describe("end duty reminders", () => {
+  const SHIFT_END = "17:00:00";
+
+  it("keeps both titles stable — no date, number, or name to drift the dedupe key", () => {
+    for (const copy of [endDutyReminder({ shiftEnd: SHIFT_END }), endDutyStillNotReported({ shiftEnd: SHIFT_END })]) {
+      expect(copy.title).not.toMatch(/\d/);
+      expect(copy.title).not.toMatch(/2026|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/);
+    }
+  });
+
+  it("gives the two stages different titles, so one does not dedupe away the other", () => {
+    const a = endDutyReminder({ shiftEnd: SHIFT_END }).title;
+    const b = endDutyStillNotReported({ shiftEnd: SHIFT_END }).title;
+    expect(a).not.toBe(b);
+  });
+
+  it("renders the shift end in Asia/Manila, never the server's zone", () => {
+    // 17:00 Manila on an arbitrary UTC day. A pod running in UTC must still
+    // say 5:00 PM.
+    expect(endDutyReminder({ shiftEnd: "17:00:00" }).message).toContain("5:00 PM");
+  });
+
+  it("falls back rather than emitting a dangling preposition when the shift end is unusable", () => {
+    const copy = endDutyReminder({ shiftEnd: null });
+    expect(copy.message).not.toMatch(/at\s*\./);
+    expect(copy.message).toContain("the scheduled time");
+  });
+
+  it("keeps pushBody to one short sentence", () => {
+    for (const copy of [endDutyReminder({ shiftEnd: SHIFT_END }), endDutyStillNotReported({ shiftEnd: SHIFT_END })]) {
+      expect(copy.pushBody.length).toBeLessThanOrEqual(120);
+      expect(copy.pushBody.match(/[.!?](\s|$)/g) || []).toHaveLength(1);
+    }
+  });
+
+  it("never puts an ISO date or an ID in driver copy", () => {
+    for (const copy of [endDutyReminder({ shiftEnd: SHIFT_END }), endDutyStillNotReported({ shiftEnd: SHIFT_END })]) {
+      expect(copy.message).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+      expect(copy.message).not.toMatch(/#\d/);
+    }
+  });
+
+  it("tells the overdue driver what happens next, without promising a deadline it does not control", () => {
+    expect(endDutyStillNotReported({ shiftEnd: SHIFT_END }).message).toMatch(/closed automatically in the morning/);
   });
 });
