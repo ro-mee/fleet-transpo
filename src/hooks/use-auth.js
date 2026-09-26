@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { useSession, signOut as nextAuthSignOut } from "next-auth/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -49,12 +49,50 @@ export function AuthProvider({ children }) {
     staleTime: 60 * 1000,
   });
 
-  const user = session?.user || null;
-  const employee = useMemo(
+  const liveUser = session?.user || null;
+  const liveEmployee = useMemo(
     () => mapSessionToEmployee(session, profile),
     [session, profile]
   );
   const loading = status === "loading";
+
+  // A FAILED session fetch is not a logout, but next-auth records it as one.
+  // `getSession()` resolves to `null` on any fetch failure — an offline blip, a
+  // dropped pooler connection, a dev-server recompile answering with an HTML
+  // page instead of JSON — and `SessionProvider` writes that null straight into
+  // state (`next-auth/react/index.js`: `setSession(await getSession())`). From
+  // here the two are indistinguishable.
+  //
+  // The cost of believing it was not a blank screen. `employee` going null
+  // unmounts the whole authenticated tree (`layout/dashboard-layout.jsx` ->
+  // `RouteGuard`'s `if (!employee) return null`) and `useRequireRole` then calls
+  // `saveReturnTo()` and redirects to /login. In-progress work died with it.
+  //
+  // Written 2026-09-27 while tracing a dropped address pin, and it originally
+  // named that pin as its consequence. The attribution was **wrong** — the pin
+  // was lost to a form-submit bug in `AddressFormDialog` (see Bugs.md,
+  // 2026-09-27), not to an unmount — so only the mechanism above is claimed.
+  //
+  // So the last identity actually seen is kept while the session reads null.
+  // Adjusted DURING RENDER rather than in an effect, for the same reason
+  // `AddressFormDialog` re-seeds that way: an effect would paint one frame of
+  // the logged-out tree before correcting itself, which is the precise unmount
+  // this exists to prevent.
+  //
+  // This bridges the UI, it does not grant access. Every route re-checks the
+  // session server-side with `requirePermission`, so a genuinely dead session
+  // still gets 401s — and `SessionManagerProvider`'s `syncSession` ->
+  // `/api/auth/heartbeat` (mount, tab focus, and its own interval) turns those
+  // into the expiry modal, which is where a real logout is supposed to be
+  // handled. It is deliberately not cleared by an explicit sign-out: both
+  // sign-out paths navigate away, so this provider unmounts with the state.
+  const [lastSeen, setLastSeen] = useState(null);
+  if (liveEmployee && liveEmployee !== lastSeen?.employee) {
+    setLastSeen({ employee: liveEmployee, user: liveUser });
+  }
+
+  const user = liveUser ?? lastSeen?.user ?? null;
+  const employee = liveEmployee ?? lastSeen?.employee ?? null;
 
   const handleSignOut = async () => {
     try {
