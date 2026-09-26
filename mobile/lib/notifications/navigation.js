@@ -3,7 +3,9 @@
 // The mobile app is driver-only, so this map is one flat reference_type -> tab
 // route table. Destinations are tab routes: "/" is the Home tab where new
 // dispatches appear for acceptance, "/profile" holds license/credentials for
-// expiry alerts. A null target means "no deep link — just mark read".
+// expiry alerts — the one exception is "/end-duty", a stack screen pushed over
+// the tabs (mobile/app/(app)/end-duty.js). A null target means "no deep link —
+// just mark read".
 
 export function mobileNotificationTarget(notification = {}) {
   const { reference_type: type, reference_id: referenceId } = notification;
@@ -14,6 +16,10 @@ export function mobileNotificationTarget(notification = {}) {
     case "driver":
     case "vehicle":
       return "/profile";
+    case "duty":
+      // The driver's own unfinished report. Deep-links to the screen they file
+      // it from, so the tap is the whole recovery — see end-duty-reminder.service.js.
+      return "/end-duty";
     case "incident":
       // Deep-link to the live status screen (timeline + fleet response), not
       // the report form — the driver wants to see "help is on the way", not

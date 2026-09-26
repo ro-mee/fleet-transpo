@@ -130,6 +130,25 @@ export function NotificationFeedProvider({ children }) {
     }
   }, []);
 
+  // Dismiss = soft delete (migration 127): optimistic remove, then DELETE.
+  // 404 means the row is already gone server-side (purged or dismissed
+  // elsewhere) — that is success, not failure. Anything else refetches so a
+  // failed dismiss rolls back instead of leaving a ghost-removed row. seenRef
+  // is deliberately kept: if the row survives a failed delete it reappears
+  // silently rather than re-announcing.
+  const dismiss = useCallback(
+    async (id) => {
+      if (!id) return;
+      setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
+      try {
+        await api.del(`/api/notifications/${id}`);
+      } catch (e) {
+        if (e?.status !== 404) refresh(true);
+      }
+    },
+    [refresh]
+  );
+
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   const value = {
@@ -140,6 +159,7 @@ export function NotificationFeedProvider({ children }) {
     refresh,
     markRead,
     markAllRead,
+    dismiss,
   };
 
   return (

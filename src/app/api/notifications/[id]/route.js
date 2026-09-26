@@ -11,15 +11,24 @@ export async function DELETE(req, { params }) {
     const own = session.user?.employeeId ?? session.user?.userId ?? null;
     const canDeleteAny = rolesFor("notifications", "delete_all").includes(session.user?.role);
 
-    // Staff may delete any row (broadcast cleanup); everyone else may only
-    // delete their own. employee_id is int and user_id is uuid, so scope on
+    // Staff may dismiss any row (broadcast cleanup); everyone else may only
+    // dismiss their own. employee_id is int and user_id is uuid, so scope on
     // whichever identity is actually present, mirroring GET /api/notifications.
+    // Soft delete (migration 127): the row stays for audit until the daily
+    // pg_cron purge hard-deletes rows dismissed more than 90 days ago; the
+    // `deleted_at IS NULL` guard makes a repeat dismiss a 404, which mobile
+    // treats as "already gone" idempotently.
     const { rowCount } = canDeleteAny
-      ? await query(`DELETE FROM notifications WHERE notification_id = $1`, [id])
+      ? await query(
+          `UPDATE notifications SET deleted_at = NOW()
+           WHERE notification_id = $1 AND deleted_at IS NULL`,
+          [id]
+        )
       : await query(
-          `DELETE FROM notifications WHERE notification_id = $1 AND ${
-            own == null ? "1 = 0" : session.user.employeeId != null ? "employee_id = $2" : "user_id = $2"
-          }`,
+          `UPDATE notifications SET deleted_at = NOW()
+           WHERE notification_id = $1 AND deleted_at IS NULL AND ${
+             own == null ? "1 = 0" : session.user.employeeId != null ? "employee_id = $2" : "user_id = $2"
+           }`,
           own == null ? [id] : [id, own]
         );
 

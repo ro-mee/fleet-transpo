@@ -13,6 +13,10 @@ export async function GET(req) {
                  LEFT JOIN driverincidents di ON n.reference_type = 'incident' AND di.incident_id = n.reference_id`;
     const params = []; let idx = 1;
     const conditions = [];
+    // Soft delete (migration 127): dismissed rows are invisible to every
+    // read surface (inbox, bell badge, unread counts) but stay queryable
+    // until the 90-day retention purge hard-deletes them.
+    conditions.push(`n.deleted_at IS NULL`);
     const own = session.user?.employeeId ?? session.user?.userId ?? null;
     const canScopeAll = rolesFor("notifications", "read_all").includes(session.user?.role);
     const target = sp.get("employee_id");
