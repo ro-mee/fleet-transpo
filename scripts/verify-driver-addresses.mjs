@@ -140,12 +140,34 @@ const LATEST_SQL = `
 // is left out rather than fetched and discarded.
 const ADDRESSES_SQL = `
   SELECT address_id, formatted_address,
+         street_number, street_name,
          barangay, city, province,
          postal_code, postal_code_source,
          latitude, longitude, provider, verified,
          address_type, psgc_barangay_code, created_at
     FROM addresses
    WHERE address_id = ANY($1::int[])
+`;
+
+// `resolveBarangayChain`'s join, verbatim (`src/lib/geo/psgc.js:101-125`), with the
+// display names dropped — only the codes are needed to answer "does this resolve".
+//
+// This exists because the picker's pre-fill walks three reads in order (the row
+// exists → it carries a `psgc_barangay_code` → that code still resolves), and
+// `loadStructuredAddress` returns a DIFFERENT reason for each failure while the UI
+// shows one grey line for all three. A blank picker is therefore a message with
+// three possible causes. Reproducing the same three steps here names the cause from
+// the database side, which the browser cannot be asked to do reliably.
+const CHAIN_SQL = `
+  SELECT b.psgc_code AS barangay_code,
+         c.psgc_code AS city_code,
+         r.psgc_code AS region_code,
+         p.psgc_code AS province_code
+    FROM public.ph_barangays b
+    JOIN public.ph_cities  c ON c.psgc_code = b.city_code
+    JOIN public.ph_regions r ON r.psgc_code = c.region_code
+    LEFT JOIN public.ph_provinces p ON p.psgc_code = c.province_code
+   WHERE b.psgc_code = $1
 `;
 
 async function main() {
@@ -180,6 +202,10 @@ async function main() {
 
   let driver;
   let addressRows = [];
+  // Per-address-id result of replaying the picker's third read. A null `chainRow`
+  // with a null `chainError` means the query ran and matched nothing, which is the
+  // `unknown-barangay` outcome and not a failure of the query itself.
+  const chains = new Map();
   try {
     const { rows } = await client.query(DRIVER_SQL, [driverId]);
     driver = rows[0];
@@ -194,6 +220,18 @@ async function main() {
       if (ids.length) {
         const { rows: found } = await client.query(ADDRESSES_SQL, [ids]);
         addressRows = found;
+
+        // ...and the chain read the picker's pre-fill depends on. Both queries sit
+        // inside this try so `finally` remains the only exit, as above.
+        for (const row of addressRows) {
+          if (!row.psgc_barangay_code) continue;
+          try {
+            const { rows: chain } = await client.query(CHAIN_SQL, [row.psgc_barangay_code]);
+            chains.set(row.address_id, { row: chain[0] ?? null, error: null });
+          } catch (e) {
+            chains.set(row.address_id, { row: null, error: e.message });
+          }
+        }
       }
     }
   } finally {
@@ -281,6 +319,30 @@ async function main() {
       true // the composed address IS the personal value — withheld under --quiet
     );
 
+    // ── The two fields the picker's own rule demands and the server does not ──
+    //
+    // `REQUIRED_DETAILS` (src/lib/address/structured.js) requires a house number,
+    // a street and a ZIP for a `home` address; the SERVER requires none of the
+    // three, and the picker forces `type: "home"`. So a row can be perfectly valid
+    // — every check above passing — and still seed a form whose "Use this address"
+    // button never enables, because the operator is shown a form that looks
+    // complete with one empty required field somewhere in it. The pin then cannot
+    // leave the browser at all, and nothing else in this run says why: a street
+    // with no number leaves `formatted_address` non-blank.
+    //
+    // Booleans only, deliberately. Which fields are empty is the diagnostic; their
+    // contents are the operator's address and have no business in this output.
+    check(
+      Boolean(row.street_number && String(row.street_number).trim()),
+      `${label}: a house number is stored (the picker's 'home' rule demands one)`,
+      row.street_number ? "(set)" : "(NULL)"
+    );
+    check(
+      Boolean(row.street_name && String(row.street_name).trim()),
+      `${label}: a street is stored (same rule)`,
+      row.street_name ? "(set)" : "(NULL)"
+    );
+
     // `chk_addresses_coords_pair` makes a half-pair unstorable, so this failing
     // means the constraint is gone rather than that someone typed a latitude.
     const hasLat = row.latitude !== null;
@@ -299,6 +361,36 @@ async function main() {
 
   checkRow("residential", residential);
   checkRow("emergency", emergency);
+
+  // ── Pre-fill: can the picker re-open each saved address? ──────────────────
+  /**
+   * Replays the three reads `loadStructuredAddress` makes and names the one that
+   * stops it. Three of the loader's four reasons are reachable here; `no-address-id`
+   * is already covered by the checks above.
+   *
+   * Worth having as a check rather than a note: a blank picker and a legacy address
+   * look identical on screen, and the runbook's re-open step cannot tell "the loader
+   * said no" from "the loader was never wired to this field".
+   */
+  function checkPrefill(label, row) {
+    if (!row) return;
+    const probe = chains.get(row.address_id);
+    const detail = !row.psgc_barangay_code
+      ? "row carries no psgc_barangay_code — the loader reports 'no-psgc-code'"
+      : probe?.error
+        ? `chain query failed: ${probe.error} — the loader reports 'unavailable'`
+        : probe?.row
+          ? `${show(probe.row.barangay_code)} -> city ${show(probe.row.city_code)} / region ${show(probe.row.region_code)}`
+          : `no chain row for ${show(row.psgc_barangay_code)} — the loader reports 'unknown-barangay'`;
+    check(
+      Boolean(probe?.row),
+      `${label}: the stored barangay code resolves, so the picker can re-open this address`,
+      detail
+    );
+  }
+
+  checkPrefill("residential", residential);
+  checkPrefill("emergency", emergency);
 
   // ── The pin ───────────────────────────────────────────────────────────────
   // This is the first surface to exercise the both-present branch of

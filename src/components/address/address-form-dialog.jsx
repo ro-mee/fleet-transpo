@@ -188,10 +188,29 @@ export function AddressFormDialog({
   // which in an edit form reads as the fields flickering to someone else's data.
   const [wasOpen, setWasOpen] = useState(open);
   const [lastInitial, setLastInitial] = useState(initialValue);
-  if (wasOpen !== open || lastInitial !== initialValue) {
+  // Compared by CONTENT, not by identity.
+  //
+  // `initialValue` is the address the server rebuilt for the record behind this
+  // dialog, so a refetch of the SAME address arrives as an equal but NEW object.
+  // An identity test reads that as "a different address arrived" and re-seeds the
+  // form from it — discarding whatever the operator has entered, and clearing
+  // `pinClearedByEdit` below, which suppresses the notice written to explain
+  // precisely that loss.
+  //
+  // A latent-defect fix, NOT the cause of the dropped pin traced on 2026-09-27:
+  // that was the address form's submit reaching the caller's own `<form>` — see
+  // `handleSubmit` — in which no re-seed is involved. Kept because it is correct
+  // on its own terms: a re-seed triggered by a refetch of the same address is a
+  // bug whether or not it was this one.
+  //
+  // `isSameStructuredAddress` is the same total, blank-normalised comparison the
+  // discard prompt below already trusts, so "the same address in a new object"
+  // reads as the same address and leaves the operator's work alone.
+  const sameAddress = isSameStructuredAddress(initialValue, lastInitial);
+  if (wasOpen !== open || !sameAddress) {
     setWasOpen(open);
     setLastInitial(initialValue);
-    if (open || lastInitial !== initialValue) {
+    if (open || !sameAddress) {
       setValue(initialValue ?? EMPTY_STRUCTURED_ADDRESS);
       setTouched(false);
       // A fresh form starts with a fresh answer: the notice belongs to the pin
@@ -334,6 +353,25 @@ export function AddressFormDialog({
 
   function handleSubmit(event) {
     event.preventDefault();
+    // `stopPropagation` is load-bearing here, not tidiness — it is the whole
+    // reason "Use this address" used to save the page.
+    //
+    // `DialogContent` portals this form to `document.body`, which moves it in
+    // the DOM but NOT in the React tree. React dispatches synthetic events along
+    // the FIBER tree, so the portal changes nothing about who hears this submit:
+    // every caller renders this dialog inside its own `<form>` (`drivers/[id]/
+    // edit/page.js:408`, the locations page, the hotel base), and that form's
+    // `onSubmit` is an ancestor handler. Without this line one press of the
+    // submit button runs the CALLER's save handler on the same event — the page
+    // saves itself mid-pick, from the closure of a render in which
+    // `setPickedAddress` has not flushed yet, so the address goes back to the
+    // server unchanged and no error is raised to explain it. `preventDefault`
+    // above does not cover this: it stops the browser's own submission, which
+    // was never the problem.
+    //
+    // Traced 2026-09-27, after every save logged `pick=false` at the route while
+    // the pin sat visibly in this dialog's `value`.
+    event.stopPropagation();
     setTouched(true);
     if (!complete || saving) return;
     // `effective`, not `value`: the type was coerced above and the whole form

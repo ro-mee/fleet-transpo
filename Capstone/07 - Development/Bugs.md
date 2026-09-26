@@ -48,13 +48,45 @@ The leaked database password was **rotated on
   backdrop losing the whole form, is fixed by a confirm-before-discard — though
   the operator later reported the submit button was **greyed out** on an
   incomplete address, so "closed instead of submitted" is the symptom rather than
-  the cause; the button now states its own reason, build-verified with the browser
-  check still owed (see the dated section below). **Half 2**
+  the cause; the button now states its own reason, and it is browser-verified (see
+  the dated section below). **Half 2**
   was two layers: the anti-stale rule clearing a dropped pin on any later edit went
   unannounced, and — the real reason nobody noticed — `address-pin-map.jsx` computed
   `hasPin` from `Number(null)`, which is `0`, so the map showed a marker and "Pin at
   0.00000, 0.00000" for a form that had no pin at all. Both fixed. Nothing
   reproduced at a browser. See the dated section below.
+- **"Use this address" saved the page instead of picking the address — FIXED
+  2026-09-27, browser- and database-confirmed.** A **third distinct cause** of a
+  lost pin on this surface, and the only one that wrote *nothing at all*: pressing
+  the address dialog's submit button also ran the page's own form submit, so the
+  page saved itself mid-pick, from a render in which the pick had not yet reached
+  state. The operator saw a green *"Driver updated successfully"*; the stored row,
+  its `address_id` and its fingerprint were untouched, and the route logged the
+  pick as absent. The lesson is in the shape of it — every layer of the write path
+  was correct, and three days went into re-reading it, because the one component
+  that was *not* correct reported success. One `stopPropagation` in the dialog's
+  `handleSubmit`. **Every picker on every page was affected**, not only the
+  driver's. See the dated section below.
+- **The driver edit form re-seeds on any refetch, not on a different driver —
+  OPEN, latent, filed not fixed.** `drivers/[id]/edit/page.js` keys its reset
+  effect on the `driver` *object* rather than on `driver_id` (`:143`), and React
+  Query returns an equal-but-new object on every refetch. **It does fire** — the
+  mutation's `onSuccess` invalidates `["driver", id]` after every save (`:294`),
+  so the reset runs there. That is harmless in itself, because the save has
+  already completed; what is not harmless is that `form.reset()` will also
+  discard anything the operator typed while the save was still in flight. The
+  same identity-versus-content mistake that was fixed in the address dialog on
+  2026-09-27, and the reason that fix is safe to keep. Left unfixed because the
+  proper fix is the same content comparison, and this pass was scoped to
+  verifying the address migration. See the dated section below.
+- **The reset effect's comment still describes the pre-loader world — OPEN, doc
+  defect.** `edit/page.js:112-117` says the API "returns `address_id` but not the
+  structured detail behind it", so the picker "shows read-only". That has been
+  false since the `loadStructuredAddress` work landed: the picker reopens on the
+  stored address and passes `initialStructured={driver?.structured_address}`
+  (`:488`). A comment that is true in conclusion and false in mechanism is the
+  kind that sends the next reader to the wrong place — the same class the
+  2026-09-25 map section calls out. See the dated section below.
 - ~~**`PUT /api/drivers/59/account` returned 404 for a live driver.**~~ **CLOSED
   2026-09-25 — never a code defect.** The `curl` returned Next's own HTML not-found
   page, and the route is present in `.next/server/` (the production build) while
@@ -298,6 +330,15 @@ The leaked database password was **rotated on
   address. See the dated section below for the remaining options (C needs the Search
   API enabled on the key, D needs an external gazetteer) and the invariant that holds
   across all of them.
+
+- **A pick judged "unchanged" is dropped without a word — OPEN, latent, filed
+  not fixed.** `isUnchangedPick` is the only silent exit in
+  `address-picker-field.jsx`: when the submitted address compares equal to the
+  saved one, `onChange` is never called and **nothing is shown** — no notice, no
+  toast, no state change. An operator who changed a field and saw no effect
+  cannot tell "this was already saved" from "my change was lost". That silence is
+  what concealed the 2026-09-27 dropped pin for three days: the fingerprint was
+  static, and every surface reported success. See the dated section below.
 
 ### Not yet filed as individual notes
 
@@ -2847,7 +2888,7 @@ A greyed button is the operator's report rather than a measurement, and it is re
 is consistent with everything the database shows — no emergency row was written — and explains that
 fact at least as directly as the close does.
 
-**Fixed 2026-09-25 — build-verified, browser pass owed.** The footer now carries the reason at the
+**Fixed 2026-09-25 — browser-verified.** The footer now carries the reason at the
 button it explains. `address-form-dialog.jsx` renders a line beside the submit button whenever the
 form is incomplete, naming the single remaining field (*"1 required field left: Select a
 barangay."*) and counting them when there are more, with the full list on `title`. The button points
@@ -2865,10 +2906,14 @@ Known limit, stated rather than implied: `aria-describedby` on a **disabled** bu
 announced, because a disabled control is not focusable — it is reached in browse mode, not on focus.
 `aria-disabled` would change the click behaviour, so the visible line is the substantive fix.
 
-No browser pass has run against this yet, and this repo has no component test harness, so the
-verification so far is `eslint` clean plus a green `npm run build` (212/212 pages). The check owed
-is on the emergency-contact picker, where the report originated: open it and touch nothing, and the
-footer should already read *"7 required fields left"* — the case that was broken.
+**Verified at the browser 2026-09-25.** On the emergency-contact picker at `/drivers/59/edit`,
+opening the dialog and touching nothing, the footer reads **"7 required fields left"** — the exact
+case that was broken, since the checklist above it is gated on `showErrors` and rendered nothing at
+all on an untouched form. `eslint` is clean and the production build is green as well.
+
+Not separately confirmed in that pass: the single-remaining-field wording (which should name the
+field rather than count it) and the `title` tooltip on the disabled button. Both run the same code
+path and neither is what the operator hit, so only the untouched case is claimed here.
 
 ### Half 2 — the pin map could not show an empty pin, so a cleared one looked set. FIXED AND BROWSER-VERIFIED 2026-09-25
 
@@ -3265,4 +3310,126 @@ exactly the false confidence the rest of this feature is built to refuse.
 - **Not yet browser-checked:** that "Enable wheel zoom" appears, that the wheel zooms
   after clicking it and scrolls the page before, that a pin-placing click still works
   with the wheel enabled, and that the control disappears afterwards.
+
+## Fixed — 2026-09-27 — "Use this address" ran the caller's form submit (the dropped driver pin)
+
+### The finding
+
+The residential pin on `/drivers/60/edit` could not be saved. Placing a pin, pressing
+**Use this address**, then **Save Changes**, produced a green *"Driver updated
+successfully"* and left the stored row exactly as it was — same `address_id`, same
+fingerprint, coordinates still `NULL`. The route logged the pick as absent on every
+attempt, and `parseBody` (`src/lib/api/utils.js:253-259`) is a bare `await req.json()`
+with no key filtering, so the conclusion was never really in doubt: **the client was
+not sending `structured_address`.**
+
+What took three days is that the pin was demonstrably *inside* the dialog — the map is
+fully controlled and its caption renders from the dialog's own `value` — so every static
+link in the chain from the dialog to the request was read, and re-read, and all of them
+agreed with each other. They were right. The break was somewhere none of them covered.
+
+### The mechanism
+
+`AddressFormDialog` submits through its own `<form>` and a `type="submit"` button
+(`address-form-dialog.jsx:371, :605`). That form renders inside `DialogContent`, which
+portals to `document.body` (`ui/dialog.jsx:14`) — so in the **DOM** it is emphatically
+not inside the page's form, which is why reading the markup settles nothing.
+
+A portal moves a subtree in the DOM, **not in the React tree**, and React dispatches
+synthetic events along the **fiber** tree. In React's tree that form is still a
+descendant of `drivers/[id]/edit/page.js`'s `<form onSubmit={form.handleSubmit(onSubmit)}>`.
+One press therefore ran two handlers, in this order:
+
+1. the dialog's `handleSubmit` → `onSubmit?.(effective)` → `onChange(next)` →
+   `setPickedAddress(next)` — **queued, not yet flushed**;
+2. the page form's `onSubmit` → the page saved immediately, reading `pickedAddress`
+   from the closure of a render in which it was still `null`.
+
+`preventDefault()` was already in `handleSubmit` and did nothing about this. It stops
+the browser's own submission, which was never the problem; only `stopPropagation()`
+stops React's tree dispatch.
+
+**The detail that made it look like a working save:** the page's Save button is
+`type="button"` (`edit/page.js:372`), so the save the operator saw fire was never the
+button they were about to press. From the outside it read as "Save Changes worked and
+the pin didn't stick", which is a completely different — and much more plausible —
+bug report than "the dialog is submitting the page".
+
+### What changed
+
+One line: `event.stopPropagation()` in `handleSubmit`
+(`src/components/address/address-form-dialog.jsx`), with the reasoning recorded beside
+it so the next reader does not delete it as clutter.
+
+### Blast radius — this was never a driver defect
+
+Every caller renders this dialog inside its own form, so **all four picker surfaces**
+saved their page on "Use this address": residential and emergency contact on the driver
+edit and create pages, the route-locations editor, and the hotel base. The driver pin
+was simply the one with a verifier behind it.
+
+### How it was actually found, and what that costs
+
+Three hypotheses died first, and each death was worth the cost:
+
+- **A disabled submit on an incompletely seeded form.** Killed by the verifier: the two
+  new checks below proved `street_number` and `street_name` *are* stored, so the form
+  was complete. Kept anyway — the picker's `home` rule demands a house number the
+  server does not, so a valid row can still seed a form with one required field empty
+  while `formatted_address` stays non-blank and hides it.
+- **A `MapContainer` destroyed by StrictMode.** Killed by asking what the map looked
+  like rather than by reasoning: the operator reported real tiles rendering.
+- **The reset effect at `edit/page.js:143`.** Never demonstrated, and retracted as
+  such; it remains the second latent bullet above.
+
+The pivot that worked was to **stop asking for the browser console**. Three requests
+returned a terminal paste instead, and after the third the honest move was to change
+the instrument rather than ask a fourth time: a booleans-only block rendered into the
+page under the Address field, and a `bodyKeys=` list on the server log. Neither was
+read in the end — the operator's own observation, *"it automatically proceeds to save
+changes without me clicking save changes"*, named the bug outright. All five
+`[addr-debug]` sites were removed before this was written up; `grep -r addr-debug src/`
+returns nothing.
+
+Every diagnostic printed booleans or key **names** only. That is now the standing rule
+for this surface: an address is a real person's home, and a debug line is the easiest
+place in the codebase to leak one.
+
+### Verification — actual output
+
+Browser: with the fix, "Use this address" closes the dialog and **does nothing else** —
+no toast, no request. A deliberate **Save Changes** afterwards records the pin.
+
+```
+node scripts/verify-driver-addresses.mjs --driver=60 --quiet
+```
+
+**All 30 checks passed**, where the same run had been failing one. The two rows' fingerprints
+say it precisely: the residential row is a **new registry row** (`7@2026-09-26T16:53:02.200Z`,
+coordinates present, house number and street present) while the emergency row is byte-identical
+to before (`6@2026-09-25T09:46:00.766Z`) — the emergency address was never touched, so the fix
+did not quietly write anything it should not have. `--quiet` was used throughout: the full
+output carries the formatted address.
+
+Two checks were added to that script on 2026-09-27 (house number, street) by the first,
+dead hypothesis. They are worth keeping on their own merits and are described above.
+
+### What this does NOT fix
+
+- **A pick judged "unchanged" is still silent** (Severity 3, above).
+- **`edit/page.js:143` still keys the form reset on the driver object, not
+  `driver_id`** — and it does fire, on the post-save invalidation at `:294`, where
+  it can discard input typed while the save was in flight. See Severity 2, above.
+- **`edit/page.js:112-117` still documents the pre-loader behaviour** — that the
+  picker "shows read-only" because the API returns no structured detail. It has
+  reopened on the stored address since `loadStructuredAddress` landed. See
+  Severity 2, above.
+- **`scripts/verify-driver-addresses.mjs` does not check for orphaned `addresses` rows** —
+  it verifies what `drivers.address_id` points at, not whether earlier attempts left
+  rows behind. The registry is append-only, so those rows are permanent. This pass wrote
+  the rows the runbook expects and no more, but the script cannot prove that, and it
+  should not be read as if it did.
+- **The map still does not open on the entered address.** Unrelated, and still blocked
+  on the TomTom Search API permission — see the 2026-09-25 section above.
+
 
