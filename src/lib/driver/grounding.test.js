@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   shouldGroundVehicle,
   requiresVehicleMaintenance,
+  shouldGroundReportedDefect,
   BREAKDOWN_RE,
+  PROSE_GROUNDING_RE,
+  TAGLISH_GROUNDING_RE,
   SEVERE_SEVERITIES,
 } from "@/lib/driver/grounding";
 
@@ -65,5 +68,65 @@ describe("requiresVehicleMaintenance", () => {
 
   it("does not create a work order without a vehicle", () => {
     expect(requiresVehicleMaintenance({ incidentType: "breakdown", vehicleId: null })).toBe(false);
+  });
+});
+
+describe("shouldGroundReportedDefect", () => {
+  it("grounds the same faults as the incident path, in English", () => {
+    for (const text of [
+      "may problema sa brake", "flat tire sa harap", "loose steering",
+      "engine is noisy", "transmission slips", "damaged bumper",
+      "cracked windshield", "may overheat kahapon",
+    ]) expect(shouldGroundReportedDefect(text), text).toBe(true);
+  });
+
+  it("grounds them in Filipino too — parity, not translation", () => {
+    for (const text of [
+      "sira ang preno", "flat ang gulong", "maluwag ang manibela",
+      "maingay ang makina", "mahina ang baterya", "may usok",
+      "may tagas sa ilalim", "basag ang salamin",
+    ]) expect(shouldGroundReportedDefect(text), text).toBe(true);
+  });
+
+  it("does not ground prose that merely contains a keyword as a substring", () => {
+    // The regression this anchoring exists for: BREAKDOWN_RE matches "tired"
+    // and "entire", VEHICLE_DAMAGE_RE matches "accident" (via `dent`). Against
+    // incident types that was harmless; against free text it would take a
+    // serviceable vehicle out of dispatch because the driver said they were
+    // tired.
+    for (const text of [
+      "I am tired", "the entire vehicle is fine", "entirely normal",
+      "no accident today", "wala namang aksidente", "all good, pagod lang ako",
+    ]) expect(shouldGroundReportedDefect(text), text).toBe(false);
+  });
+
+  it("does not ground a clean report or unrelated complaints", () => {
+    for (const text of [
+      "Nothing unusual", "wala akong napansin", "maayos naman",
+      "the aircon is a bit weak", "matagal ang byahe", "",
+    ]) expect(shouldGroundReportedDefect(text), text).toBe(false);
+  });
+
+  it("is safe on missing input", () => {
+    expect(shouldGroundReportedDefect()).toBe(false);
+    expect(shouldGroundReportedDefect(null)).toBe(false);
+  });
+
+  it("keeps the anchored vocabulary in step with the shared regexes", () => {
+    // The parity guard. Every term the incident path treats as grounding must
+    // also ground in prose; a term added above and not here fails this test
+    // instead of silently going unenforced on the End Duty path.
+    const CANONICAL = [
+      "breakdown", "mechanical failure", "engine trouble", "brake failure",
+      "flat tire", "tire", "tyre", "battery dead", "electrical fault",
+      "overheat", "transmission issue", "steering problem",
+      "damage", "damaged", "dent", "bumper", "bodywork", "mirror",
+      "windshield", "impact",
+    ];
+    for (const term of CANONICAL) {
+      const phrase = `noticed a ${term} on the vehicle`;
+      expect(PROSE_GROUNDING_RE.test(phrase), `${term} should ground in prose`).toBe(true);
+    }
+    expect(TAGLISH_GROUNDING_RE.test("sira ang preno")).toBe(true);
   });
 });

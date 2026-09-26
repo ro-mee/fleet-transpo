@@ -40,6 +40,7 @@ async function preTripStatus(tripId) {
     `SELECT i.status FROM vehicleinspection i
        JOIN trips t ON t.trip_id = i.trip_id
       WHERE i.trip_id = $1
+        AND i.inspection_type = 'Pre-Trip'
         AND i.driver_id = t.driver_id
         AND i.vehicle_id = t.vehicle_id
       ORDER BY i.created_at DESC, i.inspection_id DESC LIMIT 1`,

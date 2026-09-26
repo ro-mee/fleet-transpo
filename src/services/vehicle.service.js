@@ -52,6 +52,20 @@ export async function updateVehicleMaintenance(id, record) {
   return apiFetch(`/api/vehicle-maintenance/${id}`, { method: "PUT", body: record });
 }
 
+// The vehicle problem queue. `scope=count` is the dashboard strip's path: it
+// must not pull a page of rows on every dashboard load.
+export async function getVehicleProblems(filters = {}) {
+  return apiFetch(`/api/vehicle-inspections/problems${buildQuery(filters)}`);
+}
+
+export async function getVehicleProblemCount() {
+  return apiFetch("/api/vehicle-inspections/problems?scope=count");
+}
+
+export async function createInspectionWorkOrder(inspectionId) {
+  return apiFetch(`/api/vehicle-inspections/${inspectionId}/work-order`, { method: "POST" });
+}
+
 export async function getVehicleDocuments(vehicleId) {
   return apiFetch(`/api/vehicles/${vehicleId}/documents`);
 }

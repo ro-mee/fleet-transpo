@@ -14,6 +14,25 @@ import { DriverConsentGate } from "@/components/driver/consent-gate";
 import { FullscreenReceiptDialog } from "@/components/fuel/fullscreen-receipt-dialog";
 import { CarFront, TriangleAlert, Maximize } from "lucide-react";
 
+// `vehicleinspection.severity` holds more than one vocabulary and has no CHECK
+// to settle them: the mobile route writes None|Medium|High, the demo seed
+// writes Minor|Moderate, and the column default is Minor. This card was written
+// against the Critical|Major ladder instead, so every real row fell through to
+// "info" — and then that variant name was fed back in as the *severity* prop,
+// where it is not a key, leaving the badge unresolved: an outline chip reading
+// "info" for a High. Translate to the canonical severity keys and print the
+// real word, the same shape driver/incidents uses.
+const SEVERITY_STATUS = {
+  None: "passed",
+  Low: "low",
+  Minor: "low",
+  Moderate: "medium",
+  Medium: "medium",
+  Major: "high",
+  High: "high",
+  Critical: "critical",
+};
+
 export default function DriverVehiclePage() {
   useRequireRole();
   const [zoomImageUrl, setZoomImageUrl] = useState(null);
@@ -99,7 +118,9 @@ export default function DriverVehiclePage() {
                       <p className="text-foreground-muted">Condition</p>
                       <p className="mt-1">
                         <StatusBadge
-                          severity={inspection.severity === "Critical" ? "danger" : inspection.severity === "Major" ? "warning" : "info"}
+                          status={SEVERITY_STATUS[inspection.severity]}
+                          entity="severity"
+                          label={inspection.severity}
                         />
                       </p>
                     </div>
