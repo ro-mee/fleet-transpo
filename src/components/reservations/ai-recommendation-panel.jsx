@@ -365,6 +365,11 @@ export function AiRecommendationPanel({
   const [failure, setFailure] = useState(null);
   const [committed, setCommitted] = useState(null);
   const [selectionCheck, setSelectionCheck] = useState(null);
+  // User-initiated recheck only. Keying the header chip / Recheck button on
+  // `query.isFetching` made every 30s background poll look like a reload —
+  // the same defect class as the Assign gate (AI Advisory 2026-09-19), which
+  // was fixed then and this closes now.
+  const [rechecking, setRechecking] = useState(false);
   const selectionGeneration = useRef(0);
   const submitting = useRef(false);
 
@@ -378,6 +383,7 @@ export function AiRecommendationPanel({
     setFailure(null);
     setCommitted(null);
     setSelectionCheck(null);
+    setRechecking(false);
   }
   useEffect(() => () => { selectionGeneration.current++; }, [requestId]);
 
@@ -578,11 +584,16 @@ export function AiRecommendationPanel({
     runSelectionCheck(option, { announce: message || `Option ${option.index+1}` });
 
   const recheck = async () => {
+    setRechecking(true);
     setFailure(null);
     setReason("");
-    const option = options.find(o => pairKey(o.pair) === selected);
-    if (option) await chooseOption(option, 'Recheck selected option');
-    else await query.refetch();
+    try {
+      const option = options.find(o => pairKey(o.pair) === selected);
+      if (option) await chooseOption(option, 'Recheck selected option');
+      else await query.refetch();
+    } finally {
+      setRechecking(false);
+    }
   };
 
   const chooseAnother = () => {
@@ -632,7 +643,7 @@ export function AiRecommendationPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once-per-request guard is a ref
   }, [requestId, isClosed, options.length]);
 
-  useEffect(()=>{onBusyChange?.(assignment.isPending || !!failure?.checking || !!selectionCheck?.pending);},[assignment.isPending,failure?.checking,selectionCheck?.pending,onBusyChange]);
+  useEffect(()=>{onBusyChange?.(assignment.isPending || !!failure?.checking || !!selectionCheck?.pending || rechecking);},[assignment.isPending,failure?.checking,selectionCheck?.pending,rechecking,onBusyChange]);
 
   const action = dispatchConfirmation({
     canAssign, pair, decision, awaitingResult: query.isLoading, error: query.isError,
@@ -705,11 +716,13 @@ export function AiRecommendationPanel({
   // The confirmation action lives inside the conversation as Copilot's reply,
   // so the flow and its gating are composed as slots of the option message.
   const busy = assignment.isPending || !!failure?.checking;
+  // First load or an explicit Recheck press — never a background poll.
+  const recheckBusy = query.isLoading || rechecking;
   const recovery =
     action.recovery === "request" ? (
       <Link className="text-xs text-primary underline" href={`/reservations/${requestId}`}>Open current request</Link>
     ) : (action.recovery === "recheck" || action.recovery === "analyze") ? (
-      <Button size="xs" variant="outline" className="rounded-lg text-[11px]" onClick={recheck} disabled={query.isFetching || busy}>Recheck reservation</Button>
+      <Button size="xs" variant="outline" className="rounded-lg text-[11px]" onClick={recheck} disabled={recheckBusy || busy}>Recheck reservation</Button>
     ) : null;
   const reasonSlot =
     canAssign && manual && decision.canReview ? (
@@ -802,8 +815,11 @@ export function AiRecommendationPanel({
                   Dispatch Copilot
                   <span className="text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                     {/* A known stale/error state outranks an in-flight refresh:
-                        the chip must not report "Checking" over a real blocker. */}
-                    {query.isError ? "Unavailable" : decision.stale ? "Stale" : query.isFetching ? "Checking" : "Evidence"}
+                        the chip must not report "Checking" over a real blocker.
+                        Only first load or an explicit Recheck reads Checking —
+                        a background poll keeps Evidence, so the 30s timer never
+                        looks like a reload. */}
+                    {query.isError ? "Unavailable" : decision.stale ? "Stale" : recheckBusy ? "Checking" : "Evidence"}
                   </span>
                 </h2>
                 <p className="text-[11px] text-foreground-secondary mt-1">
@@ -819,14 +835,14 @@ export function AiRecommendationPanel({
                 variant="outline"
                 size="xs"
                 onClick={recheck}
-                disabled={query.isFetching || assignment.isPending || failure?.checking}
+                disabled={recheckBusy || assignment.isPending || failure?.checking}
                 className="h-7 text-xs rounded-lg border-border/80"
                 title="Recheck evidence for this reservation"
               >
                 <RefreshCw
-                  className={cn("w-3 h-3 mr-1", query.isFetching && "animate-spin")}
+                  className={cn("w-3 h-3 mr-1", recheckBusy && "animate-spin")}
                 />
-                {query.isFetching ? "Checking…" : "Recheck reservation"}
+                {recheckBusy ? "Checking…" : "Recheck reservation"}
               </Button>
             </div>
           </div>

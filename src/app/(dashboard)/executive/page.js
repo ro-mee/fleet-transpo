@@ -142,7 +142,7 @@ export default function ExecutiveKpiPage() {
         description="High-level operational and financial KPIs for leadership. Real-time overview."
       />
 
-      {[financial, utilization, performance, incidents, insightsQuery].some((query) => query.isError) && (
+      {[financial, utilization, performance, incidents, insightsQuery].some((query) => query.isError && !query.data) && (
         <div className="space-y-2">
           {[
             [financial, "Financial summary could not be refreshed"],
@@ -150,7 +150,9 @@ export default function ExecutiveKpiPage() {
             [performance, "Driver performance could not be refreshed"],
             [incidents, "Incident risk could not be refreshed"],
             [insightsQuery, "AI insights could not be refreshed"],
-          ].map(([query, title]) => <QueryErrorBanner key={title} query={query} title={title} description="Affected metrics show as unavailable; other executive data remains current." />)}
+          ]
+            .filter(([query]) => query.isError && !query.data)
+            .map(([query, title]) => <QueryErrorBanner key={title} query={query} title={title} description="Affected metrics show as unavailable; other executive data remains current." />)}
         </div>
       )}
 

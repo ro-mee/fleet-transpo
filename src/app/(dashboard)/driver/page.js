@@ -113,7 +113,7 @@ export default function DriverHomePage() {
           description="Welcome to your Driver Workspace. Pick a module below to get started."
         />
 
-        {[tripsQuery, scheduleQuery, leaveQuery, inspectionQuery, fuelQuery, notificationsQuery].some((query) => query.isError) && (
+        {[tripsQuery, scheduleQuery, leaveQuery, inspectionQuery, fuelQuery, notificationsQuery].some((query) => query.isError && !query.data) && (
           <div className="space-y-2">
             {[
               [tripsQuery, "Your trip list could not be loaded"],
@@ -122,7 +122,9 @@ export default function DriverHomePage() {
               [inspectionQuery, "Your latest vehicle inspection could not be loaded"],
               [fuelQuery, "Your fuel request status could not be loaded"],
               [notificationsQuery, "Your notifications could not be loaded"],
-            ].map(([query, title]) => <QueryErrorBanner key={title} query={query} title={title} description="Other self-service information remains available." />)}
+            ]
+              .filter(([query]) => query.isError && !query.data)
+              .map(([query, title]) => <QueryErrorBanner key={title} query={query} title={title} description="Other self-service information remains available." />)}
           </div>
         )}
 
