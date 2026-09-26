@@ -41,6 +41,13 @@ export const COACH_MARK_MILESTONES = {
         targetId: "inspection.pass_fail",
         title: "Mark each item",
         body: "Work down the list and choose PASS for each item that is safe, or FAIL for one you find a problem with. Marking FAIL asks you to describe the issue, so dispatch knows what needs attention.",
+        // Renders in both modes. `body` stays the per-trip variant and doubles
+        // as the no-context fallback; only the sentence that explains what the
+        // baseline is for differs.
+        dynamicBody: (ctx) =>
+          ctx?.mode === "preshift"
+            ? "Work down the list and choose PASS for each item that is safe, or FAIL for one you find a problem with. This is your once-a-day baseline — each trip still needs its own quick check before departure."
+            : "Work down the list and choose PASS for each item that is safe, or FAIL for one you find a problem with. Marking FAIL asks you to describe the issue, so dispatch knows what needs attention.",
         actionText: "Got it",
         canSkip: true,
         interaction: "passthrough",
@@ -74,7 +81,13 @@ export const COACH_MARK_MILESTONES = {
         id: "pretrip.complete",
         targetId: "inspection.complete",
         title: "Complete to continue",
-        body: "Tap here once all 7 items are checked. You must complete the inspection before you can start the trip.",
+        body: "Tap here once every item is checked. You must complete this check before the trip can start.",
+        // The count is the part that two inspection types made untrue, so it is
+        // passed in from the screen that knows it and never hardcoded here.
+        dynamicBody: (ctx) =>
+          ctx?.total
+            ? `Tap here once all ${ctx.total} items are checked. You must complete this check before the trip can start.`
+            : "Tap here once every item is checked. You must complete this check before the trip can start.",
         actionText: "Got it",
         canSkip: true,
         // `passthrough`, not `blocked`. The step's copy tells the driver to
@@ -108,7 +121,7 @@ export const COACH_MARK_MILESTONES = {
         id: "trip.pretrip_requirement",
         targetId: "trip.pretrip_requirement",
         title: "Pre-trip requirement",
-        body: "Complete the required vehicle inspection before departure. The start button unlocks once safety is confirmed.",
+        body: "Complete the pre-shift vehicle safety check once a day, then the quick pre-trip check for each trip. The start button unlocks once safety is confirmed.",
         actionText: "Next →",
         canSkip: true,
         interaction: "observe",
@@ -121,10 +134,57 @@ export const COACH_MARK_MILESTONES = {
         dynamicBody: (ctx) =>
           ctx?.isContinue
             ? "Once the trip is active, Continue to Map only returns you to the live trip and navigation."
-            : "Start Trip begins the trip when readiness and inspection requirements are satisfied.",
+            : ctx?.reason === "pre_shift"
+              ? "START YOUR SHIFT opens the full vehicle safety check. Complete it once today and this button becomes the start control for your trips."
+              : "Start Trip begins the trip when readiness and inspection requirements are satisfied.",
         actionText: "Got it",
         canSkip: false,
         interaction: "blocked",
+      },
+    ],
+  },
+
+  // Guide 1's Home entry point, not a seventh guide: §3's six areas are the
+  // areas that *receive* guidance, and this teaches the same Pre-Shift check
+  // Guide 1 already covers — from the control that starts it.
+  PRESHIFT_INTRO: {
+    key: "preshift",
+    version: 1,
+    route: "/",
+    steps: [
+      {
+        id: "preshift.start",
+        targetId: "home.preshift_start",
+        title: "Start with the vehicle check",
+        body: "Complete the full vehicle safety check once a day, before your first trip. Each trip afterwards still needs its own quick pre-trip check — this one does not count for a trip.",
+        actionText: "Got it",
+        canSkip: true,
+        // `observe`: the driver's next act is to read this, then tap the real
+        // button. The guide explains; it asks for no tap of its own.
+        interaction: "observe",
+      },
+    ],
+  },
+
+  // Guide 1's closing half. Closing the shift is the one duty action with a
+  // consequence the driver cannot see from the button: it files a vehicle
+  // condition report for the day. Same shape as PRESHIFT_INTRO — one step, Home,
+  // `observe`, skip-forgiving — so the card stays tappable underneath.
+  END_DUTY_INTRO: {
+    key: "end_duty",
+    version: 1,
+    route: "/",
+    steps: [
+      {
+        id: "end_duty.report",
+        targetId: "home.end_duty",
+        title: "Close your shift with a quick report",
+        body: "Before you clock out, tell FleetOps whether you noticed anything unusual about the vehicle. Say nothing was unusual and your shift closes right away; describe a problem and it opens a work order for the vehicle.",
+        actionText: "Got it",
+        canSkip: true,
+        // `observe`: the driver reads this, then taps the real button. The guide
+        // explains the consequence; it asks for no tap of its own.
+        interaction: "observe",
       },
     ],
   },
@@ -398,6 +458,64 @@ export const COACH_MARK_MILESTONES = {
         canSkip: true,
         interaction: "passthrough",
         presentation: "floating_bubble",
+      },
+    ],
+  },
+
+  // The two duty controls, taught back to back and immediately after SOS. They
+  // are a matched pair — Pre-Shift opens the shift, End Duty closes it — and
+  // pairing them lands the duty model's core lesson in one beat instead of
+  // splitting it across the length of the tour. Everything that follows
+  // (incident, fuel, trip progression) is then "what you do during the shift".
+  TOUR_PRESHIFT: {
+    key: "tour_preshift",
+    version: 1,
+    route: "/",
+    steps: [
+      {
+        id: "tour.preshift.start",
+        targetId: "home.preshift_start",
+        title: "Start Your Shift",
+        // Both facts a driver cannot see from the button: that this runs once a
+        // day, and that it does NOT clear their trips. Without the second
+        // sentence a driver concludes the baseline covers the whole day's
+        // departures, which is exactly the confusion the two-type model fixes.
+        body: "Every working day starts here, with the full vehicle safety check. It runs once a day, before your first trip — and each trip still needs its own quick check afterwards, so this one does not clear them.",
+        actionText: "Got it",
+        canSkip: true,
+        // `observe`: the driver reads this, then the tour walks the real screen.
+        // The tap is not what the tour waits for here — the cascade navigates,
+        // and the cutout is pointer-blocking so the real button cannot be
+        // pressed mid-tour (a bare press would run a REAL baseline and start
+        // duty; see §7 Rule 3 and the entry-point guard in the plan).
+        interaction: "observe",
+      },
+    ],
+  },
+
+  // Taught immediately after Pre-Shift, not held to the end of the tour: the
+  // two duty bookends belong in one lesson. The copy therefore has to frame
+  // itself as the END of the day rather than as the next thing to do — a driver
+  // meets this roughly a minute into onboarding.
+  TOUR_END_DUTY: {
+    key: "tour_end_duty",
+    version: 1,
+    route: "/",
+    steps: [
+      {
+        id: "tour.end_duty.report",
+        targetId: "home.end_duty",
+        title: "Close Your Shift",
+        // Both halves of the consequence: the uneventful path closes the shift,
+        // and a description is not a note — it files a work order that can
+        // ground the vehicle. That is the part a driver cannot infer.
+        body: "At the end of the day your shift closes here. Say nothing was unusual and it closes right away; describe a problem and it opens a work order for the vehicle. Nothing to do right now — just know where it lives.",
+        actionText: "Got it",
+        canSkip: true,
+        // `observe`: same shape as TOUR_PRESHIFT — the guide explains, the driver
+        // does not act. The card stays rendered underneath but its button is
+        // pointer-blocked for the step's duration.
+        interaction: "observe",
       },
     ],
   },

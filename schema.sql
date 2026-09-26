@@ -1487,6 +1487,7 @@ CREATE INDEX idx_uvvrp_violations_vehicle ON public.uvvrp_violations USING btree
 CREATE INDEX idx_vehicledocuments_expiry ON public.vehicledocuments USING btree (expiry_date);
 CREATE INDEX idx_vehicledocuments_type ON public.vehicledocuments USING btree (document_type);
 CREATE INDEX idx_vehicledocuments_vehicle ON public.vehicledocuments USING btree (vehicle_id);
+CREATE INDEX idx_vehicleinspection_problem_queue ON public.vehicleinspection USING btree (inspection_date DESC, inspection_id DESC) WHERE (((status)::text = 'Failed'::text) OR (((inspection_type)::text = 'Post-Shift'::text) AND ((status)::text = 'Reported'::text)));
 CREATE INDEX idx_vehicleinspection_trip ON public.vehicleinspection USING btree (trip_id, inspection_date DESC, created_at DESC);
 CREATE INDEX idx_vehicleinspection_vehicle_date ON public.vehicleinspection USING btree (vehicle_id, inspection_date DESC, created_at DESC);
 CREATE INDEX idx_vehiclemaintenance_source_incident ON public.vehiclemaintenance USING btree (source_incident_id) WHERE (source_incident_id IS NOT NULL);

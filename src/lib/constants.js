@@ -260,6 +260,15 @@ export const NOTIFICATION_EVENTS = {
     label: "Trip Has Not Started",
     defaults: { in_app: true, email: false, push: true },
   },
+  // Time-driven End Duty reminder producer (end-duty-reminder.service, driven by
+  // /api/cron/sync). Both stages share ONE key on purpose: the mobile Push
+  // toggle is a master switch over the channel, so a driver cannot silence
+  // stage 2 while keeping stage 1. The asymmetry is the safe direction — stage 2
+  // only fires once the report is hours late and the automatic close is next.
+  end_duty_reminder: {
+    label: "End Duty Reminder",
+    defaults: { in_app: true, email: false, push: true },
+  },
   // Account-owner "was that you?" notice from new-device-alert.js. This is the
   // one event whose email channel is actually delivered: the producer sends it
   // through lib/email/smtp. Every other event still defaults `email: true`

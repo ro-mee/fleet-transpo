@@ -536,8 +536,9 @@ export function CoachMarkOverlay({
       ? step.dynamicBody(stepContext)
       : step.body;
 
-  // Scrim color: dark translucent preserving underlying visual context
-  const scrimBg = isDark ? "rgba(10, 15, 13, 0.76)" : "rgba(15, 25, 20, 0.65)";
+  // Scrim from the theme token (`colors.scrim`) with the same per-scheme
+  // density as before (dark 0.76 = C2, light 0.65 = A6 in hex alpha).
+  const scrimBg = colors.scrim + (isDark ? "C2" : "A6");
   // Welcome is intentionally non-intrusive. Let navigation tabs remain
   // reachable so a driver can choose Map immediately after resetting tips;
   // every targeted/protected coach mark keeps its normal blocking geometry.
@@ -936,9 +937,10 @@ export function CoachMarkOverlay({
               {
                 borderRadius: holeRadius,
                 borderWidth: 2,
-                borderColor: isDark
-                  ? "rgba(74, 222, 128, 0.85)"
-                  : "rgba(46, 125, 82, 0.90)",
+                // On-token edge tint — replaces the neon green-400 dark ring
+                // (rgba(74, 222, 128, …)) that violated this file's own
+                // "no neon #00E676" rule at the top.
+                borderColor: colors.edge + (isDark ? "D9" : "E6"),
                 opacity: pulseAnim,
               },
             ]}
@@ -964,7 +966,7 @@ export function CoachMarkOverlay({
                 styles.handoffCue,
                 tooltipStyle,
                 {
-                  backgroundColor: isDark ? "#17221D" : "#FFFFFF",
+                  backgroundColor: colors.surfaceContainerLow,
                   borderColor: isDark
                     ? "rgba(166, 199, 184, 0.20)"
                     : "rgba(40, 84, 72, 0.12)",

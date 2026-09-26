@@ -47,7 +47,7 @@ export default function IncidentsScreen() {
   const raised = raisedControl(isDark);
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
-  const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
+  const { triggerMilestone, notifyInteraction, setTutorialTransition } = useCoachMarkActions();
   const { activeMilestone } = useCoachMarkStatus();
   const scrollRef = useRef(null);
 
@@ -631,7 +631,8 @@ export default function IncidentsScreen() {
               size="lg"
               onPress={() => {
                 setShowTourSuccessModal(false);
-                router.push("/(app)/(tabs)?tour_step=fuel");
+                setTutorialTransition?.(true, "tour_fuel");
+                router.replace("/(app)/(tabs)?tour_step=fuel");
               }}
               style={{ width: '100%' }}
             />

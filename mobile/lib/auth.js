@@ -4,7 +4,7 @@ import { decodeJwtRole } from "./rbac";
 import { saveTokens, saveUser, getUser, getAccessToken, getRefreshToken, clearAll } from "./storage";
 import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { clearBiometric } from "./biometric";
-import { registerDeviceToken, unregisterDeviceToken } from "./notifications/device-token";
+import { registerDeviceTokenIfAuthorized, unregisterDeviceToken } from "./notifications/device-token";
 
 const AuthContext = createContext(null);
 
@@ -17,7 +17,10 @@ export function AuthProvider({ children }) {
     (async () => {
       try {
         const [token, stored] = await Promise.all([getAccessToken(), getUser()]);
-        if (token && stored) setUser(stored);
+        if (token && stored) {
+          setUser(stored);
+          registerDeviceTokenIfAuthorized();
+        }
       } catch {
         // ignored
       } finally {
@@ -51,8 +54,8 @@ export function AuthProvider({ children }) {
     const driver = { ...data.driver, role: decodeJwtRole(data.accessToken) || "driver" };
     await saveUser(driver);
     setUser(driver);
-    // Best-effort push registration — never block a successful login on it.
-    registerDeviceToken();
+    // Non-prompting push registration — only registers if permission was already granted previously.
+    registerDeviceTokenIfAuthorized();
     return driver;
   }, []);
 

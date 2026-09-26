@@ -3,6 +3,7 @@ import { verifyServiceToken } from "@/lib/api/service-auth";
 import { syncAllVehicleStatuses, syncAllDriverStatuses, syncComplianceNotifications } from "@/services/status.service";
 import { syncStartWindowNotifications } from "@/services/start-window-notifications.service";
 import { syncAssignedTripAlerts } from "@/services/assigned-trip-scan.service";
+import { syncEndDutyReminders } from "@/services/end-duty-reminder.service";
 import { pruneAppErrors } from "@/lib/app-errors";
 import { recordSyncHeartbeat } from "@/lib/system-health";
 
@@ -36,7 +37,7 @@ async function runSync(req) {
   // pruneAppErrors never throws by contract, but it runs in its own isolated
   // step anyway: retention cleanup must never fail vehicle/driver/compliance
   // sync just because pruning had a bad day.
-  const [vehicleResult, driverResult, complianceResult, pruneResult, startWindowResult, assignedTripResult] = await Promise.all([
+  const [vehicleResult, driverResult, complianceResult, pruneResult, startWindowResult, assignedTripResult, endDutyResult] = await Promise.all([
     syncAllVehicleStatuses(),
     syncAllDriverStatuses(),
     syncComplianceNotifications(),
@@ -68,6 +69,17 @@ async function runSync(req) {
         return { created: 0, pushes_attempted: 0, scanned: 0, errors: 1 };
       }
     })(),
+    // Time-driven End Duty reminders. Isolated best-effort by the same rule as
+    // the two steps above: reminding a driver about an unfinished report must
+    // never fail — or be failed by — the status and compliance sync. The
+    // service itself never throws; this guard is defense in depth.
+    (async () => {
+      try {
+        return await syncEndDutyReminders();
+      } catch {
+        return { created: 0, pushes_attempted: 0, scanned: 0, skipped: 0, errors: 1 };
+      }
+    })(),
   ]);
 
   return ok({
@@ -80,11 +92,14 @@ async function runSync(req) {
     start_window_skipped: startWindowResult.skipped,
     assigned_trip_alerts_created: assignedTripResult.created,
     assigned_trip_alerts_scanned: assignedTripResult.scanned,
+    end_duty_reminders_created: endDutyResult.created,
+    end_duty_pushes_attempted: endDutyResult.pushes_attempted,
+    end_duty_skipped: endDutyResult.skipped,
     // Driver positions older than 10 min (or of unknown age) still fed those
     // trips' ETAs — surfaced for acceptance testing, not an error.
     start_window_stale_locations: startWindowResult.stale_locations,
     heartbeat_recorded: await recordSyncHeartbeat(),
-    message: `Scheduled sync complete (${vehicleResult.synced} vehicles, ${driverResult.synced} drivers, ${complianceResult.created} notifications, ${startWindowResult.created} start-window notifications, ${pruneResult.deleted} old error rows pruned)`,
+    message: `Scheduled sync complete (${vehicleResult.synced} vehicles, ${driverResult.synced} drivers, ${complianceResult.created} notifications, ${startWindowResult.created} start-window notifications, ${endDutyResult.created} end-duty reminders, ${pruneResult.deleted} old error rows pruned)`,
   });
 }
 

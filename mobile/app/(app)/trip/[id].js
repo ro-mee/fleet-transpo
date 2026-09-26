@@ -14,6 +14,7 @@ import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
+import { usePreShift } from "../../../lib/use-pre-shift";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
 import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../../components/coachmarks";
@@ -34,6 +35,9 @@ export default function TripDetailsScreen() {
   const { colors, type, scheme } = useTheme();
   const { triggerMilestone, dismiss } = useCoachMarkActions();
   const { activeMilestone } = useCoachMarkStatus();
+  // Today's shift-wide baseline. Called here, at the top, because it is a hook
+  // and the render below returns early for loading/not-found.
+  const preShift = usePreShift();
   const mats = clayMaterials(scheme === "dark");
   const dark = scheme === "dark";
 
@@ -160,8 +164,23 @@ export default function TripDetailsScreen() {
     // when a trip CAN begin, then left steps 2 and 3 with no target at all: the
     // overlay hid while the milestone stayed active and could never complete.
     if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;
-    triggerMilestone("trip_readiness");
-  }, [loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone]);
+    // The reason tells step 3 what this button does HERE. In the pre_shift state
+    // it opens the baseline check rather than starting the trip, and copy that
+    // promised otherwise would be wrong in exactly the state this feature adds.
+    //
+    // Computed here rather than read from the `ready` object below: that object
+    // is built after this function's early returns and is a fresh object on
+    // every render, so it cannot be a dependency without both crashing the deps
+    // array (TDZ) and re-firing this effect constantly. Its inputs are stable
+    // primitives, so they are what this effect depends on — triggering once more
+    // when the baseline resolves is the desired behaviour, not churn.
+    const reason = readinessFor(trip, Date.now(), {
+      preShiftPassed: preShift.loaded ? preShift.passed : true,
+    }).unavailableReason;
+    // This effect is pre-start only, so the step's isContinue branch cannot
+    // originate from this call site.
+    triggerMilestone("trip_readiness", { reason });
+  }, [loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed]);
 
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.
@@ -263,7 +282,45 @@ export default function TripDetailsScreen() {
     );
   }
 
-  const ready = readinessFor(trip, now);
+  const ready = readinessFor(trip, now, {
+    // An unresolved baseline must not block: `loaded` false means we do not yet
+    // know (or could not find out), and readinessFor gates on what it is told.
+    // Passing bare `preShift.passed` would report false while the fetch is in
+    // flight and on every offline cold start, labelling a driver who already
+    // did the check as still owing it.
+    preShiftPassed: preShift.loaded ? preShift.passed : true,
+  });
+
+  // The primary action has three jobs now: start the trip, open the shift
+  // baseline, or open this trip's pre-trip check. The two "open" states are real
+  // actions, so they keep the enabled styling — only states the driver cannot
+  // act on (window not open, no schedule) stay locked. A disabled button whose
+  // label reads "START YOUR SHIFT" would be the worst of both.
+  const ctaLabel = ready.startReady
+    ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
+    : ready.unavailableReason === "pre_shift"
+      ? "START YOUR SHIFT"
+      : ready.unavailableReason === "inspection"
+        ? "PRE-TRIP CHECK"
+        : ready.unavailableReason === "window"
+          ? `START ROUTE IN ${ready.minsToStart} MIN`
+          : "START NOT YET SCHEDULED";
+  const ctaNavigates =
+    ready.unavailableReason === "pre_shift" || ready.unavailableReason === "inspection";
+  const ctaActive = ready.startReady || ctaNavigates;
+  const ctaDisabled = accepting || !ctaActive;
+
+  const handlePrimary = () => {
+    if (ready.unavailableReason === "pre_shift") {
+      router.push({ pathname: "/inspection", params: { mode: "preshift" } });
+      return;
+    }
+    if (ready.unavailableReason === "inspection") {
+      router.push({ pathname: "/inspection", params: { tripId: String(id) } });
+      return;
+    }
+    handleAcceptStart();
+  };
   const depMs = scheduledDeparture(trip);
   const depLabel = depMs != null
     ? new Date(depMs).toLocaleDateString([], { month: "short", day: "numeric" }) + " · " + fmtTime(depMs)
@@ -335,7 +392,32 @@ export default function TripDetailsScreen() {
               <Text style={[type.label, { letterSpacing: 0.6 }]}>{isPreStart ? "START READINESS" : "TRIP IN PROGRESS"}</Text>
             </View>
             {isPreStart ? (
-              ready.earliestStart != null ? (
+              ready.unavailableReason === "pre_shift" ? (
+                // Baseline first, because it outranks the clock: it is the one
+                // thing the driver can act on now, and the schedule is not. Both
+                // step targets stay live here so the trip_readiness milestone can
+                // still advance — this branch must not strand the guide.
+                <>
+                  <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
+                    <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
+                      <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />
+                      <Text style={[type.supporting, { flexShrink: 1 }]}>
+                        {ready.earliestStart != null
+                          ? `Window ${ready.windowOpen ? "is open" : `opens in ${ready.minsToStart} min`} (${fmtTime(ready.earliestStart)}).`
+                          : "Start window isn't confirmed yet."}
+                      </Text>
+                    </View>
+                  </CoachMarkTarget>
+                  <CoachMarkTarget targetId="trip.pretrip_requirement" scrollRef={scrollRef}>
+                    <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
+                      <Ionicons name="shield-checkmark-outline" size={18} color={colors.onSurfaceVariant} />
+                      <Text style={[type.supporting, { flexShrink: 1 }]}>
+                        Not completed today. Start your shift with the full vehicle safety check before any trip.
+                      </Text>
+                    </View>
+                  </CoachMarkTarget>
+                </>
+              ) : ready.earliestStart != null ? (
                 <>
                   <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
                     <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
@@ -378,7 +460,7 @@ export default function TripDetailsScreen() {
                       {!ready.preTripPassed ? (
                         <View style={styles.hintRow}>
                           <Ionicons name="information-circle-outline" size={14} color={colors.error} />
-                          <Text style={[type.caption, { flexShrink: 1 }]}>Pre-trip inspection must be completed before starting.</Text>
+                          <Text style={[type.caption, { flexShrink: 1 }]}>Pre-shift and pre-trip checks must both be completed before starting.</Text>
                         </View>
                       ) : null}
                     </View>
@@ -400,7 +482,7 @@ export default function TripDetailsScreen() {
                     <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
                       <Ionicons name="shield-checkmark-outline" size={18} color={colors.onSurfaceVariant} />
                       <Text style={[type.supporting, { flexShrink: 1 }]}>
-                        Complete the required pre-trip inspection before departure. The start button unlocks once safety is confirmed.
+                        Complete the daily pre-shift check, then this trip&apos;s pre-trip check. The start button unlocks once safety is confirmed.
                       </Text>
                     </View>
                   </CoachMarkTarget>
@@ -506,36 +588,34 @@ export default function TripDetailsScreen() {
                 dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 },
                 mats.clayCta,
                 {
-                  backgroundColor: ready.startReady ? colors.primary : colors.surfaceContainerHigh,
+                  backgroundColor: ctaActive ? colors.primary : colors.surfaceContainerHigh,
                   shadowColor: colors.shadow,
                   opacity: pressed ? 0.85 : 1,
                 },
               ]}
-              onPress={handleAcceptStart}
-              disabled={accepting || !ready.startReady}
+              onPress={handlePrimary}
+              disabled={ctaDisabled}
               accessibilityRole="button"
-              accessibilityLabel={ready.startReady
-                ? (isAccepted ? "Start route" : "Accept and start trip")
-                : "Start route not yet available"}
-              accessibilityState={{ disabled: accepting || !ready.startReady, busy: !!accepting }}
+              accessibilityLabel={
+                ready.startReady
+                  ? (isAccepted ? "Start route" : "Accept and start trip")
+                  : ctaNavigates
+                    ? ctaLabel
+                    : "Start route not yet available"
+              }
+              accessibilityState={{ disabled: ctaDisabled, busy: !!accepting }}
             >
               {accepting ? (
                 <ActivityIndicator color={colors.onPrimary} />
               ) : (
                 <>
-                  <Text style={[type.labelLg, { color: ready.startReady ? colors.onPrimary : colors.onSurfaceVariant, textAlign: "center", flexShrink: 1 }]}>
-                    {ready.startReady
-                      ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
-                      : ready.unavailableReason === "inspection"
-                        ? "PRE-TRIP CHECK REQUIRED"
-                        : ready.unavailableReason === "window"
-                          ? `START ROUTE IN ${ready.minsToStart} MIN`
-                          : "START NOT YET SCHEDULED"}
+                  <Text style={[type.labelLg, { color: ctaActive ? colors.onPrimary : colors.onSurfaceVariant, textAlign: "center", flexShrink: 1 }]}>
+                    {ctaLabel}
                   </Text>
                   <Ionicons
-                    name={ready.startReady ? "car-outline" : "lock-closed-outline"}
+                    name={ready.startReady ? "car-outline" : ctaNavigates ? "arrow-forward-outline" : "lock-closed-outline"}
                     size={19}
-                    color={ready.startReady ? colors.onPrimary : colors.onSurfaceVariant}
+                    color={ctaActive ? colors.onPrimary : colors.onSurfaceVariant}
                   />
                 </>
               )}

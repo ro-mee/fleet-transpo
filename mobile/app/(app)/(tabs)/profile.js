@@ -1,6 +1,5 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useState } from "react";
-import { useFocusEffect } from '@react-navigation/native';
 import { api } from "../../../lib/api";
 import {
   ActivityIndicator,
@@ -86,22 +85,6 @@ export default function Profile() {
   const [logoutModal, setLogoutModal] = useState(false);
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [duty, setDuty] = useState(null);
-  const [dutyBusy, setDutyBusy] = useState(false);
-  const [dutyError, setDutyError] = useState(null);
-  useFocusEffect(useCallback(() => {
-    let active = true;
-    api.get('/api/mobile/driver/duty').then(value => { if (active) setDuty(value); })
-      .catch(() => { if (active) setDutyError('Duty status unavailable. Try again when connected.'); });
-    return () => { active = false; };
-  }, []));
-  async function toggleDuty() {
-    setDutyBusy(true); setDutyError(null);
-    try {
-      setDuty(await api.post('/api/mobile/driver/duty', { active: !duty?.checkedIn }, { queueOnFailure: false }));
-    } catch (error) { setDutyError(error.message); }
-    finally { setDutyBusy(false); }
-  }
   const currentUser = serverProfile || user;
   const driverName =
     currentUser?.firstName && currentUser?.lastName
@@ -268,13 +251,6 @@ export default function Profile() {
         </ClayCard>
 
         <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
-        <ClayCard variant="compact" style={styles.section}>
-          <Text style={[type.cardTitle, { color: colors.onSurface }]}>{duty?.checkedIn ? 'On duty' : 'Driver duty'}</Text>
-          <Text style={[type.caption, { color: colors.onSurfaceVariant, marginVertical: 8 }]}>
-            {dutyError || 'Standby location is shared while checked in and the app is open.'}
-          </Text>
-          <ClayButton label={duty?.checkedIn ? 'End duty' : 'Start duty'} onPress={toggleDuty} loading={dutyBusy} />
-        </ClayCard>
         <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} onNavigate={router.push} />
 
@@ -318,42 +294,49 @@ export default function Profile() {
       {/* Logout Confirm Modal — a raised clay card: soft-destructive
           medallion, centered copy, clay Cancel (raised surface) and clay
           Confirm (solid error, the actual destructive action). */}
-      <Modal visible={logoutModal} transparent animationType="fade" onRequestClose={() => setLogoutModal(false)}>
-        <View style={styles.modalBackdrop}>
-          <ClayCard variant="standard" style={styles.modalCard}>
-            <View
-              style={[
-                styles.modalIconWrap,
-                {
-                  backgroundColor: colors.errorContainer,
-                  borderTopColor: mats.clayTile.borderTopColor,
-                  borderBottomColor: mats.clayTile.borderBottomColor,
-                  shadowColor: colors.shadow,
-                },
-              ]}
-            >
-              <Ionicons name="log-out-outline" size={26} color={colors.onErrorContainer} />
-            </View>
-            <Text style={[type.titleLg, styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
-            <Text style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}>
-              You will be returned to the login screen.
-            </Text>
-            <View style={styles.modalActions}>
-              <ClayButton
-                label="Cancel"
-                variant="tonal"
-                onPress={() => setLogoutModal(false)}
-                style={{ flex: 1 }}
-              />
-              <ClayButton
-                label="Sign Out"
-                variant="danger"
-                onPress={signOut}
-                style={{ flex: 1 }}
-              />
-            </View>
-          </ClayCard>
-        </View>
+      <Modal visible={logoutModal} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setLogoutModal(false)}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setLogoutModal(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss sign out dialog"
+        >
+          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
+            <ClayCard variant="standard" style={styles.modalCard}>
+              <View
+                style={[
+                  styles.modalIconWrap,
+                  {
+                    backgroundColor: colors.errorContainer,
+                    borderTopColor: mats.clayTile.borderTopColor,
+                    borderBottomColor: mats.clayTile.borderBottomColor,
+                    shadowColor: colors.shadow,
+                  },
+                ]}
+              >
+                <Ionicons name="log-out-outline" size={24} color={colors.onErrorContainer} />
+              </View>
+              <Text style={[type.titleLg, styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
+              <Text style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}>
+                You will be returned to the login screen.
+              </Text>
+              <View style={styles.modalActions}>
+                <ClayButton
+                  label="Cancel"
+                  variant="tonal"
+                  onPress={() => setLogoutModal(false)}
+                  style={{ flex: 1 }}
+                />
+                <ClayButton
+                  label="Sign Out"
+                  variant="danger"
+                  onPress={signOut}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </ClayCard>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* Profile Photo Source Action Sheet */}
@@ -584,15 +567,17 @@ const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: moderateScale(24) },
   modalCard: {
     width: "100%",
+    maxWidth: 360,
     borderRadius: 30,
     padding: moderateScale(24),
     gap: moderateScale(10),
     alignItems: "center",
   },
+  modalAbsorb: { width: "100%", alignItems: "center" },
   modalIconWrap: {
-    width: moderateScale(64),
-    height: moderateScale(64),
-    borderRadius: moderateScale(32),
+    width: moderateScale(56),
+    height: moderateScale(56),
+    borderRadius: moderateScale(28),
     alignItems: "center",
     justifyContent: "center",
     marginTop: moderateScale(4),

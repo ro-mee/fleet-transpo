@@ -9,6 +9,7 @@ import {
   BUCKET_ORDER,
   BUCKET_LABEL,
   OPEN_BUCKETS,
+  preTripChipLabel,
 } from './trips-queue';
 
 const T0 = Date.parse('2026-09-09T08:00:00Z');
@@ -73,5 +74,15 @@ describe('Trips queue bucketing', () => {
     expect(bucketTone('NOPE')).toBe('neutral');
     // Open buckets are exactly the non-terminal prefix of the order.
     expect(BUCKET_ORDER.slice(0, OPEN_BUCKETS.length)).toEqual(OPEN_BUCKETS);
+  });
+});
+
+describe('preTripChipLabel', () => {
+  it('maps the three feed states', () => {
+    expect(preTripChipLabel(null)).toBe("Pre-Trip: Pending");
+    expect(preTripChipLabel(undefined)).toBe("Pre-Trip: Pending");
+    expect(preTripChipLabel("Pending")).toBe("Pre-Trip: Pending");
+    expect(preTripChipLabel("Passed")).toBe("Pre-Trip: Passed");
+    expect(preTripChipLabel("Failed")).toBe("Pre-Trip: Failed");
   });
 });

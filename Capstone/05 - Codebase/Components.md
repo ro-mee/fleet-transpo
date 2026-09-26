@@ -36,6 +36,19 @@ Feature components sit alongside the pages that use them under `src/app/(dashboa
 
 Both use RN `Animated` with `useNativeDriver` where possible; no new animation dependency.
 
+### Mobile auth brand block (added 2026-09-24)
+
+- `mobile/components/auth/AuthHeader.jsx` — the shared FleetOps auth brand
+  block: `<AuthHeader icon={string} title={string} tagline={string} />`
+  renders a `ClayTile size="lg"` + title + tagline, and deliberately **no back
+  button** (screens keep their own above it). Extracted from the block that
+  was duplicated byte-for-byte across `login.js`, `forgot-password.js` and
+  `reset-password.js`; consumed by the OTP redesign's `OtpVerificationView`.
+  `appName`/`tagline` carry `textAlign: "center"` (deliberate — a wrapped
+  tagline centres under the centred title). Verified: mobile lib suite
+  34 files / 389 tests unchanged; ESLint `--max-warnings 0` clean. See
+  [[Mobile Architecture]].
+
 ## The import hazard
 
 Client components import from `src/services/`, which also contains server-side modules that reach for `@/lib/db` and the **service role key**. Importing the wrong one into a client component pulls privileged code toward the browser. → [[DEBT Services Folder Mixes Two Concerns]]

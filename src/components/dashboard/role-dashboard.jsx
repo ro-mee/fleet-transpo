@@ -45,7 +45,7 @@ import { getSystemActivity } from "@/services/system.service";
 import { getSystemHealth } from "@/services/system-health.service";
 import { getLatestLocations } from "@/services/trip.service";
 import { getRecommendation, getTransportRequests } from "@/services/transport.service";
-import { getExpiringDocuments, getVehicles } from "@/services/vehicle.service";
+import { getExpiringDocuments, getVehicles, getVehicleProblemCount } from "@/services/vehicle.service";
 import { apiFetch } from "@/lib/api/client";
 import {
   isDriverUnavailableFor,
@@ -592,6 +592,23 @@ function AdminDashboard({ queries }) {
     { label: "Expired / 30-day documents", value: queries.documents.isLoading || queries.documents.isError ? "—" : Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0), sortValue: Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0), href: "/fleet/documents", icon: FileWarning },
     { label: "Active maintenance work", value: queries.maintenance.isLoading || queries.maintenance.isError ? "—" : activeMaintenance.length, sortValue: activeMaintenance.length, href: "/maintenance", icon: Wrench },
     { label: "Pending fuel requests", value: queries.fuelRequests.isLoading || queries.fuelRequests.isError ? "—" : Number(fuel.counts?.pending || 0), sortValue: Number(fuel.counts?.pending || 0), href: "/fuel", icon: Fuel },
+    // Only reported_untracked is counted. Both untracked buckets are closable
+    // from the queue now, so the reason is not "one can never be cleared" — it
+    // is that a count is a claim somebody must answer for. A reported defect is
+    // unanswered by any person (the driver reported a fault and the automatic
+    // raise produced nothing); a failed Pre-Shift was already answered by the
+    // notification the office received when it happened. Counting those too
+    // would put a usually-positive number in front of people who have nothing to
+    // do for it, and the strip would be ignored by the time it matters.
+    {
+      label: "Reported defects with no work order",
+      value: queries.vehicleProblems.isLoading || queries.vehicleProblems.isError
+        ? "\u2014"
+        : Number(queries.vehicleProblems.data?.counts?.reportedUntracked || 0),
+      sortValue: Number(queries.vehicleProblems.data?.counts?.reportedUntracked || 0),
+      href: "/maintenance/problems",
+      icon: Wrench,
+    },
   ].sort((a, b) => b.sortValue - a.sortValue);
   // Calm-when-clear: the strip only wears the danger treatment while at least
   // one exception cell holds a real count. Unknown ("—") counts never trigger
@@ -605,7 +622,11 @@ function AdminDashboard({ queries }) {
   return (
     <div className="space-y-5">
       <Panel title="Operational attention" description={attentionTone === "success" ? "No exceptions need action. Counts rise here the moment something blocks service." : "Exceptions that may block service, ordered by current volume."} action={<Link href="/notifications" className={linkClass}>Notification center <ArrowRight className="h-3.5 w-3.5" /></Link>} className={attentionTone === "success" ? "border-success/25" : undefined}>
-        <div className="grid divide-y divide-border/70 md:grid-cols-5 md:divide-x md:divide-y-0">
+        {/* Six cells, not five: the strip previously held exactly five items and
+            the column count was hard-coded to match. Leaving it at 5 would drop
+            the new cell onto a second row with divide-y drawing a broken border
+            across it. */}
+        <div className="grid divide-y divide-border/70 md:grid-cols-6 md:divide-x md:divide-y-0">
           {attention.map((item) => {
             const hasIssues = item.value !== "—" && item.value > 0;
             const unknown = item.value === "—";
@@ -781,6 +802,23 @@ function FleetManagerDashboard({ queries }) {
           </div>
         </FeedState>
       </Panel>
+
+      {/* fleet_manager has no attention strip at all: dashboard-configs gives
+          them layout ["readiness","pair-coverage","maintenance","compliance"].
+          Adding only the strip cell would fetch a count that role never renders
+          and put the number in front of the role whose job the repairs are,
+          never. Same figure as admin's cell — one query, rendered twice. */}
+      <StatGrid cols={4}>
+        <StatCard
+          icon={Wrench}
+          label="Defects without a work order"
+          value={queries.vehicleProblems.isLoading || queries.vehicleProblems.isError
+            ? "\u2014"
+            : Number(queries.vehicleProblems.data?.counts?.reportedUntracked || 0)}
+          trend="Driver-reported problems with no repair ticket raised"
+          tone="danger"
+        />
+      </StatGrid>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Maintenance pressure" description="Active work ordered by the API’s current maintenance date." action={<Link href="/maintenance" className={linkClass}>Maintenance register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
@@ -1068,10 +1106,18 @@ export function RoleDashboard({ role, employee }) {
   const fuelRequests = useQuery({ queryKey: ["fuel-requests"], queryFn: () => getFuelRequests(), enabled: enabled("fuelRequests") });
   const utilization = useQuery({ queryKey: ["fleet-utilization"], queryFn: () => getFleetUtilizationReport(), enabled: enabled("utilization") });
   const driverPerformance = useQuery({ queryKey: ["driver-performance"], queryFn: () => getDriverPerformanceReport(), enabled: enabled("driverPerformance") });
+  // scope=count, so the strip's figure never costs a page of rows on a
+  // dashboard load. Rendered on two surfaces (admin's attention strip and
+  // fleet_manager's maintenance section) but fetched once, under one key.
+  const vehicleProblems = useQuery({
+    queryKey: ["vehicle-problem-count"],
+    queryFn: getVehicleProblemCount,
+    enabled: enabled("vehicleProblems"),
+  });
 
   const queueGroups = useMemo(() => groupQueue(reservations.data || []), [reservations.data]);
 
-  const queries = { users, sessions, notifications, audit, activity, health, vehicles, drivers, driverStats, reservations, dispatches, locations, rescues, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests, utilization, driverPerformance };
+  const queries = { users, sessions, notifications, audit, activity, health, vehicles, drivers, driverStats, reservations, dispatches, locations, rescues, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests, utilization, driverPerformance, vehicleProblems };
 
   // One authored entrance moment for the whole dashboard: a single gentle
   // fade-up on mount (reduced-motion collapses it via MotionConfig).

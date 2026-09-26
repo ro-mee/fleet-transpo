@@ -54,11 +54,24 @@ function dateWords(value) {
 /**
  * "3:45 PM" — a clock time in Asia/Manila, the fleet's operating timezone
  * (NOT the server's). Times in trip copy must read the same regardless of
- * where the API pod runs. Falls back to "the scheduled time" when the value
+ * where the API pod runs. Accepts either a timestamp (rendered in Manila) or a
+ * bare `time`-column value such as `"17:00:00"` (already Manila wall time, so
+ * rendered as-is). Falls back to "the scheduled time" when the value
  * is missing/unparseable, so a sentence never degrades into "at ." or "()".
  */
 function manilaTime(value) {
   if (value == null || value === "") return "the scheduled time";
+  // A `time`-column value ("17:00" / "17:00:00") carries no date and no zone:
+  // it already IS Manila wall time, so it is rendered directly. `new Date`
+  // rejects a bare time as Invalid Date in V8, which would have sent every
+  // shift-end reminder through the fallback below and printed "the scheduled
+  // time" instead of the out-time the sentence exists to name. Adding a date to
+  // parse it would be worse — the date would be invented.
+  if (typeof value === "string" && /^\d{1,2}:\d{2}(:\d{2})?$/.test(value.trim())) {
+    const [hh, mm] = value.trim().split(":");
+    const wall = new Date(Date.UTC(2000, 0, 1, Number(hh), Number(mm)));
+    return wall.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+  }
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "the scheduled time";
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" });
@@ -273,5 +286,45 @@ export function tripNotStartedStaff({ driverName, pickup }) {
     title: "Scheduled Trip Has Not Started",
     message: `${who}'s trip hasn't started — the scheduled pickup (${when}) has passed while the trip is still awaiting start.`,
     pushBody: `${who}'s trip hasn't started — ${when} pickup has passed.`,
+  };
+}
+
+// ---- End Duty reminders (time-driven; end-duty-reminder.service.js) ---------
+//
+// The only driver copy whose subject is the driver's own unfinished paperwork.
+// Everything else here tells a driver about an event that happened to them.
+
+/**
+ * Stage 1 — the shift has ended and the report is still owed.
+ *
+ * Naming the out-time is the one place the tone rules allow a time in driver
+ * copy, and it is the point: "your shift ended" is only checkable if the driver
+ * can read it against the shift they actually worked. manilaTime() renders it
+ * in the fleet's operating zone, so the sentence reads the same regardless of
+ * where the API pod runs, and it already falls back to "the scheduled time"
+ * rather than degrading into "at .".
+ */
+export function endDutyReminder({ shiftEnd }) {
+  return {
+    title: "End Duty Reminder",
+    message:
+      `Your shift ended at ${manilaTime(shiftEnd)} and today's report is still open. ` +
+      `End duty in the app to file it — you can still report late.`,
+    pushBody: "Your shift has ended — end duty in the app to file today's report.",
+  };
+}
+
+/**
+ * Stage 2 — the report is hours late and the automatic close is the next thing
+ * due to touch the row. Saying so is not a threat; it is the fact the driver
+ * needs to decide whether to bother tonight.
+ */
+export function endDutyStillNotReported({ shiftEnd }) {
+  return {
+    title: "End Duty Still Not Reported",
+    message:
+      `Today's report has still not been filed since your shift ended at ${manilaTime(shiftEnd)}. ` +
+      `End duty in the app tonight, or the duty is closed automatically in the morning with no report on it.`,
+    pushBody: "Today's report is still missing — end duty in the app tonight.",
   };
 }

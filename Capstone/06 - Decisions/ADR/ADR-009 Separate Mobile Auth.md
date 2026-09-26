@@ -59,7 +59,7 @@ Solved with a **single-flight refresh promise**. Note the shape of this: a good 
 **Costs:**
 - **Two auth systems to maintain and reason about.** A change to role handling must be made twice.
 - `resolveIdentity` preferring Bearer over cookie is a subtle precedence rule
-- Server-side refresh token state (57 rows) needs pruning — **TODO:** is there a cleanup job for expired tokens?
+- Server-side refresh token state (57 rows) needs pruning — ~~**TODO:** is there a cleanup job for expired tokens?~~ **Closed 2026-09-24:** migration 128 schedules a daily pg_cron purge (`17 4 * * *`, 30-day grace past `expires_at`)
 - Every mobile client must implement single-flight refresh correctly
 
 ## Revisit if

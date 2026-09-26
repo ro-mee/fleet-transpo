@@ -4,7 +4,7 @@ title: Technical Debt
 tags: [development, debt]
 source:
   - (see individual notes)
-last_verified: 2026-09-02
+last_verified: 2026-09-26
 ---
 
 # Technical Debt
@@ -30,10 +30,12 @@ The next cheapest items are in "Fix before anything real happens" below.
 
 | Debt | Why |
 |---|---|
-| No reconciliation job for [[integration_log]] | Failed outbound events are recorded and never retried |
+| ~~No reconciliation job for [[integration_log]]~~ | **CALLER LANDED 2026-09-24** — `POST /api/cron/reconcile` re-drives `pending`/`failed` rows; `.github/workflows/cron-sync.yml` hits it once per 5-min tick (and `vercel.json` schedules it `*/5`). Still needs the same three operator steps as `/api/cron/sync` before it fires → [[Environment Setup]] |
 | ~~No audit that every route calls a guard~~ | **CLOSED 2026-09-01** — `npm run verify:auth` parses all 218 exported API methods, tracks public/delegated exceptions, and rejects mutating bare guards → [[Authentication]] |
-| Missing env keys | `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`. Consequence today: cron and the webhook fail closed with 503, outbound goes to a mock → [[Environment Setup]] |
+| Missing env keys | `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`. Consequence today: cron and the webhook fail closed with 503, outbound goes to a mock. The cron *caller* (`.github/workflows/cron-sync.yml` + `vercel.json`) landed 2026-09-24 but still needs `CRON_SECRET` in HostForge + repo secrets + merge to `main` → [[Environment Setup]] |
 | No `engines` field in `package.json` | The README's Node 20.9+ floor is **Next 16's** requirement, not this repo's declaration |
+| ~~No close for a forgotten End Duty report~~ | **CLOSED 2026-09-24** — migration `126_duty_autoclose.sql` schedules `duty-autoclose-sweep` (`0 * * * *`, in-function 04:00 Manila gate) via pg_cron; applied live. The earlier claim that "the only pg_cron job is incident SLA" was already stale by then (notifications-purge 127, mobile-refresh-token-purge 128 also exist) → [[Missed End Duty Report]] |
+| Failed Pre-Shift / Pre-Trip raise no work order | **Surfaced 2026-09-26, not introduced by it.** `src/lib/inspections/maintenance.js:53-55` returns `notRequired` for anything that is not Post-Shift, on purpose. The consequences are real: the office is notified the moment a Pre-Shift fails (`inspections/route.js:194-207`) and then **nothing tracks it**, the vehicle is not grounded, and the problem queue shows the row with no automatic action. Part B narrowed this — the row is now visible in `/maintenance/problems` and closable by a person — but the automatic path still does nothing. Cross-reference: the same decision is the deferred conversation already noted under [[Maintenance]] → "Inspections do not ground a vehicle". |
 
 ## Accept for now — real, but not urgent at this scale
 
@@ -46,6 +48,7 @@ The next cheapest items are in "Fix before anything real happens" below.
 | 10 zero-row tables | Not debt exactly — unexercised features → [[Feature Index]] |
 | Duplicate migration numbers | `008` missing, `019` ×3. The ledger keys on filename, which makes this survivable rather than correct → [[Migrations]] |
 | 38 pre-existing UI lint errors | Largest group is 15 `set-state-in-effect` → [[Bugs]] |
+| `FIELD_TO_COLUMN` cannot set `source_inspection_id` | `src/app/api/vehicle-maintenance/route.js:22-41` has no entry for it, so a work order created by hand from `/maintenance` can **never** link back to the inspection that prompted it. Only the driver's phone (End Duty) and the new `POST /api/vehicle-inspections/[id]/work-order` route can write the link. The problem queue closes the practical gap for the office, but the register's own create form still cannot express the provenance it then renders → [[Maintenance]] |
 
 ## The meta-debt
 

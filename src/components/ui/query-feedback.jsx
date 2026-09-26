@@ -4,7 +4,22 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CardSkeleton } from "@/components/ui/skeleton";
+import { isAuthToastSuppressed } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+
+function isAuthOrSessionError(error) {
+  if (!error) return false;
+  return Boolean(
+    error?.status === 401 ||
+    error?.status === 403 ||
+    (typeof error?.code === "string" && error.code.startsWith("SESSION_")) ||
+    (typeof error?.message === "string" && (
+      error.message.includes("401") ||
+      error.message.includes("Unauthorized") ||
+      error.message.includes("SESSION_")
+    ))
+  );
+}
 
 /**
  * Shared query-state contract.
@@ -59,6 +74,13 @@ export function QueryBoundary({
   }
 
   if (isError) {
+    // If the failure is an auth/session expiration and we already have cached data,
+    // gracefully retain the cached content under the session-expired modal rather than
+    // wiping the layout into an error alert.
+    if (data && (isAuthToastSuppressed() || isAuthOrSessionError(query?.error))) {
+      return typeof children === "function" ? children(data) : children;
+    }
+
     return (
       <div
         className={cn(
@@ -106,6 +128,13 @@ export function QueryBoundary({
  */
 export function QueryErrorBanner({ query, title, description, className }) {
   if (!query?.isError) return null;
+  // If the failure is caused by an expired or invalid session, or if auth toasts
+  // are currently suppressed during session expiration / timeout dialog,
+  // suppress the banner. The SessionTimeoutDialog already informs the user,
+  // and individual feature retry buttons are non-functional while unauthenticated.
+  if (isAuthToastSuppressed() || isAuthOrSessionError(query?.error)) {
+    return null;
+  }
   return (
     <div
       className={cn(

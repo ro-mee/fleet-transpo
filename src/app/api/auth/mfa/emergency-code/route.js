@@ -4,7 +4,7 @@ import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { issueEmergencyCode, OTP_PURPOSE_BREAK_GLASS } from "@/lib/auth/email-otp";
-import { OTP_BREAK_GLASS_TTL_SECONDS, describeOtpTtl } from "@/lib/auth/otp-policy";
+import { OTP_BREAK_GLASS_TTL_SECONDS, describeOtpTtl, formatLockWait } from "@/lib/auth/otp-policy";
 
 /**
  * POST /api/auth/mfa/emergency-code — break-glass (3).
@@ -71,6 +71,16 @@ export async function POST(req) {
       if (issued?.reason === "cooldown") {
         return err(
           `That account received a code less than a minute ago. Try again in ${issued.retryAfterSeconds} seconds.`,
+          429
+        );
+      }
+      if (issued?.reason === "otp_locked") {
+        // Decision: no break-glass bypass of the lock. The freeze is 15 minutes
+        // and self-healing, so the operator waits rather than getting a second
+        // rule to defend. The wait is rendered by the shared helper so the
+        // singular "1 minute" is right at exactly 60 seconds.
+        return err(
+          `That account is temporarily locked after too many incorrect codes. Try again in ${formatLockWait(issued.retryAfterSeconds)}.`,
           429
         );
       }

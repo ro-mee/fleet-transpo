@@ -275,3 +275,47 @@ These are real choices with no recoverable reasoning. Recording them as open que
 ## Related
 
 [[Home]] · [[Architecture]] · [[Learning Dashboard]] · [[Open Questions]] · [[Technical Debt]]
+
+## 2026-09-25 — The OTP attempt ceiling needed an account above it
+
+**Decision:** freeze the whole OTP surface — issue, verify, recovery codes and
+admin emergency codes, on web and mobile alike — for **15 minutes after 3 burned
+challenges**, in the existing `auth_rate_limits` table.
+
+The per-challenge ceiling (`OTP_MAX_ATTEMPTS = 5`) burns a challenge, but a
+resend mints a fresh one after the 60-second cooldown, so an attacker holding a
+valid password could loop `issue → 5 guesses → issue` indefinitely. Three burns
+is 15 wrong codes per fixed window — roughly one guess a minute against a 10^6
+space — while staying well clear of what a legitimate user produces by typing.
+
+**Why the alternative was rejected.** Counting individual wrong codes (10 per
+15 min) was rejected because 10 typos is only two bad codes for a user who keeps
+getting fresh ones — the false-positive rate tracks carelessness, not attack.
+2 burns / 30 minutes was rejected as harsher than the threat needs. A
+break-glass bypass (admin emergency codes passing the lock) was rejected: the
+window is 15 minutes and self-healing, so a bypass would buy no time worth a
+second rule to defend — and the cost is accepted plainly: **an operator cannot
+mint an emergency code for a locked account until the window expires.**
+
+**Consequences taken on purpose:**
+
+- Enforcement lives only in `email-otp.js`, the choke point both channels already
+  call — a future third caller inherits the lock rather than forgetting it.
+- The consume happens after the transaction commits, because `rateLimit` opens
+  its own connection; a rolled-back verify must not spend a hit.
+- A successful verification clears the bucket (mirrors `clearAccountLockout`),
+  so past struggle never makes the next typo half-way to a lock.
+- The limiter fails closed with everything else in `rate-limit.js`: a DB outage
+  stops OTP — which it would anyway, since the challenge lives in the same DB.
+- **`/api/auth/login-status` does not report the OTP lock.** Task 4 added that
+  branch and claimed it stayed enumeration-safe; final review removed it,
+  because answering `locked:true` means resolving the email to an `employee_id`
+  first — a conditional account-existence oracle on a public, unthrottled
+  endpoint for as long as a lock stands. The countdown ships only in the direct
+  `OTP_LOCKED:<sec>` token (web `authorize` / mobile 429).
+
+**Evidence:** `src/lib/auth/email-otp.js`, `src/lib/auth/otp-policy.js`,
+`src/lib/auth.js`, `src/app/api/mobile/auth/login/route.js`,
+`src/app/api/auth/mfa/emergency-code/route.js`,
+`docs/superpowers/specs/2026-09-25-otp-account-lockout-design.md`,
+`Capstone/04 - Architecture/Authentication.md` §"Account-level lockout".

@@ -13,6 +13,7 @@ import { useTheme } from "../../lib/theme-context";
 import { fonts } from "../../lib/theme";
 import { moderateScale } from "../../lib/scaling";
 import { ClayCard, ClayInput } from "../clay";
+import { AuthHeader } from "../auth/AuthHeader";
 import { OtpInput } from "./OtpInput";
 import {
   OTP_CODE_DIGITS,
@@ -21,8 +22,10 @@ import {
   OTP_TTL_SECONDS,
   OTP_VERIFY_MIN_MS,
   formatCountdown,
+  formatLockWait,
   isEmailLike,
   maskEmailAddress,
+  parseOtpLock,
   sanitizeOtpInput,
 } from "../../lib/otp";
 
@@ -43,7 +46,6 @@ import {
  */
 export function OtpVerificationView({
   identifier = "",
-  notice,
   onVerify,
   onResend,
   onVerified,
@@ -55,7 +57,7 @@ export function OtpVerificationView({
   const [code, setCode] = useState("");
   const [phase, setPhase] = useState("entering"); // entering | verifying | error | success
   const [errorMsg, setErrorMsg] = useState(null);
-  const [infoMsg, setInfoMsg] = useState(notice || null);
+  const [infoMsg, setInfoMsg] = useState(null);
   const [resending, setResending] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
@@ -147,6 +149,8 @@ export function OtpVerificationView({
           fail("No verification code could be sent to this account. Contact your administrator.", {
             keepCode: true,
           });
+        } else if (parseOtpLock(message) !== null) {
+          fail(`Too many incorrect codes.\nTry again in ${formatLockWait(parseOtpLock(message))}.`);
         } else if (e?.status === 0 || /network|connection|offline/i.test(message)) {
           // Transport failures belong to the connectivity banner; keep the
           // code so retrying needs no retyping.
@@ -204,7 +208,11 @@ export function OtpVerificationView({
     } catch (e) {
       if (!mountedRef.current) return;
       const message = e?.message || "The code could not be resent. Please try again.";
-      if (/cooldown|too many|wait/i.test(message)) {
+      const lockSecs = parseOtpLock(message);
+      if (lockSecs !== null) {
+        setErrorMsg(`Too many incorrect codes. Try again in ${formatLockWait(lockSecs)}.`);
+        setPhase("error");
+      } else if (/cooldown|too many|wait/i.test(message)) {
         setErrorMsg("Please wait a moment before requesting a new code.");
         setPhase("error");
       } else if (e?.status === 0 || /network|connection|offline/i.test(message)) {
@@ -269,38 +277,16 @@ export function OtpVerificationView({
         </Pressable>
       </View>
 
-      {/* ─── Intro ─── */}
-      <View style={styles.intro}>
-        <Text style={[styles.title, { color: colors.onBackground }]}>
-          Verify your identity
-        </Text>
-        <Text style={[styles.description, { color: colors.onSurfaceVariant }]}>
-          {masked
-            ? `Enter the ${OTP_CODE_DIGITS}-digit code sent to`
-            : `Enter the ${OTP_CODE_DIGITS}-digit code sent to your registered email`}
-        </Text>
-        {masked ? (
-          <View
-            style={[
-              styles.emailPill,
-              {
-                backgroundColor: isDark ? colors.surfaceContainerHigh : colors.primaryContainer,
-                borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(40,84,72,0.12)",
-              },
-            ]}
-          >
-            <Ionicons name="mail-outline" size={14} color={colors.primary} />
-            <Text
-              style={[
-                styles.maskedEmail,
-                { color: isDark ? colors.primary : colors.onPrimaryContainer },
-              ]}
-            >
-              {masked}
-            </Text>
-          </View>
-        ) : null}
-      </View>
+      {/* ─── Brand block + single instruction ─── */}
+      <AuthHeader
+        icon="shield-checkmark-outline"
+        title="Verify your identity"
+        tagline={
+          masked
+            ? `Enter the ${OTP_CODE_DIGITS}-digit code sent to ${masked}`
+            : `Enter the ${OTP_CODE_DIGITS}-digit code sent to your registered email`
+        }
+      />
 
       {/* ─── OTP card ─── */}
       <ClayCard variant="standard" style={styles.card}>
@@ -377,54 +363,42 @@ export function OtpVerificationView({
           ) : null}
         </View>
 
-        {/* ─── Divider ─── */}
-        <View
-          style={[
-            styles.divider,
-            { backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" },
-          ]}
-        />
+        {/* ─── Meta: expiry and resend share one row ─── */}
+        <View style={styles.metaRow}>
+          <View style={styles.metaItem}>
+            <Ionicons
+              name="time-outline"
+              size={15}
+              color={expired ? colors.error : colors.onSurfaceVariant}
+            />
+            <Text
+              style={[
+                styles.metaText,
+                { color: expired ? colors.error : colors.onSurfaceVariant },
+              ]}
+            >
+              {expired ? "Code expired" : `Expires in ${formatCountdown(remainingSec)}`}
+            </Text>
+          </View>
 
-        {/* ─── Expiration timer ─── */}
-        <View style={styles.timerRow}>
-          <Ionicons
-            name="time-outline"
-            size={15}
-            color={expired ? colors.error : colors.onSurfaceVariant}
-          />
-          <Text
-            style={[
-              styles.timerText,
-              { color: expired ? colors.error : colors.onSurfaceVariant },
-            ]}
-          >
-            {expired
-              ? "Code expired — resend a new code below"
-              : `Code expires in ${formatCountdown(remainingSec)}`}
-          </Text>
-        </View>
-
-        {/* ─── Resend ─── */}
-        <View style={styles.resendRow}>
-          <Text style={[styles.resendHint, { color: colors.onSurfaceVariant }]}>
-            Didn&apos;t receive a code?
-          </Text>
           {resending ? (
-            <View style={styles.statusRow}>
+            <View style={styles.metaItem}>
               <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={[styles.resendLink, { color: colors.primary }]}>Sending…</Text>
+              <Text style={[styles.metaText, { color: colors.primary }]}>Sending…</Text>
             </View>
           ) : canResend ? (
             <Pressable
               onPress={handleResend}
               accessibilityRole="button"
               accessibilityLabel="Resend verification code"
-              style={styles.resendTap}
+              style={styles.metaTap}
             >
-              <Text style={[styles.resendLink, { color: colors.primary }]}>Resend</Text>
+              <Text style={[styles.metaText, styles.metaLink, { color: colors.primary }]}>
+                Resend
+              </Text>
             </Pressable>
           ) : (
-            <Text style={[styles.resendLink, { color: colors.outline }]}>
+            <Text style={[styles.metaText, { color: colors.outline }]}>
               Resend in {formatCountdown(cooldownSec)}
             </Text>
           )}
@@ -466,38 +440,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  intro: {
-    alignItems: "center",
-    gap: moderateScale(8),
-    paddingHorizontal: moderateScale(8),
-  },
-  title: {
-    fontSize: moderateScale(24),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(32),
-    textAlign: "center",
-  },
-  description: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(20),
-    textAlign: "center",
-  },
-  emailPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: moderateScale(6),
-    paddingHorizontal: moderateScale(12),
-    paddingVertical: moderateScale(6),
-    borderRadius: moderateScale(20),
-    borderWidth: 1,
-    marginTop: moderateScale(2),
-  },
-  maskedEmail: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(20),
-  },
   card: {
     padding: moderateScale(18),
     gap: moderateScale(14),
@@ -526,44 +468,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  divider: {
-    height: 1,
-    width: "100%",
-    marginVertical: moderateScale(2),
-  },
-  timerRow: {
+  metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: moderateScale(6),
+    justifyContent: "space-between",
+    gap: moderateScale(8),
   },
-  timerText: {
-    fontSize: moderateScale(13),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(18),
-  },
-  resendRow: {
+  metaItem: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: moderateScale(6),
-    flexWrap: "wrap",
+    flexShrink: 1,
   },
-  resendHint: {
+  metaText: {
     fontSize: moderateScale(14),
     fontFamily: fonts.body,
     lineHeight: moderateScale(20),
+    flexShrink: 1,
+    textAlign: "center",
   },
-  resendTap: {
+  metaLink: {
+    fontFamily: fonts.bodySemiBold,
+  },
+  metaTap: {
     paddingVertical: moderateScale(8),
     paddingHorizontal: moderateScale(6),
     minHeight: moderateScale(40),
     justifyContent: "center",
-  },
-  resendLink: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(20),
   },
   recoveryTap: {
     alignItems: "center",

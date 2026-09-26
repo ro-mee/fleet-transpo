@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requireDriver, ok, handleError, AuthError } from "@/lib/api/utils";
+import { DRIVER_ACTIVE_TRIP_STATUSES } from "@/lib/trips/status-groups";
 
 /**
  * GET /api/mobile/driver/me
@@ -37,10 +38,10 @@ export async function GET(req) {
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
          LEFT JOIN routes r   ON r.route_id = t.route_id
         WHERE t.driver_id = $1 AND t.deleted_at IS NULL
-          AND t.trip_status IN ('Driver Accepted', 'Trip Started', 'At Pickup', 'Passenger Onboard', 'En Route', 'Drop-off', 'Arrived', 'In Progress')
+          AND t.trip_status = ANY($2::text[])
         ORDER BY t.start_time DESC NULLS LAST
         LIMIT 1`,
-      [session.user.driverId]
+      [session.user.driverId, DRIVER_ACTIVE_TRIP_STATUSES]
     );
 
     const { rows: recentRows } = await query(

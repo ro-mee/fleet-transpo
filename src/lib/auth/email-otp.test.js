@@ -10,12 +10,16 @@ import {
 } from "./email-otp";
 import {
   OTP_BREAK_GLASS_TTL_SECONDS,
+  OTP_LOCKOUT_LIMIT,
+  OTP_LOCKOUT_WINDOW_MS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
   describeOtpTtl,
+  formatLockWait,
   isDeliverableEmailAddress,
   maskEmailAddress,
+  parseOtpLock,
 } from "./otp-policy";
 
 /**
@@ -33,6 +37,15 @@ vi.mock("@/lib/db", () => ({
   query: vi.fn(),
   withTransaction: (fn) => fn(txImpl),
 }));
+
+// The account bucket is consulted by both entry points, so every test runs
+// through an allowed-by-default limiter; a locked-state test overrides it once.
+vi.mock("@/lib/rate-limit", () => ({
+  peekRateLimit: vi.fn(async () => ({ allowed: true, remaining: 3, retryAfter: 0 })),
+  rateLimit: vi.fn(async () => ({ allowed: true, remaining: 2, retryAfter: 0 })),
+}));
+import { peekRateLimit, rateLimit } from "@/lib/rate-limit";
+import { query } from "@/lib/db";
 
 /**
  * Builds a fake `tx` that answers by SQL substring and records every call.
@@ -77,6 +90,7 @@ function loginChallengeRow(overrides = {}) {
 
 beforeEach(() => {
   txImpl = null;
+  vi.clearAllMocks();
 });
 
 describe("generateOtpCode", () => {
@@ -160,6 +174,18 @@ describe("issueLoginChallenge", () => {
     expect(tx.calls.some((c) => c.sql.startsWith("INSERT INTO email_otp_challenges"))).toBe(false);
   });
 
+  it("refuses to mint a code while the account's OTP lock is active", async () => {
+    vi.mocked(peekRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, retryAfter: 420 });
+    // txImpl is null: reaching the transaction at all would throw, so this also
+    // pins that the gate runs before any challenge work.
+    const issued = await issueLoginChallenge({ employeeId: 8 });
+    expect(issued).toEqual({ ok: false, reason: "otp_locked", retryAfterSeconds: 420 });
+    expect(peekRateLimit).toHaveBeenCalledWith("lockout:otp:8", {
+      limit: OTP_LOCKOUT_LIMIT,
+      windowMs: OTP_LOCKOUT_WINDOW_MS,
+    });
+  });
+
   it("never replaces a live administrator-issued emergency code", async () => {
     // The deadlock this prevents: the person holding an admin-issued code is by
     // definition the one who cannot receive the email, so mailing over it would
@@ -198,6 +224,18 @@ describe("issueLoginChallenge", () => {
     txImpl = makeTx([["FROM employees", NO_ACCOUNT]]);
 
     expect(await issueLoginChallenge({ employeeId: 999 })).toEqual({ ok: false, reason: "no_account" });
+  });
+
+  it("gates issueEmergencyCode too — the admin path inherits the account lock", async () => {
+    vi.mocked(peekRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, retryAfter: 300 });
+    // txImpl is null: entering the transaction at all would throw, so this also
+    // pins that break-glass inherits the gate before any challenge work.
+    const issued = await issueEmergencyCode({ employeeId: 48 });
+    expect(issued).toEqual({ ok: false, reason: "otp_locked", retryAfterSeconds: 300 });
+    expect(peekRateLimit).toHaveBeenCalledWith("lockout:otp:48", {
+      limit: OTP_LOCKOUT_LIMIT,
+      windowMs: OTP_LOCKOUT_WINDOW_MS,
+    });
   });
 });
 
@@ -306,6 +344,87 @@ describe("verifyLoginChallenge", () => {
       reason: "expired",
     });
   });
+
+  it("refuses verification entirely while the account's OTP lock is active", async () => {
+    vi.mocked(peekRateLimit).mockResolvedValueOnce({ allowed: false, remaining: 0, retryAfter: 420 });
+    // txImpl is null: any challenge or recovery lookup would throw, so the gate
+    // provably runs first — no attempt is spent while the account is frozen.
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "123456" });
+    expect(factor).toEqual({ ok: false, reason: "otp_locked", retryAfterSeconds: 420 });
+  });
+
+  it("spends exactly one account hit per burned challenge", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+
+    expect(factor).toMatchObject({ ok: false, reason: "attempts_exhausted", attemptsRemaining: 0 });
+    expect(rateLimit).toHaveBeenCalledTimes(1);
+    expect(rateLimit).toHaveBeenCalledWith("lockout:otp:8", {
+      limit: OTP_LOCKOUT_LIMIT,
+      windowMs: OTP_LOCKOUT_WINDOW_MS,
+    });
+  });
+
+  it("flags the burn that reaches the lockout ceiling", async () => {
+    vi.mocked(rateLimit).mockResolvedValueOnce({ allowed: true, remaining: 0, retryAfter: 0 });
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor.lockTripped).toBe(true);
+  });
+
+  it("leaves lockTripped unset on a burn that still has room", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor.lockTripped).toBeUndefined();
+  });
+
+  it("leaves the bucket alone on an ordinary wrong code", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow()] }],
+      ["UPDATE mfa_recovery_codes", { rows: [] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor.reason).toBe("invalid");
+    expect(rateLimit).not.toHaveBeenCalled();
+  });
+
+  it("clears the account bucket after a successful code", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow()] }],
+      ["UPDATE mfa_recovery_codes", { rows: [] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "123456" });
+    expect(factor).toEqual({ ok: true, method: "otp" });
+    expect(query).toHaveBeenCalledWith("DELETE FROM auth_rate_limits WHERE bucket_key = $1", ["lockout:otp:8"]);
+  });
+
+  it("clears the account bucket after a successful recovery code too", async () => {
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [] }],
+      ["UPDATE mfa_recovery_codes", { rows: [{ recovery_code_id: 9 }] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "ABCDEF0123456789ABCD" });
+    expect(factor).toEqual({ ok: true, method: "recovery" });
+    expect(query).toHaveBeenCalledWith("DELETE FROM auth_rate_limits WHERE bucket_key = $1", ["lockout:otp:8"]);
+  });
 });
 
 describe("isDeliverableEmailAddress", () => {
@@ -355,5 +474,33 @@ describe("describeOtpTtl", () => {
     expect(describeOtpTtl(300)).toBe("5 minutes");
     expect(describeOtpTtl(900)).toBe("15 minutes");
     expect(describeOtpTtl(60)).toBe("1 minute");
+  });
+});
+
+describe("OTP_LOCKED token", () => {
+  it("parses the seconds the server sent", () => {
+    expect(parseOtpLock("OTP_LOCKED:900")).toBe(900);
+    expect(parseOtpLock("OTP_LOCKED:45")).toBe(45);
+  });
+
+  it("ignores every other message", () => {
+    expect(parseOtpLock("MFA_INVALID")).toBeNull();
+    expect(parseOtpLock("OTP_UNDELIVERABLE")).toBeNull();
+    expect(parseOtpLock(null)).toBeNull();
+    expect(parseOtpLock(undefined)).toBeNull();
+  });
+
+  it("refuses malformed seconds rather than inventing a wait", () => {
+    expect(parseOtpLock("OTP_LOCKED:")).toBeNull();
+    expect(parseOtpLock("OTP_LOCKED:abc")).toBeNull();
+    expect(parseOtpLock("OTP_LOCKED:0")).toBeNull();
+    expect(parseOtpLock("OTP_LOCKED:-30")).toBeNull();
+  });
+
+  it("speaks whole minutes and honest seconds for the lock copy", () => {
+    expect(formatLockWait(420)).toBe("7 minutes");
+    expect(formatLockWait(60)).toBe("1 minute");
+    expect(formatLockWait(45)).toBe("45 seconds");
+    expect(formatLockWait(1)).toBe("1 second");
   });
 });

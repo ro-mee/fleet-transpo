@@ -413,6 +413,60 @@ describe('SEC-AUTH-005 — login does not disclose whether an account exists', (
 });
 
 // ---------------------------------------------------------------------------
+// SEC-AUTH-006 — the account-level OTP lockout
+// ---------------------------------------------------------------------------
+
+describe('SEC-AUTH-006 — burned codes freeze the account, not just the challenge', () => {
+  it('the gate lives in the shared OTP layer, so both channels inherit it', () => {
+    const issue = read('lib/auth/email-otp.js');
+    expect(issue).toMatch(/checkOtpLockout\(employeeId\)/);
+    expect(issue).toMatch(/reason: "otp_locked"/);
+    expect(issue).toMatch(/reason === "attempts_exhausted"/);
+  });
+
+  it('the web channel maps otp_locked to the OTP_LOCKED token, retry-after only', () => {
+    const web = read('lib/auth.js');
+    expect(web).toMatch(/OTP_LOCKED:\$\{issued\.retryAfterSeconds\}/);
+    expect(web).toMatch(/OTP_LOCKED:\$\{factor\.retryAfterSeconds\}/);
+    // Same invariant as ACCOUNT_LOCKED: seconds and nothing else.
+    expect(web).not.toMatch(/OTP_LOCKED:[^`]*email/);
+  });
+
+  it('the trip raises the existing account_locked alert with the OTP factor', () => {
+    const web = read('lib/auth.js');
+    expect(web).toMatch(/factor\.lockTripped/);
+    expect(web).toMatch(/factor: "otp"/);
+  });
+
+  it('the mobile channel maps otp_locked and raises the same alert', () => {
+    const mobile = read('app/api/mobile/auth/login/route.js');
+    expect(mobile).toMatch(/issued\?\.reason === "otp_locked"/);
+    expect(mobile).toMatch(/factor\.reason === "otp_locked"/);
+    expect(mobile).toMatch(/OTP_LOCKED:\$\{[^}]+\}/);
+    expect(mobile).toMatch(/factor\.lockTripped/);
+    expect(mobile).toMatch(/factor: "otp"/);
+  });
+
+  it('the admin emergency path answers 429 with a wait, not a generic 500', () => {
+    const emergency = read('app/api/auth/mfa/emergency-code/route.js');
+    expect(emergency).toMatch(/issued\?\.reason === "otp_locked"/);
+    expect(emergency).toMatch(/,\s*429\)/);
+    // The two assertions above can each be satisfied elsewhere in the file — the
+    // pre-existing per-admin rate limit is a single-line `…, 429)` call — so
+    // bind the status and the wait copy to the lock branch itself. The window
+    // runs from the branch to the `no_account` arm that follows it.
+    const lockBranch = emergency.slice(
+      emergency.indexOf('issued?.reason === "otp_locked"'),
+      emergency.indexOf('no_account')
+    );
+    expect(lockBranch).toMatch(/,\s*429\s*\)/);
+    // The wait goes through the shared helper (singular "1 minute" at 60s), not
+    // a hand-rolled `${wait}` template.
+    expect(lockBranch).toMatch(/Try again in \$\{formatLockWait/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SEC-DB-001 — RLS is not the boundary, and the repo says so
 // ---------------------------------------------------------------------------
 

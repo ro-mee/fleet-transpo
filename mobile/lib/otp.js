@@ -64,3 +64,26 @@ export function formatCountdown(totalSeconds) {
 export function sanitizeOtpInput(text, maxLength = OTP_CODE_DIGITS) {
   return String(text ?? "").replace(/[^0-9]/g, "").slice(0, maxLength);
 }
+
+/** Wire prefix of the account-lock token the server sends. Mirrors otp-policy. */
+export const OTP_LOCKED_PREFIX = "OTP_LOCKED:";
+
+/**
+ * Seconds from an `OTP_LOCKED:<seconds>` token, or null for anything else.
+ * Mirrors the server's parseOtpLock: one helper decides both the branch and
+ * the countdown, and a malformed token falls through to the caller's generic
+ * message instead of a bogus wait.
+ */
+export function parseOtpLock(message) {
+  if (typeof message !== "string" || !message.startsWith(OTP_LOCKED_PREFIX)) return null;
+  const seconds = Number(message.slice(OTP_LOCKED_PREFIX.length));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
+}
+
+/** "7 minutes" / "45 seconds" / "1 second". Mirrors the server's formatLockWait. */
+export function formatLockWait(seconds) {
+  const total = Math.max(1, Math.ceil(Number(seconds) || 0));
+  if (total < 60) return `${total} second${total === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(total / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}

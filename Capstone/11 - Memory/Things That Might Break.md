@@ -17,7 +17,7 @@ Ranked by **likelihood × how long it would take you to work out why**.
 |---|---|---|
 | Route auth coverage | one new route without `requireAuth` | **an open endpoint.** Nothing checks; 113 routes rely on per-route discipline → [[Authentication]] |
 | Runtime `CREATE TABLE` on a hot path | concurrent first-hits | DDL contention, latency spikes → [[DEBT Runtime DDL On Hot Path]] |
-| `mobile_refresh_tokens` growth | time | unbounded table, no cleanup job → [[mobile_refresh_tokens]] |
+| `mobile_refresh_tokens` growth | time | ~~unbounded table, no cleanup job~~ **closed 2026-09-24** — migration 128 daily purge → [[mobile_refresh_tokens]] |
 | Fleet availability | any incident | ~~`shouldGroundVehicle()` grounds everything~~ **fixed 2026-08-11** → [[BUG shouldGroundVehicle Is A Stub]] |
 
 ## Will break when someone does something reasonable
@@ -37,7 +37,7 @@ Ranked by **likelihood × how long it would take you to work out why**.
 |---|---|---|
 | Inbound webhook | anyone POSTs to it | `BOOKING_WEBHOOK_SECRET` absent — **unverified sender** → [[System Boundaries]] |
 | Outbound status | going live | `BOOKING_GATEWAY` unset — mock. Nothing reaches Booking, silently. |
-| Cron endpoints | going live | `CRON_SECRET` absent — unauthenticated or non-functional |
+| Cron endpoints | going live | **caller landed 2026-09-24** (workflow + vercel.json) but `CRON_SECRET` still absent in HostForge/repo — 503 fail-closed until the three operator steps → [[Environment Setup]] |
 | CORS | a browser from another origin | wildcard → [[Technology Stack]] |
 | AI bullet parsing | narration containing "Ave." or "3.5" | prose-level contract, split on `.` → [[AI Advisory]] |
 

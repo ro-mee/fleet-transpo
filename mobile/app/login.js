@@ -20,9 +20,11 @@ import { fonts } from "../lib/theme";
 import { clayMaterials } from "../lib/clay";
 import { methodNoun, methodIcon, unlockActionLabel } from "../lib/biometric-method";
 import { AppAlert } from "../components/AppAlert";
-import { ClayCard, ClayButton, ClayTile, ClayInput } from "../components/clay";
+import { ClayCard, ClayButton, ClayInput } from "../components/clay";
+import { AuthHeader } from "../components/auth/AuthHeader";
 import { OtpVerificationView } from "../components/otp/OtpVerificationView";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
+import { formatLockWait, parseOtpLock } from "../lib/otp";
 
 /**
  * The one-time offer shown right after a successful password + OTP sign-in.
@@ -101,7 +103,6 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [mfaRequired, setMfaRequired] = useState(false);
-  const [mfaNotice, setMfaNotice] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   // The driver awaiting an enable/decline answer. Non-null means the prompt is
@@ -192,18 +193,20 @@ export default function LoginScreen() {
       const driver = await signIn(username.trim(), password);
       await handlePostLogin(driver);
     } catch (e) {
+      const lockSecs = parseOtpLock(e?.message);
       if (e.message === "MFA_REQUIRED") {
         // Valid credentials: the server has emailed a fresh 6-digit code.
         // The OTP step owns everything from here — no code field on this
         // form, no second tap after the code is complete.
         setMfaRequired(true);
-        setMfaNotice("Enter the 6-digit code we emailed to your registered address.");
       } else if (e.message === "MFA_INVALID") {
         setError("That verification code is invalid or already used.");
       } else if (e.message === "OTP_UNDELIVERABLE") {
         setError(
           "No verification code could be sent to this account. Contact your administrator."
         );
+      } else if (lockSecs !== null) {
+        setError(`Too many incorrect codes. Try again in ${formatLockWait(lockSecs)}.`);
       } else if (e.message === "MFA_UNAVAILABLE") {
         setError("Verification is temporarily unavailable. Please try again shortly.");
       } else {
@@ -258,17 +261,15 @@ export default function LoginScreen() {
         >
           <OtpVerificationView
             identifier={username.trim()}
-            notice={mfaNotice}
             onVerify={handleVerifyOtp}
             onResend={handleResendOtp}
             onVerified={handlePostLogin}
             onBack={() => {
               setMfaRequired(false);
-              setMfaNotice(null);
             }}
           />
 
-          <Text style={[styles.footer, { color: colors.outline }]}>
+          <Text style={[styles.footer, { color: colors.onSurfaceVariant }]}>
             FleetOps Tactical Driver Companion
           </Text>
         </ScrollView>
@@ -291,19 +292,11 @@ export default function LoginScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ─── Branding ─── */}
-        <View style={styles.brand}>
-          <ClayTile
-            icon="car-sport"
-            size="lg"
-            backgroundColor={colors.primary}
-            color={colors.onPrimary}
-            style={styles.logoTile}
-          />
-          <Text style={[styles.appName, { color: colors.primary }]}>FleetOps</Text>
-          <Text style={[styles.tagline, { color: colors.onSurfaceVariant }]}>
-            Driver Portal Access
-          </Text>
-        </View>
+        <AuthHeader
+          icon="car-sport"
+          title="FleetOps"
+          tagline="Driver Portal Access"
+        />
 
         {/* ─── Form Card ─── */}
         <ClayCard variant="standard" style={styles.card}>
@@ -385,24 +378,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     gap: moderateScale(24),
-  },
-  brand: {
-    alignItems: "center",
-    gap: moderateScale(8),
-    marginBottom: moderateScale(4),
-  },
-  logoTile: {
-    marginBottom: moderateScale(4),
-  },
-  appName: {
-    fontSize: moderateScale(28),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(36),
-  },
-  tagline: {
-    fontSize: moderateScale(16),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(24),
   },
   card: {
     padding: moderateScale(20),

@@ -56,7 +56,7 @@ Be honest about the counterexamples:
 | Place | Direction | Why it matters |
 |---|---|---|
 | ~~`shouldGroundVehicle()` returns `true` always~~ | **Was closed by accident, not design** | Fixed 2026-08-11. Worth keeping as the lesson: failing closed is only a virtue when it's *chosen*. Here it read as safety while it cancelled live trips on a cosmetic scratch — an unintended fail-closed is just a bug that's hard to notice. → [[BUG shouldGroundVehicle Is A Stub]] |
-| Missing `CRON_SECRET` | **Open** — no secret means no check | → [[Environment Setup]] |
+| Missing `CRON_SECRET` | **Closed 2026-09-24** — route returns 503 fail-closed (workflow also fails loud if secret unset) | → [[Environment Setup]] |
 | Missing `BOOKING_WEBHOOK_SECRET` | **Open** — inbound webhook unverified | → [[System Boundaries]] |
 | Route-level auth is per-handler | **Open on omission** — a forgotten call is a public endpoint | → [[Authentication]] |
 

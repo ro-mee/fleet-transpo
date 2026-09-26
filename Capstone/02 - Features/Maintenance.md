@@ -88,6 +88,108 @@ the description prefix), the register renders an `Incident #N` chip per linked
 record, and completing a linked record notifies the reporting driver that the
 vehicle is back in service. → [[Incidents]]
 
+## End Duty driver reports — second auto-generated source, 2026-09-23
+
+The **only other** path that writes a work order without a human in the office
+authoring it. When a driver ends duty with a description of something wrong
+(`POST /api/mobile/driver/duty {active:false, report:{findings}}`), the inserted
+`Post-Shift` inspection raises a `Repair` order through
+`ensureInspectionMaintenance` (`src/lib/inspections/maintenance.js`), mirroring
+`src/lib/incidents/maintenance.js` deliberately — same `withTransaction` + row
+lock, same `ON CONFLICT DO NOTHING` + recovery re-read when the insert loses a
+race.
+
+Provenance is **`vehiclemaintenance.source_inspection_id`** (migration `121`),
+the reverse of `source_incident_id` and carrying its own partial unique index
+(`WHERE source_inspection_id IS NOT NULL`), which is what makes creation
+idempotent under a retried mobile submit. There is deliberately **no
+`vehicleinspection.maintenance_id` back-link**: the FK already answers the
+question in reverse, and the register renders provenance that way.
+
+**Grounding is keyword-decided, and the keyword only sets urgency.** A finding
+matching `shouldGroundReportedDefect` (`src/lib/driver/grounding.js` — English
+breakdown/damage terms plus the Filipino words drivers actually type: `preno`,
+`gulong`, `manibela`, `makina`, `baterya`, `usok`, `tagas`, `basag`) writes
+`status='In Progress'` + `priority='High'`; anything else writes
+`Scheduled` + `Normal`. `status` is the operational lever —
+`GET /api/vehicles/available` excludes `In Progress` and `Pending Inspection`, so
+`In Progress` is what actually removes the vehicle from dispatch. **A report the
+keywords do not match still files a `Scheduled` order for a human to read**; the
+test decides urgency, never whether the report is recorded. Saying "nothing
+unusual" files nothing.
+
+**The order is raised after the clock-out transaction commits, and never
+throws.** A maintenance failure must not strand a driver at the end of their
+shift — the failure is logged via `writeAppError` (work-order and notification
+failures logged separately) rather than surfaced. The driver's shift ends either
+way; a missing order shows up as an inspection row with no linked record, which
+is exactly the state the register's provenance chip makes visible.
+
+Notifications go to **`notificationRolesFor("incidents","route_to_maintenance")`**
+— reused rather than adding an `inspections` resource to the `can()` matrix,
+since the function's own contract is "the roles that own the maintenance queue"
+and it is source-agnostic. The notifier carries its **own title** so it cannot
+collide with the incident notifier's title+reference dedup key, and it inherits
+that module's documented `::varchar` cast requirement (see the 42P08 bug in the
+notifier below) — without the casts the statement fails to parse and the
+notification is lost silently.
+
+## Vehicle problem queue — `/maintenance/problems`, 2026-09-26
+
+A single office worklist of vehicle problems **nobody is following up**, at
+`/maintenance/problems`, backed by `GET /api/vehicle-inspections/problems`
+(`src/lib/inspections/problem-queue.js`) and a partial index from migration `131`
+(renumbered up from the plan's `127`/`128` at execution time — those numbers were
+spent by other workstreams) so the scan does not walk the whole inspection table.
+
+**Three buckets, in the order the page renders them:**
+
+| Bucket | What it means | Counted on the dashboard? |
+| --- | --- | --- |
+| `reported_untracked` | A driver reported a fault (Post-Shift `status='Reported'`) and the automatic raise produced **no** work order — the failure was logged and swallowed. Unanswered by any person. | **Yes** — admin's attention strip and fleet_manager's maintenance card both show `counts.reportedUntracked`. |
+| `failed_untracked` | A checklist inspection the driver failed (`status='Failed'`). Closable by hand, already notified when it happened. | No — the office was told the moment it failed; a usually-positive count is one the strip gets ignored for. |
+| `tracked` | The problem **does** have a work order. | n/a |
+
+**Resolution is provenance, not a flag.** There is no `is_tracked` column and no
+status on the inspection. "Has a work order" is the existence of a
+`vehiclemaintenance.source_inspection_id` row pointing at the inspection — the
+same link the End Duty path writes, and the reason creation stays idempotent under
+a retried submit. A problem leaves the queue the moment that link exists.
+
+**Who raises what.** Only an **End Duty** report raises a work order
+automatically. The office can now raise one by hand for **any** flagged inspection
+from the queue page — one button, `POST /api/vehicle-inspections/[id]/work-order`,
+idempotent, so a double-click resolves to the existing ticket. A hand-raised order
+for a failed **checklist** files as `Scheduled` and is dated **tomorrow**
+(`buildChecklistMaintenancePayload` → `nextCalendarDay()`), which is what keeps it
+out of `GET /api/vehicles/available` — that predicate drops a vehicle when
+`status IN ('In Progress','Pending Inspection')` **or**
+`(status='Scheduled' AND maintenance_date <= CURRENT_DATE)`, so `Scheduled` with a
+future date is still dispatchable. That non-grounding promise holds for checklist
+rows **only**. A hand-raised order for a **reported** Post-Shift defect takes the
+End Duty branch instead (`buildInspectionMaintenancePayload`): a severe-keyword
+match files `In Progress` (grounded at once), and even a routine filing is dated
+today, which the same predicate reads as out of service. The page states the
+matching version next to each button — fixed 2026-09-26, when one shared sentence
+wrongly promised both — because the natural assumption is the opposite.
+
+**Authorization: `maintenance:read` for the queue, `maintenance:create` for the
+raise.** The existing `maintenance` resource is reused rather than adding an
+`inspections` resource to the `can()` matrix. That is *not* in conflict with
+`notifyMaintenanceTeam`, which uses `notificationRolesFor("incidents",
+"route_to_maintenance")`: the two answer different questions. The notifier asks
+"who owns the maintenance queue" — a **routing** question that is source-agnostic
+and has no session attached to it. The queue asks "may this session read the
+maintenance register" — a **permission** question about an existing resource. One
+is who gets told; the other is who may look and act.
+
+**The residual, now narrower but still standing:** a failed Pre-Shift / Pre-Trip
+still raises **nothing** on its own and still escalates to nobody automatically.
+`src/lib/inspections/maintenance.js:53-55` returns `notRequired` for anything that
+is not Post-Shift, on purpose. What changed is that the row is now visible in one
+place and closable by a person. Whether the automatic path should widen is the
+separate conversation that code defers, and it stays deferred.
+
 ## Bug: every PUT 500'd with "could not determine data type of parameter $1" — FIXED 2026-09-15
 
 `PUT /api/vehicle-maintenance/[id]` built the SET `values` array first, then
@@ -196,6 +298,14 @@ runs were replayed against live and return correct shapes.
 `predictive-maintenance.js` is one of the pure modules in `src/lib/ai/`. It scores vehicles by proximity to a service threshold (odometer-driven) and surfaces them in the advisory ranking.
 
 **Schedule Clamp:** `recomputeVehicleSchedule()` updates a vehicle's next service date and mileage when a maintenance record is `Completed`. To prevent illegal tampering, this function uses a PostgreSQL `GREATEST()` clamp. If a user modifies an older completed maintenance record with a lower odometer reading, the clamp discards the edit and preserves the furthest advanced predictive schedule, keeping the risk scores strictly safe and forward-moving.
+
+## Inspections do not ground a vehicle — 2026-09-23
+
+Inspection failures (Quick Pre-Trip / Pre-Shift) create severity-classified findings + dispatch notifications **only** — `vehicle_status` is never flipped by an inspection. Grounding stays with the incident/maintenance flow (`src/lib/incidents/grounding.js`), so a driver reporting a FAIL cannot take a vehicle out of service on their own, and a reader looking at an inspection `severity = 'High'` row should not conclude the vehicle was pulled. Repeated findings are recorded in `vehicleinspection.checklist` for a future condition-signal wiring (not yet wired — see [[Trips]]).
+
+**One exception, and it is narrower than it looks (2026-09-23):** an **End Duty** report *can* ground a vehicle, but never by flipping `vehicle_status`. It writes a `vehiclemaintenance` row in `In Progress`, and `GET /api/vehicles/available` excludes that status — so the vehicle leaves dispatch through the maintenance register, the same lever a human-authored order uses, and only when the driver's own words match a breakdown/damage keyword. A checklist FAIL still grounds nothing. → see the End Duty section above and [[Trips]]
+
+Note for anyone rendering inspection severity: `vehicleinspection.severity` carries **three vocabularies at once** and has no CHECK to settle them — the mobile route writes `None|Medium|High`, the demo seed writes `Minor|Moderate`, and the column default is `Minor`. Render it through the shared severity grammar (`status-badge.jsx`, `entity="severity"`) rather than a local ladder; the driver-portal card had a hand-written `Critical|Major` mapping that matched none of them and sent every real row to a grey "info" chip.
 
 ## Database tables used
 

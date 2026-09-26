@@ -97,6 +97,85 @@ The leaked database password was **rotated on
   being entirely absent from `.next/dev/server/` (the running dev server). The dev
   server had simply never registered a route directory added while it was up.
   Restarting it fixes the request; no source changed. → the dated section below.
+- **The problems page tells the office a reported-defect raise "does not take
+  the vehicle out of service" — on reported rows that is false. **CLOSED 2026-09-26:**
+  the note is now scoped per bucket (`page.js:146-173` — failed rows keep the
+  Scheduled/tomorrow promise, reported rows warn that raising can ground).
+  Found by the Tasks 10–19 code review.** `problems/page.js:151-154`
+  renders the sentence under every untracked row's Raise button, but a
+  Post-Shift (`reported_untracked`) raise takes the End Duty branch
+  (`maintenance.js:83-101`): a severe-keyword match files `In Progress`
+  (grounded — `available/route.js:80`), and even a non-match files `Scheduled`
+  dated **today** (`report.js:52`), which hides the vehicle today via the
+  `Scheduled AND maintenance_date <= CURRENT_DATE` arm
+  (`available/route.js:81`). The sentence holds only for failed-inspection
+  rows (Amendment 15: `Scheduled` + tomorrow), which is also what the plan
+  mandated (`plan:3640`). Fix direction, undecided: scope the sentence to
+  failed rows, or make the reported raise non-grounding first. The review
+  ledger's `Deviation 2` justification for the both-sections rendering
+  ("they share `buildChecklistMaintenancePayload`'s path") is factually wrong
+  per the same branch — recorded as corrected in the ledger, do not rely on
+  it. Sibling, pre-existing, same class: a mild End Duty auto-raise files
+  `Scheduled`/today while its remark says the vehicle "stays dispatchable"
+  (`report.js:52,67`) — Part A behavior, still open: fix or re-word separately.
+
+- **Notification dedupe reads only `notifications`, so a driver with `in_app` off
+  would be re-pushed on every cron tick. END DUTY FIXED 2026-09-26; START-WINDOW
+  STILL OPEN — found 2026-09-26 by the post-plan review of Part C.** Both
+  producers dedupe through `alreadyNotified` = "a `notifications` row exists for
+  (employee, title, reference)". With `in_app` disabled no such row is ever
+  written, so nothing ever trips the guard and each tick enqueues another
+  `push_outbox` row — a push every scan until the stage advances.
+  `end-duty-reminder.service.js` now reads
+  `notifications UNION ALL push_outbox LIMIT 1`, so either row proves delivery;
+  proven red→green by the test *"does not re-enqueue a push when in-app is off —
+  the outbox row dedupes alone"* (red: `created: 1` on the second tick where `0`
+  was expected; the same shape reproduced twice against a live stub before the
+  fix). `start-window-notifications.service.js` keeps the original
+  notifications-only lookup and is deliberately untouched — it predates this
+  work. **Severity is bounded by two facts:** the preferences page refuses to
+  turn `in_app` off (`preferences/page.js` shows "In-app notifications can't be
+  disabled"), so reaching it needs a direct
+  `PUT /api/notifications/preferences`, and the `cron-sync` caller still is not
+  firing as of 2026-09-26.
+
+- **Mobile input modals have no keyboard avoidance — iOS hides the input and the
+  buttons under the keyboard. OPEN, source-verified 2026-09-24, fix pending.**
+  No `KeyboardAvoidingView` exists inside any of the 13 RN modals; the four with
+  a `TextInput` (`mobile/app/(app)/trip/complete.js:436` note, `:471` issue,
+  `mobile/app/(app)/(tabs)/index.js:681` odometer, `mobile/app/(app)/(tabs)/vehicle.js:269`
+  odometer — the last opens with `autoFocus`, keyboard already covering the card)
+  center the card and put the action row below the field with no accommodation.
+  Android is partially masked by the default resize behaviour; iOS never
+  auto-resizes. Full write-up: [[UI UX Audit - Mobile]] § "Modal & Overlay UI
+  Audit — 2026-09-24".
+- ~~**`trip/complete.js`'s two modals omit `onRequestClose` — Android back cannot
+  dismiss them.**~~ **CLOSED 2026-09-24 (Round 12).** The note modal and issue
+  modal both gained `onRequestClose` while their backdrops were being converted
+  to tap-dismiss. The rest of the modal inventory: [[UI UX Audit - Mobile]]
+  § "Modal & Overlay UI Audit — 2026-09-24".
+- **Coach simulation panel / tooltip can render unreachable or offscreen on
+  short screens. OPEN, source-verified 2026-09-24, fix pending.** The simulation
+  panel is placed by a fixed 420dp height guess with no `maxHeight`/scroll
+  (`mobile/components/coachmarks/CoachMarkOverlay.jsx:824-829`, panel styles
+  `CoachMarkSimulationPanel.jsx:47-60` — real content ≈460+dp), and the tooltip
+  card has no `maxHeight`/ScrollView either (`CoachMarkTooltip.jsx:329-339`), so
+  the placement clamp can push Next/Skip past the bottom edge. See
+  [[UI UX Audit - Mobile]] § "Modal & Overlay UI Audit — 2026-09-24".
+- **The tour "success modals" are not modals. OPEN, source-verified 2026-09-24,
+  fix pending.** `mobile/app/(app)/inspection.js:594` and
+  `mobile/app/(app)/incidents.js:599`/`:643` are `StyleSheet.absoluteFill`
+  overlays: no `onRequestClose` (Android back navigates the screen while the
+  overlay is up) and no accessibility modality — `accessibilityViewIsModal`
+  appears exactly once in the app (`CoachMarkSimulationPanel.jsx:30`). See
+  [[UI UX Audit - Mobile]] § "Modal & Overlay UI Audit — 2026-09-24".
+- ~~**The pre-trip prompt cannot be dismissed on iOS.**~~ **CLOSED 2026-09-24
+  (Round 12).** `mobile/components/MapIntroPractice.jsx:424`'s backdrop is now a
+  `Pressable` (tap-outside dismisses; absorb wrapper keeps the CTA from
+  double-firing) plus `statusBarTranslucent`, so iOS no longer depends on the
+  Android-only `onRequestClose` for an exit. Still a single-CTA card by design —
+  the escape hatch is the backdrop. See [[UI UX Audit - Mobile]] § "Modal &
+  Overlay UI Audit — 2026-09-24".
 - ~~**The copilot had no deterministic scope boundary.**~~ **CLOSED
   2026-09-18.** `classifyCopilotScope()` in
   `src/lib/dispatch/copilot-intents.js` now routes courtesy, out-of-scope and
@@ -3796,4 +3875,209 @@ second time it was recorded was this morning. A verification that has not been p
 identically to one that has, and this vault auto-commits. The line above is written from the
 output that was pasted back.
 
+## Fixed — 2026-09-23 — the Pre-Shift screen crashed on open, because Metro does not fail on a missing named import
+
+### The finding
+
+Opening the Pre-Shift inspection threw immediately:
+
+```
+ERROR  [TypeError: Cannot convert undefined value to object]
+  PreShiftInspection (app\(app)\inspection.js)
+```
+
+### The cause
+
+`app/(app)/inspection.js` imported `INSPECTION_TYPES` from
+`lib/inspection-checklist`:
+
+```js
+import { INSPECTION_TYPES, PRE_SHIFT_CHECKLIST, checklistForMode } from "../../lib/inspection-checklist";
+...
+const inspectionType = INSPECTION_TYPES[screenMode];
+```
+
+That module does not export `INSPECTION_TYPES` — it exports
+`inspectionTypeForMode(mode)`. **Metro resolves a named import the module does
+not export to `undefined` instead of failing the bundle**, so the import cost
+nothing at build time and the crash arrived one line later at
+`undefined[screenMode]`. The message names the screen and never the import,
+which is what made it look like a data problem rather than a typo.
+
+The name was not merely misspelled. The server's `INSPECTION_TYPES`
+(`src/lib/inspections/checklists.js`) is a **`string[]`** — used as a mode-keyed
+lookup it would have been `undefined`-valued even had the mobile module exported
+it, so this was the wrong shape as well as the wrong name. The plan's Task 5
+specified `inspectionTypeForMode` for the mobile module and a call at the
+consuming line; the screen was the file that drifted.
+
+### Why 2,390 passing tests did not catch it
+
+Three things lined up, and none of them is a fluke:
+
+- Nothing in this repo **renders** a screen. The mobile suites are source-text
+  assertions (`coach-marks.test.js` reads `inspection.js` as a string), and a
+  string read cannot resolve an import.
+- The module's **own** test covered `inspectionTypeForMode` thoroughly — so the
+  export was verified while its only consumer's use of it was not. A green test
+  on one side of a contract says nothing about the other side.
+- `eslint` cannot see it either: `no-undef` does not apply to an imported
+  binding, so an unresolvable named import is not a lint error.
+
+### The fix
+
+Two lines, restoring the plan's contract:
+
+```js
+import { PRE_SHIFT_CHECKLIST, checklistForMode, inspectionTypeForMode } from "../../lib/inspection-checklist";
+...
+const inspectionType = inspectionTypeForMode(screenMode);
+```
+
+### The guard
+
+This is a platform footgun that would recur with every screen-to-lib import, so
+`mobile/lib/import-contract.test.js` now walks `app/` and `components/`, resolves
+every braced import of a module under `lib/`, and fails if a name is not actually
+exported there — reporting the file, the specifier and the available names. It
+asserts a non-zero file and name count so a broken walker cannot pass vacuously,
+which is the same false-confidence trap as reading an empty probe as "closed".
+
+### Verified
+
+Proven both ways rather than assumed: with the original bad import reproduced in
+a throwaway component the guard fails with one problem; with the file removed it
+passes. Then `npm run lint` clean, **199 files / 2,390 tests** green. The screen
+itself still needs a device open to confirm — the crash was reported from a
+device, and this fix has not been seen running on one.
+
+## Fixed — 2026-09-23 — `Number(null) === 0` silently emptied every unfiltered inspection read, so a passed Pre-Shift card never cleared
+
+**Reported as:** "hindi talaga nawawala yung start pre-shift check" — the Home
+`START PRE-SHIFT CHECK` card persisted after the check was completed. Reported
+three times, correctly, against two wrong answers from me before this one.
+
+### Root cause
+
+`GET /api/mobile/driver/inspections` built its parameters like this:
+
+```js
+const tripId = Number(sp.get("trip_id") ?? null);   // absent -> Number(null) -> 0
+```
+
+`Number(null)` is **`0`**, and `0` is **not** null. The query's escape hatch was
+`AND ($2::int IS NULL OR trip_id = $2)`, so instead of skipping the filter it
+became `trip_id = 0` — which matches **nothing**, because a Pre-Shift baseline
+carries `trip_id NULL` by definition.
+
+Measured against live, same query, same driver, only `$2` differing:
+
+```
+tripId = 0    (what the route actually sent) -> rows: 0
+tripId = null (what it should have sent)     -> rows: 6
+```
+
+So `usePreShift` received `[]` on every focus, found no row for today,
+computed `passed: false`, and re-rendered the card. **The write always worked
+and the read-back was always empty.** This is why three Pre-Shift rows existed
+for one shift — the driver kept retrying because the app never acknowledged the
+ones that had already saved.
+
+### Blast radius
+
+Not Pre-Shift-specific: **any** call to that route without `trip_id` returned
+zero rows. The Pre-Shift baseline was simply the first caller that depended on
+it, because it is the only inspection type that has no trip to filter by.
+
+### Why it hid for so long, and why my first two answers were wrong
+
+I verified the SQL by passing `null` explicitly — which reproduced the *intent*
+of the code, not the code. The bug lived in the route's **parameter
+construction**, one layer above the query I was checking against live. A
+correct query fed a wrong parameter looks exactly like a correct query.
+
+It also survived review because the `POST` branch of the same file had already
+been fixed with the right pattern (`const rawTripId = body.trip_id; const tripId
+= rawTripId == null ? null : Number(rawTripId)`) — so the *file* contained the
+fix for the body and the bug for the query string, and the correct example sat
+150 lines below the broken one.
+
+### The fix
+
+```js
+const rawTripId = sp.get("trip_id");
+const tripId = rawTripId === null || rawTripId === "" ? null : Number(rawTripId);
+if (tripId !== null && (!Number.isInteger(tripId) || tripId <= 0)) {
+  return err("Invalid trip_id", 400);
+}
+```
+
+Absent becomes `null`, an explicit non-positive or non-numeric value is a 400
+rather than a silent empty result.
+
+### Proven, not assumed
+
+Three regression tests added, and confirmed to have teeth: reverting the route to
+the buggy line makes **exactly those three fail**, and restoring the fix makes
+them pass. Then `npm run lint` clean, **203 files / 2,469 tests** green.
+
+### Two adjacent defects found in the same session, both fixed
+
+- **`inspection.js:276` decided "is a vehicle assigned?" by testing `model`.**
+  Vehicle 76's model is `null`, and **18 of 21 live vehicles have a null model** —
+  so the card printed the vehicle's own plate as its title and then "Not yet
+  assigned - contact dispatch" beneath it. The plate identifies a vehicle; the
+  model is optional detail. No assignment was ever missing.
+- **The lingering `Pre-Shift: Passed · <time>` receipt line** on Home, removed so
+  the surface is fully clear once the check passes.
+
+### Residual
+
+The Pre-Shift card's clearing is now fixed server-side and proven at the query
+level, but has still not been seen clearing **on a device** — the same gap this
+file recorded for the crash above.
+
+## Fixed — 2026-09-26 — Interactive onboarding sequencing bug: duplicate navigation ownership and transition race allowed production forms during §3.7 walkthrough
+
+**Reported as:** During §3.7 interactive onboarding on device, tapping the highlighted "Report Incident" or "Fuel" quick action opened the normal production form first (allowing real incident/fuel record creation before tutorial mode appeared), or caused duplicate navigations from a single tap.
+
+### Root causes
+1. **Dual Navigation Ownership**: Both `DriverHomeCards.jsx` (`HomeQuickActions.handlePress`) and `CoachMarkProvider.jsx` (`completeActiveMilestone`) were independently executing `router.push('/incidents?tour=1')` and `router.push('/fuel-report?tour=1')` on the exact same tap. This caused duplicate pushes and stacked two identical screens in the Expo Router navigation history.
+2. **Transition Race Condition (`activeMilestoneKey` clearing)**: Completing active milestones asynchronously resets `activeMilestoneKey` in React state to `null` while pending next milestones or navigation timers. Tapping quick actions during this gap caused `handlePress`'s check (`activeMilestone === 'tour_incident'` or `'tour_fuel'`) to evaluate to false and fall through to `a.action?.()`, launching the real production screen with no tour parameters.
+3. **Unawaited Async Notification**: `notifyInteraction()` was called without awaiting it before executing router transitions.
+
+### The fix
+1. **Single Navigation Owner**:
+   - `CoachMarkProvider` was established as the sole navigation owner for all tutorial routes (`/incidents?tour=1` and `/fuel-report?tour=1`).
+   - Removed `useRouter` and competing `router.push` calls from `DriverHomeCards.jsx`. Tapping a highlighted quick action now awaits `notifyInteraction('home.shortcut_incident')` or `notifyInteraction('home.shortcut_fuel')` and returns.
+2. **Synchronous Transition Locking**:
+   - Added synchronous transition locking (`walkthroughActiveRef`, `tutorialTransitioningRef`, `pendingTourDestinationRef`) and state mirrors to `CoachMarkProvider`, exposed via `useCoachMarkStatus()` and `useCoachMarkActions()`.
+   - `DriverHomeCards.jsx` strictly checks `walkthroughActive || tutorialTransitioning` to return early, completely barring fallthrough to production `a.action?.()`.
+   - `notifyInteraction` intercepts shortcut notifications at the top of the handler, ensuring taps during transition states are safely processed.
+3. **Clean Back Stack & Route Handlers**:
+   - Tutorial incident submission in `mobile/app/(app)/incidents.js` replaces the route to `/(app)/(tabs)?tour_step=fuel` (`router.replace`) rather than pushing onto the stack.
+   - Tutorial fuel completion in `mobile/app/(app)/fuel-report.js` sets destination transition lock to `/map` and calls `triggerMapIntroFromTab({ source: "fuel-tour-complete" })`.
+   - `mobile/app/(app)/(tabs)/index.js` primes transition locks on `tour_step` query parameter detection.
+4. **Safety Invariants Maintained**:
+   - `isTour` protections remain intact: simulated incident submissions never trigger `api.post("/api/driver/incidents", ...)`, and simulated fuel logs never trigger mutation APIs.
+   - Non-walkthrough normal shortcuts continue to open production `/incidents` and `/fuel-report` routes.
+
+### Verified
+- 11 regression tests added to `mobile/lib/coach-marks.test.js`:
+  1. Single Incident tap produces exactly one tutorial navigation.
+  2. Single Fuel tap produces exactly one tutorial navigation.
+  3. Production action is blocked while tutorial step or handoff is active.
+  4. `/incidents?tour=1` is the first incident screen entered.
+  5. `/fuel-report?tour=1` is the first fuel screen entered.
+  6. Tutorial incident submit cannot reach production incident API.
+  7. Tutorial fuel flow cannot reach production fuel mutation APIs.
+  8. Outside walkthrough, normal shortcuts open production mode.
+  9. No duplicate navigation stack entries between DriverHomeCards and CoachMarkProvider.
+  10. Structural assertion: only `CoachMarkProvider` owns tour navigation strings.
+  11. Back stack replaces for onboarding handoffs rather than duplicating.
+- 137 unit tests in `mobile/lib/coach-marks.test.js` pass (100%).
+- ESLint clean (`--max-warnings 0`) across all modified files.
+
+### Residual
+While verified in vitest source-level tests and contract assertions, physical gesture timing on real hardware requires an on-device run to verify end-to-end feel.
 

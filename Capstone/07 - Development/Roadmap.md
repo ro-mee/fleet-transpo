@@ -108,9 +108,9 @@ eslint config doesn't resolve imports. Grep after every deletion.
 ## Phase 5 — before anything goes live
 
 18. Route-auth audit: assert every `src/app/api/**/route.js` calls `requireAuth`/`requireDriver` → [[Authentication]]
-19. A reconciliation job over [[integration_log]] `WHERE status <> 'processed'`
+19. ~~A reconciliation job over [[integration_log]] `WHERE status <> 'processed'`~~ — **route + caller landed 2026-09-24** (`/api/cron/reconcile` in `cron-sync.yml`); still needs the three cron operator steps (merge, repo secrets, HostForge `CRON_SECRET`) → [[Environment Setup]]
 20. Lock down CORS from wildcard → [[Technology Stack]]
-21. Add the missing env keys: `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY` → [[Environment Setup]]
+21. Add the missing env keys: `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY` → [[Environment Setup]] — `CRON_SECRET` now also gates the cron-sync workflow
 22. Decide on background GPS → [[ADR-010 Foreground Only GPS]]
 
 ## Deliberately not on this roadmap

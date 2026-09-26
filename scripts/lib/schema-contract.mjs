@@ -257,6 +257,42 @@ export const TABLES = Object.freeze({
     reason: "Runtime policy — dispatch_policy, uvvrp_policy. Readable would expose operating thresholds.",
   },
 
+  // --- geography & addresses -----------------------------------------------
+  // All five of these arrived on live via the address/PSGC work the ledger
+  // records as migrations 122-124, whose files are no longer on disk. None was
+  // ever classified, and the offline gate could not see them either: it reads
+  // schema.sql, which had not been re-dumped since those migrations ran, so the
+  // tables were invisible to it. Refresh the dump — as the migration rules
+  // require after every `db:up` — and the gate fires. That is the SEC-DB-003
+  // shape a second time, and the reason the gate is worth having.
+  addresses: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Normalised postal addresses — street level, with provider place IDs, coordinates, landmark text and a verification state. drivers.address_id and drivers.emergency_contact_address_id both point here, so this is a driver's home and next-of-kin address, not just a lookup row.",
+    rlsNote:
+      "Found UNCLASSIFIED by the schema-contract gate on 2026-09-24 when Task 1's mandated `db:dump` refreshed schema.sql. Classified as private here and CONFIRMED from the database side rather than assumed: `db:contract` reads RLS enabled with no anon-permissive policy for this table and its four PSGC siblings, and `npm run verify:anon` returns an explicit 42501 for each — a refusal, not a `200 []`, so the probe distinguishes closed from merely empty.",
+  },
+  ph_regions: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "PSGC region reference rows, the root of the geography chain. Non-sensitive by nature — but nothing reads it with the anon key, so this is classified on reachability rather than sensitivity. A `public` tag would require stating an anon-read policy that no client asks for.",
+  },
+  ph_provinces: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "PSGC province reference rows, parented to ph_regions and cascading on delete. Read only through the API.",
+  },
+  ph_cities: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "PSGC city/municipality reference rows, parented to both ph_provinces and ph_regions. Read only through the API.",
+  },
+  ph_barangays: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "PSGC barangay reference rows — the finest geography grain, and what addresses.psgc_barangay_code resolves against. Read only through the API.",
+  },
+
   // --- tracking & monitoring ----------------------------------------------
   gpstracking: {
     classification: CLASSIFICATION.PRIVATE,

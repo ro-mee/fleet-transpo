@@ -11,6 +11,7 @@ import { useTheme } from "../../lib/theme-context";
 import { fonts } from "../../lib/theme";
 import { moderateScale } from "../../lib/scaling";
 import { OTP_CODE_DIGITS, sanitizeOtpInput } from "../../lib/otp";
+import { OTP_DASH, otpCellFill } from "../../lib/otp-cell-style";
 
 /**
  * OtpInput — FleetOps claymorphic multi-cell OTP entry.
@@ -212,22 +213,6 @@ export const OtpInput = forwardRef(function OtpInput(
     return isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.09)";
   };
 
-  const resolveCellBg = (focused, filled) => {
-    if (status === "error") {
-      return isDark ? "rgba(242,163,156,0.10)" : "rgba(168,67,64,0.06)";
-    }
-    if (status === "success") {
-      return isDark ? "rgba(130,190,163,0.12)" : "rgba(40,107,84,0.08)";
-    }
-    if (focused) {
-      return isDark ? colors.surfaceContainerHighest : "rgba(40,84,72,0.04)";
-    }
-    if (filled) {
-      return isDark ? colors.surfaceContainerHigh : colors.surfaceContainerLowest;
-    }
-    return isDark ? colors.surfaceContainerHigh : colors.surfaceContainerLowest;
-  };
-
   return (
     <View style={styles.container}>
       <Animated.View
@@ -240,7 +225,7 @@ export const OtpInput = forwardRef(function OtpInput(
           const focused = focusedIndex === index;
           const filled = Boolean(digit);
           const borderColor = resolveBorderColor(index, focused, filled);
-          const cellBg = resolveCellBg(focused, filled);
+          const cellBg = otpCellFill({ status, filled, isDark, colors });
           const showDivider = length === 6 && index === 3;
 
           return (
@@ -263,6 +248,15 @@ export const OtpInput = forwardRef(function OtpInput(
               <Animated.View
                 style={[
                   styles.cellShadow,
+                  filled &&
+                    !focused &&
+                    status === "idle" && {
+                      shadowColor: "#000",
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: isDark ? 0.32 : 0.16,
+                      shadowRadius: 4,
+                      elevation: 2,
+                    },
                   focused && {
                     shadowColor: colors.primary,
                     shadowOpacity: isDark ? 0.35 : 0.2,
@@ -371,7 +365,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: moderateScale(6),
+    gap: moderateScale(OTP_DASH.rowGap),
     width: "100%",
   },
   cellWrapper: {
@@ -382,15 +376,15 @@ const styles = StyleSheet.create({
   },
   separator: {
     position: "absolute",
-    left: -moderateScale(12),
-    width: moderateScale(12),
+    left: moderateScale(OTP_DASH.separatorLeft),
+    width: moderateScale(OTP_DASH.separatorWidth),
     height: moderateScale(48),
     alignItems: "center",
     justifyContent: "center",
     zIndex: 2,
   },
   separatorDash: {
-    width: moderateScale(7),
+    width: moderateScale(OTP_DASH.dashWidth),
     height: 2,
     borderRadius: 1,
   },

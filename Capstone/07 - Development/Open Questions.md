@@ -47,7 +47,7 @@ Things that are genuinely **UNKNOWN** — not inferred, not guessed. Answering t
     The prompt says *"Separate distinct points with periods so the UI can parse them cleanly into bullet points."* If it splits on `.`, an abbreviation breaks it. → [[AI Advisory]]
 
 11. **Is there a cleanup job for expired `mobile_refresh_tokens`?**
-    57 rows now; it only grows. → [[ADR-009 Separate Mobile Auth]]
+    ~~57 rows now; it only grows.~~ **Closed 2026-09-24** — migration 128 schedules `mobile-refresh-token-purge` daily at `17 4 * * *` (30-day grace) → [[ADR-009 Separate Mobile Auth]] · [[mobile_refresh_tokens]]
 
 12. **Do nav links point at the missing pages?**
     Resolved 2026-08-23: the two availability boards were merged into `/dispatch/availability` and nav entries updated (`workspaces.js`). The planned 2026-08-15 removal had never actually landed — pages stayed live until the merge. → [[Frontend]]

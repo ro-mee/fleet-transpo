@@ -10,6 +10,7 @@ import * as serviceAuth from "@/lib/api/service-auth";
 import * as statusService from "@/services/status.service";
 import * as startWindowService from "@/services/start-window-notifications.service";
 import * as assignedTripService from "@/services/assigned-trip-scan.service";
+import * as endDutyService from "@/services/end-duty-reminder.service";
 import * as appErrors from "@/lib/app-errors";
 import * as systemHealth from "@/lib/system-health";
 
@@ -35,6 +36,9 @@ function mockHappyPath(overrides = {}) {
   });
   vi.spyOn(assignedTripService, "syncAssignedTripAlerts").mockResolvedValue({
     created: 0, pushes_attempted: 0, scanned: 0, errors: 0,
+  });
+  vi.spyOn(endDutyService, "syncEndDutyReminders").mockResolvedValue({
+    created: 0, pushes_attempted: 0, scanned: 0, skipped: 0, errors: 0,
   });
   for (const [mod, name, impl] of overrides.mocks || []) {
     vi.spyOn(mod, name).mockImplementation(impl);
@@ -118,6 +122,41 @@ describe("POST /api/cron/sync start-window step", () => {
     expect(body.start_window_stale_locations).toBe(0);
     expect(body.drivers_synced).toBe(5);
     expect(body.notifications_created).toBe(1);
+    expect(body.heartbeat_recorded).toBe(true);
+  });
+});
+
+describe("POST /api/cron/sync end-duty reminder step", () => {
+  it("reports the End Duty reminder counters", async () => {
+    mockHappyPath();
+    vi.spyOn(endDutyService, "syncEndDutyReminders").mockResolvedValue({
+      created: 4, pushes_attempted: 2, scanned: 6, skipped: 2, errors: 0,
+    });
+
+    const res = await POST(mockReq());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      end_duty_reminders_created: 4,
+      end_duty_pushes_attempted: 2,
+      end_duty_skipped: 2,
+    });
+    // The neighbouring steps are unaffected by this one running.
+    expect(body.drivers_synced).toBe(5);
+    expect(body.start_window_notifications_created).toBe(0);
+  });
+
+  it("does not fail the sync when the reminder producer throws", async () => {
+    mockHappyPath();
+    vi.spyOn(endDutyService, "syncEndDutyReminders").mockRejectedValue(new Error("producer exploded"));
+
+    const res = await POST(mockReq());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Zeroed, not missing: the step failed, and an absent field would read as
+    // "did not run" rather than "ran and failed".
+    expect(body.end_duty_reminders_created).toBe(0);
+    expect(body.drivers_synced).toBe(5);
     expect(body.heartbeat_recorded).toBe(true);
   });
 });

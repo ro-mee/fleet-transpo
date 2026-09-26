@@ -57,15 +57,21 @@ export async function PUT(req, { params }) {
       }
     }
 
-    // Pre-trip check gate: the driver must have a Passed inspection for THIS
-    // trip. Per-trip by design — the mobile flow routes the driver through the
-    // checklist before this endpoint is reachable, and the block is the
-    // enforcement that makes the UI hint honest.
+    // Pre-trip check gate: the driver must have a Passed QUICK Pre-Trip
+    // inspection for THIS trip. Per-trip by design — the mobile flow routes the
+    // driver through the checklist before this endpoint is reachable, and the
+    // block is the enforcement that makes the UI hint honest.
+    //
+    // The inspection_type filter makes the contract explicit: a Pre-Shift
+    // baseline row (trip_id IS NULL) can never satisfy a trip's gate. trip_id
+    // scoping already excludes those rows; this says so rather than relying on
+    // the reader to notice.
     const { rows: pretrips } = await query(
       `SELECT i.inspection_id, i.status
          FROM vehicleinspection i
          JOIN trips t ON t.trip_id = i.trip_id
         WHERE i.trip_id = $1
+          AND i.inspection_type = 'Pre-Trip'
           AND i.driver_id = t.driver_id
           AND i.vehicle_id = t.vehicle_id
         ORDER BY i.created_at DESC, i.inspection_id DESC LIMIT 1`,

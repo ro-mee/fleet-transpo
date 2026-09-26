@@ -87,3 +87,13 @@ export function groupTrips(trips, now) {
     .map((bucket, i) => ({ bucket, label: BUCKET_LABEL[bucket], items: queues[i] }))
     .filter((s) => s.items.length > 0);
 }
+
+// The Trips-list chip for a trip's own quick pre-trip check. Everything that is
+// not a definite Passed/Failed reads as Pending, including a missing value and
+// the string "Pending" itself — the chip states the requirement, and an unknown
+// state must not look satisfied.
+export function preTripChipLabel(status) {
+  if (status === "Passed") return "Pre-Trip: Passed";
+  if (status === "Failed") return "Pre-Trip: Failed";
+  return "Pre-Trip: Pending";
+}

@@ -37,8 +37,10 @@ export function CoachMarkTooltip({
   const showBack = allowBack && stepIndex > 0;
   const isWelcome = arrowPosition === "none";
 
-  // Harmonized background color ensuring 100% arrow-to-card color continuity
-  const cardBg = isDark ? "#17221D" : "#FFFFFF";
+  // Theme-token surface so dark / high-contrast palettes apply (was a
+  // hardcoded #17221D/#FFFFFF pair that bypassed the palette). The arrow
+  // borders read the same value, keeping arrow-to-card continuity.
+  const cardBg = colors.surfaceContainerLow;
 
   // Announce title and guidance body to screen readers (TalkBack / VoiceOver)
   useEffect(() => {
@@ -113,12 +115,8 @@ export function CoachMarkTooltip({
             style={[
               styles.welcomeBadge,
               {
-                backgroundColor: isDark
-                  ? "rgba(74, 222, 128, 0.12)"
-                  : "rgba(40, 84, 72, 0.08)",
-                borderColor: isDark
-                  ? "rgba(74, 222, 128, 0.25)"
-                  : "rgba(40, 84, 72, 0.15)",
+                backgroundColor: colors.primary + (isDark ? "1F" : "14"),
+                borderColor: colors.primary + (isDark ? "40" : "26"),
               },
             ]}
           >

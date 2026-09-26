@@ -623,32 +623,32 @@ export default function LiveMapPage() {
         <StatCard icon={Clock3} label="Delayed / offline" value={gpsSummary.delayed + gpsSummary.offline} tone={gpsSummary.delayed + gpsSummary.offline ? "warning" : "neutral"} trend={`${gpsSummary.noSignal} active trips have no measurement`} />
       </StatGrid>
 
-      {tripsQuery.isError && (
+      {tripsQuery.isError && !activeTrips.length && (
         <QueryErrorBanner
           query={tripsQuery}
           title="Unable to load active trips"
           description="The map may be incomplete until the active-trip feed is available."
         />
       )}
-      {locationsQuery.isError && (
+      {locationsQuery.isError && !locations.length && (
         <QueryErrorBanner
           query={locationsQuery}
           title="Unable to refresh GPS positions"
           description="Trip records remain visible, but their positions may be unavailable or outdated."
         />
       )}
-      {standbyQuery.isError && (
+      {standbyQuery.isError && !standbyPositions.length && (
         <QueryErrorBanner query={standbyQuery} title="Unable to refresh standby positions"
           description="Standby pins are hidden until the feed recovers." />
       )}
-      {respondersQuery.isError && (
+      {respondersQuery.isError && !rescueRows.length && (
         <QueryErrorBanner
           query={respondersQuery}
           title="Unable to load rescue missions"
           description="Active trips remain visible, but responder positions may be missing from the map."
         />
       )}
-      {monitorQuery.isError && (
+      {monitorQuery.isError && !monitorRows.length && (
         <QueryErrorBanner
           query={monitorQuery}
           title="Unable to load live risk summaries"

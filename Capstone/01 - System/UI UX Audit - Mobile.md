@@ -311,3 +311,175 @@ Static re-analysis pass (source-level; no device in environment). Plan: `docs/su
 **Analyzed, not fixed this round (2026-09-22 tap-delay review):** focus-fetches on trips/history/vehicle/profile fire synchronously with no staleness guard (Home's `runAfterInteractions` + 30 s pattern was never ported); `trip/[id]` revalidates `?status=all&limit=100` during the push transition; `notification-feed.jsx` calls `setNotifications(list)` unconditionally every 30 s (new array identity → header re-render). Likely secondary: dev-build timing (release build not measured). Deferred pending a release-build measurement.
 
 **Deferred with triggers:** FlatList lists if any list routinely exceeds ~50 rows; server-side active-only filter for the 60 s trips GET if field payloads grow; coach-mark settling-tick pause pending its own provider read; TomTomMap.js only if a device profile implicates it.
+
+---
+
+## Changes Applied — Round 10 (2026-09-24, Pre-Shift Inspection UI Responsiveness & Back Button Fix)
+
+Targeted polish pass on `mobile/app/(app)/inspection.js` following driver-side feedback: back button was pushed up into the device notch/status bar ("sobrang taas"), and the PASS button showed brownish secondary-container tint rather than the Forest Green brand color.
+
+| # | Issue | File(s) | Fix Applied |
+|---|-------|---------|-------------|
+| 1 | Back button pushed into notch — `styles.topBar` had a fixed `height: moderateScale(48)` that left zero inner height when `paddingTop: insets.top` was applied on notched devices (36–59dp) | `mobile/app/(app)/inspection.js` | Removed fixed `height: 48` from `styles.topBar`. JSX now uses `paddingTop: Math.max(insets.top, 16) + moderateScale(4)` so the bar grows as needed and the back button always sits comfortably below the status bar. |
+| 2 | Back button had no tactile surface — bare circular pressable with no border or elevation gave no visual affordance | `mobile/app/(app)/inspection.js` | Upgraded `backBtn` to 40×40 squircle (`borderRadius: moderateScale(14)`, `borderWidth: 1`). JSX applies `borderColor: colors.outlineVariant`, ambient shadow elevation 3, and pressed-state feedback. |
+| 3 | PASS button rendered brownish secondary-container tint (`#F1E7D6` Antique Brass) instead of brand Forest Green, and in dark mode suffered near-zero contrast due to dark `#103A30` text on dark green | `mobile/app/(app)/inspection.js` | When `isPass === true`: Light mode uses `backgroundColor: colors.primary` (`#285448`), `borderColor: colors.primary`, and `#FFFFFF` text/icon. Dark mode uses `backgroundColor: "#1E5647"` (rich Forest Green), `borderColor: "#3E8D75"` (emerald tactile edge), and `#FFFFFF` text/icon (>7:1 contrast ratio, WCAG AAA). Unselected buttons in dark mode gain `rgba(255,255,255,0.06)` border definition. Applied identically to both the `idx === 0` CoachMarkTarget branch and the `idx > 0` standard branch. |
+| 4 | Top bar title was hardcoded "FleetOps" — unhelpful on this sub-screen | `mobile/app/(app)/inspection.js` | Title now reflects the current mode: `"Pre-Shift Check"` or `"Pre-Trip Check"`. Color changed from accent `primary` to neutral `onSurface` for clear hierarchy. |
+| 5 | `styles.scroll` had `alignItems: "center"` which caused child cards to shrink or clip on narrow screens | `mobile/app/(app)/inspection.js` | Removed `alignItems: "center"` from scroll container; added explicit `width: "100%"` to `checkItem` so cards always fill the viewport width. |
+| 6 | `styles.checkBtnText` was an empty object — label text had no typography, causing multi-word labels like "NO LIGHTS" to render at RN default weight | `mobile/app/(app)/inspection.js` | Added `fontSize: moderateScale(13)`, `fontWeight: "600"`, `letterSpacing: 0.3` so button labels are legible and consistent with the control-label design token. |
+
+**Verification:** ESLint `--max-warnings 20` on `mobile/app/(app)/inspection.js` exits 0, no warnings. CoachMarkTarget bindings (`inspection.pass_fail`, `inspection.remarks`, `inspection.complete`) are structurally unchanged — all three IDs remain in their original positions. FAIL button behavior, remarks input, and submit logic are untouched.
+
+---
+
+## Changes Applied — Round 11 (2026-09-24, OTP Verification Screen Hierarchy & Clay Depth)
+
+A hierarchy-first restructure of the mobile OTP step — **presentation only, verification behaviour frozen** — planned as `docs/superpowers/plans/2026-09-24-otp-redesign.md` from an approved 15-decision spec, implemented as 4 reviewed tasks on `feat/otp-redesign`.
+
+| # | Issue | File(s) | Fix Applied |
+|---|-------|---------|-------------|
+| 1 | The auth brand block (`ClayTile` → title → tagline) was byte-identical across login / forgot-password / reset-password, so every screen re-maintained it | `mobile/components/auth/AuthHeader.jsx` (new) | Extracted as `<AuthHeader icon title tagline />` — brand block only, **no back button** (screens keep their own). All three screens now consume it; dead `brand`/`logoTile`/`appName`/`tagline` styles and unused `ClayTile` imports removed. Title 24→28 as specified. |
+| 2 | OTP had no family brand block and two competing instructions (intro title + description *and* the pill) | `mobile/components/otp/OtpVerificationView.jsx` | Intro block replaced by `AuthHeader` (`shield-checkmark-outline` / "Verify your identity"), tagline = the **single** instruction with the mask inlined (``Enter the 6-digit code sent to ${masked}``) — exactly one instruction, no card info row. |
+| 3 | **Root cause:** `resolveCellBg` returned the *identical* fill for filled and empty cells, so progress was only readable from the digits themselves | `mobile/lib/otp-cell-style.js` (new), `mobile/components/otp/OtpInput.jsx` | Recipe B — depth, not hue, carries progress: filled lifts to `surfaceContainerLowest`, empty carves to `surfaceContainerHigh`, mirrored light/dark; error/success keep their pre-existing tints; `focused` is deliberately not a parameter so focus can never introduce a third fill colour. Added a filled-only lift shadow (`shadowOpacity isDark ? 0.32 : 0.16`) so the lift reads even where the two fills sit close in value. |
+| 4 | The 3\|4 group separator box was `width: 12` at `left: -12` in a `gap: 6` row — twice the slot, so the dash overran cell 3 | `mobile/lib/otp-cell-style.js`, `OtpInput.jsx` | New `OTP_DASH = { rowGap: 8, separatorLeft: -8, separatorWidth: 8, dashWidth: 7 }` — the box now equals the gap and the 7px dash fits with 0.5px clearance either side. |
+| 5 | Footer was three rows (divider / expiry / "Didn't receive a code?" + resend), and the expired copy said "resend a new code **below**" only because resend was three rows down | `OtpVerificationView.jsx` | Collapsed into **one meta row** — expiry left, resend right, recovery below, **no divider**; expired copy shortens to `Code expired`. 12 dead styles removed, 5 `meta*` added at 14px/20. |
+| 6 | Duplicate `notice` channel: `login.js` passed `notice={mfaNotice}` *and* the component set `infoMsg` itself for Resend | `OtpVerificationView.jsx`, `mobile/app/login.js` | `notice` prop removed and all four `mfaNotice` sites dropped **atomically in one commit**. `infoMsg` **stays as state**, only its seed changes to `useState(null)` — removing it would have silently silenced Resend. |
+| 7 | App-tagline footer on the OTP branch failed WCAG AA at 4.41:1 on the light stage | `mobile/app/login.js` | OTP-branch footer `colors.outline` → `colors.onSurfaceVariant` = **6.21:1**. The form-branch footer copy of the same line **stays broken by explicit decision** (out of scope). |
+
+Deliberately untouched: verification state machine, auto-submit, ≥500ms loader hold, transport-failure code retention, back clearing, resend/expiry timers, recovery path, the email mask contract (`otp-policy.js:104-105`, pinned by `otp.test.js`), card padding `18/14`, status band `minHeight: 26`, back button (already 44×44 / radius 14), and `src/` auth code.
+
+**Verification:** `npx vitest run mobile/lib` **35 files / 395 tests** green (baseline unchanged by the refactors; +1 file / +6 tests from the new `otp-cell-style.test.js`, written TDD-first and confirmed failing before implementation; `otp.test.js` mask-parity pins green throughout); `npx eslint` on all 8 touched files `--max-warnings 0` exits 0. Note for future rounds: this repo's ESLint does **not** define `no-unused-vars`, so lint cannot catch an orphaned style or import — orphan sweeps must be greps (they were, and were clean). All four task reviews and a whole-branch review: **Approved**. Commits `72f7642`, `ee3575e`, `d00f974`, `f083b14`, `3767e85` on `feat/otp-redesign` (+227/−250 across 8 files).
+
+**Still pending — device-only, not yet verified:** all four palettes (light / dark / HC light / HC dark) via Settings → Appearance; carved-vs-lifted legibility without reading digits; no stray mark over cell 3; error/success tints unchanged; focus ring + cursor present; one instruction and one meta row with no divider; reserved status band not moving the card; footer legibility in all four palettes; and the full frozen-behaviour list (auto-submit, ≥500ms hold, wrong-code shake + clear, network-kill keeps the code, back clears, resend resets both countdowns, cooldown→tappable Resend, recovery swap + return). Also flagged for a future AA sweep, **not fixed here**: the cooldown branch's `Resend in …` text still uses `colors.outline` (same 4.41:1 class, one line from the now-fixed footer).
+
+---
+
+## Modal & Overlay UI Audit � 2026-09-24 (findings only, no fixes applied)
+
+Source-level audit of every modal-like surface in `mobile/`, requested as "analyze all the modal in mobile check if may problem sa ui". Inventory: **13 RN `<Modal>` usages in 11 files**, **3 fake modals** (absolute-fill `View` overlays that only look like modals), plus the custom coach-mark overlay system. No fixes were applied � this entry is the findings record; fixes are tracked in `Capstone/07 - Development/Bugs.md`.
+
+### Inventory
+
+| Surface | File:line |
+|---|---|
+| AppAlert (global dialog) | `components/AppAlert.js:142` |
+| Pre-trip prompt | `components/MapIntroPractice.jsx:424` |
+| Receipt scan tutorial | `components/coachmarks/simulation/ReceiptScanTutorialModal.jsx:84` |
+| Fuel gauge tutorial | `components/coachmarks/simulation/FuelGaugeTutorialModal.jsx:70` |
+| SOS dialog | `components/DriverSos.js:336` |
+| Trip note / report issue | `app/(app)/trip/complete.js:436`, `:471` |
+| Text-size picker | `app/(app)/settings.js:137` |
+| License image viewer | `app/(app)/profile/license.js:266` |
+| Odometer (Home) | `app/(app)/(tabs)/index.js:681` |
+| Logout confirm / photo sheet | `app/(app)/(tabs)/profile.js:296`, `:335` |
+| Odometer (Vehicle) | `app/(app)/(tabs)/vehicle.js:269` |
+| **Fake modals:** tour-success overlays | `app/(app)/inspection.js:594`, `app/(app)/incidents.js:599`; incidents success state `incidents.js:643` |
+| Coach-mark overlay system | `components/coachmarks/CoachMarkOverlay.jsx` + `CoachMarkTooltip.jsx` + `CoachMarkProvider.jsx` |
+
+No expo-router `presentation: "modal"` routes exist. `accessibilityViewIsModal` appears exactly once in the whole app: `CoachMarkSimulationPanel.jsx:30`.
+
+### HIGH
+
+1. **iOS keyboard covers every input-modal � no `KeyboardAvoidingView` inside any modal.** The four modals with `TextInput` (`trip/complete.js:436` and `:471` multiline, `index.js:681` numeric, `vehicle.js:269` decimal-pad with `autoFocus` at `:289` so the keyboard is already up on open) all render a centered card with buttons below the input and no keyboard accommodation. KAV exists only on full screens (login, fuel-report, incidents, end-duty, etc.). Android is partially saved by the default resize behaviour (`app.json` sets no `softwareKeyboardLayoutMode` override); iOS never auto-resizes, so the keyboard sits over the input and the Cancel/Confirm row.
+2. **Both `trip/complete.js` modals omit `onRequestClose`** (`:436`, `:471`) � the only two of 13 RN modals without it. Android hardware back therefore cannot dismiss them and may navigate underneath the open modal (plus the RN dev warning). Every other modal wires it.
+3. **Coach simulation panel is placed by a fixed 420dp height guess with no `maxHeight`/scroll** � `CoachMarkOverlay.jsx:824-829` positions with `Math.min(spotY+spotH+14, VIEW_H - safeBottom - 420)` while the panel's real content (`CoachMarkSimulationPanel.jsx:47-60`, incl. the 196dp scanner) already runs �460+dp, so the bottom crosses the home indicator on normal phones; on short viewports the top goes =0 (clipped above the notch). No `Math.max(safeTop+�)` floor.
+4. **Coach tooltip card has no `maxHeight`, no ScrollView, no `flexShrink`** � `CoachMarkTooltip.jsx:329-339`. When the card is taller than `VIEW_H - safeTop - safeBottom` (short screens, large font scale), the placement clamp at `CoachMarkOverlay.jsx:799-805` pins to `safeTop+10` and the card runs off the bottom � **Next/Skip become unreachable**.
+
+### MEDIUM
+
+5. **Fake modals are plain `absoluteFill` Views, not RN Modals** � `inspection.js:594`, `incidents.js:599`, `incidents.js:643`. Consequences: Android back pops/navigates the screen while the overlay is still up; no accessibility modality (TalkBack reads through to the content behind); no `onRequestClose` at all. Overlay zIndex also inconsistent (999 in inspection vs 100 in incidents).
+6. **Pre-trip prompt is an escape-less trap on iOS** � `MapIntroPractice.jsx:424` has a single CTA (`:447-463`, pushes `/inspection`), a backdrop that is a plain `View` (no tap-dismiss, `:430`), and `onRequestClose` (`:428`) which is Android-only. On iOS the only way out is to navigate into the inspection screen.
+7. **`statusBarTranslucent` on only 2 of 13 modals** � `AppAlert.js:146` and `profile.js:339` only. The other 11 leave the Android status bar undimmed and the modal window starting below it: a visible bright seam above every dialog, most jarring on the `license.js` black image viewer (`viewerContainer` at `:334`).
+8. **AppAlert dismissal/overflow quirks** � Android back runs `dismiss(null)` (`:147`), closing even destructive-confirm alerts without any button action; the message body has no `maxHeight`/scroll (only `maxWidth: 290`, `:348-356`) so very long server messages can push the button row off small screens (the `centred` container at `:264` has no scroll); button labels are `numberOfLines={1}` (`:237`) so a long label truncates instead of wrapping.
+9. **Tap-outside dismissal is inconsistent: 1 of 13.** Only the photo sheet's backdrop is pressable (`profile.js:342-348`, with correct `stopPropagation` on the sheet content). The other 12 backdrops are plain `View`s � tapping outside does nothing, Cancel/back only. Reasonable for AppAlert/SOS, surprising for dialogs like text-size/odometer/note.
+10. **Coach dark-mode/high-contrast bypass + neon ring** � card/panel surfaces hardcode `#17221D`/`#FFFFFF` (`CoachMarkTooltip.jsx:41`, `CoachMarkOverlay.jsx:967`, `CoachMarkSimulationPanel.jsx:22`) instead of palette tokens, so `highContrastDark` (which forces pure black + white borders, `lib/theme.js:206-221`) never applies; the dark contour ring is neon `rgba(74, 222, 128, 0.85)` (`CoachMarkOverlay.jsx:940`) against the file's own no-neon rule; scrim ignores `colors.scrim` (`:540`).
+11. **Coach safe-area gaps** � the centered Welcome/geometry-fallback card applies zero insets (`CoachMarkOverlay.jsx:586-600`, `centerCardWrap` `:1033-1037`), sitting under the notch on short cards; targeted tooltip clamps themselves are fine (`:789-806`).
+12. **Coach SOS bubble primary button is under the 44dp minimum** � `minHeight: moderateScale(32)` + `hitSlop 4` = 40dp effective (`CoachMarkTooltip.jsx:465`, `:265`) � on an emergency flow.
+13. **Coach placement: card can cover the hole it describes** � when neither side fits, the top branch pins at `safeTop+10` while the hole sits below (`CoachMarkOverlay.jsx:645-646`, `:797-806`); the bottom branch avoids this, the top branch does not. Floating-bubble docks can also overhang ~2dp (gate requires `space = bubbleWidth + 8` at `:663-665` but placement adds `+10` at `:685`/`:710`).
+14. **Coach first-frame height guess** � `DEFAULT_CARD_HEIGHT = 200` (`CoachMarkOverlay.jsx:34`, used `:102`, corrected only after `onMeasure` `:1001`) ? visible jump when the real card is much taller.
+
+### LOW
+
+15. Cross-modal visual inconsistency: backdrop alpha spans 0.45�0.72, corner radius 20�30, maxWidth 350/360/380/400/420 with no shared dialog primitive.
+16. Decorative `zIndex: 9999` inside RN Modals is a no-op (`MapIntroPractice.jsx:601`, `ReceiptScanTutorialModal.jsx:273`) � noise for future readers.
+17. `FuelGaugeTutorialModal.jsx:67` `if (!visible) return null` is redundant in front of `<Modal visible={visible}>`.
+18. Tutorial cards (`ReceiptScan` 270dp viewfinder + chrome, `FuelGauge`) have no `maxHeight`/scroll � currently mitigated by `"orientation": "portrait"` in `app.json:7`, still tight under large font scale.
+19. Demo `skipLink` 40dp with no `hitSlop` (`FuelReceiptScanDemo.jsx:653-657`).
+
+### What is fine (checked, no issue)
+
+Settings text-size modal (small, centered, `onRequestClose`); profile logout dialog; photo sheet (the one correct tap-outside pattern + `onRequestClose` + `statusBarTranslucent`); license viewer close affordance (44�44, `insets.top`, absolute-fill tap-to-close, `onRequestClose`); DriverSos close/back handling and `TOUCH_TARGET` buttons; `trip/complete` and Home/vehicle modal card centering (`flex: 1` overlays); most modals correctly use theme tokens with `isDark` branches; overlay dark-mode text/CTA fills use palette tokens throughout.
+
+### Verification
+
+Read-only audit: `grep` inventory of `<Modal`, `onRequestClose`, `statusBarTranslucent`, `KeyboardAvoidingView`, `accessibilityViewIsModal` across `mobile/`, plus full reads of all 13 modals, the 3 fake modals, their style blocks, `app.json`, and the coach-mark overlay/tooltip/provider/simulation files (two explore-agent passes for the coach-mark system). No code was changed; no tests run (nothing to run). Device confirmation of any finding pending.
+
+---
+
+## Changes Applied � Round 12 (2026-09-24, Modal polish: logout size, status-bar seam, tap-outside, dark-mode tokens)
+
+Follow-up fixes to the "Modal & Overlay UI Audit � 2026-09-24" findings above, on user request ("fix that and this Status bar seam, tap-outside, dark mode"). Four defect classes, 13 files touched:
+
+| # | Issue (from the audit) | Fix applied |
+|---|---|---|
+| 1 | Logout confirm read oversized � `width: 100%` with **no `maxWidth`** (siblings cap at 350�380) and a 64dp medallion; absurd on tablet (`supportsTablet: true`) | `profile.js` `modalCard` gains `maxWidth: 360`; icon medallion 64?56 (radius 32?28), icon glyph 26?24 |
+| 2 | **Status-bar seam**: `statusBarTranslucent` on only 2/13 modals � Android status bar stayed bright above the dimmed backdrop | Added `statusBarTranslucent` to the other **11 RN Modals** (`MapIntroPractice`, `ReceiptScanTutorialModal`, `FuelGaugeTutorialModal`, `DriverSos`, `trip/complete` �2, `settings`, `license`, `(tabs)/index`, `profile` logout, `(tabs)/vehicle`). All 13 now carry it. iOS ignores the prop � no behaviour change there |
+| 3 | **Tap-outside inconsistent (1 of 13)**: backdrops were plain `View`s | Six dialog backdrops are now `Pressable` with an absorb wrapper (`modalAbsorb`, `stopPropagation` � the pattern `profile.js`'s photo sheet already used) so tapping the card itself does **not** dismiss: settings text-size, trip note, trip issue, Home odometer (via `closeOdometerModal`, which already guards `odometerSaving`), Vehicle odometer, logout confirm, **and the pre-trip prompt** � the last of which also closes the audit's "escape-less trap on iOS" finding, since backdrop tap is now an exit that does not depend on the Android-only `onRequestClose`. **Deliberately skipped:** AppAlert (alert semantics � backdrop never dismisses these), DriverSos (emergency dialog), the two tutorial modals (they already have an explicit X) |
+| 4 | **Dark mode / neon hardcoded**: coach surfaces `#17221D`/`#FFFFFF` bypassed the palette (so `highContrastDark` never applied); dark contour ring and welcome/approval badges used neon `rgba(74, 222, 128, �)` against the overlay file's own no-neon rule; scrim ignored `colors.scrim` | Card fills ? `colors.surfaceContainerLow` (ClayCard's own default, `ClayCard.jsx:35`) in `CoachMarkTooltip` `cardBg` (arrows read the same token, continuity kept), `CoachMarkOverlay` handoff cue, `CoachMarkSimulationPanel`; tutorial modals (`ReceiptScan`, `FuelGauge`) and the pre-trip prompt **drop their hardcoded overrides** and take ClayCard/theme colour. Spotlight ring ? `colors.edge + (isDark ? "D9" : "E6")`; welcome badge + fuel-approval tint ? `colors.primary` hex-alpha (`1F`/`14`, `40`/`26`); scrim ? `colors.scrim + (isDark ? "C2" : "A6")` (same 0.76/0.65 densities as before, identifier `scrimBg` kept because `coach-marks.test.js:1474` counts it) |
+
+Also while touching the two `trip/complete.js` Modal tags: they gained the `onRequestClose` they were missing (Android back now dismisses note/issue properly) � closing the audit HIGH #2 / Bugs.md entry.
+
+**Not fixed in this round (still OPEN):** iOS keyboard-over-input in the four input-modals (needs `KeyboardAvoidingView` work), coach simulation-panel/tooltip `maxHeight`+scroll (audit HIGH #3�4), the three fake `absoluteFill` "success modals", `statusBarTranslucent` seam is fixed but the **fake modals still are not RN Modals**, and the LOW items (cross-modal radius/alpha inconsistency, no-op `zIndex: 9999`, demo skipLink hitSlop).
+
+**Verification:** `npx eslint` on all 13 touched files `--max-warnings 0` ? clean (one intermediate JSX closing-tag mismatch in `MapIntroPractice.jsx` found by lint and fixed before the green run); `npx vitest run mobile/lib` ? **35 files / 395 tests PASS** (includes `coach-marks.test.js` source-text assertions and `theme-scale.test.js`). Greps: `statusBarTranslucent` = 13/13 modals; live `rgba(74, 222, 128` matches = only the explanatory comment in `CoachMarkOverlay.jsx`; `isDark ? "#17221D"` / `"#141D19"` card fills = 0. **Not device-verified** � Android status-bar dim, tap-outside feel, tablet logout width and the four palettes (light/dark/HC-light/HC-dark) still need a device pass.
+
+---
+
+## Changes Applied — Round 13 (2026-09-25, Driver Onboarding Overhaul: Data Privacy & App Permissions)
+
+Rebuilt the two-step driver onboarding flow (`mobile/app/consent.js` and `mobile/app/permissions.js`) to precisely adopt the specification mockup (`media_1790350688783.jpg`) while ensuring full dark mode and light mode responsiveness.
+
+| # | Screen / Component | Work Implemented |
+|---|---|---|
+| 1 | `OnboardingHeader.jsx` | Shared brand header squircle tile (`FleetOps` / `DRIVER COMPANION`) + step counter badge (`1/2` and `2/2`), fully responsive to safe-area insets and theme tokens. |
+| 2 | `PrivacyHeroIllustration.jsx` | 3D layered split-faceted emerald shield emblem (`#34D399` / `#10B981` / `#064E3B` in dark mode, `#3B7A68` / `#285448` in light mode), specular top sheen, checkmark icon, concentric topographic contour wave rings, radar accent nodes, and ambient radial glow. |
+| 3 | `PermissionsHeroIllustration.jsx` | Perspective angled street grid lines, 3D smartphone chassis with speaker pill, mini route preview (screen road grid, route polylines, destination pin), and floating/orbiting sensor badges (Location pin, Camera, Car). |
+| 4 | `OnboardingCard.jsx` | Tactile squircle tile card supporting left icon tiles, titles, descriptions, status badges (`Not asked`, `Approved`, `Denied`, `Blocked`), trailing chevrons, and interactive checkbox mode. |
+| 5 | `mobile/app/consent.js` (Step 1/2) | Rebuilt with `OnboardingHeader`, `PrivacyHeroIllustration`, two-tone headline ("Driver Data Privacy"), 3 info cards (Location Tracking, Telematics & Vehicle Data, Data Retention), interactive Terms & Conditions checkbox card, and full-width glowing pill button ("Confirm & Continue →"). Submits to `POST /api/driver/me/consent` and advances to `/permissions`. |
+| 6 | `mobile/app/permissions.js` (Step 2/2) | Rebuilt with `OnboardingHeader`, `PermissionsHeroIllustration`, headline ("App Permissions"), permission cards with live status chips, single-card tap trigger, and full-width glowing pill button ("Enable Permissions →"). Traverses permissions sequentially and advances to dashboard (`/`). |
+
+**Verification:**
+- ESLint `--max-warnings 0` on all components and screens (`mobile/components/onboarding/`, `mobile/app/consent.js`, `mobile/app/permissions.js`) exits 0 with 0 errors / 0 warnings.
+- Unit tests (`npx vitest run mobile/lib`): **36 files / 403 tests PASS** (includes `theme-scale.test.js`, `import-contract.test.js`, and all mobile test suites).
+- Dark and light mode token verification: Theme-adaptive background fills, card borders, typography contrast (>7:1 on dark mode CTA text and status badges), and glow drop shadows.
+
+---
+
+## Changes Applied — Round 14 (2026-09-26, Premium Dark-Green Onboarding Image-to-Code Redesign)
+
+Comprehensive redesign of the FleetOps Mobile Onboarding flow (`mobile/app/consent.js` and `mobile/app/permissions.js`) to precisely match the user's reference mockup (`media_1790405542000.jpg`) as real React Native / Expo components, responsive on smaller Android devices.
+
+| # | Screen / Component | Work Implemented |
+|---|---|---|
+| 1 | `onboardingTheme.js` | Dedicated design tokens for the onboarding aesthetic: deep emerald stage (`#031B1B` / `#021414`), surface `#0B2728` with subtle border `rgba(120, 224, 210, 0.18)`, icon tiles `#143C3A` with glowing mint border, text ladder (`#F4FAF8` / `#B9CFCA` / `#8FA9A4`), and status chips (`Approved` in `#114438`/`#55D4A7`, `Not asked` in `#133838`/`#A5CAC3`, `Denied` in `#3B1A1E`/`#F2A39C`). |
+| 2 | `OnboardingBackground.jsx` | Full-screen container with deep green background `#031B1B`, top-right `map-bg.png` overlay (opacity 0.28, `pointerEvents="none"`), and safe-area top inset support. |
+| 3 | `OnboardingHeader.jsx` | Responsive brand header: left squircle logo badge with `car-sport` icon, "FleetOps" display title, letter-spaced "DRIVER COMPANION" subtitle, and right step indicator pill badge (`1/2` and `2/2`). Automatically scales down padding, fonts, and squircle dimensions when `height < 740` (compact mode). |
+| 4 | `OnboardingCard.jsx` | Modular info and permission card: squircle icon tile (50×50 normal, 42×42 compact), semi-bold title, secondary description, optional status chip with checkmark icon for "Approved", trailing chevron `›`, and pressable interaction support. |
+| 5 | `OnboardingConsentRow.jsx` | Terms & Conditions row: styled squircle checkbox (24×24, rounded 7, mint checkmark when checked), responsive legal copy, and trailing chevron `›`. Entire row is accessible with `accessibilityRole="checkbox"`. |
+| 6 | `OnboardingButton.jsx` | Full-width pill CTA button (height 54 normal, 48 compact, radius 999): vibrant mint/aqua gradient (`#88EED2` to `#52D4D0`) with dark pine text (`#032623`) and arrow icon when enabled; solid dark teal (`#173C38`) with muted text (`#45726B`) when disabled; activity indicator support during submission. |
+| 7 | `mobile/app/consent.js` (Step 1/2) | Driver Data Privacy screen: centered 3D privacy shield asset (`privacy-shield.png`, 90×90 normal, 72×72 compact), two-tone headline ("Driver Data" in mint, "Privacy" in white), 3 info cards (Location Tracking, Telematics & Vehicle Data, Data Retention), consent row, and sticky bottom CTA ("Confirm & Continue →"). Fully preserves `POST /api/driver/me/consent` and navigation to `/permissions`. |
+| 8 | `mobile/app/permissions.js` (Step 2/2) | App Permissions screen: top-right map lines overlay (`map-bg.png`), centered hero illustration asset (`permissions-hero.png`, 120×120 normal, 95×95 compact), two-tone headline ("App" in mint, "Permissions" in white), live permission cards (Location, Background Location, Camera, Photo Library) with dynamic status chips, single-card tap to request, and sticky bottom CTA ("Enable Permissions →"). Traverses permissions and navigates to `/`. |
+| 9 | `onboarding-theme.test.js` | Unit test suite verifying all onboarding tokens, asset presence, and status mappings. |
+
+### Device Feedback & Refinement Pass (from screenshots `media_1790407818546.png` and `media_1790408775900.png`):
+- **Card Container Style Fix:** Fixed `OnboardingCard.jsx` where `<View>` received a functional `style={({ pressed }) => ...}` prop when `onPress` was absent, causing React Native to drop all container styles (`flexDirection: "row"`, background, borders, padding) and revert to a vertical column. Statically computed array styles are now passed to `<View>`.
+- **Hero Image Proportion Scaling ("Sakto Lang"):** Following device feedback that the hero image appeared dwarfed, scaled `permissions-hero.png` from 95×95 → **136×136** (compact: **112×112**), and `privacy-shield.png` from 72×72 → **98×98** (compact: **80×80**). Central smartphone screen, route polyline, and orbiting satellite sensor bubbles now command crisp visual focal weight without crowding the cards.
+- **Permission Card Scope (4 Core Cards):** Filtered `PermissionsScreen` to the 4 spec cards (Location, Background Location, Camera, Photo Library), removing the trailing 5th card (Notifications) that was submerged behind the bottom CTA.
+- **Card Surface Contrast & Alignment:** Elevated card background to `#0C2B29` with border `rgba(120, 224, 210, 0.22)` and glowing squircle icon tiles (`#123B38` with `rgba(87, 215, 212, 0.35)` border). ScrollView bottom padding tuned to `insets.bottom + 90`.
+
+**Verification:**
+- ESLint `--max-warnings 0`: Exits 0 across all onboarding components, screens, and test files.
+- Vitest (`npm test -- mobile/lib`): **38 files / 407 tests PASS** (100% green, including `import-contract.test.js` and `onboarding-theme.test.js`).
+- Expo Export (`npx expo export --platform android` in `mobile/`): Succeeded cleanly with 1,419 modules bundled into Hermes `entry-1fa7e38d645114cafd335b6888e0b455.hbc` (5.42 MB) including all 3 onboarding assets.
+
+
+

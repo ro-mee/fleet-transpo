@@ -1,9 +1,12 @@
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
-import { withTransaction } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
+import { peekRateLimit, rateLimit } from "@/lib/rate-limit";
 import { recoveryCodeHash } from "@/lib/auth/mfa";
 import {
   OTP_BREAK_GLASS_TTL_SECONDS,
   OTP_CODE_DIGITS,
+  OTP_LOCKOUT_LIMIT,
+  OTP_LOCKOUT_WINDOW_MS,
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
@@ -57,12 +60,30 @@ function digestsMatch(a, b) {
   return timingSafeEqual(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
 }
 
+/** Bucket for the account-level OTP lock. Keyed by id, never by email. */
+export function otpLockoutKey(employeeId) {
+  return `lockout:otp:${employeeId}`;
+}
+
+/**
+ * Read-only: does NOT consume a hit. Fails closed — `peekRateLimit` answers
+ * `allowed: false` when the limiter's table is unreachable.
+ */
+export async function checkOtpLockout(employeeId) {
+  return peekRateLimit(otpLockoutKey(employeeId), {
+    limit: OTP_LOCKOUT_LIMIT,
+    windowMs: OTP_LOCKOUT_WINDOW_MS,
+  });
+}
+
 /**
  * Issues the challenge for one employee, or explains why it would not.
  *
  * Returns one of:
  *   { ok: true,  code, expiresAt }          a fresh code was minted
  *   { ok: false, reason: "cooldown", retryAfterSeconds }
+ *   { ok: false, reason: "otp_locked", retryAfterSeconds }  the account's
+ *                                              OTP lock is active
  *   { ok: false, reason: "break_glass_held" }  a live admin-issued code exists;
  *                                              do NOT email, prompt for that one
  *   { ok: false, reason: "no_account" }
@@ -74,6 +95,13 @@ function digestsMatch(a, b) {
  * them in the first place. So an existing break-glass challenge is left alone.
  */
 export async function issueLoginChallenge({ employeeId, purpose = OTP_PURPOSE_LOGIN, ip, userAgent }) {
+  // Account-level freeze: no code is minted — for either purpose — while the
+  // lock stands. Checked before the transaction so a locked account does no
+  // challenge work at all.
+  const lock = await checkOtpLockout(employeeId);
+  if (!lock.allowed) {
+    return { ok: false, reason: "otp_locked", retryAfterSeconds: lock.retryAfter };
+  }
   let outcome;
   await withTransaction(async (tx) => {
     const { rows: account } = await tx.query(
@@ -156,9 +184,18 @@ export async function issueLoginChallenge({ employeeId, purpose = OTP_PURPOSE_LO
  * Returns one of:
  *   { ok: true,  method: "otp" | "recovery" }
  *   { ok: false, reason: "expired" | "stale" | "invalid" | "attempts_exhausted",
- *     attemptsRemaining? }
+ *     attemptsRemaining?, lockTripped? }
+ *   { ok: false, reason: "otp_locked", retryAfterSeconds }  the account's
+ *                                              OTP lock is active
  */
 export async function verifyLoginChallenge({ employeeId, authVersion, code }) {
+  // Account-level freeze: verification — including the recovery-code fallback
+  // inside it — does not run at all while the lock stands, and no attempt is
+  // spent against a frozen account.
+  const lock = await checkOtpLockout(employeeId);
+  if (!lock.allowed) {
+    return { ok: false, reason: "otp_locked", retryAfterSeconds: lock.retryAfter };
+  }
   let outcome;
   await withTransaction(async (tx) => {
     const { rows } = await tx.query(
@@ -236,6 +273,28 @@ export async function verifyLoginChallenge({ employeeId, authVersion, code }) {
       attemptsRemaining: Math.max(0, Number(challenge.max_attempts) - attempts),
     };
   });
+
+  // Post-commit on purpose: `rateLimit` opens its own connection outside the
+  // transaction, so consuming inside it would record a hit even if the tx
+  // rolled back. One burned challenge is one hit — the burn consumes the
+  // challenge, so this branch can fire at most once per challenge.
+  if (outcome?.reason === "attempts_exhausted") {
+    const bucket = await rateLimit(otpLockoutKey(employeeId), {
+      limit: OTP_LOCKOUT_LIMIT,
+      windowMs: OTP_LOCKOUT_WINDOW_MS,
+    });
+    // `allowed` is still true at the ceiling (hitCount <= limit); the trip is
+    // signalled by there being no room left.
+    if (bucket.remaining === 0) outcome.lockTripped = true;
+  } else if (outcome?.ok === true) {
+    // A proved sign-in starts the counter over (mirrors clearAccountLockout):
+    // past struggle must not make the next typo half-way to a lock. Best-effort.
+    try {
+      await query("DELETE FROM auth_rate_limits WHERE bucket_key = $1", [otpLockoutKey(employeeId)]);
+    } catch (error) {
+      console.warn("clearOtpLockout failed:", error?.message || error);
+    }
+  }
   return outcome;
 }
 

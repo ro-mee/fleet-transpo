@@ -1,0 +1,81 @@
+# Drives /api/cron/sync and /api/cron/reconcile, which are NOT schedulers and
+# do nothing on their own. This is the external caller the route header and the
+# vault have recorded as an open deploy check since 2026-09-06 (heartbeat
+# cron_sync_last_ok was stale from that date until this workflow lands).
+#
+# Cadence design: the target is ~once per minute so the trip start-window
+# scan's thresholds land within a minute of crossing. GitHub's schedule floor
+# is 5 minutes, so each 5-minute tick runs a 5x60s loop (plus one reconcile
+# call at the start) for an effective ~1/min.
+#
+# Honest limits, all accepted for a capstone and none acceptable in production:
+#   - GitHub's schedule is queued, not punctual — under load a run can start
+#     minutes late, and it can be skipped entirely on a busy minute.
+#   - It only runs on the default branch (main).
+#   - GitHub disables scheduled workflows after 60 days without repository
+#     activity, so a quiet repo stops reminding anyone.
+# A production deployment wants a real cron (platform cron, systemd timer, or a
+# hosted scheduler) with the same secret and URL. vercel.json carries the same
+# two paths for if/when the app returns to Vercel (per-minute needs Pro).
+#
+# Required repository secrets: APP_BASE_URL (public origin, no trailing slash),
+# CRON_SECRET (same value as the app's production CRON_SECRET env var).
+name: cron-sync
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  # A slow run must not overlap the next tick — the producers dedupe, but there
+  # is no reason to make them prove it every five minutes.
+  group: cron-sync
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Reconcile once, then sync every minute for 5 minutes
+        env:
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_BASE_URL and CRON_SECRET repository secrets must both be set." >&2
+            exit 1
+          fi
+
+          # POST with the bearer; both routes also accept GET for dumber
+          # schedulers (Vercel cron uses GET and attaches the same header).
+          hit() {
+            code=$(curl -sS -o /tmp/cron-body.json -w "%{http_code}" -X POST \
+              "$APP_BASE_URL$1" -H "Authorization: Bearer $CRON_SECRET")
+            echo "POST $1 -> HTTP $code"
+            if [ "$code" != "200" ]; then
+              echo "---- body ----" >&2
+              cat /tmp/cron-body.json >&2 || true
+              echo "cron $1 responded $code" >&2
+              exit 1
+            fi
+            # On success the body is otherwise discarded, and "did the End Duty
+            # producer actually run?" is exactly what this log should answer.
+            # grep exits 1 when the key is absent (reconcile has no such
+            # counters), which would fail the step under -e without the guard.
+            grep -o '"end_duty_reminders_created":[0-9]*' /tmp/cron-body.json || true
+            grep -o '"end_duty_skipped":[0-9]*' /tmp/cron-body.json || true
+          }
+
+          # 5xx/401/503 fail the run so a broken deployment is visible in the
+          # Actions tab rather than in a green check nobody reads. 503 means
+          # CRON_SECRET is unset server-side; 401 means it does not match.
+          hit /api/cron/reconcile
+
+          for i in 1 2 3 4 5; do
+            hit /api/cron/sync
+            if [ "$i" -lt 5 ]; then
+              sleep 60
+            fi
+          done

@@ -1,54 +1,49 @@
-import { moderateScale } from '../lib/scaling';
 import { useCallback, useEffect, useState } from "react";
 import {
+  Image,
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useTheme } from "../lib/theme-context";
-import { fonts, space } from "../lib/theme";
+import { fonts } from "../lib/theme";
 import { ErrorNotice } from "../components/ui";
-import { BrandBar } from "../components/logo";
-import { ClayCard, ClayButton, ClayBadge, ClayTile } from "../components/clay";
 import {
   describePermissionState,
   getPermissionStatuses,
   listAppPermissions,
   requestAppPermission,
+  PERMISSION_STATUS,
 } from "../lib/permissions";
-import { useAuth } from "../lib/auth";
+import { registerDeviceToken } from "../lib/notifications/device-token";
+import {
+  OnboardingBackground,
+  OnboardingButton,
+  OnboardingCard,
+  OnboardingHeader,
+  onboardingTheme,
+} from "../components/onboarding";
 
-function PermissionCard({ icon, title, description, state }) {
-  const { colors, type } = useTheme();
-  const presentation = describePermissionState(state);
-  return (
-    <ClayCard variant="compact" style={styles.cardItem}>
-      <ClayTile
-        icon={icon}
-        size="md"
-        backgroundColor={colors.primaryContainer}
-        color={colors.onPrimaryContainer}
-      />
-      <View style={styles.cardText}>
-        <View style={styles.titleRow}>
-          <Text style={[type.cardTitle, styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>{title}</Text>
-          {state && <ClayBadge label={presentation.label} tone={presentation.tone} size="sm" />}
-        </View>
-        <Text style={[type.bodyMd, { color: colors.onSurfaceVariant }]}>{description}</Text>
-      </View>
-    </ClayCard>
-  );
-}
+// 4 core permissions required by the onboarding spec
+const ONBOARDING_PERMISSION_KEYS = [
+  "location",
+  "locationBackground",
+  "camera",
+  "mediaLibrary",
+];
 
 export default function PermissionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
-  const { colors, type } = useTheme();
-  const permissions = listAppPermissions();
+  const { height } = useWindowDimensions();
+  const compact = height < 740;
+
+  const permissions = listAppPermissions().filter((p) =>
+    ONBOARDING_PERMISSION_KEYS.includes(p.key)
+  );
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -56,21 +51,43 @@ export default function PermissionsScreen() {
 
   useEffect(() => {
     let active = true;
-    getPermissionStatuses().then((results) => {
-      if (!active) return;
-      setStatuses(Object.fromEntries(results.map((r) => [r.key, r])));
-    }).catch(() => {});
-    return () => { active = false; };
+    getPermissionStatuses()
+      .then((results) => {
+        if (!active) return;
+        setStatuses(Object.fromEntries(results.map((r) => [r.key, r])));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const onRequestSinglePermission = useCallback(async (key) => {
+    try {
+      const result = await requestAppPermission(key);
+      if (result) {
+        setStatuses((prev) => ({ ...prev, [key]: result }));
+        if (key === "notifications" && result.status === PERMISSION_STATUS.GRANTED) {
+          await registerDeviceToken().catch(() => {});
+        }
+      }
+    } catch (e) {
+      setError(e.message || "Could not request permission.");
+    }
   }, []);
 
   const onRequestPermissions = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      for (const entry of permissions) {
+      const allPermissions = listAppPermissions();
+      for (const entry of allPermissions) {
         const result = await requestAppPermission(entry.key);
         if (result) {
           setStatuses((prev) => ({ ...prev, [entry.key]: result }));
+          if (entry.key === "notifications" && result.status === PERMISSION_STATUS.GRANTED) {
+            await registerDeviceToken().catch(() => {});
+          }
         }
       }
       router.replace("/");
@@ -79,113 +96,166 @@ export default function PermissionsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [permissions, router]);
+  }, [router]);
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+    <OnboardingBackground showMapBg={true}>
+      <OnboardingHeader step="2/2" compact={compact} />
+
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.xxl + 80 },
+          styles.scrollContent,
+          compact && styles.scrollContentCompact,
+          { paddingBottom: insets.bottom + 90 },
         ]}
       >
-        <View style={styles.header}>
-          <ClayTile
-            icon="devices"
-            size="lg"
-            backgroundColor={colors.secondaryContainer}
-            color={colors.onSecondaryContainer}
-            style={styles.iconTile}
+        {/* Centered Hero Section */}
+        <View style={[styles.heroSection, compact && styles.heroSectionCompact]}>
+          <Image
+            source={require("../assets/images/onboarding/permissions-hero.png")}
+            style={[styles.heroImage, compact && styles.heroImageCompact]}
+            resizeMode="contain"
           />
-          <Text style={[type.headlineMd, styles.title, { color: colors.onSurface }]}>App Permissions</Text>
-          <Text style={[type.bodyMd, styles.subtitle, { color: colors.onSurfaceVariant }]}>
+          <Text style={[styles.heroTitle, compact && styles.heroTitleCompact]}>
+            <Text style={styles.heroTitleAccent}>App </Text>
+            <Text style={styles.heroTitleMain}>Permissions</Text>
+          </Text>
+          <Text style={[styles.heroSubtitle, compact && styles.heroSubtitleCompact]}>
             We need a few permissions to give you the best experience on the road.
           </Text>
         </View>
 
-        <ErrorNotice message={error} />
+        {error ? <ErrorNotice message={error} /> : null}
 
-        <View style={styles.cards}>
-          {permissions.map((entry) => (
-            <PermissionCard
-              key={entry.key}
-              icon={entry.icon}
-              title={entry.title}
-              description={entry.why}
-              state={statuses[entry.key]}
-            />
-          ))}
+        {/* 4 Permission Cards */}
+        <View style={[styles.cardsContainer, compact && styles.cardsContainerCompact]}>
+          {permissions.map((entry) => {
+            const state = statuses[entry.key];
+            const presentation = describePermissionState(state);
+
+            return (
+              <OnboardingCard
+                key={entry.key}
+                icon={entry.icon}
+                title={entry.title}
+                description={entry.why}
+                status={presentation}
+                compact={compact}
+                showChevron={false}
+                onPress={() => onRequestSinglePermission(entry.key)}
+              />
+            );
+          })}
         </View>
       </ScrollView>
 
-      <View style={[styles.stickyFooter, { 
-        backgroundColor: colors.surface, 
-        borderTopColor: colors.outlineVariant,
-        paddingBottom: Math.max(insets.bottom, space.md)
-      }]}>
-        <ClayButton
+      {/* Sticky Bottom CTA */}
+      <View
+        style={[
+          styles.stickyFooter,
+          compact && styles.stickyFooterCompact,
+          { paddingBottom: Math.max(insets.bottom, 14) },
+        ]}
+      >
+        <OnboardingButton
           label="Enable Permissions"
           onPress={onRequestPermissions}
           loading={loading}
-          size="lg"
-          style={styles.fullButton}
+          compact={compact}
         />
       </View>
-    </View>
+    </OnboardingBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { 
-    paddingHorizontal: space.xl, 
-    paddingTop: space.xl, 
-    gap: space.xl, 
-    width: "100%", 
-    maxWidth: moderateScale(720), 
-    alignSelf: "center" 
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 4,
+    gap: 12,
+    width: "100%",
+    maxWidth: 680,
+    alignSelf: "center",
   },
-  header: { alignItems: "center", gap: space.sm, marginTop: space.md },
-  iconTile: {
-    marginBottom: space.sm,
+  scrollContentCompact: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    gap: 9,
   },
-  title: {
-    fontFamily: fonts.displaySemiBold,
-    textAlign: "center",
-  },
-  subtitle: {
-    textAlign: "center",
-    paddingHorizontal: space.md,
-  },
-  cards: { gap: space.md },
-  cardItem: {
-    flexDirection: "row",
-    padding: space.md,
-    gap: space.md,
-    alignItems: "center"
-  },
-  cardText: { flex: 1, gap: 2 },
-  titleRow: {
-    flexDirection: "row",
+  heroSection: {
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: space.sm,
+    justifyContent: "center",
+    marginTop: 4,
+    marginBottom: 6,
   },
-  cardTitle: { flexShrink: 1 },
+  heroSectionCompact: {
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  heroImage: {
+    width: 136,
+    height: 136,
+    marginBottom: 8,
+  },
+  heroImageCompact: {
+    width: 112,
+    height: 112,
+    marginBottom: 6,
+  },
+  heroTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 27,
+    lineHeight: 32,
+    textAlign: "center",
+    letterSpacing: -0.3,
+  },
+  heroTitleCompact: {
+    fontSize: 23,
+    lineHeight: 27,
+  },
+  heroTitleAccent: {
+    color: onboardingTheme.colors.mint,
+  },
+  heroTitleMain: {
+    color: onboardingTheme.colors.textPrimary,
+  },
+  heroSubtitle: {
+    fontFamily: fonts.body,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: onboardingTheme.colors.textSecondary,
+    textAlign: "center",
+    marginTop: 5,
+    paddingHorizontal: 16,
+    maxWidth: 330,
+  },
+  heroSubtitleCompact: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    marginTop: 3,
+    paddingHorizontal: 10,
+    maxWidth: 300,
+  },
+  cardsContainer: {
+    gap: 10,
+  },
+  cardsContainerCompact: {
+    gap: 8,
+  },
   stickyFooter: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: space.xl,
-    paddingTop: space.md,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    backgroundColor: "rgba(3, 27, 27, 0.96)",
     borderTopWidth: 1,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
+    borderTopColor: "rgba(120, 224, 210, 0.14)",
   },
-  fullButton: { width: "100%" }
+  stickyFooterCompact: {
+    paddingHorizontal: 14,
+    paddingTop: 8,
+  },
 });

@@ -37,7 +37,7 @@ export async function GET(req) {
       `SELECT
         (SELECT COUNT(*)::int FROM integration_log WHERE status = 'failed' AND created_at >= NOW() - INTERVAL '24 hours') AS integration_failed,
         (SELECT COUNT(*)::int FROM integration_log WHERE status = 'processed' AND created_at >= NOW() - INTERVAL '24 hours') AS integration_ok,
-        (SELECT COUNT(*)::int FROM notifications WHERE created_at >= NOW() - INTERVAL '24 hours') AS notifications_24h,
+        (SELECT COUNT(*)::int FROM notifications WHERE deleted_at IS NULL AND created_at >= NOW() - INTERVAL '24 hours') AS notifications_24h,
         (SELECT COUNT(*)::int FROM push_outbox WHERE status = 'error' AND reviewed_at IS NULL) AS push_failed,
         (SELECT COUNT(*)::int FROM push_outbox WHERE status = 'pending') AS push_pending,
         (SELECT COUNT(*)::int FROM audit_logs WHERE action = 'login_failure' AND created_at >= NOW() - INTERVAL '24 hours') AS login_failed_24h`

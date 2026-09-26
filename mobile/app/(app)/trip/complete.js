@@ -8,6 +8,7 @@ import {
   TextInput,
   Modal,
   Platform,
+  Pressable,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../../../lib/theme-context';
@@ -433,73 +434,87 @@ export default function TripCompleteScreen() {
       </ScrollView>
 
       {/* ─── Modal: Add Note ─── */}
-      <Modal visible={noteModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <ClayCard style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Ionicons name="document-text" size={20} color={colors.primary} />
-              <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Attach Trip Note</Text>
-            </View>
-            <TextInput
-              style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
-              placeholder="e.g. Passenger requested route change, traffic along Roxas Blvd..."
-              placeholderTextColor={colors.outline}
-              multiline
-              numberOfLines={4}
-              value={noteText}
-              onChangeText={setNoteText}
-            />
-            <View style={styles.modalBtnRow}>
-              <ClayButton
-                variant="outline"
-                label="Cancel"
-                onPress={() => setNoteModalVisible(false)}
-                style={{ flex: 1 }}
+      <Modal visible={noteModalVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setNoteModalVisible(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setNoteModalVisible(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss note dialog"
+        >
+          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
+            <ClayCard style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Ionicons name="document-text" size={20} color={colors.primary} />
+                <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Attach Trip Note</Text>
+              </View>
+              <TextInput
+                style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
+                placeholder="e.g. Passenger requested route change, traffic along Roxas Blvd..."
+                placeholderTextColor={colors.outline}
+                multiline
+                numberOfLines={4}
+                value={noteText}
+                onChangeText={setNoteText}
               />
-              <ClayButton
-                variant="primary"
-                label="Save Note"
-                onPress={handleSaveNote}
-                style={{ flex: 1 }}
-              />
-            </View>
-          </ClayCard>
-        </View>
+              <View style={styles.modalBtnRow}>
+                <ClayButton
+                  variant="outline"
+                  label="Cancel"
+                  onPress={() => setNoteModalVisible(false)}
+                  style={{ flex: 1 }}
+                />
+                <ClayButton
+                  variant="primary"
+                  label="Save Note"
+                  onPress={handleSaveNote}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </ClayCard>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* ─── Modal: Report Issue ─── */}
-      <Modal visible={issueModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <ClayCard style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Ionicons name="warning" size={20} color={colors.error} />
-              <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Report Trip Issue</Text>
-            </View>
-            <TextInput
-              style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
-              placeholder="e.g. Flat tire warning, passenger no-show at pickup..."
-              placeholderTextColor={colors.outline}
-              multiline
-              numberOfLines={4}
-              value={issueText}
-              onChangeText={setIssueText}
-            />
-            <View style={styles.modalBtnRow}>
-              <ClayButton
-                variant="outline"
-                label="Cancel"
-                onPress={() => setIssueModalVisible(false)}
-                style={{ flex: 1 }}
+      <Modal visible={issueModalVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setIssueModalVisible(false)}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setIssueModalVisible(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss issue dialog"
+        >
+          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
+            <ClayCard style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <Ionicons name="warning" size={20} color={colors.error} />
+                <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Report Trip Issue</Text>
+              </View>
+              <TextInput
+                style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
+                placeholder="e.g. Flat tire warning, passenger no-show at pickup..."
+                placeholderTextColor={colors.outline}
+                multiline
+                numberOfLines={4}
+                value={issueText}
+                onChangeText={setIssueText}
               />
-              <ClayButton
-                variant="danger"
-                label="Submit Issue"
-                onPress={handleReportIssue}
-                style={{ flex: 1 }}
-              />
-            </View>
-          </ClayCard>
-        </View>
+              <View style={styles.modalBtnRow}>
+                <ClayButton
+                  variant="outline"
+                  label="Cancel"
+                  onPress={() => setIssueModalVisible(false)}
+                  style={{ flex: 1 }}
+                />
+                <ClayButton
+                  variant="danger"
+                  label="Submit Issue"
+                  onPress={handleReportIssue}
+                  style={{ flex: 1 }}
+                />
+              </View>
+            </ClayCard>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -786,6 +801,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
+  },
+  modalAbsorb: {
+    width: '100%',
+    alignItems: 'center',
   },
   modalCard: {
     width: '100%',

@@ -37,6 +37,9 @@ beforeEach(()=>{
 });
 afterEach(()=>vi.unstubAllGlobals());
 const render=props=>renderToStaticMarkup(React.createElement(AiRecommendationPanel,{requestId:1,canAssign:true,...props}));
+// React puts disabled="" before title; the class list always contains
+// disabled:pointer-events-none, so the attribute check must be exact.
+const recheckButton=html=>html.match(/<button[^>]*title="Recheck evidence for this reservation"[^>]*>/)?.[0]??'';
 
 it('speaks gating statuses in the thread and surfaces blocked evidence on the card',()=>{
   // First load speaks its own line; there is no pair yet to be confirming.
@@ -55,12 +58,47 @@ it('speaks gating statuses in the thread and surfaces blocked evidence on the ca
   state.query.isFetching=true;
   html=render();
   expect(html).not.toContain('Checking current availability');
+  // Same rule for the three ambient header surfaces: a background poll keeps the
+  // chip on Evidence, leaves Recheck enabled and does not animate its spinner.
+  // Keying them on isFetching made every 30s timer look like a reload.
+  expect(html).toContain('Evidence');
+  expect(html).not.toContain('Checking…');
+  expect(recheckButton(html)).not.toContain('disabled=""');
   // Blocked evidence is presented on the option card, not as a footer status.
   state.query.isFetching=false;
   state.query.data={pair:{recommended:{...a,hardConflicts:[{message:'Vehicle overlap'}]}}};
   html=render();
   expect(html).toContain('Blocked');
   expect(html).toContain('Vehicle overlap');
+});
+it('reports Checking only for a first load or an explicit recheck, never a background poll',()=>{
+  // First load: no result yet, so the chip says Checking and Recheck is inert.
+  // isLoading with data present never happens in React Query (isPending means
+  // no data), so the fixture drops data to match that contract.
+  state.query.data=undefined;
+  state.query.isLoading=true;
+  state.query.isFetching=true;
+  let html=render();
+  expect(html).toContain('Checking');
+  expect(html).toContain('Evaluating pair options');
+  expect(html).not.toContain('Evidence evaluated');
+  expect(recheckButton(html)).toContain('disabled=""');
+  // Background poll with data on screen: Evidence stays, Recheck stays usable.
+  state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:a,candidates:[a,b]}};
+  state.query.isLoading=false;
+  state.query.isFetching=true;
+  html=render();
+  expect(html).toContain('Evidence');
+  expect(html).not.toContain('>Checking<');
+  expect(html).not.toContain('Checking…');
+  expect(recheckButton(html)).not.toContain('disabled=""');
+  // An error outranks an in-flight refresh on the chip.
+  state.query.isError=true;
+  state.query.error=new Error('network');
+  html=render();
+  expect(html).toContain('Unavailable');
+  state.query.isError=false;
+  state.query.error=null;
 });
 it('keeps the recommendation query on the app-wide freshness policy',()=>{
   render();

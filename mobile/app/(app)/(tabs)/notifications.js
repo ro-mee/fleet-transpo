@@ -4,8 +4,10 @@ import {
   StyleSheet,
   Text,
   View,
+  Pressable,
   RefreshControl,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useTheme } from "../../../lib/theme-context";
@@ -30,7 +32,7 @@ const REFERENCE_TYPE_ICONS = {
   maintenance: { icon: "build", color: "warning" },
 };
 
-function NotifCard({ notif, onPress }) {
+function NotifCard({ notif, onPress, onDismiss }) {
   const { colors, type } = useTheme();
   const typeInfo =
     NOTIF_TYPE_ICONS[notif.type] ||
@@ -78,6 +80,17 @@ function NotifCard({ notif, onPress }) {
             {notif.message || notif.body}
           </Text>
         </View>
+        {onDismiss && (
+          <Pressable
+            onPress={() => onDismiss(notif)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={`Dismiss notification: ${notif.title || "Notification"}`}
+            style={styles.dismissBtn}
+          >
+            <Ionicons name="close" size={moderateScale(16)} color={colors.onSurfaceVariant} />
+          </Pressable>
+        )}
       </View>
     </ClayCard>
   );
@@ -97,6 +110,7 @@ export default function NotificationsTab() {
     refresh,
     markRead,
     markAllRead,
+    dismiss,
   } = useNotificationFeed();
 
   // Group by date
@@ -176,7 +190,12 @@ export default function NotificationsTab() {
               <>
                 <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>TODAY</Text>
                 {todayNotifs.map((n) => (
-                  <NotifCard key={n.notification_id || n.id} notif={n} onPress={handleNotifPress} />
+                  <NotifCard
+                    key={n.notification_id || n.id}
+                    notif={n}
+                    onPress={handleNotifPress}
+                    onDismiss={(target) => dismiss(target.notification_id || target.id)}
+                  />
                 ))}
               </>
             )}
@@ -184,7 +203,12 @@ export default function NotificationsTab() {
               <>
                 <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>EARLIER</Text>
                 {earlierNotifs.map((n) => (
-                  <NotifCard key={n.notification_id || n.id} notif={n} onPress={handleNotifPress} />
+                  <NotifCard
+                    key={n.notification_id || n.id}
+                    notif={n}
+                    onPress={handleNotifPress}
+                    onDismiss={(target) => dismiss(target.notification_id || target.id)}
+                  />
                 ))}
               </>
             )}
@@ -239,6 +263,11 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(4),
   },
   notifContent: { flex: 1, gap: moderateScale(4) },
+  dismissBtn: {
+    alignSelf: "flex-start",
+    padding: moderateScale(4),
+    marginLeft: moderateScale(-4),
+  },
   notifRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   notifTitle: { flex: 1 },
   notifTime: { marginLeft: moderateScale(8) },

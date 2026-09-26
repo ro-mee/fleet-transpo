@@ -393,8 +393,6 @@ A follow-up migration can remove it once rollback is no longer wanted.
 **Also found while verifying, not fixed:** 56 of 60 tables grant `TRUNCATE` to
 `anon`/`authenticated`. Migration `116` fixed three; the rest are latent rather than
 live-exploitable (PostgREST cannot issue `TRUNCATE`; it needs a raw Postgres connection
-as `anon`) and belong in their own migration. Recorded in [[Bugs]].
-
 ## 2026-09-23 — `123_psgc_geography.sql`
 
 `npm run db:status` before: **125 files, applied 124, pending 1, changed 0** → `123` was free,
@@ -743,6 +741,83 @@ inferred from three objects in `schema.sql` plus a filename.
 abandoned stub — it is the first of a family (`121` → `125` → `126` → `129`, all end-duty), so
 option (c) was ruled out and option (b) was settled by construction. The column is currently
 all-NULL in production: 35 maintenance rows, 0 carrying a value.
+
+## 2026-09-24 — `127_notifications_soft_delete_retention.sql`
+
+`npm run db:status`: 126 applied + this pending → applied. `db:check` first
+(127 files valid). `db:dump` refreshed `schema.sql` (column + 2 partial
+indexes + the purge function). Version numbers `125`/`126` were already spent
+by the uncommitted end-duty work (`125_end_duty_outcome.sql`,
+`126_duty_autoclose.sql`), which is why notifications took 127.
+
+| Version | File | Purpose |
+|---|---|---|
+| **127** | `notifications_soft_delete_retention.sql` | `notifications.deleted_at` soft delete — the web `DELETE /api/notifications/[id]` became `UPDATE … SET deleted_at = NOW()`, mobile gained a dismiss action, `GET /api/notifications` filters `deleted_at IS NULL` — plus two partial live-row indexes and `purge_deleted_notifications(90)` (SECURITY INVOKER, `EXECUTE` revoked from `PUBLIC`/`anon`/`authenticated`) scheduled daily at `41 3 * * *` under pg_cron job `notifications-purge`. |
+
+**What `schema.sql` cannot show here.** The dump captures the column, indexes
+and function, but **not** the pg_cron schedule (`cron.job` is data, not DDL)
+and **not** the function `REVOKE`. Both were verified against live instead:
+`cron.job` holds the `notifications-purge` row, and
+`has_function_privilege('anon', …)` is `false`. The purge smoke test ran the
+real function against probe rows inside a transaction that always rolled back
+(`scratch/probe-notifications-soft-delete.mjs`, 8/8). RLS was deliberately
+untouched — every notification read goes through the direct-`pg` API, which
+does the `deleted_at` filtering in SQL. See [[Notifications]] for the feature
+contract (including why the dedup/anti-spam queries do **not** filter
+dismissed rows).
+
+## 2026-09-24 — `128_mobile_refresh_token_purge.sql` (+ cron-wiring batch)
+
+Same day, second batch. `npm run db:status` → 128 applied / 0 pending.
+`db:check` (128 files valid). `db:dump` refreshed `schema.sql` — the diff
+also picked up the `addresses` + `ph_*` geography tables (ledger-only
+migrations 122–124 whose files are gone but whose tables are live), so the
+159-line insert is mostly that catch-up, not 128 (128 schedules a cron job;
+`cron.job` is data, not DDL, so the schedule itself is invisible to the
+dump — verified against live `cron.job` instead). `db:contract`: 0
+violations (66/66 classified).
+
+| Version | File | Purpose |
+|---|---|---|
+| **128** | `mobile_refresh_token_purge.sql` | pg_cron job `mobile-refresh-token-purge` daily at `17 4 * * *` — `DELETE FROM mobile_refresh_tokens WHERE expires_at < NOW() - INTERVAL '30 days';` (the maintenance migration 016 asked for; 30-day grace past `expires_at` is deliberate, see that file). Inline DELETE in the job, not a callable function, so anon has no new `/rpc/` surface. |
+
+**Companion non-migration work in the same batch** (not schema, listed here
+because it is what made "all crons" true):
+
+- `.github/workflows/cron-sync.yml` — external HTTP caller for
+  `/api/cron/sync` + `/api/cron/reconcile` (`*/5 * * * *` + 5×60s loop ≈
+  1/min). Pending three operator steps before it fires (merge to `main`,
+  repo secrets, HostForge `CRON_SECRET`).
+- `vercel.json` — same two paths for a possible Vercel return; inert on
+  HostForge. Pinned by `src/vercel.crons.test.js`.
+- `scripts/unschedule-test-cron.mjs` — removed the leftover `test` pg_cron
+  job (`SELECT 1` every minute). Live `cron.job` now holds exactly four
+  jobs: `incident-sla-breach-check` (099), `duty-autoclose-sweep` (126),
+  `notifications-purge` (127), `mobile-refresh-token-purge` (128).
+
+## 2026-09-25 — `129_end_duty_submission_id.sql`
+
+Task 4's fix round 5. `npm run db:status` → 129 applied / 0 pending (the
+file was already on disk and in the ledger when the round began —
+`applied_at 2026-09-24T16:44:51Z` — so the round verified rather than
+re-applied it; `db:up` reported "nothing pending" and `db:dump` rewrote
+`schema.sql` byte-identically, which is the check that the dump already
+covered it). `db:check` → 129 files valid.
+
+| Version | File | Purpose |
+|---|---|---|
+| **129** | `end_duty_submission_id.sql` | `driverattendance.end_duty_submission_id text` (nullable) plus the partial unique index `uq_attendance_driver_end_duty_submission` on `(driver_id, end_duty_submission_id) WHERE end_duty_submission_id IS NOT NULL`. Records which mobile submission closed a day on the **no-vehicle** path, which writes no `vehicleinspection` row and so had nowhere to record an id. Its one job is idempotence: the route's `closedWithoutReport` and `endDutyWithReport`'s fixed-point read are both keyed on it, so a retry of that close is answered from the record instead of filing a Post-Shift report against a vehicle never driven that day. Partial, because every reported close and every pre-existing row leaves it NULL. |
+
+**Grant shape — checked, not assumed** (AGENTS.md: a *column-level* grant
+would not cover a new column while a table-level one does). `pg_class.relacl`
+for `driverattendance` is `{postgres=arwdDxtm/…,anon=arwdDxtm/…,
+authenticated=…,service_role=…}` — **table-level**, so the new column is
+covered; a query for anon grants that are *not* implied by a relation-level
+grant returns 0 rows. Nothing about `driverattendance` changed for the anon
+role: `verify:anon` still returns `200 []` (INCONCLUSIVE) and `db:contract`
+still resolves it as RLS on + no anon policy = deny-all. The new column shows
+the same anon privileges as every sibling only because the relation-level
+grant implies them.
 
 ## Related
 

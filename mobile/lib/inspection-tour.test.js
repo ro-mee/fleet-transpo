@@ -6,18 +6,20 @@ import {
   QUICK_PASS_FAIL_REMARK,
   buildQuickPassStatuses,
 } from "./inspection-tour";
+import { PRE_TRIP_CHECKLIST as CHECKLIST } from "./inspection-checklist";
 
-// Mirrors the checklist in app/(app)/inspection.js. Kept as a local copy so a
-// change to the checklist does not silently change what these tests assert.
-const CHECKLIST = [
-  { id: "cabin" },
-  { id: "aircon" },
-  { id: "dashboard" },
-  { id: "exterior" },
-  { id: "brakes" },
-  { id: "tires" },
-  { id: "fuel" },
-];
+// The tour walks the QUICK pre-trip set: the map checkpoint pushes
+// /inspection?tour=1, which resolves to mode "pretrip" (4 items).
+//
+// This used to be a deliberate local copy of the 7-item list, kept so that "a
+// change to the checklist does not silently change what these tests assert".
+// That independence is traded here for the guarantee that matters more: that
+// the item the tour seeds as FAIL (QUICK_PASS_FAILED_ID = tires) is still IN
+// the set the tour actually walks. A local copy of the 7-point list would keep
+// passing while the tour ran a set that no longer contained tires — the tests
+// would be green and the tour broken. The ids themselves stay pinned literally
+// in inspection-checklist.test.js, which is where "is this the right set?"
+// belongs.
 
 describe("Quick Pass All statuses", () => {
   const statuses = buildQuickPassStatuses(CHECKLIST);

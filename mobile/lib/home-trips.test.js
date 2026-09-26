@@ -43,3 +43,20 @@ describe('Home assignment presentation', () => {
     expect(homeTripAction({ trip_status: 'En Route' }, opens)).toBe('Continue Trip');
   });
 });
+
+describe("homeTripAction pre-shift gate", () => {
+  const opens = Date.parse("2026-09-23T08:00:00Z");
+  const trip = {
+    trip_status: "Driver Accepted",
+    earliest_start: "2026-09-23T07:00:00Z",
+    pre_trip_status: "Passed",
+  };
+  it("hides Start Trip until today's Pre-Shift passed", () => {
+    expect(homeTripAction(trip, opens, { preShiftPassed: false })).toBe("Trip Details");
+    expect(homeTripAction(trip, opens, { preShiftPassed: true })).toBe("Start Trip");
+    expect(homeTripAction(trip, opens)).toBe("Start Trip"); // default non-breaking
+  });
+  it("active trips unaffected", () => {
+    expect(homeTripAction({ trip_status: "En Route" }, opens, { preShiftPassed: false })).toBe("Continue Trip");
+  });
+});

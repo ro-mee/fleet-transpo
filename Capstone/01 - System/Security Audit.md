@@ -654,7 +654,7 @@ these `.js` files. Green lint and a green unit suite are not evidence that a scr
 renders. The unrun gate was the only one that could have caught it, and it caught it on the
 first launch.
 
-**Checked against the installed native typings, not just the docs** (`expo-local-authentication@17.0.9`,
+**Checked against the installed native typings, not just the docs (`expo-local-authentication@17.0.9`,
 `expo-secure-store@15.0.8`): `requireAuthentication` → iOS `biometryCurrentSet` /
 Android `setUserAuthenticationRequired(true)` (the enrollment-invalidation claim above);
 `WHEN_UNLOCKED_THIS_DEVICE_ONLY` and `authenticationPrompt` present; and every member of
@@ -662,6 +662,26 @@ the `LocalAuthenticationError` union mapped explicitly, with the test asserting 
 full union. That check caught one real defect — the map keyed on `unavailable`, which the
 native layer never emits, so a genuinely unavailable sensor fell through to the generic
 message. The real code is `not_available`; it is now mapped, and a test pins it.
+
+**Account-level OTP lockout (2026-09-25, implemented):** The 5-attempt ceiling
+burned a *challenge*, not the account — re-submitting the form minted a new code
+after the 60s cooldown, so a password holder could loop `issue → 5 guesses →
+issue` at ~5 guesses/minute with no ceiling at all. Closed in the shared
+`email-otp.js` choke point (both channels inherit it): 3 burned challenges in a
+15-minute fixed window freeze issuing, verifying, the recovery-code fallback and
+the admin emergency-code path (`OTP_LOCKED:<seconds>` token on web, 429 +
+`Retry-After` on mobile), the hit is consumed post-commit one per burn, success
+clears the bucket, the trip raises the `account_locked` alert with
+`factor: "otp"`. `/api/auth/login-status` deliberately does **not** report the
+OTP lock — a `locked:true` answer would have to resolve the email to an
+`employee_id` first, which is a conditional account-existence oracle while a
+lock stands (the branch that did this was removed in final review); the
+countdown reaches the locked-out user through the direct `OTP_LOCKED:<seconds>`
+token instead. No migration —
+`auth_rate_limits` from migration 087. Verified: `email-otp.test.js` lockout
+cases, `login-status/route.test.js` (an active OTP lock must produce no
+observable state), SEC-AUTH-006 source pins, mobile
+`otp.test.js` token-parity pins, full suite + touched-file lint green.
 
 ## Related
 

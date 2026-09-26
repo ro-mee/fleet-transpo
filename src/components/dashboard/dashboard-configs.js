@@ -10,13 +10,13 @@ export const DASHBOARD_CONFIGS = {
   admin: {
     title: "Operations Center",
     description: "Live fleet status, trips and requests across the operation.",
-    queries: ["reservations", "dispatches", "maintenance", "incidents", "documents", "fuelRequests"],
+    queries: ["reservations", "dispatches", "maintenance", "incidents", "documents", "fuelRequests", "vehicleProblems"],
     layout: ["attention", "operations-pulse", "request-pipeline", "doc-compliance", "maintenance-incidents"],
   },
   fleet_manager: {
     title: "Fleet Operations",
     description: "Fleet health, maintenance pressure and driver availability.",
-    queries: ["vehicles", "drivers", "driverStats", "dispatches", "assignments", "substitutes", "leave", "maintenance", "documents", "fuelRequests", "utilization", "driverPerformance"],
+    queries: ["vehicles", "drivers", "driverStats", "dispatches", "assignments", "substitutes", "leave", "maintenance", "documents", "fuelRequests", "utilization", "driverPerformance", "vehicleProblems"],
     layout: ["readiness", "pair-coverage", "maintenance", "compliance"],
   },
   dispatcher: {

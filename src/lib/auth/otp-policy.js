@@ -30,6 +30,20 @@ export const OTP_TTL_SECONDS = 300;
 export const OTP_MAX_ATTEMPTS = 5;
 
 /**
+ * Burned challenges allowed against one ACCOUNT before every code request and
+ * verification is frozen for `OTP_LOCKOUT_WINDOW_MS`.
+ *
+ * The per-challenge ceiling above resets on each resend, so it alone cannot
+ * stop a password holder looping `issue → 5 guesses → issue`; this is what
+ * stops that loop. Three burns is 15 wrong codes per fixed window — against a
+ * 10^6 space that is roughly one guess a minute.
+ */
+export const OTP_LOCKOUT_LIMIT = 3;
+
+/** Fixed window, measured from the account's first burn inside it. */
+export const OTP_LOCKOUT_WINDOW_MS = 15 * 60_000;
+
+/**
  * Minimum gap between self-service code sends for one account. Re-submitting
  * the sign-in form is the resend path, so this is what stops a locked-out user
  * (or anyone who has the password) from turning the SMTP transport into a
@@ -51,6 +65,31 @@ export function describeOtpTtl(seconds) {
     return `${minutes} minute${minutes === 1 ? "" : "s"}`;
   }
   return `${seconds} seconds`;
+}
+
+/** Wire prefix of the account-lock token both login channels speak. */
+export const OTP_LOCKED_PREFIX = "OTP_LOCKED:";
+
+/**
+ * Seconds from an `OTP_LOCKED:<seconds>` token, or null for anything else.
+ *
+ * Copy belongs to the client, so the server sends only the number. A caller
+ * branches on `parseOtpLock(message) !== null` — one helper decides both the
+ * branch and the countdown, and a malformed token falls through to the caller's
+ * generic message instead of a bogus wait.
+ */
+export function parseOtpLock(message) {
+  if (typeof message !== "string" || !message.startsWith(OTP_LOCKED_PREFIX)) return null;
+  const seconds = Number(message.slice(OTP_LOCKED_PREFIX.length));
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
+}
+
+/** "7 minutes" / "45 seconds" / "1 second" — the wait a locked-out user reads. */
+export function formatLockWait(seconds) {
+  const total = Math.max(1, Math.ceil(Number(seconds) || 0));
+  if (total < 60) return `${total} second${total === 1 ? "" : "s"}`;
+  const minutes = Math.ceil(total / 60);
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
 /**

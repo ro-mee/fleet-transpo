@@ -53,15 +53,32 @@ async function ensureChannel() {
   }
 }
 
-/** Request OS permission. Returns true if the OS will show notifications. */
+/** Check OS permission without prompting. Returns true if authorized. */
+export async function hasPushPermission() {
+  if (Platform.OS === "web") return false;
+  try {
+    const current = await Notifications.getPermissionsAsync();
+    return Boolean(
+      current.granted ||
+        current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Request OS permission. Prompts user if undetermined. Returns true if the OS will show notifications. */
 export async function requestPushPermission() {
   if (Platform.OS === "web") return false;
   try {
     ensureHandler();
-    const current = await Notifications.getPermissionsAsync();
-    if (current.granted) return true;
+    const alreadyGranted = await hasPushPermission();
+    if (alreadyGranted) return true;
     const req = await Notifications.requestPermissionsAsync();
-    return req.granted || req.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    return Boolean(
+      req.granted ||
+        req.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+    );
   } catch {
     return false;
   }
@@ -112,13 +129,19 @@ export async function dismissAllLocalNotifications() {
 /**
  * Mint this install's Expo push token (the address the server pushes to).
  *
+ * When `requestPermission` is false (default), this is strictly non-prompting:
+ * it checks if permission is already granted and returns null if not.
+ * When `requestPermission` is true, it explicitly requests OS permission first.
+ *
  * Requires the EAS projectId embedded by prebuild (app.json extra.eas.projectId)
  * and, on Android, a `google-services.json` in the build — otherwise Expo Go or
  * a build without FCM throws, which degrades to null so login never breaks.
  */
-export async function getPushToken() {
+export async function getPushToken({ requestPermission = false } = {}) {
   try {
-    const granted = await requestPushPermission();
+    const granted = requestPermission
+      ? await requestPushPermission()
+      : await hasPushPermission();
     if (!granted) return null;
     const projectId = Constants.easConfig?.projectId;
     if (!projectId) return null;
@@ -127,6 +150,11 @@ export async function getPushToken() {
   } catch {
     return null;
   }
+}
+
+/** Non-prompting helper: returns push token only if already authorized. */
+export async function getPushTokenIfAuthorized() {
+  return getPushToken({ requestPermission: false });
 }
 
 /**

@@ -26,7 +26,12 @@ import { ErrorNotice } from "../../../components/ui";
 import { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
-import { useCoachMarkActions } from "../../../components/coachmarks/CoachMarkProvider";
+import { useCoachMarkActions, useCoachMarkStatus } from "../../../components/coachmarks/CoachMarkProvider";
+import { CoachMarkTarget } from "../../../components/coachmarks/CoachMarkTarget";
+import { usePreShift } from "../../../lib/use-pre-shift";
+import { useDuty } from "../../../lib/use-duty";
+import { missedReportCopy, lateReportHref } from "../../../lib/missed-report";
+import { ClayCard, ClayButton } from "../../../components/clay";
 import {
   useSharedSkeletonPulse,
   DriverHeroCardSkeleton,
@@ -49,11 +54,11 @@ import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 // compiling under the strict preserve-manual-memoization rule): first card
 // NEXT TRIP, the rest UPCOMING, plus a "+N more" footer reusing the same
 // /trips destination as the section heading.
-const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview }) {
+const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview, preShiftPassed = true }) {
   const { colors, type } = useTheme();
   return <>
     {trips.map((trip, i) => <DriverTripCard key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
-      offline={offline} nowMs={nowMs} canManage={canManage} busy={busy}
+      offline={offline} nowMs={nowMs} canManage={canManage} busy={busy} preShiftPassed={preShiftPassed}
       onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview && i === 0} />)}
     {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
       style={({ pressed }) => [{ minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }, pressed && { opacity: 0.72 }]}>
@@ -85,7 +90,42 @@ export default function Home() {
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now);
-  const { triggerMilestone } = useCoachMarkActions();
+  const { triggerMilestone, setTutorialTransition } = useCoachMarkActions();
+  // Read-only. The two Home duty controls are each gated on live state that is
+  // never true mid-tour (see the banner and card below), so the tour steps have
+  // to force their own control visible. Keyed on the tour milestone, never on
+  // "a tour is running" — production gating stays exactly as it is.
+  const { activeMilestone } = useCoachMarkStatus();
+  // Today's shift-wide Pre-Shift baseline, shared with trip detail and the
+  // Trips chip. `loaded` is false until a fetch actually succeeds, so an
+  // offline or in-flight load reads as "unknown" — and `preShiftPassed` below
+  // resolves unknown to true, because nothing the driver can see should claim
+  // the baseline is outstanding before the app has found out.
+  const preShift = usePreShift();
+  const preShiftPassed = preShift.loaded ? preShift.passed : true;
+  // Duty state, shared with Profile. `nowMs` drives the nudge window off the
+  // ticker this screen already runs, so the card appears without a second timer.
+  const duty = useDuty({ nowMs });
+  // `duty.loaded` guards the whole thing: an unresolved or failed fetch is
+  // unknown, and unknown must never render as "outstanding" OR as "not your
+  // working day". Both must be positively established before a prompt shows.
+  const dutiesToday = duty.loaded && duty.today?.blocked === false;
+  // The one card on Home about work that is already late, and the reason it leads
+  // the scroll: every other card is about something still due. Derived, never
+  // enforced — nothing here can stop the Pre-Shift POST, so the driver's work is
+  // never gated on yesterday's paperwork. Null whenever the server found no past
+  // day owing a report (the route's `unreportedDuty`), and null while
+  // `duty.loaded` is false, so an unresolved fetch renders nothing rather than
+  // claiming a report is owed.
+  const missedReport = missedReportCopy(duty.unreported);
+  // The tour's two duty steps present on Home screens where their real control
+  // is absent by construction — the banner renders only while today's baseline
+  // is outstanding on a working day, and the End Duty card only inside its nudge
+  // window. Without these the coach mark would target an unmounted control and
+  // the step would present nothing at all (§3.7.8's failure mode). Both are
+  // keyed on the tour milestone, so production gating is untouched.
+  const tourPreshiftStep = activeMilestone === "tour_preshift";
+  const tourEndDutyStep = activeMilestone === "tour_end_duty";
   // Incident reports that permanently failed to deliver offline. Surfaced
   // globally — a driver must not have to open Activity Logs to learn that an
   // emergency report never reached dispatch.
@@ -113,14 +153,44 @@ export default function Home() {
     }, [driverId, triggerMilestone])
   );
 
+  // Two tour stages hand off to Home by route param rather than by a press
+  // handler: the incident screen's own hop returns here for the fuel step, and
+  // the tour's Pre-Shift baseline returns here for End Duty.
   useEffect(() => {
-    if (tour_step === "fuel") {
-      const timer = setTimeout(() => {
-        triggerMilestone("tour_fuel");
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [tour_step, triggerMilestone]);
+    const stage =
+      tour_step === "fuel" ? "tour_fuel"
+      : tour_step === "end_duty" ? "tour_end_duty"
+      : null;
+    if (!stage) return;
+    setTutorialTransition?.(true, stage);
+    const timer = setTimeout(() => {
+      triggerMilestone(stage);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [tour_step, triggerMilestone, setTutorialTransition]);
+
+  // Guide 1's Home entry point. The Start-Shift banner is only rendered while
+  // today's baseline is outstanding, so this milestone has a deadline of its
+  // own — and without it, every trip CTA reading "START YOUR SHIFT" is a dead
+  // end for a driver who never noticed the card.
+  //
+  // Rule 5 does the rest: a refusal while another guide is on screen leaves
+  // this milestone incomplete and it returns on the next focus. No retry loop —
+  // the provider owns that decision.
+  useFocusEffect(
+    useCallback(() => {
+      if (preShift.loaded && preShift.passed === false && dutiesToday) triggerMilestone("preshift");
+    }, [preShift.loaded, preShift.passed, dutiesToday, triggerMilestone])
+  );
+
+  // Guide 1's other Home entry point. Same deadline logic: the End Duty card is
+  // only rendered inside the nudge window, so the guide has to catch the driver
+  // while it is there.
+  useFocusEffect(
+    useCallback(() => {
+      if (duty.due) triggerMilestone("end_duty");
+    }, [duty.due, triggerMilestone])
+  );
 
   // Keep the GPS-age caption ticking on a calm 30s cadence without an immediate mount duplicate render.
   useEffect(() => {
@@ -297,7 +367,7 @@ export default function Home() {
       trip.trip_status === "Driver Assigned" ||
       trip.trip_status === "Dispatched" ||
       trip.trip_status === "Driver Accepted";
-    if (isPreStartTrip && nextObj.action === "accept" && trip.pre_trip_status === "Passed") {
+    if (isPreStartTrip && nextObj.action === "accept" && trip.pre_trip_status === "Passed" && preShiftPassed) {
       setActingOn(trip.trip_id);
       try {
         const acceptRes = await api.put(`/api/trips/${trip.trip_id}/accept`, { accept: true });
@@ -314,7 +384,7 @@ export default function Home() {
       return;
     }
     doAction(trip, nextObj);
-  }, [canManageTrip, doAction, load]);
+  }, [canManageTrip, doAction, load, preShiftPassed]);
 
   const submitOdometer = async () => {
     const val = parseFloat(odometerInput);
@@ -397,12 +467,30 @@ export default function Home() {
     () => router.push({ pathname: '/fuel-report', params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } }),
     [router, activeTrip]
   );
+  const goEndDuty = useCallback(() => router.push('/end-duty'), [router]);
+  // End Duty leads while the driver is on duty, and only then. It is the one
+  // entry here that is time-critical, and — more importantly — the only way out
+  // of a shift that ends early. The End Duty card further down this screen is
+  // gated on the 30-minute window before shift end, so a driver sent home sick
+  // at 3pm would otherwise have no path to clock out at all: Profile no longer
+  // carries any duty control. Present for the whole session rather than only
+  // outside the window, so the row does not reshuffle under the driver's thumb
+  // when the card appears.
+  //
+  // `checkedIn` is false whenever the duty fetch has not succeeded, which hides
+  // this rather than offering to end a shift the app cannot confirm is running —
+  // the same fail-quiet rule the card follows.
+  //
+  // Placed first, so the phone layout (which shows four tiles plus "More") keeps
+  // it visible. That pushes Fuel behind "More" while on duty; ending the shift
+  // outranks reporting fuel.
   const shortcuts = useMemo(() => [
+    ...(duty.checkedIn ? [{ label: 'End Duty', icon: 'time-outline', action: goEndDuty }] : []),
     { label: 'My Schedule', icon: 'calendar', action: goSchedule },
     { label: 'Activity Log', icon: 'pulse', action: goSubmissions },
     { label: 'Report Incident', icon: 'shield-checkmark', action: goIncidents },
     ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: goFuelReport }] : []),
-  ], [goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel]);
+  ], [goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel, goEndDuty, duty.checkedIn]);
 
   // Prefetch quick-action destination bundles while Home is idle
   useEffect(() => {
@@ -440,6 +528,81 @@ export default function Home() {
           />
         }
       >
+        {/* A day that still owes its report leads the screen: it is the only
+            card here about work that is already late. Still just a card — it
+            renders nothing, gates nothing, and the Pre-Shift banner below stays
+            reachable whether or not it is ever answered. `missedReport` is null
+            unless the server found such a day, so this is inert for a driver
+            with nothing owing. Marked with the error border because it is the
+            one item on this screen the driver cannot clear by waiting. */}
+        {missedReport ? (
+          <ClayCard variant="standard" style={{ marginBottom: 12, borderColor: colors.error, borderWidth: 1 }}>
+            <Text style={[type.cardTitle, { color: colors.onSurface }]}>{missedReport.title}</Text>
+            <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>{missedReport.body}</Text>
+            <ClayButton
+              label={missedReport.ctaLabel}
+              icon="arrow-forward"
+              iconPosition="right"
+              onPress={() => router.push(lateReportHref(duty.unreported.date))}
+            />
+          </ClayCard>
+        ) : null}
+
+        {/* The shift-wide baseline, Guide 1's Home entry point. Three conditions,
+            each doing a different job: `loaded` (an unresolved or failed fetch
+            renders nothing rather than claiming the check is owed), `passed ===
+            false` (nothing to prompt once it is done), and `dutiesToday` — the
+            server's rest-day/approved-leave verdict, so a driver who is not
+            working today is never sent to a check. `tourPreshiftStep` is the
+            fourth: the tour teaches this control and must be able to show it on
+            a rest day, or to a driver who already checked in. */}
+        {tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false) ? (
+          <ClayCard variant="standard" style={{ marginBottom: 12 }}>
+            <Text style={[type.cardTitle, { color: colors.onSurface }]}>
+              {preShift.failed ? "Pre-Shift Failed" : "Start Your Shift"}
+            </Text>
+            <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
+              {preShift.failed
+                ? "Dispatch has been notified to review the vehicle. You can retake the check after review."
+                : "Full Vehicle Safety Check — required once before your first trip."}
+            </Text>
+            {/* One coach mark, one exact target: the button, never the card. */}
+            <CoachMarkTarget targetId="home.preshift_start" radius={14} scrollRef={scrollRef}>
+              <ClayButton
+                label={preShift.failed ? "RETAKE PRE-SHIFT CHECK" : "START PRE-SHIFT CHECK"}
+                onPress={() => router.push({ pathname: "/inspection", params: { mode: "preshift" } })}
+              />
+            </CoachMarkTarget>
+          </ClayCard>
+        ) : null}
+
+        {/* The other end of the shift, and Guide 1's closing entry point.
+            Deliberately NOT a clock alone: `due` is composed in use-duty.js as
+            loaded && checkedIn && !busy && inside the window, so a driver who
+            never checked in gets nothing, and one who is on a live trip or
+            answering an incident gets nothing even though the roster says their
+            shift is ending. The window comes from the server's own shift end.
+            `tourEndDutyStep` is the one exception: `due` also requires a
+            checked-in driver, which is never true mid-tour, so the tour step
+            forces the card it teaches. */}
+        {tourEndDutyStep || duty.due ? (
+          <ClayCard variant="standard" style={{ marginBottom: 12 }}>
+            <Text style={[type.cardTitle, { color: colors.onSurface }]}>End Duty Report</Text>
+            <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
+              {duty.minsToEnd > 0
+                ? `Your shift ends in about ${duty.minsToEnd} min. Did you notice anything unusual about the vehicle?`
+                : "Your shift has ended. Did you notice anything unusual about the vehicle?"}
+            </Text>
+            {/* One coach mark, one exact target: the button, never the card. */}
+            <CoachMarkTarget targetId="home.end_duty" radius={14} scrollRef={scrollRef}>
+              <ClayButton
+                label="END DUTY REPORT"
+                onPress={() => router.push("/end-duty")}
+              />
+            </CoachMarkTarget>
+          </ClayCard>
+        ) : null}
+
         {driverProfile?.driverStatus === "Suspended" && (
           <Pressable accessibilityRole="button" onPress={() => router.push("/profile")} style={[styles.deadBanner, { backgroundColor: colors.errorContainer }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
@@ -521,23 +684,23 @@ export default function Home() {
               they were. Dynamic layout below only runs with trip data. */}
           <AssignmentsHeading onPress={goTrips} />
           <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
-            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview={Boolean(activeTrip)}
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} />
           <DriverTripCard trip={upcoming[0] ?? null} variant="next" confirmed={tripsSyncedAt != null}
-            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview={!activeTrip}
             onAction={handleTripAction} onDetails={goDetails} />
         </> : <>
           {activeTrip ? <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
-            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} /> : null}
           <AssignmentsHeading onPress={goTrips} title="Upcoming Trips" />
           <UpcomingTripList trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
-            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!activeTrip} />
         </>)}
 
@@ -549,9 +712,16 @@ export default function Home() {
         visible={!!completingTrip}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={closeOdometerModal}
       >
-        <View style={styles.modalBackdrop}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={closeOdometerModal}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss odometer dialog"
+        >
+          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
           <View
             style={[
               styles.modalCard,
@@ -620,7 +790,8 @@ export default function Home() {
               </Pressable>
             </View>
           </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -661,6 +832,7 @@ modalBackdrop: {
     alignItems: "center",
     padding: moderateScale(24),
   },
+  modalAbsorb: { width: "100%", alignItems: "center" },
 modalCard: {
     width: "100%",
     borderRadius: moderateScale(20),

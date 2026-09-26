@@ -18,7 +18,7 @@ last_verified: 2026-09-19
 
 # Deployment Knowledge
 
-> **Mostly UNKNOWN.** There is no web deployment configuration in this repository — no Dockerfile, no CI workflow, no `vercel.json`, no deploy script. Mobile EAS configuration is committed; cloud account access remains deployment-specific.
+> **Mostly UNKNOWN.** There is no Dockerfile or deploy script; HostForge builds automatically from the repo. **Since 2026-09-24** the repo has `vercel.json` (cron paths, inert on HostForge) and `.github/workflows/cron-sync.yml` (external caller, pending operator steps). Mobile EAS configuration is committed; cloud account access remains deployment-specific.
 
 ## HostForge deployment assessment — 2026-09-19
 
@@ -36,7 +36,14 @@ last_verified: 2026-09-19
 - **Build fails loud without Supabase URL.** `next.config.mjs` throws during `PHASE_PRODUCTION_BUILD` when `NEXT_PUBLIC_SUPABASE_URL` is missing (CSP img-src) — set it in the build environment, not just runtime.
 - **`NEXT_PUBLIC_*` are build-time.** Changing `NEXT_PUBLIC_APP_URL`/`NEXTAUTH_URL` to the HostForge address needs a rebuild, not Apply-configuration. `proxy.js` CORS is fail-closed on `NEXT_PUBLIC_APP_URL`, and reset-link emails + NextAuth derive from it.
 - **No HostForge managed database.** The app stays on Supabase (`dnxuphhxlzidvwtdqqkq`); managed MySQL/Postgres cannot replace Storage + service-role access, and its seven injected variables would sit unused. No schema step at deploy — same live DB; run `npm run db:up` locally only if `db:status` shows pending.
-- **Cron stays external.** `/api/cron/sync` needs an outside scheduler calling the public URL with `CRON_SECRET`.
+- **Cron stays external.** `/api/cron/sync` and `/api/cron/reconcile` need an
+  outside scheduler calling the public URL with `CRON_SECRET`. **Wiring landed
+  2026-09-24 (uncommitted):** `.github/workflows/cron-sync.yml` (`*/5 * * * *`
+  + 5×60s in-job loop ≈ 1/min, reconcile once per tick) and `vercel.json`
+  (same paths, inert on HostForge). **Not firing yet** — needs merge to
+  `main`, repo secrets `APP_BASE_URL` + `CRON_SECRET`, and `CRON_SECRET` in
+  HostForge env + restart. Heartbeat `cron_sync_last_ok` was still
+  2026-09-06T04:30:43Z at the 2026-09-24 re-probe.
 - Verification at time of writing: `route.test.js` 2/2, ESLint clean, `verify:auth` 278/278 (stash-verified HEAD baseline 277, delta exactly the new GET).
 - **Own-Dockerfile switch (2026-09-19, same day).** Two generated-pipeline builds timed out at 2400s: `npm ci` 17min cold, the platform's own setup step 12–27min, `next build` 9min on their CPU, and image export/unpack ~13min on the ~1GB image (the second build compiled fine and died exporting). Fix committed: `output: "standalone"` in `next.config.mjs` (150MB runtime, verified by booting it locally — `/` 200, `/api/health` fixed JSON), root multi-stage `Dockerfile` on `node:24-alpine` (also silences the geoip-lite `>=24` EBADENGINE warning; local dev is v26), explicit `PORT`/`HOSTNAME`/`HEALTHCHECK`, no `NEXT_PUBLIC_*` hardcoding (read from the build env like the generated file did). `.dockerignore` excludes everything `next build` does not read — notably `.env*` (Docker ignores `.gitignore`, so without this `COPY . .` would bake `.env.local` into the image) plus `mobile/`, `Capstone/`, `supabase/`, `scripts/`.
 - **Standalone does not read `.env` files.** Probing the local standalone boot: `/` 500ed with `NO_SECRET` until the secrets were passed as real env — `next start` loads `.env.local`, standalone does not. No repo impact (HostForge injects env), but local standalone testing must export env explicitly, and no secret may rely on file-loading in production.
@@ -61,7 +68,7 @@ last_verified: 2026-09-19
 - Final recipe that fit the 2400s limit: own-Dockerfile mode (`Dockerfile`, Node 24, standalone ~150MB), probe `/api/health`, Database None (Supabase stays external), 18 env vars with `NEXT_PUBLIC_APP_URL` = `NEXTAUTH_URL` = the platform address.
 - Total failed attempts before green: 4 (missing build env → 2× timeout on the generated pipeline → 1828-error jsconfig build failure on the first own-Dockerfile attempt).
 - **Custom domain live (2026-09-20): `https://fleetopss.horecaos.net`** — verified + Secured in HostForge, `/` → FleetOps path-connected, `/api/health` answers `{"ok":true}` on the domain. Canonical URL switch: `NEXT_PUBLIC_APP_URL` = `NEXTAUTH_URL` = the custom domain, then rebuild (`NEXT_PUBLIC_*` are build-time). After the switch the platform address stops working properly in browsers (CORS allowlist = custom domain), so the custom domain must be used exclusively.
-- Still open after green: browser smoke test (health JSON → login → dashboard), external cron for `/api/cron/sync`, secret rotation (several keys entered chat history during setup), mobile APK still points at the old Vercel backend URL (needs a rebuild against the HostForge URL if mobile moves over).
+- Still open after green: browser smoke test (health JSON → login → dashboard), **external cron for `/api/cron/sync` — workflow + vercel.json landed 2026-09-24 but the three operator steps (merge to main, set repo secrets, set HostForge `CRON_SECRET` + restart) are still required before it fires** (see Cron stays external above), secret rotation (several keys entered chat history during setup), mobile APK still points at the old Vercel backend URL (needs a rebuild against the HostForge URL if mobile moves over).
 
 ## What's UNKNOWN
 
@@ -78,7 +85,7 @@ last_verified: 2026-09-19
 
 Ordered, and the first two are non-negotiable:
 
-1. **Add production env keys.** `MOBILE_JWT_SECRET` must be distinct from `NEXTAUTH_SECRET`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` must be a working mailbox provider because **email OTP is the second factor and every login depends on it**; `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, and `BOOKING_GATEWAY` enable their protected integrations. Missing auth secrets fail closed; missing Booking keys leave the gateway mocked or reject inbound calls. `MFA_ENCRYPTION_KEY` is obsolete since 2026-09-22 — do not set it on a new deployment. → [[Things That Might Break]]
+1. **Add production env keys.** `MOBILE_JWT_SECRET` must be distinct from `NEXTAUTH_SECRET`; `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` must be a working mailbox provider because **email OTP is the second factor and every login depends on it**; `CRON_SECRET` (now load-bearing for the GH Actions cron-sync workflow as well as the routes), `BOOKING_WEBHOOK_SECRET`, and `BOOKING_GATEWAY` enable their protected integrations. Missing auth secrets fail closed; missing Booking keys leave the gateway mocked or reject inbound calls. `MFA_ENCRYPTION_KEY` is obsolete since 2026-09-22 — do not set it on a new deployment. → [[Things That Might Break]]
 2. **Route-auth audit.** 162 routes, per-route discipline. `npm run verify:auth` currently checks 220 exported methods, including explicit service-token and public protocol exceptions. → [[Authentication]]
 3. **Verify EAS access before a mobile build.** From `mobile/`, run `eas whoami` and `eas project:info`. The linked project is owned by `josephlopezzzz`; an `Entity not authorized` / `action=READ` error means the logged-in Expo account lacks project access. Log in as the owner or have the owner grant access/transfer the project. Do not replace `extra.eas.projectId` unless intentionally creating a new EAS project.
 4. ~~**Lock CORS** to known origins.~~ **Done:** `src/proxy.js` is fail-closed and allows only the configured `NEXT_PUBLIC_APP_URL` browser origin.
