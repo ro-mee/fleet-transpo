@@ -86,7 +86,11 @@ The mobile driver app now surfaces new notifications through a 3-tier system ins
 Replaced the in-app-simulated push with **server-sent real push** via Expo Push Service + FCM, so a push-worthy notification now arrives on the lock screen / notification shade even when the app is killed.
 
 **Flow:**
-1. On sign-in the mobile app mints an Expo push token (`getExpoPushTokenAsync` with the EAS `projectId`) and registers it via `POST /api/device-tokens`; on sign-out it deactivates it (`DELETE`). Fire-and-forget — push setup never blocks login/logout.
+1. Device-token registration is strictly decoupled from permission requesting:
+   - On sign-in (`mobile/lib/auth.js`) and cold-start session restore, `registerDeviceTokenIfAuthorized()` checks permission non-promptingly (`hasPushPermission()`); if permission was already granted previously, it registers the token in the background with `POST /api/device-tokens`. If permission is undetermined or denied, it does nothing and never prompts.
+   - On first-time onboarding (`mobile/app/permissions.js`), when the driver explicitly taps "Enable Permissions", `requestAppPermission("notifications")` prompts the OS dialog; if granted, the token is minted and registered with `POST /api/device-tokens`. A denial or registration error never blocks entering the app.
+   - On sign-out it deactivates it (`DELETE`).
+   - Profile → Permissions (`mobile/app/(app)/profile/permissions.js`): turning Push Notifications ON prompts via user gesture and registers the token; turning OFF syncs bulk server preferences (`/api/notifications/preferences`) and dismisses local notifications.
 2. `device_tokens` table (migration 058, RLS: user manages own tokens; server send path bypasses RLS via service role).
 3. When a push-worthy notification is created, `sendPush` (`src/services/push.service.js`) reads the target employees' active tokens and POSTs to `https://exp.host/--/api/v2/push/send` — best-effort, never throws, deactivates tokens Expo reports as `DeviceNotRegistered`.
 4. `deliveryFor(row)` mirrors the mobile tier rule server-side and decides the OS surface: push-tier rows (`Alert`/`Emergency`, severity Critical/Major, or incident ref) go on the loud `default` channel with sound; heads-up-tier rows (`Warning`/`Moderate`) go on the quiet `heads-up` channel with **no sound** so they still reach the shade/lock screen without interrupting.
@@ -178,12 +182,22 @@ behavior, surfaced for acceptance testing. **Cadence: ~once per minute
 target; the endpoint is NOT a scheduler** — production must configure an
 external caller with `CRON_SECRET` (same deploy-check as the rest of the
 sync; see the acceptance checklist in
-`[[Trip Start Window Notifications Implementation Plan]]` — as of 2026-09-09
-no scheduler is active and the `cron_sync_last_ok` heartbeat has been stale
-since 2026-09-06). After inserts it drains the outbox **targeted**:
+`[[Trip Start Window Notifications Implementation Plan]]` — caller landed
+2026-09-24, not yet firing until the three operator steps (see
+**Scheduler status** below). After inserts it drains the outbox **targeted**:
 `flushOutbox({ employeeIds: affected })`, never a global flush. Also fixed
 `flushOutbox` to send heads-up-channel rows without sound (it previously
 always sent `sound: "default"`).
+
+**Scheduler status (2026-09-24):** `.github/workflows/cron-sync.yml` landed —
+`*/5 * * * *` schedule with a 5×60s in-job loop (effective ~1/min) calling
+`POST /api/cron/sync` with `Bearer $CRON_SECRET`, plus one
+`/api/cron/reconcile` per tick. `vercel.json` mirrors both paths for a
+possible Vercel return. **Not yet firing:** needs merge to `main`, repository
+secrets (`APP_BASE_URL`, `CRON_SECRET`), and `CRON_SECRET` in HostForge —
+`cron_sync_last_ok` was still **2026-09-06T04:30:43Z** at the 2026-09-24
+re-probe. Operator steps and pass criteria:
+[[Trip Start Window Notifications Implementation Plan]] §1–2.
 
 **Verified:** vitest 1088/1088 (94 files) incl. 3 new suites —
 `start-window.test.js` (ladder + parity + catch-up),
@@ -361,6 +375,158 @@ through a login. The remaining check is a human signing in from a browser family
 the account has never used (expect the notice, in-app and by email), then from
 the same one again (expect silence), and tapping the notification (must land on
 `/settings/security`). The mobile path remains unexercised entirely.
+
+## Deletion, dismissal & retention — 2026-09-24 (migration 127)
+
+The inbox is **soft delete on both platforms**, with a retention purge.
+
+- **Schema**: `notifications.deleted_at TIMESTAMPTZ` (migration `127`) plus two
+  partial indexes — `(employee_id, sent_at DESC)` and `(user_id, sent_at
+  DESC)`, both `WHERE deleted_at IS NULL` — so dismissed rows never enter the
+  read path.
+- **Web** — `DELETE /api/notifications/[id]` runs
+  `UPDATE … SET deleted_at = NOW()` (it used to be a literal `DELETE FROM`,
+  the one hard-delete row path among the feature tables). Same self-scope /
+  `delete_all` scoping; 404 on a repeat dismiss; response shape unchanged
+  (`{ deleted: true }`), so the inbox page and confirm dialog needed no change.
+- **Mobile** — new dismiss (trailing X on each Alerts card, no confirm) calls
+  the same endpoint through the pre-existing `api.del` helper: optimistic
+  remove, 404 = already-gone (success), anything else refetches to roll back.
+  Before this, mobile had **no** delete path at all — only mark-read — so web
+  and mobile were asymmetric.
+- **One filter hides them everywhere** — `GET /api/notifications` always adds
+  `n.deleted_at IS NULL`; the web inbox, bell badge, unread counts, the driver
+  "Important notifications" card, and the mobile feed all read that one
+  endpoint.
+- **Retention** — `purge_deleted_notifications(p_retention_days = 90)`
+  (SECURITY INVOKER; `EXECUTE` revoked from `PUBLIC`, `anon`, `authenticated`)
+  hard-deletes rows dismissed more than 90 days ago. Scheduled **daily at
+  `41 3 * * *`** through **pg_cron** (job `notifications-purge`) — deliberately
+  not `/api/cron/sync`, because at the time of writing (2026-09-24) the HTTP
+  scheduler workflow exists but is not yet firing (`cron_sync_last_ok` still
+  stale since 2026-09-06; needs merge + secrets + HostForge `CRON_SECRET`),
+  while pg_cron demonstrably runs. The window is interval-based off each row's
+  `deleted_at`, so the DB timezone in the cron expression is irrelevant.
+- **Dedup queries deliberately unchanged** — the anti-spam existence checks
+  (`SELECT 1 FROM notifications …` in start-window, SLA escalation,
+  assigned-trip scan, UVVRP, incidents) still count dismissed rows, so
+  dismissing a notification never re-arms a producer to re-spam the same user.
+- **Read/unread untouched** — `is_read`/`read_at` remain the only other soft
+  state; the table still has no restore endpoint (restore = operational/DB
+  concern, not a user flow).
+
+Verified 2026-09-24: `db:check` valid (127 files) → `db:up` applied →
+`db:dump` refreshed `schema.sql`; new route tests 9/9; full suite **206 files
+/ 2504 tests** green; lint clean; `verify:anon` **0 exposed**; `db:contract`
+**0 violations**; production build green; live probes **8/8**
+(`scratch/probe-notifications-soft-delete.mjs`) — column, both partial
+indexes, anon `EXECUTE = false`, pg_cron job present, purge smoke (100-day-old
+probe row purged, 1-day-old kept) inside a rolled-back transaction, 607-row
+partition consistent. **Not device-verified:** the mobile X button (UI only;
+the endpoint it calls is covered by the route tests).
+
+## End Duty reminder (two-stage) — 2026-09-26 (Part C)
+
+The first producer whose subject is a driver's **own unfinished paperwork**
+rather than an event that happened to them. Every other producer here notifies
+about something that occurred (a dispatch, a trip window, an incident, a
+sign-in); this one notifies about something that has **not** occurred yet, which
+is why it needs two rules the others do not — see the header of
+`src/services/end-duty-reminder.service.js`.
+
+**Two stages, one ladder** (`src/lib/scheduling/end-duty-thresholds.js`:
+`crossedEndDutyThreshold`, plus `END_DUTY_GRACE_MINUTES = 30` /
+`END_DUTY_OVERDUE_MINUTES = 120`):
+
+| Boundary crossed | Title | in-app type | push channel | Sound |
+|---|---|---|---|---|
+| shift end **+ 30 min** | `End Duty Reminder` | `Warning` | `heads-up` | **silent** |
+| shift end **+ 2 h** | `End Duty Still Not Reported` | `Alert` | `default` | **loud** |
+
+Catch-up rule, same as the start-window producer: only the **most advanced**
+crossed stage fires, so a scan that slept through 30 minutes jumps straight to
+stage 2. One run therefore never sends both.
+
+- **The grace starts *after* the shift ends; the mobile nudge opens *before* it.**
+  `mobile/lib/end-duty.js` opens the End Duty card 30 minutes early, while this
+  producer's clock does not start until `shiftEnd`. A driver still driving home
+  has not forgotten anything, so firing at the same moment the card appears
+  would be a duplicate of a surface they can already see.
+- **The roster out-time is read, never re-derived.** `syncEndDutyReminders`
+  calls `loadDriverScheduleContext` + `driverDayEligibility` and takes
+  `duty.end` from that verdict — the same pair `GET /api/mobile/driver/duty`
+  answers from. Recomputing it here would give the reminder and the `setDuty`
+  gate two clocks that can drift. A `blocked` verdict (rest day, approved leave,
+  no roster row) increments `end_duty_skipped`, never `errors`.
+- **The dedupe's per-day half lives in `reference_id = YYYYMMDD`** (the
+  `dutyDayKey` of the duty's own `date`). Titles are stable event names and the
+  title *is* the dedupe key (the copy.js rule), so the title contributes nothing
+  to the date. A constant in `reference_id` would notify each driver **once
+  ever** and then silently swallow every later night — the failure mode this
+  module is most likely to grow, and the one two tests pin. Dedupe runs under
+  `pg_advisory_xact_lock(hashtext('end_duty_reminder_' || attendance_id))` with
+  check-then-insert on `(employee, title, reference_type, reference_id)`, the
+  migration-029 convention — and the check reads **both** tables
+  (`notifications UNION ALL push_outbox LIMIT 1`). It has to: a driver with
+  `in_app` off gets no `notifications` row at all, so a notifications-only
+  lookup would never trip and every cron tick would enqueue another push until
+  the stage advanced. Found by post-plan review 2026-09-26 and fixed here; the
+  start-window producer still reads `notifications` only and is recorded
+  unfixed under `Bugs.md` → Severity 2.
+- **Both stages share one `NOTIFICATION_EVENTS` key**, `end_duty_reminder`
+  (`src/lib/constants.js:268`, `{ label: "End Duty Reminder", defaults: { in_app:
+  true, email: false, push: true } }`). Deliberate: the mobile Push toggle is a
+  master switch over the channel, so a driver cannot silence stage 2 while
+  keeping stage 1. That asymmetry is the safe direction — stage 2 only fires once
+  the report is hours late and the automatic close is the next thing due to touch
+  the row. Preferences are honoured exactly as the start-window producer honours
+  them (`loadPreferenceRows(ids, [event])` + `channelEnabled`): a disabled
+  `in_app` suppresses the `notifications` row, a disabled `push` suppresses the
+  `push_outbox` row, both disabled writes nothing.
+- **The dedupe queries dismissed rows too**, so dismissing a reminder does not
+  re-arm the producer (same rule as the other producers, see the retention
+  section above).
+- **Honest limit:** a driver with no active `device_tokens` row receives no OS
+  notification at all. `flushOutbox` reports it as an `error` and the sync
+  counters surface it, but nothing can fix it — the app must have been signed in
+  on a **real device build** at least once. Nothing here is retried for that
+  driver.
+
+**Wiring:** `syncEndDutyReminders()` from `/api/cron/sync` as an isolated
+best-effort step — the producer never throws, and the route wraps it in a
+`try/catch` returning zeroes anyway (a zeroed field reads as "ran and failed";
+an absent one reads as "did not run"). Response fields:
+`end_duty_reminders_created`, `end_duty_pushes_attempted`, `end_duty_skipped`,
+and `N end-duty reminders` in the `message`. The outbox is flushed **targeted**
+(`flushOutbox({ employeeIds: affected })`), never globally. Deep link:
+`reference_type = "duty"` → mobile `/end-duty`
+(`mobileNotificationTarget`), web `/driver` (driver-only; `STAFF_ROUTES`
+deliberately omits `duty`, so a staff tap resolves to `null` = mark-read).
+
+**The trigger — the part future readers most need: `/api/cron/sync` had no
+caller.** The route is not a scheduler (see its own `DEPLOY CHECK` header
+comment, which this does not duplicate); no scheduler was configured, and
+`cron_sync_last_ok` had been stale since **2026-09-06**. Every time-driven
+producer was therefore correct code that never executed — the trip start-window
+producer included, dead in the same silent way since 2026-09-09.
+`.github/workflows/cron-sync.yml` is now that caller (`*/5 * * * *` with a 5×60s
+in-job loop for an effective ~1/min, one `/api/cron/reconcile` per tick;
+`vercel.json` mirrors both paths), and it unblocks the start-window producer
+too. Honest limits, all accepted for a capstone: GitHub's schedule is **queued,
+not punctual** and can be skipped on a busy minute; it runs **only on the default
+branch**; and GitHub **disables scheduled workflows after 60 days without
+repository activity**. It is also **not yet firing** as of 2026-09-26 — it still
+needs a merge to `main`, the `APP_BASE_URL` / `CRON_SECRET` repository secrets,
+and `CRON_SECRET` in the deployment environment (see
+`Capstone/07 - Development/Technical Debt.md`).
+
+Verified 2026-09-26: `src/lib/scheduling/end-duty-thresholds.test.js` 15/15 and
+`src/services/end-duty-reminder.service.test.js` 13/13 (both red-green),
+`cron/sync/route.test.js` 7/7, `mobile/lib/notifications/navigation.test.js` +
+`src/lib/notifications/target.test.js` 5/5; lint exit 0; repo-wide **217 files /
+2657 tests**. **No device verification exists** — acceptance criteria 1–3 and 6
+of the plan need a real device build (Expo Go cannot receive remote pushes), and
+criterion 10 needs a manual Actions run; all recorded as not performed.
 
 ## Database tables used
 

@@ -142,7 +142,7 @@ driver only.
 - Update [[Notifications]] + [[System Overview]] + SYSTEM.md after green.
 - **Do not commit** (user directive).
 
-## Final acceptance checklist — PENDING (2026-09-09)
+## Final acceptance checklist — PARTIALLY MET (2026-09-24)
 
 Code-complete ≠ production-ready. `/api/cron/sync` does nothing by itself;
 these are the operational gates before this feature is called live. Each item
@@ -152,41 +152,64 @@ lists how to run it and what "pass" looks like.
 with `node scripts/acceptance-preflight.mjs`):**
 
 - `system_settings.cron_sync_last_ok` = **2026-09-06T04:30:43Z** — something
-  called the sync three days ago and stopped. No scheduler is active now.
+  called the sync three days ago and stopped. **Re-probed 2026-09-24: still
+  2026-09-06T04:30:43Z** — the workflow written that day has not yet fired
+  (see §1 operator steps).
 - pg_cron (in-DB) runs `incident-sla-breach-check` every minute, healthy —
-  plus a leftover **`test` job running `SELECT 1` every minute** (~15,300
-  garbage runs). Cleanup candidate: `SELECT cron.unschedule('test');` —
-  pending owner approval, not executed.
+  **plus (2026-09-24): the leftover `test` job (`SELECT 1` every minute,
+  ~15,300 garbage runs) was unscheduled** via `scripts/unschedule-test-cron.mjs`
+  (owner approval given with the cron-wiring task). Live `cron.job` now holds
+  exactly four jobs: `incident-sla-breach-check`, `duty-autoclose-sweep` (126),
+  `notifications-purge` (127), `mobile-refresh-token-purge` (128).
 - `pg_net` is NOT installed, so pg_cron cannot call the HTTP endpoint from
   inside the DB — the sync scheduler must be external (hosting platform or a
-  pinger service).
+  pinger service). **Landed 2026-09-24:** `.github/workflows/cron-sync.yml`
+  (external caller) + `vercel.json` (inert on HostForge, ready for Vercel).
 - Zero Driver Accepted trips exist right now, so the live test needs a seeded
   trip (a driver account with a push token, a dispatch with a near-term
   `scheduled_departure`, trip walked to Driver Accepted).
 
-### 1. Configure the real external scheduler (~once a minute)
+### 1. Configure the real external scheduler (~once a minute) — CODE LANDED, OPERATOR STEPS PENDING
 
-- Preferred: hosting-platform cron. On Vercel, add to `vercel.json`:
-  `{"crons": [{"path": "/api/cron/sync", "schedule": "* * * * *"}]}` — Vercel
-  attaches `Authorization: Bearer <CRON_SECRET>` automatically when
-  `CRON_SECRET` is set in the project env (GET; the route accepts GET and
-  POST). Note: per-minute schedules require the Pro plan; Hobby caps cron
-  frequency at once per day, which is NOT enough for minute-level thresholds.
-- Alternative: an external pinger (cron-job.org, UptimeRobot custom-header
-  check, or any systemd/cron `curl -H "Authorization: Bearer …"` loop).
-  GitHub Actions `schedule:` is unsuitable — its minimum real cadence is
-  ~5–15 minutes.
+- **Landed 2026-09-24 (uncommitted):**
+  - `.github/workflows/cron-sync.yml` — `schedule: "*/5 * * * *"` +
+    `workflow_dispatch`; each tick POSTs `/api/cron/reconcile` once, then
+    loops 5× `POST /api/cron/sync` with `sleep 60` between hits (GitHub's
+    schedule floor is 5 min; the loop recovers the ~1/min target). Fail-loud
+    on missing secrets or non-200 (503 = `CRON_SECRET` unset server-side,
+    401 = mismatch). `concurrency: cron-sync`, `cancel-in-progress: false`.
+  - `vercel.json` — `{"crons": [{"path": "/api/cron/sync", "schedule": "* * * * *"},
+    {"path": "/api/cron/reconcile", "schedule": "*/5 * * * *"}]}`. Inert on
+    HostForge; if the app returns to Vercel, the platform attaches
+    `Authorization: Bearer <CRON_SECRET>` automatically (GET; both routes
+    accept GET and POST). Per-minute needs **Vercel Pro** — Hobby caps cron
+    frequency at once per day, which is NOT enough for minute-level
+    thresholds. Pinned by `src/vercel.crons.test.js`.
+  - Caveats accepted (documented in the workflow header): GitHub schedule is
+    queued not punctual, default-branch-only, auto-disable after 60 days
+    without repo activity. A production deployment wants a real platform
+    cron with the same secret and URL.
+- **Operator steps still required (none doable from the repo alone):**
+  1. Merge the workflow to **`main`** (schedule/workflow_dispatch only run
+     on the default branch).
+  2. GitHub → Settings → Secrets → Actions: `APP_BASE_URL` =
+     `https://fleetopss.horecaos.net`, `CRON_SECRET` = production value.
+  3. HostForge → set env `CRON_SECRET` (same value) → restart/redeploy.
+  4. Actions → cron-sync → **Run workflow** once; expect green.
 - **Pass:** `cron_sync_last_ok` heartbeat in `system_settings` goes fresh
   (and the system-health dashboard flips to Operational), and
   `start_window_*` counters appear in every sync response.
+  Re-check with `node scripts/acceptance-preflight.mjs`.
 
-### 2. Verify CRON_SECRET in the production environment
+### 2. Verify CRON_SECRET in the production environment — PENDING OPERATOR
 
-- Present in the hosting provider's Production env settings (the route is
-  fail-closed without it — every call returns 401). `.env.local` has the dev
+- Present in **both** the hosting provider's Production env settings (the
+  route is fail-closed without it — every call returns 503) **and** the
+  GitHub Actions repository secret (the workflow fails the run if either
+  `APP_BASE_URL` or `CRON_SECRET` is missing). `.env.local` has the dev
   value; production is a separate setting.
-- **Pass:** an unauthenticated curl gets 401; the authenticated scheduler's
-  calls return 200.
+- **Pass:** an unauthenticated curl gets 401/503; the authenticated
+  scheduler's calls return 200; the Actions run is green.
 
 ### 3. One real trip, three app states (foreground / background / killed)
 

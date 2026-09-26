@@ -135,6 +135,9 @@ This is correct practice, correctly documented: the client decodes to decide wha
 
 Separate from web — 15-minute access tokens, 30-day single-use rotating refresh tokens hashed in `mobile_refresh_tokens`, audience-split. Full detail in [[Authentication]].
 
+**Notification permission timing & push-token lifecycle (2026-09-26):**
+`signIn()` and session-restore cold-start are strictly decoupled from OS notification permission prompts. They call `registerDeviceTokenIfAuthorized()` which checks permission non-promptingly (`hasPushPermission()`); if permission is undetermined or denied, authentication proceeds without prompting. First-time permission prompting occurs during onboarding on the App Permissions screen (`mobile/app/permissions.js`) when the driver taps "Enable Permissions".
+
 ## Profile screens share the web driver endpoint — CONFIRMED (`mobile/app/(app)/profile/*.js`)
 
 The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** — the same endpoint as the web driver home — not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
@@ -256,7 +259,7 @@ existing credential endpoints (no new backend route — full detail in
 
 ## OS permission registry — CONFIRMED (`mobile/lib/permissions.js`)
 
-All five device permissions (foreground/background location, camera, photo library, notifications) are declared once in a registry with normalized `{ status, canAskAgain }`. Both the onboarding gate and Settings → PERMISSIONS consume it; see [[Driver Consent]] for the full behavior. Background location is listed as its own row (Android's "Allow all the time" is distinct from "While using"; iOS has no separate toggle).
+All five device permissions (foreground/background location, camera, photo library, notifications) are declared once in a registry with normalized `{ status, canAskAgain }`. Both the onboarding gate (`mobile/app/permissions.js`) and Settings → PERMISSIONS (`mobile/app/(app)/profile/permissions.js`) consume it; see [[Driver Consent]] for the full behavior. Onboarding's "Enable Permissions" iterates the registry to request permissions, registering the push device token when notifications is granted (non-blocking on denial or failure). Background location is listed as its own row (Android's "Allow all the time" is distinct from "While using"; iOS has no separate toggle).
 
 ## Version warning — CONFIRMED
 

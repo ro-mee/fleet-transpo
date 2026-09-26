@@ -235,12 +235,124 @@ fleet_manager), `/drivers/leave` review board (fleet_manager approves),
 > access still works for allowed roles (`permissions.js` unchanged). The
 > driver's own `/driver/schedule` entry stays visible.
 
+## The duty session — Start Duty / End Duty, and its three gates — 2026-09-23
+
+**Answered: `driverattendance` does have a writer.** It is the duty session —
+one row per `(driver_id, date)`, `time_in` / `time_out` / `remarks` — written by
+`setDuty` and `endDutyWithReport` in `src/services/standby.service.js`. The same
+transaction sets `drivers.standby_tracking_enabled` and `standby_session_family`,
+which is what makes a checked-in driver's GPS publish as **standby** (consumed by
+the dispatch radar); `setDuty` is also the only thing that ever clears them.
+
+**Start duty — `setDuty(driverId, true)` — has three gates, in this order.** The
+order is load-bearing, not incidental:
+
+1. **Roster / leave** (`driverBlockReason`) → `409 DUTY_UNAVAILABLE`
+2. **Privacy consent** → `403`
+3. **Today's Pre-Shift baseline** → `409 PRESHIFT_REQUIRED`
+
+The baseline check sits **after** the roster check deliberately: a driver on rest
+day or approved leave must be told `DUTY_UNAVAILABLE`, not sent to inspect a
+vehicle for a shift they are not working. It tests the row's **existence**, not
+its verdict — "indication" in the owner's words — so a `Failed` baseline still
+opens a duty session (recorded as an open policy fork in [[Trips]]). The gate is
+what makes the Pre-Shift check load-bearing rather than advisory; the previous
+"UI-only" stance is reversed and the note in [[Trips]] rewritten to match.
+
+**Completing the Pre-Shift check is what calls it — there is no Start Duty control
+anywhere in the app (2026-09-23).** `POST /api/mobile/driver/inspections` with
+`inspection_type: "Pre-Shift"` runs `setDuty(driverId, true)` **after** the
+inspection row commits, and returns `duty: { started, code, message }` so the app
+can confirm it or act on the refusal. The order is not stylistic: the third gate
+reads the baseline back, so the row has to be durable before `setDuty` runs. It is
+called on retries as well as first inserts — a retry is precisely the case where
+the first response was lost — which is safe because the attendance upsert is
+guarded by `time_out IS NOT NULL OR time_in IS NULL` and will not re-stamp
+`time_in` while the driver is already on duty. A refusal (rest day, leave, consent)
+does **not** fail the inspection: the safety record is already committed and is the
+more important write, so the reason travels back to the app instead of
+un-recording a finished check.
+
+**Profile carries no duty surface at all**, by owner decision on 2026-09-23: the
+"Driver duty" card — title, status caption, and its Start/End button — was removed
+outright rather than relabelled, along with the `useDuty` import that fed it.
+Starting a shift and ending one each have exactly one door now.
+
+**End duty — `endDutyWithReport({driverId, vehicleId, report, clientSubmissionId})`
+— is one transaction, and the report is what ends it.** It inserts the
+`Post-Shift` `vehicleinspection` row, closes `time_out`, and clears standby
+tracking together. There is no path that ends duty without a report and none that
+files a report against an open shift. `400 REPORT_INVALID` when the report is
+neither `nothing_unusual:true` nor non-empty `findings` (exactly one, never
+both).
+
+**No vehicle pairing ends duty anyway.** `vehicleinspection.vehicle_id` is
+`NOT NULL`, so a driver with no resolved vehicle (no inspection today, no standby
+pairing) cannot have a report filed. Rather than trap them in the app, duty ends
+and the gap is stamped onto `driverattendance.remarks` ("Ended duty with no
+vehicle pairing; no End Duty report recorded"). A driver who ended duty with a
+report already on file — a retried submit — gets the first record back, not a
+second one (`client_submission_id` + a partial unique index).
+
+**The no-vehicle close is a fixed point keyed on the submission id, and that is
+load-bearing rather than tidy — 2026-09-25.** The close writes
+`driverattendance.end_duty_submission_id` (migration `129`; the branch files no
+inspection row, so it had nowhere else to record an id), and a request carrying
+an id that already closed a day short-circuits to the recorded outcome before
+any vehicle is consulted. Two reasons it is id-keyed and not day-keyed: the day
+`vehicleId` arrives **already resolved** by the route, whose fallback pairing is
+date-blind, so a replay whose pairing has since become resolvable would otherwise
+take the reported branch and file a Post-Shift report against a vehicle never
+driven that day; and a retry can resolve a **different** day than the attempt it
+retries — a shift closed at 00:05 on the 24th closes the 23rd, and the retry
+resolves the 24th. The read keeps a second, day-scoped arm for a request arriving
+under a *fresh* id, gated on `time_out IS NOT NULL` so it cannot fire on a row
+`setDuty` has reopened. `setDuty`'s reopen clears `end_duty_outcome` for the
+matching reason: the column describes a *closed* duty, and leaving it behind
+both stranded the row outside migration `126`'s sweep (`end_duty_outcome IS
+NULL`) and made the fixed point read a live day as already closed.
+
+**Ending duty is online-only and always has been.** `queueOnFailure: false` on
+the toggle predates the report; the reason it now matters more is that the outbox
+cannot replay an atomic server transaction, so queueing would tell a driver their
+shift had ended while they were still checked in.
+
+**Home is the only duty surface, and it offers two doors.** `GET
+/api/mobile/driver/duty` returns `{checkedIn, busy, preshiftRequired, today}` —
+`today` being `driverDayEligibility`'s verdict for rest day / approved leave /
+missing schedule — and `mobile/lib/use-duty.js` is the single hook that reads it,
+so no screen re-derives either the duty state or the roster window. Two
+affordances consume it:
+
+- The **End Duty quick action**, leading the Home quick-action row whenever
+  `checkedIn`. This is the early clock-out path, and it exists because the report
+  card below is gated on the 30-minute window: without it a driver sent home
+  mid-shift — sick, emergency — has no way to end duty at all once Profile's card
+  is gone. It shows for the whole session rather than only outside the window, so
+  the row does not reshuffle under the driver's thumb when the card appears. The
+  cost, accepted deliberately: on narrow phones Fuel moves behind "More" while on
+  duty, because the row shows four tiles plus More.
+- The **End Duty card**, only when `due` — which
+  `mobile/lib/use-duty.js` composes as `loaded && checkedIn && !busy &&
+  window.due`. The window comes from `mobile/lib/end-duty.js` applied to the
+  server's own `today.duty.end`: 30 minutes before out-time, and still open
+  afterwards, because a driver running late still owes a report.
+
+Both are fail-quiet. `checkedIn` is false whenever the duty fetch has not
+succeeded, so an offline or unresolved read hides the quick action rather than
+offering to end a shift the app cannot confirm is running.
+
 ## Open questions
 
-- `driverattendance` has 0 rows but is a `DRIVER_VISIBLE_SECTIONS` entry — is attendance actually implemented? **TODO:** check for a writer.
 - The old "Standard Morning Shift" card was replaced by the real schedule; the
   static 06:00–02:00 assumption is gone. Backfilled hours are a neutral default,
   **not** a policy — the fleet manager should set real shifts via the editor.
+- **Overnight shifts are not expressible.** The roster stores a pair of `TIME`
+  columns with no day-crossing flag, so a 22:00–06:00 span resolves its end to
+  *this morning* and the nudge window reads as long past. `setDuty` tests the
+  current time against the same columns, so the nudge and the gate agree — they
+  are both wrong about that shift in the same direction. A real overnight crew
+  needs a day-crossing flag on `driver_work_schedules`, not a client-side fix.
 
 ## Related
 

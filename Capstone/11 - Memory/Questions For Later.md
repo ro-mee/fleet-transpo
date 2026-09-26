@@ -23,12 +23,12 @@ Not blocking anything. Worth thinking about when you have slack — these are th
 
 - **What breaks first at 200 vehicles instead of 20?** Candidates: the advisory-lock contention on dispatch creation, the trigger-per-notification write amplification, `ailogs` growth (731 rows on 2026-08-11 and unbounded).
 - **Does the AI advisory's scoring hold up with more candidates?** It's O(n) arithmetic over candidates — fine — but the *ranking* was tuned against a 20-vehicle fleet.
-- **Does `mobile_refresh_tokens` need partitioning, or just a cleanup job?** Almost certainly just a cleanup job. → [[mobile_refresh_tokens]]
+- **Does `mobile_refresh_tokens` need partitioning, or just a cleanup job?** ~~Almost certainly just a cleanup job.~~ **Closed 2026-09-24** — migration 128's daily pg_cron purge → [[mobile_refresh_tokens]]
 
 ## Product questions
 
 - **Is foreground-only GPS acceptable to real drivers?** A driver who backgrounds the app stops reporting. Background needs a dev build plus store review. → [[ADR-010 Foreground Only GPS]]
-- **What happens when Booking and Fleet disagree about a reservation's state?** No reconciliation job exists. → [[System Boundaries]]
+- **What happens when Booking and Fleet disagree about a reservation's state?** ~~No reconciliation job exists.~~ **Caller landed 2026-09-24** — `/api/cron/reconcile` in `.github/workflows/cron-sync.yml` (pending the three cron operator steps) → [[System Boundaries]]
 - **Should drivers be able to decline a trip?** [[Trip State Machine]] has no backwards path after `DRIVER_ACCEPTED`.
 
 ## Questions about this vault

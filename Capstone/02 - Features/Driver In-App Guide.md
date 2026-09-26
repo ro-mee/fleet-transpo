@@ -91,16 +91,21 @@ The Welcome card is **NOT** one of the six operational guides. It is a one-time 
 
 The **only** six operational areas that receive contextual guidance are:
 
-### 3.1 Pre-Trip Inspection (HIGH Priority)
-* **Screen**: `mobile/app/(app)/inspection.js`
-* **Trigger**: First time the driver enters a real pre-trip inspection (`fleetops.guide.pretrip.v1`).
-* **Operational Scope**: Teach the decision workflow, **not** all seven checklist items individually.
+*The six are §3.1–§3.6. §3.7 is the interactive walkthrough that sequences them — numbered inside §3 because it belongs to the guide system, not because it is a seventh area: it teaches no workflow of its own, it chains the six.*
+
+### 3.1 Pre-Shift Inspection (HIGH Priority)
+* **Screen**: `mobile/app/(app)/inspection.js` — **dual-mode since 2026-09-23.** This section covers the **Pre-Shift baseline** mode (7-point, opened bare from Home). The per-trip **Quick Pre-Trip** mode shares this screen, these three steps and these three storage keys, and is documented in §3.1b.
+* **Trigger**: First time the driver enters a real inspection (`fleetops.guide.pretrip.v1`).
+* **Operational Scope**: Teach the decision workflow, **not** the checklist items individually.
 * **Flow**:
-  $$\text{PASS / FAIL} \longrightarrow \text{if FAIL} \longrightarrow \text{Remarks required} \longrightarrow \text{All 7 answered} \longrightarrow \text{Complete Inspection}$$
+  $$\text{PASS / FAIL} \longrightarrow \text{if FAIL} \longrightarrow \text{Remarks required} \longrightarrow \text{All items answered} \longrightarrow \text{Complete Inspection}$$
+  *The count is mode-dependent (7 baseline / 4 quick) and is never quoted as a fixed number here — see step 3.*
 * **Step Details & Interactivity**:
   1. **PASS / FAIL (`inspection.pass_fail`)**:
      - *Interaction*: `passthrough`. The driver taps the **actual** production `PASS` or `FAIL` button through the spotlight cutout.
      - *Copy*: *"Work down the list and choose PASS for each item that is safe, or FAIL for one you find a problem with. Marking FAIL asks you to describe the issue, so dispatch knows what needs attention."*
+     - *Copy, Pre-Shift mode* (`dynamicBody`): *"Work down the list and choose PASS for each item that is safe, or FAIL for one you find a problem with. This is your once-a-day baseline — each trip still needs its own quick check before departure."*
+     - *`dynamicBody` wins over `body`* (`CoachMarkOverlay`: `typeof step.dynamicBody === "function" ? step.dynamicBody(stepContext) : step.body`). `body` is the no-context fallback and is the per-trip variant. **A `dynamicBody` with no context passed at the trigger is never reached** — the screen must pass `triggerMilestone("pretrip", { mode, total })`. This branch was dead code for months in §3.2 step 3 for exactly that reason.
      - *Why the copy names the FAIL consequence* (2026-09-22): the requirement it describes (a FAIL needs a description) is enforced at submit time, so a driver who learns it only from the Remarks tooltip learns it *after* marking the first FAIL. The step that teaches "how to answer" is this one.
      - *Interaction-Driven Progression*:
        - If driver taps real **PASS**: explanation completes.
@@ -113,9 +118,49 @@ The **only** six operational areas that receive contextual guidance are:
      - *Action*: `[ Got it ]`.
   3. **Complete Inspection (`inspection.complete`)**:
      - *Interaction*: `passthrough` — **changed from `blocked` 2026-09-22.** The copy instructs "Tap here", and `blocked` makes the cutout swallow that exact tap: the only way through was the tooltip's own `[ Got it ]` first, so the instruction was untrue and the real button cost two taps. `blocked` is reserved for actions that must not fire by accident (SOS, Start Trip, the trip-progression swipe); this is a plain submit, and on the tour path it writes nothing (`handleSubmit` opens the completion modal and returns when `isTour`). See §3.7.6.
-     - *Copy*: *"Tap here once all 7 items are checked. You must complete the inspection before you can start the trip."*
+     - *Copy*: *"Tap here once every item is checked. You must complete this check before the trip can start."* (the no-context fallback)
+     - *Copy, with context* (`dynamicBody`): *"Tap here once all **N** items are checked. You must complete this check before the trip can start."*, where **N** is `ctx.total` supplied by the screen (`7` baseline / `4` quick). **The count is passed in, never written into the copy** — a hardcoded `7` here is what two inspection types made untrue, and hardcoding it again would recreate the same bug on the next checklist change.
      - *Action*: `[ Got it ]`.
      - *Safety Rule*: Never require the driver to submit the inspection to finish the guide — the guide completes on the tap, and the tap runs the real handler.
+
+### 3.1b Quick Pre-Trip (HIGH Priority)
+* **Screen**: `mobile/app/(app)/inspection.js` with `tripId` (or `mode=pretrip`) — the same component as §3.1, in its per-trip mode. **Not a seventh guide and not a new set of steps**: it reuses §3.1's three milestones, three targets and three storage keys, with mode-aware copy.
+* **Trigger**: identical to §3.1 (`fleetops.guide.pretrip.v1`) — a driver who has completed the guide on the baseline screen is *not* re-taught on the quick screen, and vice versa. The milestone tracks "has this driver learned how to answer an inspection", which is one lesson.
+* **Operational Scope**: 4 critical items — `dashboard`, `brakes`, `tires`, `exterior`. Trip-scoped: the submitted row carries the trip's `trip_id` and `inspection_type = 'Pre-Trip'`, and it is the only row type the START gate accepts ([[Trips]]).
+* **CTA**: `[ COMPLETE PRE-TRIP CHECK ]`.
+* **Tour interaction**: the map checkpoint (§3.7.5) runs this mode, so the guided walkthrough teaches the quick check. On the tour path `handleSubmit` writes nothing (`isTour` returns after the completion modal), per §7 Rule 4.
+
+### 3.1c Home entry point — the `preshift` milestone (2026-09-23)
+* **Screen**: `mobile/app/(app)/(tabs)/index.js`
+* **Milestone**: `fleetops.guide.preshift.v1` (see §6 Version Keys Table). **Grouped under Guide 1, not counted as a seventh guide** — the six operational areas in §3 are the areas that *receive* guidance, and this teaches the same Pre-Shift check §3.1 already covers, from the control that starts it.
+* **Step**: `preshift.start`
+  - *Target*: `home.preshift_start` — the **Start-Shift button alone**, wrapped in `CoachMarkTarget` inside the banner. §5's one-target rule forbids spotlighting the parent card.
+  - *Interaction*: `observe`. The driver's next act is to read this, then tap the real button; the guide explains and asks for no tap of its own (same reasoning as `map.intro.controls`).
+  - *Copy*: *"Complete the full vehicle safety check once a day, before your first trip. Each trip afterwards still needs its own quick pre-trip check — this one does not count for a trip."* The second sentence is load-bearing: without it a driver reasonably concludes the baseline clears their trips.
+  - *Action*: `[ Got it ]`, `canSkip: true`, **no `requiresInteraction`** (§7 Rule 3).
+  - *`scrollRef`*: required — the banner sits inside the Home scroll container, and a below-the-fold target that never measures presents nothing (the §3.7.8 failure mode).
+* **Trigger**: on Home focus, gated on the baseline being outstanding. The banner renders only while today's Pre-Shift is missing, so this milestone has a deadline of its own; §7 Rule 5 does the rest, since a refusal while another guide is on screen leaves it incomplete and it returns on the next focus. **Do not add a retry loop that fights the provider.**
+* **Why it exists**: it is the only genuinely new control the two-type model adds. Without it a driver who never notices the banner sees every trip CTA read `START YOUR SHIFT` (§3.2.1) with nothing explaining why.
+* **Tour twin**: `tour_preshift` teaches this same control inside the guided walkthrough (§3.7.9), and marks `preshift` complete so the production tip never re-teaches it. Because the tour step is `observe`, the real button is pointer-blocked while it is on screen — which is what stops a tour tap from running a real baseline and starting duty.
+
+---
+
+### 3.1d Home entry point — the `end_duty` milestone (2026-09-23)
+
+* **Screen**: `mobile/app/(app)/(tabs)/index.js` (card) → `mobile/app/(app)/end-duty.js` (the report)
+* **Milestone**: `fleetops.guide.end_duty.v1` (see §6 Version Keys Table). **Grouped under Guide 1, not counted as a seventh guide**, for the same reason as §3.1c: it is the closing half of a workflow Guide 1 already owns, surfaced from the control that starts it.
+* **What it explains**: `End duty` no longer just closes the shift — it files a vehicle condition report for the day, and a reported fault opens a work order that can ground the vehicle. That consequence is invisible from the button, which is exactly the bar §7 Rule 2 sets for a guide existing at all.
+* **Step**: `end_duty.report`
+  - *Target*: `home.end_duty` — the **END DUTY REPORT button alone**, wrapped in `CoachMarkTarget` inside the card. §5's one-target rule forbids spotlighting the parent card.
+  - *Interaction*: `observe`, with **no `requiresInteraction`** (§7 Rule 3). The driver's next act is to tap the real button and land on the report screen; the guide asks for no tap of its own.
+  - *Copy*: *"Before you clock out, tell FleetOps whether you noticed anything unusual about the vehicle. Say nothing was unusual and your shift closes right away; describe a problem and it opens a work order for the vehicle."* Both halves of the consequence are stated, because the driver is choosing between them on the next screen.
+  - *Action*: `[ Got it ]`, `canSkip: true`.
+  - *`scrollRef`*: required — same container as §3.1c, and the same §3.7.8 failure mode applies.
+* **Trigger**: on Home focus, gated on `duty.due` from `mobile/lib/use-duty.js`. That flag is composed as **`loaded && checkedIn && !busy && inside the nudge window`** — never a bare clock reading, so a driver who never checked in, or who is on a live trip or answering an incident, is never guided to close a shift that is not ending. The window (30 min before the server's own `today.duty.end`) is supplied by `mobile/lib/end-duty.js`; the client does not re-derive the roster.
+* **Deadline**: same shape as §3.1c — the card renders only inside the nudge window, so the milestone has a deadline of its own, and §7 Rule 5 returns it on a later focus if another guide was on screen. **Do not add a retry loop.**
+* **Not shown on a rest day or approved leave**: the card requires `today.blocked === false` transitively (an un-checked-in driver is never `due`), and §3.1c's banner is gated on it directly. See Trips.md for the eligibility rule itself.
+* **Tour twin**: `tour_end_duty` teaches this same control inside the guided walkthrough (§3.7.9), immediately after Pre-Shift, and marks `end_duty` complete so the production tip never re-teaches it. The walkthrough **explains** this screen and never opens it — `/end-duty` has no tour entry at all — which is the deliberate trade recorded in §3.7.9.
+* **Now also reached by a push (2026-09-26, Part C)**: `/end-duty` is the deep-link target of a new OS-level reminder, `syncEndDutyReminders` — a **silent** `heads-up` push **30 min after** the shift ends (`End Duty Reminder`) and a **loud** one after **2 h** (`End Duty Still Not Reported`), each tapping straight to this screen rather than Home. Note the direction of the two clocks: the card above opens **30 min before** the out-time, the push grace starts **30 min after** it, so they never compete for the same minute — the card first, the phone afterwards, and only while the report is still open. **No new coach mark or milestone was added for this**: the guide teaches the control once (here and in §3.7.9), the reminder only calls the driver back to it, and §7's one-target rule is untouched. A driver with the Push toggle off still gets the in-app row; one with the whole event off gets neither; one with no active `device_tokens` row gets no OS notification at all.
 
 ---
 
@@ -131,15 +176,32 @@ The **only** six operational areas that receive contextual guidance are:
      - *Action*: `[ Next → ]`.
   2. **Pre-Trip Dependency (`trip.pretrip_requirement`)**:
      - *Interaction*: `observe`.
-     - *Copy*: *"Complete the required vehicle inspection before departure. The start button unlocks once safety is confirmed."*
+     - *Copy*: *"Complete the pre-shift vehicle safety check once a day, then the quick pre-trip check for each trip. The start button unlocks once safety is confirmed."* — **updated 2026-09-23.** There are two gates now, and this is the step that states the requirement, so it names both. The previous wording ("the required vehicle inspection") described the per-trip check alone.
      - *Action*: `[ Next → ]`.
   3. **Primary Action (`trip.primary_action`)**:
      - *Interaction*: `blocked`. Protected action.
-     - *Dynamic Copy*: Derived from real trip state:
+     - *Dynamic Copy*: Derived from the context passed at the trigger (`triggerMilestone("trip_readiness", { isContinue, reason })`):
+       - If `reason === "pre_shift"` (the baseline is outstanding — see §3.2.1): *"START YOUR SHIFT opens the full vehicle safety check. Complete it once today and this button becomes the start control for your trips."*
        - If active trip (`isContinue === true`): *"Once the trip is active, Continue to Map only returns you to the live trip and navigation."*
-       - If pre-departure: *"Start Trip begins the trip when readiness and inspection requirements are satisfied."*
+       - Otherwise (pre-departure): *"Start Trip begins the trip when readiness and inspection requirements are satisfied."*
+     - *Why `blocked` survives a button that only navigates*: in the `pre_shift` state the CTA opens the baseline check, but in every other pre-start state **it is still Start Trip** and still starts a trip. §7 Rule 3 lists Start Trip as protected; a mode that navigates does not make the button safe to fire by accident. Blocking costs one extra tap in one state and keeps the guarantee in the rest.
      - *Action*: `[ Got it ]`.
      - *Safety Rules*: The guide must **never** start a trip, accept a trip, mutate trip status, bypass readiness, or bypass inspection.
+
+#### 3.2.1 The `pre_shift` CTA state (2026-09-23)
+The trip-detail CTA is now derived from `readinessFor(...).unavailableReason`, whose priority is **`pre_shift` > schedule > window > inspection** — the baseline outranks the schedule, because a driver with no baseline has something to *do* regardless of the clock.
+
+| `unavailableReason` | CTA label | Behaviour |
+|---|---|---|
+| `null` (ready) | `START ROUTE` / `ACCEPT & START` | starts the trip |
+| `pre_shift` | `START YOUR SHIFT` | **navigates** to `/inspection?mode=preshift` |
+| `inspection` | `PRE-TRIP CHECK` | **navigates** to `/inspection?tripId=…` |
+| `window` | `START ROUTE IN N MIN` | disabled |
+| `schedule` | `START NOT YET SCHEDULED` | disabled |
+
+`usePreShift()` reports `loaded: false` on a transport failure, and the call site passes `preShiftPassed: preShift.loaded ? preShift.passed : true` — so an **unknown** baseline never renders as an outstanding one. Offline must not erase a baseline the driver already passed, and it must not claim the CTA is a start button that the server will then refuse either.
+
+**Dead branch, now reachable in principle but still not reached** (2026-09-23): `trip.primary_action`'s `isContinue` branch was written but never rendered, because `triggerMilestone("trip_readiness")` was called with no context. The trigger now passes `{ reason }`; it does **not** pass `isContinue`, because the trigger's own guard (`if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return`) restricts it to pre-start trips, where `action` is always `accept-start`. The branch is kept — the copy is correct for the state it describes — but no call site produces that state today. **The lesson to carry: a `dynamicBody` needs a context at its trigger, not just a branch.**
 
 ---
 
@@ -229,7 +291,8 @@ Section 3.3.3 made the spotlight present. It then appeared on every step — and
 
 ### 3.4 Fuel Receipt Scanning (HIGH Priority)
 * **Screen**: `mobile/app/(app)/fuel-report.js`
-* **Trigger**: First time entering fuel report / receipt scanning (`fleetops.guide.fuel_scan_capture.v1` and `fleetops.guide.fuel_scan_verify.v1`).
+* **Trigger**: First time entering fuel report / receipt scanning — `fuel_scan_intro` (v1), `fuel_scan_capture` (**v2**), `fuel_scan_verify` (v1). The `v2` on capture is not a typo: see §6's Version Keys Table note.
+* **Entry step — `fuel_scan_intro`** (documented 2026-09-24; it was live in the code and absent from this section and from §6). Target `fuel.scan_entry`, `observe`, `presentation: "simulation"`, `actionText: "Try sample scan"`, `demoKey: "fuel_receipt_scan"`, `handoff: "fuel.scan_entry"`. It offers a **sample scan** before the real scanner, so the driver's first receipt scan is a rehearsal rather than a live OCR run. Its `handoff` target is also what the fuel tour's `tour.fuel.scan_entry` step points at.
 * **Real Lifecycle Flow**:
   $$\text{Capture Gauge} \longrightarrow \text{Request Fuel} \longrightarrow \text{Coordinator Approval} \longrightarrow \text{Open Scanner} \longrightarrow \text{Capture Receipt} \longrightarrow \text{Real OCR Extraction} \longrightarrow \text{Spotlight Verification Fields} \longrightarrow \text{Save Entry}$$
 * **Coordinator approval is a step of its own** (added 2026-09-22). The runtime flow is longer than the scan alone: between submitting the request and scanning the receipt the coordinator approves a volume against the vehicle's tank and route, and the `fuel.approval` box appears. The tour now stops there rather than announcing the approval on the scan step, where it named a figure the driver had not yet seen.
@@ -302,13 +365,17 @@ The FleetOps mobile driver experience incorporates a seamless, multi-screen inte
 ```mermaid
 graph TD
     A[1. Welcome Card] -->|Got it| B[2. Floating SOS Practice]
-    B -->|Open SOS Modal & Explain| C[3. Home Report Incident Shortcut]
-    C -->|Tap Shortcut| D[4. Incidents Tutorial Screen]
-    D -->|Category → Details → Tap Submit| E[5. Home Fuel Shortcut]
-    E -->|Tap Fuel| F[6. Fuel Logging Screen]
-    F -->|Gauge Modal → Receipt Scan Demo| G[7. Live Map Tour]
-    G -->|Start Route Swipe| H[8. Pre-Trip Checkpoint]
+    B -->|Open SOS Modal & Explain| C[3. Home Start-Shift Banner]
+    C -->|Got it, then walk the baseline| D[4. Home End Duty Card]
+    D -->|Got it| E[5. Home Report Incident Shortcut]
+    E -->|Tap Shortcut| F[6. Incidents Tutorial Screen]
+    F -->|Category → Details → Tap Submit| G[7. Home Fuel Shortcut]
+    G -->|Tap Fuel| H[8. Fuel Logging Screen]
+    H -->|Gauge Modal → Receipt Scan Demo| I[9. Live Map Tour]
+    I -->|Start Route Swipe| J[10. Pre-Trip Checkpoint]
 ```
+
+**Stages 3 and 4 were inserted between SOS and Report Incident on 2026-09-24** (§3.7.9). The two duty controls are taught back to back because they are a matched pair — Pre-Shift opens the shift, End Duty closes it — and everything after them reads as "what you do during the shift". Everything from stage 5 onward, and the Live Map tour's own ending, is unchanged.
 
 #### 3.7.1 Duplicate SOS Tooltip Elimination
 * **Root Cause**: On Home, completing `tour_sos` previously reset `activeMilestone` to `null` before triggering `tour_incident`. A secondary 2-second stationary timer inside `DriverSos.js` detected `!activeMilestone` while `"sos"` remained uncompleted in storage, causing the SOS tooltip to present a second time on the exact same button.
@@ -357,10 +424,11 @@ graph TD
 
 #### 3.7.5 Live Map with Pre-Trip Checkpoint (`/map`)
 * On the first "START ROUTE" swipe during the Live Map trip practice sandbox, an interactive Pre-Trip Safety Checkpoint expands, requiring the driver to confirm safety before proceeding with the route waypoints.
-* **The checkpoint is a real gate** (2026-09-22): the prompt offers `[ Open Inspection Screen → ]` and nothing else. It previously also offered `[ Quick Pass (Tutorial Only) ]`, which skipped the inspection the checkpoint exists to require — a tour that bypasses the safety step it is teaching. The `[ Quick Pass All ]` control **inside** the checklist is untouched and remains the way to answer all seven items quickly.
+* **The checkpoint is a real gate** (2026-09-22): the prompt offers `[ Open Inspection Screen → ]` and nothing else. It previously also offered `[ Quick Pass (Tutorial Only) ]`, which skipped the inspection the checkpoint exists to require — a tour that bypasses the safety step it is teaching. The `[ Quick Pass All ]` control **inside** the checklist is untouched and remains the way to answer every item quickly.
 * **Returning from the inspection does not cost a second swipe.** Passing the pre-trip lands back on the Map tab with `?pretrip=passed`; the practice card seeds its stage from that parameter, so the START ROUTE stage the inspection just satisfied is already complete and the driver continues at the next stage. Without it the driver was asked to perform the swipe twice.
 * **One control for finishing, not two.** "All five practice stages completed!" is shown by the card, but the *action* belongs to the `map.practice.complete` tooltip's `[ Finish Tour ]` button alone. The card's own `[ Finish Tour ✓ ]` was a duplicate of the same action on the same screen, and it is removed. `map.practice.complete` carries no `requiresInteraction`, so the tooltip's button advances ungated.
 * **Parking: the Map tour survives the trip into the inspection screen** (2026-09-22). See §3.7.6 — this is what lets the pre-trip tooltips run at all.
+* **The checkpoint teaches the Quick Pre-Trip mode since 2026-09-23.** The tour's inspection runs 4 critical items (`mode=pretrip`), not the 7-point baseline — so the walkthrough teaches the check a trip actually requires. The three Guide-1 steps are the same ones either way, and their copy adapts through `dynamicBody` (§4), so a driver who meets the tour first is taught the quick check and a driver who opens the baseline from Home is taught the baseline.
 
 #### 3.7.6 Parking a guide across a navigation (2026-09-22)
 
@@ -402,6 +470,70 @@ The overlay now mounts for the whole guide. `shouldShowOverlay` is `activeMilest
 
 **Quick Pass All now leaves one item failed.** The tutorial's fast-path button answered all seven items PASS, and notified with a hard-coded `status: "PASS"` — which takes the provider's *complete* branch and triggers no remarks — while bypassing `setStatus`, the only path that fires `pretrip_remarks`. Pressing it therefore dismissed the pass/fail tooltip and showed nothing else. It now answers six PASS and leaves **Tires** FAIL with a seeded description (`mobile/lib/inspection-tour.js`), routed through the production `setStatus(id, "FAIL")` path, so the remarks tooltip fires exactly as it would from a manual tap. The description is not decoration: `handleSubmit` refuses a FAIL without remarks, so a bare FAIL would have made the tour's own submit button a dead end. The completion modal's header, its "7 of 7 Passed" line and its "Safe for Route Departure" badge now derive from the real counts and read "1 flagged for dispatch" when an item failed. The control remains `isTour`-guarded, so production inspections are unaffected.
 
+#### 3.7.9 The duty bookends — Pre-Shift and End Duty join the walkthrough (2026-09-24)
+
+**Why.** The walkthrough taught SOS, incident reporting, fuel, trip progression and the pre-trip checkpoint, but not the two controls the duty model now hinges on: **Pre-Shift starts duty** and the **End Duty report closes it** and can file a work order that grounds a vehicle. A driver could finish onboarding having seen neither, and since Profile's duty card was removed the tour is the only surface left that introduces them.
+
+**Order.** The two are taught immediately after SOS, back to back and *not* held to the end of the tour (stages 3 and 4 in §3.7). Pairing them lands the duty model's core lesson in one beat; the middle — incident, fuel, trip progression — then reads as "everything you do during the shift". `map_intro` keeps its position as the finale, so the map chain's ending is untouched. The cost, accepted: a driver meets "and here is how your shift ends" roughly a minute into onboarding, so the End Duty copy frames itself as the end of the day rather than as the next thing to do.
+
+**The two steps** — each one step, Home, `observe`, `canSkip: true`, **no `requiresInteraction`** (§7 Rule 3). Both target ids already existed for §3.1c and §3.1d, so no new targets were needed.
+
+| Milestone | Step | Target | Copy carries |
+|---|---|---|---|
+| `tour_preshift` | `tour.preshift.start` | `home.preshift_start` | that it runs **once a day**, and that **each trip still needs its own quick check** |
+| `tour_end_duty` | `tour.end_duty.report` | `home.end_duty` | that nothing unusual closes the shift, and that a description **opens a work order** |
+
+Both `scrollRef` props are required for the same reason as §3.1c/§3.1d — a below-the-fold Home target that never measures presents nothing (§3.7.8). The second sentence of the Pre-Shift copy is load-bearing: without it a driver concludes the baseline clears their trips.
+
+**The chain.** `tour_sos` now hops to `tour_preshift` (it previously hopped straight to `tour_incident`); `tour_preshift`'s hop is the **real baseline screen**; `tour_end_duty` hands on to `tour_incident`, so the tour rejoins its existing path and every hop from there — including fuel and the whole map chain — is untouched. The twin-marking blocks in `CoachMarkProvider` gained `tour_preshift → preshift` and `tour_end_duty → end_duty`, **in both `completeActiveMilestone` and `skip`**, so the production tips do not re-teach what the tour taught. The mark lands *before* the cascade navigates, which is what keeps the production `preshift` focus effect on the returning Home screen from claiming the screen in the gap and stalling the chain at End Duty.
+
+**The Home gate bypass — required, and the §3.7.4 pattern applied to Home.** Both real controls are gated on live state that is never true mid-tour: the Start-Shift banner renders only while today's baseline is outstanding on a working day, and the End Duty card only inside the 30-minute nudge window (`loaded && checkedIn && !busy && inside the window`). Unbypassed, each step would target an unmounted control and present nothing. So `index.js` forces each visible while its tour milestone is active, via `useCoachMarkStatus()`. **The bypass is keyed on the tour milestone, never on "a tour is running", so production gating is untouched.** The End Duty card's own copy is not special-cased — the driver sees the real card, which is the point.
+
+**Mode override in the inspection screen.** `isTour` used to collapse every tour visit to the quick Pre-Trip set. The tour's baseline step needs the 7-item set, so an explicit `mode` now outranks the `isTour` default: `?tour=1&mode=preshift&from=tour` resolves to the baseline, while the map checkpoint's `?tour=1&from=map` carries **no** `mode` and still resolves to Pre-Trip exactly as §3.7.5 describes. Both are pinned by test.
+
+**The return path.** The tour baseline enters with `from=tour` and its submit **replaces** to `/(app)/(tabs)?tour_step=end_duty`, which Home's `tour_step` effect turns into `tour_end_duty`. It deliberately does **not** reuse the map checkpoint's success modal: that modal's copy reads *"Pre-Trip Inspection Complete!"*, which is the wrong lesson twice over for a baseline. `from=map` keeps its existing behaviour unchanged — modal, then `?pretrip=passed` back to the map.
+
+**The safety invariant is the point of this design.** A Pre-Shift POST starts a duty session, so the tour must never be able to reach it. Two mechanisms carry that, and both are load-bearing:
+
+1. The tour entry always carries `tour=1`, and both steps are `observe` — which makes the cutout **pointer-blocking** (§4), so the real Start-Shift button underneath cannot be pressed mid-tour. Were either `passthrough`, a tap on the real control would run a real baseline and start duty.
+2. `handleSubmit`'s `if (isTour)` early return sits **before** the `api.post` that would start duty. It is unchanged by this work and must never be narrowed or moved below the POST.
+
+End Duty is **explained, not demonstrated**: the tour never opens `/end-duty`, which has no tour entry at all. A driver meets the one-question report screen for the first time at the end of a real shift. That is the deliberate trade in the chosen option.
+
+**Verification.** Source-text tests in `mobile/lib/coach-marks.test.js` assert both milestones' shape and their absence of `requiresInteraction`, the chain order (SOS → Pre-Shift → the real screen → End Duty → Report Incident, and that the Pre-Shift hop is *not* the incident hop), the twin-marking in both the complete and skip paths, the two Home bypasses, the mode override's truth table, and the safety invariant (the overlay's `observe` pointer rule, the guard's position ahead of the POST, and that `/end-duty` has no tour entry). Full mobile suite: **442 pass** across 38 files; `npm run lint` clean. **Nothing here has run on a device** — in particular the two Home bypasses and the tour's return hop are reasoned from the code, not observed.
+
+**Residual.** The tour gains three beats on top of the previous eight nodes (the Pre-Shift Home step, its baseline screen walk, the End Duty Home step), so onboarding is materially longer; this change does not offset that, and if it proves too long the honest cut is the fuel walk, not the duty bookends. And the tour's baseline writes nothing, like every other tour step — a driver still learns what the check feels like without the server ever seeing it.
+
+#### 3.7.10 Interactive Onboarding Sequencing, Navigation Ownership & Transition Locking (2026-09-26)
+
+**Symptom.** During the §3.7 interactive onboarding walkthrough, when coach marks highlighted Report Incident or Fuel quick actions on Home, tapping the highlighted action frequently opened the normal production form (`/incidents` or `/fuel-report` without `?tour=1`), allowing drivers to submit live production records before the tutorial ever appeared. In other runs, tapping once caused duplicate navigations (two stack entries for `/incidents?tour=1` or `/fuel-report?tour=1`).
+
+**Root Cause — Dual Navigation Ownership & Asynchronous Transition Races:**
+1. **Dual Navigation Ownership**: Both `DriverHomeCards.jsx` (`HomeQuickActions.handlePress`) and `CoachMarkProvider.jsx` (`completeActiveMilestone`) were independently executing `router.push('/incidents?tour=1')` and `router.push('/fuel-report?tour=1')` on the exact same tap. This caused duplicate pushes and stack pollution.
+2. **Transition Race Window (`activeMilestoneKey` clearance)**: Between milestones, `activeMilestoneKey` in React state is cleared to `null` while asynchronous handoffs or timeouts execute. If the driver tapped during this gap, `handlePress` checked only `activeMilestone === 'tour_incident'` or `'tour_fuel'`, evaluated false, and fell through to `a.action?.()`, launching the real production screen with no tour parameters.
+3. **Unawaited Async Notification**: `notifyInteraction()` was invoked asynchronously without awaiting completion prior to screen transitions.
+
+**Resolution:**
+1. **Single Navigation Owner (`CoachMarkProvider`)**:
+   - `CoachMarkProvider` is now the exclusive owner of tutorial navigation for `/incidents?tour=1` and `/fuel-report?tour=1`.
+   - `DriverHomeCards.jsx` removed its `useRouter` hook and all direct `router.push` calls for tour destinations. When tapping highlighted quick actions, `handlePress` awaits `notifyInteraction('home.shortcut_incident')` or `notifyInteraction('home.shortcut_fuel')` and returns immediately.
+2. **Deterministic Synchronous Transition Locking**:
+   - `CoachMarkProvider` maintains synchronous refs (`walkthroughActiveRef`, `tutorialTransitioningRef`, `pendingTourDestinationRef`) alongside state mirrors, exposed via `useCoachMarkStatus()` and `useCoachMarkActions()`.
+   - In `DriverHomeCards.jsx`, if `walkthroughActive || tutorialTransitioning` is true, Incident and Fuel quick actions return early and NEVER fall through to `a.action?.()`, completely eliminating the click-through window.
+   - `notifyInteraction` intercepts `home.shortcut_incident` and `home.shortcut_fuel` at the very top of the handler, ensuring that taps during handoffs are cleanly processed even if state propagation is mid-flight.
+3. **Back Stack Preservation & Navigation Cleanliness**:
+   - In `mobile/app/(app)/incidents.js`, tour completion replaces navigation to `/(app)/(tabs)?tour_step=fuel` (`router.replace`) rather than pushing on top, preventing back-button traps.
+   - In `mobile/app/(app)/fuel-report.js`, tour completion signals transition to `/map` and invokes `triggerMapIntroFromTab({ source: "fuel-tour-complete" })`.
+   - In `mobile/app/(app)/(tabs)/index.js`, the `tour_step` query parameter handler primes `setTutorialTransitionSync(true, ...)` before triggering milestones, locking out production taps immediately upon tab arrival.
+4. **Safety Invariants Maintained**:
+   - All `isTour` gates in `incidents.js` and `fuel-report.js` are preserved; tutorial submissions never hit `api.post`.
+   - Normal shortcuts outside the onboarding walkthrough remain 100% production-oriented (`/incidents` and `/fuel-report`).
+
+**Verification**:
+- 11 regression tests added to `mobile/lib/coach-marks.test.js` covering single-tap navigation, production fallthrough prevention, single-owner contract assertion, entry points, and API safety invariants.
+- 137 unit tests in `mobile/lib/coach-marks.test.js` pass (100%).
+- ESLint clean with 0 errors and 0 warnings across all touched files.
+
 ---
 
 ## 4. Interaction Model
@@ -411,10 +543,16 @@ Every coach-mark step explicitly defines one of three interaction behaviors:
 | Mode | Cutout PointerEvents | Overlay Behavior | Use Cases |
 |---|---|---|---|
 | **`passthrough`** | `none` | Spotlight cutout is completely unblocked. Underlying React Native component receives real native touches. | Inspection PASS / FAIL, Remarks TextInput, Incident category selection, Fuel verification editable inputs. |
-| **`observe`** | `auto` | Target is highlighted; tutorial does not require interaction. Tapping `[ Next → ]` or `[ Got it ]` advances. | Readiness Window, Pre-Trip requirement status, Current Mission, Telemetry, ConnectivityBanner. |
+| **`observe`** | `auto` | Target is highlighted; tutorial does not require interaction. Tapping `[ Next → ]` or `[ Got it ]` advances. | Readiness Window, Pre-Trip requirement status, Current Mission, Telemetry, ConnectivityBanner, Start-Shift button (`preshift.start`, §3.1c), End-Duty button (`end_duty.report`, §3.1d). |
 | **`blocked`** | `auto` | Cutout intercepts touches to protect against accidental execution. Advanced solely via `[ Got it ]`. | Emergency SOS, Start Trip CTA, Trip Progression Swipe, Submit Incident, Submit Fuel. |
 
 **Complete Inspection left this row on 2026-09-22.** It was listed as a protected action, but its own copy says "Tap here" — so blocking the cutout made the instruction untrue and cost the real button an extra tap (dismiss the tooltip first). Blocking is for actions that must not execute by accident; a submit whose tour path writes nothing is not one of those. See §3.1 and §3.7.6.
+
+### Step copy may vary by context — `dynamicBody`
+
+A step may declare both `body` and `dynamicBody`. The overlay resolves `typeof step.dynamicBody === "function" ? step.dynamicBody(stepContext) : step.body`, so **`dynamicBody` wins whenever it is present**, and `body` is the no-context fallback.
+
+The context comes from the trigger: `triggerMilestone(key, context)` stores it and the overlay hands it to each step of that milestone. **A `dynamicBody` with no context passed at its trigger is unreachable code** — and it fails silently, because the fallback is a perfectly readable sentence. That is not hypothetical: `trip.primary_action`'s `isContinue` branch was written with the milestone and never rendered, because the call site was bare `triggerMilestone("trip_readiness")`. Since 2026-09-23 the three Guide-1 call sites pass context (`{ mode, total }` from the inspection screen, `{ reason }` from trip detail), and `lib/coach-marks.test.js` asserts each branch by calling it directly — which is what makes the difference between "the branch exists" and "the branch is reached" a thing a test can see.
 
 ### Interaction-Driven Progression
 
@@ -550,13 +688,32 @@ export function getCoachMarkStorageKey(key, version = 1, driverId = null) {
 | **Guide 1** | `pretrip` | `fleetops.guide.pretrip.v1_{driverId}` | 1 |
 | | `pretrip_remarks` | `fleetops.guide.pretrip_remarks.v1_{driverId}` | 1 |
 | | `pretrip_complete` | `fleetops.guide.pretrip_complete.v1_{driverId}` | 1 |
+| | `preshift` | `fleetops.guide.preshift.v1_{driverId}` | 1 |
+| | `end_duty` | `fleetops.guide.end_duty.v1_{driverId}` | 1 |
 | **Guide 2** | `trip_readiness` | `fleetops.guide.trip_readiness.v1_{driverId}` | 1 |
 | **Guide 3** | `live_trip` | `fleetops.guide.live_trip.v1_{driverId}` | 1 |
-| **Guide 4** | `fuel_scan_capture` | `fleetops.guide.fuel_scan_capture.v1_{driverId}` | 1 |
+| **Guide 4** | `fuel_scan_intro` | `fleetops.guide.fuel_scan_intro.v1_{driverId}` | 1 |
+| | `fuel_scan_capture` | `fleetops.guide.fuel_scan_capture.v2_{driverId}` | 2 |
 | | `fuel_scan_verify` | `fleetops.guide.fuel_scan_verify.v1_{driverId}` | 1 |
 | **Guide 5** | `sos` | `fleetops.guide.sos.v1_{driverId}` | 1 |
 | | `incident` | `fleetops.guide.incident.v1_{driverId}` | 1 |
 | **Guide 6** | `offline` | `fleetops.guide.offline.v1_{driverId}` | 1 |
+| **Tour walkthrough** | `tour_sos` | `fleetops.guide.tour_sos.v1_{driverId}` | 1 |
+| | `tour_preshift` | `fleetops.guide.tour_preshift.v1_{driverId}` | 1 |
+| | `tour_end_duty` | `fleetops.guide.tour_end_duty.v1_{driverId}` | 1 |
+| | `tour_incident` | `fleetops.guide.tour_incident.v1_{driverId}` | 1 |
+| | `tour_incident_category` | `fleetops.guide.tour_incident_category.v1_{driverId}` | 1 |
+| | `tour_fuel` | `fleetops.guide.tour_fuel.v1_{driverId}` | 1 |
+| | `tour_fuel_entry` | `fleetops.guide.tour_fuel_entry.v1_{driverId}` | 1 |
+| | `tour_fuel_flow` | `fleetops.guide.tour_fuel_flow.v1_{driverId}` | 1 |
+
+**`preshift` and `end_duty` are enumerated here and nowhere else** — outside the `tour_*` family below, they are the only milestones whose keys do not appear as section titles in §3, because each is an entry point into a workflow rather than a workflow of its own (§3.1c, §3.1d).
+
+**The `tour_*` family is the walkthrough's own bookkeeping** (§3.7), listed here because this table is the enumeration of storage keys rather than a list of guides. These keys record which stages of the guided onboarding a driver has passed. Completing or skipping one also writes the production key it teaches (`tour_preshift → preshift`, `tour_end_duty → end_duty`, and the older `tour_sos → sos`, `tour_incident* → incident`, `tour_fuel* → fuel_scan_*`), so a tip the tour already taught is never re-taught.
+
+**Two Guide-4 keys were out of step with the code and are corrected here (2026-09-24)** — flagged rather than bundled silently with §3.7.9. `fuel_scan_capture` is at **version 2** in `mobile/lib/coach-marks.js`; this table and §3.4 both said 1. `fuel_scan_intro` was live in the code but absent from this table and from §3.4. Both are documentation-only corrections; no storage key moved.
+
+**Bumping rule, applied 2026-09-23 — `pretrip` / `pretrip_complete` were deliberately NOT bumped.** `getCoachMarkStorageKey(key, version)` yields `fleetops.guide.<key>.v<version>_<driverId>`, so a bump is a **new key that re-shows the tip to drivers who already dismissed it**. `pretrip_complete`'s copy changed when the count became mode-aware, but the *lesson* did not, and only a driver who has not yet completed the step can meet a wrong count — and that driver gets the new code. **Bump only when a driver who already completed a milestone would otherwise be missing something they now need.** `preshift` is new at version 1 by construction.
 
 ---
 
@@ -603,15 +760,17 @@ Drivers can review contextual guidance at any time:
 
 ## 9. Verification & Acceptance Criteria
 
-- [x] **Exactly 6 Operational Guide Domains**: Pre-Trip, Trip Readiness, Live Map, Fuel Scan, Incident/SOS, Offline.
+- [x] **Exactly 6 Operational Guide Domains**: Pre-Shift/Pre-Trip Inspection (§3.1/§3.1b), Trip Readiness, Live Map, Fuel Scan, Incident/SOS, Offline. The `preshift` (§3.1c) and `end_duty` (§3.1d) milestones are entry points into Guide 1, not seventh and eighth domains — neither teaches a workflow of its own.
 - [x] **Lightweight First-Launch Welcome**: Separate 1-card introduction on first login; zero Home walkthrough.
 - [x] **Zero Driver Academy / Mascots**: No training courses, missions, cheetah mascot, gamification, badges, or completion percentages.
 - [x] **One Coach Mark = One Exact Target**: Spotlights wrap smallest meaningful controls via `measureInWindow()`, never entire screens or parent cards.
 - [x] **Real 4-Scrim Passthrough Interactivity**: Modal-less absolute fill with 4 blocking regions; unblocked cutout for passthrough controls (PASS/FAIL, Remarks, Category, Fuel fields).
-- [x] **Protected Action Guarantee**: Critical actions (SOS, Start Trip, Complete Inspection, Swipe Progression) use `interaction: "blocked"` and advance via `[ Got it ]` without accidental execution.
+- [x] **Protected Action Guarantee**: Critical actions (SOS, Start Trip, Complete Inspection, Swipe Progression) use `interaction: "blocked"` and advance via `[ Got it ]` without accidental execution. `trip.primary_action` **kept `blocked`** through the 2026-09-23 two-type change: in the `pre_shift` state the same button only navigates (§3.2.1), but in every other pre-start state it still starts a trip, and a mode that navigates does not make it safe to fire by accident.
+- [x] **New Milestones Are Explained, Not Required**: `preshift` (§3.1c) and `end_duty` (§3.1d) are both `interaction: "observe"` with **no `requiresInteraction`**, so §7 Rule 3 holds — the driver's next act is to tap the real Start-Shift or End-Duty button, and the guide never gates either. This is the property most likely to be edited away later, which is why it is asserted in `lib/coach-marks.test.js` rather than only stated here. **Since 2026-09-24** the same two properties hold for `tour_preshift` and `tour_end_duty` (§3.7.9), where `observe` is doubly load-bearing: the Pre-Shift screen the first of them walks has a live Start-Shift button underneath the scrim, and `observe` is the only thing preventing a real duty write from a tour tap.
+- [x] **Tour Teaches the Duty Pair, and Explains Rather Than Performs**: the walkthrough's stages 3 and 4 (`tour_preshift`, `tour_end_duty`) teach the §3.1c banner and the §3.1d card, mark their production twins complete so neither tip re-teaches, and hand the driver back to the unchanged chain at Report Incident — so the map half of the tour and its `map_intro` ending are untouched. `tour_preshift` walks the **real** baseline screen with the real 7-item set rather than a mock, entered with `from=tour`; `inspection.js` returns before its `api.post` whenever `tour=1`, so no tour path can submit an inspection. `tour_end_duty` presents the Home card that the real gate shows only inside its 30-minute window, and **explains** `/end-duty` without entering it — the one place this work trades fidelity for safety, since that screen's only exit (Submit) is a write and a read-only variant of it does not exist. Both properties are asserted in `lib/coach-marks.test.js`.
 - [x] **Emergency SOS Priority**: Real SOS immediately overrides and dismisses any active tutorial state.
 - [x] **State-Driven Progression**: State changes on real controls advance guidance via `notifyInteraction()` without mutating production state from the guide system.
-- [x] **ScrollView Safe Viewport**: Auto-scrolls parent ScrollViews to offscreen targets and settles layout before measuring. Every scrollable target is given the `scrollRef` it needs: `inspection.*`, `incident.category`, `trip.readiness`, `trip.pretrip_requirement`, and `fuel.verify`. Targets outside a ScrollView (`trip.primary_action`, `fuel.viewfinder`, `map.*`, `incident.sos`, `offline.banner`) are fixed chrome and are on screen whenever they render.
+- [x] **ScrollView Safe Viewport**: Auto-scrolls parent ScrollViews to offscreen targets and settles layout before measuring. Every scrollable target is given the `scrollRef` it needs: `inspection.*`, `incident.category`, `trip.readiness`, `trip.pretrip_requirement`, `fuel.verify`, and — since 2026-09-23 — `home.preshift_start` and `home.end_duty`, which sit inside the Home scroll container and present nothing at all if left unmeasured. Targets outside a ScrollView (`trip.primary_action`, `fuel.viewfinder`, `map.*`, `incident.sos`, `offline.banner`) are fixed chrome and are on screen whenever they render.
 - [x] **Stale Target Rejection**: Target registrations stamped with `route: pathname`; cross-route, zero-sized, **or entirely off-screen** targets suppress overlay presentation.
 - [x] **Focus-Scoped Registration**: Only a focused instance registers — a covered stack screen, a background tab, or a `router.prefetch` PRELOAD cannot publish bounds. Blur drops the registration; focus re-registers. Async measure callbacks and the $320\text{ms}$ settle timer re-check mount + focus, and the timer is cleared on unmount.
 - [x] **Truthful Offline Copy**: Distinguishes Cached, Never Synced, Saved for Sync, and Server Confirmed.
@@ -623,7 +782,7 @@ Drivers can review contextual guidance at any time:
 - [x] **Dual-System Documentation Parity**: Documentation clearly separates the component-anchored local contour from the global scrim cutout and tooltip.
 - [x] **Shape-Responsive Spotlight Hole**: The cutout follows the target's declared shape instead of always being a rectangle — a circle for round controls (`map.layers`, the `DriverSos` FAB), a stadium for pills, a rounded rectangle for cards. The radius rule is extracted to `lib/spotlight-geometry.js` with `lib/spotlight-geometry.test.js`, which is the first coach-mark *behaviour* this suite can assert rather than string-match. **Not yet device-confirmed**: shape is the one property the suite cannot observe, so the `[coachmarks] spotlight geometry` line now reports `holeRadius` and `circular` for a device run to settle.
 - [x] **Context Partition & Re-render Isolation**: The guide is published through three contexts split by change frequency (actions / status / state) instead of one un-memoized value object, so a step transition or a settling re-measure no longer re-renders consumers that only call into the guide. The six actions-only consumers are never re-rendered by tutorial activity; the checklist and incidents screen are pinned to that contract by `lib/coach-marks.test.js`. **Not yet measured**: this is a structural fix reasoned from the code, not a profiler result — no render counter has been run on a device.
-- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests), `mobile/lib/spotlight-geometry.test.js` (11 tests), `mobile/lib/coach-marks.test.js` (83 tests), and `mobile/lib/map-intro.test.js` (5 tests) cover the motion arithmetic, Map-intro stages, storage, intentional-tab wiring, provider race guard, target ownership, off-screen rejection, freshness semantics (stale-generation rejection, fresh-generation acceptance, step-transition invalidation, route-change/blur invalidation, SOS layout revision updates), spotlight shape resolution, the context partition, tutorial render isolation, and — since 2026-09-21 — the non-Map retry guards, the trip no-window fallback target, the scan-card sequencing, and the wake-up-only subscription discipline. Verified 2026-09-21 with 27 files / 255 tests passing across `mobile/lib/` and touched-file ESLint at `--max-warnings 0`.
+- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests), `mobile/lib/spotlight-geometry.test.js` (11 tests), `mobile/lib/coach-marks.test.js` (126 tests), and `mobile/lib/map-intro.test.js` (5 tests) cover the motion arithmetic, Map-intro stages, storage, intentional-tab wiring, provider race guard, target ownership, off-screen rejection, freshness semantics (stale-generation rejection, fresh-generation acceptance, step-transition invalidation, route-change/blur invalidation, SOS layout revision updates), spotlight shape resolution, the context partition, tutorial render isolation, and — since 2026-09-21 — the non-Map retry guards, the trip no-window fallback target, the scan-card sequencing, and the wake-up-only subscription discipline. **Since 2026-09-23** it also covers the two-type model: the `preshift` milestone's shape and Rule 3 exemption, both mode-aware `dynamicBody` variants, the no-context fallback that must never render "all undefined items", the `pre_shift` branch on the primary action, and a regression guard that `coach-marks.js` hardcodes no checklist count. **Since 2026-09-23 (End Duty)** it covers the `end_duty` milestone's shape and its `observe`/no-`requiresInteraction` exemption, and — separately from the guide — the nudge's timing predicate in `mobile/lib/end-duty.test.js` (18 tests: the 30-minute boundary pinned to the millisecond on both sides, an already-past shift end that must stay due, and the unusable-shift-end cases that must fail quiet). **Since 2026-09-24** it covers the two duty tour steps: their shape and Rule 3 exemption, the reordered handoff chain, that the baseline is entered with `from=tour` while the map checkpoint still carries no `mode`, that **both** twin-marking blocks — `completeActiveMilestone` and `skip()` — write the production keys, and the safety invariant that `inspection.js`'s `isTour` branch returns before the POST while `end-duty.js` carries no tour branch at all. Verified 2026-09-24 with **38 files / 442 tests** passing across `mobile/` and **203 files / 2484 tests** repo-wide, ESLint clean.
 - [ ] **Physical Android Device Verification**: Real-device verification matrix (floating SOS button spotlight alignment $\le 2\text{--}4\text{dp}$, no exposure of "More" tile, saved offset restoration, and driving safety lock) remains mandatory before declaring complete.
 
 ### Map first-install trigger simplification — 2026-09-21

@@ -517,7 +517,12 @@ existing notification feed and the existing preferences page.
   2. **Refined `FeedState`:** Updated error predicate to `query?.isError && !query?.data` so cached feed data is retained, and removed obsolete copy `"Use Retry in the alert above."`.
   3. **Preserved cached card data:** In `src/components/dashboard/operations-cards.jsx`, updated `RequestPipelineCard`, `DocumentComplianceCard`, `MaintenancePressureCard`, and `IncidentRiskCard` to check `query?.isError && !query?.data` (and empty item checks). Cards now gracefully retain previously rendered charts, metric cards, and lists under the session-expired blur without flashing red.
   4. **Configured QueryClient retry rejection:** In `src/components/providers.jsx`, updated `defaultOptions.queries.retry` to immediately reject `401`, `403`, and session-expiration errors (`code.startsWith("SESSION_")`) to prevent redundant background retry floods.
-- **Verification:** Verified with full Vitest test suite (`2,280/2,280 tests passed across 189 test files`).
+  5. **Core Component Suppression (`QueryErrorBanner` & `QueryBoundary` - 2026-09-24):** In `src/components/ui/query-feedback.jsx`, `QueryErrorBanner` now checks `isAuthToastSuppressed() || isAuthOrSessionError(query?.error)` and returns `null` on auth/session expiration. `QueryBoundary` gracefully retains cached `data` (`children(data)`) on session errors instead of replacing the page with an error block.
+  6. **Expansion Across Operational Modules (2026-09-24):** Applied the same graceful cached-data retention (`query.isError && !query.data`) to:
+     - `src/app/(dashboard)/tracking/live-map/page.js`: 5 polling queries (`trips`, `locations`, `standby`, `responders`, `monitor`) guarded so existing markers and active trips remain visible without stacking 5 red alert banners behind `SessionTimeoutDialog`.
+     - `src/app/(dashboard)/executive/page.js`: 5 executive queries (`financial`, `utilization`, `performance`, `incidents`, `insightsQuery`) filtered by `query.isError && !query.data`.
+     - `src/app/(dashboard)/driver/page.js`: 6 driver portal queries filtered by `query.isError && !query.data`.
+- **Verification:** Verified with ESLint (0 errors, 0 warnings across all touched files) and Vitest auth suite (`144/144 tests passed across 13 test files`).
 
 ### Dispatch calendar exception-first pass (2026-09-23)
 
