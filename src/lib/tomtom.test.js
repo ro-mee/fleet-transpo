@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   buildRouteUrl,
+  centreFromSearch,
   decodePolyline,
+  searchUrl,
   staticImageUrl,
   rasterTileUrl,
   trafficTileUrl,
@@ -138,6 +140,110 @@ describe("staticImageUrl", () => {
     expect(url).toContain("center=121%2C14.6");
     expect(url).toContain("color%3A0xD50000");
     expect(url).toContain("color%3A0x00AA00");
+  });
+});
+
+describe("searchUrl", () => {
+  it("points at the search endpoint and encodes the whole query as a path segment", () => {
+    const url = searchUrl("8572 Winding Creek Blvd, Santa Rosa City, 4026, Philippines");
+    expect(url).toContain("api.tomtom.com/search/2/search/");
+    expect(url).toContain(".json?");
+    // Commas and spaces are both encoded: the query is one path segment, not
+    // several, and a raw comma would terminate it.
+    expect(url).toContain("8572%20Winding%20Creek%20Blvd%2C%20Santa%20Rosa");
+    expect(url).not.toContain(" ");
+  });
+
+  it("scopes to PH and defaults to a single result", () => {
+    const url = searchUrl("Caloocan City Hall");
+    expect(url).toContain("countrySet=PH");
+    expect(url).toContain("limit=1");
+    expect(new URL(url).searchParams.get("limit")).toBe("1");
+  });
+
+  it("carries the PUBLIC key and never the server key", () => {
+    // The security assertion, not a formatting one: this URL is fetched from the
+    // browser, so a server key appearing here would be a leak.
+    const url = searchUrl("Caloocan City Hall");
+    expect(url).toContain("key=pub-key");
+    expect(url).not.toContain("srv-key");
+  });
+
+  it("survives a missing query or a missing key without throwing", () => {
+    delete process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
+    expect(searchUrl(null)).toContain("api.tomtom.com/search/2/search/.json");
+    expect(searchUrl("x")).not.toContain("key=");
+  });
+});
+
+describe("centreFromSearch", () => {
+  /**
+   * A response shaped the way TomTom's `/search/2/search` really answers.
+   * `span` is the TOTAL width of the viewport box in degrees — each corner is
+   * offset by half of it, so `span` is what the zoom is derived from.
+   */
+  const payloadWith = (span) => ({
+    results: [
+      {
+        type: "Point Address",
+        position: { lat: 14.2811, lon: 121.4117 },
+        viewport: {
+          topLeftPoint: { lat: 14.2811 + span / 2, lon: 121.4117 - span / 2 },
+          btmRightPoint: { lat: 14.2811 - span / 2, lon: 121.4117 + span / 2 },
+        },
+      },
+    ],
+  });
+
+  it("reads the position and derives the zoom from the provider's own viewport", () => {
+    // A ~1.1km box is a barangay-scale match: wide enough to need zoom 15.
+    expect(centreFromSearch(payloadWith(0.01))).toEqual({
+      lat: 14.2811,
+      lng: 121.4117,
+      zoom: 15,
+    });
+  });
+
+  it("clamps at both ends rather than trusting the viewport", () => {
+    // A doorway-tight box would compute zoom 17. It must not exceed PIN_ZOOM.
+    expect(centreFromSearch(payloadWith(0.002)).zoom).toBe(16);
+    // A province-scale box would compute zoom 9 — worse than useless to move
+    // for, and below the floor.
+    expect(centreFromSearch(payloadWith(0.5)).zoom).toBe(13);
+  });
+
+  it("handles reversed corners, since the span is an absolute difference", () => {
+    const flipped = {
+      results: [
+        {
+          position: { lat: 14.2811, lon: 121.4117 },
+          viewport: {
+            topLeftPoint: { lat: 14.2811 - 0.005, lon: 121.4117 + 0.005 },
+            btmRightPoint: { lat: 14.2811 + 0.005, lon: 121.4117 - 0.005 },
+          },
+        },
+      ],
+    };
+    expect(centreFromSearch(flipped)).toEqual({ lat: 14.2811, lng: 121.4117, zoom: 15 });
+  });
+
+  it("falls back to a plain zoom when the provider sends no usable viewport", () => {
+    expect(centreFromSearch({ results: [{ position: { lat: 14.2811, lon: 121.4117 } }] }).zoom).toBe(14);
+    expect(
+      centreFromSearch({
+        results: [{ position: { lat: 14.2811, lon: 121.4117 }, viewport: { topLeftPoint: {} } }],
+      }).zoom
+    ).toBe(14);
+  });
+
+  it("returns null for every shape of no-answer rather than throwing", () => {
+    expect(centreFromSearch(null)).toBeNull();
+    expect(centreFromSearch({})).toBeNull();
+    expect(centreFromSearch({ results: [] })).toBeNull();
+    expect(centreFromSearch({ results: [{ position: {} }] })).toBeNull();
+    expect(centreFromSearch({ results: [{ position: { lat: "north", lon: 121 } }] })).toBeNull();
+    expect(centreFromSearch({ results: [{ position: { lat: 120, lon: 121 } }] })).toBeNull();
+    expect(centreFromSearch({ results: [{ position: { lat: 14, lon: 200 } }] })).toBeNull();
   });
 });
 

@@ -33,20 +33,44 @@ import { rasterTileUrl } from "@/lib/tomtom";
 import { CHART_COLORS } from "@/lib/chart-tokens";
 import { cn } from "@/lib/utils";
 
-// Where the map opens when there is no pin yet.
+// Where the map opens when there is no pin and nothing to centre on.
 //
 // The PSGC tables carry no coordinates — they are an administrative hierarchy,
-// not a gazetteer — so after picking a barangay there is still nothing to centre
-// on. Rather than invent a centroid for the barangay (which would put a pin on a
-// place no one chose), the map opens on the country and the operator zooms to
-// their street. Zoom 6 frames the Philippines.
+// not a gazetteer — so the cascade alone cannot say where a barangay is, and
+// this file still refuses to invent a centroid for one: a centroid is a place
+// nobody chose. Zoom 6 frames the Philippines.
 //
-// Getting from there to a street is the operator's whole job on this control, so
-// the zoom affordances are deliberate rather than incidental: `+` is always there,
-// and the wheel is one click away — see `WheelZoom` below.
+// That refusal is now the FALLBACK rather than the whole story. The dialog looks
+// the entered address up (`useAddressCentre`) and passes the result down as
+// `centre`, which moves the viewport to it. The point is never written to the
+// pin — see `SyncView` below for how the two are kept apart, and
+// `centreFromSearch` in `src/lib/tomtom.js` for why a lookup result is not
+// evidence that anything is there.
+//
+// Even with a centre, getting to a street is the operator's job on this control,
+// so the zoom affordances are deliberate rather than incidental: `+` is always
+// there, and the wheel is one click away — see `WheelZoom` below.
 const DEFAULT_CENTER = [12.8797, 121.774];
 const COUNTRY_ZOOM = 6;
 const PIN_ZOOM = 16;
+
+/**
+ * What to say under the map while the address lookup is not showing a result.
+ *
+ * `found` is the load-bearing one. It is the only place the operator is told
+ * that a map which has moved itself is not a pin that got placed — the sentence
+ * that keeps "the viewport is here" from reading as "the door is here". It
+ * deliberately does not repeat the verification caveat in the caption below,
+ * which already covers it.
+ *
+ * `idle` has no line: there is nothing to explain before a barangay is chosen.
+ */
+const LOOKUP_MESSAGES = Object.freeze({
+  looking: "Finding this address on the map…",
+  found: "Centred on the address you entered — that is a lookup result, not a placed pin.",
+  empty: "That address was not found on the map. Zoom in and click to drop the pin.",
+  unavailable: "Address lookup is unavailable right now. Zoom in and click to drop the pin.",
+});
 
 /** Places the pin wherever the operator clicks. */
 function ClickToPlace({ onPlace }) {
@@ -59,31 +83,59 @@ function ClickToPlace({ onPlace }) {
 }
 
 /**
- * Sizes the map once it is mounted, and re-centres when the pin is CLEARED.
+ * Sizes the map once it is mounted, and owns every move of the viewport.
  *
  * `invalidateSize` is not optional: this map mounts inside a dialog that is still
  * animating open, so the container reports its pre-animation size and Leaflet
  * renders a clipped, half-grey tile grid.
  *
- * It deliberately does NOT re-centre on a click. The operator just clicked where
- * they wanted to look; `setView` would yank the map out from under the next click
- * and make placing a pin at high zoom feel like fighting the control.
+ * THE TWO THINGS THAT MAY MOVE THE MAP, AND THEIR ORDER OF AUTHORITY
+ * ------------------------------------------------------------------
+ * A placed pin outranks everything else. When `hasPin` is true this effect does
+ * nothing at all, because a pin is the operator's own answer to where the
+ * address is and a lookup for the same address does not get to overrule it.
+ *
+ * Below that, a `centre` — the address lookup's result — moves the viewport to
+ * the address being entered. `lastCentre` keys on the coordinate and zoom rather
+ * than the object, so a re-render does not re-set the view and a genuine new
+ * result does.
+ *
+ * It still deliberately does NOT re-centre on a click. The operator just clicked
+ * where they wanted to look; `setView` would yank the map out from under the next
+ * click and make placing a pin at high zoom feel like fighting the control. A
+ * click sets `hasPin`, which leaves through the pin branch above anyway.
+ *
+ * Clearing the pin returns to the centre when there is one — the address is
+ * still on screen, so jumping to the country view would be a non sequitur. With
+ * no centre there is nothing to return to and the country view is correct.
  */
-function SyncView({ hasPin }) {
+function SyncView({ hasPin, centre }) {
   const map = useMap();
   const hadPin = useRef(hasPin);
+  const lastCentre = useRef(null);
 
   useEffect(() => {
     map.invalidateSize();
   }, [map]);
 
   useEffect(() => {
-    if (!hasPin && hadPin.current) {
-      map.setView(DEFAULT_CENTER, COUNTRY_ZOOM, { animate: false });
-      map.invalidateSize();
-    }
+    const pinWasCleared = !hasPin && hadPin.current;
     hadPin.current = hasPin;
-  }, [map, hasPin]);
+
+    // A placed pin owns the view.
+    if (hasPin) return;
+
+    const key = centre ? `${centre.lat},${centre.lng},${centre.zoom}` : null;
+    // Nothing new to show — the same centre as last time, or still none. This
+    // is also what makes mount a no-op: an empty `lastCentre` and a null key
+    // compare equal, so `MapContainer`'s own `center`/`zoom` stand.
+    if (!pinWasCleared && lastCentre.current === key) return;
+    lastCentre.current = key;
+
+    if (centre) map.setView([centre.lat, centre.lng], centre.zoom, { animate: false });
+    else map.setView(DEFAULT_CENTER, COUNTRY_ZOOM, { animate: false });
+    map.invalidateSize();
+  }, [map, hasPin, centre]);
 
   return null;
 }
@@ -126,7 +178,23 @@ function WheelZoom({ enabled }) {
   return null;
 }
 
-export default function AddressPinMap({ latitude, longitude, onChange, className }) {
+export default function AddressPinMap({
+  latitude,
+  longitude,
+  /**
+   * Where the address lookup says the entered address is, as `{ lat, lng, zoom }`.
+   *
+   * A VIEWPORT, never a pin. It is read to move the map and for nothing else —
+   * it is never written to `latitude`/`longitude`, never stored, and never sent
+   * anywhere. See `centreFromSearch` for why a looked-up point is not evidence
+   * that anything is at it.
+   */
+  centre = null,
+  /** `useAddressCentre`'s status, for the one line under the map. */
+  lookupStatus = "idle",
+  onChange,
+  className,
+}) {
   const lat = Number(latitude);
   const lng = Number(longitude);
   // The `!= null` pair is load-bearing, not defensive noise. `Number(null)` is
@@ -146,6 +214,18 @@ export default function AddressPinMap({ latitude, longitude, onChange, className
     Number.isFinite(lng) &&
     Math.abs(lat) <= 90 &&
     Math.abs(lng) <= 180;
+
+  // `MapContainer` reads `center` and `zoom` only as INITIAL values — changing
+  // them later is inert, which is why `SyncView` exists. They are still made
+  // centre-aware so a remount (the dialog reopening on the same address, with a
+  // lookup result already held) opens in the right place rather than looking at
+  // the country for a frame and then jumping.
+  const initialCenter = hasPin
+    ? [lat, lng]
+    : centre
+      ? [centre.lat, centre.lng]
+      : DEFAULT_CENTER;
+  const initialZoom = hasPin ? PIN_ZOOM : centre ? centre.zoom : COUNTRY_ZOOM;
 
   // Declared above the server guard, not after it: a hook that runs on the client
   // and not on the server is a hook-order mismatch waiting to happen.
@@ -205,13 +285,15 @@ export default function AddressPinMap({ latitude, longitude, onChange, className
         aria-label={
           hasPin
             ? `Map with a pin placed at ${lat}, ${lng}. Click to move it.`
-            : "Map of the Philippines. Click to place a pin."
+            : centre
+              ? "Map centred on the address you entered. Click to place a pin."
+              : "Map of the Philippines. Click to place a pin."
         }
         className="h-[220px] w-full overflow-hidden rounded-xl border border-border"
       >
         <MapContainer
-          center={hasPin ? [lat, lng] : DEFAULT_CENTER}
-          zoom={hasPin ? PIN_ZOOM : COUNTRY_ZOOM}
+          center={initialCenter}
+          zoom={initialZoom}
           // Inside a form, a wheel-capturing map traps the page scroll mid-page.
           // That is the STARTING state, not the only one — `WheelZoom` above hands
           // the wheel over on request rather than leaving `+` as the sole way in.
@@ -222,7 +304,7 @@ export default function AddressPinMap({ latitude, longitude, onChange, className
             attribution='&copy; <a href="https://developer.tomtom.com">TomTom</a>'
             url={rasterTileUrl()}
           />
-          <SyncView hasPin={hasPin} />
+          <SyncView hasPin={hasPin} centre={centre} />
           <WheelZoom enabled={wheelZoom} />
           <ClickToPlace onPlace={place} />
           {hasPin && (
@@ -251,6 +333,17 @@ export default function AddressPinMap({ latitude, longitude, onChange, className
         A pin records where someone said the door is — it does not verify that the
         address exists there, and is never treated as one.
       </p>
+
+      {/* Only ever shown with no pin on the map: once one is placed the view is
+          the pin's, the lookup result is irrelevant to it, and a line about the
+          lookup would be talking about something the operator can no longer see.
+          `idle` has no message at all — there is nothing to explain before a
+          barangay has been chosen. */}
+      {!hasPin && LOOKUP_MESSAGES[lookupStatus] && (
+        <p role="status" className="text-[0.7rem] leading-relaxed text-foreground-muted">
+          {LOOKUP_MESSAGES[lookupStatus]}
+        </p>
+      )}
     </div>
   );
 }

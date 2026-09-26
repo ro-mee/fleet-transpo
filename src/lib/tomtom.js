@@ -1,10 +1,13 @@
 // TomTom Maps URL builders.
 //
 // Two keys exist: a PUBLIC key used in URLs the browser/mobile loads directly
-// (raster tiles, traffic tiles, static images) and a SERVER key used only by
-// the routing proxy (src/app/api/tomtom/route/route.js) so the routing key is
-// never shipped to the client. Create the public key domain-restricted in the
-// TomTom dashboard.
+// (raster tiles, traffic tiles, static images, address search) and a SERVER key
+// used only by the routing proxy (src/app/api/tomtom/route/route.js) so the
+// routing key is never shipped to the client. Create the public key
+// domain-restricted in the TomTom dashboard.
+//
+// `searchUrl` is the one builder whose public-key choice was made deliberately
+// rather than by default — see the note on it below.
 
 export function getPublicKey() {
   return process.env.NEXT_PUBLIC_TOMTOM_API_KEY || "";
@@ -71,6 +74,106 @@ export function staticImageUrl({
     params.append("markers", spec);
   }
   return `https://api.tomtom.com/map/1/staticimage?${params.toString()}`;
+}
+
+/** The map's fixed height in px — `address-pin-map.jsx` renders `h-[220px]`. */
+const MAP_FIT_PX = 220;
+
+/** The closest and furthest the address lookup may be allowed to frame. */
+const LOOKUP_MIN_ZOOM = 13;
+/**
+ * Never closer than `PIN_ZOOM` (`address-pin-map.jsx`) — a lookup must not frame
+ * tighter than a placed pin would, or a result would look more precise than a
+ * person's own click. Restated rather than imported so this module keeps no
+ * dependency on a component; the test pins the value at 16, so moving it here
+ * without moving it there is a visible failure rather than a silent divergence.
+ */
+const LOOKUP_MAX_ZOOM = 16;
+
+/**
+ * TomTom Search API v2 URL for one free-text address query.
+ *
+ * CALLED FROM THE BROWSER, WITH THE PUBLIC KEY, ON PURPOSE
+ * -------------------------------------------------------
+ * `TOMTOM_API_KEY` is refused by this endpoint (403, measured 2026-09-27) and
+ * the fix for that is a permission grant in the TomTom portal rather than a code
+ * change. Meanwhile the public key searches fine, and calling it from the client
+ * exposes nothing new: `rasterTileUrl` above already ships this same key to the
+ * browser on every map render. `scripts/check-address-provider.mjs:243` states
+ * the rule this follows — "the browser key belongs in the browser".
+ *
+ * What it does cost is privacy, and that is not hidden: the query is a real
+ * person's address, and this sends it to TomTom from the client rather than
+ * through our server. Do NOT also call this server-side with the public key —
+ * that is the one place the rule above does forbid.
+ *
+ * @param {string} query  a full address, as `formatStructuredAddress` renders it
+ * @param {object} [opts]
+ * @param {number} [opts.limit=1]
+ * @param {string} [opts.countrySet="PH"]
+ */
+export function searchUrl(query, { limit = 1, countrySet = "PH" } = {}) {
+  const key = getPublicKey();
+  const params = new URLSearchParams({ countrySet, limit: String(limit) });
+  if (key) params.set("key", key);
+  const path = encodeURIComponent(String(query ?? "").trim());
+  return `https://api.tomtom.com/search/2/search/${path}.json?${params.toString()}`;
+}
+
+/** The zoom at which a span of `degrees` fills the map's height. */
+function zoomForSpan(degrees) {
+  // At zoom z, 256 * 2^z px cover the full 360 degrees of longitude, so this is
+  // the inverse of that for a fixed pixel budget. Longitude is linear in Web
+  // Mercator and latitude is not, so the wider of the two spans is used as the
+  // binding constraint — which is what `centreFromSearch` passes in.
+  return Math.round(Math.log2((MAP_FIT_PX * 360) / (256 * Math.max(degrees, 1e-6))));
+}
+
+/**
+ * The point to CENTRE the map on, from a TomTom Search response.
+ *
+ * Pure and total: returns `null` rather than throwing for every shape of
+ * "no answer", so the caller can tell an empty result from a broken one by the
+ * status it got, not by an exception.
+ *
+ * THIS IS A VIEWPORT, NOT A PIN. Nothing here may be written to an address's
+ * `latitude`/`longitude`: a searched point is where the provider thinks a
+ * street is, and the pin is where a person said the door is. The two are stored
+ * differently (`provider = 'manual'`, `verified = false`) precisely so they are
+ * never confused, and the map only ever borrows the first to move the view.
+ *
+ * The zoom comes from the result's own viewport when the provider supplies one —
+ * a barangay-level match returns a wide box and a street match a tight one, so
+ * this is the provider's statement of its own precision rather than a guess.
+ * It is clamped at both ends: never past `PIN_ZOOM`, so a tight match cannot
+ * land closer than a placed pin would, and never wider than `LOOKUP_MIN_ZOOM`,
+ * because a result too coarse to be any better than the country view is not
+ * worth moving for.
+ *
+ * @param {object} json  a TomTom `/search/2/search` response
+ * @returns {{lat: number, lng: number, zoom: number}|null}
+ */
+export function centreFromSearch(json) {
+  const result = json?.results?.[0];
+  const lat = Number(result?.position?.lat);
+  const lng = Number(result?.position?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
+  const top = result?.viewport?.topLeftPoint;
+  const bottom = result?.viewport?.btmRightPoint;
+  const topLat = Number(top?.lat);
+  const bottomLat = Number(bottom?.lat);
+  const topLng = Number(top?.lon);
+  const bottomLng = Number(bottom?.lon);
+
+  let zoom = 14; // the fallback, and it IS a guess — see the note above
+  if ([topLat, bottomLat, topLng, bottomLng].every(Number.isFinite)) {
+    const span = Math.max(Math.abs(topLat - bottomLat), Math.abs(topLng - bottomLng));
+    zoom = zoomForSpan(span);
+  }
+
+  return { lat, lng, zoom: Math.min(LOOKUP_MAX_ZOOM, Math.max(LOOKUP_MIN_ZOOM, zoom)) };
 }
 
 /**

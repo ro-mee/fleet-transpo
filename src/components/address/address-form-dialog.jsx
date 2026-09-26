@@ -63,6 +63,7 @@ import {
 import { AddressTypeSelector } from "./address-type-selector";
 import { AddressPreview } from "./address-preview";
 import { LocationCascade, useProvinceRequirement } from "./location-cascade";
+import { useAddressCentre } from "@/hooks/use-address-centre";
 
 // Leaflet touches `window` at import time, so the pin map is client-only — the
 // same loading strategy as every other map in this app.
@@ -165,6 +166,20 @@ export function AddressFormDialog({
    * would call the ABSENCE of a pin a pin at (0, 0).
    */
   const hasPin = value.latitude != null && value.longitude != null;
+
+  /**
+   * Where to CENTRE the map on the address being entered.
+   *
+   * The `ph_*` geography tables carry no coordinates, so nothing in this repo can
+   * say where a barangay is and the map would otherwise open on the whole
+   * country. This looks the address up and hands back a viewport.
+   *
+   * It is not a pin and must never become one: the result is never merged into
+   * `value.latitude`/`value.longitude`, never stored, and never sent to the
+   * server. `hasPin` is passed because a placed pin outranks the lookup — see
+   * `SyncView`. `open` gates it so a closed dialog looks nothing up.
+   */
+  const { centre, status: lookupStatus } = useAddressCentre(value, { enabled: open, hasPin });
 
   /**
    * Set when an edit cleared the pin the operator placed.
@@ -549,6 +564,8 @@ export function AddressFormDialog({
               <AddressPinMap
                 latitude={value.latitude}
                 longitude={value.longitude}
+                centre={centre}
+                lookupStatus={lookupStatus}
                 onChange={({ latitude, longitude }) => {
                   // Placing a pin answers the notice. The map's own "Clear pin"
                   // button arrives the same way and clears it too — which is

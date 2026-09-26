@@ -6,11 +6,11 @@ tags: [address, maps, validation]
 
 # Address validation and map synchronization
 
-Analysis requested for the driver residential/emergency-contact address form. This records findings and proposed work, not implemented behavior.
+Analysis requested for the driver residential/emergency-contact address form. This records findings and proposed work. The **Implemented** section at the end records the one piece built from it — task #29 — and where that diverged from the sequence below; everything else here is still proposal, not behavior.
 
 ## Verified current behavior
 
-- `address-form-dialog.jsx` passes latitude, longitude and an onChange callback to `address-pin-map.jsx`; it does not pass address text or a geocoding result. Without a pin the map opens at the Philippines default center. Its `SyncView` resets to that view when a pin is cleared.
+- `address-form-dialog.jsx` passes latitude, longitude and an onChange callback to `address-pin-map.jsx`; it does not pass address text or a geocoding result. Without a pin the map opens at the Philippines default center. Its `SyncView` resets to that view when a pin is cleared. **The last three clauses were true when this was written and changed on 2026-09-27 — see Implemented, below.**
 - `structured.js` clears the coordinates when address details or the geographic selection change. This prevents saving a changed address with its previous pin, but no replacement lookup runs.
 - `validate-structured.js` derives the administrative hierarchy from the PSGC barangay code. It checks required fields and coordinate pairing/ranges, not whether the street/house exists or whether the point belongs to that address. It explicitly saves `provider: manual`, `verified: false`.
 - ZIP validation is four-digit format only. The screenshot pairs Caloocan with 4122; the official PHLPost ZIP locator lists 4122 for Indang, Cavite. No replacement ZIP was inferred for the specific home.
@@ -41,6 +41,32 @@ The initial sandbox run had transport failures and provided no authorization evi
 7. **High / pending:** distinguish `address matched`, `street/area only`, `manual pin`, `no match`, `needs recheck` and `service unavailable` in the proposed UI/model. A map match supports existence in the provider's index; it does not establish residency or deliverability. A score is textual similarity, not proof of a doorstep. Any persistent provenance changes need a separately reviewed migration using the repository runner.
 
 On save, the server must validate that accepted evidence belongs to the current address and point (server re-resolution or server-held/signed evidence bound to the input). Never accept a client-sent verification boolean. Existing manual saves can remain explicitly unverified; claiming a verified address requires sufficient matching evidence.
+
+## Implemented — 2026-09-27 (task #29: centre the map on the entered address)
+
+Task #29, built from step 3 below but **not in the order step 3 sets out**. Recorded here rather than folded into the list above, so the divergence is visible instead of the plan quietly rewriting itself.
+
+**What it does.** When the operator picks a barangay, the pin map moves off the country view and frames that address. Nothing else about the form changes.
+
+**Which lookup — the browser key, deliberately.** `TOMTOM_API_KEY` is still refused by Search (`403`, re-measured 2026-09-27), and that remains a portal permission grant rather than a code change. The implementation uses `NEXT_PUBLIC_TOMTOM_API_KEY` against `/search/2/search` **from the browser**, so it works today with no grant. Two things make that a choice rather than a workaround:
+
+- It exposes no new secret. `rasterTileUrl()` already embeds that same key in a URL the browser fetches on every map render (`address-pin-map.jsx`), so the key is in the bundle and always has been.
+- It is what `scripts/check-address-provider.mjs:243` prescribes — "the browser key belongs in the browser, and `TOMTOM_API_KEY` is what every server-side call uses." This is the former. The server key is untouched, and step 2 below is still the better long-term shape.
+
+**The cost, named.** The query is a real person's address and it now goes to TomTom **from the client** rather than through our server. The map tiles already tell TomTom which area is being viewed; this tells it the street and house number. That is a genuine privacy delta and the reason `searchUrl` carries a comment forbidding a second, server-side use of the public key.
+
+**Where it diverges from step 3.** Step 3 says add an explicit `Find on map` action **first** and make the lookup automatic only once that works. This went straight to automatic-on-barangay-pick. The consequence is that step 3's "rejecting stale responses" is not optional here and is implemented: the trigger is a discrete selection rather than typing, so there is no debouncing, but two picks in quick succession do overlap and each lookup aborts the one before it.
+
+**What it deliberately does not do.** The lookup result is a **viewport** and nothing else. It is never written to the form's `latitude`/`longitude`, never stored on the row, and never sent to the server. The pin stays something a person clicked, saved `provider = 'manual'`, `verified = false`. None of steps 2 and 4-7 — matching the street to the barangay, ZIP-to-locality, reverse lookup, provenance — is attempted, and nothing here should be mistaken for that work: a centred viewport is not evidence that a doorstep exists.
+
+**How it reports itself.** `empty` (the provider answered, no match) and `unavailable` (refused, timed out, offline) are separate states and never collapsed, per step 2's requirement. Both say so in a line under the map; the line shown on success exists specifically to say that a map which moved itself is not a placed pin. No failure path logs the query or the address.
+
+**Verified how — and what that word does and does not cover.** Three separate things, with different strengths, and the difference matters:
+
+1. **Unit-tested.** `centreFromSearch` is pure and asserted (position, viewport-derived zoom, both clamp ends, no-viewport fallback, and every shape of no-answer), as is `searchUrl`'s encoding, its `countrySet`/`limit`, and — the security assertion — that it carries the public key and never the server key. 23 tests, all green.
+2. **Observed in the browser, 2026-09-27, on `/drivers/60/edit`.** Picking a barangay centred the map on the address with no pin placed; changing the city returned it to the country view; reopening an address that already had a saved pin left the view on the pin. Four checks, all as intended.
+3. **Not covered by anything.** `SyncView`'s ordering is still exercised only by those four observations — there is no automated test behind them. The map and the hook cannot be rendered in this repo (`vitest.config.mjs` sets `environment: "node"` with no jsdom or testing-library), and `SyncView` lives in a module that imports Leaflet at top level, so the ordering cannot be unit-tested without first extracting its decision into a Leaflet-free module. That extraction is the obvious follow-up and **has not been done**. A future change to `SyncView` can therefore break the pin-outranks-centre rule silently, and only a browser pass would catch it.
+4. **Also unverified.** The `unavailable` branch was never forced in a real browser (blocking `api.tomtom.com` in DevTools), and the "one request per barangay pick, superseded request cancelled" claim was never confirmed at the network level. Both branches are unit-tested on the parsing side, but neither has been seen failing end to end.
 
 ## Required verification for implementation
 
