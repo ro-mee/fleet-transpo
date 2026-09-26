@@ -224,16 +224,29 @@ with the public anon key. `verify:anon` returns an explicit refusal (HTTP 401 / 
   canonical location, and a reservation reaches a structured address **through** that
   location via `linkRequestLocations()`. Wiring the driver surfaces up closes the list as it
   stood; per-surface work following the same shape is what is left for any new surface.
-- **The driver path has not yet been exercised against the live database.** The three
-  backfilled locations are real rows and were checked as they landed; a driver's two
-  addresses have only ever been written in tests, which double `saveAddress` and the PSGC
-  resolver. Nothing so far shows a driver row reaching Postgres, or the pin arriving as a
-  real coordinate pair. `scripts/verify-driver-addresses.mjs` (`npm run
-  verify:driver-addresses -- --driver=<id>`) is the read-only check written for that pass —
-  both ids set and distinct, the per-row fields, the coordinate pair, the mirrored text, and
-  a fingerprint that must not move across a rename-only edit. It reads what was stored, so
-  the cascade interaction and the detail page's rendering still need a person at a browser —
+- **The driver path has now been exercised against the live database — CLOSED 2026-09-27.**
+  The three backfilled locations were real rows and were checked as they landed; a driver's
+  two addresses were for a long time written only in tests, which double `saveAddress` and
+  the PSGC resolver, with nothing showing a driver row reaching Postgres or the pin arriving
+  as a real coordinate pair. Drivers 59 and 60 have since been created through the browser
+  and read back, and the 2026-09-27 run reports **all 30 checks passing** against driver 60 —
+  see `Capstone/07 - Development/Bugs.md`. `scripts/verify-driver-addresses.mjs` (`npm run
+  verify:driver-addresses -- --driver=<id>`) is the read-only check that did it — both ids set
+  and distinct, the per-row fields, the coordinate pair, the mirrored text, and a fingerprint
+  that must not move across a rename-only edit. It reads what was stored, so the cascade
+  interaction and the detail page's rendering still need a person at a browser —
   `Capstone/07 - Development/Driver Address Verification Runbook.md` is that pass, written out.
+- **The verifier now reports the whole registry, not only the two rows in use — added
+  2026-09-27.** "A registry row is never edited, only appended" (below) has a consequence the
+  script could not previously see: every replacement leaves the superseded row behind, and a
+  save that inserted a row without repointing would leave one too. The script now reads the
+  referencing columns from `pg_constraint` rather than from a hardcoded list, counts every
+  row, and lists the `address_id`s nothing points at. **It reports rather than asserts** —
+  orphaned-by-replacement is normal and permanent, so a check failing on any unreferenced row
+  would go red on a healthy database. The two causes are indistinguishable in a single run;
+  a before-and-after comparison is what separates them. Ids, `created_at` and the PSGC code
+  only, never `formatted_address`. See `Capstone/07 - Development/Bugs.md`,
+  "the verifier could not see rows in `addresses` that nothing points at".
 - **A registry row is never edited, only appended.** `saveAddress` always inserts and
   repoints the referencing column; a superseded row is orphaned rather than mutated. That is
   what makes "one entity's edit silently rewrites another's address" impossible —

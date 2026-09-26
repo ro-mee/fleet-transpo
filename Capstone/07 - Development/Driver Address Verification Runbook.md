@@ -179,7 +179,9 @@ what you write up. `--latest` is a convenience for the common case, not a statem
 row you tested.
 
 Add `--pin=no` if you deliberately dropped no pin. Add `--quiet` if the output is going
-anywhere but your terminal — see the privacy note below.
+anywhere but your terminal — see the privacy note below. **`--quiet` does not hide the last
+block.** The `── address registry ──` section prints under the flag as well, because ids,
+timestamps and PSGC codes are not address text; the reasoning is in the privacy section.
 
 **What must PASS**, and why each one is not padding:
 
@@ -191,6 +193,14 @@ anywhere but your terminal — see the privacy note below.
 | both rows: ZIP present, `postal_code_source='manual'` | the source column is what distinguishes a typed ZIP from a provider's |
 | residential: a real lat/lng pair | the first live exercise of `chk_addresses_coords_pair`'s both-present branch — every row written before this migration is NULL/NULL, because the location and hotel dialogs pass `showPinMap={false}` |
 | `drivers.address` = the row's `formatted_address` | the mirror. If it drifts, the page shows one place while the registry points at another |
+| the registry was accounted for end to end | the referrers were readable from `pg_constraint`, no composite foreign key made the orphan query wrong, and the run could ask the question at all. **This one is about the script's own coverage, not the data** — it fails when the *answer* could not be produced, which is a different thing from the answer being bad |
+
+**The registry report itself is not one of these checks, deliberately.** It is a **report**, and
+the run's footer says what it cannot attribute. Replacing an address legitimately leaves the old
+row unreferenced — the registry is append-only — so a check that went red on any unreferenced row
+would go red on a healthy database the first time anyone edited an address. What makes an
+unreferenced row interesting is not that it exists but that it **appeared during a change you
+made**, and that is a comparison between two runs; step 4 is where it is used.
 
 Exit codes: **0** every check passed, **1** at least one failed, **3** the script could not run
 (usually a missing `DATABASE_URL`).
@@ -205,14 +215,25 @@ unchanged" is a prediction, and this step is what tests it.
 
 Edit that driver and change **only the name**. Do not open the pickers. Save.
 
-Then re-run step 2 and compare the **fingerprint line** at the end of the output: same two
-address ids, same `created_at` on both rows. It must be byte-identical.
+Then re-run step 2 and compare **two** lines, not one.
+
+**First, the fingerprint line** at the end of the output: same two address ids, same
+`created_at` on both rows. It must be byte-identical.
 
 - A **different id** means a new registry row was appended — the omitted-vs-empty rule
   leaking, turning a rename into a re-pick.
 - A **different `created_at`** would mean a row was rewritten, which the registry never does.
 
-`--latest` is safe for this comparison because renaming does not create a driver.
+**Then the `── address registry ──` block**, which catches the one case the fingerprint cannot.
+Compare its unreferenced list against the run before this edit — same ids, same count.
+
+- **An id that appeared only in the second run** is a row this edit wrote and did not point
+  anything at. That is the failure the fingerprint is blind to: it compares the two ids the
+  driver *does* hold, so a stray row is invisible to it as long as the driver's own
+  `address_id` did not move. This is the whole reason the block exists.
+
+`--latest` is safe for this comparison because renaming does not create a driver. Neither line
+moves on a correct rename, so a changed one on either is the finding.
 
 ---
 
@@ -260,6 +281,13 @@ being the other. Change exactly
 and the registry is append-only by design. If this pass needs to stay read-only, close with
 Discard after the pre-fill check and skip the round trip — say which you did when you write it up,
 because a moved `address_id` changes the fingerprint in step 2.
+
+**This is the step where the registry block earns its place.** That save is exactly the shape it
+watches for: an insert plus a repoint. Both land, and the old row 4 joins the unreferenced list —
+expected, and the reason the list is a report. **What is not expected is a row that appears
+there while `drivers.address_id` did *not* move**, because that is an insert whose repoint did
+not happen, and the fingerprint line is blind to it by construction: it compares the two rows the
+driver still holds. Note the unreferenced ids before you save, and compare after.
 
 This is the check that closes the gap recorded in
 `Capstone/03 - Database/Tables/addresses.md`: the picker used to open blank because
@@ -418,6 +446,13 @@ rather than a defect.
 `drv_legacy` 55, `drv_linked` 1, `loc_legacy` 8, `loc_legacy_with_text` 4, `loc_linked` 3,
 `loc_total` 11.
 
+**Measured 2026-09-27, from the verifier's registry block** (ids and timestamps only — safe to
+record, unlike the stored-rows output): **12** rows total, **6** referenced, **6** unreferenced —
+ids `5, 7, 8, 9, 10, 11` — with the fingerprint at residential `12@2026-09-26T17:31:02.048Z`,
+emergency `6@2026-09-25T09:46:00.766Z`. **This is the baseline steps 4 and 6 compare against.**
+It is not a clean-database reference: the six unreferenced rows are real, and the point of
+recording them is that a *seventh* appearing after a change you made is the signal.
+
 Re-run it and rewrite section D's inline figures when a pass moves them, rather than leaving a
 stale number that reads as drift. That is not hypothetical: step 11 was wrong precisely because
 it was written from intent, and a counts table nobody re-derives stops being evidence the same
@@ -445,17 +480,69 @@ codes, `manual` sources and booleans still print — none is personal, and they 
 makes a failed run diagnosable from its output alone. **A new check that echoes a stored column
 must be marked**, or the flag quietly stops meaning what it says.
 
-The script is read-only by construction — every statement is a `SELECT` on `drivers`,
-`employees` and `addresses`, there is no DML or DDL in the file, and it never prints a
-credential or connection string. It deliberately does not `SELECT *`: `raw_input`, the most
-sensitive column on that table, is left out rather than fetched and discarded.
+**The same defect recurred in a column nobody re-checked, and it was caught by using the
+tool rather than by reading it — 2026-09-27.** Two checks printed the stored coordinate pair in
+their detail strings:
+
+```
+PASS  residential: coordinates are both present or both NULL  (lat=<value> lng=<value>)
+PASS  residential: a real latitude/longitude pair is stored    (lat=<value> lng=<value>)
+```
+
+The values are shown as `<value>` here **on purpose** — this note is committed and pushed, so
+the real pair does not belong in it. That is the defect being described, not a redaction applied
+after the fact.
+
+Neither was marked `sensitive`, so **`--quiet` printed both.** The flag's own rule is about a
+real person's home address, and a coordinate at seven decimal places is a home location — a more
+precise disclosure than the street text the flag does withhold. So `--quiet` was withholding the
+less revealing of the two and printing the more revealing one, which is worse than not having the
+flag, because it invites exactly the paste it fails to protect.
+
+The fix follows the standing rule for this surface — booleans or key **names**, never a value —
+rather than marking them `sensitive`, because the checks are about **presence**
+(`chk_addresses_coords_pair` makes a half-pair unstorable), so `lat=set lng=NULL` answers
+everything the number did. Nothing diagnosable was traded away.
+
+**Worth keeping as a pattern:** this is the second failure of the same idea in this file — the
+2026-09-25 one printed the address inside the PASS details, this one printed the pin. Both times
+the flag was tested against the block it was *written for* (the stored-rows section) and never
+against the per-check details, which is where there is one line per column and no single place to
+look. When adding any check that echoes a stored column, ask what the **most** revealing column
+on that table is and whether the new detail touches it. Here the address was considered and the
+coordinate was not, because the coordinate does not *read* like an address.
+
+**The `── address registry ──` block follows that rule rather than resting on it.** It prints
+under `--quiet`, on purpose, and the reason is the rule's own reasoning: it selects
+`address_id`, `created_at` and `psgc_barangay_code`, and **never `formatted_address`** — an
+unreferenced row still holds a real home address, so selecting it would make this the one block
+that could leak one. Withholding the block under the flag would hide the finding exactly when the
+output is most likely to travel, which is backwards. If a future version of that block adds an
+address column, it stops being printable under `--quiet` and the `sensitive` marking applies.
+
+The script is read-only by construction — every statement is a `SELECT`, against `drivers`,
+`employees`, `addresses`, the `ph_*` chain tables and the `pg_constraint` catalog; there is no
+DML or DDL in the file, and it never prints a credential or connection string. It deliberately
+does not `SELECT *`: `raw_input`, the most sensitive column on that table, is left out rather
+than fetched and discarded. The registry queries are `SELECT`-only for the same reason — the
+whole point of that block is to look without touching, since `addresses` rows cannot be removed
+once written.
 
 ## What this runbook cannot cover
 
 - **Anything about a database other than live.** Every check reads the project the app uses.
-- **The geocoder path.** The TomTom provider layer is unreferenced and stays unmounted; every
-  address here is `provider = 'manual'`. Centring the pin map on an entered address is blocked
-  on the same portal permission (tasks #29, #31).
+- **What the registry report cannot attribute.** It lists rows nothing references, but a row
+  left by *replacing* an address and a row left by a save that failed to repoint look identical
+  in one run. Only the before-and-after comparison in steps 4 and 6 separates them, and only for
+  a change someone deliberately made in between. It also cannot see a row rolled back with its
+  transaction, or one deleted outside this app — the table has no history, only what is there
+  now. The run prints this itself, under the report.
+- **The geocoder path.** The TomTom provider layer is unreferenced and the **server** key stays
+  unmounted; every address here is `provider = 'manual'`. Centring the pin map on an entered
+  address **shipped on 2026-09-27 (task #29) using the browser key** — it searches from the
+  client and writes nothing, so it is outside this runbook rather than blocked by it. What
+  remains blocked is the server-key path and everything wanting a *forward* geocode on it. See
+  [[Address Validation and Map Sync Analysis]].
 - **That a rebuilt database matches.** That is migration `130_ledger_gap_reconstruction.sql`'s
   claim, verified by `npm run db:dump` producing an empty diff — not by anything in a browser.
 

@@ -56,6 +56,28 @@
 // appended (the omitted-vs-empty rule leaking); a different `created_at` would mean a row
 // was rewritten, which the registry never does. `--latest` is safe for this comparison
 // because renaming does not create a driver — the same row is resolved both times.
+//
+// THE REGISTRY IS REPORTED IN FULL, NOT ONLY THE TWO ROWS IN USE. Every other check
+// here asks what `drivers.address_id` points AT, and none of them can see the rows
+// nothing points at. Since the registry is append-only, those rows are permanent:
+// a row an operator replaced is still there, and so is a row written by a save that
+// never managed to repoint the driver — the partial-success defect the POST
+// restructure removed, and the only place that failure is visible at all.
+//
+// Those two are indistinguishable from a single run, so this REPORTS the registry
+// rather than asserting about it: counts, ids, timestamps and PSGC codes, never
+// address text. A check that failed on any orphan would go red on a healthy
+// database the first time somebody edited an address. The orphan comparison is a
+// re-run, the same mechanic as the rename check above — note the ids, make the
+// change, run again, and an orphan that appears only in the second run came from
+// that save.
+//
+// The referencing columns are read from the LIVE catalog rather than hardcoded.
+// `schema.sql` was found five migrations behind live on 2026-09-25; a stale list
+// would report rows as orphaned that a newer table actually references, which is
+// the wrong direction — it sends someone hunting a defect that is not there. If a
+// composite foreign key ever references `addresses`, this says so and skips rather
+// than computing a number that could be wrong in the direction of HIDING an orphan.
 
 import { loadEnvLocal } from "./load-env.mjs";
 import pg from "pg";
@@ -114,6 +136,16 @@ const check = (ok, name, detail, sensitive = false) =>
 // Avoids printing a value that happens to be falsy-looking as if it were absent.
 const show = (value) => (value === null || value === undefined ? "NULL" : String(value));
 
+// Presence, never the value. A stored coordinate pair IS a home location — seven
+// decimal places is a more precise disclosure than the street text `--quiet` exists to
+// withhold — so the pin checks report set/NULL and never the numbers themselves. This
+// is the standing rule for this surface: booleans or key NAMES, never a value. The
+// checks are about presence anyway (`chk_addresses_coords_pair` makes a half-pair
+// unstorable), so nothing diagnosable is lost.
+const pairState = (row) =>
+  `lat=${row?.latitude === null || row?.latitude === undefined ? "NULL" : "set"} ` +
+  `lng=${row?.longitude === null || row?.longitude === undefined ? "NULL" : "set"}`;
+
 const DRIVER_SQL = `
   SELECT d.driver_id, d.employee_id, d.deleted_at,
          d.address_id, d.emergency_contact_address_id,
@@ -170,6 +202,61 @@ const CHAIN_SQL = `
    WHERE b.psgc_code = $1
 `;
 
+// ── The address registry, in full ────────────────────────────────────────────
+// Three columns reference `public.addresses` today — `drivers.address_id`,
+// `drivers.emergency_contact_address_id` and `locations.address_id` — and the
+// migration that added the last of them is why this file is not hardcoded to that
+// list. See the header for the rest of the reasoning.
+const ADDRESS_REFERRERS_SQL = `
+  SELECT c.conname,
+         n.nspname                 AS schema_name,
+         cl.relname                AS table_name,
+         a.attname                 AS column_name,
+         array_length(c.conkey, 1) AS column_count
+    FROM pg_constraint c
+    JOIN pg_class     cl ON cl.oid = c.conrelid
+    JOIN pg_namespace n  ON n.oid = cl.relnamespace
+    JOIN pg_attribute a  ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+   WHERE c.contype = 'f'
+     AND c.confrelid = 'public.addresses'::regclass
+   ORDER BY 2, 3, 4
+`;
+
+const TOTAL_ADDRESSES_SQL = `SELECT count(*)::int AS total FROM public.addresses`;
+
+/** A SQL identifier, quoted. Only ever fed from the live catalog above. */
+const ident = (name) => `"${String(name).replace(/"/g, '""')}"`;
+
+/** How many orphan ids the report lists before summarising the rest. */
+const MAX_PRINTED_ORPHANS = 20;
+
+/**
+ * The rows in `addresses` that nothing references.
+ *
+ * Built from the catalog rather than written out, so a table that gains an
+ * `address_id` later cannot make its rows look orphaned. Ids, `created_at` and the
+ * PSGC code only — `formatted_address` is deliberately NOT selected, because an
+ * orphaned row still holds a real home address and this block prints in the middle
+ * of a run whose output may be read anywhere. See the header's privacy paragraph.
+ *
+ * @param {{schemaName: string, tableName: string, columnName: string}[]} referrers
+ */
+function orphanSql(referrers) {
+  const notExists = referrers
+    .map(
+      (r) =>
+        `NOT EXISTS (SELECT 1 FROM ${ident(r.schemaName)}.${ident(r.tableName)} ref\n` +
+        `                WHERE ref.${ident(r.columnName)} = addr.address_id)`
+    )
+    .join("\n           AND ");
+  return `
+    SELECT addr.address_id, addr.created_at, addr.psgc_barangay_code
+      FROM public.addresses addr
+     WHERE ${notExists}
+     ORDER BY addr.address_id
+  `;
+}
+
 async function main() {
   const target = new URL(process.env.DATABASE_URL);
   console.log(`Target: ${target.hostname}:${target.port || 5432}/${target.pathname.replace(/^\//, "")}`);
@@ -206,6 +293,10 @@ async function main() {
   // with a null `chainError` means the query ran and matched nothing, which is the
   // `unknown-barangay` outcome and not a failure of the query itself.
   const chains = new Map();
+  // The whole-registry view — total rows, the columns that reference them, and the
+  // ids nothing points at. Deliberately not filtered by `driverId`: the question
+  // "what else is in here?" is the one the other checks cannot ask.
+  let registry = null;
   try {
     const { rows } = await client.query(DRIVER_SQL, [driverId]);
     driver = rows[0];
@@ -233,6 +324,52 @@ async function main() {
           }
         }
       }
+    }
+
+    // ── The registry's own state, independent of which driver was asked for ───
+    // Its own try/catch so a catalog query that fails reports as an unaccounted
+    // registry rather than taking the whole run down with it: everything above is
+    // still worth reading, and "the numbers could not be produced" is a different
+    // statement from "there are no orphans".
+    try {
+      const { rows: referrerRows } = await client.query(ADDRESS_REFERRERS_SQL);
+      const { rows: totalRows } = await client.query(TOTAL_ADDRESSES_SQL);
+      registry = {
+        total: totalRows[0]?.total ?? 0,
+        referrers: referrerRows,
+        orphans: [],
+        error: null,
+        skipped: null,
+      };
+
+      // A composite key cannot be answered by the per-column NOT EXISTS above:
+      // matching one column of a pair is not a reference to the row, so the query
+      // would over-count referrers and hide orphans. None exist today; if one
+      // appears, say so rather than print a number that could be wrong that way.
+      const composite = referrerRows.filter((r) => Number(r.column_count) > 1);
+
+      if (!referrerRows.length) {
+        registry.skipped =
+          "no foreign key in the catalog references public.addresses, which cannot be right while drivers.address_id exists";
+      } else if (composite.length) {
+        registry.skipped =
+          `composite foreign key(s) reference addresses (${[
+            ...new Set(composite.map((r) => `${r.table_name}.${r.conname}`)),
+          ].join(", ")}), which a per-column NOT EXISTS cannot answer`;
+      } else {
+        const { rows: orphanRows } = await client.query(
+          orphanSql(
+            referrerRows.map((r) => ({
+              schemaName: r.schema_name,
+              tableName: r.table_name,
+              columnName: r.column_name,
+            }))
+          )
+        );
+        registry.orphans = orphanRows;
+      }
+    } catch (e) {
+      registry = { total: null, referrers: [], orphans: [], error: e.message, skipped: null };
     }
   } finally {
     await client.end();
@@ -350,7 +487,7 @@ async function main() {
     check(
       hasLat === hasLng,
       `${label}: coordinates are both present or both NULL`,
-      `lat=${show(row.latitude)} lng=${show(row.longitude)}`
+      pairState(row)
     );
     check(
       Boolean(row.postal_code) && row.postal_code_source === "manual",
@@ -402,13 +539,13 @@ async function main() {
     check(
       Boolean(residential) && residential.latitude !== null && residential.longitude !== null,
       "residential: a real latitude/longitude pair is stored (the dropped pin)",
-      `lat=${show(residential?.latitude)} lng=${show(residential?.longitude)}`
+      pairState(residential)
     );
   } else {
     checks.push({
       ok: true,
       name: "residential pin check skipped (--pin=no)",
-      detail: `lat=${show(residential?.latitude)} lng=${show(residential?.longitude)}`,
+      detail: pairState(residential),
     });
   }
 
@@ -427,6 +564,25 @@ async function main() {
     "drivers.emergency_contact_address equals the emergency row's formatted_address",
     `drivers.emergency_contact_address=${show(driver.emergency_text)}`,
     true // mirrors the emergency row's address text
+  );
+
+  // ── The whole registry ────────────────────────────────────────────────────
+  // A check rather than a bare print, so that failing to PRODUCE this section
+  // turns the run red instead of quietly omitting it. What it asserts is the
+  // report's own completeness, NOT a count: the rows nothing points at include
+  // every address anyone has ever replaced, which is normal, and a run that went
+  // red on those would be wrong on a healthy database. See the header.
+  const referrerColumns = [
+    ...new Set((registry?.referrers ?? []).map((r) => `${r.table_name}.${r.column_name}`)),
+  ];
+  check(
+    Boolean(registry) && !registry.error && !registry.skipped,
+    "the address registry was accounted for end to end",
+    registry?.error
+      ? `query failed: ${registry.error}`
+      : registry?.skipped
+        ? registry.skipped
+        : `${show(registry?.total)} row(s), referenced by ${referrerColumns.join(", ")}`
   );
 
   // ---------------------------------------------------------------------------
@@ -466,6 +622,40 @@ async function main() {
     }
   }
 
+  // Printed whether or not `--quiet` is set: ids, timestamps and PSGC codes are
+  // not address text, and this block is the only place the registry's total state
+  // is visible. The residential/emergency blocks above are the ones that quote a
+  // stored address, which is what `--quiet` exists for.
+  console.log("\n── address registry ──");
+  if (!registry || registry.error || registry.skipped) {
+    console.log(
+      `  not accounted for: ${registry?.error ?? registry?.skipped ?? "the registry query did not run"}`
+    );
+  } else {
+    const orphans = registry.orphans;
+    console.log(
+      `  ${show(registry.total)} row(s) in total — ` +
+        `${show(registry.total - orphans.length)} referenced by ${referrerColumns.join(", ")}, ` +
+        `${orphans.length} referenced by nothing`
+    );
+    console.log(
+      "  A row nothing points at is NORMAL after an address is replaced: the registry is append-only\n" +
+        "  and the row the record used to point at stays. It is also what a save that wrote a row and\n" +
+        "  never repointed the driver leaves behind, and this is the only place that is visible.\n" +
+        "  To tell the two apart: note the ids below, make the change, run again. An id that appears\n" +
+        "  only in the second run came from that change."
+    );
+    for (const row of orphans.slice(0, MAX_PRINTED_ORPHANS)) {
+      const created = row.created_at?.toISOString?.() ?? row.created_at;
+      console.log(
+        `  unreferenced  id=${show(row.address_id)}  created=${show(created)}  psgc=${show(row.psgc_barangay_code)}`
+      );
+    }
+    if (orphans.length > MAX_PRINTED_ORPHANS) {
+      console.log(`  … and ${orphans.length - MAX_PRINTED_ORPHANS} more, not listed here.`);
+    }
+  }
+
   // The rename check, made mechanical: this line must be unchanged after an edit
   // that only renames the driver.
   console.log("\n── fingerprint (must be IDENTICAL after a rename-only edit) ──");
@@ -488,6 +678,16 @@ async function main() {
     "\nNOT covered here: the cascade interaction itself (that the picked barangay is what\n" +
       "you meant to pick) and whether /drivers/<id> renders both addresses. This script\n" +
       "reads what was stored; it cannot see what the form showed you or what the page draws."
+  );
+
+  // And the limit on the registry block above, which is the one a reader is most
+  // likely to over-read: it lists unreferenced rows but attributes none of them.
+  console.log(
+    "\nThe address registry block cannot say WHY a row is unreferenced, and does not try.\n" +
+      "A replaced address and an abandoned one look identical in a single run — both are a\n" +
+      "row nothing points at. The second run is what separates them. It also cannot see a\n" +
+      "row that was written and rolled back with its transaction, or a row deleted outside\n" +
+      "this app; there is no history in the table, only what is there now."
   );
 
   process.exit(failed.length === 0 ? EXIT_OK : EXIT_FAILED);

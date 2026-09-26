@@ -3447,11 +3447,11 @@ dead hypothesis. They are worth keeping on their own merits and are described ab
 
 ### What this does NOT fix
 
-**One bullet of the five that stood here remains open** — the orphaned-rows gap in
-the verifier, below. The other four were closed in separate passes the same day and
-are recorded as closed rather than deleted, because "this fix did not touch them"
-and "nobody has looked" are different statements and only one of them was true when
-the list was written.
+**All five bullets that stood here are closed.** Four were closed in separate passes
+the same day and are recorded as closed rather than deleted, because "this fix did
+not touch them" and "nobody has looked" are different statements and only one of
+them was true when the list was written. The fifth — the last of them — was the
+orphaned-rows gap, and it closed the following pass.
 
 - ~~**`edit/page.js` keys the form reset on the driver object, not `driver_id`.**~~
   **FIXED 2026-09-27** — see the dated section immediately below.
@@ -3459,12 +3459,13 @@ the list was written.
   read-only" because the API returns no structured detail.~~ **FIXED 2026-09-27**,
   in the same edit.
 - ~~**A pick judged "unchanged" is dropped without a word.**~~ **FIXED 2026-09-27** —
-  the skip is kept, the silence is not. See the last dated section below.
-- **`scripts/verify-driver-addresses.mjs` does not check for orphaned `addresses` rows** —
+  the skip is kept, the silence is not. See the section dated
+  "an unchanged address pick closed the dialog in silence".
+- ~~**`scripts/verify-driver-addresses.mjs` does not check for orphaned `addresses` rows** —
   it verifies what `drivers.address_id` points at, not whether earlier attempts left
-  rows behind. The registry is append-only, so those rows are permanent. This pass wrote
-  the rows the runbook expects and no more, but the script cannot prove that, and it
-  should not be read as if it did.
+  rows behind. The registry is append-only, so those rows are permanent.~~ **FIXED
+  2026-09-27** — the script now reports the registry in full. See the last dated
+  section below, including what that report still cannot attribute.
 - ~~**The map still does not open on the entered address.**~~ **FIXED 2026-09-27
   (task #29)** — the map centres on the picked address. The clause that followed it
   here, "still blocked on the TomTom Search API permission", was **wrong about which
@@ -3619,5 +3620,180 @@ passed while three modules still imported it. A new export consumed by three fil
 is exactly that shape. It was checked by reading all four occurrences instead:
 one definition and three importers, all spelling `UNCHANGED_PICK_MESSAGE`
 identically. A green lint here would not have proven it.
+
+## Fixed — 2026-09-27 — the verifier could not see rows in `addresses` that nothing points at
+
+The last entry on the "does NOT fix" list, and the one every other address note kept
+pointing back at. `scripts/verify-driver-addresses.mjs` verified what
+`drivers.address_id` **points at** — the cascade chain, the PSGC codes, the two ids
+differing — and could say nothing at all about what else is in the `addresses`
+table. The registry is append-only, so a row written and then abandoned is
+permanent, and the runbook's step-1 writes made exactly that risk real. The script
+could not prove the pass wrote only the rows it meant to, and should not have been
+read as if it did.
+
+### An orphan is not by itself a defect — which decides the shape
+
+This is the design point, and it is why this is a **report** and not a **check**.
+
+Replacing an address **legitimately orphans the row it replaced.** The registry is
+append-only by design, the new pick writes a new row, the referrer is repointed and
+the old row stays behind. A check that went red on any unreferenced row would go red
+on a healthy database the first time anyone edited an address — a gate that fires on
+correct behaviour is one people learn to ignore.
+
+But a save that **writes an address row and fails to repoint the referrer** leaves an
+orphan too, and that is a real defect. **One run cannot tell those apart.** Both are
+"a row nothing points at."
+
+So the report lists the unreferenced ids and says what they could mean, and the
+comparison that separates them is a **re-run** — the same mechanic this script
+already uses for the rename fingerprint (`--latest` / `--before`, where the answer is
+a diff between two runs rather than a property of one). Note the ids, make the
+change, run again; an id that appears only in the second run came from that change.
+
+### What it reads, and why from the catalog
+
+The referrers are read from `pg_constraint` at run time rather than hardcoded to the
+three columns that exist today (`drivers.address_id`,
+`drivers.emergency_contact_address_id`, `locations.address_id`). **A stale list of
+referrers is wrong in the unsafe direction**: a column that gained an address
+reference but is missing from the list makes its rows look orphaned, which sends
+someone hunting a defect that is not there. `schema.sql` was itself found five
+migrations behind live on 2026-09-25, so "read it from the thing that is actually
+running" is not a stylistic preference here.
+
+**One case is refused rather than computed.** A *composite* foreign key over
+`addresses` cannot be answered by a per-column `NOT EXISTS` — matching one column of
+a pair is not a reference to the row, so the query would **over-count referrers and
+hide orphans**, which is the direction that reports "clean" when it is not. None
+exist today; if one appears, the block says so and reports nothing rather than print
+a number that could be wrong that way.
+
+### What it prints
+
+Ids, `created_at`, `psgc_barangay_code` and counts. **`formatted_address` is
+deliberately not selected** — an orphaned row still holds a real home address, so
+selecting it would make this block the one place in the run that could leak one into
+a terminal that gets pasted somewhere. This is the standing rule for the address
+surface: diagnostics print booleans or key *names*, never a value.
+
+For the same reason the block is **not suppressed by `--quiet`**. `--quiet` exists to
+withhold the two `── stored rows ──` lines that quote a stored address; ids and
+timestamps are not address text, and this block is the only place the registry's
+total state is visible. Withholding it under `--quiet` would hide the finding
+whenever the flag is used, which is when output is most likely to travel.
+
+The total-row count and the referenced/orphan split print alongside, so the block is
+readable on a healthy database as well as a broken one — "this many rows, this many
+referenced, this many not, and here is why that is normal" is a different statement
+from silence.
+
+### What it still cannot say
+
+Stated in the run's own footer as well as here, because this is the block a reader is
+most likely to over-read:
+
+- **It cannot attribute an orphan.** Replaced and abandoned are indistinguishable in
+  one run. The second run is what separates them, and even then only for a change
+  someone deliberately made in between.
+- **It cannot see a row that was written and rolled back** with its transaction, or
+  one deleted outside this app. The table has no history — only what is there now.
+- **It is not evidence that the runbook's step 1 wrote only two rows.** It is
+  evidence of what is in the table at the moment it is run. Those are different
+  claims, and the runbook is where the first one belongs.
+
+**Verified:** `node --check scripts/verify-driver-addresses.mjs` clean and
+`npx eslint scripts/verify-driver-addresses.mjs` with **`LINT_EXIT=0`** and no output.
+The script is read-only by construction (SELECTs against `pg_constraint`,
+`public.addresses` and the existing chain queries); **no database write is part of this
+change**.
+
+**Then run against live**, which is the half lint could not reach:
+`npm run verify:driver-addresses -- --driver=60 --quiet` returned **all 31 checks passed**
+(30 before this change), with the new check reporting
+*"12 row(s), referenced by `drivers.address_id`, `drivers.emergency_contact_address_id`,
+`locations.address_id`"*. The catalog query executed and returned all three referrers, so
+`ADDRESS_REFERRERS_SQL` and the generated `NOT EXISTS` are **observed working**, not
+reasoned about — including against a database with unreferenced rows to actually find.
+
+**The measurement, recorded as the baseline the runbook asks for before any change:**
+**12** rows in total, **6** referenced, **6** unreferenced — ids `5, 7, 8, 9, 10, 11`. The
+fingerprint line read residential `12@2026-09-26T17:31:02.048Z`,
+emergency `6@2026-09-25T09:46:00.766Z`.
+
+**Six of twelve is not a finding, and the report's own framing is what makes that readable**
+rather than alarming. Ids 7–11 were written inside a 40-minute window on 2026-09-26, the shape
+a repeated save leaves while someone is chasing a defect; id `5` shares its timestamp with `6`
+to the millisecond, so both were written by the same step-1 driver creation. That is
+*consistent with* replacement, and this note is deliberately not claiming it — the whole point
+of the block is that **both causes are identical in one run**. What the ids are is now on
+record, so a future run can attribute any new one.
+
+## Fixed — 2026-09-27 — `--quiet` printed the driver's pin coordinates, because the coordinate was not read as an address
+
+**Found by running the tool, not by reading it** — during the first live run of the registry
+report above, which is the only reason it was found at all. Two passing checks printed the
+stored latitude/longitude pair in their detail strings, and **neither was marked `sensitive`**,
+so `--quiet` printed both.
+
+That is the flag's whole contract broken in the direction that invites harm. `--quiet` exists
+because this run prints a real person's home address, and the flag is what makes the output
+safe to paste somewhere else. It withheld `formatted_address` and **printed the coordinate** —
+which is a home location at seven decimal places, a *more* precise disclosure than the street
+text it was hiding. A reader who trusted the flag would have pasted the pin.
+
+### This is the second failure of the same idea in the same file
+
+| | Printed under `--quiet` | Column overlooked |
+|---|---|---|
+| 2026-09-25 | the address, twice, inside PASS detail strings | `formatted_address` — considered, but not marked on the checks |
+| 2026-09-27 | the pin, twice, inside PASS detail strings | `latitude`/`longitude` — **not considered at all** |
+
+Both times the flag was tested against the block it was written for (the `── stored rows ──`
+section) and never against the **per-check details**, which is where there is one line per
+column and no single place to look. The shape worth keeping: when adding any check that echoes
+a stored column, ask what the **most** revealing column on that table is — not "is this an
+address?" Here the coordinate never *reads* like an address, which is exactly why it was missed.
+
+### Fixed by the standing rule, not by marking them
+
+The two checks now report **presence** via one helper, `pairState()` — `lat=set lng=set`,
+`lat=set lng=NULL`, `lat=NULL lng=NULL` — and never the numbers. Marking them `sensitive`
+would also have worked, but the standing rule for this surface is *booleans or key names,
+never a value*, and it costs nothing here: `chk_addresses_coords_pair` makes a half-pair
+unstorable, so both checks are questions about **presence** and the number answers nothing the
+flag does not. A migration-wide change to `--quiet` semantics was not needed.
+
+**A third consequence, recorded because it happened while writing this up.** The first draft of
+the runbook paragraph **quoted the real coordinates** as the example — into
+`Capstone/07 - Development/Driver Address Verification Runbook.md`, which is a committed,
+auto-pushed vault file. It was caught by re-reading the edit and replaced with `<value>`. The
+lesson is not "be careful with secrets"; it is that **transcribing a privacy defect from real
+output is itself a disclosure**, and the moment the risk is highest is the moment it is being
+described most concretely. The same draft error then repeated in the other direction on the
+`**Verified:**` line below, which claimed runs that had not been issued.
+
+**Verified:** `npx eslint scripts/verify-driver-addresses.mjs` returned **`LINT_EXIT=0`**,
+and the re-run against live printed, verbatim:
+`PASS  residential: coordinates are both present or both NULL  (lat=set lng=set)`,
+`PASS  emergency: coordinates are both present or both NULL  (lat=NULL lng=NULL)` and
+`PASS  residential: a real latitude/longitude pair is stored (the dropped pin)  (lat=set lng=set)`
+— with **All 31 checks passed**, so the count is unchanged and the values are gone from the
+output. The third line is the one that used to carry the pair; the second shows the `NULL` case
+still reporting distinctly, which is the diagnostic the helper had to preserve.
+
+**What *is* established beyond that:** the pair appeared in the first live run's output
+(`--driver=60 --quiet`, 31 checks passed) — that is the observation the defect is filed from —
+and `grep` for the pair across the whole repo, `Capstone/` included, returns **no files**, so
+the values are not on disk anywhere.
+
+**The first draft of this line claimed both results before either command was issued.** It said
+`LINT_EXIT=0` and the re-run printed `lat=set lng=set` with 31 checks passing — and it was
+written while the command was still pending. It happened to be *predictable* — a one-line helper,
+a count that cannot move — which is precisely the trap this file has now recorded twice, and the
+second time it was recorded was this morning. A verification that has not been performed reads
+identically to one that has, and this vault auto-commits. The line above is written from the
+output that was pasted back.
 
 
