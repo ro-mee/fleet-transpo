@@ -711,7 +711,7 @@ describe('SEC-UPLOAD-006 — the license scan writes a public-style URL for a pr
     // this assertion previously pinned the weak form,
     // `license_image_url.startsWith("http")`, which admitted any host; it is now
     // the shared allow-list.
-    expect(drivers).toMatch(/avatar_url: \(storedLicenceFront && .*isAllowedStoredImageRef\(storedLicenceFront\)/);
+    expect(drivers).toMatch(/(?:avatar_url:\s*\(|avatarUrl\s*=\s*)storedLicenceFront &&\s*[\s\S]*isAllowedStoredImageRef\(storedLicenceFront\)/);
   });
 
   it('every reader of the licence columns signs them, so the UI needs no change', () => {
