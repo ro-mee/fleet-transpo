@@ -28,6 +28,7 @@ import {
   formatStructuredAddress,
   isUnchangedPick,
   PREFILL_REASON_MESSAGES,
+  UNCHANGED_PICK_MESSAGE,
 } from "@/lib/address/structured";
 import { AddressFormDialog } from "@/components/address/address-form-dialog";
 import { useStructuredAddress } from "@/hooks/use-structured-address";
@@ -92,6 +93,12 @@ export default function LocationsPage() {
    * the comment on the location `Dialog` below.
    */
   const [pickOpen, setPickOpen] = useState(false);
+  /**
+   * Set when the cascade was submitted with the address already on the row, so
+   * the refusal is not silent — see `UNCHANGED_PICK_MESSAGE`. Cleared on reopen,
+   * because the line is about the previous attempt.
+   */
+  const [addressUnchanged, setAddressUnchanged] = useState(false);
   // The address already on the row being edited, loaded when the picker opens so
   // the cascade reopens on it. Lazy because only this one row needs its PSGC
   // chain re-resolved — doing it for every row of the list is work for a form
@@ -306,7 +313,7 @@ export default function LocationsPage() {
                   type="button"
                   variant="outline"
                   className="h-10 shrink-0"
-                  onClick={() => setPickOpen(true)}
+                  onClick={() => { setAddressUnchanged(false); setPickOpen(true); }}
                 >
                   <MapPin className="mr-1.5 h-4 w-4" />
                   {displayAddress ? "Replace address" : "Pick address"}
@@ -326,6 +333,11 @@ export default function LocationsPage() {
               {!addressValue && displayAddress && !savedAddress && PREFILL_REASON_MESSAGES[savedAddressReason] && (
                 <p className="text-xs text-foreground-muted">
                   {PREFILL_REASON_MESSAGES[savedAddressReason]}
+                </p>
+              )}
+              {addressUnchanged && (
+                <p role="status" className="text-xs text-foreground-muted">
+                  {UNCHANGED_PICK_MESSAGE}
                 </p>
               )}
             </div>
@@ -387,8 +399,14 @@ export default function LocationsPage() {
         onSubmit={(next) => {
           // Reopening and closing is not a change. See `isUnchangedPick` — the
           // registry is append-only, so submitting an identical address would
-          // write a second row and detach the first.
-          if (!isUnchangedPick(next, addressValue, savedAddress)) setAddressValue(next);
+          // write a second row and detach the first. The skip stays; it now says
+          // so rather than closing in silence.
+          if (isUnchangedPick(next, addressValue, savedAddress)) {
+            setAddressUnchanged(true);
+          } else {
+            setAddressUnchanged(false);
+            setAddressValue(next);
+          }
           setPickOpen(false);
         }}
       />

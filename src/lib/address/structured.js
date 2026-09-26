@@ -287,6 +287,28 @@ export const PREFILL_REASON_MESSAGES = Object.freeze({
 });
 
 /**
+ * What to say when the operator submits the address that is already saved.
+ *
+ * `isUnchangedPick` below refuses that submission on purpose — the registry is
+ * append-only, so re-saving an identical address costs a row and detaches the one
+ * in use. The refusal was always right; **saying nothing about it was not.** The
+ * dialog closed, nothing on screen changed, and the operator had no way to tell
+ * "this is already saved" from "my change was lost". That ambiguity is what
+ * concealed the 2026-09-27 dropped pin for three days: the fingerprint stayed
+ * static, the pick was silently dropped, and every surface reported success.
+ *
+ * The copy therefore has to do two jobs: state that nothing changed, and give the
+ * reason, because a message that only says "no change" reads like a failure to
+ * save. It lives here rather than in a component because three surfaces render it
+ * — `AddressPickerField` and the two inline pickers (the hotel base and the
+ * canonical-location editor) — and three copies of one explanation is three
+ * chances for them to disagree, which is the same reasoning as
+ * `PREFILL_REASON_MESSAGES` above.
+ */
+export const UNCHANGED_PICK_MESSAGE =
+  "That is the address already on this record, so nothing changed and nothing was saved. Re-saving an identical address would add a duplicate row to the append-only address registry, so it is left alone.";
+
+/**
  * Whether a submitted pick would change anything, given what is already saved.
  *
  * The registry is APPEND-ONLY: a save writes a new `addresses` row and repoints

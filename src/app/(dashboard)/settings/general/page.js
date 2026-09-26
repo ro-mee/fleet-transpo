@@ -14,6 +14,7 @@ import {
   formatStructuredAddress,
   isUnchangedPick,
   PREFILL_REASON_MESSAGES,
+  UNCHANGED_PICK_MESSAGE,
 } from "@/lib/address/structured";
 import { useStructuredAddress } from "@/hooks/use-structured-address";
 import {
@@ -131,6 +132,9 @@ export default function SettingsGeneralPage() {
    */
   const [addressValue, setAddressValue] = useState(null);
   const [pickOpen, setPickOpen] = useState(false);
+  // Set when the cascade was submitted with the address already saved, so the
+  // refusal is not silent. Cleared on reopen — see `UNCHANGED_PICK_MESSAGE`.
+  const [addressUnchanged, setAddressUnchanged] = useState(false);
   // The hotel base's saved address, loaded when the picker opens so the cascade
   // reopens on it. Fetched from the LOCATION route, not from the settings one:
   // the settings blob records `location_id` precisely so this is possible, and
@@ -343,7 +347,7 @@ export default function SettingsGeneralPage() {
                       variant="outline"
                       className="h-10 shrink-0 rounded-xl text-xs"
                       disabled={!hotelData}
-                      onClick={() => setPickOpen(true)}
+                      onClick={() => { setAddressUnchanged(false); setPickOpen(true); }}
                     >
                       <MapPin className="w-4 h-4 mr-1.5" />
                       {displayAddress ? "Replace address" : "Pick address"}
@@ -363,6 +367,11 @@ export default function SettingsGeneralPage() {
                   {!addressValue && displayAddress && !savedAddress && PREFILL_REASON_MESSAGES[savedAddressReason] && (
                     <p className="text-[11px] text-foreground-muted mt-1.5">
                       {PREFILL_REASON_MESSAGES[savedAddressReason]}
+                    </p>
+                  )}
+                  {addressUnchanged && (
+                    <p role="status" className="text-[11px] text-foreground-muted mt-1.5">
+                      {UNCHANGED_PICK_MESSAGE}
                     </p>
                   )}
                 </div>
@@ -752,8 +761,14 @@ export default function SettingsGeneralPage() {
         onSubmit={(next) => {
           // Reopening and closing is not a change. See `isUnchangedPick` — the
           // registry is append-only, so submitting an identical address would
-          // write a second row and detach the first.
-          if (!isUnchangedPick(next, addressValue, savedAddress)) setAddressValue(next);
+          // write a second row and detach the first. The skip stays; it now says
+          // so rather than closing in silence.
+          if (isUnchangedPick(next, addressValue, savedAddress)) {
+            setAddressUnchanged(true);
+          } else {
+            setAddressUnchanged(false);
+            setAddressValue(next);
+          }
           setPickOpen(false);
         }}
       />

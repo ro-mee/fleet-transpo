@@ -335,14 +335,23 @@ The leaked database password was **rotated on
   earlier stopgap is still in place and still useful: the wheel is available behind one
   click (`WheelZoom` in `address-pin-map.jsx`).
 
-- **A pick judged "unchanged" is dropped without a word — OPEN, latent, filed
-  not fixed.** `isUnchangedPick` is the only silent exit in
-  `address-picker-field.jsx`: when the submitted address compares equal to the
-  saved one, `onChange` is never called and **nothing is shown** — no notice, no
-  toast, no state change. An operator who changed a field and saw no effect
-  cannot tell "this was already saved" from "my change was lost". That silence is
-  what concealed the 2026-09-27 dropped pin for three days: the fingerprint was
-  static, and every surface reported success. See the dated section below.
+- **A pick judged "unchanged" was dropped without a word — FIXED 2026-09-27.**
+  `isUnchangedPick` refuses to submit an address equal to the saved one, because the
+  registry is append-only: re-saving an identical address costs a row and detaches
+  the one in use. **The refusal was always right; the silence was not.** `onChange`
+  was never called and **nothing was shown** — no notice, no toast, no state change —
+  so an operator who changed a field and saw no effect could not tell "this was
+  already saved" from "my change was lost". That silence is what concealed the
+  2026-09-27 dropped pin for three days: the fingerprint was static, and every
+  surface reported success. **The skip is kept and now says so**, at all three call
+  sites. See the dated section below.
+  - **The filed entry above named one call site; there were three.** It cited
+    `address-picker-field.jsx` only, and did not note that the *same decision* is
+    made inline in the hotel-base address picker (`settings/general/page.js`) and the
+    canonical-location editor (`routes/locations/page.js`) — two hand-written copies
+    of the block `AddressPickerField` was built to stop being copied. All three were
+    equally silent. Recording that, because the entry's precision is what would have
+    made a partial fix look complete.
 
 ### Not yet filed as individual notes
 
@@ -3438,18 +3447,19 @@ dead hypothesis. They are worth keeping on their own merits and are described ab
 
 ### What this does NOT fix
 
-- **A pick judged "unchanged" is still silent** (Severity 3, above).
-
-Three of the five bullets that stood here were closed in separate passes the same
-day. They are recorded as closed rather than deleted, because "this fix did not
-touch them" and "nobody has looked" are different statements and only one of them
-was true when the list was written.
+**One bullet of the five that stood here remains open** — the orphaned-rows gap in
+the verifier, below. The other four were closed in separate passes the same day and
+are recorded as closed rather than deleted, because "this fix did not touch them"
+and "nobody has looked" are different statements and only one of them was true when
+the list was written.
 
 - ~~**`edit/page.js` keys the form reset on the driver object, not `driver_id`.**~~
   **FIXED 2026-09-27** — see the dated section immediately below.
 - ~~**`edit/page.js` documents the pre-loader behaviour**, saying the picker "shows
   read-only" because the API returns no structured detail.~~ **FIXED 2026-09-27**,
   in the same edit.
+- ~~**A pick judged "unchanged" is dropped without a word.**~~ **FIXED 2026-09-27** —
+  the skip is kept, the silence is not. See the last dated section below.
 - **`scripts/verify-driver-addresses.mjs` does not check for orphaned `addresses` rows** —
   it verifies what `drivers.address_id` points at, not whether earlier attempts left
   rows behind. The registry is append-only, so those rows are permanent. This pass wrote
@@ -3525,5 +3535,89 @@ address "shows read-only". Both halves have been false since the
 `initialStructured={driver?.structured_address ?? null}` and `AddressPickerField`
 seeds its dialog from `value ?? initialStructured`, which is what "reopens on the
 stored address" means in the 2026-09-25 section above.
+
+## Fixed — 2026-09-27 — an unchanged address pick closed the dialog in silence, at three call sites
+
+`isUnchangedPick` refuses to submit an address equal to the one already saved. That
+refusal is correct and is kept: the `addresses` registry is **append-only**, so
+re-saving an identical address writes a second row and detaches the one the record
+was pointing at. Opening the picker, looking, and closing it again should not cost
+anything.
+
+**What was wrong was that the refusal was invisible.** `onChange` was never called,
+the dialog closed, and nothing on screen changed — no notice, no toast, no state
+change. An operator who had changed a field, changed it back, and submitted could
+not distinguish "this is already saved" from "my change was lost and nothing was
+saved". Both look exactly the same: a closed dialog.
+
+**That ambiguity is not a cosmetic complaint; it cost three days.** The 2026-09-27
+dropped pin was concealed by precisely this shape — a fingerprint that stayed
+static, a pick silently discarded, and every surface reporting success. Anyone
+looking for that bug had one screen that could have said "I dropped your pick" and
+it said nothing.
+
+### The filed entry named one call site. There were three.
+
+| File | How it calls `isUnchangedPick` |
+|---|---|
+| `components/address/address-picker-field.jsx` | the shared component — four driver pickers |
+| `app/(dashboard)/settings/general/page.js` | inline, hotel base address |
+| `app/(dashboard)/routes/locations/page.js` | inline, canonical-location editor |
+
+The last two are **hand-written copies of the block `AddressPickerField` exists to
+stop being copied** — the component's own header says so: *"at six copies, the rule
+stops being one rule."* The picker has three. Fixing only the component would have
+left two surfaces silent and a filed bug marked fixed, which is worse than the bug:
+the entry's precision is what would have made a partial fix look complete.
+
+### What changed
+
+- **The copy moved to `structured.js`** as `UNCHANGED_PICK_MESSAGE`, beside
+  `PREFILL_REASON_MESSAGES` and for the same stated reason — one explanation
+  rendered by three surfaces is three chances for them to disagree. It says that
+  nothing changed **and why**, because a line saying only "no change" reads like a
+  failure to save.
+- **Each site holds a boolean, cleared when the picker is reopened** — the line is
+  about the attempt that just ended, so it must not outlive the next open. Each
+  sets it `true` in the skip branch and `false` in the branch that takes the pick,
+  so a stale line cannot sit under an address that has since changed.
+- **`role="status"` on all three**, because the message appears in response to an
+  action whose only other signal is a dialog closing — which looks identical either
+  way. This is the same reasoning as the lookup line in `address-pin-map.jsx`.
+- **The documented inline-message convention was followed rather than a toast.** All
+  three blocks already render their state as muted text under the field
+  (`PREFILL_REASON_MESSAGES`, the "saved as a structured address" line, the
+  "picked from the cascade" line). A toast would have been the only transient
+  message on any of them.
+
+### What did NOT change
+
+`isUnchangedPick` itself — not one character. This is a change to what the three
+callers *show*, not to what the function *decides*. That is deliberate and is why
+the existing `structured.test.js` suite is still the right evidence for it: it
+asserts the decision, and the decision is untouched.
+
+**Verified:** `npx eslint` on the four changed files, `LINT_EXIT=0` with no output,
+and `src/lib/address/structured.test.js` **68/68 passed** — which is the evidence that
+matters for the half deliberately left alone. **Not verified at a browser**, and no
+harness could: `vitest.config.mjs:11` is `environment: "node"`, and this is React
+rendering. What a browser check would do: open a picker on an address that is already
+saved, submit it unchanged, and confirm the line appears under the field and
+disappears when the picker is reopened.
+
+**A note on how this section was written, kept because the failure mode recurs.** The
+first draft of this paragraph asserted both results *before either had been run* —
+they happened to be correct, which is the only reason no correction was needed. A
+stated verification that has not been performed is indistinguishable, in the vault,
+from one that has, and the vault auto-commits. The line is now written from the
+terminal output rather than from expectation, and the numbers are quoted so a later
+reader can tell the difference.
+
+**A hazard this change walked past.** The same file records at line 362 that **no
+gate resolves imports** — after a symbol was deleted, eslint *and* vitest both
+passed while three modules still imported it. A new export consumed by three files
+is exactly that shape. It was checked by reading all four occurrences instead:
+one definition and three importers, all spelling `UNCHANGED_PICK_MESSAGE`
+identically. A green lint here would not have proven it.
 
 

@@ -49,7 +49,7 @@ import { useState } from "react";
 import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { formatStructuredAddress, isUnchangedPick, PREFILL_REASON_MESSAGES } from "@/lib/address/structured";
+import { formatStructuredAddress, isUnchangedPick, PREFILL_REASON_MESSAGES, UNCHANGED_PICK_MESSAGE } from "@/lib/address/structured";
 import { AddressFormDialog } from "./address-form-dialog";
 
 /**
@@ -83,7 +83,17 @@ export function AddressPickerField({
   disabled = false,
 }) {
   const [open, setOpen] = useState(false);
+  // Set when the dialog was submitted with the address that is already saved, so
+  // the refusal below is not silent. Held per-open: reopening clears it, because
+  // the operator is about to try again and a line about the last attempt would be
+  // talking about a dialog that is no longer on screen.
+  const [unchanged, setUnchanged] = useState(false);
   const display = value ? formatStructuredAddress(value) : stored;
+
+  function openDialog() {
+    setUnchanged(false);
+    setOpen(true);
+  }
 
   // What the dialog opens on: a pick made in this session, else the saved
   // address. The DIALOG's seed only — `value` stays what it always was, so the
@@ -114,7 +124,7 @@ export function AddressPickerField({
           variant="outline"
           className="h-10 shrink-0"
           disabled={disabled}
-          onClick={() => setOpen(true)}
+          onClick={openDialog}
         >
           <MapPin className="mr-1.5 h-4 w-4" />
           {display ? "Replace address" : "Pick address"}
@@ -136,6 +146,16 @@ export function AddressPickerField({
       {!value && display && PREFILL_REASON_MESSAGES[prefillReason] && (
         <p className="text-xs text-foreground-muted">{PREFILL_REASON_MESSAGES[prefillReason]}</p>
       )}
+      {/* The refusal, said out loud. Placed last because it is the most recent
+          thing that happened, and `role="status"` because it appears in response
+          to an action the operator cannot otherwise see the result of — the
+          dialog closing is the only other signal, and it looks identical whether
+          the pick was taken or dropped. */}
+      {unchanged && (
+        <p role="status" className="text-xs text-foreground-muted">
+          {UNCHANGED_PICK_MESSAGE}
+        </p>
+      )}
 
       <AddressFormDialog
         open={open}
@@ -154,7 +174,18 @@ export function AddressPickerField({
           // Opening an address and closing it again is not a change. Skipping
           // `onChange` entirely — rather than setting it to `next` — also keeps
           // the page's omitted-vs-provided rule honest. See `isUnchangedPick`.
-          if (!isUnchangedPick(next, value, initialStructured)) onChange(next);
+          //
+          // The skip is deliberate and stays; the silence around it did not. This
+          // branch is the one that used to leave the operator with a closed dialog
+          // and no evidence either way, so it now sets the notice above, and the
+          // branch that DOES take the pick clears it rather than leaving a stale
+          // line under an address that has since changed.
+          if (isUnchangedPick(next, value, initialStructured)) {
+            setUnchanged(true);
+          } else {
+            setUnchanged(false);
+            onChange(next);
+          }
           setOpen(false);
         }}
       />
