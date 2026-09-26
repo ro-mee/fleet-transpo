@@ -67,26 +67,30 @@ The leaked database password was **rotated on
   that was *not* correct reported success. One `stopPropagation` in the dialog's
   `handleSubmit`. **Every picker on every page was affected**, not only the
   driver's. See the dated section below.
-- **The driver edit form re-seeds on any refetch, not on a different driver —
-  OPEN, latent, filed not fixed.** `drivers/[id]/edit/page.js` keys its reset
-  effect on the `driver` *object* rather than on `driver_id` (`:143`), and React
-  Query returns an equal-but-new object on every refetch. **It does fire** — the
-  mutation's `onSuccess` invalidates `["driver", id]` after every save (`:294`),
-  so the reset runs there. That is harmless in itself, because the save has
-  already completed; what is not harmless is that `form.reset()` will also
-  discard anything the operator typed while the save was still in flight. The
-  same identity-versus-content mistake that was fixed in the address dialog on
-  2026-09-27, and the reason that fix is safe to keep. Left unfixed because the
-  proper fix is the same content comparison, and this pass was scoped to
-  verifying the address migration. See the dated section below.
-- **The reset effect's comment still describes the pre-loader world — OPEN, doc
-  defect.** `edit/page.js:112-117` says the API "returns `address_id` but not the
-  structured detail behind it", so the picker "shows read-only". That has been
-  false since the `loadStructuredAddress` work landed: the picker reopens on the
-  stored address and passes `initialStructured={driver?.structured_address}`
-  (`:488`). A comment that is true in conclusion and false in mechanism is the
-  kind that sends the next reader to the wrong place — the same class the
-  2026-09-25 map section calls out. See the dated section below.
+- **The driver edit form re-seeded on any refetch, not on a different driver —
+  FIXED 2026-09-27.** `drivers/[id]/edit/page.js` keyed its reset effect on the
+  `driver` *object* rather than on `driver_id`, and React Query returns an
+  equal-but-new object on every refetch. **It did fire** — the mutation's
+  `onSuccess` invalidates `["driver", id]` after every save, as does a window
+  refocus and a reconnect — so `form.reset()` discarded anything the operator
+  typed while the save was still in flight, and `setPickedAddress(null)` threw
+  away a pick made on that visit, both with no feedback. The same
+  identity-versus-content mistake that was fixed in the address dialog on
+  2026-09-27, which is why that fix was safe to keep. Now guarded by a
+  `seededDriverId` ref that re-seeds only when the id actually changes — which is
+  also what handles `/drivers/60/edit` → `/drivers/61/edit`, since the App Router
+  does not remount between two dynamic segments of the same route. The accepted
+  trade: fresher server data no longer overwrites the fields. See the dated
+  section below.
+- **The reset effect's comment described the pre-loader world — FIXED
+  2026-09-27.** It said the API "returns `address_id` but not the structured
+  detail behind it", so the picker "shows read-only". That has been false since
+  the `loadStructuredAddress` work landed: `AddressPickerField` seeds its dialog
+  from `value ?? initialStructured`, and the page passes
+  `initialStructured={driver?.structured_address ?? null}`. A comment that is
+  true in conclusion and false in mechanism is the kind that sends the next
+  reader to the wrong place — the same class the 2026-09-25 map section calls
+  out. Rewritten in the same edit. See the dated section below.
 - ~~**`PUT /api/drivers/59/account` returned 404 for a live driver.**~~ **CLOSED
   2026-09-25 — never a code defect.** The `curl` returned Next's own HTML not-found
   page, and the route is present in `.next/server/` (the production build) while
@@ -312,24 +316,24 @@ The leaked database password was **rotated on
 
 ### Severity 3 — usability
 
-- **The pin map does not follow the address you entered — 2026-09-25.
-  PARTIALLY ADDRESSED.** Reported as *"the pin and the address input was not synced…
-  i still had to manually find my geographic location at the map."* Nothing is lost
-  here — the form works as designed, and the design leaves the operator to find their
-  own street. It cannot be fixed from local data: the `ph_*` tables carry no
-  coordinates (`schema.sql:742-778`), and it cannot be fixed by the provider either,
-  because **every forward-geocoding endpoint answers `403`** while only reverse
-  geocoding answers `200` — the wrong direction (`Migrations.md:583-591` says
-  "Routing only", which the 2026-09-25 measurement corrected). That is also why the
-  `barangay` mapping in `parse.js` sat unverified for so long — it has since been
-  measured and **removed**, and the `address-validator` UI that would have used it is
-  mounted by nothing (`SYSTEM.md:1113`). See the 2026-09-25 dated section below for
-  the measurement and the fix. **Done:** the wheel is now available behind one click
-  (`WheelZoom` in `address-pin-map.jsx`), which removes the ten `+` presses from
-  country zoom to street level. **Not done:** the map still does not open on the
-  address. See the dated section below for the remaining options (C needs the Search
-  API enabled on the key, D needs an external gazetteer) and the invariant that holds
-  across all of them.
+- **The pin map did not follow the address you entered — 2026-09-25. FIXED
+  2026-09-27 (task #29).** Reported as *"the pin and the address input was not synced…
+  i still had to manually find my geographic location at the map."* Nothing was lost
+  here — the form worked as designed, and the design left the operator to find their
+  own street. **Half of what this said was right and half of it was wrong, which is
+  worth separating.** Right: it cannot be fixed from local data, because the `ph_*`
+  tables carry no coordinates (`schema.sql:742-778`) and nothing should invent a
+  centroid for a barangay. Wrong: *"it cannot be fixed by the provider either, because
+  every forward-geocoding endpoint answers `403`"* — that was measured, but it was the
+  **server** key (`TOMTOM_API_KEY`). The **browser** key (`NEXT_PUBLIC_TOMTOM_API_KEY`)
+  searches fine, and it is already in the client bundle because `rasterTileUrl()` ships
+  it there on every map render, so a browser-side Search call exposes no new secret.
+  The map now centres on the address as it is picked, on that key. See the 2026-09-25
+  dated section below for the corrected measurement. The invariant holds throughout:
+  **the map centres; it never places the pin** — a lookup result is a viewport, never
+  written to `latitude`/`longitude`, never stored, never sent to the server. The
+  earlier stopgap is still in place and still useful: the wheel is available behind one
+  click (`WheelZoom` in `address-pin-map.jsx`).
 
 - **A pick judged "unchanged" is dropped without a word — OPEN, latent, filed
   not fixed.** `isUnchangedPick` is the only silent exit in
@@ -3130,7 +3134,25 @@ said "not JSON, and the body is Next's not-found page".
 from `err()`, which does not log, and a 404 from outside the handler never reaches
 `handleError`.
 
-## Open — 2026-09-25 — the pin map does not follow the address you entered — Severity 3 (usability), partially addressed
+## Fixed — 2026-09-27 (task #29) — the pin map did not follow the address you entered — Severity 3 (usability) — formerly partially addressed
+
+**The map now centres on the address as it is picked.** The analysis below is kept
+as written, with one correction that matters more than the fix: its second half —
+*"why it cannot be fixed by the provider either — the forward direction is 403"* —
+was **wrong about which key**. Only the **server** key (`TOMTOM_API_KEY`) is refused
+by TomTom Search. The **browser** key (`NEXT_PUBLIC_TOMTOM_API_KEY`) searches fine,
+and it is already in the client bundle because `rasterTileUrl()` ships it there on
+every map render, so a browser-side Search call exposes no new secret. That was
+chosen deliberately over waiting for a portal grant; the trade — the typed address
+now goes to TomTom from the client rather than through our server — is recorded in
+[[Address Validation and Map Sync Analysis]].
+
+**What the first half still gets right, and it is the reason this took a real
+decision rather than a small one:** the `ph_*` tables carry no coordinates, so the
+cascade genuinely cannot centre the map on its own, and nothing invents a centroid
+for a barangay. The centre comes from the provider lookup. The invariant holds
+throughout — **the map centres; it never places the pin**. A lookup result is never
+written to `latitude`/`longitude`, never stored, never sent to the server.
 
 Reported by the operator, verbatim: *"the pin and the address input was not synced.
 i still had to manually find my geographic location at the map after i input which
@@ -3417,19 +3439,91 @@ dead hypothesis. They are worth keeping on their own merits and are described ab
 ### What this does NOT fix
 
 - **A pick judged "unchanged" is still silent** (Severity 3, above).
-- **`edit/page.js:143` still keys the form reset on the driver object, not
-  `driver_id`** — and it does fire, on the post-save invalidation at `:294`, where
-  it can discard input typed while the save was in flight. See Severity 2, above.
-- **`edit/page.js:112-117` still documents the pre-loader behaviour** — that the
-  picker "shows read-only" because the API returns no structured detail. It has
-  reopened on the stored address since `loadStructuredAddress` landed. See
-  Severity 2, above.
+
+Three of the five bullets that stood here were closed in separate passes the same
+day. They are recorded as closed rather than deleted, because "this fix did not
+touch them" and "nobody has looked" are different statements and only one of them
+was true when the list was written.
+
+- ~~**`edit/page.js` keys the form reset on the driver object, not `driver_id`.**~~
+  **FIXED 2026-09-27** — see the dated section immediately below.
+- ~~**`edit/page.js` documents the pre-loader behaviour**, saying the picker "shows
+  read-only" because the API returns no structured detail.~~ **FIXED 2026-09-27**,
+  in the same edit.
 - **`scripts/verify-driver-addresses.mjs` does not check for orphaned `addresses` rows** —
   it verifies what `drivers.address_id` points at, not whether earlier attempts left
   rows behind. The registry is append-only, so those rows are permanent. This pass wrote
   the rows the runbook expects and no more, but the script cannot prove that, and it
   should not be read as if it did.
-- **The map still does not open on the entered address.** Unrelated, and still blocked
-  on the TomTom Search API permission — see the 2026-09-25 section above.
+- ~~**The map still does not open on the entered address.**~~ **FIXED 2026-09-27
+  (task #29)** — the map centres on the picked address. The clause that followed it
+  here, "still blocked on the TomTom Search API permission", was **wrong about which
+  key**: only the *server* key answers `403` on Search. The browser key searches
+  fine and was chosen deliberately. See
+  [[Address Validation and Map Sync Analysis]].
+
+## Fixed — 2026-09-27 — the driver edit form re-seeded on every refetch, not on a different driver
+
+`drivers/[id]/edit/page.js`'s seeding effect ended `}, [driver, form]);` and reset
+the form, the licence previews and both address picks on every run. `driver` is a
+React Query result object, and React Query returns a **new object for the same row
+on every refetch** — so "the driver changed" was never actually the question the
+effect was answering. It ran on:
+
+- the mutation's `onSuccess`, which invalidates `["driver", id]` after every save,
+- `refetchOnWindowFocus` — an alt-tab away and back,
+- `refetchOnReconnect`.
+
+The first of those is the damaging one. It fires while the operator is still
+looking at the form they just submitted, and `form.reset()` reinstates the values
+from the server's response — so anything typed while the save was in flight was
+overwritten, and `setPickedAddress(null)` discarded any address picked on that
+visit. **Both silently.** No toast, no revert, nothing to notice until the next
+reload showed the typed values gone.
+
+**The fix is a ref holding the identity already seeded for:**
+
+```js
+const seededDriverId = useRef(null);
+
+useEffect(() => {
+  if (!driver) return;
+  if (seededDriverId.current === driver.driver_id) return;
+  seededDriverId.current = driver.driver_id;
+  ...
+}, [driver, form]);
+```
+
+`driver_id` is the row's primary key — the route does `SELECT d.*` filtered by
+`WHERE d.driver_id = $1`, so it is on every response, and it is already the field
+the rest of the app routes on (`drivers/page.js:243`, `drivers/new/page.js:109`).
+
+**Why a ref and not a mount-only seed.** The App Router does **not** remount
+between two dynamic segments of the same route, so `/drivers/60/edit` →
+`/drivers/61/edit` re-renders the same component instance. An effect keyed on
+mount would seed once and then show driver 60's data under driver 61's URL. The id
+comparison catches that navigation, and it is the reason the guard is a comparison
+rather than a latch.
+
+**The trade, stated rather than implied.** Fresher server data no longer
+overwrites what is in the fields. If someone else edits this driver while the form
+is open, the open form will not pick that up. On an edit form that is the right
+way round — the person typing is the one who knows what they meant to enter — but
+it is a real behaviour change and is recorded here as one.
+
+**Verified:** `npx eslint` on the file, exit 0, no output. **Not verified at a
+browser**, and there is no harness that could: `vitest.config.mjs:11` is
+`environment: "node"` with no jsdom and no testing-library, and this page renders
+React. What a browser check would have to do, if one is ever run: type into a
+field, alt-tab away and back, and confirm the typed value is still there — which
+is precisely the case that used to fail.
+
+**The comment in the same effect was corrected in the same edit.** It claimed the
+API "returns `address_id` but not the structured detail behind it", so the current
+address "shows read-only". Both halves have been false since the
+`loadStructuredAddress` work landed: the page passes
+`initialStructured={driver?.structured_address ?? null}` and `AddressPickerField`
+seeds its dialog from `value ?? initialStructured`, which is what "reopens on the
+stored address" means in the 2026-09-25 section above.
 
 

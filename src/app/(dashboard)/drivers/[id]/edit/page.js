@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
@@ -101,20 +101,47 @@ export default function EditDriverPage() {
     },
   });
 
+  // Which driver the form currently holds, so the seeding below is keyed on
+  // IDENTITY rather than on the object — see the effect immediately after.
+  const seededDriverId = useRef(null);
+
   useEffect(() => {
     if (!driver) return;
+
+    // Seeding is per-driver, and `driver_id` is what says which driver that is.
+    // Keying this on the `driver` OBJECT instead would make it run on every
+    // refetch: React Query hands back a new object for the same row on the
+    // post-save invalidation, on a window refocus, and on a reconnect. Each of
+    // those ran `form.reset()` and cleared the picks, so anything typed while a
+    // save was in flight — or while the operator was simply away from the tab —
+    // was discarded without a word. `driver_id` is the row's primary key (`SELECT
+    // d.*` in the API route, filtered by it), so it is present on every response.
+    //
+    // The trade is deliberate: fresher data from the server no longer overwrites
+    // what is in the fields. On an edit form that is the right way round — the
+    // person typing is the one who knows what they meant to enter.
+    //
+    // A different id, by contrast, is a different driver and must re-seed. The App
+    // Router does not remount between `/drivers/60/edit` and `/drivers/61/edit`,
+    // so this comparison is what catches that navigation.
+    if (seededDriverId.current === driver.driver_id) return;
+    seededDriverId.current = driver.driver_id;
+
     const emp = driver.employees || {};
     const imgUrl = driver.face_image_url || emp.avatar_url || "";
     const backUrl = driver.license_back_image_url || "";
     if (imgUrl) setLicenseImagePreview(imgUrl);
     if (backUrl) setLicenseBackImagePreview(backUrl);
 
-    // A fresh load is a fresh edit: any pick made against the previous driver
-    // must not survive into this one. The stored address is NOT loaded into the
-    // picker — the API returns `address_id` but not the structured detail behind
-    // it, and rebuilding a barangay code from stored text is the fuzzy name
-    // match this design refuses — so the current address shows read-only and
-    // picking a new one replaces it.
+    // A fresh driver is a fresh edit: any pick made against the previous one must
+    // not survive into this one. This is the one moment the picks are cleared —
+    // a refetch of the SAME driver leaves a pick from this visit alone.
+    //
+    // The stored address IS reopened into the picker — the page passes
+    // `initialStructured` to `AddressPickerField`, which seeds the dialog from it,
+    // and the API resolves the stored `address_id` into that detail via
+    // `loadStructuredAddress`. Picking a new one therefore replaces the stored
+    // one rather than being the only way to reach it.
     setPickedAddress(null);
     setPickedEmergencyAddress(null);
 
