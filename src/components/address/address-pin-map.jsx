@@ -30,29 +30,25 @@ import { Crosshair } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "@/styles/map.css";
 import { rasterTileUrl } from "@/lib/tomtom";
+import {
+  COUNTRY_ZOOM,
+  DEFAULT_CENTER,
+  PIN_ZOOM,
+  isViewableCentre,
+  planViewMove,
+} from "@/lib/address/pin-view";
 import { CHART_COLORS } from "@/lib/chart-tokens";
 import { cn } from "@/lib/utils";
 
-// Where the map opens when there is no pin and nothing to centre on.
-//
-// The PSGC tables carry no coordinates — they are an administrative hierarchy,
-// not a gazetteer — so the cascade alone cannot say where a barangay is, and
-// this file still refuses to invent a centroid for one: a centroid is a place
-// nobody chose. Zoom 6 frames the Philippines.
-//
-// That refusal is now the FALLBACK rather than the whole story. The dialog looks
-// the entered address up (`useAddressCentre`) and passes the result down as
-// `centre`, which moves the viewport to it. The point is never written to the
-// pin — see `SyncView` below for how the two are kept apart, and
-// `centreFromSearch` in `src/lib/tomtom.js` for why a lookup result is not
-// evidence that anything is there.
+// `DEFAULT_CENTER`, `COUNTRY_ZOOM` and `PIN_ZOOM` now live in
+// `@/lib/address/pin-view`, beside the decision that uses them. The reasoning
+// behind the country view — the PSGC tables carry no coordinates, and nothing
+// invents a centroid for a barangay — moved there with them, because it is
+// reasoning about that constant rather than about this component.
 //
 // Even with a centre, getting to a street is the operator's job on this control,
 // so the zoom affordances are deliberate rather than incidental: `+` is always
 // there, and the wheel is one click away — see `WheelZoom` below.
-const DEFAULT_CENTER = [12.8797, 121.774];
-const COUNTRY_ZOOM = 6;
-const PIN_ZOOM = 16;
 
 /**
  * What to say under the map while the address lookup is not showing a result.
@@ -83,31 +79,27 @@ function ClickToPlace({ onPlace }) {
 }
 
 /**
- * Sizes the map once it is mounted, and owns every move of the viewport.
+ * Sizes the map once it is mounted, and performs every move of the viewport.
  *
  * `invalidateSize` is not optional: this map mounts inside a dialog that is still
  * animating open, so the container reports its pre-animation size and Leaflet
  * renders a clipped, half-grey tile grid.
  *
- * THE TWO THINGS THAT MAY MOVE THE MAP, AND THEIR ORDER OF AUTHORITY
- * ------------------------------------------------------------------
- * A placed pin outranks everything else. When `hasPin` is true this effect does
- * nothing at all, because a pin is the operator's own answer to where the
- * address is and a lookup for the same address does not get to overrule it.
+ * WHICH move to make, and whether to make one at all, is `planViewMove` over in
+ * `@/lib/address/pin-view` — a separate module for one reason: this file imports
+ * Leaflet at module scope and no node test can load it, so anything worth
+ * asserting has to live somewhere else. What stays here is only what needs
+ * `useMap`: the `setView` call and the refs holding the state the decision reads.
  *
- * Below that, a `centre` — the address lookup's result — moves the viewport to
- * the address being entered. `lastCentre` keys on the coordinate and zoom rather
- * than the object, so a re-render does not re-set the view and a genuine new
- * result does.
+ * The ordering that matters — a placed pin outranks a lookup result, and a
+ * lookup for the same address does not get to overrule the operator's own answer
+ * about where the door is — is asserted in `pin-view.test.js` rather than
+ * watched in a browser.
  *
  * It still deliberately does NOT re-centre on a click. The operator just clicked
  * where they wanted to look; `setView` would yank the map out from under the next
  * click and make placing a pin at high zoom feel like fighting the control. A
- * click sets `hasPin`, which leaves through the pin branch above anyway.
- *
- * Clearing the pin returns to the centre when there is one — the address is
- * still on screen, so jumping to the country view would be a non sequitur. With
- * no centre there is nothing to return to and the country view is correct.
+ * click sets `hasPin`, which leaves through the pin branch anyway.
  */
 function SyncView({ hasPin, centre }) {
   const map = useMap();
@@ -119,21 +111,20 @@ function SyncView({ hasPin, centre }) {
   }, [map]);
 
   useEffect(() => {
-    const pinWasCleared = !hasPin && hadPin.current;
+    const { key, move } = planViewMove({
+      hasPin,
+      hadPin: hadPin.current,
+      lastKey: lastCentre.current,
+      centre,
+    });
+    // Recorded before the early return: a pin taking the view is itself a state
+    // change, and the next run has to be able to see it as `hadPin` to know the
+    // pin was cleared rather than never there.
     hadPin.current = hasPin;
+    if (!move) return;
 
-    // A placed pin owns the view.
-    if (hasPin) return;
-
-    const key = centre ? `${centre.lat},${centre.lng},${centre.zoom}` : null;
-    // Nothing new to show — the same centre as last time, or still none. This
-    // is also what makes mount a no-op: an empty `lastCentre` and a null key
-    // compare equal, so `MapContainer`'s own `center`/`zoom` stand.
-    if (!pinWasCleared && lastCentre.current === key) return;
     lastCentre.current = key;
-
-    if (centre) map.setView([centre.lat, centre.lng], centre.zoom, { animate: false });
-    else map.setView(DEFAULT_CENTER, COUNTRY_ZOOM, { animate: false });
+    map.setView(move.center, move.zoom, { animate: false });
     map.invalidateSize();
   }, [map, hasPin, centre]);
 
@@ -215,6 +206,15 @@ export default function AddressPinMap({
     Math.abs(lat) <= 90 &&
     Math.abs(lng) <= 180;
 
+  // One opinion about what counts as a usable centre, applied everywhere `centre`
+  // is read: the initial props, the label, and the view sync. `centre` arrives
+  // from `centreFromSearch`, which validates its own output, so this normally
+  // passes everything through — but three separate `centre ?` tests would each be
+  // a chance for them to disagree about a malformed one, and the aria-label
+  // claiming the map is centred on an address it is not is the kind of lie worth
+  // making impossible.
+  const usableCentre = isViewableCentre(centre) ? centre : null;
+
   // `MapContainer` reads `center` and `zoom` only as INITIAL values — changing
   // them later is inert, which is why `SyncView` exists. They are still made
   // centre-aware so a remount (the dialog reopening on the same address, with a
@@ -222,10 +222,10 @@ export default function AddressPinMap({
   // the country for a frame and then jumping.
   const initialCenter = hasPin
     ? [lat, lng]
-    : centre
-      ? [centre.lat, centre.lng]
+    : usableCentre
+      ? [usableCentre.lat, usableCentre.lng]
       : DEFAULT_CENTER;
-  const initialZoom = hasPin ? PIN_ZOOM : centre ? centre.zoom : COUNTRY_ZOOM;
+  const initialZoom = hasPin ? PIN_ZOOM : usableCentre ? usableCentre.zoom : COUNTRY_ZOOM;
 
   // Declared above the server guard, not after it: a hook that runs on the client
   // and not on the server is a hook-order mismatch waiting to happen.
@@ -285,7 +285,7 @@ export default function AddressPinMap({
         aria-label={
           hasPin
             ? `Map with a pin placed at ${lat}, ${lng}. Click to move it.`
-            : centre
+            : usableCentre
               ? "Map centred on the address you entered. Click to place a pin."
               : "Map of the Philippines. Click to place a pin."
         }
@@ -304,7 +304,7 @@ export default function AddressPinMap({
             attribution='&copy; <a href="https://developer.tomtom.com">TomTom</a>'
             url={rasterTileUrl()}
           />
-          <SyncView hasPin={hasPin} centre={centre} />
+          <SyncView hasPin={hasPin} centre={usableCentre} />
           <WheelZoom enabled={wheelZoom} />
           <ClickToPlace onPlace={place} />
           {hasPin && (
