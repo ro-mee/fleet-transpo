@@ -42,11 +42,18 @@ The family ID is the session identity used by Devices & Sessions. IP address
 and user-agent values are descriptive metadata only; shared networks can make
 multiple real sessions show the same IP, so they are not deduplication keys.
 
-## Why the row count only grows — CONFIRMED
+## Why the row count only grows — CLOSED (cleanup landed 2026-09-24)
 
-Because rotation appends. Every refresh over the app's lifetime leaves a row; login opportunistically prunes rows expired >30 days or revoked >30 days (`login/route.js` cleanup), but nothing else prunes.
+Because rotation appends. Every refresh over the app's lifetime leaves a row; login opportunistically prunes rows expired >30 days or revoked >30 days (`login/route.js` cleanup).
 
-**UNKNOWN:** whether any further cleanup job is warranted. Login-time opportunistic pruning now bounds the table by login activity. The table only grows between logins, and every consumed row is dead weight that still contains a (hashed) credential. → [[Open Questions]] · [[Roadmap]]
+**Closed:** migration `128_mobile_refresh_token_purge.sql` schedules pg_cron
+job `mobile-refresh-token-purge` daily at **`17 4 * * *`** —
+`DELETE FROM mobile_refresh_tokens WHERE expires_at < NOW() - INTERVAL '30 days';`.
+The 30-day grace past `expires_at` is deliberate (investigation window for
+suspected token theft — see migration 016's maintenance comment). Login-time
+opportunistic pruning still runs; the cron job is the backstop for drivers
+who never log in again. `schema.sql` cannot show the schedule (`cron.job` is
+data, not DDL) — verified against live `cron.job` after `db:up`.
 
 ## What to check here when a driver reports being logged out
 
