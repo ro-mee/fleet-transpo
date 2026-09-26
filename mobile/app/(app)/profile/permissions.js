@@ -19,6 +19,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { useSettings } from "../../../lib/settings-context";
 import { api } from "../../../lib/api";
 import { requestPushPermission, dismissAllLocalNotifications } from "../../../lib/notifications/push";
+import { registerDeviceToken } from "../../../lib/notifications/device-token";
 import {
   describePermissionState,
   getPermissionStatuses,
@@ -237,6 +238,7 @@ export default function AppPermissionsScreen() {
       }
       updateSetting("pushNotifications", true);
       syncPushPreference(true);
+      await registerDeviceToken().catch(() => {});
     } else {
       await dismissAllLocalNotifications();
       updateSetting("pushNotifications", false);

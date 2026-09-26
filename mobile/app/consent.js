@@ -1,10 +1,11 @@
-import { moderateScale } from '../lib/scaling';
 import { useCallback, useState } from "react";
 import {
+  Image,
   ScrollView,
   StyleSheet,
   Text,
-  View
+  useWindowDimensions,
+  View,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,35 +14,22 @@ import {
   CURRENT_PRIVACY_POLICY_VERSION,
   setAcceptedConsentVersion,
 } from "../lib/consent";
-import { useTheme } from "../lib/theme-context";
-import { fonts, space } from "../lib/theme";
+import { fonts } from "../lib/theme";
 import { ErrorNotice } from "../components/ui";
-import { BrandBar } from "../components/logo";
-import { MaterialIcons } from "@expo/vector-icons";
-import { ClayCard, ClayButton, ClayTile } from "../components/clay";
-
-function ConsentCard({ icon, title, description }) {
-  const { colors, type } = useTheme();
-  return (
-    <ClayCard variant="compact" style={styles.cardItem}>
-      <ClayTile
-        size="md"
-        backgroundColor={colors.primaryContainer}
-      >
-        <MaterialIcons name={icon} size={24} color={colors.onPrimaryContainer} />
-      </ClayTile>
-      <View style={styles.cardText}>
-        <Text style={[styles.cardTitle, { color: colors.onSurface }]}>{title}</Text>
-        <Text style={[type.caption, { color: colors.onSurfaceVariant, fontSize: 13, lineHeight: 18 }]}>{description}</Text>
-      </View>
-    </ClayCard>
-  );
-}
+import {
+  OnboardingBackground,
+  OnboardingButton,
+  OnboardingCard,
+  OnboardingConsentRow,
+  OnboardingHeader,
+  onboardingTheme,
+} from "../components/onboarding";
 
 export default function ConsentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { colors } = useTheme();
+  const { height } = useWindowDimensions();
+  const compact = height < 740;
 
   const [checked, setChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -57,8 +45,8 @@ export default function ConsentScreen() {
         via: "mobile",
       });
       await setAcceptedConsentVersion(CURRENT_PRIVACY_POLICY_VERSION);
-      
-      // Navigate to the permissions screen instead of the dashboard
+
+      // Navigate to the permissions screen
       router.replace("/permissions");
     } catch (e) {
       setError(e.message || "Could not record your consent. Try again.");
@@ -68,153 +56,179 @@ export default function ConsentScreen() {
   }, [router]);
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+    <OnboardingBackground showMapBg={false}>
+      <OnboardingHeader step="1/2" compact={compact} />
+
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.xxl + 80 },
+          styles.scrollContent,
+          compact && styles.scrollContentCompact,
+          { paddingBottom: insets.bottom + 90 },
         ]}
       >
-        <View style={styles.header}>
-          <ClayTile
-            size="lg"
-            backgroundColor={colors.primaryContainer}
-            style={styles.shieldTile}
-          >
-            <MaterialIcons name="security" size={38} color={colors.onPrimaryContainer} />
-          </ClayTile>
-          <Text style={[styles.title, { color: colors.onSurface }]}>Driver Data Privacy</Text>
-          <Text style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
+        {/* Centered Hero Section */}
+        <View style={[styles.heroSection, compact && styles.heroSectionCompact]}>
+          <Image
+            source={require("../assets/images/onboarding/privacy-shield.png")}
+            style={[styles.shieldImage, compact && styles.shieldImageCompact]}
+            resizeMode="contain"
+          />
+          <Text style={[styles.heroTitle, compact && styles.heroTitleCompact]}>
+            <Text style={styles.heroTitleAccent}>Driver Data </Text>
+            <Text style={styles.heroTitleMain}>Privacy</Text>
+          </Text>
+          <Text style={[styles.heroSubtitle, compact && styles.heroSubtitleCompact]}>
             To keep operations running smoothly and securely, here is how we use your data.
           </Text>
         </View>
 
-        <ErrorNotice message={error} />
+        {error ? <ErrorNotice message={error} /> : null}
 
-        <View style={styles.cards}>
-          <ConsentCard
-            icon="location-on"
+        {/* 3 Privacy Info Cards */}
+        <View style={[styles.cardsContainer, compact && styles.cardsContainerCompact]}>
+          <OnboardingCard
+            icon="location"
             title="Location Tracking"
             description="Your live location is tracked while you are on duty, so dispatch can route trips and keep them safe."
+            compact={compact}
+            showChevron={true}
           />
-          <ConsentCard
-            icon="directions-car"
+          <OnboardingCard
+            icon="car"
             title="Telematics & Vehicle Data"
             description="We collect fuel and vehicle activity associated with your trips, plus your license details and attendance records."
+            compact={compact}
+            showChevron={true}
           />
-          <ConsentCard
-            icon="update"
+          <OnboardingCard
+            icon="time"
             title="Data Retention"
             description="Records are kept for as long as you remain a driver and as required to meet legal and operational compliance obligations."
+            compact={compact}
+            showChevron={true}
           />
         </View>
 
-        <ClayCard 
-          variant="compact"
-          style={styles.checkboxContainer} 
-          onPress={() => setChecked(!checked)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked }}
-        >
-          <View style={[styles.checkbox, { 
-            borderColor: checked ? colors.primary : colors.outline,
-            backgroundColor: checked ? colors.primary : 'transparent' 
-          }]}>
-            {checked && <MaterialIcons name="check" size={16} color={colors.onPrimary} />}
-          </View>
-          <Text style={[styles.checkboxLabel, { color: colors.onSurface }]}>
-            I agree to the Terms and Conditions and Privacy Policy
-          </Text>
-        </ClayCard>
+        {/* Consent Row */}
+        <OnboardingConsentRow
+          checked={checked}
+          onToggle={() => setChecked((prev) => !prev)}
+          compact={compact}
+          style={styles.consentRow}
+        />
       </ScrollView>
 
-      {/* Sticky Bottom Bar */}
-      <View style={[styles.stickyFooter, { 
-        backgroundColor: colors.surface, 
-        borderTopColor: colors.outlineVariant,
-        paddingBottom: Math.max(insets.bottom, space.md)
-      }]}>
-        <ClayButton
+      {/* Sticky Bottom CTA */}
+      <View
+        style={[
+          styles.stickyFooter,
+          compact && styles.stickyFooterCompact,
+          { paddingBottom: Math.max(insets.bottom, 14) },
+        ]}
+      >
+        <OnboardingButton
           label="Confirm & Continue"
           onPress={onAccept}
-          loading={submitting}
           disabled={!checked}
-          size="lg"
-          style={styles.fullButton}
+          loading={submitting}
+          compact={compact}
         />
       </View>
-    </View>
+    </OnboardingBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { 
-    paddingHorizontal: space.xl, 
-    paddingTop: space.xl, 
-    gap: space.xl, 
-    width: "100%", 
-    maxWidth: moderateScale(720), 
-    alignSelf: "center" 
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 4,
+    gap: 11,
+    width: "100%",
+    maxWidth: 680,
+    alignSelf: "center",
   },
-  header: { alignItems: "center", gap: space.sm, marginTop: space.md },
-  shieldTile: {
-    marginBottom: space.sm,
+  scrollContentCompact: {
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    gap: 8,
   },
-  title: {
-    fontFamily: fonts.displaySemiBold,
-    fontSize: moderateScale(24),
-    textAlign: "center",
-  },
-  subtitle: {
-    fontFamily: fonts.body,
-    fontSize: moderateScale(14),
-    textAlign: "center",
-    paddingHorizontal: space.md,
-  },
-  cards: { gap: space.md },
-  cardItem: {
-    flexDirection: "row",
-    padding: space.md,
-    gap: space.md,
-    alignItems: "center"
-  },
-  cardText: { flex: 1, gap: 2 },
-  cardTitle: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(15) },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: space.md,
-    gap: space.md,
-    marginTop: space.sm
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    borderWidth: 2,
+  heroSection: {
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 4,
+    marginBottom: 6,
   },
-  checkboxLabel: {
-    flex: 1,
-    fontFamily: fonts.bodyMedium,
-    fontSize: moderateScale(14),
+  heroSectionCompact: {
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  shieldImage: {
+    width: 98,
+    height: 98,
+    marginBottom: 8,
+  },
+  shieldImageCompact: {
+    width: 80,
+    height: 80,
+    marginBottom: 6,
+  },
+  heroTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 27,
+    lineHeight: 32,
+    textAlign: "center",
+    letterSpacing: -0.3,
+  },
+  heroTitleCompact: {
+    fontSize: 23,
+    lineHeight: 27,
+  },
+  heroTitleAccent: {
+    color: onboardingTheme.colors.mint,
+  },
+  heroTitleMain: {
+    color: onboardingTheme.colors.textPrimary,
+  },
+  heroSubtitle: {
+    fontFamily: fonts.body,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: onboardingTheme.colors.textSecondary,
+    textAlign: "center",
+    marginTop: 5,
+    paddingHorizontal: 16,
+    maxWidth: 330,
+  },
+  heroSubtitleCompact: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    marginTop: 3,
+    paddingHorizontal: 10,
+    maxWidth: 300,
+  },
+  cardsContainer: {
+    gap: 10,
+  },
+  cardsContainerCompact: {
+    gap: 8,
+  },
+  consentRow: {
+    marginTop: 2,
   },
   stickyFooter: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: space.xl,
-    paddingTop: space.md,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    backgroundColor: "rgba(3, 27, 27, 0.96)",
     borderTopWidth: 1,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
+    borderTopColor: "rgba(120, 224, 210, 0.14)",
   },
-  fullButton: { width: "100%" }
+  stickyFooterCompact: {
+    paddingHorizontal: 14,
+    paddingTop: 8,
+  },
 });
