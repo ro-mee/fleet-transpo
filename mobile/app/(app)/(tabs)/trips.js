@@ -18,7 +18,7 @@ import { offlineViewState } from "../../../lib/offline-ux";
 import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/OfflineStates";
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-state";
-import { groupTrips, bucketTone, OPEN_BUCKETS } from "../../../lib/trips-queue";
+import { groupTrips, bucketTone, OPEN_BUCKETS, PRE_START, preTripChipLabel } from "../../../lib/trips-queue";
 import RouteTimeline from "../../../components/RouteTimeline";
 import RadarPulse from "../../../components/RadarPulse";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
@@ -51,6 +51,14 @@ const TripCard = memo(function TripCard({ trip, display, router, colors, type })
         <Text style={[type.labelLg, { color: colors.onSurfaceVariant }]}>
           {when || "Departure time not set"}
         </Text>
+        {/* Pre-start trips only. A Completed row has no pre_trip_status and no
+            chip; the chip is a label, not a gate — the card stays tappable and
+            trip detail owns enforcement. */}
+        {PRE_START.includes(trip.trip_status) ? (
+          <Text style={[type.caption, { color: trip.pre_trip_status === "Failed" ? colors.danger : colors.onSurfaceVariant }]}>
+            {preTripChipLabel(trip.pre_trip_status)}
+          </Text>
+        ) : null}
       </View>
 
       <RouteTimeline

@@ -55,6 +55,39 @@ describe('Trip detail start readiness', () => {
   });
 });
 
+describe('readinessFor pre-shift gate', () => {
+  const now = Date.now();
+  const readyTrip = {
+    trip_status: 'Driver Accepted',
+    earliest_start: new Date(now - 60_000).toISOString(),
+    pre_trip_status: 'Passed',
+  };
+
+  it("blocks with reason pre_shift when today's Pre-Shift is missing", () => {
+    expect(readinessFor(readyTrip, now, { preShiftPassed: false }))
+      .toMatchObject({ startReady: false, unavailableReason: 'pre_shift', preShiftPassed: false });
+  });
+
+  it('is ready when pre-shift passed', () => {
+    expect(readinessFor(readyTrip, now, { preShiftPassed: true }))
+      .toMatchObject({ startReady: true, unavailableReason: null });
+  });
+
+  it('defaults preShiftPassed=true (non-breaking for existing callers)', () => {
+    expect(readinessFor(readyTrip, now).startReady).toBe(true);
+  });
+
+  it('pre_shift outranks schedule', () => {
+    expect(readinessFor({ trip_status: 'Pending' }, now, { preShiftPassed: false }).unavailableReason)
+      .toBe('pre_shift');
+  });
+
+  it('keeps window/inspection reasons when pre-shift passed', () => {
+    expect(readinessFor({ ...readyTrip, earliest_start: new Date(now + 60_000).toISOString() }, now, { preShiftPassed: true }).unavailableReason).toBe('window');
+    expect(readinessFor({ ...readyTrip, pre_trip_status: null }, now, { preShiftPassed: true }).unavailableReason).toBe('inspection');
+  });
+});
+
 describe('Trip detail display facts', () => {
   it('uses end_time as the verified completion time and never updated_at', () => {
     const ms = Date.parse('2026-09-09T10:14:00Z');

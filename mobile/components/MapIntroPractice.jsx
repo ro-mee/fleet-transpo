@@ -425,15 +425,17 @@ function MapIntroPractice({ onStageSuccess }) {
         visible={showPretripPrompt}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setShowPretripPrompt(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.modalCard,
-              { backgroundColor: isDark ? "#141D19" : "#FFFFFF" },
-            ]}
-          >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setShowPretripPrompt(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss pre-trip inspection prompt"
+        >
+          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
+            <View style={[styles.modalCard, { backgroundColor: colors.surfaceContainerLow }]}>
             <View style={[styles.modalIconTile, { backgroundColor: colors.primaryContainer }]}>
               <Ionicons name="shield-checkmark" size={28} color={colors.onPrimaryContainer} />
             </View>
@@ -462,8 +464,9 @@ function MapIntroPractice({ onStageSuccess }) {
                 </Text>
               </Pressable>
             </View>
-          </View>
-        </View>
+            </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -600,6 +603,7 @@ const styles = StyleSheet.create({
     padding: 24,
     zIndex: 9999,
   },
+  modalAbsorb: { width: "100%", alignItems: "center" },
   modalCard: {
     width: "100%",
     maxWidth: 360,

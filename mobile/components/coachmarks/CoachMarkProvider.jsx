@@ -51,6 +51,8 @@ const CoachMarkActionsContext = createContext({
   dismiss: () => {},
   dismissCoachMark: () => {},
   resetTips: () => Promise.resolve(false),
+  isTourShortcutActive: () => false,
+  setTutorialTransition: () => {},
 });
 
 const CoachMarkStatusContext = createContext({
@@ -58,6 +60,9 @@ const CoachMarkStatusContext = createContext({
   mapIntroPending: false,
   mapIntroAwaitingTap: false,
   isDriving: false,
+  walkthroughActive: false,
+  tutorialTransitioning: false,
+  pendingTourDestination: null,
 });
 
 const CoachMarkStateContext = createContext({
@@ -142,7 +147,49 @@ export function CoachMarkProvider({ children, driverId }) {
   const mapIntroAttemptRef = useRef(0);
   const interactionSatisfiedRef = useRef(null);
 
-  // ── Parked milestone ──────────────────────────────────────────────────────
+  // ── §3.7 Interactive Onboarding Transition & Walkthrough State ────────────
+  const walkthroughActiveRef = useRef(false);
+  const tutorialTransitioningRef = useRef(false);
+  const pendingTourDestinationRef = useRef(null);
+
+  const [walkthroughActive, setWalkthroughActive] = useState(false);
+  const [tutorialTransitioning, setTutorialTransitioning] = useState(false);
+  const [pendingTourDestination, setPendingTourDestination] = useState(null);
+
+  const setWalkthroughActiveSync = useCallback((val) => {
+    walkthroughActiveRef.current = val;
+    setWalkthroughActive(val);
+  }, []);
+
+  const setTutorialTransitionSync = useCallback((transitioning, destination = null) => {
+    tutorialTransitioningRef.current = transitioning;
+    pendingTourDestinationRef.current = destination;
+    setTutorialTransitioning(transitioning);
+    setPendingTourDestination(destination);
+  }, []);
+
+  const isTourShortcutActive = useCallback((label) => {
+    const activeKey = activeKeyRef.current;
+    const dest = pendingTourDestinationRef.current;
+    const isTransitioning = tutorialTransitioningRef.current;
+    const isWalkthrough = walkthroughActiveRef.current;
+
+    if (label === "Report Incident") {
+      if (activeKey === "tour_incident") return true;
+      if (isWalkthrough && (isTransitioning || dest === "tour_incident" || dest === "/incidents?tour=1")) {
+        return true;
+      }
+    }
+
+    if (label === "Fuel") {
+      if (activeKey === "tour_fuel" || activeKey === "tour_fuel_entry") return true;
+      if (isWalkthrough && (isTransitioning || dest === "tour_fuel" || dest === "/fuel-report?tour=1")) {
+        return true;
+      }
+    }
+
+    return false;
+  }, []);
   // One slot for a guide whose screen the driver navigated away from, held so
   // it can resume when they come back. See `releaseActiveIfOffRoute` for when a
   // guide is parked and why parking is neither completion nor abandonment.
@@ -531,6 +578,22 @@ export function CoachMarkProvider({ children, driverId }) {
    * Driving Safety Lock. A tip the driver never got to read must not be burned
    * permanently, so it returns the next time its trigger fires.
    */
+  useEffect(() => {
+    if (pathname && isRouteMatch(pathname, "/incidents")) {
+      if (pendingTourDestinationRef.current === "/incidents?tour=1") {
+        setTutorialTransitionSync(false, null);
+      }
+    } else if (pathname && isRouteMatch(pathname, "/fuel-report")) {
+      if (pendingTourDestinationRef.current === "/fuel-report?tour=1") {
+        setTutorialTransitionSync(false, null);
+      }
+    } else if (pathname && isRouteMatch(pathname, "/map")) {
+      if (pendingTourDestinationRef.current === "/map") {
+        setTutorialTransitionSync(false, null);
+      }
+    }
+  }, [pathname, setTutorialTransitionSync]);
+
   const abandonActiveMilestone = useCallback(() => {
     if (activeKeyRef.current === "map_intro") {
       mapIntroAwaitingTapRef.current = true;
@@ -544,8 +607,9 @@ export function CoachMarkProvider({ children, driverId }) {
     setCurrentStepIndex(0);
     setStepContext(null);
     interactionSatisfiedRef.current = null;
+    setTutorialTransitionSync(false, null);
     bumpPresentationId();
-  }, [bumpPresentationId]);
+  }, [bumpPresentationId, setTutorialTransitionSync]);
 
   /**
    * Makes the screen available to an incoming guide when the one holding it has
@@ -727,6 +791,20 @@ export function CoachMarkProvider({ children, driverId }) {
         parkedMilestoneRef.current = null;
       }
       activeKeyRef.current = config.key;
+      if (
+        config.key.startsWith("tour_") ||
+        config.key === "welcome" ||
+        config.key === "map_intro"
+      ) {
+        walkthroughActiveRef.current = true;
+        setWalkthroughActive(true);
+        if (pendingTourDestinationRef.current === config.key) {
+          tutorialTransitioningRef.current = false;
+          pendingTourDestinationRef.current = null;
+          setTutorialTransitioning(false);
+          setPendingTourDestination(null);
+        }
+      }
       setStepContext(context);
       setCurrentStepIndex(0);
       setActiveMilestoneKey(config.key);
@@ -872,6 +950,16 @@ export function CoachMarkProvider({ children, driverId }) {
       if (key === "tour_sos") {
         await setCoachMarkCompleted("sos", 1, driverId);
       }
+      // The tour taught these, so the production tip must not re-teach them —
+      // and the mark lands BEFORE the cascade navigates, which is what keeps the
+      // production `preshift` focus effect on the returning Home screen from
+      // firing into the gap and stalling the chain at End Duty.
+      if (key === "tour_preshift") {
+        await setCoachMarkCompleted("preshift", 1, driverId);
+      }
+      if (key === "tour_end_duty") {
+        await setCoachMarkCompleted("end_duty", 1, driverId);
+      }
       if (key === "tour_incident" || key === "tour_incident_category") {
         await setCoachMarkCompleted("incident", 1, driverId);
       }
@@ -896,28 +984,53 @@ export function CoachMarkProvider({ children, driverId }) {
     if (key === "map_intro") {
       mapIntroAwaitingTapRef.current = false;
       setMapIntroAwaitingTap(false);
+      setWalkthroughActiveSync(false);
+      setTutorialTransitionSync(false, null);
     }
     bumpPresentationId();
 
     // Auto-advance sequence for the interactive onboarding walkthrough:
     if (key === "welcome") {
+      setTutorialTransitionSync(true, "tour_sos");
       setTimeout(() => {
         triggerMilestone("tour_sos");
       }, 300);
     } else if (key === "tour_sos") {
+      setTutorialTransitionSync(true, "tour_preshift");
+      setTimeout(() => {
+        triggerMilestone("tour_preshift");
+      }, 300);
+    } else if (key === "tour_preshift") {
+      // The tour walks the REAL baseline screen with the real 7-item set, but
+      // entered with `from=tour` so its submit returns Home (`tour_step=end_duty`)
+      // instead of POSTing. The `mode=preshift` param is what earns the baseline
+      // checklist on a screen whose `isTour` would otherwise default it to the
+      // quick set; the map checkpoint pushes `?tour=1&from=map` with no mode and
+      // keeps resolving to Pre-Trip.
+      setTutorialTransitionSync(true, "/inspection?tour=1");
+      setTimeout(() => {
+        router.push("/inspection?tour=1&mode=preshift&from=tour");
+      }, 120);
+    } else if (key === "tour_end_duty") {
+      // Rejoins the existing chain at Report Incident. Every hop from
+      // `tour_incident` onward is untouched, so the map half of the tour — and
+      // its `map_intro` ending — is unchanged.
+      setTutorialTransitionSync(true, "tour_incident");
       setTimeout(() => {
         triggerMilestone("tour_incident");
       }, 300);
     } else if (key === "tour_incident") {
+      setTutorialTransitionSync(true, "/incidents?tour=1");
       setTimeout(() => {
         router.push("/incidents?tour=1");
       }, 120);
     } else if (key === "tour_fuel") {
+      setTutorialTransitionSync(true, "/fuel-report?tour=1");
       setTimeout(() => {
         router.push("/fuel-report?tour=1");
       }, 120);
     }
-  }, [driverId, bumpPresentationId, triggerMilestone, router]);
+  }, [driverId, bumpPresentationId, triggerMilestone, router, setWalkthroughActiveSync, setTutorialTransitionSync]);
 
   const nextStep = useCallback(async () => {
     if (!activeMilestoneKey) return;
@@ -962,6 +1075,12 @@ export function CoachMarkProvider({ children, driverId }) {
         if (key === "tour_sos") {
           await setCoachMarkCompleted("sos", 1, driverId);
         }
+        if (key === "tour_preshift") {
+          await setCoachMarkCompleted("preshift", 1, driverId);
+        }
+        if (key === "tour_end_duty") {
+          await setCoachMarkCompleted("end_duty", 1, driverId);
+        }
         if (key === "tour_incident" || key === "tour_incident_category") {
           await setCoachMarkCompleted("incident", 1, driverId);
         }
@@ -973,13 +1092,17 @@ export function CoachMarkProvider({ children, driverId }) {
       }
     }
     if (activeKeyRef.current !== key) return;
+    if (key && (key.startsWith("tour_") || key === "welcome" || key === "map_intro")) {
+      setWalkthroughActiveSync(false);
+      setTutorialTransitionSync(false, null);
+    }
     activeKeyRef.current = null;
     setActiveMilestoneKey(null);
     setCurrentStepIndex(0);
     setStepContext(null);
     interactionSatisfiedRef.current = null;
     bumpPresentationId();
-  }, [driverId, bumpPresentationId]);
+  }, [driverId, bumpPresentationId, setWalkthroughActiveSync, setTutorialTransitionSync]);
 
   const dismiss = useCallback(async () => {
     await completeActiveMilestone();
@@ -988,6 +1111,44 @@ export function CoachMarkProvider({ children, driverId }) {
   // Interaction-driven progression: observe real UI state changes
   const notifyInteraction = useCallback(
     async (targetId, data) => {
+      // Tour shortcuts - handle even during transition handoffs
+      if (
+        targetId === "home.shortcut_incident" &&
+        (activeKeyRef.current === "tour_incident" ||
+          activeMilestoneKey === "tour_incident" ||
+          pendingTourDestinationRef.current === "tour_incident" ||
+          (walkthroughActiveRef.current && (tutorialTransitioningRef.current || pendingTourDestinationRef.current === "/incidents?tour=1")))
+      ) {
+        if (pendingTourDestinationRef.current === "/incidents?tour=1") {
+          return;
+        }
+        activeKeyRef.current = "tour_incident";
+        await completeActiveMilestone();
+        return;
+      }
+
+      if (
+        targetId === "home.shortcut_fuel" &&
+        (activeKeyRef.current === "tour_fuel" ||
+          activeMilestoneKey === "tour_fuel" ||
+          activeKeyRef.current === "tour_fuel_entry" ||
+          activeMilestoneKey === "tour_fuel_entry" ||
+          pendingTourDestinationRef.current === "tour_fuel" ||
+          (walkthroughActiveRef.current && (tutorialTransitioningRef.current || pendingTourDestinationRef.current === "/fuel-report?tour=1")))
+      ) {
+        if (pendingTourDestinationRef.current === "/fuel-report?tour=1") {
+          return;
+        }
+        activeKeyRef.current = "tour_fuel";
+        await completeActiveMilestone();
+        return;
+      }
+
+      if (targetId === "fuel.gauge_entry" && (activeMilestoneKey === "tour_fuel_entry" || activeKeyRef.current === "tour_fuel_entry")) {
+        await completeActiveMilestone();
+        return;
+      }
+
       if (!activeMilestoneKey || !currentStep) return;
 
       // Pre-Trip PASS/FAIL interaction
@@ -1026,16 +1187,6 @@ export function CoachMarkProvider({ children, driverId }) {
       if (
         targetId === "sos.modal_actions" &&
         activeMilestoneKey === "tour_sos"
-      ) {
-        await completeActiveMilestone();
-        return;
-      }
-
-      // Tour shortcuts
-      if (
-        (targetId === "home.shortcut_incident" && activeMilestoneKey === "tour_incident") ||
-        (targetId === "home.shortcut_fuel" && (activeMilestoneKey === "tour_fuel" || activeMilestoneKey === "tour_fuel_entry")) ||
-        (targetId === "fuel.gauge_entry" && activeMilestoneKey === "tour_fuel_entry")
       ) {
         await completeActiveMilestone();
         return;
@@ -1105,6 +1256,8 @@ export function CoachMarkProvider({ children, driverId }) {
     overlayVisibleRef.current = false;
     activeKeyRef.current = null;
     interactionSatisfiedRef.current = null;
+    setWalkthroughActiveSync(false);
+    setTutorialTransitionSync(false, null);
     setMapIntroPending(false);
     setMapIntroAwaitingTap(false);
     setActiveMilestoneKey(null);
@@ -1112,7 +1265,7 @@ export function CoachMarkProvider({ children, driverId }) {
     setStepContext(null);
     bumpPresentationId();
     return success;
-  }, [driverId, bumpPresentationId]);
+  }, [driverId, bumpPresentationId, setWalkthroughActiveSync, setTutorialTransitionSync]);
 
   // Dev-only coach-mark diagnostic log when active target layout settles
   useEffect(() => {
@@ -1206,6 +1359,8 @@ export function CoachMarkProvider({ children, driverId }) {
       dismiss,
       dismissCoachMark: dismiss,
       resetTips,
+      isTourShortcutActive,
+      setTutorialTransition: setTutorialTransitionSync,
     }),
     [
       triggerMilestone,
@@ -1218,6 +1373,8 @@ export function CoachMarkProvider({ children, driverId }) {
       skip,
       dismiss,
       resetTips,
+      isTourShortcutActive,
+      setTutorialTransitionSync,
     ]
   );
 
@@ -1229,8 +1386,19 @@ export function CoachMarkProvider({ children, driverId }) {
       // Exposed so screens can respect the lock themselves — DriverSos.js
       // already destructures this for its "only once stationary" delay.
       isDriving,
+      walkthroughActive,
+      tutorialTransitioning,
+      pendingTourDestination,
     }),
-    [activeMilestoneKey, mapIntroPending, mapIntroAwaitingTap, isDriving]
+    [
+      activeMilestoneKey,
+      mapIntroPending,
+      mapIntroAwaitingTap,
+      isDriving,
+      walkthroughActive,
+      tutorialTransitioning,
+      pendingTourDestination,
+    ]
   );
 
   const state = useMemo(

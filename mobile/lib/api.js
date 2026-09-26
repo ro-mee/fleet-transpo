@@ -30,9 +30,16 @@ const TIMEOUT_MS = 30000;
 const MAX_RETRIES = 1;
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, code = null) {
     super(message);
     this.status = status;
+    // The server's machine-readable rejection reason (AuthError.code in
+    // src/lib/api/utils.js). Screens branch on THIS, never on the message:
+    // PRESHIFT_REQUIRED has to route the driver to the Pre-Shift check, and
+    // matching prose would break silently the moment anyone rewords the copy.
+    // Null for every status that carries no code — a plain 500, a transport
+    // failure — so callers cannot mistake "no code" for a coded rejection.
+    this.code = code;
   }
 }
 
@@ -309,7 +316,7 @@ export async function apiFetch(path, options = {}) {
   }
 
   if (!res.ok) {
-    throw new ApiError(body?.error || `Request failed (${res.status})`, res.status);
+    throw new ApiError(body?.error || `Request failed (${res.status})`, res.status, body?.code ?? null);
   }
 
   // Drain the outbox only when something is waiting. The old code hit

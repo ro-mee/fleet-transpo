@@ -81,16 +81,10 @@ export function ReceiptScanTutorialModal({ visible, onClose, onScanComplete }) {
   });
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.contentWrap}>
-          <ClayCard
-            variant="elevated"
-            style={[
-              styles.card,
-              { backgroundColor: isDark ? "#141D19" : "#FFFFFF" },
-            ]}
-          >
+          <ClayCard variant="elevated" style={styles.card}>
             {/* Header */}
             <View style={styles.headerRow}>
               <View

@@ -36,7 +36,7 @@ export default function FuelReport() {
   // `nextStep` is deliberately NOT destructured: every fuel step is `passthrough`,
   // so the provider's own interaction handler already advances the step when
   // `notifyInteraction` fires. Calling it here as well moved TWO steps per tap.
-  const { triggerMilestone, notifyInteraction, triggerMapIntroFromTab } = useCoachMarkActions();
+  const { triggerMilestone, notifyInteraction, triggerMapIntroFromTab, setTutorialTransition } = useCoachMarkActions();
   // Read only to hold the camera and scanner back while a guide is on screen —
   // "is one open", not which step. Keeps the viewfinder off the step-driven
   // state context.
@@ -1336,6 +1336,7 @@ export default function FuelReport() {
               size="lg"
               onPress={() => {
                 setShowTourCompleteModal(false);
+                setTutorialTransition?.(true, "/map");
                 // Driver In-App Guide §3.7.4: the fuel tour hands off to the
                 // Live Map tour, and the pre-trip checkpoint is reached only by
                 // the START ROUTE swipe inside it. Pushing straight to

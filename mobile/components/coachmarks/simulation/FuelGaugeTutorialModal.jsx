@@ -67,16 +67,10 @@ export function FuelGaugeTutorialModal({ visible, onClose, onComplete }) {
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.contentWrap}>
-          <ClayCard
-            variant="elevated"
-            style={[
-              styles.card,
-              { backgroundColor: isDark ? "#17221D" : "#FFFFFF" },
-            ]}
-          >
+          <ClayCard variant="elevated" style={styles.card}>
             {/* Header */}
             <View style={styles.headerRow}>
               <View
@@ -191,9 +185,7 @@ export function FuelGaugeTutorialModal({ visible, onClose, onComplete }) {
                 style={[
                   styles.approvalCard,
                   {
-                    backgroundColor: isDark
-                      ? "rgba(74, 222, 128, 0.12)"
-                      : "rgba(40, 84, 72, 0.08)",
+                    backgroundColor: colors.primary + (isDark ? "1F" : "14"),
                     borderColor: colors.primary + "40",
                   },
                 ]}

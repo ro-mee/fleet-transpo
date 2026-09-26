@@ -7,6 +7,7 @@ import {
   Linking,
   Dimensions,
   Modal,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -270,9 +271,16 @@ export default function FullMapTab() {
         visible={!!completingTrip}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setCompletingTrip(null)}
       >
-        <View style={styles.modalBackdrop}>
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setCompletingTrip(null)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss odometer dialog"
+        >
+          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
           <ClayCard variant="standard" style={styles.modalCard}>
             <View style={[styles.modalHandle, { backgroundColor: colors.outlineVariant }]} />
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
@@ -306,7 +314,8 @@ export default function FullMapTab() {
               />
             </View>
           </ClayCard>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
 
     </View>
@@ -448,6 +457,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: moderateScale(24),
   },
+  modalAbsorb: { width: "100%", alignItems: "center" },
   modalCard: {
     width: "100%",
     maxWidth: moderateScale(420),

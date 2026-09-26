@@ -11,7 +11,6 @@ import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
 import { homeMaterials as clayMaterials } from './materials';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
-import { useRouter } from 'expo-router';
 import { CoachMarkTarget, useCoachMarkActions, useCoachMarkStatus } from '../coachmarks';
 
 // Assignment controls retain their scheme-specific clay edges.
@@ -104,9 +103,8 @@ function HomeClayIcon({ name, small = false }) {
 }
 
 export const HomeQuickActions = memo(function HomeQuickActions({ actions, scrollRef }) {
-  const router = useRouter();
-  const { activeMilestone } = useCoachMarkStatus();
-  const { notifyInteraction } = useCoachMarkActions();
+  const { activeMilestone, walkthroughActive, tutorialTransitioning, pendingTourDestination } = useCoachMarkStatus();
+  const { notifyInteraction, isTourShortcutActive } = useCoachMarkActions();
   const [expanded, setExpanded] = useState(false);
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
@@ -124,17 +122,39 @@ export const HomeQuickActions = memo(function HomeQuickActions({ actions, scroll
   return <View style={[s.actions, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
     {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: toggleExpanded, toggle: true }] : [])].map(a => {
       const targetId = a.targetId || (a.label === 'Report Incident' ? 'home.shortcut_incident' : a.label === 'Fuel' ? 'home.shortcut_fuel' : null);
-      const handlePress = () => {
-        if (activeMilestone === 'tour_incident' && a.label === 'Report Incident') {
-          notifyInteraction('home.shortcut_incident');
-          router.push('/incidents?tour=1');
-          return;
+      const handlePress = async () => {
+        const isIncidentTour =
+          activeMilestone === 'tour_incident' ||
+          (isTourShortcutActive ? isTourShortcutActive('Report Incident') : (
+            walkthroughActive && (tutorialTransitioning || pendingTourDestination === 'tour_incident' || pendingTourDestination === '/incidents?tour=1')
+          ));
+
+        if (a.label === 'Report Incident') {
+          if (isIncidentTour) {
+            await notifyInteraction('home.shortcut_incident');
+            return;
+          }
+          if (walkthroughActive || tutorialTransitioning) {
+            return;
+          }
         }
-        if (activeMilestone === 'tour_fuel' && a.label === 'Fuel') {
-          notifyInteraction('home.shortcut_fuel');
-          router.push('/fuel-report?tour=1');
-          return;
+
+        const isFuelTour =
+          activeMilestone === 'tour_fuel' ||
+          (isTourShortcutActive ? isTourShortcutActive('Fuel') : (
+            walkthroughActive && (tutorialTransitioning || pendingTourDestination === 'tour_fuel' || pendingTourDestination === '/fuel-report?tour=1')
+          ));
+
+        if (a.label === 'Fuel') {
+          if (isFuelTour) {
+            await notifyInteraction('home.shortcut_fuel');
+            return;
+          }
+          if (walkthroughActive || tutorialTransitioning) {
+            return;
+          }
         }
+
         a.action?.();
       };
 
@@ -187,7 +207,7 @@ const VARIANT = {
   upcoming: { label: 'UPCOMING', isCurrent: false },
 };
 
-export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false }) {
+export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true }) {
   const { colors, type, scheme } = useTheme();
   const { width, fontScale } = useWindowDimensions();
   const { settings } = useSettings();
@@ -202,7 +222,7 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
   // Current card: forest green. Scheduled cards: muted teal.
   const accent = isCurrent ? colors.primary : colors.info;
   const onAccent = isCurrent ? colors.onPrimary : '#FFFFFF';
-  const action = trip ? homeTripAction(trip, nowMs) : null;
+  const action = trip ? homeTripAction(trip, nowMs, { preShiftPassed }) : null;
   const date = trip?.departure_time ? new Date(trip.departure_time) : null;
   const validDate = date && Number.isFinite(date.getTime());
   const depTime = validDate ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;

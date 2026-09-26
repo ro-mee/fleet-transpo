@@ -58,6 +58,8 @@ describe("Coach Marks Configuration & Storage", () => {
       expect(COACH_MARK_MILESTONES.SOS).toBeDefined();
       expect(COACH_MARK_MILESTONES.INCIDENT).toBeDefined();
       expect(COACH_MARK_MILESTONES.OFFLINE).toBeDefined();
+      // End Duty extends Guide 1 — a milestone, not a seventh guide area.
+      expect(COACH_MARK_MILESTONES.END_DUTY_INTRO).toBeDefined();
 
       // Zero mascot or celebration milestones
       expect(COACH_MARK_MILESTONES.COMPLETION).toBeUndefined();
@@ -1018,7 +1020,10 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       // no target at all — overlay hidden, milestone active and unable to
       // complete, which now also blocks every guide after it.
       expect(tripScreen).toContain("if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;");
-      expect(tripScreen).toContain('triggerMilestone("trip_readiness")');
+      // The context is not decoration: step 3's body must say the button opens
+      // the shift baseline in the pre_shift state rather than starting the trip,
+      // and a dynamicBody with no context passed is never reached.
+      expect(tripScreen).toContain('triggerMilestone("trip_readiness", {');
     });
 
     it("retires the guide when the driver starts the trip", () => {
@@ -1032,7 +1037,13 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
 
     it("re-fires trip_readiness once the blocking guide dismisses", () => {
       expect(tripScreen).toContain("if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;");
-      expect(tripScreen).toContain("[loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone]");
+      // `triggerMilestone` and `activeMilestone` are the re-fire mechanism this
+      // test exists for and must stay. The two preShift primitives were added
+      // because the trigger's reason is derived from the baseline — they are
+      // booleans, so they settle rather than churning the effect.
+      expect(tripScreen).toContain(
+        "[loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed]"
+      );
     });
   });
 
@@ -1164,9 +1175,16 @@ describe("Inspection completion retry", () => {
   );
 
   it("re-fires pretrip_complete once the blocking guide dismisses", () => {
-    expect(inspectScreen).toContain('triggerMilestone("pretrip_complete")');
+    // The context carries the mode (and its item count) so this one step can
+    // speak the truth on a 7-item baseline screen and a 4-item quick screen —
+    // the same two steps run on both, so the copy cannot assume either.
+    expect(inspectScreen).toContain('triggerMilestone("pretrip_complete", {');
     expect(inspectScreen).toContain("if (allAnswered && !activeMilestone) {");
-    expect(inspectScreen).toContain("[allAnswered, activeMilestone, triggerMilestone]");
+    // `triggerMilestone` and `activeMilestone` remain the re-fire mechanism; the
+    // mode inputs were added because the effect reads them.
+    expect(inspectScreen).toContain(
+      "[allAnswered, activeMilestone, triggerMilestone, screenMode, checklistTotal]"
+    );
   });
 
   it("stays off the volatile state context", () => {
@@ -1645,5 +1663,456 @@ describe("SOS Compact Floating Bubble & Spotlight Contour", () => {
     expect(overlay).toContain("borderRadius: holeRadius,");
     expect(overlay).toContain("borderWidth: 2,");
     expect(overlay).toContain("opacity: pulseAnim,");
+  });
+});
+
+describe("Guide 1 under two inspection types", () => {
+  it("adds the Start-Shift milestone as one observe step, not a seventh guide", () => {
+    const m = getMilestoneConfig("preshift");
+    expect(m).toMatchObject({ key: "preshift", version: 1, route: "/" });
+    expect(m.steps).toHaveLength(1);
+    expect(m.steps[0]).toMatchObject({
+      id: "preshift.start",
+      targetId: "home.preshift_start",
+      interaction: "observe",
+      canSkip: true,
+      actionText: "Got it",
+    });
+    // Rule 3: a protected action must never be tutorial-required.
+    expect(m.steps[0].requiresInteraction).toBeFalsy();
+  });
+
+  it("answers the mode each shared step is rendered in", () => {
+    const passFail = getMilestoneConfig("pretrip").steps[0];
+    expect(passFail.dynamicBody({ mode: "preshift" })).toMatch(/once-a-day baseline/);
+    expect(passFail.dynamicBody({ mode: "pretrip" })).toMatch(/Marking FAIL asks you/);
+
+    const complete = getMilestoneConfig("pretrip_complete").steps[0];
+    expect(complete.dynamicBody({ mode: "preshift", total: 7 })).toContain("all 7 items");
+    expect(complete.dynamicBody({ mode: "pretrip", total: 4 })).toContain("all 4 items");
+    // No context must still produce a true sentence, never "all undefined items".
+    expect(complete.dynamicBody(null)).toMatch(/every item is checked/);
+  });
+
+  it("names the pre-shift state on the trip-detail primary action", () => {
+    const step = getMilestoneConfig("trip_readiness").steps[2];
+    expect(step.dynamicBody({ reason: "pre_shift" })).toMatch(/full vehicle safety check/i);
+    expect(step.dynamicBody({ reason: "inspection" })).toMatch(/Start Trip begins/);
+    expect(step.dynamicBody({ isContinue: true })).toMatch(/Continue to Map/);
+    // Rule 3 — the same button still starts a trip, so it stays protected.
+    expect(step.interaction).toBe("blocked");
+    expect(step.canSkip).toBe(false);
+  });
+
+  it("states both requirements on the pre-trip step", () => {
+    const step = getMilestoneConfig("trip_readiness").steps[1];
+    expect(step.body).toMatch(/pre-shift vehicle safety check once a day/);
+    expect(step.body).toMatch(/quick pre-trip check for each trip/);
+  });
+
+  it("hardcodes no checklist count", () => {
+    // The regression this task exists for: "all 7 items" was true only while
+    // there was one inspection type, and would be wrong on the 4-item screen.
+    const src = readFileSync(new URL("./coach-marks.js", import.meta.url), "utf8");
+    expect(src).not.toContain("all 7 items");
+    expect(src).not.toContain("all 4 items");
+  });
+});
+
+describe("Tour duty bookends — Pre-Shift opens the shift, End Duty closes it", () => {
+  const read = (rel) =>
+    readFileSync(new URL(rel, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const provider = read("../components/coachmarks/CoachMarkProvider.jsx");
+  const overlay = read("../components/coachmarks/CoachMarkOverlay.jsx");
+  const inspectScreen = read("../app/(app)/inspection.js");
+  const homeScreen = read("../app/(app)/(tabs)/index.js");
+
+  it("defines both as one observe step on Home, never a new guide", () => {
+    for (const [key, stepId, targetId] of [
+      ["tour_preshift", "tour.preshift.start", "home.preshift_start"],
+      ["tour_end_duty", "tour.end_duty.report", "home.end_duty"],
+    ]) {
+      const m = getMilestoneConfig(key);
+      expect(m).toMatchObject({ key, version: 1, route: "/" });
+      expect(m.steps).toHaveLength(1);
+      expect(m.steps[0]).toMatchObject({
+        id: stepId,
+        targetId,
+        interaction: "observe",
+        canSkip: true,
+        actionText: "Got it",
+      });
+      // Rule 3: neither duty control may become tutorial-required.
+      expect(m.steps[0].requiresInteraction).toBeFalsy();
+    }
+  });
+
+  it("keeps both Home targets inside the scroll container", () => {
+    // §3.7.8: a target the provider never measures presents nothing. This cannot
+    // live in the milestone config — `scrollRef` is a render-time prop on the
+    // target — so it is asserted where it actually is.
+    for (const targetId of ["home.preshift_start", "home.end_duty"]) {
+      const at = homeScreen.indexOf(`targetId="${targetId}"`);
+      expect(at).toBeGreaterThan(-1);
+      expect(homeScreen.slice(at, at + 200)).toContain("scrollRef={scrollRef}");
+    }
+  });
+
+  it("inserts the two steps between SOS and Report Incident", () => {
+    // Written against the provider's source because the chain is a setTimeout
+    // cascade inside a callback, not a value anything can import.
+    const cascade = provider.slice(provider.indexOf('if (key === "welcome")'));
+
+    // SOS no longer jumps straight to the incident shortcut.
+    expect(cascade.indexOf('triggerMilestone("tour_preshift")'))
+      .toBeLessThan(cascade.indexOf('triggerMilestone("tour_incident")'));
+
+    // The Pre-Shift hop is the real screen, never a skip past it to incident.
+    const preShift = cascade.slice(
+      cascade.indexOf('key === "tour_preshift"'),
+      cascade.indexOf('key === "tour_end_duty"')
+    );
+    expect(preShift).toContain('router.push("/inspection?tour=1&mode=preshift&from=tour")');
+    expect(preShift).not.toContain("tour_incident");
+
+    // End Duty hands back onto the existing path, so every hop after it — fuel,
+    // the map practice and `map_intro`'s ending — is untouched.
+    const endDuty = cascade.slice(
+      cascade.indexOf('key === "tour_end_duty"'),
+      cascade.indexOf('key === "tour_incident"')
+    );
+    expect(endDuty).toContain('triggerMilestone("tour_incident")');
+  });
+
+  it("marks the production twins from the complete AND the skip path", () => {
+    // These two blocks are parallel and drift silently if only one is edited: a
+    // skipped step must still stop the production tip re-teaching it on the next
+    // Home focus.
+    for (const [key, twin] of [
+      ["tour_preshift", "preshift"],
+      ["tour_end_duty", "end_duty"],
+    ]) {
+      // Whitespace-normalised so the two blocks' differing indentation does not
+      // matter, and matched as plain text so the guard's parentheses need no
+      // escaping. The cascade's `} else if (key === ...)` carries the same guard
+      // but is followed by a comment, not this statement, so it is not counted.
+      const flat = provider.replace(/\s+/g, " ");
+      const marks = flat.split(
+        `if (key === "${key}") { await setCoachMarkCompleted("${twin}", 1, driverId);`
+      ).length - 1;
+      expect(marks).toBe(2);
+    }
+  });
+
+  it("returns from the tour baseline to End Duty, not to the map", () => {
+    expect(inspectScreen).toContain('router.replace("/(app)/(tabs)?tour_step=end_duty")');
+    expect(homeScreen).toContain('tour_step === "end_duty" ? "tour_end_duty"');
+    // The map checkpoint's own return is untouched.
+    expect(inspectScreen).toContain('router.push("/(app)/(tabs)/map?tour=1&pretrip=passed")');
+  });
+
+  it("forces both Home controls visible while their step is active", () => {
+    // Neither control renders mid-tour on its own: the banner needs an
+    // outstanding baseline on a working day, the card needs a checked-in driver
+    // inside the nudge window. An unmounted target presents nothing.
+    expect(homeScreen).toContain('activeMilestone === "tour_preshift"');
+    expect(homeScreen).toContain('activeMilestone === "tour_end_duty"');
+    expect(homeScreen).toContain('{tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false) ? (');
+    expect(homeScreen).toContain("{tourEndDutyStep || duty.due ? (");
+  });
+
+  it("keeps every tour path off the duty write", () => {
+    // The tour must never start a duty session. Two mechanisms carry that, and
+    // both are load-bearing.
+    //
+    // 1. `observe` blocks the cutout, so the real Start-Shift button underneath
+    //    cannot be pressed mid-tour. Were it `passthrough`, a tap on the real
+    //    control would run a REAL baseline and start duty.
+    expect(overlay).toContain('(isPassthrough ? "none" : "auto")');
+
+    // 2. handleSubmit's early return sits BEFORE the POST that starts duty.
+    const submit = inspectScreen.slice(inspectScreen.indexOf("const handleSubmit"));
+    const guard = submit.indexOf("if (isTour) {");
+    const post = submit.indexOf('api.post("/api/mobile/driver/inspections"');
+    expect(guard).toBeGreaterThan(-1);
+    expect(post).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(post);
+
+    // End Duty is Home-only under this design — the tour explains it and never
+    // opens it — so its screen has no tour entry at all.
+    const endDuty = read("../app/(app)/end-duty.js");
+    expect(endDuty).not.toMatch(/isTour|tour_step/);
+    // It DOES read one route param, and it is not a tour: `reportFor` names the day a
+    // late report belongs to. Pinning the destructuring is stronger than the ban it
+    // replaces — it fails if ANY other param is added beside it.
+    expect(endDuty).toMatch(/const \{ reportFor \} = useLocalSearchParams\(\);/);
+    expect(homeScreen).not.toMatch(/\/end-duty\?[^"]*tour/);
+  });
+
+  it("lets an explicit mode outrank the isTour default, and only that", () => {
+    // §3.7.5: the map checkpoint pushes ?tour=1&from=map with NO mode and must
+    // keep resolving to the quick Pre-Trip set. The tour's baseline asks for the
+    // 7-item set by name. The pinned line is the contract; the table below is
+    // what it has to mean.
+    expect(inspectScreen).toContain(
+      'const screenMode = mode === "preshift" || (!isTour && !tripId && mode !== "pretrip")'
+    );
+    const derive = (isTour, tripId, mode) =>
+      mode === "preshift" || (!isTour && !tripId && mode !== "pretrip")
+        ? "preshift"
+        : "pretrip";
+    expect(derive(true, undefined, "preshift")).toBe("preshift"); // tour baseline
+    expect(derive(true, undefined, undefined)).toBe("pretrip"); // map checkpoint
+    expect(derive(true, undefined, "pretrip")).toBe("pretrip"); // explicit quick
+    expect(derive(false, "7", undefined)).toBe("pretrip"); // trip-scoped
+    expect(derive(false, undefined, undefined)).toBe("preshift"); // Home banner
+    expect(derive(false, undefined, "pretrip")).toBe("pretrip"); // explicit quick
+  });
+
+  describe("duty tour steps — Home gate bypass (§3.7.9)", () => {
+    const home = readFileSync(
+      new URL("../app/(app)/(tabs)/index.js", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+
+    it("both Home controls are forced visible, each keyed on its own milestone", () => {
+      // These two controls are gated on live duty state that is never true
+      // mid-tour, so each step would target an unmounted control and present
+      // nothing. The bypass is keyed on the specific tour milestone — never on
+      // "a tour is running", which would render both controls for every other
+      // step of the tour.
+      expect(home).toContain('const tourPreshiftStep = activeMilestone === "tour_preshift";');
+      expect(home).toContain('const tourEndDutyStep = activeMilestone === "tour_end_duty";');
+      // OR'd with the real gate, not replaced by it: production eligibility is
+      // left exactly as it was.
+      expect(home).toContain(
+        "{tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false) ? ("
+      );
+      expect(home).toContain("{tourEndDutyStep || duty.due ? (");
+    });
+
+    it("both Home targets keep the scrollRef that makes them measurable", () => {
+      // Below the fold inside the Home scroll container: an unmeasured target
+      // presents nothing at all, which is §3.7.8's failure mode.
+      expect(home).toContain('targetId="home.preshift_start" radius={14} scrollRef={scrollRef}');
+      expect(home).toContain('targetId="home.end_duty" radius={14} scrollRef={scrollRef}');
+    });
+  });
+
+  describe("§3.7 Onboarding Sequencing & Single Navigation Ownership", () => {
+    const driverHomeCards = readFileSync(
+      new URL("../components/home/DriverHomeCards.jsx", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+
+    const providerSource = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+
+    const incidentsScreen = readFileSync(
+      new URL("../app/(app)/incidents.js", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+
+    const fuelScreen = readFileSync(
+      new URL("../app/(app)/fuel-report.js", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+
+    it("1. One Report Incident tutorial tap results in exactly one tutorial navigation", () => {
+      // DriverHomeCards delegates to notifyInteraction and does NOT call router.push
+      expect(driverHomeCards).toContain("await notifyInteraction('home.shortcut_incident');");
+      expect(driverHomeCards).not.toContain("router.push('/incidents?tour=1')");
+      // CoachMarkProvider owns the single navigation to /incidents?tour=1
+      expect(providerSource).toContain('router.push("/incidents?tour=1")');
+    });
+
+    it("2. One Fuel tutorial tap results in exactly one tutorial navigation", () => {
+      // DriverHomeCards delegates to notifyInteraction and does NOT call router.push
+      expect(driverHomeCards).toContain("await notifyInteraction('home.shortcut_fuel');");
+      expect(driverHomeCards).not.toContain("router.push('/fuel-report?tour=1')");
+      // CoachMarkProvider owns the single navigation to /fuel-report?tour=1
+      expect(providerSource).toContain('router.push("/fuel-report?tour=1")');
+    });
+
+    it("3. The underlying production action is not invoked while tutorial step or handoff is active", () => {
+      expect(driverHomeCards).toContain("if (walkthroughActive || tutorialTransitioning) {");
+
+      const simulateHandlePress = ({ label, activeMilestone, walkthroughActive, tutorialTransitioning, pendingTourDestination, isTourShortcutActive }) => {
+        let productionCalled = false;
+        let interactionNotified = null;
+        const a = { label, action: () => { productionCalled = true; } };
+
+        const isIncidentTour =
+          activeMilestone === 'tour_incident' ||
+          (isTourShortcutActive ? isTourShortcutActive('Report Incident') : (
+            walkthroughActive && (tutorialTransitioning || pendingTourDestination === 'tour_incident' || pendingTourDestination === '/incidents?tour=1')
+          ));
+
+        if (a.label === 'Report Incident') {
+          if (isIncidentTour) {
+            interactionNotified = 'home.shortcut_incident';
+            return { productionCalled, interactionNotified };
+          }
+          if (walkthroughActive || tutorialTransitioning) {
+            return { productionCalled, interactionNotified };
+          }
+        }
+
+        const isFuelTour =
+          activeMilestone === 'tour_fuel' ||
+          (isTourShortcutActive ? isTourShortcutActive('Fuel') : (
+            walkthroughActive && (tutorialTransitioning || pendingTourDestination === 'tour_fuel' || pendingTourDestination === '/fuel-report?tour=1')
+          ));
+
+        if (a.label === 'Fuel') {
+          if (isFuelTour) {
+            interactionNotified = 'home.shortcut_fuel';
+            return { productionCalled, interactionNotified };
+          }
+          if (walkthroughActive || tutorialTransitioning) {
+            return { productionCalled, interactionNotified };
+          }
+        }
+
+        a.action?.();
+        return { productionCalled, interactionNotified };
+      };
+
+      // During tour_incident milestone:
+      const r1 = simulateHandlePress({ label: 'Report Incident', activeMilestone: 'tour_incident' });
+      expect(r1.productionCalled).toBe(false);
+      expect(r1.interactionNotified).toBe('home.shortcut_incident');
+
+      // During transition from tour_sos to tour_incident (activeMilestone is null):
+      const r2 = simulateHandlePress({ label: 'Report Incident', activeMilestone: null, walkthroughActive: true, tutorialTransitioning: true, pendingTourDestination: 'tour_incident' });
+      expect(r2.productionCalled).toBe(false);
+      expect(r2.interactionNotified).toBe('home.shortcut_incident');
+
+      // During tour_fuel milestone:
+      const r3 = simulateHandlePress({ label: 'Fuel', activeMilestone: 'tour_fuel' });
+      expect(r3.productionCalled).toBe(false);
+      expect(r3.interactionNotified).toBe('home.shortcut_fuel');
+
+      // During transition into tour_fuel:
+      const r4 = simulateHandlePress({ label: 'Fuel', activeMilestone: null, walkthroughActive: true, tutorialTransitioning: true, pendingTourDestination: 'tour_fuel' });
+      expect(r4.productionCalled).toBe(false);
+      expect(r4.interactionNotified).toBe('home.shortcut_fuel');
+
+      // During walkthrough when an unrelated tour step is active (e.g. tour_sos):
+      const r5 = simulateHandlePress({ label: 'Report Incident', activeMilestone: 'tour_sos', walkthroughActive: true });
+      expect(r5.productionCalled).toBe(false);
+      expect(r5.interactionNotified).toBe(null);
+    });
+
+    it("4. /incidents?tour=1 is the first incident screen entered during onboarding", () => {
+      const tourIncidentBlock = providerSource.slice(
+        providerSource.indexOf('} else if (key === "tour_incident")'),
+        providerSource.indexOf('} else if (key === "tour_fuel")')
+      );
+      expect(tourIncidentBlock).toContain('router.push("/incidents?tour=1")');
+      expect(tourIncidentBlock).not.toMatch(/router\.push\(["']\/incidents["']\)/);
+    });
+
+    it("5. /fuel-report?tour=1 is the first fuel screen entered during onboarding", () => {
+      const tourFuelBlock = providerSource.slice(
+        providerSource.indexOf('key === "tour_fuel"'),
+        providerSource.indexOf('}, [driverId, bumpPresentationId')
+      );
+      expect(tourFuelBlock).toContain('router.push("/fuel-report?tour=1")');
+      expect(tourFuelBlock).not.toMatch(/router\.push\(["']\/fuel-report["']\)/);
+    });
+
+    it("6. Tutorial incident submission cannot reach the production incident API", () => {
+      const submitIndex = incidentsScreen.indexOf("const handleSubmit = async () =>");
+      const submitBlock = incidentsScreen.slice(
+        submitIndex,
+        incidentsScreen.indexOf("setSubmitting(true);", submitIndex)
+      );
+      expect(submitBlock).toContain("if (isTour) {");
+      expect(submitBlock).toContain('notifyInteraction?.("incident.submit");');
+      expect(submitBlock).toContain("setShowTourSuccessModal(true);");
+      expect(submitBlock).toContain("return;");
+      expect(submitBlock).not.toContain("api.post");
+    });
+
+    it("7. Tutorial fuel flow cannot reach production fuel mutation APIs", () => {
+      // 1. Submit fuel log is guarded
+      const submitIndex = fuelScreen.indexOf("const handleSubmit = async () =>");
+      const submitBlock = fuelScreen.slice(
+        submitIndex,
+        fuelScreen.indexOf("setSubmitting(true);", submitIndex)
+      );
+      expect(submitBlock).toContain("if (isTour) {");
+      expect(submitBlock).toContain('notifyInteraction?.("fuel.submit_button");');
+      expect(submitBlock).toContain("setShowTourCompleteModal(true);");
+      expect(submitBlock).toContain("return;");
+      expect(submitBlock).not.toContain("api.post");
+
+      // 2. Request fuel is guarded
+      const requestIndex = fuelScreen.indexOf("const requestFuel = async () =>");
+      const requestBlock = fuelScreen.slice(
+        requestIndex,
+        fuelScreen.indexOf("setRequestingFuel(true);", requestIndex)
+      );
+      expect(requestBlock).toContain("if (isTour) {");
+      expect(requestBlock).toContain("setTourApproved(true);");
+      expect(requestBlock).toContain('notifyInteraction?.("fuel.request_button");');
+      expect(requestBlock).toContain("return;");
+      expect(requestBlock).not.toContain("api.post");
+    });
+
+    it("8. Outside the walkthrough, normal Incident and Fuel shortcuts still open production mode", () => {
+      let actionRun = false;
+      const normalAction = { label: 'Report Incident', action: () => { actionRun = true; } };
+      const isIncidentTour = false;
+      const walkthroughActive = false;
+      const tutorialTransitioning = false;
+
+      if (normalAction.label === 'Report Incident') {
+        if (isIncidentTour) {
+        } else if (walkthroughActive || tutorialTransitioning) {
+        } else {
+          normalAction.action();
+        }
+      }
+      expect(actionRun).toBe(true);
+      expect(driverHomeCards).toContain("a.action?.();");
+    });
+
+    it("9. There are no duplicate stack entries caused by both DriverHomeCards and CoachMarkProvider", () => {
+      expect(driverHomeCards).not.toContain('router.push("/incidents?tour=1")');
+      expect(driverHomeCards).not.toContain("router.push('/incidents?tour=1')");
+      expect(driverHomeCards).not.toContain('router.push("/fuel-report?tour=1")');
+      expect(driverHomeCards).not.toContain("router.push('/fuel-report?tour=1')");
+
+      const incidentPushes = (providerSource.match(/router\.push\(["']\/incidents\?tour=1["']\)/g) || []).length;
+      expect(incidentPushes).toBe(1);
+
+      const fuelPushes = (providerSource.match(/router\.push\(["']\/fuel-report\?tour=1["']\)/g) || []).length;
+      expect(fuelPushes).toBe(1);
+    });
+
+    it("10. Structural assertion: CoachMarkProvider is the sole owner of /incidents?tour=1 and /fuel-report?tour=1 navigation", () => {
+      const homeSource = readFileSync(
+        new URL("../app/(app)/(tabs)/index.js", import.meta.url),
+        "utf8"
+      );
+      expect(homeSource).not.toContain('router.push("/incidents?tour=1")');
+      expect(homeSource).not.toContain('router.push("/fuel-report?tour=1")');
+      expect(driverHomeCards).not.toContain("router.push");
+    });
+
+    it("11. Synchronous transition state and context exposures in CoachMarkProvider", () => {
+      expect(providerSource).toContain("walkthroughActive,");
+      expect(providerSource).toContain("tutorialTransitioning,");
+      expect(providerSource).toContain("pendingTourDestination,");
+      expect(providerSource).toContain("isTourShortcutActive,");
+      expect(providerSource).toContain("setTutorialTransition: setTutorialTransitionSync,");
+      expect(providerSource).toContain('setTutorialTransitionSync(true, "tour_incident");');
+      expect(providerSource).toContain('setTutorialTransitionSync(true, "/incidents?tour=1");');
+      expect(providerSource).toContain('setTutorialTransitionSync(true, "/fuel-report?tour=1");');
+    });
   });
 });

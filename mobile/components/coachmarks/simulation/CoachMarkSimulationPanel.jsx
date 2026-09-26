@@ -19,7 +19,7 @@ export default function CoachMarkSimulationPanel({
       style={[
         styles.panel,
         {
-          backgroundColor: isDark ? "#17221D" : "#FFFFFF",
+          backgroundColor: colors.surfaceContainerLow,
           borderColor: isDark
             ? "rgba(166, 199, 184, 0.22)"
             : "rgba(40, 84, 72, 0.14)",

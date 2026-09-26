@@ -138,10 +138,17 @@ export default function SettingsScreen() {
         visible={textSizeModalVisible}
         transparent={true}
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setTextSizeModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <ClayCard variant="standard" style={styles.modalContent}>
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setTextSizeModalVisible(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss text size dialog"
+        >
+          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
+            <ClayCard variant="standard" style={styles.modalContent}>
             <Text style={[type.titleLg, { color: colors.onSurface, marginBottom: 16 }]}>Select Text Size</Text>
             {['small', 'medium', 'large'].map((size) => (
               <Pressable
@@ -176,7 +183,8 @@ export default function SettingsScreen() {
               />
             </View>
           </ClayCard>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -256,6 +264,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 24,
   },
+  modalAbsorb: { width: '100%', alignItems: 'center' },
   modalContent: {
     width: '100%',
     borderRadius: 24,

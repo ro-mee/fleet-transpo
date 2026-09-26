@@ -38,8 +38,12 @@ Routing is file-based via `expo-router`; `package.json` `main` points at
 | `app/(app)/(tabs)/` | Bottom-tab driver app: home, trips, vehicle, alerts, profile |
 | `app/(app)/fuel-report.js` | Fuel submission for the active trip's vehicle |
 | `app/(app)/incidents.js` | Driver incident / emergency reporting |
-| `app/(app)/inspection.js` | Vehicle inspection snapshot (read-only) |
+| `app/(app)/inspection.js` | Dual-mode inspection screen: Pre-Shift (7-point baseline) and Quick Pre-Trip (4 critical items) |
+| `app/(app)/end-duty.js` | End Duty report — one question ("anything unusual?") plus free text; submitting it is what closes the shift |
 | `app/(app)/consent.js` | Privacy policy consent gate |
+| `lib/api.js` | fetch wrapper; timeout, retry, refreshes token on 401. `ApiError` carries the server's `code` so screens branch on it (e.g. `PRESHIFT_REQUIRED`) rather than matching message text |
+| `lib/end-duty.js` | Pure nudge window — 30 min before the server's shift end, staying open afterwards |
+| `lib/use-duty.js` | One duty-state hook (`checkedIn`/`busy`/`preshiftRequired`/`today`/`due`) shared by Home and Profile |
 | `lib/api.js` | fetch wrapper; timeout, retry, refreshes token on 401 |
 | `lib/auth.js` | Session context |
 | `lib/storage.js` | Token storage via `expo-secure-store` |

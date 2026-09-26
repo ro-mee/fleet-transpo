@@ -263,7 +263,7 @@ export default function LicenseInformation() {
         </ClayCard>
       </ScrollView>
 
-      <Modal visible={!!viewerImage} transparent={true} animationType="fade" onRequestClose={() => setViewerImage(null)}>
+      <Modal visible={!!viewerImage} transparent={true} animationType="fade" statusBarTranslucent onRequestClose={() => setViewerImage(null)}>
         <View style={styles.viewerContainer}>
           <Pressable style={styles.viewerCloseArea} onPress={() => setViewerImage(null)} />
           <Image source={{ uri: viewerImage }} style={styles.viewerImage} resizeMode="contain" />

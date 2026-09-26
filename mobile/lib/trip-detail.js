@@ -33,23 +33,43 @@ export function detailPrimaryAction(trip) {
  * a valid earliest_start window that has opened AND a passed pre-trip
  * inspection. `unavailableReason` explains the blocking gate, in priority
  * order, for the disabled-action label.
+ *
+ * `preShiftPassed` is the shift-wide baseline: today's full Pre-Shift check,
+ * which gates EVERY trip rather than one. It defaults to true so existing
+ * two-argument callers are unaffected — and because it is a fact the caller may
+ * not know yet. Callers that have not resolved it must pass true, not false:
+ * this function gates on what it is told, and "not loaded" is not "missing".
+ *
+ * Priority is pre_shift FIRST, ahead of schedule and window. Those two describe
+ * a clock the driver cannot change; an outstanding baseline is the one thing
+ * they can act on right now, so it is what the label should point at.
  */
-export function readinessFor(trip, nowMs) {
+export function readinessFor(trip, nowMs, { preShiftPassed = true } = {}) {
   const earliestStart = parseMs(trip?.earliest_start);
   const recommended = parseMs(trip?.recommended_departure);
   const preTripPassed = trip?.pre_trip_status === "Passed";
   const windowOpen = earliestStart != null && nowMs >= earliestStart;
-  const startReady = windowOpen && preTripPassed;
+  const startReady = windowOpen && preTripPassed && preShiftPassed;
   const minsToStart = earliestStart != null
     ? Math.max(0, Math.ceil((earliestStart - nowMs) / 60000))
     : null;
   let unavailableReason = null;
   if (!startReady) {
-    if (earliestStart == null) unavailableReason = "schedule";
+    if (!preShiftPassed) unavailableReason = "pre_shift";
+    else if (earliestStart == null) unavailableReason = "schedule";
     else if (!windowOpen) unavailableReason = "window";
     else unavailableReason = "inspection";
   }
-  return { earliestStart, recommended, windowOpen, preTripPassed, startReady, minsToStart, unavailableReason };
+  return {
+    earliestStart,
+    recommended,
+    windowOpen,
+    preTripPassed,
+    preShiftPassed,
+    startReady,
+    minsToStart,
+    unavailableReason,
+  };
 }
 
 /**
