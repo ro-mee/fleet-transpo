@@ -470,6 +470,23 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     expect(mobile).toMatch(/factor: "otp"/);
   });
 
+  it('web verify failures speak attempts, strikes, and an instant freeze, in that safety order', () => {
+    const web = read('lib/auth.js');
+    expect(web).toMatch(/OTP_ATTEMPTS_LEFT:\$\{factor\.attemptsRemaining\}/);
+    expect(web).toMatch(/OTP_STRIKE:\$\{factor\.strike\}/);
+    const failBlock = web.slice(web.indexOf('if (!factor.ok)'), web.indexOf('let driverStatus'));
+    const lockAt = failBlock.indexOf('factor.reason === "otp_locked" || factor.lockTripped');
+    const strikeAt = failBlock.indexOf('OTP_STRIKE');
+    const genericAt = failBlock.indexOf('throw new Error("MFA_INVALID")');
+    expect(lockAt).toBeGreaterThan(-1);
+    expect(strikeAt).toBeGreaterThan(-1);
+    expect(genericAt).toBeGreaterThan(-1);
+    // The freeze verdict outranks the strike verdict: a trip burn must answer
+    // OTP_LOCKED with its exact seconds, never OTP_STRIKE:3.
+    expect(lockAt).toBeLessThan(strikeAt);
+    expect(strikeAt).toBeLessThan(genericAt);
+  });
+
   it('the admin emergency path answers 429 with a wait, not a generic 500', () => {
     const emergency = read('app/api/auth/mfa/emergency-code/route.js');
     expect(emergency).toMatch(/issued\?\.reason === "otp_locked"/);

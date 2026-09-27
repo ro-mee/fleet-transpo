@@ -263,8 +263,16 @@ export const authOptions = {
               resourceId: employee.employee_id,
               newValues: { channel: "web", reason: factor.reason },
             });
-            if (factor.reason === "otp_locked") {
+            // Freeze outranks strike: the 3rd burn answers with the live
+            // countdown, never with a "strike 3 of 3" the user cannot act on.
+            if (factor.reason === "otp_locked" || factor.lockTripped) {
               throw new Error(`OTP_LOCKED:${factor.retryAfterSeconds}`);
+            }
+            if (factor.reason === "attempts_exhausted") {
+              throw new Error(`OTP_STRIKE:${factor.strike}`);
+            }
+            if (factor.reason === "invalid") {
+              throw new Error(`OTP_ATTEMPTS_LEFT:${factor.attemptsRemaining}`);
             }
             throw new Error("MFA_INVALID");
           }
