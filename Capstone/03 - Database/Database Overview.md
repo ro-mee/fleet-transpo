@@ -100,7 +100,7 @@ Four objects existed with no migration file and one CHECK constraint differed. *
 **Relationship:** [[driver_vehicle_assignments]] · [[reservation_events]]
 **Boundary:** [[integration_log]]
 **Address:** [[addresses]] — the one address registry (migration 122). **No entity gets its own lat/lng pair**; `locations`, `drivers` and `transportation_requests` point at it by FK. Holds home addresses and next-of-kin addresses, so it is `private` with a revoke rather than RLS alone.
-**Geography:** [[Geography Tables]] — `ph_regions` / `ph_provinces` / `ph_cities` / `ph_barangays` (migration 123, **applied**; `schema.sql` not yet refreshed). The Philippine Standard Geographic Code hierarchy the cascading address form picks from; `addresses.psgc_barangay_code` points into it. All four `private` and revoked — not because they hold personal data, but because a writable anon path to `ph_barangays` would let anyone holding the public key repoint where a barangay sits in the hierarchy.
+**Geography:** [[Geography Tables]] — `ph_regions` / `ph_provinces` / `ph_cities` / `ph_barangays` (migrations 123, 124 and 136, **applied**; refreshed from PSA's 2Q 2026 publication). Current counts: 18 / 82 / 1,642 / 42,010. `addresses.psgc_barangay_code` points into the hierarchy. All four are `private` and revoked — not because they hold personal data, but because a writable anon path to `ph_barangays` would let anyone holding the public key repoint where a barangay sits in the hierarchy.
 **Dropped:** [[vehiclereservations]] — kept as a note because the *reason* it existed still explains the schema's shape
 
 ## Related

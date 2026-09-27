@@ -2,9 +2,11 @@
 // Import the Philippine Standard Geographic Code hierarchy into the ph_* tables.
 //
 //   node scripts/import-psgc.mjs <export-file> [--dry-run]
+//   node scripts/import-psgc.mjs <full-snapshot> --dry-run --sync-snapshot
+//   node scripts/import-psgc.mjs <full-snapshot> --sync-snapshot --backup <new-file>
 //
-// The address form's cascade cannot work without this data. Migration 123 seeds
-// the 17 regions; provinces, cities and barangays are NOT seeded, because
+// The address form's cascade cannot work without this data. Migrations seed the
+// curated regions; provinces, cities and barangays are NOT seeded, because
 // writing tens of thousands of barangays from memory would assert places that
 // may not exist. This script is where they actually come from.
 //
@@ -34,9 +36,9 @@
 // already present). A file that gets the hierarchy wrong is rejected before
 // anything is written.
 //
-// If your source is the raw PSA spreadsheet, map its columns into the shape
-// above first. The PSA export carries Region / Province / City / Barangay name
-// and code columns; the codes are what this script wants, not the names.
+// For the PSA 2Q 2026 workbook, first use scripts/psgc-publication-import.mjs
+// to produce explicit parent-code rows. That adapter applies workbook ordering
+// and city-class rules; this importer still validates the resulting hierarchy.
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // SAFETY
@@ -47,18 +49,23 @@
 //   * Re-runnable and idempotent: rows are upserted on `psgc_code`, so a
 //     corrected export converges the tables onto it. This matters because PSGC
 //     churn is real — barangays are created and renamed by plebiscite — and
-//     because the migration-123 region seed can then be corrected by a file
-//     rather than by editing a migration.
-//   * It never DELETES. A code absent from the file stays in the table, because
+//     and region display names remain migration-owned.
+//   * The default mode never DELETES. A code absent from a partial file stays in
+//     the table, because
 //     deleting a barangay would null out `addresses.psgc_barangay_code` for
 //     every address pointing at it. Removing retired geography is a deliberate,
-//     separate act.
+//     explicit snapshot-only act. `--sync-snapshot` requires a full hierarchy,
+//     all parent rows in the file, an unused rollback-backup path, and zero
+//     address references to absent barangay codes. It locks address/geography
+//     writes, then upserts and retires leaf-to-parent in one transaction.
+//     Region rows are never pruned or used to overwrite curated labels.
 //   * Credentials come from .env via load-env.mjs — never a literal here.
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { Pool } from "pg";
 import { loadEnvLocal } from "./load-env.mjs";
+import { assertFullSnapshot, assertNoReferencedRetirements, planSnapshotSync } from "./lib/psgc-snapshot.mjs";
 
 const LEVELS = ["region", "province", "city", "barangay"];
 const BATCH_SIZE = 500;
@@ -164,7 +171,7 @@ function loadRows(file) {
     if (!Array.isArray(list)) {
       throw new Error("JSON input must be an array, or { records: [...] }.");
     }
-    return { rows: list, headers: resolveHeaders(Object.keys(list[0] ?? {})) };
+    return { rows: list, headers: resolveHeaders(Object.keys(list[0] ?? {})), source: parsed.source ?? null };
   }
 
   const table = parseCsv(raw).filter((row) => row.some((cell) => cell.trim() !== ""));
@@ -179,7 +186,7 @@ function loadRows(file) {
     }
     return record;
   });
-  return { rows, headers: mapping };
+  return { rows, headers: mapping, source: null };
 }
 
 /** Trim a cell, treating an empty string as absent rather than as a value. */
@@ -253,7 +260,7 @@ function shapeRows(rows, headers) {
  * already in the table) is rejected, rather than producing an orphan the cascade
  * silently cannot reach.
  */
-function validateHierarchy(records, existing) {
+function validateHierarchy(records, existing, strictSnapshot = false) {
   const problems = [];
   const byLevel = Object.fromEntries(LEVELS.map((level) => [level, new Map()]));
 
@@ -268,7 +275,7 @@ function validateHierarchy(records, existing) {
 
   /** A parent is resolvable if the file supplies it or the table already has it. */
   const known = (level, code) =>
-    byLevel[level].has(code) || existing[level].has(code);
+    byLevel[level].has(code) || (!strictSnapshot && existing[level].has(code));
 
   for (const record of records) {
     if (record.level === "province" && !record.regionCode) {
@@ -319,10 +326,13 @@ async function upsert(client, level, rows, columns, conflictUpdates) {
       return `(${placeholders.join(", ")})`;
     });
 
+    const conflict = conflictUpdates === "DO NOTHING"
+      ? "DO NOTHING"
+      : `DO UPDATE SET ${conflictUpdates}`;
     await client.query(
       `INSERT INTO public.${level} (${columns.join(", ")})
        VALUES ${tuples.join(", ")}
-       ON CONFLICT (psgc_code) DO UPDATE SET ${conflictUpdates}`,
+       ON CONFLICT (psgc_code) ${conflict}`,
       values
     );
     written += batch.length;
@@ -330,17 +340,55 @@ async function upsert(client, level, rows, columns, conflictUpdates) {
   return written;
 }
 
+async function writeRollbackBackup(client, file, source) {
+  const records = [];
+  const queries = [
+    ["ph_regions", "SELECT psgc_code, name FROM public.ph_regions ORDER BY psgc_code", (row) => ({ level: "region", psgc_code: row.psgc_code, name: row.name })],
+    ["ph_provinces", "SELECT psgc_code, name, region_code FROM public.ph_provinces ORDER BY psgc_code", (row) => ({ level: "province", psgc_code: row.psgc_code, name: row.name, region_code: row.region_code })],
+    ["ph_cities", "SELECT psgc_code, name, region_code, province_code, is_city FROM public.ph_cities ORDER BY psgc_code", (row) => ({ level: "city", psgc_code: row.psgc_code, name: row.name, region_code: row.region_code, province_code: row.province_code, is_city: row.is_city })],
+    ["ph_barangays", "SELECT psgc_code, name, city_code FROM public.ph_barangays ORDER BY psgc_code", (row) => ({ level: "barangay", psgc_code: row.psgc_code, name: row.name, city_code: row.city_code })],
+  ];
+  for (const [, sql, mapRow] of queries) {
+    const { rows } = await client.query(sql);
+    records.push(...rows.map(mapRow));
+  }
+
+  const output = resolve(process.cwd(), file);
+  if (existsSync(output)) throw new Error(`Rollback backup already exists: ${output}`);
+  mkdirSync(dirname(output), { recursive: true });
+  const temp = `${output}.${process.pid}.tmp`;
+  try {
+    const payload = { source: { kind: "pre-sync database backup", importedSource: source, createdAt: new Date().toISOString() }, records };
+    writeFileSync(temp, `${JSON.stringify(payload, null, 2)}\n`, { flag: "wx" });
+    renameSync(temp, output);
+  } catch (error) {
+    try { unlinkSync(temp); } catch {}
+    throw error;
+  }
+  console.log(`Rollback snapshot saved: ${output} (${records.length} records)`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
+  const syncSnapshot = args.includes("--sync-snapshot");
+  const backupIndex = args.indexOf("--backup");
+  const backupFile = backupIndex >= 0 ? args[backupIndex + 1] : null;
   const file = args.find((arg) => !arg.startsWith("--"));
 
   if (!file) {
-    console.error("Usage: node scripts/import-psgc.mjs <export-file> [--dry-run]");
+    console.error("Usage: node scripts/import-psgc.mjs <export-file> [--dry-run] [--sync-snapshot [--backup <file>]]");
     process.exit(1);
   }
+  if (backupIndex >= 0 && (!backupFile || backupFile.startsWith("--"))) {
+    throw new Error("--backup needs a new file path.");
+  }
+  if (backupFile && !syncSnapshot) throw new Error("--backup is only valid with --sync-snapshot.");
+  if (syncSnapshot && !dryRun && !backupFile) {
+    throw new Error("A real --sync-snapshot run requires --backup <new-file> so the current rows can be restored.");
+  }
 
-  const { rows, headers } = loadRows(resolve(process.cwd(), file));
+  const { rows, headers, source } = loadRows(resolve(process.cwd(), file));
   const { records, problems: shapeProblems } = shapeRows(rows, headers);
 
   if (records.length === 0) {
@@ -360,6 +408,7 @@ async function main() {
     ssl: { rejectUnauthorized: false },
   });
   const client = await pool.connect();
+  let transactionOpen = false;
 
   try {
     // A clear message beats `relation "public.ph_regions" does not exist`, which
@@ -371,22 +420,56 @@ async function main() {
       throw new Error("The ph_* tables do not exist yet — apply migration 123 first (npm run db:up).");
     }
 
-    // What the tables already hold, so a partial re-import validates against it.
-    const existing = {};
-    for (const level of LEVELS) {
-      const { rows: found } = await client.query(`SELECT psgc_code FROM public.${tableFor(level)}`);
-      existing[level] = new Set(found.map((r) => r.psgc_code));
+    if (syncSnapshot && !dryRun) {
+      await client.query("BEGIN");
+      transactionOpen = true;
+      // Block address writes while checking their PSGC references and retiring
+      // rows. Reads remain available throughout this short import transaction.
+      await client.query(
+        "LOCK TABLE public.addresses, public.ph_regions, public.ph_provinces, public.ph_cities, public.ph_barangays IN SHARE ROW EXCLUSIVE MODE"
+      );
     }
 
-    const hierarchyProblems = validateHierarchy(records, existing);
+    // What the tables already hold, so a partial re-import validates against it.
+    const existing = {};
+    const existingRows = {};
+    const SELECT_EXISTING = {
+      region: "SELECT psgc_code, name FROM public.ph_regions",
+      province: "SELECT psgc_code, name, region_code FROM public.ph_provinces",
+      city: "SELECT psgc_code, name, region_code, province_code, is_city FROM public.ph_cities",
+      barangay: "SELECT psgc_code, name, city_code FROM public.ph_barangays",
+    };
+    for (const level of LEVELS) {
+      const { rows: found } = await client.query(SELECT_EXISTING[level]);
+      existing[level] = new Set(found.map((r) => r.psgc_code));
+      existingRows[level] = new Map(found.map((row) => [row.psgc_code, row]));
+    }
+
+    const hierarchyProblems = validateHierarchy(records, existing, syncSnapshot);
     const problems = [...shapeProblems, ...hierarchyProblems];
 
     const counts = Object.fromEntries(LEVELS.map((l) => [l, 0]));
     for (const record of records) counts[record.level] += 1;
 
     console.log(`Read ${records.length} rows from ${file}`);
+    if (source?.publisher) console.log(`Source: ${source.publisher}; ${source.title}; ${source.publicationDate}.`);
     for (const level of LEVELS) {
       console.log(`  ${level.padEnd(9)} ${counts[level]}`);
+    }
+
+    let snapshotPlan = null;
+    if (syncSnapshot) {
+      assertFullSnapshot(records);
+      const { rows: references } = await client.query(
+        "SELECT DISTINCT psgc_barangay_code FROM public.addresses WHERE psgc_barangay_code IS NOT NULL"
+      );
+      snapshotPlan = planSnapshotSync(records, existing, references.map((row) => row.psgc_barangay_code), existingRows);
+      assertNoReferencedRetirements(snapshotPlan);
+      console.log("\nSnapshot reconciliation plan:");
+      for (const level of LEVELS) {
+        console.log(`  ${level.padEnd(9)} add ${snapshotPlan.add[level].length}; update ${snapshotPlan.update[level]}; retire ${snapshotPlan.retire[level].length}`);
+      }
+      console.log("  saved address references to retired barangays: 0");
     }
 
     if (problems.length) {
@@ -396,6 +479,10 @@ async function main() {
       console.error(`\n${problems.length} problem(s) — nothing written:`);
       for (const problem of problems.slice(0, 25)) console.error(`  ${problem}`);
       if (problems.length > 25) console.error(`  … and ${problems.length - 25} more`);
+      if (transactionOpen) {
+        await client.query("ROLLBACK");
+        transactionOpen = false;
+      }
       process.exitCode = 1;
       return;
     }
@@ -405,12 +492,18 @@ async function main() {
       return;
     }
 
-    await client.query("BEGIN");
+    if (!transactionOpen) {
+      await client.query("BEGIN");
+      transactionOpen = true;
+    }
+    if (syncSnapshot) await writeRollbackBackup(client, backupFile, source);
 
     const written = {};
     written.region = await upsert(
-      client, "ph_regions", records.filter((r) => r.level === "region"),
-      ["psgc_code", "name"], "name = EXCLUDED.name"
+      client, "ph_regions", records.filter((r) => r.level === "region").map((r) => ({
+        psgc_code: r.code, name: r.name,
+      })),
+      ["psgc_code", "name"], syncSnapshot ? "DO NOTHING" : "name = EXCLUDED.name"
     );
     written.province = await upsert(
       client, "ph_provinces", records.filter((r) => r.level === "province").map((r) => ({
@@ -433,12 +526,34 @@ async function main() {
       ["psgc_code", "city_code", "name"], "name = EXCLUDED.name, city_code = EXCLUDED.city_code"
     );
 
+    const retired = {};
+    if (syncSnapshot) {
+      for (const [level, table] of [
+        ["barangay", "ph_barangays"],
+        ["city", "ph_cities"],
+        ["province", "ph_provinces"],
+      ]) {
+        const codes = records.filter((record) => record.level === level).map((record) => record.code);
+        const { rowCount } = await client.query(
+          `DELETE FROM public.${table} WHERE NOT (psgc_code = ANY($1::varchar[]))`,
+          [codes]
+        );
+        retired[level] = rowCount;
+      }
+      retired.region = 0; // Region labels and lifecycle remain migration-owned.
+    }
+
     // One transaction, one commit: a failure above leaves the tables untouched
     // rather than half-populated.
     await client.query("COMMIT");
+    transactionOpen = false;
 
     console.log("\nImported:");
     for (const level of LEVELS) console.log(`  ${level.padEnd(9)} ${written[level]}`);
+    if (syncSnapshot) {
+      console.log("Retired absent codes:");
+      for (const level of LEVELS) console.log(`  ${level.padEnd(9)} ${retired[level]}`);
+    }
 
     // Row counts AFTER the write, so the reported number is the table's actual
     // size rather than what this run happened to carry.
@@ -448,7 +563,7 @@ async function main() {
       console.log(`  ${table.padEnd(14)} now holds ${row.n}`);
     }
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
+    if (transactionOpen) await client.query("ROLLBACK").catch(() => {});
     throw error;
   } finally {
     client.release();

@@ -221,7 +221,7 @@ export const TABLES = Object.freeze({
   ph_regions: {
     classification: CLASSIFICATION.PRIVATE,
     reason:
-      "The 17 stable Philippine regions, seeded by migration 123. Root of the address cascade. Not personal data, but read only through the API — see the group note.",
+      "The 18 curated Philippine regions, seeded by migrations 123, 124 and 136. Root of the address cascade. Not personal data, but read only through the API — see the group note.",
     rlsNote:
       "Enabled explicitly by migration 123 along with a REVOKE of anon/authenticated. Migration 100 was a one-time list of 20 tables, not a standing rule, so a table created afterwards inherits nothing (SEC-DB-003), and RLS alone would still leave TRUNCATE reachable through the public anon key. No sequence exists to revoke: the primary key is the natural PSGC code.",
   },
