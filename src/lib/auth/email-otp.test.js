@@ -19,7 +19,9 @@ import {
   formatLockWait,
   isDeliverableEmailAddress,
   maskEmailAddress,
+  parseOtpAttemptsLeft,
   parseOtpLock,
+  parseOtpStrike,
 } from "./otp-policy";
 
 /**
@@ -530,5 +532,54 @@ describe("OTP_LOCKED token", () => {
     expect(formatLockWait(60)).toBe("1 minute");
     expect(formatLockWait(45)).toBe("45 seconds");
     expect(formatLockWait(1)).toBe("1 second");
+  });
+});
+
+describe("OTP_ATTEMPTS_LEFT token", () => {
+  it("parses a count inside the challenge policy", () => {
+    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:4")).toBe(4);
+    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:1")).toBe(1);
+    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:5")).toBe(OTP_MAX_ATTEMPTS);
+  });
+
+  it("falls through on anything malformed or out of policy", () => {
+    for (const bad of [
+      "OTP_ATTEMPTS_LEFT:0",
+      "OTP_ATTEMPTS_LEFT:6",
+      "OTP_ATTEMPTS_LEFT:1.5",
+      "OTP_ATTEMPTS_LEFT:abc",
+      "OTP_ATTEMPTS_LEFT",
+      "OTP_STRIKE:2",
+      "MFA_INVALID",
+      null,
+      undefined,
+      4,
+    ]) {
+      expect(parseOtpAttemptsLeft(bad)).toBeNull();
+    }
+  });
+});
+
+describe("OTP_STRIKE token", () => {
+  it("parses a strike inside the lockout policy", () => {
+    expect(parseOtpStrike("OTP_STRIKE:1")).toBe(1);
+    expect(parseOtpStrike("OTP_STRIKE:3")).toBe(OTP_LOCKOUT_LIMIT);
+  });
+
+  it("falls through on anything malformed or out of policy", () => {
+    for (const bad of [
+      "OTP_STRIKE:0",
+      "OTP_STRIKE:4",
+      "OTP_STRIKE:1.5",
+      "OTP_STRIKE:abc",
+      "OTP_STRIKE",
+      "OTP_ATTEMPTS_LEFT:2",
+      "MFA_INVALID",
+      null,
+      undefined,
+      "2",
+    ]) {
+      expect(parseOtpStrike(bad)).toBeNull();
+    }
   });
 });

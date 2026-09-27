@@ -84,6 +84,36 @@ export function parseOtpLock(message) {
   return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
 }
 
+/** Wire prefix of the attempts-left token both login channels speak. */
+export const OTP_ATTEMPTS_LEFT_PREFIX = "OTP_ATTEMPTS_LEFT:";
+
+/** Wire prefix of the burn-strike token both login channels speak. */
+export const OTP_STRIKE_PREFIX = "OTP_STRIKE:";
+
+/**
+ * Remaining attempts from an `OTP_ATTEMPTS_LEFT:<n>` token, or null for
+ * anything else. Same contract as parseOtpLock: one helper decides both the
+ * branch and the count, a malformed token falls through to the caller's
+ * generic message, and the range is checked against the policy ceiling so a
+ * corrupt token cannot show "7 attempts left" under a 5-attempt challenge.
+ */
+export function parseOtpAttemptsLeft(message) {
+  if (typeof message !== "string" || !message.startsWith(OTP_ATTEMPTS_LEFT_PREFIX)) return null;
+  const count = Number(message.slice(OTP_ATTEMPTS_LEFT_PREFIX.length));
+  return Number.isInteger(count) && count >= 1 && count <= OTP_MAX_ATTEMPTS ? count : null;
+}
+
+/**
+ * Strike number (1..OTP_LOCKOUT_LIMIT) from an `OTP_STRIKE:<n>` token, or
+ * null for anything else. The 3rd burn never carries this token — it carries
+ * `OTP_LOCKED:<seconds>` — so 3 is accepted only as a defensive ceiling.
+ */
+export function parseOtpStrike(message) {
+  if (typeof message !== "string" || !message.startsWith(OTP_STRIKE_PREFIX)) return null;
+  const strike = Number(message.slice(OTP_STRIKE_PREFIX.length));
+  return Number.isInteger(strike) && strike >= 1 && strike <= OTP_LOCKOUT_LIMIT ? strike : null;
+}
+
 /** "7 minutes" / "45 seconds" / "1 second" — the wait a locked-out user reads. */
 export function formatLockWait(seconds) {
   const total = Math.max(1, Math.ceil(Number(seconds) || 0));
