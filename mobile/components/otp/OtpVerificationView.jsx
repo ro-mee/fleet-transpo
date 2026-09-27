@@ -17,6 +17,7 @@ import { AuthHeader } from "../auth/AuthHeader";
 import { OtpInput } from "./OtpInput";
 import {
   OTP_CODE_DIGITS,
+  OTP_LOCKOUT_LIMIT,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_SUCCESS_HOLD_MS,
   OTP_TTL_SECONDS,
@@ -25,7 +26,9 @@ import {
   formatLockWait,
   isEmailLike,
   maskEmailAddress,
+  parseOtpAttemptsLeft,
   parseOtpLock,
+  parseOtpStrike,
   sanitizeOtpInput,
 } from "../../lib/otp";
 
@@ -139,8 +142,18 @@ export function OtpVerificationView({
         verifyingRef.current = false;
         if (!mountedRef.current) return;
         const message = e?.message || "Verification failed. Please try again.";
+        const attemptsLeft = parseOtpAttemptsLeft(message);
+        const strike = parseOtpStrike(message);
         if (message === "MFA_INVALID") {
           fail("Incorrect verification code.\nPlease check the code and try again.");
+        } else if (attemptsLeft !== null) {
+          fail(`Incorrect code.\n${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left.`);
+        } else if (strike !== null) {
+          const more = OTP_LOCKOUT_LIMIT - strike;
+          fail(
+            `That code was wrong. Strike ${strike} of ${OTP_LOCKOUT_LIMIT}.\n` +
+              `${more} more failed code${more === 1 ? "" : "s"} will freeze this account for 15 minutes.`
+          );
         } else if (message === "MFA_UNAVAILABLE") {
           fail("Verification is temporarily unavailable. Please try again shortly.", {
             keepCode: true,

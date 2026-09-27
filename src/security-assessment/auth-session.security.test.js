@@ -515,6 +515,18 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     expect(strikeAt).toBeLessThan(genericAt);
   });
 
+  it('both mobile surfaces speak attempts, strikes, and the freeze', () => {
+    const otpView = repo('mobile/components/otp/OtpVerificationView.jsx');
+    expect(otpView).toMatch(/parseOtpAttemptsLeft\(message\)/);
+    expect(otpView).toMatch(/parseOtpStrike\(message\)/);
+    expect(otpView).toMatch(/attempt\$\{attemptsLeft === 1 \? "" : "s"\} left\./);
+    expect(otpView).toMatch(/Strike \$\{strike\} of \$\{OTP_LOCKOUT_LIMIT\}\./);
+    const login = repo('mobile/app/login.js');
+    expect(login).toMatch(/parseOtpAttemptsLeft\(e\?\.message\)/);
+    expect(login).toMatch(/parseOtpStrike\(e\?\.message\)/);
+    expect(login).toMatch(/Strike \$\{strike\} of \$\{OTP_LOCKOUT_LIMIT\} — request a new code\./);
+  });
+
   it('the admin emergency path answers 429 with a wait, not a generic 500', () => {
     const emergency = read('app/api/auth/mfa/emergency-code/route.js');
     expect(emergency).toMatch(/issued\?\.reason === "otp_locked"/);

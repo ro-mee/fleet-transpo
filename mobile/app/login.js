@@ -24,7 +24,7 @@ import { ClayCard, ClayButton, ClayInput } from "../components/clay";
 import { AuthHeader } from "../components/auth/AuthHeader";
 import { OtpVerificationView } from "../components/otp/OtpVerificationView";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
-import { formatLockWait, parseOtpLock } from "../lib/otp";
+import { OTP_LOCKOUT_LIMIT, formatLockWait, parseOtpAttemptsLeft, parseOtpLock, parseOtpStrike } from "../lib/otp";
 
 /**
  * The one-time offer shown right after a successful password + OTP sign-in.
@@ -194,6 +194,8 @@ export default function LoginScreen() {
       await handlePostLogin(driver);
     } catch (e) {
       const lockSecs = parseOtpLock(e?.message);
+      const attemptsLeft = parseOtpAttemptsLeft(e?.message);
+      const strike = parseOtpStrike(e?.message);
       if (e.message === "MFA_REQUIRED") {
         // Valid credentials: the server has emailed a fresh 6-digit code.
         // The OTP step owns everything from here — no code field on this
@@ -201,6 +203,14 @@ export default function LoginScreen() {
         setMfaRequired(true);
       } else if (e.message === "MFA_INVALID") {
         setError("That verification code is invalid or already used.");
+      } else if (attemptsLeft !== null) {
+        setError(`Incorrect code — ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left.`);
+      } else if (strike !== null) {
+        const more = OTP_LOCKOUT_LIMIT - strike;
+        setError(
+          `That code was wrong. Strike ${strike} of ${OTP_LOCKOUT_LIMIT} — request a new code. ` +
+            `${more} more failed code${more === 1 ? "" : "s"} will freeze this account for 15 minutes.`
+        );
       } else if (e.message === "OTP_UNDELIVERABLE") {
         setError(
           "No verification code could be sent to this account. Contact your administrator."
