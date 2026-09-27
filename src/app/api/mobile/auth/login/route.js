@@ -277,8 +277,16 @@ export async function POST(req) {
         resourceId: employee.employee_id,
         newValues: { channel: "mobile", reason: factor.reason },
       });
-      if (factor.reason === "otp_locked") {
+      // Freeze outranks strike: the 3rd burn answers with the live countdown,
+      // never with a "strike 3 of 3" the user cannot act on.
+      if (factor.reason === "otp_locked" || factor.lockTripped) {
         return otpLockedResponse(factor.retryAfterSeconds);
+      }
+      if (factor.reason === "attempts_exhausted") {
+        return err(`OTP_STRIKE:${factor.strike}`, 401);
+      }
+      if (factor.reason === "invalid") {
+        return err(`OTP_ATTEMPTS_LEFT:${factor.attemptsRemaining}`, 401);
       }
       return err("MFA_INVALID", 401);
     }

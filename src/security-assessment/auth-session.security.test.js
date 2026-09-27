@@ -496,6 +496,21 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     expect(page).toMatch(/failAttempt\("That verification code is invalid or already used\."\)/);
   });
 
+  it('the mobile channel maps attempts and strikes and freezes on the third burn itself', () => {
+    const mobile = read('app/api/mobile/auth/login/route.js');
+    expect(mobile).toMatch(/OTP_ATTEMPTS_LEFT:\$\{factor\.attemptsRemaining\}/);
+    expect(mobile).toMatch(/OTP_STRIKE:\$\{factor\.strike\}/);
+    const failBlock = mobile.slice(mobile.indexOf('if (!factor.ok)'), mobile.indexOf('const { token: refreshToken'));
+    const lockAt = failBlock.indexOf('factor.reason === "otp_locked" || factor.lockTripped');
+    const strikeAt = failBlock.indexOf('OTP_STRIKE');
+    const genericAt = failBlock.indexOf('return err("MFA_INVALID", 401)');
+    expect(lockAt).toBeGreaterThan(-1);
+    expect(strikeAt).toBeGreaterThan(-1);
+    expect(genericAt).toBeGreaterThan(-1);
+    expect(lockAt).toBeLessThan(strikeAt);
+    expect(strikeAt).toBeLessThan(genericAt);
+  });
+
   it('the admin emergency path answers 429 with a wait, not a generic 500', () => {
     const emergency = read('app/api/auth/mfa/emergency-code/route.js');
     expect(emergency).toMatch(/issued\?\.reason === "otp_locked"/);
