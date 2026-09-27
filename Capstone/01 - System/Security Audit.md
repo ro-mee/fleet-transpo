@@ -683,6 +683,20 @@ cases, `login-status/route.test.js` (an active OTP lock must produce no
 observable state), SEC-AUTH-006 source pins, mobile
 `otp.test.js` token-parity pins, full suite + touched-file lint green.
 
+**OTP failure feedback (2026-09-27, implemented):** the account-level lockout
+was correct but silent — `auth.js` collapsed every wrong code to a bare
+`MFA_INVALID`, discarding the `attemptsRemaining`/`lockTripped` it computed, so
+a user could burn 9 codes seeing one identical message. Both channels now carry
+`OTP_ATTEMPTS_LEFT:<n>` (4..1) per miss, `OTP_STRIKE:<n>` (1..2) per burn, and
+an **instant** `OTP_LOCKED:<seconds>` on the 3rd burn — seconds =
+`windowRetryAfter`, the window's true remainder from burn #1. Counts derive
+from the challenge row and the `lockout:otp` bucket itself, never client
+state; no new endpoint, and `login-status` still exposes no OTP state (the
+existence-oracle ruling stands). Verified: email-otp outcome tests (strike
+1/2/3, exact seconds), SEC-AUTH-006 pins (web/mobile mapping, both UIs),
+`otp.test.js` parity pins, `login-status/route.test.js` green, full suite +
+touched-file lint green.
+
 ## Related
 
 [[Authentication]] · [[Why RLS Is Not A Boundary]] · [[Bugs]] · [[Current State]]

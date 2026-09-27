@@ -319,3 +319,27 @@ mint an emergency code for a locked account until the window expires.**
 `src/app/api/auth/mfa/emergency-code/route.js`,
 `docs/superpowers/specs/2026-09-25-otp-account-lockout-design.md`,
 `Capstone/04 - Architecture/Authentication.md` §"Account-level lockout".
+
+**2026-09-27 — OTP failures speak their cost (attempts, strikes, instant freeze).**
+
+- Tokens, not structured bodies: `NextAuth.authorize()` can only throw a
+  message, so `OTP_ATTEMPTS_LEFT:<n>` / `OTP_STRIKE:<n>` ride the existing
+  `ACCOUNT_LOCKED:<s>` / `OTP_LOCKED:<s>` convention; web and mobile parse
+  them through mirrored, range-checked helpers.
+- The 3rd burn answers with the countdown **immediately** — `rateLimit` gained
+  `windowRetryAfter` because the SQL always computed the window remainder but
+  zeroed it while `allowed`. A fresh 900 from now would overstate the wait (the
+  window opened at burn #1), so the true remainder ships instead.
+- Strike numbers come from `OTP_LOCKOUT_LIMIT - bucket.remaining` after the
+  consume — the bucket is the DB-authoritative count, so the number shown can
+  never drift from the number that locks, even under concurrent attempts.
+- Still no OTP state in `/api/auth/login-status`: the existence-oracle ruling
+  stands; the new tokens reveal only the state of a challenge the client
+  already holds.
+
+**Evidence:** `src/lib/rate-limit.js`, `src/lib/auth/email-otp.js`,
+`src/lib/auth/otp-policy.js`, `src/lib/auth.js`,
+`src/app/(auth)/login/page.js`, `src/app/api/mobile/auth/login/route.js`,
+`mobile/lib/otp.js`, `mobile/app/login.js`,
+`mobile/components/otp/OtpVerificationView.jsx`,
+`docs/superpowers/specs/2026-09-27-otp-attempts-strikes-warning-design.md`.

@@ -412,6 +412,21 @@ because it demos without a phone, and accepted knowing what it costs.
   (`OTP_LOCKOUT_LIMIT`, `OTP_LOCKOUT_WINDOW_MS`); `parseOtpLock`/`formatLockWait`
   there are mirrored by `mobile/lib/otp.js` with parity pins. The trip raises the
   existing `account_locked` security alert with `details.factor: "otp"`.
+- **Failure feedback (2026-09-27).** The lockout existed in silence: `auth.js`
+  collapsed every wrong code to a bare `MFA_INVALID`, discarding the
+  `attemptsRemaining`/`lockTripped` the backend computed. `verifyLoginChallenge`
+  now numbers the struggle — `OTP_ATTEMPTS_LEFT:<n>` (attempts left in the
+  challenge, 4..1) after each miss, `OTP_STRIKE:<n>` (burns recorded, 1..2)
+  when a challenge burns, and the **3rd burn itself** throws
+  `OTP_LOCKED:<seconds>` carrying `rateLimit`'s new `windowRetryAfter` (true
+  window remainder from burn #1 — never a fresh 900). Web `authorize` throws
+  the tokens; the mobile route answers 401 with them (429 for the freeze).
+  Parsers `parseOtpAttemptsLeft`/`parseOtpStrike` are range-checked against
+  `OTP_MAX_ATTEMPTS`/`OTP_LOCKOUT_LIMIT` and mirrored in `mobile/lib/otp.js`.
+  The counts come from the challenge row and the DB-authoritative
+  `lockout:otp` bucket — the client learns only the state of the challenge it
+  already holds, the same information family as `ACCOUNT_LOCKED:<s>`. No new
+  endpoint; `login-status` still reports no OTP state.
 - **Fail closed, twice.** If `isEmailConfigured()` is false *or* the address is not
   deliverable, the login is refused with an honest message and the event is audited as
   `mfa_unavailable`. There is no fallback path that lets the login through. A remembered
