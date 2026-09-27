@@ -503,11 +503,15 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     const failBlock = mobile.slice(mobile.indexOf('if (!factor.ok)'), mobile.indexOf('const { token: refreshToken'));
     const lockAt = failBlock.indexOf('factor.reason === "otp_locked" || factor.lockTripped');
     const strikeAt = failBlock.indexOf('OTP_STRIKE');
+    const attemptsAt = failBlock.indexOf('OTP_ATTEMPTS_LEFT');
     const genericAt = failBlock.indexOf('return err("MFA_INVALID", 401)');
     expect(lockAt).toBeGreaterThan(-1);
     expect(strikeAt).toBeGreaterThan(-1);
+    expect(attemptsAt).toBeGreaterThan(-1);
     expect(genericAt).toBeGreaterThan(-1);
     expect(lockAt).toBeLessThan(strikeAt);
+    expect(strikeAt).toBeLessThan(attemptsAt);
+    expect(attemptsAt).toBeLessThan(genericAt);
     expect(strikeAt).toBeLessThan(genericAt);
   });
 
