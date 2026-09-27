@@ -487,6 +487,15 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     expect(strikeAt).toBeLessThan(genericAt);
   });
 
+  it('the web MFA dialog speaks attempts left, the strike, and shares one failure shape', () => {
+    const page = read('app/(auth)/login/page.js');
+    expect(page).toMatch(/parseOtpAttemptsLeft\(err\.message\)/);
+    expect(page).toMatch(/parseOtpStrike\(err\.message\)/);
+    expect(page).toMatch(/Incorrect code — \$\{attemptsLeft\} attempt\$\{attemptsLeft === 1 \? "" : "s"\} left\./);
+    expect(page).toMatch(/Strike \$\{strike\} of \$\{OTP_LOCKOUT_LIMIT\} — request a new code\./);
+    expect(page).toMatch(/failAttempt\("That verification code is invalid or already used\."\)/);
+  });
+
   it('the admin emergency path answers 429 with a wait, not a generic 500', () => {
     const emergency = read('app/api/auth/mfa/emergency-code/route.js');
     expect(emergency).toMatch(/issued\?\.reason === "otp_locked"/);

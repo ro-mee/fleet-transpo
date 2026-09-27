@@ -18,7 +18,10 @@ import {
   describeOtpTtl,
   formatLockWait,
   maskEmailAddress,
+  OTP_LOCKOUT_LIMIT,
+  parseOtpAttemptsLeft,
   parseOtpLock,
+  parseOtpStrike,
 } from "@/lib/auth/otp-policy";
 import { getSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -783,6 +786,18 @@ export default function LoginPage() {
     setError("");
   };
 
+  // One failure shape for every wrong-code verdict: mark the dialog in error,
+  // clear the cell, and put the caret back where the next code goes.
+  const failAttempt = (msg) => {
+    setError(msg);
+    setMfaCode("");
+    setMfaStatus("error");
+    setTimeout(() => {
+      if (mfaRecoveryMode) mfaRecoveryInputRef.current?.focus();
+      else mfaCodeInputRef.current?.focus();
+    }, 0);
+  };
+
   const handleMfaSubmit = async (submittedCode = mfaCode) => {
     if (loading || mfaStatus === "success" || lockSeconds > 0) return;
 
@@ -822,13 +837,23 @@ export default function LoginPage() {
       await redirectAfterSignIn(session);
     } catch (err) {
       if (err.message === "MFA_INVALID" || err.message === "CredentialsSignin") {
-        setError("That verification code is invalid or already used.");
-        setMfaCode("");
-        setMfaStatus("error");
-        setTimeout(() => {
-          if (mfaRecoveryMode) mfaRecoveryInputRef.current?.focus();
-          else mfaCodeInputRef.current?.focus();
-        }, 0);
+        failAttempt("That verification code is invalid or already used.");
+        return;
+      }
+
+      const attemptsLeft = parseOtpAttemptsLeft(err.message);
+      if (attemptsLeft !== null) {
+        failAttempt(`Incorrect code — ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left.`);
+        return;
+      }
+
+      const strike = parseOtpStrike(err.message);
+      if (strike !== null) {
+        const more = OTP_LOCKOUT_LIMIT - strike;
+        failAttempt(
+          `That code was wrong. Strike ${strike} of ${OTP_LOCKOUT_LIMIT} — request a new code. ` +
+            `${more} more failed code${more === 1 ? "" : "s"} will freeze this account for 15 minutes.`
+        );
         return;
       }
 
