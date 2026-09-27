@@ -232,6 +232,8 @@ that was actually supplied. A live census before the change found **55 driver ro
 >
 > **Not backfilled.** Existing drivers keep `address_id = NULL` and keep reading from their text columns; a driver is upgraded when a human next edits them, the same rule ADR-015 point (6) set for the locations. Design intent retained from the original note: a personal address is still **advisory** — an unverified address saves rather than blocks.
 
+> **Address checks and manual pin behavior — 2026-09-27.** The shared structured-address form now checks a four-digit ZIP against the PHLPost locality snapshot when that locality is covered. A covered mismatch blocks save; absent directory coverage or lookup failure is shown as unknown and remains saveable. The snapshot currently has no Caloocan row, so the existing Caloocan + 4122 value is not declared valid or invalid from this source. Map search is an explicit **Find on map** action sent through the authenticated server route; it can center the viewport or offer candidates, but never sets the pin or verifies the address. A manually placed pin is cleared when location details or geography change, while landmark and delivery-note edits preserve it. See [[Address Validation and Map Sync Analysis]] for routes, source, security controls and test evidence.
+
 ## Weekly work schedules & leave — CONFIRMED 2026-08-15
 
 Migration `049_driver_work_schedule_and_leave.sql` adds `driver_work_schedules`

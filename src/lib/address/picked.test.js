@@ -11,6 +11,9 @@
 // rules and the real composition. Mocking the helper's internals instead would
 // test a re-implementation rather than the path the routes take.
 import { describe, it, expect, vi, beforeEach } from "vitest";
+vi.mock("@/services/postal-code.service", () => ({
+  checkPostalCodeForLocality: vi.fn(async () => ({ status: "unknown", postalCodes: [] })),
+}));
 
 const resolveBarangayChain = vi.fn();
 vi.mock("@/lib/geo/psgc", () => ({

@@ -781,6 +781,19 @@ CREATE TABLE ph_regions (
   CONSTRAINT ph_regions_pkey PRIMARY KEY (psgc_code)
 );
 
+CREATE TABLE phlpost_postal_codes (
+  region_name text NOT NULL,
+  province_name text NOT NULL,
+  locality_name text NOT NULL,
+  postal_code text NOT NULL,
+  region_key text NOT NULL,
+  province_key text NOT NULL,
+  locality_key text NOT NULL,
+  captured_on date DEFAULT '2026-09-27'::date NOT NULL,
+  CONSTRAINT phlpost_postal_codes_postal_code_check CHECK ((postal_code ~ '^[0-9]{4}$'::text)),
+  CONSTRAINT phlpost_postal_codes_pkey PRIMARY KEY (province_key, locality_key, postal_code)
+);
+
 CREATE TABLE push_outbox (
   id bigint DEFAULT nextval('push_outbox_id_seq'::regclass) NOT NULL,
   employee_id integer NOT NULL,
@@ -1441,6 +1454,7 @@ CREATE INDEX idx_ph_barangays_city_code ON public.ph_barangays USING btree (city
 CREATE INDEX idx_ph_cities_province_code ON public.ph_cities USING btree (province_code);
 CREATE INDEX idx_ph_cities_region_code ON public.ph_cities USING btree (region_code);
 CREATE INDEX idx_ph_provinces_region_code ON public.ph_provinces USING btree (region_code);
+CREATE INDEX idx_phlpost_postal_locality ON public.phlpost_postal_codes USING btree (province_key, locality_key);
 CREATE INDEX idx_push_outbox_employee ON public.push_outbox USING btree (employee_id, status);
 CREATE INDEX idx_push_outbox_pending ON public.push_outbox USING btree (status, id) WHERE (status = 'pending'::text);
 CREATE INDEX idx_push_outbox_unreviewed_errors ON public.push_outbox USING btree (created_at DESC) WHERE ((status = 'error'::text) AND (reviewed_at IS NULL));

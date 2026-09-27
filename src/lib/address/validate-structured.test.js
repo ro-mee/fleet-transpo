@@ -8,6 +8,10 @@
 // must store Santa Rosa, and the test asserts the STORED value, because a
 // validation that merely "notices" the mismatch and proceeds is not a fix.
 import { describe, it, expect, vi } from "vitest";
+const { checkPostalCodeForLocality } = vi.hoisted(() => ({
+  checkPostalCodeForLocality: vi.fn(async () => ({ status: "unknown", postalCodes: [] })),
+}));
+vi.mock("@/services/postal-code.service", () => ({ checkPostalCodeForLocality }));
 import {
   normalizeStructuredInput,
   resolveStructuredAddress,
@@ -205,6 +209,24 @@ describe("resolveStructuredAddress — the server's geography wins", () => {
       "8572 Winding Creek Boulevard, Example Village, Barangay Balibago, " +
         "Santa Rosa City, Laguna, CALABARZON (Region IV-A), 4026, Philippines"
     );
+  });
+
+  it("refuses a ZIP that conflicts with a covered PHLPost locality", async () => {
+    checkPostalCodeForLocality.mockResolvedValueOnce({
+      status: "mismatch",
+      postalCodes: ["4026"],
+    });
+    const result = await resolveStructuredAddress(request({ postalCode: "4122" }), {
+      resolve: resolveAs(SANTA_ROSA),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.postalCode).toContain("4026");
+    expect(checkPostalCodeForLocality).toHaveBeenCalledWith({
+      province: "Laguna",
+      locality: "Santa Rosa City",
+      postalCode: "4122",
+    });
   });
 
   it("keeps delivery notes out of the stored address", async () => {

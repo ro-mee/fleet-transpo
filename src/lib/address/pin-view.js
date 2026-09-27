@@ -39,6 +39,13 @@ export const COUNTRY_ZOOM = 6;
  */
 export const PIN_ZOOM = 16;
 
+/** The map must be at street scale before a click can create a saved pin. */
+export const MIN_PIN_ZOOM = 15;
+
+export function canPlacePinAtZoom(zoom) {
+  return Number.isFinite(zoom) && zoom >= MIN_PIN_ZOOM;
+}
+
 /**
  * Whether a `centre` is something `setView` can actually be given.
  *

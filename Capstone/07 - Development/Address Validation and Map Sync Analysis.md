@@ -6,7 +6,7 @@ tags: [address, maps, validation]
 
 # Address validation and map synchronization
 
-Analysis requested for the driver residential/emergency-contact address form. This records findings and proposed work. The **Implemented** section at the end records the one piece built from it — task #29 — and where that diverged from the sequence below; everything else here is still proposal, not behavior.
+Analysis requested for the driver residential/emergency-contact address form. This records findings and proposed work. The **Implemented — task #29** section records the original map-centering change. The later **Implemented — address validation + explicit map search** section below supersedes its browser-key lookup behavior and records what is now live.
 
 ## Verified current behavior
 
@@ -31,6 +31,8 @@ Ran the existing read-only diagnostic with a public landmark, not the personal a
 The initial sandbox run had transport failures and provided no authorization evidence. The network-enabled retry above is the meaningful result. The current server key is refused by these forward endpoints while the browser key can search. Check the products/permissions/restrictions of the key configured as `TOMTOM_API_KEY`, retaining its routing access. Structured geocoding and reverse geocoding were not re-probed in this run. The script's broad claim that the entire Search family is unavailable is not established by these results; earlier notes recorded reverse geocoding success.
 
 ## Proposed implementation sequence
+
+**Status update (2026-09-27):** Items 2, 3 and 6 have been implemented in the later section below. Item 1 remains an operator dependency: the server TomTom key still needs Search permission. Items 4, 5 and 7 remain future work where they require provider-to-PSGC evidence or persistent match provenance; the new lookup is deliberately only a viewport aid, and the manual point stays unverified.
 
 1. **High / pending:** enable the required forward geocoding access for the server key and re-run the diagnostic. Measure actual result coverage before promising house-level validation.
 2. **High / pending:** add an authenticated server lookup for the current structured address, deriving the geography from PSGC. Return explicit outcomes for candidates, no match, ambiguity, mismatch and provider unavailable. Keep keys server-side; do not collapse a 403/timeout into an empty result.
@@ -78,3 +80,15 @@ Cover exact versus street-only matches, ambiguous/no results, wrong city/ZIP, pr
 - [PHLPost ZIP Code Locator](https://phlpost.gov.ph/zip-code-locator/)
 - [TomTom Structured Geocode](https://docs.tomtom.com/geocoding-api/documentation/tomtom-maps/v1/structured-geocode): result types, position, viewport and textual matchConfidence.
 - [[ADR-015 Address Owns Administration, Location Owns The Point]], [[addresses]], [[Bugs]] (2026-09-25 map synchronization analysis).
+
+## Implemented — address validation + explicit map search (2026-09-27)
+
+This section supersedes the task #29 browser-key lookup described above. The shared structured-address form is used by drivers and other registry-backed address surfaces, so the ZIP consistency check is enforced both in that form and by the server resolver for every structured-address save.
+
+**Map search is explicit and server-side.** The form sends the full address to `POST /api/address/lookup` only after an operator presses **Find on map**. The route requires `drivers:update`, limits requests to 10/minute per employee, caps the query at 1,000 characters, and calls TomTom with the server key. The browser key is no longer used for address search. The route distinguishes `found`, `ambiguous`, `empty` and `unavailable`, returns bounded candidate metadata, and does not log the query. The UI rejects stale results, displays multiple candidates for explicit selection, and uses any selection to move the map only. It never places or saves a pin, marks an address verified, or treats TomTom's text match score as proof. Until Search is enabled for the server key, the UI reports the provider as unavailable; the existing map tiles continue to use their configured public key.
+
+**Pin placement is deliberate.** Map clicks and the keyboard-accessible **Place pin at center** control require zoom level 15 or closer. The operator must still place the pin manually. Changing a location-bearing address detail, ZIP, or geographic selection clears the existing pin; changing only delivery notes or a landmark keeps it. This prevents a pin from silently following a text-only edit while preserving it for non-location notes.
+
+**ZIP validation is evidence-limited.** Migration `135_phlpost_postal_codes.sql` stores a normalized snapshot of PHLPost's published ZIP locator captured 2026-09-27: 958 unique valid locality/ZIP rows. A covered locality with a ZIP absent from its listed set is rejected with the available code(s); an uncovered locality or an unavailable lookup is `unknown` and does not block saving. Live DB verification found Indang/Cavite → 4122 and no Caloocan row. Therefore the screenshot's Caloocan + 4122 combination remains unknown; the system does not infer that 4122 is correct for that address or invent a replacement. The private reference table has RLS enabled and no `anon`/`authenticated` privileges.
+
+**Verification.** Focused address, driver, service and API tests passed (214 tests across 13 files); full Vitest passed (244 files / 3,069 tests); repository-wide `npm run lint:ci` passed with zero warnings; and `npm run build` compiled successfully, type-checked, and generated all 214 static pages. Migration 135 was applied through `npm run db:up`; `db:status` reported 135 applied, 0 pending, 0 changed. `db:contract` reported 0 violations, and `verify:anon` explicitly refused the new table (HTTP 401 / SQLSTATE 42501). The read-only live query confirmed 958 rows, Indang/Cavite → 4122, and no Caloocan rows. Browser verification was unavailable in this run. The server-key Search permission must be enabled and rechecked before live map lookup can return candidates.

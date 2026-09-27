@@ -240,9 +240,9 @@ if (sawSearchFailure) {
   //                              the key may differ, or Search may be off
   //                              account-wide. Absence of evidence only.
   //
-  // Diagnostic only. The application must never call TomTom this way: the
-  // browser key belongs in the browser, and TOMTOM_API_KEY is what every
-  // server-side call uses.
+  // Diagnostic only. The address form now sends an explicit query through its
+  // authenticated server route using TOMTOM_API_KEY; this browser-key probe only
+  // measures portal permissions and is not an application lookup path.
   const appOrigin = process.env.NEXT_PUBLIC_APP_URL
     ? new URL(process.env.NEXT_PUBLIC_APP_URL).origin
     : null;
@@ -297,10 +297,10 @@ if (sawSearchFailure) {
         "  buildRouteUrl (src/lib/tomtom.js), so a Search-only replacement would\n" +
         "  break turn-by-turn navigation app-wide. It needs Routing AND Search.\n" +
         "\n" +
-        "  Configuration, not application code. Note that the app no longer\n" +
-        "  consumes Search at all: src/lib/address/provider.js and the two\n" +
-        "  /api/address/* routes were deleted 2026-09-25, so a grant here\n" +
-        "  re-opens nothing by itself — #29 would need new code either way."
+        "  The driver address form now calls /api/address/lookup, which uses\n" +
+        "  this server key after an explicit Find on map action. Until Search\n" +
+        "  is enabled on this key, that route correctly reports unavailable.\n" +
+        "  After changing the permission, rerun this check to confirm access."
     );
   } else {
     console.log(
@@ -318,8 +318,8 @@ if (sawSearchFailure) {
     );
   } else if (!geocodeProbe.ok && routing.ok) {
     console.log(
-      "\n  The geocode endpoint is refused too, so the whole Search API family is\n" +
-        "  unavailable to this key rather than one endpoint being scoped off."
+      "\n  Both tested forward-search endpoints (/search/2/search and /search/2/geocode)\n" +
+        "  refused this key. Other TomTom Search endpoints were not tested."
     );
   }
 }

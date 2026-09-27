@@ -822,3 +822,15 @@ grant implies them.
 ## Related
 
 [[Database Overview]] · [[DEBT Schema Drift From Migrations]] · [[Quick Reference]] · [[ADR-008 Manual Migration Procedure]] · [[ERD]] · [[SEC Database Password In Git History]]
+
+## 2026-09-27 — `135_phlpost_postal_codes.sql`
+
+`npm run db:status` before implementation showed 134 applied and 0 pending; version 135 was free. The migration was applied with `npm run db:up`, then `npm run db:dump` refreshed the generated `schema.sql`. Final status: 135 applied, 0 pending, 0 changed; `npm run db:check` passed.
+
+| Version | File | Purpose |
+|---|---|---|
+| **135** | `phlpost_postal_codes.sql` | `phlpost_postal_codes`, a normalized snapshot of PHLPost's ZIP Code Locator. Contains 958 unique four-digit locality assignments captured 2026-09-27. One malformed populated source row was omitted; incomplete coverage is preserved as unknown. |
+
+The table is reference data for ZIP-to-locality consistency checks, not a claim that the locator is complete or that a postal code proves an address. It has RLS enabled and `REVOKE ALL PRIVILEGES` for `anon` and `authenticated`. `db:contract` reported 0 violations; `verify:anon` returned explicit HTTP 401 / SQLSTATE 42501 for this table. The live read-only count confirmed 958 rows, Indang/Cavite → 4122, and no Caloocan entries.
+
+Source snapshot: [PHLPost ZIP Code Locator](https://phlpost.gov.ph/zip-code-locator/).

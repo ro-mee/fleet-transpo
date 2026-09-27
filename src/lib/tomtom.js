@@ -1,13 +1,8 @@
 // TomTom Maps URL builders.
 //
-// Two keys exist: a PUBLIC key used in URLs the browser/mobile loads directly
-// (raster tiles, traffic tiles, static images, address search) and a SERVER key
-// used only by the routing proxy (src/app/api/tomtom/route/route.js) so the
-// routing key is never shipped to the client. Create the public key
-// domain-restricted in the TomTom dashboard.
-//
-// `searchUrl` is the one builder whose public-key choice was made deliberately
-// rather than by default — see the note on it below.
+// The PUBLIC key is used for URLs loaded directly by browser/mobile maps. The
+// SERVER key stays on the server for routing and explicit address lookups; a
+// residential address query never goes through the public browser key.
 
 export function getPublicKey() {
   return process.env.NEXT_PUBLIC_TOMTOM_API_KEY || "";
@@ -91,29 +86,18 @@ const LOOKUP_MIN_ZOOM = 13;
 const LOOKUP_MAX_ZOOM = 16;
 
 /**
- * TomTom Search API v2 URL for one free-text address query.
+ * TomTom Search API v2 URL for an explicit address lookup.
  *
- * CALLED FROM THE BROWSER, WITH THE PUBLIC KEY, ON PURPOSE
- * -------------------------------------------------------
- * `TOMTOM_API_KEY` is refused by this endpoint (403, measured 2026-09-27) and
- * the fix for that is a permission grant in the TomTom portal rather than a code
- * change. Meanwhile the public key searches fine, and calling it from the client
- * exposes nothing new: `rasterTileUrl` above already ships this same key to the
- * browser on every map render. `scripts/check-address-provider.mjs:243` states
- * the rule this follows — "the browser key belongs in the browser".
- *
- * What it does cost is privacy, and that is not hidden: the query is a real
- * person's address, and this sends it to TomTom from the client rather than
- * through our server. Do NOT also call this server-side with the public key —
- * that is the one place the rule above does forbid.
+ * This builder is used only by the authenticated server route. It must never
+ * use the browser key: the query can include a person's house number and street.
  *
  * @param {string} query  a full address, as `formatStructuredAddress` renders it
  * @param {object} [opts]
  * @param {number} [opts.limit=1]
  * @param {string} [opts.countrySet="PH"]
  */
-export function searchUrl(query, { limit = 1, countrySet = "PH" } = {}) {
-  const key = getPublicKey();
+export function serverSearchUrl(query, { limit = 1, countrySet = "PH" } = {}) {
+  const key = getServerKey();
   const params = new URLSearchParams({ countrySet, limit: String(limit) });
   if (key) params.set("key", key);
   const path = encodeURIComponent(String(query ?? "").trim());
@@ -174,6 +158,33 @@ export function centreFromSearch(json) {
   }
 
   return { lat, lng, zoom: Math.min(LOOKUP_MAX_ZOOM, Math.max(LOOKUP_MIN_ZOOM, zoom)) };
+}
+
+/** Return the viewport and bounded display metadata for the top search result. */
+export function addressCandidateFromSearch(json) {
+  const result = json?.results?.[0];
+  const centre = centreFromSearch(json);
+  if (!centre) return null;
+
+  const label = result?.address?.freeformAddress;
+  const confidence = Number(result?.matchConfidence?.score);
+  return {
+    centre,
+    label: typeof label === "string" ? label.trim().slice(0, 180) : null,
+    precision: typeof result?.type === "string" ? result.type.slice(0, 40) : "Unknown result type",
+    confidence: Number.isFinite(confidence) && confidence >= 0 && confidence <= 1
+      ? confidence
+      : null,
+  };
+}
+
+/** Return up to five usable candidates so close matches can be chosen explicitly. */
+export function addressCandidatesFromSearch(json) {
+  if (!Array.isArray(json?.results)) return [];
+  return json.results
+    .slice(0, 5)
+    .map((result) => addressCandidateFromSearch({ results: [result] }))
+    .filter(Boolean);
 }
 
 /**

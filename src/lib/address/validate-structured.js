@@ -35,7 +35,8 @@
 //   * An unknown or missing barangay code. There is nothing to derive from.
 //   * Missing street-level detail (house number, street, ZIP) — via
 //     `detailErrors`, the same rule the form's Save button uses.
-//   * A malformed ZIP, or half a coordinate.
+//   * A malformed ZIP, a ZIP that conflicts with a covered PHLPost locality, or
+//     half a coordinate. An uncovered locality remains unknown.
 //
 // AND WHAT IS NEVER CLAIMED
 // -------------------------
@@ -48,6 +49,8 @@
 import { resolveBarangayChain } from "@/lib/geo/psgc";
 import { emptyAddressValue, emptyComponents } from "./parse";
 import { normalizePostalCode, postalCodeError } from "./postal";
+import { postalProvinceName } from "./postal-reference";
+import { checkPostalCodeForLocality } from "@/services/postal-code.service";
 import {
   ADDRESS_TYPE_VALUES,
   composeStructuredLines,
@@ -137,6 +140,7 @@ export function normalizeStructuredInput(input) {
  */
 export async function resolveStructuredAddress(input, opts = {}) {
   const resolve = opts.resolve ?? resolveBarangayChain;
+  const checkPostalCode = opts.checkPostalCode ?? checkPostalCodeForLocality;
   const value = normalizeStructuredInput(input);
 
   // ── Stage 1: the street-level detail ──────────────────────────────────────
@@ -204,6 +208,28 @@ export async function resolveStructuredAddress(input, opts = {}) {
   if (value.postalCode) {
     const zipError = postalCodeError(value.postalCode);
     if (zipError) return { ok: false, error: zipError, errors: { postalCode: zipError } };
+
+    // The PHLPost directory does not cover every Philippine locality. A
+    // directory miss is therefore unknown, never a rejection. Where it has an
+    // exact province/locality entry, its listed ZIPs can catch a likely data-
+    // entry error. A lookup failure also degrades to unknown so a reference
+    // service outage does not make every address unsavable.
+    try {
+      const postal = await checkPostalCode({
+        province: postalProvinceName(chain),
+        locality: chain.city?.name,
+        postalCode: value.postalCode,
+      });
+      if (postal?.status === "mismatch") {
+        const listed = Array.isArray(postal.postalCodes) ? postal.postalCodes.join(", ") : "";
+        const message = listed
+          ? `ZIP code does not match the PHLPost listing for ${chain.city.name}. Listed code(s): ${listed}.`
+          : `ZIP code does not match the PHLPost listing for ${chain.city.name}.`;
+        return { ok: false, error: message, errors: { postalCode: message } };
+      }
+    } catch {
+      // No raw address or postal value is logged.
+    }
   }
 
   // ── Compose ───────────────────────────────────────────────────────────────

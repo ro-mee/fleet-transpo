@@ -36,12 +36,9 @@
 // the pin, in the same operation that changes the level, so there is no window in
 // which the form holds a new city with an old barangay or an old coordinate.
 //
-// The pin is cleared by ANY change to the address, not only a geographic one.
-// That is stricter than it first looks: fixing a typo in the street number
-// discards a placed pin. It is deliberate — a pin placed for "8572 Winding Creek"
-// is not the pin for "8573 Winding Creek", and requirement is that Address B is
-// never submitted with Address A's latitude. It is also why the form orders the
-// pin step LAST, so the natural way to fill it out never triggers this.
+// The pin is cleared when location-bearing details change: house number, street,
+// unit/building, subdivision or ZIP. Delivery notes are deliberately excluded;
+// they are not part of `formatted_address` and do not move the door.
 //
 // ONE TYPE RELAXES ONE FIELD
 // --------------------------
@@ -103,10 +100,7 @@ export const ADDRESS_TYPES = Object.freeze([
 /** The `type` values the server accepts. */
 export const ADDRESS_TYPE_VALUES = Object.freeze(ADDRESS_TYPES.map((t) => t.value));
 
-/**
- * Fields that describe the ADDRESS rather than the geography. Changing any of
- * these also invalidates the pin — see the header.
- */
+/** Fields that describe the address form, including delivery-only notes. */
 export const DETAIL_FIELDS = [
   "houseBuildingNumber",
   "streetRoad",
@@ -116,6 +110,19 @@ export const DETAIL_FIELDS = [
   "additionalDetails",
   "postalCode",
 ];
+
+const LOCATION_DETAIL_FIELDS = new Set([
+  "houseBuildingNumber",
+  "streetRoad",
+  "unitFloorBuilding",
+  "subdivisionVillage",
+  "postalCode",
+]);
+
+/** Whether editing this detail means a saved pin may describe a different address. */
+export function detailAffectsLocation(field) {
+  return LOCATION_DETAIL_FIELDS.has(field);
+}
 
 /** A blank structured-address value. Every surface starts from this. */
 export const EMPTY_STRUCTURED_ADDRESS = Object.freeze({
@@ -220,7 +227,9 @@ export function selectLevel(previous, level, selection) {
  */
 export function editDetail(previous, field, value) {
   const next = { ...previous, [field]: value };
-  for (const key of clearDerivedFromDetails()) next[key] = null;
+  if (detailAffectsLocation(field)) {
+    for (const key of clearDerivedFromDetails()) next[key] = null;
+  }
   return next;
 }
 
@@ -449,8 +458,9 @@ export function detailErrors(value) {
     if (!isFilled(value[field])) errors[field] = REQUIRED_MESSAGES[field];
   }
 
-  // Format only — whether the code matches the city is not knowable here and is
-  // not claimed. Same contract as src/lib/address/postal.js.
+  // This synchronous client rule checks format only. The dialog adds the
+  // asynchronous PHLPost locality result when it is available; the server
+  // repeats that check before saving.
   if (isFilled(value.postalCode) && !/^\d{4}$/.test(String(value.postalCode).trim())) {
     errors.postalCode = "ZIP code must be 4 digits (e.g. 1421).";
   }

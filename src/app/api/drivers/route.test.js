@@ -23,6 +23,9 @@ const resolveBarangayChain = vi.fn();
 vi.mock("@/lib/geo/psgc", () => ({
   resolveBarangayChain: (...args) => resolveBarangayChain(...args),
 }));
+vi.mock("@/services/postal-code.service", () => ({
+  checkPostalCodeForLocality: vi.fn(async () => ({ status: "unknown", postalCodes: [] })),
+}));
 
 vi.mock("@/lib/db", () => ({
   query: vi.fn(),

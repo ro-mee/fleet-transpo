@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   COUNTRY_ZOOM,
   DEFAULT_CENTER,
+  MIN_PIN_ZOOM,
   PIN_ZOOM,
+  canPlacePinAtZoom,
   isViewableCentre,
   planViewMove,
 } from "@/lib/address/pin-view";
@@ -21,6 +23,16 @@ describe("PIN_ZOOM", () => {
     // lookup framing tighter than a placed pin would make a guess look like a
     // measurement.
     expect(PIN_ZOOM).toBe(16);
+  });
+});
+
+describe("pin placement zoom", () => {
+  it("requires street scale so a country-level click cannot save a vague point", () => {
+    expect(MIN_PIN_ZOOM).toBe(15);
+    expect(canPlacePinAtZoom(COUNTRY_ZOOM)).toBe(false);
+    expect(canPlacePinAtZoom(14)).toBe(false);
+    expect(canPlacePinAtZoom(15)).toBe(true);
+    expect(canPlacePinAtZoom(Number.NaN)).toBe(false);
   });
 });
 

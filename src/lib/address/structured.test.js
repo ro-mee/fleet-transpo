@@ -27,6 +27,7 @@ import {
   requiredDetailFields,
   selectLevel,
   editDetail,
+  detailAffectsLocation,
   missingLevels,
   structuredErrors,
   isStructuredComplete,
@@ -181,6 +182,22 @@ describe("editDetail", () => {
 
     expect(next.barangayName).toBe("Lahug");
     expect(next.cityName).toBe("Cebu City");
+  });
+
+  it("keeps the pin when delivery notes change", () => {
+    for (const field of ["landmark", "additionalDetails"]) {
+      const next = editDetail(filledAddress(), field, "Near the blue gate");
+      expect(next.latitude).toBe(filledAddress().latitude);
+      expect(next.longitude).toBe(filledAddress().longitude);
+      expect(detailAffectsLocation(field)).toBe(false);
+    }
+  });
+
+  it("clears the pin when the postal code changes", () => {
+    const next = editDetail(filledAddress(), "postalCode", "6001");
+    expect(next.latitude).toBeNull();
+    expect(next.longitude).toBeNull();
+    expect(detailAffectsLocation("postalCode")).toBe(true);
   });
 
   it("clears only the pin, nothing else", () => {

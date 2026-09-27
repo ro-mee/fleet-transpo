@@ -292,6 +292,13 @@ export const TABLES = Object.freeze({
     reason:
       "PSGC barangay reference rows — the finest geography grain, and what addresses.psgc_barangay_code resolves against. Read only through the API.",
   },
+  phlpost_postal_codes: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "PHLPost ZIP assignments used for a locality-level consistency check. The published locator is incomplete, so missing localities are classified as unknown; read only through authenticated APIs.",
+    rlsNote:
+      "RLS is explicitly enabled and anon/authenticated privileges are revoked by migration 135. The table is reference data but no browser client reads it directly.",
+  },
 
   // --- tracking & monitoring ----------------------------------------------
   gpstracking: {
