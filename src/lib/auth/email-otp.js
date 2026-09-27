@@ -184,7 +184,7 @@ export async function issueLoginChallenge({ employeeId, purpose = OTP_PURPOSE_LO
  * Returns one of:
  *   { ok: true,  method: "otp" | "recovery" }
  *   { ok: false, reason: "expired" | "stale" | "invalid" | "attempts_exhausted",
- *     attemptsRemaining?, lockTripped? }
+ *     attemptsRemaining?, strike?, lockTripped?, retryAfterSeconds? }
  *   { ok: false, reason: "otp_locked", retryAfterSeconds }  the account's
  *                                              OTP lock is active
  */
@@ -283,9 +283,17 @@ export async function verifyLoginChallenge({ employeeId, authVersion, code }) {
       limit: OTP_LOCKOUT_LIMIT,
       windowMs: OTP_LOCKOUT_WINDOW_MS,
     });
-    // `allowed` is still true at the ceiling (hitCount <= limit); the trip is
-    // signalled by there being no room left.
-    if (bucket.remaining === 0) outcome.lockTripped = true;
+    // One strike per burned challenge, numbered from the DB-authoritative
+    // bucket — the number the user reads can never drift from the number that
+    // locks, even under concurrent attempts. `allowed` is still true at the
+    // ceiling (hitCount <= limit); the trip is signalled by no room left.
+    outcome.strike = OTP_LOCKOUT_LIMIT - bucket.remaining;
+    if (bucket.remaining === 0) {
+      outcome.lockTripped = true;
+      // The window opened at burn #1, so the freeze countdown is the SQL's
+      // true remainder, not a fresh window from now.
+      outcome.retryAfterSeconds = bucket.windowRetryAfter;
+    }
   } else if (outcome?.ok === true) {
     // A proved sign-in starts the counter over (mirrors clearAccountLockout):
     // past struggle must not make the next typo half-way to a lock. Best-effort.

@@ -275,7 +275,7 @@ describe("verifyLoginChallenge", () => {
 
     const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "123456" });
 
-    expect(factor).toEqual({ ok: false, reason: "attempts_exhausted", attemptsRemaining: 0 });
+    expect(factor).toEqual({ ok: false, reason: "attempts_exhausted", attemptsRemaining: 0, strike: 1 });
     expect(
       tx.calls.some((c) => c.sql.startsWith("UPDATE email_otp_challenges SET consumed_at = NOW() WHERE challenge_id"))
     ).toBe(true);
@@ -370,7 +370,12 @@ describe("verifyLoginChallenge", () => {
   });
 
   it("flags the burn that reaches the lockout ceiling", async () => {
-    vi.mocked(rateLimit).mockResolvedValueOnce({ allowed: true, remaining: 0, retryAfter: 0 });
+    vi.mocked(rateLimit).mockResolvedValueOnce({
+      allowed: true,
+      remaining: 0,
+      retryAfter: 0,
+      windowRetryAfter: 733,
+    });
     const tx = makeTx([
       ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
     ]);
@@ -378,6 +383,10 @@ describe("verifyLoginChallenge", () => {
 
     const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
     expect(factor.lockTripped).toBe(true);
+    expect(factor.strike).toBe(OTP_LOCKOUT_LIMIT);
+    // The freeze answers with the window's true remainder — counted from the
+    // FIRST burn — never a fresh 900 from now.
+    expect(factor.retryAfterSeconds).toBe(733);
   });
 
   it("leaves lockTripped unset on a burn that still has room", async () => {
@@ -387,6 +396,25 @@ describe("verifyLoginChallenge", () => {
     txImpl = tx;
 
     const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor.lockTripped).toBeUndefined();
+    expect(factor.strike).toBe(1);
+    expect(factor.retryAfterSeconds).toBeUndefined();
+  });
+
+  it("counts the middle burn as strike two", async () => {
+    vi.mocked(rateLimit).mockResolvedValueOnce({
+      allowed: true,
+      remaining: 1,
+      retryAfter: 0,
+      windowRetryAfter: 400,
+    });
+    const tx = makeTx([
+      ["FROM email_otp_challenges", { rows: [loginChallengeRow({ attempts: OTP_MAX_ATTEMPTS - 1 })] }],
+    ]);
+    txImpl = tx;
+
+    const factor = await verifyLoginChallenge({ employeeId: 8, authVersion: 3, code: "000000" });
+    expect(factor).toMatchObject({ ok: false, reason: "attempts_exhausted", strike: 2 });
     expect(factor.lockTripped).toBeUndefined();
   });
 
