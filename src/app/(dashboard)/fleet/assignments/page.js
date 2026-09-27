@@ -59,6 +59,7 @@ import { getDrivers } from "@/services/driver.service";
 import { getVehicles } from "@/services/vehicle.service";
 import { useRequireRole, can } from "@/lib/auth/role-guard";
 import { useAuth } from "@/hooks/use-auth";
+import { evaluateDriverLicenseEligibility, licenseExpiryIsBefore, licenseReferenceCalendarDay } from "@/lib/drivers/license-eligibility";
 
 const assignmentColumnHelper = createColumnHelper();
 const substituteColumnHelper = createColumnHelper();
@@ -562,6 +563,22 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
           );
         },
       }),
+      assignmentColumnHelper.display({
+        id: "license_eligibility",
+        header: "License Eligibility",
+        cell: ({ row }) => {
+          const check = evaluateDriverLicenseEligibility(row.original, {
+            required_license_class: row.original.required_license_class,
+          });
+          return check.eligible ? (
+            <Badge variant="outline" className="text-[11px] border-emerald-600/30 text-emerald-700 dark:text-emerald-300">Eligible</Badge>
+          ) : (
+            <span className="max-w-[240px] block text-[11px] text-danger" title={check.reasons.join(" ")}>
+              {check.reasons.join(" ")}
+            </span>
+          );
+        },
+      }),
       assignmentColumnHelper.accessor("notes", {
         header: "Notes",
         cell: (info) => (
@@ -772,6 +789,22 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
                 </Badge>
               </div>
             </div>
+          );
+        },
+      }),
+      substituteColumnHelper.display({
+        id: "license_eligibility",
+        header: "License Eligibility",
+        cell: ({ row }) => {
+          const check = evaluateDriverLicenseEligibility(row.original, {
+            required_license_class: row.original.required_license_class,
+          });
+          return check.eligible ? (
+            <Badge variant="outline" className="text-[11px] border-emerald-600/30 text-emerald-700 dark:text-emerald-300">Eligible</Badge>
+          ) : (
+            <span className="max-w-[240px] block text-[11px] text-danger" title={check.reasons.join(" ")}>
+              {check.reasons.join(" ")}
+            </span>
           );
         },
       }),
@@ -1095,6 +1128,7 @@ function AssignDriverDialog({ open, onOpenChange, canManage, preset, assignments
         label: personLabel(d),
         status: d.driver_status,
         currentVehicle: assigned ? vehiclePlate(assigned) : null,
+        source: d,
       };
     });
   }, [drivers, assignments]);
@@ -1108,6 +1142,7 @@ function AssignDriverDialog({ open, onOpenChange, canManage, preset, assignments
         plate: vehiclePlate(v),
         status: v.vehicle_status,
         currentDriver: assigned ? personLabel(assigned) : null,
+        source: v,
       };
     });
   }, [vehicles, assignments]);
@@ -1115,6 +1150,9 @@ function AssignDriverDialog({ open, onOpenChange, canManage, preset, assignments
   // Live conflict detection before submission
   const selectedVehicleObj = vehicleChoices.find((v) => v.value === form.vehicle_id);
   const selectedDriverObj = driverChoices.find((d) => d.value === form.driver_id);
+  const selectedLicenseEligibility = selectedDriverObj && selectedVehicleObj
+    ? evaluateDriverLicenseEligibility(selectedDriverObj.source, selectedVehicleObj.source)
+    : null;
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -1247,6 +1285,11 @@ function AssignDriverDialog({ open, onOpenChange, canManage, preset, assignments
                   </div>
                   <div className="font-semibold text-foreground truncate">{selectedVehicleObj.plate}</div>
                 </div>
+                {selectedLicenseEligibility && !selectedLicenseEligibility.eligible && (
+                  <p role="alert" className="text-[11px] text-danger border-t border-danger/20 pt-2">
+                    Cannot assign: {selectedLicenseEligibility.reasons.join(" ")}
+                  </p>
+                )}
               </div>
             )}
 
@@ -1256,7 +1299,7 @@ function AssignDriverDialog({ open, onOpenChange, canManage, preset, assignments
               </Button>
               <Button
                 type="submit"
-                disabled={assignMutation.isPending || !form.driver_id || !form.vehicle_id}
+                disabled={assignMutation.isPending || !form.driver_id || !form.vehicle_id || selectedLicenseEligibility?.eligible === false}
                 className={cn("rounded-xl text-xs h-9 font-semibold", heroButtonPrimaryClass)}
               >
                 {assignMutation.isPending ? "Saving..." : "Save Assignment"}
@@ -1337,6 +1380,7 @@ function ScheduleDialog({ mode = "create", open, onOpenChange, canManage, schedu
     return drivers.map((d) => ({
       value: String(d.driver_id),
       label: personLabel(d),
+      source: d,
     }));
   }, [drivers]);
 
@@ -1344,17 +1388,32 @@ function ScheduleDialog({ mode = "create", open, onOpenChange, canManage, schedu
     return vehicles.map((v) => ({
       value: String(v.vehicle_id),
       label: vehicleLabel(v),
+      source: v,
     }));
   }, [vehicles]);
 
+  const selectedDriver = driverChoices.find((driver) => driver.value === form.substitute_driver_id);
+  const selectedVehicle = vehicleChoices.find((vehicle) => vehicle.value === form.vehicle_id)
+    || (isEdit && schedule?.vehicle_id === Number(form.vehicle_id) ? { source: schedule } : null);
+  const licenseCheck = selectedDriver && selectedVehicle
+    ? evaluateDriverLicenseEligibility(
+        selectedDriver.source,
+        selectedVehicle.source,
+        form.from || schedule?.effective_from || licenseReferenceCalendarDay()
+      )
+    : null;
+  const coverageExpiryReason = selectedDriver && form.until && licenseExpiryIsBefore(selectedDriver.source.license_expiry, form.until)
+    ? `License expires before substitute coverage ends on ${form.until}.`
+    : null;
+
   const setDatePreset = (days) => {
-    const today = new Date();
-    const fromStr = today.toISOString().slice(0, 10);
+    const fromStr = licenseReferenceCalendarDay();
     if (days === 0) {
       setForm({ ...form, from: fromStr, until: "" });
     } else {
-      const target = new Date(today.getTime() + days * 24 * 60 * 60 * 1000);
-      setForm({ ...form, from: fromStr, until: target.toISOString().slice(0, 10) });
+      const target = new Date(`${fromStr}T00:00:00+08:00`);
+      target.setDate(target.getDate() + days);
+      setForm({ ...form, from: fromStr, until: licenseReferenceCalendarDay(target) });
     }
   };
 
@@ -1470,6 +1529,12 @@ function ScheduleDialog({ mode = "create", open, onOpenChange, canManage, schedu
             </div>
           </div>
 
+          {licenseCheck && (!licenseCheck.eligible || coverageExpiryReason) && (
+            <p role="alert" className="rounded-xl border border-danger/20 bg-danger/5 p-3 text-[11px] text-danger">
+              Cannot schedule this substitute: {[...licenseCheck.reasons, coverageExpiryReason].filter(Boolean).join(" ")}
+            </p>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="sub_notes" className="text-xs font-semibold text-foreground">Notes (optional)</Label>
             <Input
@@ -1491,7 +1556,7 @@ function ScheduleDialog({ mode = "create", open, onOpenChange, canManage, schedu
               </Button>
               <Button
                 type="submit"
-                disabled={mutation.isPending || !form.substitute_driver_id || (!isEdit && !form.vehicle_id)}
+                disabled={mutation.isPending || !form.substitute_driver_id || (!isEdit && !form.vehicle_id) || licenseCheck?.eligible === false || Boolean(coverageExpiryReason)}
                 className={cn("rounded-xl text-xs h-9 font-semibold", heroButtonPrimaryClass)}
               >
                 {mutation.isPending ? "Saving..." : isEdit ? "Save Changes" : "Schedule Substitute"}

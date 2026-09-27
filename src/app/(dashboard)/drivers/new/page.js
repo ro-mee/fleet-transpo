@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   Upload,
   Eye,
+  EyeOff,
   ZoomIn,
   Check,
   Zap,
@@ -66,6 +67,7 @@ export default function NewDriverPage() {
   const [licenseImagePreview, setLicenseImagePreview] = useState(null);
   const [licenseBackImagePreview, setLicenseBackImagePreview] = useState(null);
   const [enlargeModalUrl, setEnlargeModalUrl] = useState(null);
+  const [showLicenseNumber, setShowLicenseNumber] = useState(false);
 
   const [isScanningFront, setIsScanningFront] = useState(false);
   const [isScanningBack, setIsScanningBack] = useState(false);
@@ -80,8 +82,8 @@ export default function NewDriverPage() {
       position: "Driver",
       license_number: "",
       license_expiry: "",
-      license_type: "Professional",
-      license_class: "B",
+      license_type: "",
+      license_class: "",
       years_of_experience: 0,
       driver_status: "Available",
       license_image_url: "",
@@ -125,6 +127,7 @@ export default function NewDriverPage() {
     };
     setIfBlank("license_number", data.license_number);
     setIfBlank("license_expiry", data.expiration_date);
+    setIfBlank("license_type", data.license_type);
     setIfBlank("first_name", data.first_name);
     setIfBlank("last_name", data.last_name);
     setIfBlank("birthdate", data.birthdate);
@@ -476,24 +479,31 @@ export default function NewDriverPage() {
               <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
                   <FloatingField label="License Number" icon={IdCard} required error={form.formState.errors.license_number?.message}>
-                    <input
-                      id="license_number"
-                      {...form.register("license_number")}
-                      placeholder="e.g. N04-19-013583"
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data uppercase"
-                    />
+                    <div className="flex w-full items-center gap-2">
+                      <input
+                        id="license_number"
+                        type={showLicenseNumber ? "text" : "password"}
+                        autoComplete="off"
+                        {...form.register("license_number")}
+                        placeholder="Enter the number printed on the card"
+                        className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data uppercase"
+                      />
+                      <button type="button" onClick={() => setShowLicenseNumber((value) => !value)} aria-label={showLicenseNumber ? "Hide license number" : "Show license number"} className="text-foreground-muted hover:text-foreground">
+                        {showLicenseNumber ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </FloatingField>
 
                   <div>
                     <DatePicker
                       id="license_expiry"
                       label="License Expiration Date"
+                      required
                       value={form.watch("license_expiry")}
-                      onChange={(val) => form.setValue("license_expiry", val)}
+                      onChange={(val) => form.setValue("license_expiry", val, { shouldValidate: true, shouldDirty: true })}
                     />
-                    <p className="text-[11px] text-foreground-muted mt-1.5">
-                      Expired documents are allowed — status will reflect compliance risk.
-                    </p>
+                    <p className="text-[11px] text-foreground-muted mt-1.5">Enter the separate expiry date printed on the card. Scan suggestions must be checked against the card; the number does not supply this date. The license remains valid through that date in Philippine time.</p>
+                    {form.formState.errors.license_expiry?.message && <p className="text-xs text-danger mt-1">{form.formState.errors.license_expiry.message}</p>}
                   </div>
 
                   <Controller
@@ -501,7 +511,7 @@ export default function NewDriverPage() {
                     name="license_class"
                     render={({ field }) => (
                       <FloatingSelect
-                        label="Vehicle License Class"
+                        label="LTO License Code"
                         icon={IdCard}
                         required
                         id="license_class"
@@ -510,20 +520,31 @@ export default function NewDriverPage() {
                         placeholder="Select class"
                         error={form.formState.errors.license_class?.message}
                       >
-                        <SelectItem value="B">Class B — Passenger Cars &amp; Light Vehicles</SelectItem>
-                        <SelectItem value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</SelectItem>
+                        <SelectItem value="B">B — M1 passenger vehicle (up to 8 passenger seats; GVW ≤ 5,000 kg)</SelectItem>
+                        <SelectItem value="B1">B1 — M2 passenger vehicle (more than 8 passenger seats; GVW ≤ 5,000 kg)</SelectItem>
                       </FloatingSelect>
                     )}
                   />
 
-                  <FloatingField label="License Type" icon={ShieldCheck}>
-                    <input
-                      id="license_type"
-                      value="Professional Driver"
-                      readOnly
-                      className="w-full bg-transparent text-xs font-semibold text-foreground-secondary focus:outline-hidden py-1 cursor-not-allowed"
-                    />
-                  </FloatingField>
+                  <Controller
+                    control={form.control}
+                    name="license_type"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="License Type"
+                        icon={ShieldCheck}
+                        required
+                        id="license_type"
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Choose the type printed on the card"
+                        error={form.formState.errors.license_type?.message}
+                      >
+                        <SelectItem value="Professional">Professional</SelectItem>
+                        <SelectItem value="Student Permit">Student Permit (not eligible to drive fleet vehicles)</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
 
                   <FloatingField label="Position Title" icon={Briefcase}>
                     <input

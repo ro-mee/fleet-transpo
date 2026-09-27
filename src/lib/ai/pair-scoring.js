@@ -10,6 +10,7 @@ import {
 import { RISK } from "@/lib/ai/predictive-maintenance";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { driverDayEligibility } from "@/lib/scheduling/day-eligibility";
+import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 
 /**
  * Fleet-Pair Recommendation Engine — scores vehicle+driver as ONE unit.
@@ -147,13 +148,22 @@ export function isDriverUnavailableFor(driver, now = new Date(), window, opts = 
     return { unavailable: true, reason: `Driver is ${status}.`, duty: null };
   }
 
-  const licenseDays = daysUntil(driver?.license_expiry, window?.pickup ?? now);
-  if (licenseDays !== null && licenseDays < 0) {
-    return {
-      unavailable: true,
-      reason: `Driver's license expired ${Math.abs(licenseDays)} day(s) ago.`,
-      duty: null,
-    };
+  if (opts.requiredLicenseClass) {
+    const license = evaluateDriverLicenseEligibility(
+      driver,
+      { required_license_class: opts.requiredLicenseClass },
+      window?.pickup ?? now
+    );
+    if (!license.eligible) return { unavailable: true, reason: license.reason, duty: null };
+  } else {
+    const licenseDays = daysUntil(driver?.license_expiry, window?.pickup ?? now);
+    if (licenseDays !== null && licenseDays < 0) {
+      return {
+        unavailable: true,
+        reason: `Driver's license expired ${Math.abs(licenseDays)} day(s) ago.`,
+        duty: null,
+      };
+    }
   }
 
   // Day-scope skips BOTH exact-trip schedule signals: the window load (a trip
@@ -272,10 +282,11 @@ export function resolveVehiclePairing({
   returnAt,
   scheduleContext,
   dayScope = false,
+  requiredLicenseClass = null,
 }) {
   const designated = resolveDesignatedDriver(vehicleId, activePairs, driverById);
   const window = { pickup: pickupDate, returnAt, scheduleContext };
-  const opts = { dayScope };
+  const opts = { dayScope, requiredLicenseClass };
 
   if (designated) {
     const unavail = isDriverUnavailableFor(designated, now, window, opts);
@@ -661,6 +672,7 @@ export function buildFleetPairRecommendations({
       now,
       returnAt,
       scheduleContext,
+      requiredLicenseClass: vehicle.required_license_class,
     });
     if (!pairing.ok) {
       skipped.push({

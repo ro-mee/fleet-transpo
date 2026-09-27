@@ -14,6 +14,7 @@ import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { validatePairAvailability } from '@/services/recommendation.service';
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
+import { evaluateDriverLicenseEligibility } from '@/lib/drivers/license-eligibility';
 
 export async function PUT(req, { params }) {
   try {
@@ -25,13 +26,20 @@ export async function PUT(req, { params }) {
     const gate = canTransitionTrip(trip.trip_status, "Trip Started");
     if (!gate.ok) return err(gate.reason, 409);
 
+    if (!trip.vehicle_id || !trip.driver_id) {
+      return err("A vehicle and driver must both be assigned before a trip can start.", 400);
+    }
+
     let vehicleMileage = null;
+    let startVehicle = null;
     if (trip.vehicle_id) {
       const { rows: vehicles } = await query(
-        `SELECT plate_number, registration_expiry, vehicle_status, mileage FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+        `SELECT plate_number, registration_expiry, vehicle_status, mileage, required_license_class FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
         [trip.vehicle_id]
       );
       const vehicle = vehicles[0];
+      if (!vehicle) return err("Vehicle not found. Trip cannot start.", 404);
+      startVehicle = vehicle;
       vehicleMileage = vehicle?.mileage ?? null;
       if (isExpired(vehicle?.registration_expiry)) {
         return err(`Vehicle ${vehicle.plate_number} has an expired registration (${toCalendarDay(vehicle.registration_expiry)}). Trip cannot start.`, 400);
@@ -44,14 +52,18 @@ export async function PUT(req, { params }) {
     let tripDriverName = "";
     if (trip.driver_id) {
       const { rows: drivers } = await query(
-        `SELECT d.license_expiry, d.driver_status, e.first_name, e.last_name FROM drivers d LEFT JOIN employees e ON d.employee_id = e.employee_id WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
+        `SELECT d.license_number, d.license_type, d.license_class, d.license_expiry,
+                d.license_verified_at, d.license_verified_by, d.license_verification_method,
+                d.driver_status, e.first_name, e.last_name
+           FROM drivers d LEFT JOIN employees e ON d.employee_id = e.employee_id
+          WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
         [trip.driver_id]
       );
       const driver = drivers[0];
+      if (!driver) return err("Driver not found. Trip cannot start.", 404);
       tripDriverName = `${driver?.first_name || ""} ${driver?.last_name || ""}`.trim() || `#${trip.driver_id}`;
-      if (isExpired(driver?.license_expiry)) {
-        return err(`Driver ${tripDriverName} has an expired license (${toCalendarDay(driver.license_expiry)}). Trip cannot start.`, 400);
-      }
+      const license = evaluateDriverLicenseEligibility(driver, startVehicle, new Date());
+      if (!license.eligible) return err(`Driver ${tripDriverName} cannot start this trip: ${license.reason}`, 400);
       if (["Suspended", "On Leave"].includes(driver?.driver_status)) {
         return err(`Driver ${tripDriverName} cannot start a trip (status: ${driver.driver_status}).`, 400);
       }

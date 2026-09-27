@@ -87,7 +87,6 @@ export async function POST(req) {
               r.role_name,
               d.driver_id,
               d.driver_status,
-              d.license_number,
               e.avatar_url,
               d.face_image_url
          FROM employees e
@@ -354,7 +353,6 @@ export async function POST(req) {
         lastName: employee.last_name,
         phone: employee.phone,
         status: employee.driver_status,
-        licenseNumber: employee.license_number,
         avatarUrl: employee.face_image_url || employee.avatar_url || null,
       },
     });

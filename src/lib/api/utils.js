@@ -6,6 +6,7 @@ import { IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
 import { rolesFor } from "@/lib/auth/permissions";
 import { normalizeRoleName, normalizeRoleList } from "@/lib/auth/role-names";
 import { omitStandbyStorage } from '@/lib/dispatch/location-relevance';
+import { maskLicenseNumber } from '@/lib/drivers/license-eligibility';
 import {
   normalizeContext,
   requestContext,
@@ -275,8 +276,24 @@ export async function parseOptionalBody(req) {
   }
 }
 
+function responseJson(data, status, revealLicense) {
+  const replacer = (key, value) => {
+    const filtered = omitStandbyStorage(key, value);
+    if (filtered === undefined || revealLicense) return filtered;
+    if (key === "license_number" || key === "licenseNumber") return maskLicenseNumber(filtered);
+    return filtered;
+  };
+  return new Response(JSON.stringify(data, replacer), { status, headers: { "Content-Type": "application/json" } });
+}
+
 export function ok(data, status = 200) {
-  return new Response(JSON.stringify(data,omitStandbyStorage), { status,headers:{ 'Content-Type':'application/json' } });
+  return responseJson(data, status, false);
+}
+
+// Use only after an explicit drivers.update permission check. This is reserved
+// for the driver edit workflow that must load the exact value to support edits.
+export function okWithFullLicense(data, status = 200) {
+  return responseJson(data, status, true);
 }
 
 export function err(message, status = 400) {

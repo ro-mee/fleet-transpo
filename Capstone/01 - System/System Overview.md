@@ -7,7 +7,7 @@ source:
   - src/lib/integration/contracts.js
   - package.json
   - SYSTEM.md
-last_verified: 2026-08-11
+last_verified: 2026-09-27
 ---
 
 # System Overview
@@ -52,6 +52,11 @@ Six roles. See [[RBAC]] — and note [[DOC rbac-model Says 9 Roles]], because th
 6. **Reporting back** — outbound status to Booking → [[System Boundaries]]
 
 Cross-cutting: [[UVVRP Number Coding]], [[Fuel]], [[Maintenance]], [[Notifications]], [[AI Advisory]], [[Live Map Radar]].
+
+Driver eligibility is checked against an explicit per-vehicle LTO driver class at assignment
+and again at trip start. Student Permits and unverified or expired credentials are blocked;
+full license numbers are permission-gated for editing and masked in routine API responses.
+See [[Driver Management]], [[Dispatch]] and [[Trips]].
 
 ## Two clients — CONFIRMED
 
@@ -117,3 +122,4 @@ Read [[Why RLS Is Not A Boundary]] before touching anything security-related.
 - 2026-09-26: **Vehicle problem queue** — Part B gives the office one worklist of problems nobody is following up, at `/maintenance/problems`, backed by `GET /api/vehicle-inspections/problems` and partial index migration `131` (renumbered up from the plan's `127`/`128`; those numbers were already spent). Three buckets: driver-reported defects with no work order (counted), failed checklist inspections with no work order (not counted — the office was already notified), and rows that already have a ticket. Resolution is the existence of a `vehiclemaintenance.source_inspection_id` link, not a flag. A hand raise from the page is a new office-side path (`POST /api/vehicle-inspections/[id]/work-order`) through the two shared inspection modules; it is gated `maintenance:read` / `maintenance:create`, reusing the existing resource rather than adding an `inspections` one. **A raise never grounds the vehicle** — it files `Scheduled` and is dated tomorrow, so it stays out of the dispatch-eligibility query; grounding remains the office's call. The count renders on admin's attention strip and fleet_manager's maintenance card only, and shows `—` rather than `0` while unresolved. Gates: lint clean, **212 files / 2611 tests**. → [[Maintenance]]
 - 2026-09-26: **fast-jev-compaction added to Antigravity** — ported the continuous verbatim context compaction skill and library from Claude Code into Antigravity (`.agents/skills/fast-jev-compaction` and `~/.gemini/config/skills/fast-jev-compaction`). Unlike lossy LLM summarization, Jev scores individual tool calls and results, pruning stale calls and truncating heavy outputs while keeping all conversational turns verbatim. Includes custom Antigravity transcript adapter (`scripts/compact-transcript.mjs` with single-pass, windowing, and chunked processing) and verification demo (`scripts/demo.mjs`). Verified with live TypeSafe Jev API (70-85% token/char reduction across session tests).
 - 2026-09-27: removed the optional mobile biometric app lock, settings row, login enrollment offer, background privacy veil, native dependencies, and Face ID / Android biometric permission declarations. Upgrade cleanup clears old enrollment items without deleting stored auth tokens. Existing signed-in sessions open without the local relock; face-photo and attendance remain unchanged. See [[Biometric App Lock Removal Plan]].
+- 2026-09-27: driver-license checks now share one eligibility rule across driver forms, custodial/substitute assignments, dispatch, availability, and trip start. New nullable review evidence and each vehicle's explicit required LTO code are additive; Student Permits, incomplete/unverified details, expired licenses and uncovered classes fail closed. Expiry is valid through the Asia/Manila calendar day. Routine numbers are masked, mobile identity omits them, and staff scan/edit access is permission-gated. Legacy drivers/vehicles remain until reviewed; number format is not an authenticity check and no LTO verification API is integrated. See [[Driver Management]], [[Dispatch]], [[Trips]].

@@ -5,6 +5,7 @@ import {
   vehicleOperationallyAvailable,
   PAIRING_KIND,
 } from "@/lib/ai/pair-scoring";
+import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { evaluateDispatchCandidate, serviceEnd } from '@/services/dispatch-radar.service';
 import { resolveRequestEstimate } from '@/services/route-resolver.service';
@@ -164,7 +165,17 @@ export async function markRecommendationConsumed(requestId, snapshotId) {
  * @returns {Promise<{ ok:boolean, conflict?:object, reason?:string }>}
  */
 export async function validatePairAvailability({ request, vehicleId, driverId, now = new Date(), allowReview = false, excludeTripId = null }) {
-  if (!vehicleId || !driverId) return { ok: true }; // one-sided assign is fine
+  if (!vehicleId && !driverId) return { ok: true };
+  if (!vehicleId || !driverId) {
+    return {
+      ok: false,
+      conflict: {
+        type: "driver_license",
+        severity: "blocking",
+        message: "Select both a vehicle and driver so the driver's license class can be checked against the vehicle.",
+      },
+    };
+  }
   if (request?.request_id) {
     const { rows } = await query('SELECT * FROM transportation_requests WHERE request_id=$1 AND deleted_at IS NULL', [request.request_id]);
     if (!rows[0] || !['Pending','Scheduled','Assigned'].includes(rows[0].fleet_status))
@@ -193,7 +204,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
          FROM substitute_vehicle_schedules`
     ),
     query(
-      `SELECT vehicle_id, plate_number, vehicle_status,category_id,seating_capacity
+      `SELECT vehicle_id, plate_number, vehicle_status,category_id,seating_capacity,required_license_class
          FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
       [vehicleId]
     ),
@@ -227,7 +238,9 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   const wanted = [...new Set([driverId, designatedId, substituteId].filter((v) => v != null).map(Number))];
 
   const { rows: drivers } = await query(
-    `SELECT d.driver_id, d.driver_status, d.license_expiry,
+    `SELECT d.driver_id, d.driver_status, d.license_number, d.license_type,
+            d.license_class, d.license_expiry, d.license_verified_at,
+            d.license_verified_by, d.license_verification_method,
             COALESCE((
               SELECT COUNT(*)
                 FROM dispatchschedules ds
@@ -245,6 +258,22 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   );
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
 
+  const proposedLicense = evaluateDriverLicenseEligibility(
+    driverById.get(Number(driverId)),
+    vehicle,
+    request?.pickup_datetime || now
+  );
+  if (!proposedLicense.eligible) {
+    return {
+      ok: false,
+      conflict: {
+        type: "driver_license",
+        severity: "blocking",
+        message: proposedLicense.reason,
+      },
+    };
+  }
+
   // Work-schedule + approved-leave context (migration 049). Loaded once for the
   // drivers the rule could name, then threaded into resolveVehiclePairing so a
   // no-schedule, rest-day, out-of-shift, or on-approved-leave driver is treated
@@ -260,6 +289,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     now,
     returnAt: windowEnd ? new Date(windowEnd) : null,
     scheduleContext: scheduleCtx,
+    requiredLicenseClass: vehicle.required_license_class,
   });
 
   if (!pairing.ok) {

@@ -75,6 +75,7 @@ export default function VehicleFormPage({ params }) {
       color: "",
       fuel_type: "Gasoline",
       seating_capacity: 4,
+      required_license_class: "",
       vehicle_status: "Available",
       purchase_price: undefined,
       purchase_date: "",
@@ -182,6 +183,7 @@ export default function VehicleFormPage({ params }) {
         color: vehicle.color || "",
         fuel_type: vehicle.fuel_type || "Gasoline",
         seating_capacity: vehicle.seating_capacity || 4,
+        required_license_class: vehicle.required_license_class?.toUpperCase() || "",
         category_id: vehicle.category_id || undefined,
         vehicle_status: vehicle.vehicle_status || "Available",
         purchase_price: vehicle.purchase_price || undefined,
@@ -433,6 +435,25 @@ export default function VehicleFormPage({ params }) {
                     )}
                   />
 
+                  <Controller
+                    control={form.control}
+                    name="required_license_class"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="Minimum Driver LTO Code"
+                        icon={IdCard}
+                        required
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Choose the code shown on the registration"
+                        error={form.formState.errors.required_license_class?.message}
+                      >
+                        <SelectItem value="B">B — M1 passenger vehicle (up to 8 passenger seats; GVW ≤ 5,000 kg)</SelectItem>
+                        <SelectItem value="B1">B1 — M2 passenger vehicle (more than 8 passenger seats; GVW ≤ 5,000 kg)</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
+
                   <FloatingField label="Fuel Type" icon={Zap}>
                     <input
                       id="fuel_type"
@@ -472,6 +493,7 @@ export default function VehicleFormPage({ params }) {
                     )}
                   />
                 </div>
+                <p className="text-[11px] text-foreground-muted">Choose the minimum driver code from the vehicle registration requirements. Service category and seating capacity do not establish the required license class.</p>
               </CardContent>
             </Card>
 

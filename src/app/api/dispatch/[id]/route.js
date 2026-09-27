@@ -207,10 +207,6 @@ export async function PUT(req, { params }) {
       );
       const driver = drivers[0];
       if (!driver) return err("Driver not found", 400);
-      const driverTravelExpired = (expiry) => (effDeparture ? isExpiredOn(expiry, effDeparture) : isExpired(expiry));
-      if (driverTravelExpired(driver.license_expiry)) {
-        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} license ${isExpired(driver.license_expiry) ? "has expired" : "expires"} (${toCalendarDay(driver.license_expiry)}) before this trip.`, 400);
-      }
       const dutyContext = await loadDriverScheduleContext([driver.driver_id]);
       const dutyCheck = isDriverUnavailableFor(driver, new Date(), {
         pickup: effDeparture, returnAt: effArrival, scheduleContext: dutyContext,
@@ -243,7 +239,7 @@ export async function PUT(req, { params }) {
     // unavailable and a substitute covers the departure date. The reassign
     // dialog only offers valid pairs, but a direct caller must get the same 409.
     let dispatchEvidence;
-    if (effVehicleId && effDriverId) {
+    if (effVehicleId || effDriverId) {
       const pairCheck = await validatePairAvailability({
         request: { ...before[0], ...body, dispatch_id: Number(id), pickup_datetime: effDeparture ?? null, scheduled_arrival: effArrival, fleet_status: "Pending" },
         vehicleId: effVehicleId,

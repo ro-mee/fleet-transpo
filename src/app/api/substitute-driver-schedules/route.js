@@ -1,6 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { evaluateDriverLicenseEligibility, isValidLicenseNumber, licenseExpiryIsBefore, licenseReferenceCalendarDay } from "@/lib/drivers/license-eligibility";
 
 // Substitute driver schedules (migration 032).
 //
@@ -16,7 +17,10 @@ const SELECT_SCHEDULE = `
   SELECT s.substitute_id, s.vehicle_id, s.substitute_driver_id,
          s.effective_from, s.effective_until, s.notes, s.created_at, s.updated_at,
          v.plate_number, v.vehicle_name, v.vehicle_status,
-         e.first_name, e.last_name, e.avatar_url, d.driver_status, d.face_image_url
+         v.required_license_class,
+         e.first_name, e.last_name, e.avatar_url, d.driver_status, d.face_image_url,
+         d.license_number, d.license_type, d.license_class, d.license_expiry,
+         d.license_verified_at, d.license_verified_by, d.license_verification_method
     FROM substitute_vehicle_schedules s
     LEFT JOIN vehicles v ON v.vehicle_id = s.vehicle_id
     LEFT JOIN drivers d ON d.driver_id = s.substitute_driver_id
@@ -59,7 +63,10 @@ export async function GET(req) {
       params
     );
 
-    return ok({ schedules: rows });
+    return ok({ schedules: rows.map((row) => ({
+      ...row,
+      license_number_valid: isValidLicenseNumber(row.license_number),
+    })) });
   } catch (e) {
     return handleError(e);
   }
@@ -83,7 +90,7 @@ export async function POST(req) {
     if (!Number.isInteger(subDriverId) || subDriverId <= 0) return err("A valid substitute driver is required.", 400);
 
     // Validate dates.
-    const from = body?.effective_from || new Date().toISOString().slice(0, 10);
+    const from = body?.effective_from || licenseReferenceCalendarDay();
     const until = body?.effective_until || null;
     const fromD = new Date(from);
     if (Number.isNaN(fromD.getTime())) return err("effective_from is not a valid date.", 400);
@@ -95,14 +102,24 @@ export async function POST(req) {
 
     // Both sides must exist and be live.
     const [{ rows: vRows }, { rows: dRows }] = await Promise.all([
-      query(`SELECT vehicle_id, plate_number FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`, [vehicleId]),
-      query(`SELECT d.driver_id, e.first_name, e.last_name
+      query(`SELECT vehicle_id, plate_number, required_license_class FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`, [vehicleId]),
+      query(`SELECT d.driver_id, e.first_name, e.last_name, d.license_number,
+                    d.license_type, d.license_class, d.license_expiry,
+                    d.license_verified_at, d.license_verified_by, d.license_verification_method
                FROM drivers d
                LEFT JOIN employees e ON e.employee_id = d.employee_id
               WHERE d.driver_id = $1 AND d.deleted_at IS NULL`, [subDriverId]),
     ]);
     if (!vRows.length) return err("Vehicle not found.", 404);
     if (!dRows.length) return err("Substitute driver not found.", 404);
+
+    const licenseEligibility = evaluateDriverLicenseEligibility(dRows[0], vRows[0], from);
+    if (!licenseEligibility.eligible) {
+      return err(`Substitute driver is not eligible for this vehicle: ${licenseEligibility.reasons.join(" ")}`, 409);
+    }
+    if (until && licenseExpiryIsBefore(dRows[0].license_expiry, until)) {
+      return err(`License expires before substitute coverage ends on ${until}.`, 409);
+    }
 
     // App-layer overlap guard: a vehicle should not have two schedules that both
     // cover the same date (the DB enforces the open-ended special case via the
@@ -142,7 +159,7 @@ export async function POST(req) {
 
     const { rows: created } = await query(
       `${SELECT_SCHEDULE} WHERE s.substitute_id = $1`,
-      [inserted.rows[0].substitute_id]
+      [inserted[0].substitute_id]
     );
 
     await writeAudit(req, session, {

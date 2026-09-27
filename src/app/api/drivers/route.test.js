@@ -108,6 +108,9 @@ function baseBody(extra = {}) {
     last_name: "Dela Cruz",
     email: "juan.dela.cruz@fleetops.ph",
     license_number: "N01-23-456789",
+    license_expiry: "2030-05-04",
+    license_type: "Professional",
+    license_class: "B",
     birthdate: "1990-05-04",
     ...extra,
   };
@@ -415,6 +418,25 @@ describe("POST /api/drivers — an address failure fails the create", () => {
     expect(txCalls).toEqual([]);
     expect(supabaseWrites).toEqual([]);
     expect(saveAddress).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/drivers — license eligibility fields", () => {
+  it("rejects a Student Permit before creating employee or driver rows", async () => {
+    const { txCalls, state } = installDb();
+    const response = await POST(request(baseBody({ license_type: "Student Permit" })));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/Student Permit is not eligible/i);
+    expect(findInsert(txCalls, "drivers")).toBeUndefined();
+    expect(state.committed).toBe(false);
+  });
+
+  it("rejects a missing expiration date", async () => {
+    const { txCalls } = installDb();
+    const response = await POST(request(baseBody({ license_expiry: "" })));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/expiration date is required/i);
+    expect(findInsert(txCalls, "drivers")).toBeUndefined();
   });
 });
 

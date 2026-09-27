@@ -4,13 +4,18 @@ status: working
 tags: [feature, drivers, ocr, consent]
 source:
   - src/lib/driver/grounding.js
+  - src/lib/drivers/license-eligibility.js
   - src/lib/consent/driver-visibility.js
   - src/app/api/driver
+  - src/app/api/drivers
+  - src/app/api/driver-assignments
+  - src/app/api/substitute-driver-schedules
+  - supabase/migrations/137_driver_license_eligibility.sql
   - supabase/migrations/024_driverincidents.sql
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-09-23
+last_verified: 2026-09-27
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -19,6 +24,42 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ## What it does
 
 Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. 23 drivers.
+
+## Driver license eligibility — 2026-09-27
+
+Driver create/edit requires a syntactically valid license number, a separate exact expiry
+date, an explicit type, and a supported LTO class. Student Permits are rejected for fleet
+driving; Professional is the only supported type in the current form. Supported classes are
+B (M1: at most 8 passenger seats, GVW at most 5,000 kg) and B1 (M2: more than 8 passenger
+seats, GVW at most 5,000 kg), following the LTO code table. The license number is not parsed
+for an expiry date: the date is entered separately, and Gemini image-scan suggestions must be
+checked against the card.
+
+Each vehicle stores `required_license_class`, selected from its registration record. Fleet
+service category and passenger seating do not prove the LTO driver code, so existing vehicles
+are not backfilled by inference. `validatePairAvailability` applies the shared
+`src/lib/drivers/license-eligibility.js` rule at assignment; `PUT /api/trips/[id]/start`
+rechecks it against the current date and trip vehicle. An expiry date is valid through the
+end of that calendar day in Asia/Manila; it becomes ineligible the following day. The same
+rule is used by availability and compliance checks.
+
+Migration 137 adds an auditable staff review (`license_verified_at/by/method`). Editing any
+license field or replacing either license image clears that review. The edit API returns the
+full number only for `include_license=1` after `drivers.update`; routine API responses mask it
+to the final four characters. Mobile login and identity responses omit it. License-card OCR
+returns the full extracted value only to a caller with `drivers.create` or `drivers.update` as
+well as scan permission, so staff can confirm the suggestion in the form. Storage remains
+plaintext in the database; response masking is not encryption.
+
+Staff review records a physical-card or LTO Digital ID comparison. There is no LTO server
+integration, so a number's syntax, OCR result, or review timestamp does not prove authenticity,
+current activity, or absence of revocation. Existing drivers and vehicles have NULL review
+metadata/class and remain ineligible until staff review them. Custodial pairings and substitute
+coverage also recheck eligibility on write; bounded substitute coverage cannot run past the
+recorded expiry. Existing stored pairings are not deleted automatically, but their screens show
+the current license blocker and dispatch/start rechecks prevent use. See [[Dispatch]] and [[Trips]].
+The existing forms support only B and B1; B2 (goods vehicles) and larger vehicle codes remain
+unsupported pending confirmation of the fleet registrations and license-policy needs.
 
 ## Driver ≠ employee, exactly
 

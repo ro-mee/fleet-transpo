@@ -129,10 +129,6 @@ export async function POST(req) {
       );
       const driver = drivers[0];
       if (!driver) return err("Driver not found", 404);
-      const driverTravelExpired = (expiry) => (body.scheduled_departure ? isExpiredOn(expiry, body.scheduled_departure) : isExpired(expiry));
-      if (driverTravelExpired(driver.license_expiry)) {
-        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} license ${isExpired(driver.license_expiry) ? "has expired" : "expires"} (${toCalendarDay(driver.license_expiry)}) before this trip.`, 400);
-      }
       const dutyContext = await loadDriverScheduleContext([driver.driver_id]);
       const dutyCheck = isDriverUnavailableFor(driver, new Date(), {
         pickup: body.scheduled_departure, returnAt: body.scheduled_arrival, scheduleContext: dutyContext,
@@ -149,7 +145,7 @@ export async function POST(req) {
     // assigned to. No force path here: a dispatcher who needs a substitution
     // reassigns the pairing or edits the dispatch afterward.
     let dispatchEvidence;
-    if (body.vehicle_id && body.driver_id) {
+    if (body.vehicle_id || body.driver_id) {
       const pairCheck = await validatePairAvailability({
         request: { ...transportRequest, ...body, pickup_datetime: body.scheduled_departure ?? null, fleet_status: "Pending" },
         vehicleId: body.vehicle_id,

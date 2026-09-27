@@ -4,8 +4,8 @@ export async function getDrivers(filters = {}) {
   return apiFetch(`/api/drivers${buildQuery(filters)}`);
 }
 
-export async function getDriver(id) {
-  return apiFetch(`/api/drivers/${id}`);
+export async function getDriver(id, { includeLicense = false } = {}) {
+  return apiFetch(`/api/drivers/${id}${includeLicense ? "?include_license=1" : ""}`);
 }
 
 export async function createDriver(driver) {
@@ -14,6 +14,13 @@ export async function createDriver(driver) {
 
 export async function updateDriver(id, driver) {
   return apiFetch(`/api/drivers/${id}`, { method: "PUT", body: driver });
+}
+
+export async function verifyDriverLicense(id, method) {
+  return apiFetch(`/api/drivers/${id}/verify-license`, {
+    method: "POST",
+    body: { method, confirm: true },
+  });
 }
 
 export async function deleteDriver(id) {

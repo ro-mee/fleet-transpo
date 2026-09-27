@@ -1,5 +1,6 @@
 import { query, getAdminClient } from "@/lib/db";
 import { isExpiredOn } from "@/lib/dates";
+import { evaluateDriverLicenseEligibility, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
 import {
   mergePolicy,
   weekdayFor,
@@ -423,7 +424,9 @@ export async function loadVehicleTravelContext(date) {
   const driverIds = [...new Set(pairings.map((p) => p.driver_id).filter(Boolean))];
   const driverRows = driverIds.length
     ? (await query(
-        `SELECT driver_id, license_expiry, driver_status FROM drivers WHERE driver_id = ANY($1)`,
+        `SELECT driver_id, license_number, license_type, license_class, license_expiry,
+                license_verified_at, license_verified_by, license_verification_method, driver_status
+           FROM drivers WHERE driver_id = ANY($1)`,
         [driverIds]
       )).rows
     : [];
@@ -447,7 +450,7 @@ export async function loadDriverTravelContext(date) {
   const vehicleIds = [...new Set(pairings.map((p) => p.vehicle_id).filter(Boolean))];
   const vehicleRows = vehicleIds.length
     ? (await query(
-        `SELECT vehicle_id, plate_number, registration_expiry, insurance_expiry FROM vehicles WHERE vehicle_id = ANY($1)`,
+        `SELECT vehicle_id, plate_number, registration_expiry, insurance_expiry, required_license_class FROM vehicles WHERE vehicle_id = ANY($1)`,
         [vehicleIds]
       )).rows
     : [];
@@ -471,7 +474,7 @@ export function vehicleCanTravel(v, ctx) {
   if (pairing?.driver_id) {
     const d = ctx?.driverById?.get?.(pairing.driver_id);
     if (!d) return false;
-    if (isExpiredOn(d.license_expiry, date)) return false;
+    if (!evaluateDriverLicenseEligibility(d, v, date).eligible) return false;
     if (["Suspended", "On Leave", "Off Duty"].includes(d.driver_status)) return false;
   }
   return true;
@@ -480,12 +483,13 @@ export function vehicleCanTravel(v, ctx) {
 /** Whether a driver can travel on the context date (own license + paired vehicle). */
 export function driverCanTravel(d, ctx) {
   const date = ctx?.date ?? new Date();
-  if (isExpiredOn(d.license_expiry, date)) return false;
+  if (licenseExpiryIsBefore(d.license_expiry, date)) return false;
   const pairing = ctx?.pairings?.find?.((p) => p.driver_id === d.driver_id);
   if (pairing?.vehicle_id) {
     const v = ctx?.vehicleById?.get?.(pairing.vehicle_id);
     if (!v) return false;
     if (isExpiredOn(v.registration_expiry, date) || isExpiredOn(v.insurance_expiry, date)) return false;
+    if (!evaluateDriverLicenseEligibility(d, v, date).eligible) return false;
     if (ctx.policy?.enabled && !ctx.exemptVehicleIds?.has?.(v.vehicle_id) && v.plate_number) {
       if (isRestricted(v.plate_number, ctx.policy, date)) return false;
     }

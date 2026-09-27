@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { evaluateDriverLicenseEligibility, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
 
 // Substitute driver schedule item routes (migration 032).
 //
@@ -12,7 +13,10 @@ const SELECT_SCHEDULE = `
   SELECT s.substitute_id, s.vehicle_id, s.substitute_driver_id,
          s.effective_from, s.effective_until, s.notes, s.created_at, s.updated_at,
          v.plate_number, v.vehicle_name, v.vehicle_status,
-         e.first_name, e.last_name, e.avatar_url, d.driver_status, d.face_image_url
+         v.required_license_class,
+         e.first_name, e.last_name, e.avatar_url, d.driver_status, d.face_image_url,
+         d.license_number, d.license_type, d.license_class, d.license_expiry,
+         d.license_verified_at, d.license_verified_by, d.license_verification_method
     FROM substitute_vehicle_schedules s
     LEFT JOIN vehicles v ON v.vehicle_id = s.vehicle_id
     LEFT JOIN drivers d ON d.driver_id = s.substitute_driver_id
@@ -53,6 +57,27 @@ export async function PATCH(req, { params }) {
       const untilD = new Date(until);
       if (Number.isNaN(untilD.getTime())) return err("effective_until is not a valid date.", 400);
       if (untilD.getTime() < fromD.getTime() - 86400000) return err("effective_until cannot be before effective_from.", 400);
+    }
+
+    const { rows: eligibilityRows } = await query(
+      `SELECT d.license_number, d.license_type, d.license_class, d.license_expiry,
+              d.license_verified_at, d.license_verified_by, d.license_verification_method,
+              v.required_license_class
+         FROM drivers d
+         JOIN vehicles v ON v.vehicle_id = $2 AND v.deleted_at IS NULL
+        WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
+      [subDriverId, existing.vehicle_id]
+    );
+    if (!eligibilityRows.length) return err("Driver or vehicle no longer exists.", 404);
+    const driverLicense = eligibilityRows[0];
+    const licenseEligibility = evaluateDriverLicenseEligibility(driverLicense, {
+      required_license_class: driverLicense.required_license_class,
+    }, from);
+    if (!licenseEligibility.eligible) {
+      return err(`Substitute driver is not eligible for this vehicle: ${licenseEligibility.reasons.join(" ")}`, 409);
+    }
+    if (until && licenseExpiryIsBefore(eligibilityRows[0].license_expiry, until)) {
+      return err(`License expires before substitute coverage ends on ${until}.`, 409);
     }
 
     const { rows: updated } = await query(

@@ -45,6 +45,14 @@ it('rejects stale plans before lifecycle changes or notifications',async()=>{
  expect((await PUT(request(),params)).status).toBe(409);
  expect(advanceReservation).not.toHaveBeenCalled();expect(recordReservationEvent).not.toHaveBeenCalled();expect(syncDispatchSideEffects).not.toHaveBeenCalled();
 });
+it('blocks assignments when the authoritative license check reports ineligibility',async()=>{
+ validatePairAvailability.mockResolvedValueOnce({ok:false,conflict:{type:'driver_license',severity:'blocking',message:'Student Permit is not eligible for driving assignments.'}});
+ const response=await PUT(request(),params);
+ expect(response.status).toBe(409);
+ expect((await response.json()).error).toMatch(/Student Permit/);
+ expect(advanceReservation).not.toHaveBeenCalled();
+ expect(syncDispatchSideEffects).not.toHaveBeenCalled();
+});
 it('rechecks the plan inside the locked commit before writing if state races after the initial check',async()=>{
  const tx={query:vi.fn()};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));

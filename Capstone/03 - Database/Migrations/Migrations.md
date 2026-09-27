@@ -10,7 +10,17 @@ last_verified: 2026-09-27
 
 # Migrations
 
-**136 migration files are on disk; 136 are applied, with 0 pending and 0 changed** as of
+## 2026-09-27 — `137_driver_license_eligibility.sql`
+
+Adds nullable license review fields to `drivers` (`license_verified_at`,
+`license_verified_by`, `license_verification_method`) and nullable
+`vehicles.required_license_class`, with reviewer, method, and supported-class constraints.
+The change is additive: existing data is preserved, while existing drivers and vehicles
+remain unverified/unmapped until staff review. Assignment and trip start fail closed until
+then. `npm run db:up` applied it; `npm run db:dump` confirms the columns and constraints in
+the live schema. No table or RLS policy was added.
+
+**137 migration files are on disk; 137 are applied, with 0 pending and 0 changed** as of
 2026-09-27. The ledger still has historical missing-file and stale-key entries; check
 `npm run db:status` for the current list. Four duplicate-number pairs (`036`, `037`, `059`,
 `060`) remain frozen by `npm run db:check`. The full-filename ledger and generated `schema.sql`

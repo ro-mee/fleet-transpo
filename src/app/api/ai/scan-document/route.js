@@ -1,4 +1,4 @@
-import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, okWithFullLicense, err, handleError, AuthError } from "@/lib/api/utils";
 import { logAiRequest } from "@/lib/ai/logger";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
@@ -20,6 +20,19 @@ export async function POST(request) {
 
     if (!SUPPORTED_DOCUMENT_TYPES.has(documentType)) {
       return err("Document type is required (Driver_License, Driver_License_Back, OR_CR, Insurance)", 400);
+    }
+
+    const isDriverLicenseScan = documentType === "Driver_License" || documentType === "Driver_License_Back";
+    if (isDriverLicenseScan) {
+      // The driver form uses OCR to prefill the credential fields. Keep this
+      // response available only to staff who can create or update driver
+      // records; ordinary API and mobile responses remain masked.
+      try {
+        await requirePermission(request, "drivers", "update");
+      } catch (error) {
+        if (!(error instanceof AuthError) || error.status !== 403) throw error;
+        await requirePermission(request, "drivers", "create");
+      }
     }
 
     if (!fileUrl || typeof fileUrl !== "string") {
@@ -74,7 +87,7 @@ export async function POST(request) {
       ltoSchedule = calculateLtoRenewalSchedule(extractedData.plate_number);
     }
 
-    return ok({
+    const response = {
       document_type: documentType,
       file_url: fileUrl,
       extracted_data: extractedData,
@@ -85,7 +98,8 @@ export async function POST(request) {
       scan_engine: model ? "gemini" : null,
       model,
       parsed_at: new Date().toISOString(),
-    });
+    };
+    return isDriverLicenseScan ? okWithFullLicense(response) : ok(response);
   } catch (error) {
     return handleError(error, "Failed to scan document");
   }

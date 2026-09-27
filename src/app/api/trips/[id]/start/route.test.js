@@ -17,8 +17,8 @@ import {PUT} from './route';
 const defaultQuery = (sql) => ({
   rows: sql.includes('FROM dispatchschedules') ? [{dispatch_id:8,driver_id:2,vehicle_id:3,scheduled_departure:new Date(Date.now()+15*60_000).toISOString()}]
     :sql.includes('FROM vehicleinspection') ? [{status:'Passed'}]
-    :sql.includes('FROM vehicles') ? [{registration_expiry:'2099-01-01',vehicle_status:'Available'}]
-    :sql.includes('FROM drivers') ? [{license_expiry:'2099-01-01',driver_status:'Available'}]:[],
+    :sql.includes('FROM vehicles') ? [{registration_expiry:'2099-01-01',vehicle_status:'Available',required_license_class:'B'}]
+    :sql.includes('FROM drivers') ? [{license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2099-01-01',license_verified_at:'2026-09-27T10:00:00+08:00',license_verified_by:1,license_verification_method:'physical_card',driver_status:'Available'}]:[],
 });
 beforeEach(()=>{
  vi.clearAllMocks();
@@ -52,6 +52,31 @@ it('blocks start when the latest inspection for this trip Failed',async()=>{
  query.mockImplementation(async sql=>
    sql.includes('FROM vehicleinspection') ? {rows:[{status:'Failed'}]} : defaultQuery(sql));
  expect((await run()).status).toBe(400);
+});
+it('rechecks expiration immediately before the trip starts',async()=>{
+ query.mockImplementation(async sql=>sql.includes('FROM drivers')
+   ? {rows:[{license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2000-01-01',license_verified_at:'2026-09-27T10:00:00+08:00',license_verified_by:1,license_verification_method:'physical_card',driver_status:'Available'}]}
+   : defaultQuery(sql));
+ const response=await run();
+ expect(response.status).toBe(400);
+ expect((await response.json()).error).toMatch(/Expired license/i);
+ expect(commitDispatchEvidence).not.toHaveBeenCalled();
+});
+it('blocks a driver whose license class does not cover the trip vehicle',async()=>{
+ query.mockImplementation(async sql=>sql.includes('FROM vehicles')
+   ? {rows:[{registration_expiry:'2099-01-01',vehicle_status:'Available',required_license_class:'B1'}]}
+   : defaultQuery(sql));
+ const response=await run();
+ expect(response.status).toBe(400);
+ expect((await response.json()).error).toMatch(/License class does not cover this vehicle/i);
+});
+it('blocks trip start when the staff license review is missing',async()=>{
+ query.mockImplementation(async sql=>sql.includes('FROM drivers')
+   ? {rows:[{license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2099-01-01',license_verified_at:null,license_verified_by:null,license_verification_method:null,driver_status:'Available'}]}
+   : defaultQuery(sql));
+ const response=await run();
+ expect(response.status).toBe(400);
+ expect((await response.json()).error).toMatch(/not been verified/i);
 });
 it('scopes the gate to this trip AND inspection_type Pre-Trip (a Pre-Shift row can never satisfy it)',async()=>{
  const tx={query:vi.fn(async sql=>({rows:sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};

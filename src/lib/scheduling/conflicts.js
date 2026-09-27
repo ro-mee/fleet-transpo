@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { isExpiredOn, toCalendarDay } from "@/lib/dates";
+import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
 import { getUvvrpPolicy, getExemptVehicleIds } from "@/lib/uvvrp/uvvrp.service";
 import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
@@ -296,13 +297,16 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
         detail: { driver_id: driver.driver_id, driver_status: driver.driver_status },
       });
     }
-    if (isExpiredOn(driver.license_expiry, request.pickup_datetime)) {
-      findings.push({
-        type: CONFLICT_TYPE.LICENSE_EXPIRED,
-        severity: SEVERITY.BLOCKING,
-        message: `Driver ${name} license ${toCalendarDay(driver.license_expiry)} is not valid for this trip.`,
-        detail: { driver_id: driver.driver_id },
-      });
+    if (vehicle) {
+      const license = evaluateDriverLicenseEligibility(driver, vehicle, request.pickup_datetime || new Date());
+      if (!license.eligible) {
+        findings.push({
+          type: CONFLICT_TYPE.DRIVER_LICENSE_INELIGIBLE,
+          severity: SEVERITY.BLOCKING,
+          message: `Driver ${name} is not eligible to drive this vehicle: ${license.reasons.join(" ")}`,
+          detail: { driver_id: driver.driver_id, reasons: license.reasons },
+        });
+      }
     }
     // Work-schedule + approved-leave blocking (migration 049): no schedule row,
     // a rest day, approved leave, or an out-of-shift / break-overlapping window.
@@ -469,7 +473,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     // 6. Vehicle registration + 7. capacity.
     vehicleId
       ? query(
-          `SELECT vehicle_id, plate_number, category_id, seating_capacity, registration_expiry, insurance_expiry, vehicle_status,fuel_level,next_service_date
+          `SELECT vehicle_id, plate_number, category_id, seating_capacity, registration_expiry, insurance_expiry, vehicle_status,fuel_level,next_service_date,required_license_class
              FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
           [vehicleId]
         )
@@ -480,7 +484,9 @@ export async function detectRequestConflicts(request, opts = {}) {
     // 4. Driver availability + 5. license.
     driverId
       ? query(
-          `SELECT d.driver_id, d.license_expiry, d.driver_status, e.first_name, e.last_name
+          `SELECT d.driver_id, d.license_number, d.license_type, d.license_class, d.license_expiry,
+                  d.license_verified_at, d.license_verified_by, d.license_verification_method,
+                  d.driver_status, e.first_name, e.last_name
              FROM drivers d
              LEFT JOIN employees e ON e.employee_id = d.employee_id
             WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
@@ -599,7 +605,9 @@ export async function detectRequestConflicts(request, opts = {}) {
   findings.push(...vehicleRisks(vehicleRow,request).map(r=>({type:'vehicle_advisory',severity:'warning',message:r.message})));
   const ids = [...new Set([driverId, ...assignments.map(a => a.driver_id), ...substitutes.map(s => s.substitute_driver_id)].filter(Boolean))];
   const [{ rows: pairingDrivers }, { rows: incidents }] = await Promise.all([
-    query(`SELECT d.driver_id,d.driver_status,d.license_expiry,(SELECT count(*) FROM dispatchschedules ds WHERE ds.driver_id=d.driver_id
+    query(`SELECT d.driver_id,d.driver_status,d.license_number,d.license_type,d.license_class,d.license_expiry,
+      d.license_verified_at,d.license_verified_by,d.license_verification_method,
+      (SELECT count(*) FROM dispatchschedules ds WHERE ds.driver_id=d.driver_id
       AND ds.deleted_at IS NULL AND ds.status IN ('Scheduled','In Progress') AND ds.request_id IS DISTINCT FROM $4::int
       AND ($5::int IS NULL OR ds.dispatch_id<>$5) AND ds.scheduled_departure<$3::timestamptz
       AND COALESCE(ds.scheduled_arrival,ds.scheduled_departure)>$2::timestamptz)::int AS _schedule_load
@@ -608,7 +616,7 @@ export async function detectRequestConflicts(request, opts = {}) {
   ]);
   const pairing = resolveVehiclePairing({ vehicleId, pickupDate:pickup, returnAt:request.scheduled_arrival ? new Date(request.scheduled_arrival) : null,
     activePairs:assignments, activeSubstitutes:substitutes, driverById:new Map(pairingDrivers.map(d => [d.driver_id,d])),
-    scheduleContext:await loadDriverScheduleContext(ids) });
+    scheduleContext:await loadDriverScheduleContext(ids), requiredLicenseClass:vehicleRow?.required_license_class });
   if (!pairing.ok || Number(pairing.driver?.driver_id) !== Number(driverId)) findings.push({type:'pairing',severity:'blocking',message:pairing.reason || 'This is not the effective designated or substitute pair.'});
   if (vehicleRow && !vehicleOperationallyAvailable(vehicleRow)) findings.push({type:'vehicle_status',severity:'blocking',message:`Vehicle is ${vehicleRow.vehicle_status}.`});
   if (request.requested_category_id && Number(vehicleRow?.category_id)!==Number(request.requested_category_id)) findings.push({type:'category',severity:'blocking',message:'Vehicle does not match the requested class.'});
@@ -627,7 +635,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     ['incidents','Blocking incident check',!!vehicleRow],
   ];
   if (request.requested_vehicle_type && !request.requested_category_id) known.push(['category','Requested vehicle class',false]);
-  const types = {capacity:['capacity_mismatch'],registration:['registration_expired'],insurance:['insurance_expired'],license:['license_expired'],pairing:['pairing'],schedule:['driver_unavailable','driver_conflict','vehicle_conflict','vehicle_status'],maintenance:['maintenance_conflict'],incidents:['incident'],category:['category']};
+  const types = {capacity:['capacity_mismatch'],registration:['registration_expired'],insurance:['insurance_expired'],license:['license_expired','driver_license_ineligible'],pairing:['pairing'],schedule:['driver_unavailable','driver_conflict','vehicle_conflict','vehicle_status'],maintenance:['maintenance_conflict'],incidents:['incident'],category:['category']};
   if (request.requested_category_id) known.push(['category','Requested vehicle class',!!vehicleRow?.category_id]);
   return { conflicts:findings, checks:known.map(([id,label,present]) => {
     const blocked = findings.find(f => f.severity==='blocking' && types[id]?.includes(f.type));
@@ -674,7 +682,7 @@ export async function detectConflictsForRequests(requests = []) {
   const [vehicles, drivers, dispatches, maintenance, assignments, substitutes] = await Promise.all([
     vehicleIds.length
       ? query(
-          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, insurance_expiry, vehicle_status
+          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, insurance_expiry, vehicle_status, required_license_class
              FROM vehicles WHERE vehicle_id = ANY($1) AND deleted_at IS NULL`,
           [vehicleIds]
         ).then((r) => r.rows).catch(() => [])
@@ -682,7 +690,9 @@ export async function detectConflictsForRequests(requests = []) {
 
     driverIds.length
       ? query(
-          `SELECT d.driver_id, d.license_expiry, d.driver_status, e.first_name, e.last_name
+          `SELECT d.driver_id, d.license_number, d.license_type, d.license_class, d.license_expiry,
+                  d.license_verified_at, d.license_verified_by, d.license_verification_method,
+                  d.driver_status, e.first_name, e.last_name
              FROM drivers d
              LEFT JOIN employees e ON e.employee_id = d.employee_id
             WHERE d.driver_id = ANY($1) AND d.deleted_at IS NULL`,
