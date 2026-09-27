@@ -2,7 +2,6 @@ import { Redirect, Stack, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAuth } from "../../lib/auth";
-import { useAppLock } from "../../lib/app-lock-context";
 import { isDriverSession } from "../../lib/rbac";
 import { useActiveTripGpsPoster } from "../../lib/tracking";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../../lib/consent";
@@ -12,17 +11,11 @@ import { NotificationFeedProvider } from "../../context/notification-feed";
 import { ConnectivityProvider } from "../../lib/connectivity-context";
 import { ConnectivityBanner } from "../../components/ConnectivityBanner";
 import { CoachMarkProvider } from "../../components/coachmarks/CoachMarkProvider";
-import AppLockScreen from "../../components/AppLockScreen";
 
 /**
- * Auth + consent + app-lock guard for every signed-in route.
+ * Auth + consent guard for every signed-in route.
  *
  * Auth: only a driver session may enter the signed-in area.
- * Lock: a driver who enabled biometric login must authenticate with the OS
- * before any authenticated screen is mounted. The lock screen replaces the
- * navigator rather than covering it, so nothing protected is on screen or
- * reachable behind it. Unlocking only releases this local gate — it mints no
- * credential and the server session is untouched.
  * Consent: a driver who has not accepted the current privacy policy version is
  * parked on the consent screen until they agree.
  *
@@ -31,7 +24,6 @@ import AppLockScreen from "../../components/AppLockScreen";
  */
 export default function AppLayout() {
   const { user, loading } = useAuth();
-  const { locked, ready: lockReady } = useAppLock();
   const { colors } = useTheme();
   const [consentVersion, setConsentVersion] = useState(null);
   const [consentLoading, setConsentLoading] = useState(true);
@@ -59,7 +51,7 @@ export default function AppLayout() {
     }, [])
   );
 
-  if (loading || consentLoading || !lockReady) {
+  if (loading || consentLoading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.primary} />
@@ -71,13 +63,8 @@ export default function AppLayout() {
     return <Redirect href="/login" />;
   }
 
-  // Before the consent redirect, so a cold start is: authenticate, then read
-  // the policy. `useActiveTripGpsPoster` above stays on either way — background
-  // trip location is operational data, not protected UI.
-  if (locked) {
-    return <AppLockScreen />;
-  }
-
+  // Honor consent before mounting the signed-in navigator. The GPS poster
+  // above stays active only for a signed-in, consented driver.
   if (!consented) {
     return <Redirect href="/consent" />;
   }

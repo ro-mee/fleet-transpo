@@ -23,8 +23,7 @@
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.CAMERA",
-        "android.permission.USE_BIOMETRIC"
+        "android.permission.CAMERA"
       ],
       "package": "com.fleet.mobile",
       "googleServicesFile": "./services/google-services.json"
@@ -39,7 +38,12 @@
     ],
     "plugins": [
       "expo-router",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       [
         "expo-image-picker",
         {
@@ -64,13 +68,7 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      "expo-font",
-      [
-        "expo-local-authentication",
-        {
-          "faceIDPermission": "FleetOps uses Face ID to unlock the app when you turn on biometric login."
-        }
-      ]
+      "expo-font"
     ],
     "extra": {
       "router": {},

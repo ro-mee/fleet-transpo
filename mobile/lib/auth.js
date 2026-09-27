@@ -1,9 +1,16 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { apiFetch, setSessionExpiredHandler } from "./api";
 import { decodeJwtRole } from "./rbac";
-import { saveTokens, saveUser, getUser, getAccessToken, getRefreshToken, clearAll } from "./storage";
+import {
+  saveTokens,
+  saveUser,
+  getUser,
+  getAccessToken,
+  getRefreshToken,
+  clearAll,
+  clearLegacyBiometricEnrollment,
+} from "./storage";
 import { clearOfflineCache, resolveDriverId } from "./offline-cache";
-import { clearBiometric } from "./biometric";
 import { registerDeviceTokenIfAuthorized, unregisterDeviceToken } from "./notifications/device-token";
 
 const AuthContext = createContext(null);
@@ -14,6 +21,7 @@ export function AuthProvider({ children }) {
 
   // Restore the session from secure storage on cold start.
   useEffect(() => {
+    clearLegacyBiometricEnrollment().catch(() => {});
     (async () => {
       try {
         const [token, stored] = await Promise.all([getAccessToken(), getUser()]);
@@ -79,12 +87,6 @@ export function AuthProvider({ children }) {
     // phone must never see driver A's cached trips.
     const stored = await getUser().catch(() => null);
     await clearOfflineCache(resolveDriverId(stored));
-    // Sign-out clears biometric: the enrollment is destroyed alongside the
-    // session, so nothing survives to unlock later. A new session needs the
-    // password *and* the emailed code, after which the app offers to enable
-    // biometric login again. Deliberately ordered before clearAll() so a
-    // failure here cannot leave a live enrollment pointing at a dead session.
-    await clearBiometric();
     await clearAll();
     setUser(null);
   }, []);
