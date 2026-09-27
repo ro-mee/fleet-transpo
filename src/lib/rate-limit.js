@@ -6,7 +6,12 @@ import { query } from "@/lib/db";
 // silently allowing unthrottled credential attempts.
 
 /**
- * Consume one hit against `key`. Returns { allowed, remaining, retryAfter }.
+ * Consume one hit against `key`.
+ * Returns { allowed, remaining, retryAfter, windowRetryAfter }.
+ * `windowRetryAfter` is the window's true remaining seconds regardless of
+ * `allowed` — the OTP lockout answers a just-tripped freeze with it, and the
+ * window opened at the account's FIRST burn, so a fresh `windowMs` from now
+ * would overstate the wait.
  * @param {string} key       Unique bucket key (e.g. `login:${ip}`).
  * @param {object} [opts]
  * @param {number} [opts.limit]      Max hits per window (default 10).
@@ -45,10 +50,16 @@ export async function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
       allowed: hitCount <= limit,
       remaining: Math.max(0, limit - hitCount),
       retryAfter: hitCount <= limit ? 0 : retryAfter,
+      windowRetryAfter: retryAfter,
     };
   } catch (error) {
     console.error("Auth rate limiter unavailable:", error?.message || error);
-    return { allowed: false, remaining: 0, retryAfter: Math.ceil(windowMs / 1000) };
+    return {
+      allowed: false,
+      remaining: 0,
+      retryAfter: Math.ceil(windowMs / 1000),
+      windowRetryAfter: Math.ceil(windowMs / 1000),
+    };
   }
 }
 

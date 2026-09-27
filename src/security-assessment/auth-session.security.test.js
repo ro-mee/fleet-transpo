@@ -106,6 +106,29 @@ describe('SEC-AUTH-002 — credential throttles fail closed where the edge guard
     const result = await rateLimit('login:ip:1.2.3.4', { limit: 5, windowMs: 60_000 });
     expect(result.allowed).toBe(false);
     expect(result.retryAfter).toBeGreaterThan(0);
+    expect(result.windowRetryAfter).toBe(result.retryAfter);
+  });
+
+  it('an allowed result still reports the window true wait, for the OTP freeze countdown', async () => {
+    query.mockResolvedValueOnce({ rows: [{ hit_count: 1, retry_after: 847 }] });
+    const result = await rateLimit('lockout:otp:8', { limit: 3, windowMs: 900_000 });
+    expect(result).toMatchObject({
+      allowed: true,
+      remaining: 2,
+      retryAfter: 0,
+      windowRetryAfter: 847,
+    });
+  });
+
+  it('once the limit is passed the window wait equals the retry after', async () => {
+    query.mockResolvedValueOnce({ rows: [{ hit_count: 4, retry_after: 612 }] });
+    const result = await rateLimit('lockout:otp:8', { limit: 3, windowMs: 900_000 });
+    expect(result).toMatchObject({
+      allowed: false,
+      remaining: 0,
+      retryAfter: 612,
+      windowRetryAfter: 612,
+    });
   });
 
   it('an outage refuses the read-only peek too', async () => {
