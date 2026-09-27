@@ -9,23 +9,33 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  OTP_ATTEMPTS_LEFT_PREFIX,
   OTP_CODE_DIGITS,
-  OTP_TTL_SECONDS,
+  OTP_LOCKOUT_LIMIT,
+  OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
+  OTP_STRIKE_PREFIX,
+  OTP_TTL_SECONDS,
   maskEmailAddress,
   isEmailLike,
   formatCountdown,
   formatLockWait,
+  parseOtpAttemptsLeft,
   parseOtpLock,
+  parseOtpStrike,
   sanitizeOtpInput,
 } from "./otp";
 import {
   OTP_CODE_DIGITS as SERVER_DIGITS,
   OTP_TTL_SECONDS as SERVER_TTL,
   OTP_RESEND_COOLDOWN_SECONDS as SERVER_COOLDOWN,
+  OTP_LOCKOUT_LIMIT as SERVER_LOCKOUT_LIMIT,
+  OTP_MAX_ATTEMPTS as SERVER_MAX_ATTEMPTS,
   formatLockWait as serverFormatLockWait,
   maskEmailAddress as serverMask,
+  parseOtpAttemptsLeft as serverParseOtpAttemptsLeft,
   parseOtpLock as serverParseOtpLock,
+  parseOtpStrike as serverParseOtpStrike,
 } from "../../src/lib/auth/otp-policy.js";
 
 describe("OTP contract mirrors", () => {
@@ -39,6 +49,22 @@ describe("OTP contract mirrors", () => {
 
   it("resend cooldown matches the server gate", () => {
     expect(OTP_RESEND_COOLDOWN_SECONDS).toBe(SERVER_COOLDOWN);
+  });
+
+  it("attempt ceiling matches the server challenge", () => {
+    expect(OTP_MAX_ATTEMPTS).toBe(SERVER_MAX_ATTEMPTS);
+  });
+
+  it("lockout limit matches the server freeze", () => {
+    expect(OTP_LOCKOUT_LIMIT).toBe(SERVER_LOCKOUT_LIMIT);
+  });
+
+  it("attempts-left prefix matches the server wire token", () => {
+    expect(OTP_ATTEMPTS_LEFT_PREFIX).toBe("OTP_ATTEMPTS_LEFT:");
+  });
+
+  it("strike prefix matches the server wire token", () => {
+    expect(OTP_STRIKE_PREFIX).toBe("OTP_STRIKE:");
   });
 
   it("masking matches the server for the same address", () => {
@@ -98,5 +124,84 @@ describe("OTP_LOCKED token mirrors", () => {
     }
     expect(formatLockWait(420)).toBe("7 minutes");
     expect(formatLockWait(45)).toBe("45 seconds");
+  });
+});
+
+describe("OTP_ATTEMPTS_LEFT token mirrors", () => {
+  it("parses the same token the server sends, like the lock mirrors", () => {
+    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:4")).toBe(4);
+    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:4")).toBe(serverParseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:4"));
+    for (const bad of [
+      "OTP_ATTEMPTS_LEFT:0",
+      "OTP_ATTEMPTS_LEFT:6",
+      "OTP_ATTEMPTS_LEFT:abc",
+      "OTP_STRIKE:2",
+      "MFA_INVALID",
+      null,
+    ]) {
+      expect(parseOtpAttemptsLeft(bad)).toBeNull();
+      expect(parseOtpAttemptsLeft(bad)).toBe(serverParseOtpAttemptsLeft(bad));
+    }
+  });
+});
+
+describe("OTP_STRIKE token mirrors", () => {
+  it("parses the same token the server sends, like the lock mirrors", () => {
+    expect(parseOtpStrike("OTP_STRIKE:2")).toBe(2);
+    expect(parseOtpStrike("OTP_STRIKE:2")).toBe(serverParseOtpStrike("OTP_STRIKE:2"));
+    for (const bad of ["OTP_STRIKE:0", "OTP_STRIKE:4", "OTP_STRIKE:abc", "OTP_ATTEMPTS_LEFT:2", null]) {
+      expect(parseOtpStrike(bad)).toBeNull();
+      expect(parseOtpStrike(bad)).toBe(serverParseOtpStrike(bad));
+    }
+  });
+});
+
+describe("attempts and strike parser parity table", () => {
+  const ATTEMPTS_CASES = [
+    ["OTP_ATTEMPTS_LEFT:5", 5],
+    ["OTP_ATTEMPTS_LEFT:4", 4],
+    ["OTP_ATTEMPTS_LEFT:1", 1],
+    ["OTP_ATTEMPTS_LEFT:0", null],
+    ["OTP_ATTEMPTS_LEFT:6", null],
+    ["OTP_ATTEMPTS_LEFT:1.5", null],
+    ["OTP_ATTEMPTS_LEFT:", null],
+    ["OTP_ATTEMPTS_LEFT", null],
+    ["OTP_STRIKE:3", null],
+    ["MFA_INVALID", null],
+    ["", null],
+    [null, null],
+    [undefined, null],
+    [4, null],
+  ];
+
+  const STRIKE_CASES = [
+    ["OTP_STRIKE:3", 3],
+    ["OTP_STRIKE:2", 2],
+    ["OTP_STRIKE:1", 1],
+    ["OTP_STRIKE:0", null],
+    ["OTP_STRIKE:4", null],
+    ["OTP_STRIKE:1.5", null],
+    ["OTP_STRIKE:", null],
+    ["OTP_STRIKE", null],
+    ["OTP_ATTEMPTS_LEFT:2", null],
+    ["2", null],
+    ["", null],
+    [null, null],
+    [undefined, null],
+    [3, null],
+  ];
+
+  it("pins boundaries and non-integers, and matches the server on every attempts input", () => {
+    for (const [input, expected] of ATTEMPTS_CASES) {
+      expect(parseOtpAttemptsLeft(input)).toBe(expected);
+      expect(parseOtpAttemptsLeft(input)).toBe(serverParseOtpAttemptsLeft(input));
+    }
+  });
+
+  it("pins boundaries and non-integers, and matches the server on every strike input", () => {
+    for (const [input, expected] of STRIKE_CASES) {
+      expect(parseOtpStrike(input)).toBe(expected);
+      expect(parseOtpStrike(input)).toBe(serverParseOtpStrike(input));
+    }
   });
 });

@@ -80,6 +80,39 @@ export function parseOtpLock(message) {
   return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
 }
 
+/** Failed verifications before a challenge burns. Mirrors otp-policy. */
+export const OTP_MAX_ATTEMPTS = 5;
+
+/** Burned challenges before the account freezes. Mirrors otp-policy. */
+export const OTP_LOCKOUT_LIMIT = 3;
+
+/** Wire prefix of the attempts-left token. Mirrors otp-policy. */
+export const OTP_ATTEMPTS_LEFT_PREFIX = "OTP_ATTEMPTS_LEFT:";
+
+/** Wire prefix of the burn-strike token. Mirrors otp-policy. */
+export const OTP_STRIKE_PREFIX = "OTP_STRIKE:";
+
+/**
+ * Remaining attempts from an `OTP_ATTEMPTS_LEFT:<n>` token, or null.
+ * Mirrors the server's parseOtpAttemptsLeft — same range check, so a corrupt
+ * token falls through to the generic message instead of a bogus count.
+ */
+export function parseOtpAttemptsLeft(message) {
+  if (typeof message !== "string" || !message.startsWith(OTP_ATTEMPTS_LEFT_PREFIX)) return null;
+  const count = Number(message.slice(OTP_ATTEMPTS_LEFT_PREFIX.length));
+  return Number.isInteger(count) && count >= 1 && count <= OTP_MAX_ATTEMPTS ? count : null;
+}
+
+/**
+ * Strike number from an `OTP_STRIKE:<n>` token, or null. Mirrors the
+ * server's parseOtpStrike.
+ */
+export function parseOtpStrike(message) {
+  if (typeof message !== "string" || !message.startsWith(OTP_STRIKE_PREFIX)) return null;
+  const strike = Number(message.slice(OTP_STRIKE_PREFIX.length));
+  return Number.isInteger(strike) && strike >= 1 && strike <= OTP_LOCKOUT_LIMIT ? strike : null;
+}
+
 /** "7 minutes" / "45 seconds" / "1 second". Mirrors the server's formatLockWait. */
 export function formatLockWait(seconds) {
   const total = Math.max(1, Math.ceil(Number(seconds) || 0));
