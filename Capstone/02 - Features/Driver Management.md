@@ -44,12 +44,19 @@ end of that calendar day in Asia/Manila; it becomes ineligible the following day
 rule is used by availability and compliance checks.
 
 Migration 137 adds an auditable staff review (`license_verified_at/by/method`). Editing any
-license field or replacing either license image clears that review. The edit API returns the
-full number only for `include_license=1` after `drivers.update`; routine API responses mask it
-to the final four characters. Mobile login and identity responses omit it. License-card OCR
-returns the full extracted value only to a caller with `drivers.create` or `drivers.update` as
-well as scan permission, so staff can confirm the suggestion in the form. Storage remains
-plaintext in the database; response masking is not encryption.
+license field or replacing either license image clears that review. Routine API responses mask
+the number to its final four characters. Staff detail and edit flows return the full number
+only after `drivers.update`; the directory and detail pages reveal it only after an explicit
+eye-button request, while create/edit forms already have a show/hide control. The driver's own
+web and mobile profile also default to the masked number and offer an explicit reveal scoped to
+the authenticated driver's own record (`GET /api/driver/me?include_license=1`). Other driver
+records remain unavailable through that self endpoint. Staff without `drivers.update` and
+routine operational responses stay masked. License-card OCR returns the full extracted value
+only to a caller with `drivers.create` or `drivers.update` as well as scan permission, so staff
+can confirm the suggestion in the form. Storage remains plaintext in the database; response
+masking is not encryption. Reveal values are held only in the active screen state; normal API
+responses and cached profile data remain masked. Focused ESLint and `git diff --check` passed;
+tests were not run.
 
 Staff review records a physical-card or LTO Digital ID comparison. There is no LTO server
 integration, so a number's syntax, OCR result, or review timestamp does not prove authenticity,

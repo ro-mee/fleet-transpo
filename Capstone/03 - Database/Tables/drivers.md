@@ -49,9 +49,10 @@ change clears the attestation. It is not an LTO verification API result.
 Dispatch eligibility requires a valid Professional license, supported class (B or B1), an
 exact expiry date that has not passed in Asia/Manila, and staff review metadata. Student
 Permits are ineligible. The full license number remains plaintext in `drivers.license_number`;
-routine API serializers mask it, while the edit route requires `drivers.update` to reveal it.
-This is access/display masking, not encryption. NULL verification metadata on existing rows
-is intentional and blocks assignment until review.
+routine API serializers mask it. A driver can explicitly request only their own full number
+through the authenticated `/api/driver/me?include_license=1` profile read; staff detail/edit reads
+require `drivers.update`. This is access/display masking, not encryption. NULL verification
+metadata on existing rows is intentional and blocks assignment until review.
 
 ## Vehicle pairing lives elsewhere
 

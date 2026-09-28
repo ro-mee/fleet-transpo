@@ -37,6 +37,15 @@ LICENSE_REUPLOAD_WINDOW_DAYS = 30
 
 Note what a driver **cannot** edit: name, licence number, licence expiry, employment status. They can update contact details and re-upload photos of documents — the things only they can supply — and nothing that would let them misrepresent their credentials.
 
+### License number reveal — 2026-09-28
+
+The driver's own license number is still read-only and masked by default. The
+web driver profile and mobile License & Compliance screen provide an explicit
+eye control to reveal it on request; the authenticated self-profile endpoint
+returns only that driver's own full number. This does not grant access to other
+drivers' records or change who may edit the number. Focused ESLint and
+`git diff --check` passed; tests and on-device visual checks were not run.
+
 ## The re-upload window — REMOVED 2026-08-25
 
 The original `canUpdateLicenseScan()` 30-day pre-expiry window (no scan on file, or expiry within 30 days) was removed: a driver who physically renews early could not update the record for months, and self-service stopped halfway anyway because staff still had to fix the expiry date by hand. Re-upload is now allowed **anytime**; the quality control is the Gemini authenticity/readability gate instead of a time window. → [[ADR-012 Anytime Self-Service License Renewal]]

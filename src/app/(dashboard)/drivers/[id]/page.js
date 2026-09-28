@@ -27,7 +27,7 @@ import {
   User, IdCard, CalendarDays, Star, Phone, Mail,
   MapPin, Award, TrendingUp, ArrowLeft, Pencil, Archive,
   Clock, ShieldCheck, FileText, AlertCircle, CheckCircle2,
-  Heart, Upload, Truck, Eye, ZoomIn, FileImage, ShieldAlert,
+  Heart, Upload, Truck, Eye, EyeOff, LoaderCircle, ZoomIn, FileImage, ShieldAlert,
   Globe, Calendar, Briefcase, Activity, KeyRound, ChevronRight
 } from "lucide-react";
 
@@ -39,6 +39,8 @@ export default function DriverDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [tripPage, setTripPage] = useState(1);
+  const [revealedLicense, setRevealedLicense] = useState(null);
+  const [loadingLicenseReveal, setLoadingLicenseReveal] = useState(false);
 
   // Account actions (set/reset password, enable login)
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
@@ -52,8 +54,29 @@ export default function DriverDetailPage() {
     queryFn: () => getDriver(id),
     enabled: !!id,
   });
+  const revealedLicenseValue = revealedLicense?.driverId === id ? revealedLicense.value : null;
   const driverInvitePending = Boolean(driver?.account?.has_password && driver.account.must_change_password);
   const driverNeedsInvite = Boolean(!driver?.account?.has_password || driverInvitePending);
+
+  const toggleLicenseReveal = async () => {
+    if (revealedLicenseValue !== null) {
+      setRevealedLicense(null);
+      return;
+    }
+    setLoadingLicenseReveal(true);
+    try {
+      const fullDriver = await getDriver(id, { includeLicense: true });
+      if (!fullDriver?.license_number) {
+        toast.error("No license number is available to show.");
+        return;
+      }
+      setRevealedLicense({ driverId: id, value: fullDriver.license_number });
+    } catch (err) {
+      toast.error(err.message || "Could not show the license number.");
+    } finally {
+      setLoadingLicenseReveal(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteDriver(id),
@@ -128,6 +151,8 @@ export default function DriverDetailPage() {
       </div>
     );
   }
+
+  const licenseNumber = revealedLicenseValue ?? driver.license_number;
 
   const emp = driver.employees || {};
   const trips = driver.trips || [];
@@ -209,7 +234,26 @@ export default function DriverDetailPage() {
                   <div className="flex items-center gap-2.5 text-sm text-foreground-secondary flex-wrap font-medium">
                     <span className="flex items-center gap-1.5"><IdCard className="w-4 h-4 text-foreground-muted" /> #{emp.employee_id || driver.employee_id}</span>
                     <span className="text-border text-lg leading-none">•</span>
-                    <span className="flex items-center gap-1.5"><FileText className="w-4 h-4 text-foreground-muted" /> <span className="font-data">{driver.license_number}</span></span>
+                    <span className="flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-foreground-muted" />
+                      <span className="font-data">{licenseNumber}</span>
+                      {can("drivers", "update") && driver.license_number && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-foreground-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                          onClick={toggleLicenseReveal}
+                          disabled={loadingLicenseReveal}
+                          aria-label={revealedLicenseValue !== null ? "Hide license number" : "Show license number"}
+                          title={revealedLicenseValue !== null ? "Hide license number" : "Show license number"}
+                          aria-pressed={revealedLicenseValue !== null}
+                        >
+                          {loadingLicenseReveal ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> :
+                            revealedLicenseValue !== null ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+                    </span>
                     <span className="text-border text-lg leading-none">•</span>
                     <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-foreground-muted" /> Class {driver.license_class || "B"}</span>
                   </div>
@@ -438,7 +482,7 @@ export default function DriverDetailPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-border/40 border-b border-border/40">
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">License Number</span>
-                      <span className="text-base font-bold font-data text-foreground tracking-wide">{driver.license_number}</span>
+                      <span className="text-base font-bold font-data text-foreground tracking-wide">{licenseNumber}</span>
                     </div>
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">Expiration Date</span>

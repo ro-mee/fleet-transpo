@@ -41,6 +41,9 @@ async function ensureDriverColumnsExist() {
 export async function GET(req) {
   try {
     const session = await requireDriver(req);
+    // Explicit self-view opt-in; requireDriver and the employee_id filter below
+    // keep this disclosure scoped to the authenticated driver's own record.
+    const revealLicense = new URL(req.url).searchParams.get("include_license") === "1";
     await ensureDriverColumnsExist();
 
     const { rows } = await query(
@@ -155,7 +158,7 @@ export async function GET(req) {
       avatarUrl: media.face_image_url || media.avatar_url || null,
       faceImageUrl: media.face_image_url || null,
       license: {
-        number: maskLicenseNumber(driver.license_number),
+        number: revealLicense ? driver.license_number : maskLicenseNumber(driver.license_number),
         type: driver.license_type,
         class: driver.license_class,
         expiry: driver.license_expiry,

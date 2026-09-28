@@ -84,6 +84,8 @@ export default function LicenseInformation() {
 
   const [uploadingSide, setUploadingSide] = useState(null);
   const [viewerImage, setViewerImage] = useState(null);
+  const [revealedLicense, setRevealedLicense] = useState(null);
+  const [loadingLicenseReveal, setLoadingLicenseReveal] = useState(false);
 
   const toDataUrl = async (asset) => {
     const context = ImageManipulator.manipulate(asset.uri);
@@ -148,6 +150,7 @@ export default function LicenseInformation() {
       const dataUrl = await toDataUrl(asset);
       const saved = await verifyAndSaveScan(side, dataUrl);
       if (saved) {
+        setRevealedLicense(null);
         notify.toast({
           message: saved.applied_license_expiry
             ? `License ${side} updated — new expiry ${formatExpiry(saved.applied_license_expiry)}.`
@@ -162,6 +165,26 @@ export default function LicenseInformation() {
       setUploadingSide(null);
     }
   }, [uploadingSide, reload]);
+
+  const toggleLicenseReveal = async () => {
+    if (revealedLicense !== null) {
+      setRevealedLicense(null);
+      return;
+    }
+    setLoadingLicenseReveal(true);
+    try {
+      const data = await api.get("/api/driver/me?include_license=1");
+      if (!data?.license?.number) {
+        AppAlert.alert("License Number Unavailable", "There is no license number on file to show.");
+        return;
+      }
+      setRevealedLicense(data.license.number);
+    } catch (e) {
+      AppAlert.alert("Could Not Show License Number", e?.message || "Check your connection and try again.");
+    } finally {
+      setLoadingLicenseReveal(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -187,7 +210,35 @@ export default function LicenseInformation() {
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
         <ClayCard variant="standard" style={styles.sectionCard}>
-          <InfoRow label="License Number" value={license?.number} colors={colors} isDark={isDark} />
+          <View style={[styles.infoRow, { borderBottomWidth: 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
+            <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>License Number</Text>
+            <View style={styles.licenseNumberValue}>
+              <Text style={[styles.infoValue, styles.licenseNumberText, { color: colors.onSurface }]} numberOfLines={1}>
+                {revealedLicense ?? license?.number ?? "—"}
+              </Text>
+              {license?.number && (
+                <Pressable
+                  onPress={toggleLicenseReveal}
+                  disabled={loadingLicenseReveal}
+                  accessibilityRole="button"
+                  accessibilityLabel={revealedLicense !== null ? "Hide license number" : "Show license number"}
+                  accessibilityState={{ disabled: loadingLicenseReveal, busy: loadingLicenseReveal }}
+                  hitSlop={6}
+                  style={({ pressed }) => [styles.licenseRevealButton, { backgroundColor: pressed ? colors.surfaceVariant : "transparent" }]}
+                >
+                  {loadingLicenseReveal ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons
+                      name={revealedLicense !== null ? "eye-off-outline" : "eye-outline"}
+                      size={19}
+                      color={colors.onSurfaceVariant}
+                    />
+                  )}
+                </Pressable>
+              )}
+            </View>
+          </View>
           <InfoRow label="License Class" value={license?.class} colors={colors} isDark={isDark} />
           <InfoRow label="License Type" value={license?.type} colors={colors} isDark={isDark} />
           <InfoRow
@@ -296,6 +347,9 @@ const styles = StyleSheet.create({
   },
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
+  licenseNumberValue: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 6 },
+  licenseNumberText: { flex: 1 },
+  licenseRevealButton: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center", borderRadius: TOUCH_TARGET / 2 },
 
   sectionHeading: { fontSize: 13, fontFamily: fonts.dataSemiBold, letterSpacing: 0.8, textTransform: "uppercase" },
   scanBox: {

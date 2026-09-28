@@ -17,7 +17,7 @@ import { getMyDriverProfile, updateMyDriverProfile } from "@/services/driver.ser
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
-import { IdCard, Award, Fingerprint, Pencil, Phone, ScanLine } from "lucide-react";
+import { IdCard, Award, Fingerprint, Pencil, Phone, ScanLine, Eye, EyeOff, LoaderCircle } from "lucide-react";
 
 function Stat({ label, value }) {
   return (
@@ -81,6 +81,28 @@ export default function DriverProfilePage() {
     queryKey: ["driver-me"],
     queryFn: getMyDriverProfile,
   });
+  const [revealedLicense, setRevealedLicense] = useState(null);
+  const [loadingLicense, setLoadingLicense] = useState(false);
+
+  const toggleLicenseReveal = async () => {
+    if (revealedLicense !== null) {
+      setRevealedLicense(null);
+      return;
+    }
+    setLoadingLicense(true);
+    try {
+      const fullProfile = await getMyDriverProfile({ includeLicense: true });
+      if (!fullProfile?.license?.number) {
+        toast.error("No license number is available to show.");
+        return;
+      }
+      setRevealedLicense(fullProfile.license.number);
+    } catch (err) {
+      toast.error(err.message || "Could not show your license number.");
+    } finally {
+      setLoadingLicense(false);
+    }
+  };
 
   const phoneMutation = useMutation({
     mutationFn: () => updateMyDriverProfile({ phone }),
@@ -161,7 +183,25 @@ export default function DriverProfilePage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs self-start">
               <div>
                 <p className="text-foreground-muted">License Number</p>
-                <p className="font-mono font-medium mt-1">{profile.license.number || "—"}</p>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <p className="font-mono font-medium">{revealedLicense ?? profile.license.number ?? "—"}</p>
+                  {profile.license.number && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-foreground-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                      onClick={toggleLicenseReveal}
+                      disabled={loadingLicense}
+                      aria-label={revealedLicense !== null ? "Hide license number" : "Show license number"}
+                      title={revealedLicense !== null ? "Hide license number" : "Show license number"}
+                      aria-pressed={revealedLicense !== null}
+                    >
+                      {loadingLicense ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> :
+                        revealedLicense !== null ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </Button>
+                  )}
+                </div>
               </div>
               <div>
                 <p className="text-foreground-muted">Class / Type</p>

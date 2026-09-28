@@ -42,8 +42,8 @@ export async function syncDriverAccount(id, data) {
 }
 
 // Driver self-service profile.
-export async function getMyDriverProfile() {
-  return apiFetch("/api/driver/me");
+export async function getMyDriverProfile({ includeLicense = false } = {}) {
+  return apiFetch(`/api/driver/me${includeLicense ? "?include_license=1" : ""}`);
 }
 
 export async function updateMyDriverProfile(data) {
