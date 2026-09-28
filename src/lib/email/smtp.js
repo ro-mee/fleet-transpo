@@ -185,14 +185,14 @@ export function tempPasswordEmailText({ firstName, tempPassword, expiresAt }) {
     "",
     `Hi ${firstName},`,
     "",
-    "An account was created for you in FleetOps. Your temporary password is:",
+    "A FleetOps login has been set up for you. Your temporary password is:",
     "",
     `    ${tempPassword}`,
     "",
     "Sign in with it at the login page. You will be required to choose your own",
-    "password immediately after signing in — the temporary one is replaced.",
+    "password immediately after signing in, before you can continue in FleetOps.",
     "",
-    `This temporary password expires on ${expiryDate} (7 days from creation).`,
+    `This temporary password expires on ${expiryDate} (7 days from issue).`,
     "If it expires, ask your administrator to resend it.",
     "",
     "You will also receive a separate 6-digit login verification code when you",
@@ -229,7 +229,7 @@ export function tempPasswordEmailHtml({ firstName, tempPassword, expiresAt }) {
     `<tr><td style="padding:36px 36px 8px 36px;">` +
     `<div style="font-family:Arial,Helvetica,sans-serif;font-size:22px;font-weight:bold;color:#111827;margin:0 0 12px 0;">Your temporary password</div>` +
     `<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:#4b5563;margin:0 0 24px 0;">` +
-    `Hi ${safeName}, an account was created for you in FleetOps. Sign in with the temporary password below — you will be required to choose your own password immediately after signing in.` +
+    `Hi ${safeName}, a FleetOps login has been set up for you. Sign in with the temporary password below — you will be required to choose your own password immediately after signing in.` +
     `</p>` +
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;">` +
     `<tr><td align="center" style="padding:24px;">` +

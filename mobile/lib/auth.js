@@ -27,7 +27,7 @@ export function AuthProvider({ children }) {
         const [token, stored] = await Promise.all([getAccessToken(), getUser()]);
         if (token && stored) {
           setUser(stored);
-          registerDeviceTokenIfAuthorized();
+          if (!stored.mustChangePassword) registerDeviceTokenIfAuthorized();
         }
       } catch {
         // ignored
@@ -59,11 +59,15 @@ export function AuthProvider({ children }) {
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
     });
-    const driver = { ...data.driver, role: decodeJwtRole(data.accessToken) || "driver" };
+    const driver = {
+      ...data.driver,
+      role: decodeJwtRole(data.accessToken) || "driver",
+      mustChangePassword: Boolean(data.driver?.mustChangePassword),
+    };
     await saveUser(driver);
     setUser(driver);
     // Non-prompting push registration — only registers if permission was already granted previously.
-    registerDeviceTokenIfAuthorized();
+    if (!driver.mustChangePassword) registerDeviceTokenIfAuthorized();
     return driver;
   }, []);
 

@@ -143,22 +143,28 @@ Separate from web — 15-minute access tokens, 30-day single-use rotating refres
 A stored session opens directly into the app on cold start and resume. Active-trip GPS, consent, push setup, offline cache, and sign-out remain on their existing paths. The upgrade cleanup removes the old SecureStore enrollment sentinel and metadata, while preserving the access token, refresh token, and user record. No API or database change was needed. The opt-in lock previously reduced casual access to a signed-in phone; that protection is no longer present. Driver face-photo and attendance logic are unchanged. See [[Authentication]] and [[Biometric App Lock Removal Plan]].
 
 **Notification permission timing & push-token lifecycle (2026-09-26):**
-`signIn()` and session-restore cold-start are strictly decoupled from OS notification permission prompts. They call `registerDeviceTokenIfAuthorized()` which checks permission non-promptingly (`hasPushPermission()`); if permission is undetermined or denied, authentication proceeds without prompting. First-time permission prompting occurs during onboarding on the App Permissions screen (`mobile/app/permissions.js`) when the driver taps "Enable Permissions".
+`signIn()` and session-restore cold-start are strictly decoupled from OS notification permission prompts. They call `registerDeviceTokenIfAuthorized()` only for drivers who are not in forced first-login password setup; that helper checks permission non-promptingly (`hasPushPermission()`). If permission is undetermined or denied, authentication proceeds without prompting. First-time permission prompting occurs during onboarding on the App Permissions screen (`mobile/app/permissions.js`) when the driver taps "Enable Permissions".
 
 ## Profile screens share the web driver endpoint — CONFIRMED (`mobile/app/(app)/profile/*.js`)
 
 The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** — the same endpoint as the web driver home — not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
 
-## Driver credential screens — CONFIRMED (2026-09-13)
+## Driver credential screens — CONFIRMED (2026-09-28)
 
 Drivers change and recover passwords without the web dashboard, reusing the
-existing credential endpoints (no new backend route — full detail in
-[[Authentication]]):
+existing credential endpoints (the forced invite flow adds a screen, not a new
+password-change route — full detail in [[Authentication]]):
 
 - **Change** (`(app)/profile/change-password.js`): top row of Profile →
   Privacy & Security. Same `POST /api/auth/change-password` as web Settings >
   Security; success signs out (cache cleared before SecureStore) and returns
   to login on the `signInRequired` contract.
+- **First-login invite setup** (`set-password.js`, public, outside the `(app)`
+  guard): after the temporary password and normal email OTP, the driver sets a
+  permanent password before app access. It uses the existing
+  `POST /api/auth/change-password`; the server's `must_change_password` gate is
+  authoritative, and the mobile forced path signs out so the driver logs in
+  again with the permanent password.
 - **Recovery** (public, outside the `(app)` guard like login): `forgot-password.js`
   (email → generic server message; a reset link + paste-able code is emailed
   when SMTP delivery is configured, administrator wording otherwise) and
@@ -166,7 +172,7 @@ existing credential endpoints (no new backend route — full detail in
   "Forgot password?" entry on `login.js`. Paste-the-code — no deep-link config.
 - **Policy + offline rules (locked):** one pure validator
   (`mobile/lib/password-validation.js`, client≡server parity fuzz-pinned)
-  drives both screens' live checklists and submit gates; every credential
+  drives password screens' live checklists and submit gates; every credential
   mutation uses `queueOnFailure: false` — never queued, offline is a plain
   connection error under the global banner. Profile/Settings stay silent about
   caching per the Offline Read Mode UX rule.

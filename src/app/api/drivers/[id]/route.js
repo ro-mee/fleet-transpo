@@ -94,7 +94,8 @@ export async function GET(req, { params }) {
     try {
       const { rows: empRows } = await query(
         `SELECT e.employee_id, e.first_name, e.last_name, e.email, e.phone, e.position, e.avatar_url,
-                r.role_name AS role, e.password_hash IS NOT NULL AS has_password
+                r.role_name AS role, e.password_hash IS NOT NULL AS has_password,
+                e.must_change_password, e.temp_credential_expires_at
            FROM employees e
            LEFT JOIN roles r ON r.role_id = e.role_id
           WHERE e.employee_id = $1 LIMIT 1`,
@@ -112,6 +113,8 @@ export async function GET(req, { params }) {
           avatar_url: row.avatar_url,
           role: row.role ?? "driver",
           has_password: Boolean(row.has_password),
+          must_change_password: Boolean(row.must_change_password),
+          temp_credential_expires_at: row.temp_credential_expires_at,
         };
       }
     } catch (accErr) {

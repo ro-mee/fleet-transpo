@@ -18,6 +18,7 @@ source:
   - src/app/api/auth/reset-token/route.js
   - src/app/api/auth/change-password/route.js
   - src/app/api/settings/users/[id]/resend-invite/route.js
+  - src/app/api/drivers/[id]/account/route.js
   - src/app/set-password/page.js
   - src/app/api/mobile/auth/login/route.js
   - src/app/api/mobile/auth/refresh/route.js
@@ -181,7 +182,8 @@ Admin-created staff accounts no longer take a password on the form. **Add User**
 collects email + names + role only; the server generates a strong temporary
 password (16 chars, passes `isPassword`, `node:crypto.randomInt`, charset
 excludes `<>&` and quotes so email stays safe), emails it, and the employee must
-replace it at first sign-in. Drivers/mobile are out of scope.
+replace it at first sign-in. Driver invites use the same temporary-credential
+fields and email, with a dedicated first-login password setup in the mobile app.
 
 **Flow.**
 
@@ -239,10 +241,45 @@ wiring, expiry-before-OTP order, gate allowlist, forced-path rotation),
 clean, harness `verify-register-account.mjs` 29/29. Manual 10-step E2E
 (real mailbox) confirmed working by the operator, 2026-09-23.
 
-## Driver credential screens on mobile — CONFIRMED (2026-09-13)
+## Driver login invitations — IMPLEMENTED (2026-09-28)
 
-No new backend route: the three mobile screens reuse the existing
-credential endpoints, which already authorize mobile bearer tokens.
+From a driver's detail page, **Enable Login** (or **Resend Invite** while setup
+is pending) calls `PUT /api/drivers/[id]/account` with `{ sendInvite: true }`.
+The route requires an Active employee, a driver-compatible role, configured
+SMTP, and an email address accepted by `isDeliverableEmailAddress` before it
+changes the account. In one transaction it assigns the driver role, stores a
+bcrypt hash of a generated 16-character temporary password, sets
+`must_change_password = true` and a seven-day expiry, increments `auth_version`,
+revokes existing sessions, and clears pending reset tokens. The temporary
+password is emailed after commit; it is never returned in the API response or
+written to audit data. If sending fails, the pending credential remains
+unknown to the driver and the API answers 502 so staff can resend and rotate it.
+That precheck filters addresses likely to bounce; it does not verify mailbox
+ownership, so staff should confirm the driver can receive mail at the address.
+
+**First mobile login.** The driver enters the emailed temporary password and
+completes the normal mandatory email OTP. The mobile login checks expiration
+before issuing an OTP and returns `TEMP_PASSWORD_EXPIRED` after seven days; the
+administrator can resend to issue a fresh credential. After OTP verification,
+`mustChangePassword` routes the driver to `mobile/app/set-password.js` before
+consent or app access. The existing `resolveIdentity` password-change gate is
+authoritative. The setup screen posts to `POST /api/auth/change-password`; the
+server rejects reusing the temporary password, clears the invite flags, bumps
+`auth_version`, revokes sessions, and returns `signInRequired: true` for a
+mobile bearer session. The app signs out, and the driver signs in again with the
+new password and normal OTP.
+
+The existing manual password reset remains available for accounts that already
+have a permanent password; setting one clears any pending temporary-password
+flags. No schema migration was needed because `employees.must_change_password`
+and `employees.temp_credential_expires_at` already exist from migration
+`120_temp_password_invite.sql`.
+
+## Driver credential screens on mobile — CONFIRMED (2026-09-28)
+
+The mobile credential screens reuse existing backend endpoints, which authorize
+mobile bearer tokens. The forced first-login invite setup adds a mobile screen,
+not a new backend password-change route.
 
 - **Change** (`mobile/app/(app)/profile/change-password.js`, via Profile →
   Privacy & Security): `POST /api/auth/change-password` accepts any role and
@@ -250,6 +287,11 @@ credential endpoints, which already authorize mobile bearer tokens.
   authorizes directly. Success carries `signInRequired: true` — the app signs
   out (offline cache cleared before SecureStore, per the `auth.js` ordering)
   and returns to login, mirroring web Settings > Security.
+- **First-login invite setup** (`mobile/app/set-password.js`): after temporary
+  password + OTP authentication, the driver chooses a password without
+  re-entering the temporary one. It posts to the same change-password route;
+  the forced server path accepts it only while `must_change_password` is true,
+  revokes the temporary session, and requires a fresh sign-in.
 - **Forgot** (`mobile/app/forgot-password.js`, public, linked from login):
   `POST /api/auth/forgot-password` with `skipAuth`; renders the generic
   server message verbatim (no enumeration). Since 2026-09-19 that message

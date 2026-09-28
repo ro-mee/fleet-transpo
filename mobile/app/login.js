@@ -34,7 +34,11 @@ export default function LoginScreen() {
   const [error, setError] = useState(null);
   const router = useRouter();
 
-  const handlePostLogin = async () => {
+  const handlePostLogin = async (driver) => {
+    if (driver?.mustChangePassword) {
+      router.replace("/set-password");
+      return;
+    }
     const consentVersion = await getAcceptedConsentVersion().catch(() => null);
     if (consentVersion !== CURRENT_PRIVACY_POLICY_VERSION) {
       // Policy first: the driver must accept the current policy before entering the app.
@@ -67,6 +71,8 @@ export default function LoginScreen() {
         setError(
           "No verification code could be sent to this account. Contact your administrator."
         );
+      } else if (e.message === "TEMP_PASSWORD_EXPIRED") {
+        setError("This temporary password has expired. Ask your administrator to resend the login invite.");
       } else if (lockSecs !== null) {
         setError(`Too many incorrect codes. Try again in ${formatLockWait(lockSecs)}.`);
       } else if (e.message === "MFA_UNAVAILABLE") {

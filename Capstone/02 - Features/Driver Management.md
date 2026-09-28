@@ -65,6 +65,28 @@ unsupported pending confirmation of the fleet registrations and license-policy n
 
 A driver **is** an employee with a `drivers` row. Credentials and `role_id` live on [[employees]]; licence, availability and performance on `drivers`. Mobile login authenticates against `employees`, then resolves a `driverId`. → [[Authentication]]
 
+## Driver login invitations — IMPLEMENTED (2026-09-28)
+
+The driver detail page's **Enable Login** action emails a generated temporary
+password through `PUT /api/drivers/[id]/account` (`{ sendInvite: true }`). It is
+available for an Active employee with a driver-compatible role, when SMTP is
+configured and the employee email passes the deliverability check. The page
+shows the recipient and a seven-day setup expiry. While setup is pending, the
+action becomes **Resend Invite**, which rotates the temporary password and
+expiry before sending the replacement email. A send failure returns an error
+and leaves the account pending so staff can retry.
+
+The driver enters the email and temporary password in the mobile app, completes
+the usual email OTP, then chooses a permanent password on the forced setup
+screen before reaching app content. The temporary password expires after seven
+days; staff must resend the invite if it has expired. After changing it, the
+driver signs in again with the new password and OTP. The existing manual reset
+path remains available for accounts that already have a permanent password.
+
+Staff should confirm that `employees.email` reaches the driver's real inbox.
+Driver creation may synthesize `first.last@fleetops.ph` when no email is
+provided. Full route and token details are in [[Authentication]].
+
 ## Licence scan — Gemini extraction (replaced Tesseract 2026-08-25)
 
 `src/lib/ai/gemini-document.js` sends the licence photo to **Gemini structured output** (`gemini-3.1-flash-lite`, 12-second timeout, JSON `responseSchema`) and returns normalized fields directly — no OCR text, no regex parsing. `tesseract.js` was removed from the app entirely; scanning now happens **only server-side** in `/api/ai/scan-document` and `/api/driver/license-scan`.

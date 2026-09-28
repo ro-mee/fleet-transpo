@@ -33,7 +33,7 @@ export default function AppLayout() {
 
   // The single GPS poster for the whole app (see lib/tracking.js). Runs only
   // once the driver is signed in and consented.
-  useActiveTripGpsPoster(Boolean(user) && isDriverSession(user) && consented);
+  useActiveTripGpsPoster(Boolean(user) && isDriverSession(user) && !user?.mustChangePassword && consented);
 
   useFocusEffect(
     useCallback(() => {
@@ -61,6 +61,10 @@ export default function AppLayout() {
 
   if (!isDriverSession(user)) {
     return <Redirect href="/login" />;
+  }
+
+  if (user.mustChangePassword) {
+    return <Redirect href="/set-password" />;
   }
 
   // Honor consent before mounting the signed-in navigator. The GPS poster

@@ -52,6 +52,8 @@ export default function DriverDetailPage() {
     queryFn: () => getDriver(id),
     enabled: !!id,
   });
+  const driverInvitePending = Boolean(driver?.account?.has_password && driver.account.must_change_password);
+  const driverNeedsInvite = Boolean(!driver?.account?.has_password || driverInvitePending);
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteDriver(id),
@@ -67,15 +69,26 @@ export default function DriverDetailPage() {
   });
 
   const accountMutation = useMutation({
-    mutationFn: () => syncDriverAccount(id, newPassword ? { password: newPassword } : {}),
+    mutationFn: () =>
+      syncDriverAccount(
+        id,
+        driverNeedsInvite ? { sendInvite: true } : newPassword ? { password: newPassword } : {}
+      ),
     onSuccess: (data) => {
-      toast.success(data?.account?.has_password ? "Driver login enabled" : "Driver login synced");
+      toast.success(
+        data?.account?.must_change_password
+          ? `Temporary password emailed to ${data.account.email}`
+          : data?.account?.has_password
+            ? "Driver password updated"
+            : "Driver login synced"
+      );
       setAccountDialogOpen(false);
       setNewPassword("");
       queryClient.invalidateQueries({ queryKey: ["driver", id] });
     },
     onError: (err) => {
       toast.error(err.message || "Failed to update driver login");
+      queryClient.invalidateQueries({ queryKey: ["driver", id] });
     },
   });
 
@@ -202,9 +215,17 @@ export default function DriverDetailPage() {
                   </div>
                   {driver.account && (
                     <div className="flex items-center gap-2.5 pt-1">
-                      <Badge variant={driver.account.has_password ? "success" : "outline"} className={`px-2.5 py-0.5 text-[11px] font-bold ${!driver.account.has_password && "border-dashed text-foreground-muted"}`}>
-                        {driver.account.has_password ? "App Login Enabled" : "No Login Active"}
+                      <Badge
+                        variant={driverInvitePending ? "warning" : driver.account.has_password ? "success" : "outline"}
+                        className={`px-2.5 py-0.5 text-[11px] font-bold ${!driver.account.has_password && "border-dashed text-foreground-muted"}`}
+                      >
+                        {driverInvitePending ? "Password setup pending" : driver.account.has_password ? "App Login Enabled" : "No Login Active"}
                       </Badge>
+                      {driverInvitePending && driver.account.temp_credential_expires_at && (
+                        <span className="text-xs font-medium text-warning">
+                          Expires {new Date(driver.account.temp_credential_expires_at).toLocaleDateString()}
+                        </span>
+                      )}
                       <span className="text-xs font-medium text-foreground-muted">
                         {driver.account.email ? driver.account.email : "Email not set"}
                       </span>
@@ -223,7 +244,7 @@ export default function DriverDetailPage() {
                   className="rounded-xl text-xs h-10 px-4 font-semibold shadow-xs"
                 >
                   <KeyRound className="w-4 h-4 mr-2" />
-                  {driver.account?.has_password ? "Manage Login" : "Enable Login"}
+                  {driverInvitePending ? "Resend Invite" : driver.account?.has_password ? "Manage Login" : "Enable Login"}
                 </Button>
               )}
               {can("drivers", "update") && (
@@ -853,38 +874,42 @@ export default function DriverDetailPage() {
               <div className="p-1.5 rounded-lg bg-primary/10 text-primary shadow-xs">
                 <KeyRound className="w-4 h-4" />
               </div>
-              {driver.account?.has_password ? "Manage Driver Password" : "Enable Driver Login"}
+              {driverNeedsInvite
+                ? driverInvitePending ? "Resend Driver Invite" : "Enable Driver Login"
+                : "Manage Driver Password"}
             </DialogTitle>
           </DialogHeader>
           <div className="p-6 space-y-5">
             <div className="flex gap-3 p-4 bg-info/5 border border-info/20 rounded-2xl text-xs text-foreground-secondary leading-relaxed">
               <AlertCircle className="w-4 h-4 text-info shrink-0 mt-0.5" />
               <p>
-                Enabling a login assigns the <strong>driver</strong> role and lets this
-                driver sign in on the web and mobile app. A password is required to protect
-                their personal data.
+                {driverNeedsInvite
+                  ? `FleetOps will email a temporary password to ${driver.account?.email || "the driver’s account email"}. It expires in 7 days, and the driver must choose a permanent password before using the app.`
+                  : "Set a new password for this driver account. The new password is stored securely and active sessions are revoked."}
               </p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-password" className="text-xs font-bold text-foreground-muted uppercase tracking-wider">New Password</Label>
-              <Input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Leave blank to keep current password"
-                className="h-11 rounded-xl bg-muted/20 border-border/60 focus:bg-surface focus:ring-primary/20 transition-all font-mono"
-              />
-            </div>
+            {!driverNeedsInvite && (
+              <div className="space-y-2">
+                <Label htmlFor="new-password" className="text-xs font-bold text-foreground-muted uppercase tracking-wider">New Password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter a new password"
+                  className="h-11 rounded-xl bg-muted/20 border-border/60 focus:bg-surface focus:ring-primary/20 transition-all font-mono"
+                />
+              </div>
+            )}
           </div>
           <div className="flex items-center justify-end gap-3 p-5 bg-muted/30 border-t border-border/40">
             <Button variant="outline" onClick={() => setAccountDialogOpen(false)} className="rounded-xl px-4 h-10 text-xs font-bold shadow-xs hover:bg-muted/60 border-border/80">Cancel</Button>
             <Button
               onClick={() => accountMutation.mutate()}
-              disabled={accountMutation.isPending}
+              disabled={accountMutation.isPending || (!driverNeedsInvite && !newPassword.trim())}
               className="rounded-xl px-5 h-10 text-xs font-bold shadow-sm"
             >
-              {driver.account?.has_password ? "Save Password" : "Enable Login"}
+              {driverNeedsInvite ? driverInvitePending ? "Resend Invite" : "Enable Login" : "Save Password"}
             </Button>
           </div>
         </DialogContent>
