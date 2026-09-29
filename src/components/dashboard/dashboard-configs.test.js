@@ -23,6 +23,8 @@ describe("role dashboard definitions", () => {
     // Neither role is missing the query its own layout depends on.
     for (const role of ["admin", "fleet_manager"]) {
       expect(DASHBOARD_CONFIGS[role].queries).toContain("maintenance");
+      expect(DASHBOARD_CONFIGS[role].queries).toContain("vehicles");
+      expect(DASHBOARD_CONFIGS[role].queries).toContain("drivers");
     }
   });
 });

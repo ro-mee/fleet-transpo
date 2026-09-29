@@ -69,6 +69,7 @@ import { getDashboardConfig } from "@/components/dashboard/dashboard-configs";
 import {
   RequestPipelineCard,
   DocumentComplianceCard,
+  FleetReadinessCard,
   MaintenancePressureCard,
   IncidentRiskCard,
 } from "@/components/dashboard/operations-cards";
@@ -583,6 +584,9 @@ function AdminDashboard({ queries }) {
   const incidents = queries.incidents.data || {};
   const documents = queries.documents.data || { items: [], totals: {} };
   const fuel = queries.fuelRequests.data || { rows: [], counts: {} };
+  const vehicles = queries.vehicles?.data || [];
+  const drivers = queries.drivers?.data || [];
+  const driverStats = queries.driverStats?.data || {};
   const openRequests = requests.filter((request) => !["Completed", "Cancelled"].includes(request.fleet_status));
   const completedToday = (dispatches.completed || []).filter((dispatch) => isToday(dispatch.updated_at || dispatch.scheduled_arrival)).length;
   const activeMaintenance = maintenance.filter((item) => ["Scheduled", "In Progress"].includes(item.status));
@@ -668,8 +672,15 @@ function AdminDashboard({ queries }) {
       </StatGrid>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <RequestPipelineCard requests={requests} query={queries.reservations} linkClass={linkClass} />
+        <RequestPipelineCard
+          className="lg:col-span-2"
+          requests={requests}
+          dispatches={dispatches}
+          query={queries.reservations}
+          linkClass={linkClass}
+        />
         <DocumentComplianceCard documents={documents} query={queries.documents} linkClass={linkClass} />
+        <FleetReadinessCard vehicles={vehicles} drivers={drivers} driverStats={driverStats} query={queries.vehicles} linkClass={linkClass} />
         <MaintenancePressureCard maintenance={activeMaintenance.length > 0 ? activeMaintenance : maintenance} query={queries.maintenance} linkClass={linkClass} />
         <IncidentRiskCard incidents={incidents} query={queries.incidents} />
       </div>
