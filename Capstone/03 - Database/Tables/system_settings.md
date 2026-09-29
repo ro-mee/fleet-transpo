@@ -68,8 +68,7 @@ Closing this table was a **prerequisite** for storing `security_policy` here rat
 There was previously no shared reader; each key grew its own hand-rolled `SELECT`, so `security_policy` would have added a round trip to the login path and to every session `INSERT`.
 
 - `getSetting(key, fallback)` — read-through, **30s TTL**, caches the absence of a row as well as its value (the default path is the common path: before an admin ever saves, the row does not exist).
-- `setSetting(key, value, actorId)` — upsert then `cache.delete(key)`. A save invalidates **on this instance only**.
-- `invalidateSetting(key)` — for writes that bypass `setSetting` (raw SQL, migration, seed).
+- `setSetting(key, value, actorId)` — upsert then `cache.delete(key)`. A save invalidates **on this instance only**. Every writer in the tree goes through here, so there is no separate invalidation entry point to expose.
 - `warmSetting(key, fallback)` — background fill, never rejects.
 - `clearSettingCache()` — tests and HMR-adjacent resets.
 
