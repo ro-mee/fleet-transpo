@@ -20,7 +20,6 @@ import {
   Wrench,
   MapPin,
   BarChart3,
-  Bell,
   Settings,
   Brain,
   ShieldCheck,
@@ -33,7 +32,6 @@ import {
   Navigation,
   AlertTriangle,
   Fingerprint,
-  FileText,
   Activity,
 } from "lucide-react";
 import { normalizeRoleName } from "@/lib/auth/role-names";
@@ -93,22 +91,19 @@ export const WORKS = {
         items: [
           { href: "/settings/dispatch", label: "Dispatch Policy", icon: Send },
           { href: "/settings/number-coding", label: "Number Coding Policy", icon: CalendarCheck },
-          { href: "/notifications/templates", label: "Notification Templates", icon: FileText },
         ],
       },
       {
         label: "Oversight",
         items: [
-          { href: "/uvvrp", label: "Coding Board (Live)", icon: MapPin },
+          { href: "/uvvrp", label: "Coding Board", icon: MapPin },
           { href: "/reports", label: "Reports & Analytics", icon: BarChart3 },
-          { href: "/notifications", label: "System Notifications", icon: Bell },
         ],
       },
       {
         label: "Account",
         items: [
           { href: "/settings/profile", label: "Profile", icon: UserCog },
-          { href: "/settings/security", label: "Security", icon: ShieldCheck },
         ],
       },
     ],
@@ -151,6 +146,7 @@ export const WORKS = {
             children: [
               { href: "/maintenance", label: "Records" },
               { href: "/maintenance/predictive", label: "Predictive" },
+              { href: "/maintenance/problems", label: "Problem Queue" },
             ],
           },
           { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
@@ -205,6 +201,7 @@ export const WORKS = {
         items: [
           { href: "/maintenance", label: "Maintenance", icon: Wrench },
           { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Wrench },
+          { href: "/maintenance/problems", label: "Problem Queue", icon: Wrench },
           { href: "/fuel", label: "Fuel Monitoring", icon: Fuel },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
           { href: "/routes", label: "Routes", icon: Route },
