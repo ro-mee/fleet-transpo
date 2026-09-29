@@ -42,3 +42,14 @@ export async function updateDispatchPolicy(policy) {
     body: policy,
   });
 }
+
+export async function getSecurityPolicy() {
+  return apiFetch("/api/settings/security-policy");
+}
+
+export async function updateSecurityPolicy(policy) {
+  return apiFetch("/api/settings/security-policy", {
+    method: "PUT",
+    body: policy,
+  });
+}

@@ -292,6 +292,13 @@ export const TABLES = Object.freeze({
     reason:
       "PSGC barangay reference rows — the finest geography grain, and what addresses.psgc_barangay_code resolves against. Read only through the API.",
   },
+  phlpost_postal_codes: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "PHLPost postal-code reference rows (province/locality/postal_code, 958 rows captured 2026-09-27) — the geography chain's fourth lookup, keyed on the same province/locality keys as the PSGC tables. No application code reads it yet, so it is classified on reachability rather than sensitivity: it is reference data, but nothing legitimate uses the anon path.",
+    rlsNote:
+      "Found UNCLASSIFIED by the schema-contract gate on 2026-09-28 when Task 1's mandated db:dump refreshed schema.sql — the artifact had been behind live, so the table was invisible to the offline gate until then (the SEC-DB-003 shape, and the reason the gate is worth having). CONFIRMED from the database side rather than assumed: RLS enabled, zero policies, and no grant at all for anon or authenticated — only service_role, so TRUNCATE is not reachable through the public anon key either. npm run verify:anon returns an explicit 42501 (401 refused) rather than 200 [], and with 958 rows present the refusal is a real denial, not an empty table being read as one.",
+  },
 
   // --- tracking & monitoring ----------------------------------------------
   gpstracking: {
