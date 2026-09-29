@@ -25,10 +25,6 @@ function vehicleLabel(row) {
   return `${row.manufacturer || ""} ${row.model || ""} ${row.vehicle_name || ""}`.trim() || row.plate_number || "Unknown";
 }
 
-function fullName(row) {
-  return `${row.first_name || ""} ${row.last_name || ""}`.trim() || "Unknown";
-}
-
 /** Shared server payload for the Maintenance report and its workbook. */
 export async function getMaintenanceReport(from = DEFAULT_REPORT_FROM, to = DEFAULT_REPORT_TO) {
   const { rows: records } = await query(
@@ -215,9 +211,11 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
    ROUND(AVG(EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60)::numeric, 1) AS avg_late_minutes,
    ROUND(MAX(EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60)::numeric, 1) AS max_late_minutes
    FROM trips t
+   LEFT JOIN drivers d ON d.driver_id = t.driver_id
    LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
    LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
   WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
+    AND d.deleted_at IS NULL
     AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
     AND t.at_pickup_at IS NOT NULL
     AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
@@ -295,7 +293,7 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
     },
     details,
     trips: tripRows || [],
-    methodology: "Completed non-deleted trips by end_time in window. Measured = has server-stamped at_pickup_at and a scheduled pickup (dispatch plan, else booking promise); geofence-override arrivals are excluded from on-time/late and shown separately. On-time = at_pickup_at within 5 min after scheduled pickup; early = on-time. Rate = on-time / measured only.",
+    methodology: `Completed non-deleted trips by end_time in window. Measured = has server-stamped at_pickup_at and a scheduled pickup (dispatch plan, else booking promise); geofence-override arrivals are excluded from on-time/late and shown separately. On-time = at_pickup_at within ${PUNCTUALITY_GRACE_MINUTES} min after scheduled pickup; early = on-time. Rate = on-time / measured only.`,
   };
 }
 

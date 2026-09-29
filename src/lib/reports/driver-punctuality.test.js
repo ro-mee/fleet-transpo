@@ -133,4 +133,15 @@ describe("getDriverPerformanceReport punctuality rewrite (Task 3)", () => {
   it("locks grace to 5 minutes", () => {
     expect(PUNCTUALITY_GRACE_MINUTES).toBe(5);
   });
+
+  it("scopes the fleet-late query to non-deleted drivers", async () => {
+    mockReport();
+    await getDriverPerformanceReport("2026-09-01", "2026-09-30");
+    // Query B feeds fleet.avgLateMinutes/maxLateMinutes while punctuality.lateTrips is
+    // summed from Query A's details, so it must carry Query A's driver guard or the KPI
+    // averages trips the per-driver rows beneath it exclude.
+    const fleetLateSql = vi.mocked(query).mock.calls[1][0];
+    expect(fleetLateSql).toContain("LEFT JOIN drivers d ON d.driver_id = t.driver_id");
+    expect(fleetLateSql).toContain("d.deleted_at IS NULL");
+  });
 });
