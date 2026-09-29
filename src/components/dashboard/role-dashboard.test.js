@@ -55,6 +55,23 @@ function render() {
   return renderToStaticMarkup(React.createElement(RoleDashboard, { role: "fleet_manager" }));
 }
 
+// The workload panel is the only place this page renders a driver's
+// punctuality, so the "no fabricated 0%" check is scoped to it: the dashboard
+// also draws bar widths and SVG gradient stops elsewhere, and a document-wide
+// search cannot tell a value render apart from one of those. reports/page.js
+// and executive/page.js scope the same assertion the same way. Returns "" when
+// the panel is not found, so callers fail rather than pass vacuously.
+function workloadPanelText(html) {
+  // The panel title contains `&`, which React escapes to `&amp;` in the markup;
+  // the slice runs to the next landmark below the panel. Both anchors are exact
+  // strings, so a renamed panel yields "" and fails the assertion instead of
+  // passing vacuously.
+  const start = html.indexOf("Utilization &amp; workload");
+  const end = html.indexOf("Defects without a work order", start);
+  if (start === -1 || end === -1) return "";
+  return html.slice(start, end).replace(/<[^>]+>/g, " ");
+}
+
 beforeEach(() => {
   vi.stubGlobal("React", React);
   state.queries = {};
@@ -99,7 +116,11 @@ describe("Fleet Manager dashboard — driver workload panel", () => {
       isError: false,
     };
     const html = render();
-    expect(html).toContain("3 trips · —");
-    expect(html).not.toContain("0%");
+    const panel = workloadPanelText(html);
+    expect(panel).toContain("3 trips · —");
+    // Scoped to the panel, not the whole document: the retired read printed a
+    // real "0%" in this row, but the page's decorative widths and gradient
+    // stops are not value renders and must not be mistaken for one.
+    expect(panel).not.toContain("0%");
   });
 });

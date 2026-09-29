@@ -115,6 +115,18 @@ function driverTableText(html) {
   return html.slice(start, end).replace(/<[^>]+>/g, " ");
 }
 
+// The header row alone does not pin a column: the plan fixes the snapshot at
+// five columns *with* their cells, so the row is read back cell by cell the way
+// reports/page.test.js reads its identical table. A dropped On-Time/Late cell
+// leaves the header assertion green, which is why this exists.
+function driverRowCells(html) {
+  const row = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)]
+    .map((match) => match[1])
+    .find((body) => body.includes("Juan Dela Cruz"));
+  if (!row) return null;
+  return [...row.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1].replace(/<[^>]+>/g, "").trim());
+}
+
 beforeEach(() => {
   vi.stubGlobal("React", React);
   state.queries = {
@@ -128,13 +140,23 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Executive — driver performance snapshot", () => {
-  it("renders Driver | Completed | Punctuality and nothing else", () => {
+  it("renders the plan's five columns — Driver | Completed | Punctuality | On-Time | Late", () => {
     const html = render();
     const labels = headers(html);
     const at = labels.indexOf("Driver");
     expect(at).toBeGreaterThan(-1);
-    expect(labels.slice(at, at + 3)).toEqual(["Driver", "Completed", "Punctuality"]);
+    // Plan line 386 fixes the snapshot at exactly these five columns in this
+    // order. Slicing five (not three) is what makes a dropped On-Time or Late
+    // header fail instead of leaving the suite green.
+    expect(labels.slice(at, at + 5)).toEqual(["Driver", "Completed", "Punctuality", "On-Time", "Late"]);
     expect(html).toContain("Juan Dela Cruz");
+    // …and the cells must carry the values those columns promise: a header with
+    // no cell behind it is still a missing column. The name cell is matched by
+    // content, not by equality, because it also carries the avatar's initials.
+    const cells = driverRowCells(html);
+    expect(cells).toHaveLength(5);
+    expect(cells[0]).toContain("Juan Dela Cruz");
+    expect(cells.slice(1)).toEqual(["10", "88%", "7", "1"]);
   });
 
   it("shows the completed-trip count and the punctuality rate, not blank cells", () => {

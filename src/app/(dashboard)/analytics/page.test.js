@@ -2,7 +2,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const state = vi.hoisted(() => ({ queries: {}, options: [] }));
+const state = vi.hoisted(() => ({ queries: {}, options: [], motion: [] }));
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options) => {
@@ -41,8 +41,19 @@ vi.mock("@/services/ai.service", () => ({
 }));
 vi.mock("@/services/transport.service", () => ({ getTransportRequests: vi.fn() }));
 // motion-dom attaches document listeners as soon as it can see a `window`.
+// The stand-in stays render-transparent but records the props each motion
+// element received: the punctuality bar's entire render output is a
+// `style={{ width }}` on an inner motion element, so a pure passthrough mock
+// makes the bar — and the defect of drawing it for an unmeasured driver —
+// invisible in the static markup. The recorded props are the channel that tells
+// a drawn bar from an absent one.
 vi.mock("framer-motion", () => ({
-  motion: new Proxy({}, { get: () => ({ children }) => children }),
+  motion: new Proxy({}, {
+    get: () => (props) => {
+      state.motion.push(props || {});
+      return props ? props.children : null;
+    },
+  }),
   MotionConfig: ({ children }) => children,
   AnimatePresence: ({ children }) => children,
   animate: () => ({ stop: () => {} }),
@@ -112,6 +123,32 @@ function visibleText(html) {
   return html.replace(/<[^>]+>/g, " ");
 }
 
+// The widths of the punctuality bars this page actually drew. Only the bar
+// carries a `style` width, so an empty list means no bar rendered at all —
+// which is exactly what an unmeasured driver must get, and what a
+// value-render check on stripped text can never see.
+function barWidths() {
+  return state.motion
+    .filter((props) => props.style && typeof props.style.width === "string")
+    .map((props) => props.style.width);
+}
+
+// The leaderboard row for `name`, read back through the motion element that
+// wraps it. `motion` is a passthrough here, so a row has no delimiter of its
+// own in the static markup and a bare document-wide search for its text is
+// satisfied by unrelated markup elsewhere on the page. Rendering each recorded
+// element's children and taking the smallest that contains the name recovers
+// exactly the row, the way reports/page.test.js reads its row back cell by
+// cell. Returns null when no row carries the name, so callers fail loudly.
+function rosterRowText(name) {
+  const row = state.motion
+    .map((props) => renderToStaticMarkup(React.createElement(React.Fragment, null, props.children)))
+    .filter((markup) => markup.includes(name))
+    .map((markup) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+    .sort((a, b) => a.length - b.length)[0];
+  return row ?? null;
+}
+
 function render() {
   return renderToStaticMarkup(React.createElement(TooltipProvider, null, React.createElement(AnalyticsPage)));
 }
@@ -120,6 +157,7 @@ beforeEach(() => {
   vi.stubGlobal("React", React);
   state.queries = {};
   state.options = [];
+  state.motion = [];
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -150,11 +188,44 @@ describe("Analytics — driver leaderboard", () => {
       driver({ driver_id: 1, name: "Ana Reyes", measured_trips: 0, on_time_trips: 0, punctuality_rate: null }),
     ]));
     const html = render();
-    expect(html).toContain("—");
+    // Scoped to the roster row. A document-wide search for the dash is
+    // satisfied by unrelated markup elsewhere on the page, so it proves nothing
+    // about this row; the row's own text is what has to carry it.
+    const row = rosterRowText("Ana Reyes");
+    expect(row).toContain("—");
     // Text-only, per `visibleText`: the page's SVG gradient stops and CSS bar
     // widths are not value renders, and the retired read would have printed a
     // real "0%" in the leaderboard's own text.
     expect(visibleText(html)).not.toContain("0%");
+  });
+
+  it("labels each row with the measurement behind the rate", () => {
+    state.queries["analytics-drivers"] = query(payload([
+      driver({ driver_id: 1, name: "Ana Reyes", measured_trips: 0, on_time_trips: 0, punctuality_rate: null }),
+    ]));
+    render();
+    expect(rosterRowText("Ana Reyes")).toContain("Not measured");
+
+    state.motion = [];
+    state.queries["analytics-drivers"] = query(payload([driver({ driver_id: 1, name: "Ana Reyes" })]));
+    render();
+    expect(rosterRowText("Ana Reyes")).toContain("7 of 8 on time");
+  });
+
+  it("draws the punctuality bar only for a measured driver, at the measured width", () => {
+    state.queries["analytics-drivers"] = query(payload([
+      driver({ driver_id: 1, name: "Ana Reyes", measured_trips: 0, on_time_trips: 0, punctuality_rate: null }),
+    ]));
+    render();
+    // No bar at all — not a 0%-wide one, which would read as a measured zero.
+    expect(barWidths()).toEqual([]);
+
+    state.motion = [];
+    state.queries["analytics-drivers"] = query(payload([driver({ driver_id: 1, name: "Ana Reyes", punctuality_rate: 88 })]));
+    render();
+    // …and a measured driver gets one, at the rate as-is: the retired multiply
+    // would clamp a 8800% width to a full 100% bar.
+    expect(barWidths()).toEqual(["88%"]);
   });
 
   it("drops the retired safety-score vocabulary from the leaderboard", () => {
