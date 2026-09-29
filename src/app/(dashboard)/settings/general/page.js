@@ -22,7 +22,16 @@ import {
   updateHotelLocationSettings,
   seedNaiaRoutes,
   getConnectors,
+  getSecurityPolicy,
+  updateSecurityPolicy,
 } from "@/services/settings.service";
+import {
+  SECURITY_POLICY_FIELDS,
+  SECURITY_POLICY_RANGES,
+  DEFAULT_SECURITY_POLICY,
+  validateSecurityPolicy,
+  deriveIdleWindows,
+} from "@/lib/security-policy";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useAuth } from "@/hooks/use-auth";
 import { isSuperAdmin } from "@/lib/auth/role-names";
@@ -50,6 +59,7 @@ import {
   Clock,
   Languages,
   ArrowRight,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SIDEBAR_MODES, useSidebar } from "@/hooks/use-sidebar";
@@ -99,6 +109,34 @@ const EMPTY_HOTEL = {
   physical_move: false,
 };
 
+/**
+ * Policy object → the string values a number input needs.
+ *
+ * Strings, not numbers: an input bound to a number is uncontrolled the moment
+ * the operator clears it, and `""` coerced to 0 would silently become an
+ * out-of-range value instead of an empty field. The coercion back to numbers
+ * happens once, in the save handler, right before validation.
+ */
+const toSecurityForm = (policy) =>
+  Object.fromEntries(
+    SECURITY_POLICY_FIELDS.map((f) => [
+      f.key,
+      String(policy?.[f.key] ?? DEFAULT_SECURITY_POLICY[f.key]),
+    ])
+  );
+
+/**
+ * `300` → "5 min", `90` → "1 min 30 s". The form states a duration the way an
+ * operator says it; the stored value, the range bounds and every consumer stay
+ * in seconds.
+ */
+const fmtDuration = (totalSeconds) => {
+  const total = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return seconds ? `${minutes} min ${seconds} s` : `${minutes} min`;
+};
+
 export default function SettingsGeneralPage() {
   useRequireRole();
   const queryClient = useQueryClient();
@@ -119,6 +157,17 @@ export default function SettingsGeneralPage() {
     queryKey: ["connectors"],
     queryFn: () => getConnectors(),
     enabled: canViewIntegrations,
+  });
+
+  // Security & session policy is Super Admin only, for the same reason the
+  // connector configuration is: it sets how long everyone's session lives and
+  // how many failed attempts freeze an account. The query never fires for the
+  // other roles, so no 403 surfaces in the UI — the guard is in the route.
+  const canEditSecurity = canViewIntegrations;
+  const { data: securityPolicy, isLoading: securityLoading } = useQuery({
+    queryKey: ["security-policy"],
+    queryFn: () => getSecurityPolicy(),
+    enabled: canEditSecurity,
   });
 
   const [form, setForm] = useState(EMPTY_HOTEL);
@@ -170,6 +219,74 @@ export default function SettingsGeneralPage() {
         : EMPTY_HOTEL
     );
   }
+
+  // Same hydration-once pattern as the hotel form above, for the same reason:
+  // the fields must not be seeded from the shipped defaults, because a Save
+  // before the first response would persist those defaults over a policy an
+  // administrator already set. Save is disabled until `securityPolicy` lands.
+  const [securityForm, setSecurityForm] = useState(() => toSecurityForm(DEFAULT_SECURITY_POLICY));
+  const [hydratedSecurityFrom, setHydratedSecurityFrom] = useState(undefined);
+  if (securityPolicy !== hydratedSecurityFrom) {
+    setHydratedSecurityFrom(securityPolicy);
+    setSecurityForm(toSecurityForm(securityPolicy ?? DEFAULT_SECURITY_POLICY));
+  }
+  // Server-side validation errors are shown inline rather than only in a toast:
+  // the cross-field rule fires on a pair of fields the admin can see, and a
+  // message that disappears cannot be acted on.
+  const [securityError, setSecurityError] = useState(null);
+
+  const securityMutation = useMutation({
+    mutationFn: (policy) => updateSecurityPolicy(policy),
+    onSuccess: () => {
+      setSecurityError(null);
+      toast.success("Security & session policy saved. It applies to sessions created from now on.");
+      queryClient.invalidateQueries({ queryKey: ["security-policy"] });
+    },
+    onError: (err) => {
+      const message = err.message || "Failed to save the security policy";
+      setSecurityError(message);
+      toast.error(message);
+    },
+  });
+
+  const handleSecuritySave = (e) => {
+    e.preventDefault();
+    const candidate = {};
+    for (const f of SECURITY_POLICY_FIELDS) candidate[f.key] = Number(securityForm[f.key]);
+    // Validated against the SAVED policy, not against the form alone, because
+    // the cross-field rule needs both sides — and the absolute lifetime is not
+    // a form field at all, so `securityPolicy` is the only place it comes from.
+    const check = validateSecurityPolicy({ ...securityPolicy, ...candidate });
+    if (!check.ok) {
+      setSecurityError(check.error);
+      toast.error(check.error);
+      return;
+    }
+    setSecurityError(null);
+    securityMutation.mutate(candidate);
+  };
+
+  /**
+   * Rewrite one half of a split duration field. Both boxes edit the SAME stored
+   * seconds value rather than living as two independent numbers, so they cannot
+   * drift apart, and the value that reaches Save is the one the server expects.
+   */
+  const setDurationPart = (key, part, raw) => {
+    setSecurityError(null);
+    setSecurityForm((prev) => {
+      const total = Math.max(0, Math.round(Number(prev[key]) || 0));
+      const minutes = Math.floor(total / 60);
+      const seconds = total % 60;
+      const typed = Math.max(0, Math.round(Number(raw) || 0));
+      const value = part === "minutes" ? typed * 60 + seconds : minutes * 60 + typed;
+      return { ...prev, [key]: String(value) };
+    });
+  };
+
+  // What the chosen idle window implies. Derived with the same function the
+  // server and the countdown widget use, so this line cannot promise a warning
+  // window the client will not actually open.
+  const securityDerived = deriveIdleWindows(Number(securityForm.idleTimeoutSeconds) || undefined);
 
   // Real values instead of hardcoded text — the server's locale may not be
   // Manila and the calendar format is whatever the browser resolves.
@@ -594,6 +711,172 @@ export default function SettingsGeneralPage() {
           </Card>
         </div>
       </div>
+
+      {/* ── SECURITY & SESSIONS (Super Admin only) ── */}
+      {canEditSecurity && (
+      <div className={SHELL}>
+        <Card className={INNER_CARD}>
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <CardTitle className="text-sm font-extrabold text-foreground">
+                    Security &amp; Sessions
+                  </CardTitle>
+                </div>
+                <CardDescription className="text-xs text-foreground-secondary mt-1.5">
+                  How long a session lives, how many failed attempts freeze an account, and how long a
+                  temporary password or a remembered browser stays valid.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-5 space-y-4">
+            {securityLoading ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {SECURITY_POLICY_FIELDS.map((f) => (
+                  <div key={f.key} className="space-y-1.5">
+                    <div className="h-3.5 w-28 bg-hover rounded-full animate-pulse" />
+                    {f.parts ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-10 w-24 rounded-xl bg-hover animate-pulse" />
+                        <span className="text-[11px] text-foreground-muted">min</span>
+                        <div className="h-10 w-24 rounded-xl bg-hover animate-pulse" />
+                        <span className="text-[11px] text-foreground-muted">sec</span>
+                      </div>
+                    ) : (
+                      <div className="h-10 rounded-xl bg-hover animate-pulse" />
+                    )}
+                    <div className="h-3 w-40 bg-hover rounded-full animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <form onSubmit={handleSecuritySave} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {SECURITY_POLICY_FIELDS.map((f) => {
+                    const range = SECURITY_POLICY_RANGES[f.key];
+                    const isSplit = Boolean(f.parts);
+                    const total = Math.max(0, Math.round(Number(securityForm[f.key]) || 0));
+                    return (
+                      <div key={f.key}>
+                        <label
+                          htmlFor={`security-${f.key}`}
+                          className="text-xs font-bold text-foreground mb-1.5 block"
+                        >
+                          {f.label}
+                          {!isSplit && (
+                            <span className="ml-1.5 font-data text-[10px] font-normal text-foreground-muted">
+                              {f.unit}
+                            </span>
+                          )}
+                        </label>
+                        {isSplit ? (
+                          // Two boxes over ONE stored seconds value — editing
+                          // either half rewrites the whole thing, so the halves
+                          // cannot disagree (see setDurationPart).
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id={`security-${f.key}`}
+                              aria-label={`${f.label} — minutes`}
+                              type="number"
+                              min={0}
+                              max={Math.floor(range.max / 60)}
+                              step={1}
+                              value={Math.floor(total / 60)}
+                              onChange={(e) => setDurationPart(f.key, "minutes", e.target.value)}
+                              className="h-10 w-24 rounded-xl border-border/80 font-data"
+                            />
+                            <span className="text-[11px] text-foreground-muted">min</span>
+                            <Input
+                              id={`security-${f.key}-seconds`}
+                              aria-label={`${f.label} — seconds`}
+                              type="number"
+                              min={0}
+                              max={59}
+                              step={1}
+                              value={total % 60}
+                              onChange={(e) => setDurationPart(f.key, "seconds", e.target.value)}
+                              className="h-10 w-24 rounded-xl border-border/80 font-data"
+                            />
+                            <span className="text-[11px] text-foreground-muted">sec</span>
+                          </div>
+                        ) : (
+                          <Input
+                            id={`security-${f.key}`}
+                            type="number"
+                            min={range.min}
+                            max={range.max}
+                            step={1}
+                            value={securityForm[f.key] ?? ""}
+                            onChange={(e) => {
+                              setSecurityError(null);
+                              setSecurityForm((p) => ({ ...p, [f.key]: e.target.value }));
+                            }}
+                            className="h-10 rounded-xl border-border/80 font-data"
+                          />
+                        )}
+                        <p className="text-[11px] text-foreground-muted mt-1">
+                          {f.hint}{" "}
+                          <span className="font-data">
+                            {isSplit
+                              ? `${fmtDuration(range.min)} – ${fmtDuration(range.max)}`
+                              : `${range.min}–${range.max} ${f.unit}`}
+                          </span>
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+                  <p className="text-[11px] font-bold text-foreground-muted uppercase tracking-wide mb-1.5">
+                    Derived from these values
+                  </p>
+                  <ul className="text-[11px] font-data text-foreground-secondary space-y-0.5">
+                    <li>
+                      Idle warning opens {securityDerived.idleWarningSeconds}s before the session is
+                      gone
+                    </li>
+                    <li>
+                      Activity heartbeats are at least {securityDerived.heartbeatMinGapSeconds}s apart,
+                      with a {securityDerived.heartbeatIntervalSeconds}s backstop
+                    </li>
+                  </ul>
+                </div>
+
+                {securityError && (
+                  <p role="alert" className="text-[11px] font-semibold text-danger-700">
+                    {securityError}
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-border/60">
+                  <p className="text-[11px] text-foreground-muted max-w-lg">
+                    Saved values apply to sessions created from now on. A session that already exists
+                    keeps the limits it was signed in with, and other servers pick the change up within
+                    30 seconds.
+                  </p>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={!securityPolicy || securityMutation.isPending}
+                    className="h-9 text-xs rounded-xl active:scale-[0.98] transition-transform"
+                    title={!securityPolicy ? "Loading current policy…" : undefined}
+                  >
+                    <Save className="w-4 h-4 mr-1.5" />
+                    {securityMutation.isPending ? "Saving…" : "Save Security & Sessions"}
+                  </Button>
+                </div>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+      )}
 
       {/* ── INTEGRATIONS & CONNECTORS (Super Admin only) ── */}
       {canViewIntegrations && (
