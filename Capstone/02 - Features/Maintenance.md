@@ -141,6 +141,9 @@ A single office worklist of vehicle problems **nobody is following up**, at
 (`src/lib/inspections/problem-queue.js`) and a partial index from migration `131`
 (renumbered up from the plan's `127`/`128` at execution time — those numbers were
 spent by other workstreams) so the scan does not walk the whole inspection table.
+In the nav under Maintenance → Problem Queue for the admin and fleet_manager
+workspaces (`src/lib/workspaces.js`) — added 2026-09-28, the page shipped without
+a nav entry so only the direct URL reached it.
 
 **Three buckets, in the order the page renders them:**
 

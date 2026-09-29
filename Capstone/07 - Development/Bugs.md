@@ -395,6 +395,92 @@ The leaked database password was **rotated on
 
 ### Severity 3 — usability
 
+- **The driver's own buttons were unreachable, and the fuel tour could be skipped
+  without doing anything — 2026-09-27. FIXED 2026-09-27, with two steps
+  deliberately left unfixed.** Reported as three symptoms: tapping Pre-Shift
+  produced the tutorial rather than the real check, the fuel walkthrough advanced
+  through Next-Next-Next, and the card's buttons overlapped the highlight.
+
+  **The Pre-Shift tap was swallowed by the card, not the button.** `preshift.start`
+  and `end_duty.report` were `interaction: "observe"`, and the overlay maps
+  `observe` to cutout `pointerEvents="auto"` — the *same* value `blocked` uses.
+  The cutout is the topmost view at the hole, so a tap there is absorbed and
+  bubbles to ancestors; it never descends to the sibling button underneath. The
+  driver had to dismiss the card before the button worked, which reads exactly as
+  "tapping it gave me the tutorial". The decisive evidence is that the design
+  depends on this: SOS is `blocked` for the sole purpose of making its button
+  unpressable, so `auto` cannot be inert.
+
+  **The spec described the behaviour the code did not have.** §3.1c said "the
+  driver's next act is to read this, then tap the real button" and §3.1d said the
+  same. `observe` makes that impossible. Both are now `passthrough`, and both
+  buttons gained a `notifyInteraction` producer — without one, a passthrough step
+  is unreachable, and the tip would have been found uncompleted on the next Home
+  focus. This is the fix, and it is what the user asked for.
+
+  **What was refused, and why.** Latching `preshift.start`/`end_duty.report` was
+  the obvious next step and it was **not taken**: §7 Rule 3 and the "Explained,
+  Not Required" checklist item require these to carry no `requiresInteraction`,
+  and that spec item names itself as *"the property most likely to be edited away
+  later"*. Rule 3 is about a guide never **gating** a protected control. The
+  blocked cutout is not gating — it is the §7 Rule 3 / `blocked` behaviour doing
+  its job. Latching would have satisfied the letter of the user's request by
+  breaking a documented safety guarantee, so it needs a spec decision, not a
+  code edit.
+
+  **The fuel tour was skippable because no step was latched.** All six
+  `tour_fuel_flow` steps were ungated passthrough, so the tooltip's own
+  `[ Next → ]` was a second always-open exit: the flow completed in three taps
+  having pressed nothing. Steps 1, 2 and 4 are now `requiresInteraction: true`
+  and render their own button visibly disabled, driven off
+  `step.requiresInteraction` — no live "latch open" state is needed, because a
+  satisfied latch advances inside the handler that satisfies it. Two steps are
+  **still unlatched on purpose**: step 5 (`tour.fuel.verify`) has no producer
+  anywhere and points at a whole panel rather than a control, so latching it would
+  make the tour un-completable; step 6 (`tour.fuel.submit_button`) is **Submit
+  Fuel**, named in §7 Rule 3's protected list. The tour's `handleSubmit` writes
+  nothing today, but that is a property of the current implementation rather than
+  something the guide system enforces.
+
+  **The latch is `data?.success !== true`, not "a notification arrived."** The
+  three producers originally called `notifyInteraction(target)` with no payload,
+  so switching the latch on without also updating them would have done the real
+  work and left the tour **frozen on that step** — strictly worse than the bug,
+  since a driver who skipped the work could previously still get through. All
+  three now pass `{ success: true }`, the contract the Map practice swipes already
+  satisfy. **Half of this fix is worse than none of it**, which is the part worth
+  remembering.
+
+  **Not fixed — the overlap, and it is the same root cause twice.** See the open
+  Severity 3 entry below.
+
+- **OPEN - the coach-mark card can be pinned over the very control it
+  highlights - found 2026-09-27, not fixed.** The card is placed by taking
+  `Math.min` of two numbers in `CoachMarkOverlay.jsx`: one that clears the hole
+  by 14dp, one that keeps the card on screen. **When the card is taller than
+  whichever side it was aimed at, the second term wins and the card is pinned
+  across the hole** - and since the tooltip is the last child of the overlay
+  container, its Back / Skip / Next row paints directly on top of the highlighted
+  button. There is no "no room anywhere" branch to fall back to.
+
+  Four things make it reachable rather than theoretical:
+  1. **The first frame is placed against `DEFAULT_CARD_HEIGHT = 200`**, before
+     `onLayout` reports the real height. The fuel cards are taller than that
+     (long body + step dots + a three-button footer) and no `Text` in
+     `CoachMarkTooltip` sets `maxFontSizeMultiplier`, so 200 is an
+     under-estimate precisely on the frame that gets pinned.
+  2. `isTargetInLowerHalf` is computed from that same `cardHeight`, so when
+     neither side actually fits, the side-selection cannot notice.
+  3. The floating-bubble (SOS) branch clamps against a hardcoded `180` instead
+     of `cardHeight`, so it overlaps on a different schedule.
+  4. The `centeredPresentation` branch never passes `onMeasure`, so the measured
+     height is never fed back on that path.
+
+  A fix needs a real fallback (centre the card, `arrowPosition: "none"`, keep the
+  hole) rather than another constant, since every constant here is a guess about
+  a card whose height is content-driven. Not started - it was reported alongside
+  the two bugs above and left explicitly out of that change.
+
 - **The pin map did not follow the address you entered — 2026-09-25. FIXED
   2026-09-27 (task #29).** Reported as *"the pin and the address input was not synced…
   i still had to manually find my geographic location at the map."* Nothing was lost
@@ -4080,4 +4166,14 @@ file recorded for the crash above.
 
 ### Residual
 While verified in vitest source-level tests and contract assertions, physical gesture timing on real hardware requires an on-device run to verify end-to-end feel.
+
+## DEV-ONLY: next-auth CLIENT_FETCH_ERROR (`<!DOCTYPE ... is not valid JSON`) — 2026-09-28
+
+**Symptom.** Browser console: `[next-auth][error][CLIENT_FETCH_ERROR] ... Unexpected token '<', "<!DOCTYPE "... is not valid JSON`, first on `url: '/api/auth/session'`, then on `url: '/api/auth/providers'`. No code change preceded it (recent work was OTP/mobile/docs only).
+
+**Root cause (evidence-backed).** Stale `next dev` (Turbopack) process, not a code bug. Reproduced locally: `GET /api/auth/session` and `POST /api/auth/forgot-password` both returned the Next `/_not-found` HTML page even though `src/app/api/auth/[...nextauth]/route.js` and `route.js` exist on disk. After the dev server was restarted, a fresh instance answered every auth endpoint correctly (`/api/auth/providers` 200 JSON, `/api/auth/session` 200 `{}`, `/api/auth/login-status` 200, `/api/settings/users` 401 JSON as expected unauthenticated). Nothing in `src/proxy.js` can produce this either — its rejections are JSON, never HTML.
+
+**Fix.** Restart `npm run dev`. If port 3000 is held by a leftover process, kill it first (a second instance silently moves to 3001 while the stale one keeps serving 404s on 3000).
+
+**Diagnostic recipe (reusable).** When next-auth client fetches fail with HTML: `curl -s -o NUL -w "%{http_code} %{content_type}" http://127.0.0.1:3000/api/auth/providers` — `404 text/html` means the route never matched (stale dev server), not a credentials/DB problem. `401/200 application/json` means routing is fine and the fault is downstream.
 

@@ -745,6 +745,37 @@ variants, `incidentTypeLabel()` at every incident-type call site,
 hardcoded role lists with `notificationRolesFor()` after deciding whether the
 dispatcher belongs in the incident loop.
 
+## Web Notification Card UI Redesign — 2026-09-29
+
+Redesigned the web notification card presentation (`src/components/notifications/notification-card.jsx`, `src/app/(dashboard)/notifications/page.js`, `src/components/ui/notification-dropdown.jsx`, `src/app/(dashboard)/driver/page.js`) according to the modern enterprise visual reference (`media_1790645679741.png`).
+
+### Core Design Rules & Principles
+1. **Neutral Surface & Anti-Tinted Card Rule**: Eliminated heavy full-card tinted gradients (`from-sky-500/10`, `from-rose-500/10`). All cards utilize a neutral crisp white surface (`#ffffff`, in dark mode `dark:bg-slate-900/90`), subtle hairline border (`#d7dee7`, `dark:border-slate-800`), smooth `22px` rounded corners, and soft ambient drop shadow (`0 8px 24px rgba(15, 23, 42, 0.04)`).
+2. **Targeted Semantic Accentuation**: Semantic color is exclusively concentrated on:
+   - **Left Squircle Icon Container** (`56px × 56px`, `rounded-[18px]`):
+     - *Failed Inspection / Incident / Alert / Error*: soft pinkish/red `#fdebed` background with `#e5484d` icon (`AlertCircle`).
+     - *Maintenance Due Soon / Warning / Moderate*: soft peach/amber `#f9f1e3` background with `#d97706` icon (`AlertTriangle`).
+     - *Success / Completed*: soft emerald `#ecfdf5` background with `#059669` icon (`CheckCircle2`).
+     - *Info / Dispatch / Trip*: soft blue `#eff6ff` background with `#2563eb` icon (`Send` / `Route` / `Info`).
+   - **Status Indicator**: High-contrast blue dot (`#3b82f6`, 10px circular pill) sitting directly beside the title when unread.
+   - **Pill Category Badge**: Uppercase reference badge with subtle tone (e.g. `[ MAINTENANCE #57 ]` in `#fdebed`/`#e5484d` for repairs or `#f9f1e3`/`#c46b00` for scheduled due items).
+3. **Typography & Spacing**:
+   - Title: 18–20px bold (`#101828` / `dark:text-white`), `leading-snug`, `tracking-tight`.
+   - Description: 15–16px normal (`#667085` / `dark:text-slate-400`), `leading-relaxed`.
+   - Meta Row: Pill badge + 1px vertical hairline divider (`#d9e1ec`) + formatted date (`formatDate`, e.g. "Sep 29, 2026").
+4. **Circular Action Icons**: Top-right circular buttons (`w-12 h-12 sm:w-14 sm:h-14 rounded-full`):
+   - Acknowledge / Check Button: Neutral circular button (`#fafbfc`, border `#e6ebf2`, text `#667085`, `Check` icon).
+   - Delete Button: Circular button with soft rose border (`#f0d5d9`), white background, and red icon (`#ef4444`, `Trash2` icon).
+5. **Universal Web Adoption**:
+   - `/notifications` page: Removed clumsy gray card wrapper in favor of clean vertical card stack (`gap-5`).
+   - Header `NotificationDropdown`: Adopted `compact={true}` mode with unified neutral card architecture and semantic icon container.
+   - Driver Dashboard: Upgraded Important Notifications feed to compact neutral card layout.
+
+### Verification
+- 14/14 unit tests passing in `src/components/notifications/notification-card.test.js`.
+- ESLint clean with 0 errors and 0 warnings across all touched web files.
+- Full responsive test across desktop, tablet, and mobile viewports.
+
 ## Open questions
 
 - Why triggers rather than service-layer calls? Undocumented. → [[ADR-005 Notifications In Database Triggers]]

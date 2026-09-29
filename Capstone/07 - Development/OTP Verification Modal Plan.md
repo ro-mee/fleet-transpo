@@ -138,6 +138,35 @@ Never store or audit the plaintext code, and never put it in a URL.
   role-aware redirect. The duplicate primary verify button was removed.
 - Successful verification waits for the authenticated session, shows the
   confirmed state briefly, and preserves the existing role-aware return route.
+- **The third failed code closes the modal (2026-09-28).** The modal shares one
+  copy source with both mobile surfaces — `describeOtpAttemptsLeft` /
+  `describeOtpBurn` in `src/lib/auth/otp-policy.js`, mirrored in
+  `mobile/lib/otp.js`. After the third wrong code the challenge is burned, so
+  the modal hands the verdict back to the sign-in form: the password field is
+  emptied, the caret returns to it, and the copy says — in three plain lines —
+  *Your code was cancelled after 3 wrong codes. / Enter your password again to
+  get a new code. / Cancelled code 1 of 3 — 2 more will lock this account for
+  15 minutes.*
+  The **Email me a new code** button was removed on 2026-09-28 (along with the
+  mobile OTP screen's Resend link) because a resend carries the password, so
+  minting from the modal would bypass the re-proof the strike is meant to cost.
+  **On 2026-09-29 the web button came back**, relabelled *Resend code*: it sits
+  directly after *A new code can be requested in Ns*, stays disabled until that
+  countdown reaches zero, and calls `handleResendCode` — a one-line adapter
+  onto `handleSubmit(e, { resend: true })`, the very handler the form's submit
+  uses. That is the whole argument resolved rather than dodged: the button
+  re-runs `validate({ email, password })` and `signIn(email, password, {
+  otpCode: "" })`, so `authorize` verifies the password before `sendNewCode()`
+  and the server's 60-second cooldown still throttles. `handleSubmit` gained
+  only the `!resend` half of
+  `if (lockSeconds > 0 || (mfaRequired && !resend)) return;` — without it the
+  open dialog would have swallowed the click — and
+  `if (resend && (resendSeconds > 0 || loading)) return;`. After a strike there
+  is still nothing to click: the dialog closes and the in-memory password is
+  cleared first, so the re-proof still costs the password. The mobile Resend
+  link remains removed. The expiry/spam helper line was dropped in the same
+  pass (see [[Authentication]]). An expired code is still replaced
+  automatically by the server inside the same MFA step. See [[Authentication]].
 - `src/components/ui/dialog.jsx` now accepts an optional `overlayClassName`,
   allowing this auth modal to use the calmer navy overlay without changing
   other dialogs.

@@ -229,6 +229,13 @@ replace it at first sign-in. Drivers/mobile are out of scope.
    deliberately unlike create, where the row itself must not survive. Audit
    `invite_resend`, `newValues` = `{ email }` only. The users list shows amber
    **Password not set · expires …** plus a Resend invite action for pending rows.
+   Both destructive-adjacent actions are confirmation-gated in
+   `src/app/(dashboard)/settings/users/page.js`: Resend invite (warns the old
+   temp password dies immediately) and — since 2026-09-27 — Reset password
+   (warns the previous unused reset link dies immediately, 30-minute expiry,
+   share-privately copy). Reset password issues a one-time link via
+   `POST /api/auth/reset-token` for the admin to copy — it never emails a
+   temporary password; only Resend invite emails one.
 
 **Columns** (migration `120_temp_password_invite.sql`, no new tables → no RLS
 ceremony): `employees.must_change_password` (boolean NOT NULL DEFAULT false)
@@ -382,14 +389,14 @@ because it demos without a phone, and accepted knowing what it costs.
   `anon`/`authenticated`, because row security does not cover `TRUNCATE`.
 - **The hash is not the protection, and the code says so.** A six-digit space is 10^6
   values; a plain SHA-256 digest of it is enumerable offline instantly. What actually
-  holds is the 5-minute TTL (`OTP_TTL_SECONDS`), the 5-attempt ceiling
+  holds is the 5-minute TTL (`OTP_TTL_SECONDS`), the 3-attempt ceiling
   (`OTP_MAX_ATTEMPTS`, which *burns* the challenge), the 60-second send cooldown
   (`OTP_RESEND_COOLDOWN_SECONDS`), and the table being unreachable from the anon key.
   Policy constants live in `src/lib/auth/otp-policy.js`, dependency-free so the
   `"use client"` modal cannot drift from the server.
-- **Account-level lockout (2026-09-25).** The 5-attempt ceiling burns a *challenge*,
+- **Account-level lockout (2026-09-25).** The per-challenge ceiling burns a *challenge*,
   and a resend mints a new one — so a password holder could loop
-  `issue → 5 guesses → issue` forever. Now `issueLoginChallenge` and
+  `issue → 3 guesses → issue` forever. Now `issueLoginChallenge` and
   `verifyLoginChallenge` peek `lockout:otp:${employee_id}` in the existing
   `auth_rate_limits` table (migration 087 — no new table, no migration): after
   **3 burned challenges** the whole surface freezes for a **15-minute fixed
@@ -416,7 +423,7 @@ because it demos without a phone, and accepted knowing what it costs.
   collapsed every wrong code to a bare `MFA_INVALID`, discarding the
   `attemptsRemaining`/`lockTripped` the backend computed. `verifyLoginChallenge`
   now numbers the struggle — `OTP_ATTEMPTS_LEFT:<n>` (attempts left in the
-  challenge, 4..1) after each miss, `OTP_STRIKE:<n>` (burns recorded, 1..2)
+  challenge, 2..1) after each miss, `OTP_STRIKE:<n>` (burns recorded, 1..2)
   when a challenge burns, and the **3rd burn itself** throws
   `OTP_LOCKED:<seconds>` carrying `rateLimit`'s new `windowRetryAfter` (true
   window remainder from burn #1 — never a fresh 900). Web `authorize` throws
@@ -427,6 +434,49 @@ because it demos without a phone, and accepted knowing what it costs.
   `lockout:otp` bucket — the client learns only the state of the challenge it
   already holds, the same information family as `ACCOUNT_LOCKED:<s>`. No new
   endpoint; `login-status` still reports no OTP state.
+- **A strike ends the MFA step and costs the password again (2026-09-28).** The
+  ceiling dropped from 5 to **3** wrong codes (`OTP_MAX_ATTEMPTS`), and a burned
+  challenge no longer mints a replacement. `OTP_STRIKE:<n>` now closes the web
+  dialog / leaves the mobile OTP screen and hands the verdict to the sign-in
+  form, the in-memory password is cleared, and the shared copy
+  (`describeOtpBurn`) names the way back in three plain lines: *Your code was
+  cancelled after 3 wrong codes. / Enter your password again to get a new code.
+  / Cancelled code 1 of 3 — 2 more will lock this account for 15 minutes.* The
+  screen never says "strike" (the token and the `strike` field keep the name) and
+  counts cancelled *codes*, not failed entries — three wrong codes cancel one
+  code, so the old "2 more failed codes" undercounted the cost threefold.
+  Both surfaces dropped their **Resend** affordance along with the auto-resend —
+  the modal's "Email me a new code" button and the OTP screen's link — because a
+  resend is a `signIn(…, { otpCode: "" })` carrying the password, and minting
+  from a screen that already holds it would bypass the re-proof the strike
+  exists to cost.
+  **The web button was put back on 2026-09-29**, relabelled *Resend code*; this
+  meets that objection rather than waiving it. It is a one-line adapter —
+  `handleResendCode = (e) => handleSubmit(e, { resend: true })` — passed to
+  `MfaVerificationDialog` as a new `onResend` prop, so the button re-enters the
+  **same** submit handler: `validate({ email, password })`, then
+  `signIn(email, password, { otpCode: "" })`, where `authorize` verifies the
+  password before `sendNewCode()` runs and the 60-second cooldown still
+  throttles. `handleSubmit` gained only
+  `if (lockSeconds > 0 || (mfaRequired && !resend)) return;` — without the
+  `!resend` half the open dialog would have swallowed the click — and
+  `if (resend && (resendSeconds > 0 || loading)) return;`. The button renders
+  after the status line, disabled until that countdown reaches zero. After a
+  burn it is unreachable anyway: `handBurnBackToForm` closes the dialog and
+  drops the in-memory password first, so there is no button to press and no
+  password to carry. The **mobile** OTP screen's Resend link stays removed, so
+  the two surfaces differ here on purpose.
+  Both surfaces keep the server's 60-second cooldown visible as a status line
+  (and as *Sign in again for a new code* once it lapses). The one server-side automatic
+  send that survives is the **expired/stale** verdict: `verifyLoginChallenge`
+  never spends an attempt on the clock, so `sendNewCode()` still replaces a dead
+  code inside the same MFA step — it cannot loop (the replacement is live, so
+  the next wrong code burns a real attempt), and it is not a strike, so no
+  failure copy claims a send. `describeOtpBurn` lost its
+  `destination`/`delivery` parameters with the auto-resend: nothing is sent, so
+  it no longer says anything about a send. The math moves with the ceiling — the
+  worst case per 15-minute window is now **9** wrong codes (3 burns × 3
+  attempts) and the freeze ladder is unchanged at 3 burns.
 - **Fail closed, twice.** If `isEmailConfigured()` is false *or* the address is not
   deliverable, the login is refused with an honest message and the event is audited as
   `mfa_unavailable`. There is no fallback path that lets the login through. A remembered
@@ -516,14 +566,14 @@ that file is which accounts are unreachable on their face.
   filtering, and revocation; the IP address is display metadata only and is
   never a device/session deduplication key.
 
-## Session idle timeout and expiration UX — CONFIRMED (2026-09-02, revised 2026-09-18)
+## Session idle timeout and expiration UX — CONFIRMED (2026-09-02, revised 2026-09-18, policy made configurable 2026-09-29)
 
-- **Idle timeout**: **5 minutes** (`last_seen_at + 300s`). Migration `089_session_idle_timeout.sql` added `web_sessions.idle_timeout_seconds` defaulting to `3600`; migration `113_session_idle_timeout_5min.sql` lowers the column default to `300`.
-- **Absolute expiration**: 12-hour hard maximum (`expires_at`), computed at login and never extended.
+- **Idle timeout**: **5 minutes** (`last_seen_at + 300s`) *by default*. Migration `089_session_idle_timeout.sql` added `web_sessions.idle_timeout_seconds` defaulting to `3600`; migration `113_session_idle_timeout_5min.sql` lowers the column default to `300`. Since 2026-09-29 the value an operator configures is `security_policy.idleTimeoutSeconds` (`60–3600`), written into **new** sessions at creation — see "Configurable security & session policy" below.
+- **Absolute expiration**: 12-hour hard maximum (`expires_at`), computed at login and never extended. Read from `security_policy.absoluteTtlSeconds` (`900–172800`) for sessions created after a save, but **not editable in the settings form** since 2026-09-29 — a direct `PUT` to `/api/settings/security-policy` is the only way to change it.
 - **Server authority**: `resolveCurrentIdentity()` independently validates both `expires_at > NOW()` and `last_seen_at + idle_timeout_seconds > NOW()`. Idle expiration throws `SESSION_IDLE_TIMEOUT` with HTTP 401; 12-hour expiration throws `SESSION_EXPIRED`; revoked sessions throw `SESSION_REVOKED`.
 - **Identity resolution is read-only for session timing** (2026-09-18): `resolveCurrentIdentity()` must never write `last_seen_at`. See "The idle timeout that wasn't" below.
-- **Single policy source**: `src/lib/auth/session-policy.js` holds the constants. It is dependency-free precisely so the `"use client"` session manager can import it — `lib/auth/sessions.js` pulls in `@/lib/db` and `geoip-lite` and cannot be imported from a client component, which is why the client used to keep its own hand-copied literals. `sessions.js` re-exports for existing server importers.
-- **Derived, not copied**: the warning window is 20% of the idle window capped at 5 minutes (60s at the current policy), and the heartbeat interval is half the idle window. Both are computed from `IDLE_TIMEOUT_SECONDS` so they cannot collide with it again (see below).
+- **Single policy source**: `src/lib/auth/session-policy.js` holds the constants. It is dependency-free precisely so the `"use client"` session manager can import it — `lib/auth/sessions.js` pulls in `@/lib/db` and `geoip-lite` and cannot be imported from a client component, which is why the client used to keep its own hand-copied literals. `sessions.js` re-exports for existing server importers. Since 2026-09-29 those constants are also the **defaults** of the stored `security_policy` (`src/lib/security-policy.js` imports them rather than retyping them, so there is still exactly one literal), and the configured value wins for sessions created after a save.
+- **Derived, not copied**: the warning window is 1/5 of the idle window capped at 5 minutes (60s at the default policy), the minimum heartbeat gap is 1/5 of it, and the heartbeat interval is half of it. Both are computed from the idle window — `deriveIdleWindows()` in `src/lib/security-policy.js` is the same arithmetic `session-policy.js` applies to its constants, but takes the idle window as an argument — so a configured value produces the same invariants the defaults do (pinned by `src/lib/auth/idle-session.test.js`, "Derived session policy invariants").
 - **Heartbeat & human activity** (revised 2026-09-19 — optimistic local reset): `GET/POST /api/auth/heartbeat`. `POST` is the **only** writer of `last_seen_at`. The frontend monitors DOM events (`click`, `keydown`, `touchstart`, `pointerdown`; deliberately no `mousemove`) and snaps the visible countdown back to a full window **instantly** on every interaction. The server write stays throttled by `ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS` (60s): the confirmation fires immediately when the gap has elapsed, otherwise it is scheduled once for the moment the gap elapses — never per keystroke, never later than ~60s after the activity. Before this fix the chip waited for the POST, so it kept draining through real activity (up to 60s of visible lag) despite the tooltip promising a reset on click/type. `GET` reconciles against the optimistic value (keeps the newer deadline only while the activity is still inside the unflushed throttle window); the periodic tick at half the idle window is now a timestamp-gated backstop for a lost flush only, so it can no longer extend a session long after the user walked away.
 - **Stay signed in**: Issues a forced `POST /api/auth/heartbeat` (bypassing the throttle, since the user explicitly asked) to slide `last_seen_at` and the idle deadline by 5 minutes; the 12-hour maximum remains unchanged.
 - **Warning and timeout UX (2026-09-18 enhanced)**: `SessionTimeoutDialog` (`src/components/auth/session-timeout-dialog.jsx`) implements a centered blocking modal over a dimmed backdrop (`rgba(15, 23, 42, 0.38)` with `backdrop-filter: blur(2px)`), perfectly matching the Operations Center visual language (white modal surface, subtle `#E4E7EC` border, soft elevation shadow `0 16px 40px rgba(16, 24, 40, 0.16)`, `#0F172A` dark navy primary button).
@@ -560,6 +610,48 @@ This note previously claimed "Background polling (dispatch boards, notifications
 **Trade-off accepted.** 5 minutes is aggressive for operator work — a dispatcher on a live map or a manager on a long form can lose unsaved state (`saveReturnTo()` preserves the route, not the form). Mitigated by the 60s warning and the immediate slide on activity; reversal is one constant plus the migration default. Strict enforcement was chosen deliberately over a "slide on mutating requests" safety net, which would have been a near-free backstop but leaves an hour of read-only work counting as idle.
 
 → [[Token Rotation And Refresh Races]] · [[Decision Log]]
+
+## Configurable security & session policy — SHIPPED (2026-09-29)
+
+Session and lockout timings were code constants; they are now an operator-editable policy stored in `system_settings` under **`security_policy`** (see [[system_settings]]). This section records the wiring, the scope rule, and the two things that would have been easy to get wrong.
+
+**Where it lives.**
+
+| Layer | File | Role |
+|---|---|---|
+| shape / validation / derivation | `src/lib/security-policy.js` | `DEFAULT_SECURITY_POLICY`, `SECURITY_POLICY_RANGES`, `SECURITY_POLICY_FIELDS`, `SECURITY_POLICY_KEYS`, `mergeSecurityPolicy()`, `validateSecurityPolicy()`, `deriveIdleWindows()` — pure, no DB, no React, importable from **both** sides |
+| storage | `src/lib/system-settings.js` | cached `getSetting`/`setSetting` for the key `security_policy` |
+| service | `src/services/security-policy.service.js` | `getSecurityPolicy()` / `saveSecurityPolicy(policy, actorId)` |
+| API | `src/app/api/settings/security-policy/route.js` | `GET` (read) / `PUT` (write), both on resource **`system`** |
+| UI | `src/app/(dashboard)/settings/general/page.js` | **Security & Sessions** card, super-admin only |
+
+Six fields are offered in the form, each in the unit its consumer already uses (seconds for the idle window, minutes for the lockout window, days for the longer-lived credentials), so no call site converts: `idleTimeoutSeconds`, `lockoutLimit`, `lockoutWindowMinutes`, `tempPasswordTtlDays`, `trustedDeviceTtlDays`, `newDeviceLookbackDays`.
+
+`SECURITY_POLICY_FIELDS` is therefore the **editable subset** of `SECURITY_POLICY_KEYS`, not the whole set. The seventh key, `absoluteTtlSeconds`, stayed in the policy but was **removed from the form on 2026-09-29**: the card already leads with the idle timeout, and a second time limit read to operators as more confusing than as protection. `KEYS` and `RANGES` are untouched, so `mergeSecurityPolicy()`, the cross-field rule and the value that reaches `expires_at` are unchanged — only the UI stopped offering it, and a direct `PUT` still carries it.
+
+**Idle timeout is entered as minutes + seconds.** `parts: ["minutes", "seconds"]` on the field descriptor makes the form render two boxes over **one** stored seconds value: editing either half rewrites the whole total (`setDurationPart()`), so the two halves cannot drift apart and `Save` still receives seconds. Only the input and its range hint are formatted — `fmtDuration()` turns `300` into "5 min" and `90` into "1 min 30 s". The stored value, `SECURITY_POLICY_RANGES` (60–3600), `deriveIdleWindows()` and every consumer are untouched; "300" is simply a bad way to ask for five minutes.
+
+**Route security.** `GET` requires `system:read`, `PUT` requires `system:update` — both super_admin-only in `MATRIX`. `system.update` was added explicitly (`{ read: false, update: false }` on every non-super_admin role) rather than left as an absent action, so the denial is stated instead of implied by absence; `rolesFor()` filters `=== true`, so behaviour is unchanged. Verified by `src/lib/auth/privilege.test.js` (`rolesFor("system","update")` → `["super_admin"]`) and by `npm run verify:auth` reporting `287/287` guarded methods.
+
+**Validation is one allowlist plus one cross-field rule.** The `PUT` handler drops any key not in `SECURITY_POLICY_KEYS` before validating, then runs `validateSecurityPolicy({ ...before, ...candidate })` — a partial PUT is legal (the form sends only what it edits), an out-of-range value or `absoluteTtlSeconds <= idleTimeoutSeconds` returns **400** rather than being silently repaired. `mergeSecurityPolicy()` performs the same clamping for values *already stored*, so a tampered, truncated or hand-edited row yields a usable policy instead of throwing **on the login path**. Two independent range lists would be how client and server start disagreeing, so the form reads `SECURITY_POLICY_FIELDS`/`RANGES` from the same module — the route returns the policy object only, not a second copy of its metadata.
+
+**Scope: new sessions only.** A save governs sessions **created after it**. An existing `web_sessions` row keeps the limits it was signed in with:
+
+- `idle_timeout_seconds` is written at session creation;
+- the absolute TTL is `expires_at − created_at`, derived per session by `absoluteTtlSecondsOf()` in `src/lib/api/utils.js`.
+
+The client learns the timings from `GET/POST /api/auth/heartbeat`, which return the **row's** numbers (`… ?? WEB_SESSION_TTL_SECONDS` as the fallback), never the live policy. That is what keeps dialog copy honest: the countdown can never name a limit the session never had. `session-manager.jsx` holds them in state behind a structural `sameWindows()` comparison, so a 30-second heartbeat does not churn effect dependencies, and `session-countdown.jsx` builds its tooltip from `windows` rather than a module-level constant. Server-side consumers that read on every login (`checkAccountLockout`, `recordFailedAttempt`, the trusted-device cookie TTL, `recordNewDeviceAlert`, NextAuth's session maxAge via `peekSetting`) read the configured value directly.
+
+**Two deliberate non-changes.**
+
+- **`src/lib/auth/session-policy.js` stays the canonical home of the numbers.** `security-policy.js` *imports* `IDLE_TIMEOUT_SECONDS` and `WEB_SESSION_TTL_SECONDS` for its defaults instead of retyping them — a second literal would be exactly the drift that module's own header comment exists to prevent.
+- **The absolute warning stays a fixed 5 minutes** (`ABSOLUTE_WARNING_SECONDS`), not derived from `absoluteTtlSeconds`; the idle warning *is* derived (`deriveIdleWindows`), because an idle warning that did not scale with the idle window is the collision the original bug was. Nothing here derives a warning from the absolute cap.
+
+**A missing row is the default.** As of 2026-09-29 no `security_policy` row exists. `DEFAULT_SECURITY_POLICY` carries the values the code hard-coded before this shipped, so a database with an absent or corrupt row behaves exactly as before and the queue never depends on an administrator having saved a policy. Migration **`138_system_settings_grants.sql`** (revoke `anon, authenticated` on `system_settings`) was a *prerequisite*, not a cleanup — writing session policy into a table the public anon key could `TRUNCATE` would have been the worst trade in the codebase.
+
+**Cache and staleness.** `system_settings` reads go through a 30-second per-instance cache (`src/lib/system-settings.js`) with a negative entry for a missing row; a save invalidates locally, so another serverless instance may serve the previous value for up to 30 seconds. The settings card states this in its footer rather than hiding it.
+
+**Verification.** `src/lib/security-policy.test.js` (20 tests) covers defaults, merging under null/corrupt/unknown-key input, every range, the cross-field rule and `deriveIdleWindows` invariants at 60/300/900/3600s; `src/app/api/settings/security-policy/route.test.js` (6) covers both guards, the allowlist, 400 paths, the audit row and the round trip; `session-rotation.test.js` pins that the policy `SELECT` and the session `INSERT` are separate statements. Full suite: **242 files / 3118 tests green** (two OTP files excluded — another workstream's in-flight changes), `lint:ci` clean, `db:contract` 0 violations, `verify:anon` `PASS system_settings HTTP 401 (42501) — refused`.
 
 ## Login-first landing & client guard split — CONFIRMED (2026-09-05)
 

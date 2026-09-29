@@ -343,3 +343,46 @@ mint an emergency code for a locked account until the window expires.**
 `mobile/lib/otp.js`, `mobile/app/login.js`,
 `mobile/components/otp/OtpVerificationView.jsx`,
 `docs/superpowers/specs/2026-09-27-otp-attempts-strikes-warning-design.md`.
+
+**2026-09-28 — Three attempts per challenge, and a strike costs the password again.**
+
+- The ceiling drops 5 → 3 (`OTP_MAX_ATTEMPTS`): a third wrong code burns the
+  challenge, so the worst case per 15-minute window falls from 15 wrong codes
+  to 9. The freeze ladder (3 burns) is untouched — the account-level lock does
+  the real work; the ceiling is a cost, not the defence.
+- A strike **ends the MFA step** instead of replacing the code. The modal closes
+  / the OTP screen hands back, the password state is cleared, and the shared
+  copy says what unlocks the next code, in plain words: *Your code was cancelled
+  after 3 wrong codes. / Enter your password again to get a new code. /
+  Cancelled code 1 of 3 — 2 more will lock this account for 15 minutes.* An
+  unattended screen can no longer burn strikes or mint codes with a password it
+  already holds.
+- The screen copy drops the word *strike* and counts **cancelled codes**, not
+  "failed codes": three wrong codes cancel one code, so the old number
+  understated the cost threefold. The `OTP_STRIKE` token and the `strike` field
+  keep the name, and the message is three `\n`-joined lines (the web alert
+  renders them with `whitespace-pre-line`).
+- Both surfaces lose the **Resend** affordance, and the auto-resend with it,
+  because a resend is `signIn(…, { otpCode: "" })` — the same credential
+  submission — and offering it from the MFA step would make the re-proof
+  optional. Re-submitting the form is now the only resend path; the server's
+  60-second cooldown stays visible as status copy.
+  *(Partly reversed 2026-09-29: the **web** modal's button is back, relabelled
+  *Resend code*, disabled until that cooldown lapses. It re-enters `handleSubmit`
+  with `{ resend: true }`, so it **is** the re-submit named above rather than a
+  second path — `validate({ email, password })` and `authorize` still run before
+  `sendNewCode()`, which is where the re-proof actually lives. The button being
+  present was never what enforced it; closing the dialog and dropping the
+  password on a burn is, and that is unchanged. The mobile link stays removed.)*
+- The **expired/stale** verdict keeps its automatic send: it spends no attempt,
+  it cannot loop (the replacement is live, so the next wrong code burns a real
+  attempt), and it is not a strike, so no failure copy claims a send.
+  `describeOtpBurn` drops `destination`/`delivery` with the auto-resend — copy
+  about a send that never happened is worse than no copy.
+
+**Evidence:** `src/lib/auth/otp-policy.js`, `src/lib/auth/email-otp.js`,
+`src/lib/auth.js`, `src/app/api/mobile/auth/login/route.js`,
+`src/app/(auth)/login/page.js`, `mobile/lib/otp.js`, `mobile/app/login.js`,
+`mobile/components/otp/OtpVerificationView.jsx`,
+`src/lib/auth/email-otp.test.js`, `mobile/lib/otp.test.js`,
+`src/security-assessment/auth-session.security.test.js`.

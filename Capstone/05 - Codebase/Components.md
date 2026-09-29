@@ -16,6 +16,7 @@ last_verified: 2026-08-26
 `src/components/ui/` holds Radix UI primitives (17 packages) wrapped in the **shadcn/ui** pattern: the primitive provides behaviour and accessibility, the local wrapper provides Tailwind styling. The components are copied into the repo rather than installed, so they are yours to edit.
 
 - `ThemeToggle` (`src/components/ui/theme-toggle.jsx`): Reversible animated light/dark toggle. Features continuous spring-based orbit micro-interactions (Sun $\leftrightarrow$ Moon rotations and scale transforms) that smoothly reverse when clicked back.
+- `NotificationCard` (`src/components/notifications/notification-card.jsx`): Enterprise minimalist notification card. Replaces full-card tinted gradients with a crisp neutral white surface (`#ffffff`, `dark:bg-slate-900/90`), subtle border (`#d7dee7`), 22px rounded corners, left 56x56 semantic squircle medallion (`#fdebed` for alerts/repairs, `#f9f1e3` for maintenance due warnings), unread royal blue dot, uppercase pill badge with hairline divider, and top-right circular action pair (acknowledge check button and delete trash button). Supports `compact={true}` mode for dropdowns and dashboard widgets.
 
 Styling is **Tailwind v4** — CSS-first. There is no `tailwind.config.js`; theme tokens live in CSS via `@theme`. Coming from v3, that's the main surprise.
 
@@ -123,9 +124,27 @@ scope). Shipped since the August audit, all verified against source:
   (`role="img"` + text summary), `StatusBars` (overlapping counts),
   `LivePulseBeacon` (live-critical rows only), `Row` (`line-clamp-2`,
   `min-h-16` touch rows).
-- `operations-cards.jsx` — Request Pipeline chevron ribbon, Document
-  Compliance dual-viz, Maintenance activity list, Incident Risk tiles +
-  calm/alert summary states.
+- `operations-cards.jsx` — Request Journey lifecycle flow visualization
+  (`RequestPipelineCard`: Zero-scroll responsive dual-mode architecture. On desktop screens (>=1024px, `hidden lg:block`),
+  renders a fluid 7-column CSS Grid (`grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]`) spanning Row 1 (Pending → Assigned → In Progress → Completed)
+  and Row 2 (`FulfillmentPerformanceCard` [col-span-3, On-time rate & Fulfillment rate] + curved Bezier branch connector [col-span-1, `d="M 0 -120 L 0 45 C 0 85, 30 96, 64 96"` with non-overlapping top-right metrics] + Cancelled card [col-span-1, directly beneath In Progress] + spacer [col-span-1] + `CancelledCallout` [col-span-1, directly beneath Completed])
+  with unified `h-[192px]` heights, unclipped `h-8` footer pills, and zero horizontal scrollbar on any desktop monitor.
+  On mobile and tablet viewports (<1024px, `block lg:hidden`), collapses seamlessly into a vertical phase rail / stepper with full-width cards (`w-full`),
+  downward conversion badges (`↓ {percentage}% to {toLabel} ({count})`), dedicated Exception Branch section with callout, and responsive
+  `FulfillmentPerformanceCard`, eliminating awkward horizontal drag-scrolling; Volume vs Conversion % segmented control; Scheduled aggregated into Pending;
+  MANDATORY footers: "Needs assignment", "Driver + vehicle secured", "On the move", "Arrived successfully", "Request withdrawn"), Document Compliance card (`DocumentComplianceCard` compact single-column
+  redesign: 2-tier layout featuring summary panel + pure SVG `DocumentDonutChart` top tier,
+  4 colored stat cards middle tier, and bottom Expiring Soon row), Fleet Asset Readiness
+  (`FleetReadinessCard`: dual-zone operational posture for vehicle fleet and driver workforce with
+  segmented progress meters, 4 status chips each, and live dispatch capacity beacon),
+  Maintenance Pressure (`MaintenancePressureCard` double-bezel modernization with amber squircle badge
+  and status-colored work orders), Incident Risk (`IncidentRiskCard` double-bezel modernization with
+  rose squircle badge, 4 severity tiles, and calm/alert hero panel).
+- `role-dashboard.jsx` — Admin Dashboard balanced 2x2 grid architecture: Row 1 full-width
+  `RequestPipelineCard` with integrated fulfillment SLA card, Row 2 paired `DocumentComplianceCard`
+  and `FleetReadinessCard`, Row 3 paired `MaintenancePressureCard` and `IncidentRiskCard`. Configured in
+  `dashboard-configs.js` with `vehicles`, `drivers`, and `driverStats` queries. Also provides `Panel`,
+  `FeedState`, `DonutMeter`, `DistributionMeter`, `StatusBars`, `LivePulseBeacon`, `Row`.
 - `ai-analyst-card.jsx` — sky squircle + navy "Intelligence Engine" pill,
   inset contour-wave panel, report-identity-matched narrative, numbered
   recommended actions.

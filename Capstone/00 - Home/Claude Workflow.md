@@ -21,6 +21,16 @@ Those two carry the traps that would otherwise be re-discovered: RLS is inert, t
 
 For focused work, add the relevant note — `Capstone/02 - Features/Dispatch.md` before touching dispatch.
 
+## The agent's own context is compacted with Jev
+
+Session compaction runs through a global OpenCode plugin
+(`~/.config/opencode/plugin/jev-compaction.ts`) that asks TypeSafe Jev which tool
+calls still matter, then hands OpenCode's summarizer a reduced transcript. The
+`fast-jev-compaction` skill in `.agents/skills/` is the library behind it — and on
+its own it does nothing in OpenCode, because its automatic path is a Claude Code
+function hook. Full write-up, including the goal-override decision and the fallback
+paths: `Capstone/07 - Development/Jev Compaction In OpenCode.md`.
+
 ## The rules that made this vault trustworthy
 
 Hold Claude to the same standard the vault holds itself to:

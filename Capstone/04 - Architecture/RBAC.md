@@ -50,10 +50,40 @@ reappears anywhere under `src/` or `scripts/`.
   `/settings/api`, `/settings/ai`, `/settings/ai/logs`, `/system/*` nav are
   super_admin-only; `/api/settings/connectors` moved to `system.read`;
   admin keeps dispatch/number-coding policies, fleet operations, and AI output.
+- Security & session policy is `system`, not `settings` (2026-09-29).
+  `GET/PUT /api/settings/security-policy` are guarded by `system:read` /
+  `system:update`, and `system.update` is now written out explicitly on the
+  five non-super_admin roles as `{ read: false, update: false }` rather than
+  left as an absent action — the denial is stated instead of being implied by
+  absence, which is the shape `rolesFor()` already filters (`=== true`), so
+  behaviour is unchanged. `privilege.test.js` pins
+  `rolesFor("system","update") === ["super_admin"]`. The card on
+  `/settings/general` (Security & Sessions) is gated on the same super_admin
+  check as the integrations section beneath it, so admin reaches the page but
+   never the card. Everything an operator can set here (idle timeout, lockout
+   threshold/window, temporary-password and trusted-device TTL, new-device
+   lookback) is super_admin-only by consequence. The seventh stored key,
+   `absoluteTtlSeconds`, is **not** a form field since 2026-09-29 — it stays in
+   `SECURITY_POLICY_KEYS`, so a direct `PUT` still carries it, but only
+   super_admin holds `system:update` to send one.
 - Workspace: System Console regrouped (Security & Access incl. Security Center
   + Privileged Accounts view, System Monitoring, Platform, Policies, Oversight,
   Account); admin Operations Center drops API Access; general-settings
   integrations section is super_admin-only.
+- Workspace: System Console sidebar trimmed (2026-09-28, nav only, nothing
+  deleted). `WORKS.super_admin.nav` no longer lists **System Notifications**
+  (`/notifications`, Oversight), **Notification Templates**
+  (`/notifications/templates`, Policies) or **Security**
+  (`/settings/security`, Account — that group is now Profile alone), and the
+  Oversight coding-board entry dropped "(Live)" from its label (`Coding
+  Board (Live)` → `Coding Board`). `NAV_ROLES` is unchanged, so all four routes
+  remain reachable by URL, command palette, header bell and dashboard links —
+  the same sidebar-only pattern used for `/tracking/history` and
+  `/fleet/documents`. `admin` still lists Notification Templates under
+  Settings; the `Bell` and `FileText` lucide imports were dropped from
+  `workspaces.js` as unused. Verified: `lint:ci` clean, `test:run` 242 files /
+  3167 tests green (`system-errors-access.test.js` reads this nav;
+  `privilege.test.js` pins `NAV_ROLES`).
 - Historical note: journal entries predating 2026-09-22 that say `system_admin`
   refer to role_id 1, now `super_admin`. Old migration files unchanged.
 - Display-name leftovers fixed 2026-09-23 (hygiene pass): `ROLE_COLORS` in
