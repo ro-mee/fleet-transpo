@@ -733,8 +733,10 @@ function FleetManagerDashboard({ queries }) {
   const utilizationRows = [...((queries.utilization.data || {}).byVehicle || [])]
     .sort((a, b) => (Number(a.trips) || 0) - (Number(b.trips) || 0))
     .slice(0, 4);
+  // Ranked by completed trips (the payload's activity measure). `total_trips` is
+  // gone from the report, and reading it here sorted every driver equally.
   const workloadRows = [...((queries.driverPerformance.data || {}).details || [])]
-    .sort((a, b) => (Number(b.total_trips) || 0) - (Number(a.total_trips) || 0))
+    .sort((a, b) => (Number(b.completed_trips) || 0) - (Number(a.completed_trips) || 0))
     .slice(0, 4);
   const nextDispatches = [...(dispatches.pendingReassignment || []), ...(dispatches.scheduled || [])].slice(0, 5);
 
@@ -807,7 +809,7 @@ function FleetManagerDashboard({ queries }) {
             </div>
             <div className="divide-y divide-border/40 border-t border-border/40 sm:border-t-0">
               {workloadRows.length ? workloadRows.map((row) => (
-                <Row key={row.driver_id} icon={Users} title={row.name || `Driver #${row.driver_id}`} detail={`${Number(row.total_trips) || 0} trips · ${Number(row.total_distance || 0).toLocaleString()} km`} meta="heaviest load" />
+                <Row key={row.driver_id} icon={Users} title={row.name || `Driver #${row.driver_id}`} detail={`${Number(row.completed_trips) || 0} trips · ${row.punctuality_rate == null ? "—" : `${Math.round(Number(row.punctuality_rate))}%`}`} meta="heaviest load" />
               )) : <InlineEmpty icon={Users} title="No workload data yet" description="Driver trip volume will appear here once trips complete." variant="waiting" />}
             </div>
           </div>

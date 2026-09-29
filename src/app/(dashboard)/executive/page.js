@@ -123,11 +123,12 @@ export default function ExecutiveKpiPage() {
     acc[row.status] = Number(row.trips) || 0;
     return acc;
   }, {});
-  const measuredDrivers = (perf.details || []).filter((driver) => driver.on_time_rate != null && Number(driver.total_trips) > 0);
-  const measuredTrips = measuredDrivers.reduce((sum, driver) => sum + Number(driver.total_trips), 0);
-  const onTimeRate = measuredTrips
-    ? measuredDrivers.reduce((sum, driver) => sum + Number(driver.on_time_rate) * Number(driver.total_trips), 0) / measuredTrips
-    : null;
+  // Punctuality is already a 0-100 integer weighted over measured trips by the
+  // report backend (on-time / measured). Re-deriving it here from per-driver
+  // rows would be an average of rates, and the removed fraction field is gone.
+  const punctuality = perf.punctuality || {};
+  const measuredTrips = Number(punctuality.measuredTrips ?? 0);
+  const punctualityRate = punctuality.onTimeRate == null ? null : Number(punctuality.onTimeRate);
   const costTrend = (fin.monthlyData || []).slice(-12);
   const tripsTrend = momChange(util.monthlyData, (m) => m.trips);
   const costMom = momChange(fin.monthlyData, (m) => (Number(m.fuelCost) || 0) + (Number(m.maintenanceCost) || 0));
@@ -158,8 +159,8 @@ export default function ExecutiveKpiPage() {
 
       <StatGrid cols={6}>
         <StatCard icon={Gauge} label="Fleet in use now" value={utilization.isLoading || utilization.isError ? "—" : `${Number(util.utilization) || 0}%`} trend={utilization.isLoading || utilization.isError ? "Unavailable while utilization refreshes" : `${util.vehiclesInUse || 0} of ${util.fleetSize || 0} vehicles currently In Use`} tone="primary" />
-        <StatCard icon={CheckCircle2} label="Completed trips" value={performance.isLoading || performance.isError ? "—" : perf.totalTrips || 0} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : tripsTrend ? `Completed trips in the report period · ${tripsTrend}` : "Completed trips in the report period"} tone="success" />
-        <StatCard icon={TrendingUp} label="On-time rate" value={performance.isLoading || performance.isError ? "—" : onTimeRate == null ? "—" : `${Math.round(onTimeRate * 100)}%`} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : onTimeRate == null ? "Insufficient completed-trip measurements" : `${measuredTrips} measured completed trips`} tone="info" />
+        <StatCard icon={CheckCircle2} label="Completed trips" value={performance.isLoading || performance.isError ? "—" : Number(perf.totalCompletedTrips ?? 0)} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : tripsTrend ? `Completed trips in the report period · ${tripsTrend}` : "Completed trips in the report period"} tone="success" />
+        <StatCard icon={TrendingUp} label="Punctuality" value={performance.isLoading || performance.isError ? "—" : punctualityRate == null ? "—" : `${punctualityRate}%`} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : punctualityRate == null ? "No pickup timing measurements available" : `${measuredTrips} measured completed trips`} tone="info" />
         <StatCard icon={Wallet} label="Recorded operating cost" value={financial.isLoading || financial.isError ? "—" : formatCurrency(fin.totalCost || 0)} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : costMom ? `Fuel plus maintenance records · ${costMom}` : "Fuel plus maintenance records"} tone="primary" />
         <StatCard icon={Route} label="Cost per km" value={financial.isLoading || financial.isError ? "—" : fin.totalDistance ? formatCurrency(fin.costPerKm || 0) : "—"} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : fin.totalDistance ? `${Number(fin.totalDistance).toLocaleString()} km recorded` : "No recorded distance denominator"} tone="warning" />
         <StatCard icon={ShieldAlert} label="Critical / major open" value={incidents.isLoading || incidents.isError ? "—" : risk.critical_major_open || 0} trend="Open incident severity exposure" tone="danger" />
@@ -215,10 +216,13 @@ export default function ExecutiveKpiPage() {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
-        <Panel title="Driver performance snapshot" description="Completed-trip measurements; unscored drivers remain visible without invented ratings." action={<Link href="/drivers/performance" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Full performance view <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <Panel title="Driver performance snapshot" description="Completed trips with pickup punctuality; drivers without timing measurements stay visible." action={<Link href="/drivers/performance" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Full performance view <ArrowRight className="h-3.5 w-3.5" /></Link>}>
           <FeedState query={performance} errorTitle="Driver performance is unavailable">{(perf.details || []).length ? (
-            <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-hover text-xs text-foreground-secondary"><tr><th className="px-5 py-3 font-semibold">Driver</th><th className="px-5 py-3 font-semibold">Trips</th><th className="px-5 py-3 font-semibold">On-time</th><th className="px-5 py-3 font-semibold">Score</th><th className="px-5 py-3 font-semibold">Incidents</th></tr></thead><tbody className="divide-y divide-border/70">{perf.details.slice(0, 8).map((driver) => <tr key={driver.driver_id} className="hover:bg-hover/60"><td className="px-5 py-3 font-medium text-foreground"><div className="flex items-center gap-2.5"><DriverAvatar source={driver} name={driver.name} className="h-8 w-8 rounded-xl text-[11px]" /><span>{driver.name}</span></div></td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{driver.total_trips}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{driver.on_time_rate == null ? "—" : `${Math.round(driver.on_time_rate * 100)}%`}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{driver.performance_score == null ? "—" : driver.performance_score}</td><td className="px-5 py-3"><StatusBadge status={driver.incidents > 0 ? "High" : "Healthy"} entity="risk" /></td></tr>)}</tbody></table></div>
-          ) : <EmptyState icon={Users} title="No driver measurements yet" description="Performance appears after completed trips record the required measures." variant="waiting" size="compact" />}</FeedState>
+            // The retired risk badge is gone: its only input was the removed
+            // per-driver incident count, and punctuality is not a safety signal —
+            // a green chip derived from an on-time percentage would read as one.
+            <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-hover text-xs text-foreground-secondary"><tr><th className="px-5 py-3 font-semibold">Driver</th><th className="px-5 py-3 font-semibold">Completed</th><th className="px-5 py-3 font-semibold">Punctuality</th><th className="px-5 py-3 font-semibold">On-Time</th><th className="px-5 py-3 font-semibold">Late</th></tr></thead><tbody className="divide-y divide-border/70">{perf.details.slice(0, 8).map((driver) => <tr key={driver.driver_id} className="hover:bg-hover/60"><td className="px-5 py-3 font-medium text-foreground"><div className="flex items-center gap-2.5"><DriverAvatar source={driver} name={driver.name} className="h-8 w-8 rounded-xl text-[11px]" /><span>{driver.name}</span></div></td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{Number(driver.completed_trips ?? 0)}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{driver.punctuality_rate == null ? "—" : `${driver.punctuality_rate}%`}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{Number(driver.on_time_trips ?? 0)}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{Number(driver.late_trips ?? 0)}</td></tr>)}</tbody></table></div>
+          ) : <EmptyState icon={Users} title="No completed trips yet" description="Driver rows appear once trips complete in the report period." variant="waiting" size="compact" />}</FeedState>
         </Panel>
 
         <Panel title="Advisory insights" description="Evidence-based records only. Insights advise; they never change fleet state." action={<Link href="/ai/insights" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open insights <ArrowRight className="h-3.5 w-3.5" /></Link>}>

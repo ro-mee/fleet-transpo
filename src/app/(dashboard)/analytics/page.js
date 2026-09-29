@@ -55,7 +55,6 @@ import {
   Layers,
   ShieldCheck,
   Sparkles,
-  Star,
   TrendingUp,
 } from "lucide-react";
 
@@ -414,7 +413,10 @@ export default function AnalyticsPage() {
       maintCost: fi.maintCost,
       costPerKm: fi.costPerKm,
       maintDue,
-      avgScore: driversPerformance?.avgScore ?? 0,
+      // Fleet pickup punctuality (0-100, already weighted by the report backend).
+      // The retired `avgScore` key is gone from the payload; null means nothing
+      // was measurable, and the narrative is told so rather than being handed 0.
+      driverPunctuality: driversPerformance?.punctuality?.onTimeRate ?? null,
     }),
     [f, fu, fi, driversPerformance, maintDue]
   );
@@ -496,14 +498,19 @@ export default function AnalyticsPage() {
     }));
   }, [fu.monthlyData]);
 
+  // Driver leaderboard source: the punctuality payload's own `details` rows.
+  // `topDrivers` is gone from the report; the replacement pairs completed trips
+  // with pickup punctuality, keeping a NULL rate NULL so the row can show "—".
   const driverRoster = useMemo(() => {
-    const list = driversPerformance?.topDrivers;
+    const list = driversPerformance?.details;
     if (Array.isArray(list) && list.length > 0) {
       return list.slice(0, 5).map((d) => ({
         id: d.driver_id,
         name: d.name || `Driver #${d.driver_id}`,
-        trips: Number(d.trips) || 0,
-        score: Math.round(Number(d.score) || 0),
+        trips: Number(d.completed_trips) || 0,
+        measured: Number(d.measured_trips) || 0,
+        onTime: Number(d.on_time_trips) || 0,
+        punctuality: d.punctuality_rate == null ? null : Number(d.punctuality_rate),
       }));
     }
     return [];
@@ -1468,7 +1475,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* ── DRIVER SAFETY & PERFORMANCE LEADERBOARD ── */}
+        {/* ── DRIVER PUNCTUALITY LEADERBOARD ── */}
         <QueryErrorBanner
           query={driversPerformanceQuery}
           title="Couldn't refresh driver performance"
@@ -1477,13 +1484,8 @@ export default function AnalyticsPage() {
         <ChartCard
           icon={Award}
           iconTone="bg-warning/10 text-warning border-warning/20"
-          title="Driver Safety & Performance Leaderboard"
-          subtitle="Top-rated roster by composite safety score"
-          actions={
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-[11px] font-bold text-success-700">
-              <Star className="h-3 w-3 fill-current" strokeWidth={1.75} /> Top Rated Roster
-            </span>
-          }
+          title="Driver Punctuality Leaderboard"
+          subtitle="Ranked by pickup punctuality across completed trips"
         >
           <div className="space-y-3">
             {driverRoster.map((d, index) => (
@@ -1523,24 +1525,25 @@ export default function AnalyticsPage() {
                 <div className="flex w-full items-center gap-4 sm:w-auto">
                   <div className="flex-1 space-y-1.5 sm:w-48">
                     <div className="flex justify-between text-[11px] font-bold">
-                      <span className="text-foreground-muted">Safety Score</span>
-                      <span className="font-data text-foreground">{d.score}/100</span>
+                      <span className="text-foreground-muted">Punctuality</span>
+                      <span className="font-data text-foreground">{d.punctuality == null ? "—" : `${d.punctuality}%`}</span>
                     </div>
                     <div className="h-1.5 w-full overflow-hidden rounded-full bg-hover">
-                      <motion.div
-                        className="h-full origin-left rounded-full bg-gradient-to-r from-primary to-success"
-                        style={{ width: `${Math.min(100, d.score)}%` }}
-                        initial={{ scaleX: 0 }}
-                        whileInView={{ scaleX: 1 }}
-                        viewport={{ once: true }}
-                        transition={{ duration: 0.9, ease: EASE, delay: 0.15 + index * 0.05 }}
-                      />
+                      {d.punctuality == null ? null : (
+                        <motion.div
+                          className="h-full origin-left rounded-full bg-gradient-to-r from-primary to-success"
+                          style={{ width: `${Math.min(100, d.punctuality)}%` }}
+                          initial={{ scaleX: 0 }}
+                          whileInView={{ scaleX: 1 }}
+                          viewport={{ once: true }}
+                          transition={{ duration: 0.9, ease: EASE, delay: 0.15 + index * 0.05 }}
+                        />
+                      )}
                     </div>
                   </div>
 
-                  <Badge variant={d.score >= 90 ? "success" : "info"} className="shrink-0 rounded-full px-3 py-1 text-[11px] font-bold">
-                    <Star className="mr-1 h-3 w-3 fill-current" strokeWidth={1.75} />
-                    {d.score >= 95 ? "Master Driver" : d.score >= 90 ? "Excellent" : "Proficient"}
+                  <Badge variant={d.punctuality == null ? "secondary" : "success"} className="shrink-0 rounded-full px-3 py-1 text-[11px] font-bold">
+                    {d.punctuality == null ? "Not measured" : `${d.onTime} of ${d.measured} on time`}
                   </Badge>
                 </div>
               </motion.div>

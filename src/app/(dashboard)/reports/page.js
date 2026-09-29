@@ -40,7 +40,7 @@ const REPORT_TYPES = [
   { id: "fleet", label: "Fleet utilization", short: "Fleet", icon: CarFront, description: "Capacity and distance by vehicle" },
   { id: "fuel", label: "Fuel consumption & estimated efficiency", short: "Fuel", icon: Fuel, description: "Verified volume, spend, and completed-trip efficiency" },
   { id: "maintenance", label: "Maintenance audit", short: "Maintenance", icon: Wrench, description: "Service spend and concentration" },
-  { id: "drivers", label: "Driver performance", short: "Drivers", icon: Users, description: "Ranked safety and performance scores" },
+  { id: "drivers", label: "Driver performance", short: "Drivers", icon: Users, description: "Completed trips and pickup punctuality per driver" },
   { id: "financial", label: "Financial summary", short: "Financial", icon: PhilippinePeso, description: "Operating cost allocation" },
 ];
 
@@ -401,7 +401,7 @@ export default function ReportsPage() {
       return { ...row, cumulative: total ? Math.round((running / total) * 100) : 0 };
     });
   }, [reportData.byType]);
-  const driverData = useMemo(() => (reportData.topDrivers || []).map((v) => ({ name: v.name || "Unknown", score: Number(v.score) || 0, trips: Number(v.trips) || 0 })).sort((a, b) => b.score - a.score).slice(0, 8), [reportData.topDrivers]);
+  const driverData = useMemo(() => buildDriverOverview(reportData.details), [reportData.details]);
   const costData = useMemo(() => [
     { name: "Fuel", value: Number(reportData.fuelCost) || 0 },
     { name: "Maintenance", value: Number(reportData.maintCost) || 0 },
@@ -413,7 +413,7 @@ export default function ReportsPage() {
     if (selectedReport === "fuel") { rows = reportData.fuelRecords || []; columns = [{ label: "Fuel Record ID", key: "fuel_record_id" }, { label: "Fuel Date", key: "fuel_date" }, { label: "Vehicle", key: "plate_number" }, { label: "Driver", key: "driver_name" }, { label: "Liters", key: "liters" }, { label: "Amount", key: "amount" }, { label: "Status", key: "status" }]; }
     if (selectedReport === "fleet") { rows = reportData.byVehicle || []; columns = [{ label: "Plate Number", key: "plate" }, { label: "Total Trips", key: "trips" }, { label: "Total Distance (km)", key: "distance" }]; }
     if (selectedReport === "maintenance") { rows = reportData.byType || []; columns = [{ label: "Maintenance Type", key: "type" }, { label: "Records", key: "count" }, { label: "Total Expense", key: "cost" }]; }
-    if (selectedReport === "drivers") { rows = reportData.topDrivers || []; columns = [{ label: "Driver Name", key: "name" }, { label: "Performance Score", key: "score" }, { label: "Completed Trips", key: "trips" }]; }
+    if (selectedReport === "drivers") { rows = reportData.details || []; columns = [{ label: "Driver Name", key: "name" }, { label: "Completed Trips", key: "completed_trips" }, { label: "On-Time Trips", key: "on_time_trips" }, { label: "Late Trips", key: "late_trips" }, { label: "Punctuality (%)", key: "punctuality_rate" }]; }
     if (selectedReport === "financial") { rows = [reportData]; columns = [{ label: "Total Cost", key: "totalCost" }, { label: "Fuel Cost", key: "fuelCost" }, { label: "Maintenance Cost", key: "maintCost" }, { label: "Cost Per Km", key: "costPerKm" }]; }
     // Exporting is this page's whole job — it must never end in silence.
     // An empty period says so; a real download confirms filename + row count.
@@ -1269,9 +1269,30 @@ function MaintenanceReport({ query, data, due }) {
   );
 }
 
+// The Drivers tab reads the punctuality payload's `details` rows directly. The
+// retired payload shipped `topDrivers` with a 0-100 performance score; the
+// replacement is completed trips plus pickup punctuality, where a driver with no
+// timing measurements keeps a NULL rate so the surface can render "—" rather
+// than a fabricated 0%.
+export function buildDriverOverview(details) {
+  if (!Array.isArray(details)) return [];
+  return details.map((row) => ({
+    id: row?.driver_id,
+    name: row?.name || `Driver #${row?.driver_id}`,
+    completed: Number(row?.completed_trips ?? 0),
+    onTime: Number(row?.on_time_trips ?? 0),
+    late: Number(row?.late_trips ?? 0),
+    punctuality: row?.punctuality_rate == null ? null : Number(row.punctuality_rate),
+  }));
+}
+
 function DriversReport({ query, data }) {
   const report = query.data || {};
-  return <><StatGrid cols={2}><StatCard icon={Users} label="Drivers in report" value={Number(report.totalDrivers) || 0} valueNote="Active roster" tone="primary" /><StatCard icon={Award} label="Average score" value={`${Number(report.avgScore) || 0}/100`} valueNote="Performance index" tone="success" /></StatGrid><Panel title="Performance leaderboard" description="Ranked circular score dials with completed-trip context" icon={Award} action={<EncodingBadge>Arc = score</EncodingBadge>}>{query.isLoading ? <LoadingChart /> : data.length ? <div className="grid grid-cols-2 gap-x-4 gap-y-7 py-3 sm:grid-cols-3 lg:grid-cols-4">{data.map((driver, index) => { const color = index === 0 ? "#10b981" : "#2563eb"; return <motion.div key={`${driver.name}-${index}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: index * 0.06, ease: EASE }} whileHover={{ y: -4 }} className="flex flex-col items-center text-center"><div className="relative rounded-full bg-hover/70 p-1.5 ring-1 ring-border/50 shadow-[0_20px_42px_-32px_rgba(17,24,39,0.5)]"><div className="relative h-28 w-28 rounded-full p-2" style={{ background: `conic-gradient(${color} 0 ${Math.min(100, driver.score)}%, var(--hv) ${Math.min(100, driver.score)}% 100%)` }}><div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-surface shadow-[inset_0_1px_2px_rgba(17,24,39,0.08)]"><span className="font-data text-2xl font-bold text-foreground">{driver.score}</span><span className="text-[9px] font-bold uppercase tracking-[0.12em] text-foreground-muted">score</span></div><span className="absolute -left-1 -top-1 flex h-7 w-7 items-center justify-center rounded-full bg-foreground font-data text-[10px] font-bold text-surface">{index + 1}</span></div></div><p className="mt-3 max-w-[145px] truncate text-xs font-bold text-foreground">{driver.name}</p><p className="mt-1 text-[10px] font-semibold text-foreground-muted">{driver.trips} completed trips</p></motion.div>; })}</div> : <NoData />}</Panel></>;
+  const punctuality = report.punctuality || {};
+  const rate = punctuality.onTimeRate == null ? null : Number(punctuality.onTimeRate);
+  const measured = Number(punctuality.measuredTrips ?? 0);
+  const headerClass = "px-5 py-3.5 font-bold uppercase tracking-[0.12em] text-[10px] text-slate-400";
+  return <><StatGrid cols={2}><StatCard icon={Users} label="Completed trips" value={Number(report.totalCompletedTrips ?? 0)} valueNote={`${Number(report.totalDrivers ?? 0)} drivers on the roster`} tone="primary" /><StatCard icon={Award} label="Punctuality" value={rate == null ? "—" : `${rate}%`} valueNote={rate == null ? "No pickup timing measurements available" : `${measured} measured trips`} tone="success" /></StatGrid><Panel title="Driver overview" description="Completed trips and pickup punctuality per driver. Drivers without pickup timing measurements show — rather than 0%." icon={Award} action={<EncodingBadge>Rate = on-time ÷ measured</EncodingBadge>}>{query.isLoading ? <LoadingChart /> : data.length ? <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="border-b border-border/60 bg-hover/40"><tr><th className={headerClass}>Driver</th><th className={headerClass}>Completed</th><th className={headerClass}>Punctuality</th><th className={headerClass}>On-Time</th><th className={headerClass}>Late</th></tr></thead><tbody className="divide-y divide-border/40">{data.map((driver) => <tr key={driver.id} className="transition-colors hover:bg-hover/40"><td className="px-5 py-4 font-semibold text-foreground">{driver.name}</td><td className="px-5 py-4 font-data tabular-nums text-foreground-secondary">{driver.completed}</td><td className="px-5 py-4 font-data tabular-nums font-semibold text-foreground">{driver.punctuality == null ? "—" : `${driver.punctuality}%`}</td><td className="px-5 py-4 font-data tabular-nums text-foreground-secondary">{driver.onTime}</td><td className="px-5 py-4 font-data tabular-nums text-foreground-secondary">{driver.late}</td></tr>)}</tbody></table></div> : <NoData />}</Panel></>;
 }
 
 function FinancialReport({ query, data, total }) {
