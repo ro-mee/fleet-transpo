@@ -437,7 +437,12 @@ CREATE TABLE drivers (
   standby_longitude numeric,
   address_id integer,
   emergency_contact_address_id integer,
+  license_verified_at timestamptz,
+  license_verified_by integer,
+  license_verification_method varchar(30),
   CONSTRAINT chk_driver_status CHECK (((driver_status)::text = ANY ((ARRAY['Available'::character varying, 'On Trip'::character varying, 'Off Duty'::character varying, 'On Leave'::character varying, 'Suspended'::character varying])::text[]))),
+  CONSTRAINT chk_drivers_license_verification_method CHECK (((license_verification_method IS NULL) OR ((license_verification_method)::text = ANY ((ARRAY['physical_card'::character varying, 'lto_digital_id'::character varying])::text[])))),
+  CONSTRAINT chk_drivers_license_verification_record CHECK (((license_verified_at IS NULL) OR ((license_verified_by IS NOT NULL) AND (license_verification_method IS NOT NULL)))),
   CONSTRAINT drivers_pkey PRIMARY KEY (driver_id)
 );
 
@@ -779,6 +784,19 @@ CREATE TABLE ph_regions (
   created_at timestamptz DEFAULT now() NOT NULL,
   updated_at timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT ph_regions_pkey PRIMARY KEY (psgc_code)
+);
+
+CREATE TABLE phlpost_postal_codes (
+  region_name text NOT NULL,
+  province_name text NOT NULL,
+  locality_name text NOT NULL,
+  postal_code text NOT NULL,
+  region_key text NOT NULL,
+  province_key text NOT NULL,
+  locality_key text NOT NULL,
+  captured_on date DEFAULT '2026-09-27'::date NOT NULL,
+  CONSTRAINT phlpost_postal_codes_postal_code_check CHECK ((postal_code ~ '^[0-9]{4}$'::text)),
+  CONSTRAINT phlpost_postal_codes_pkey PRIMARY KEY (province_key, locality_key, postal_code)
 );
 
 CREATE TABLE push_outbox (
@@ -1184,9 +1202,11 @@ CREATE TABLE vehicles (
   service_interval_days integer,
   tank_capacity_l numeric(10,2),
   fuel_efficiency_kmpl numeric(8,2),
+  required_license_class varchar(10),
   CONSTRAINT chk_vehicle_fuel_efficiency CHECK (((fuel_efficiency_kmpl IS NULL) OR ((fuel_efficiency_kmpl > (0)::numeric) AND (fuel_efficiency_kmpl <= (100)::numeric)))),
   CONSTRAINT chk_vehicle_status CHECK (((vehicle_status)::text = ANY ((ARRAY['Available'::character varying, 'Reserved'::character varying, 'In Use'::character varying, 'Under Maintenance'::character varying, 'Decommissioned'::character varying])::text[]))),
   CONSTRAINT chk_vehicle_tank_capacity CHECK (((tank_capacity_l IS NULL) OR ((tank_capacity_l > (0)::numeric) AND (tank_capacity_l <= (1000)::numeric)))),
+  CONSTRAINT chk_vehicles_required_license_class CHECK (((required_license_class IS NULL) OR ((required_license_class)::text = ANY ((ARRAY['B'::character varying, 'B1'::character varying])::text[])))),
   CONSTRAINT vehicles_pkey PRIMARY KEY (vehicle_id),
   CONSTRAINT vehicles_plate_number_key UNIQUE (plate_number)
 );
@@ -1245,6 +1265,7 @@ ALTER TABLE drivers ADD CONSTRAINT drivers_emergency_contact_address_id_fkey FOR
 ALTER TABLE drivers ADD CONSTRAINT drivers_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_location_vehicle_id_fkey FOREIGN KEY (location_vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
+ALTER TABLE drivers ADD CONSTRAINT fk_drivers_license_verified_by FOREIGN KEY (license_verified_by) REFERENCES employees(employee_id);
 ALTER TABLE email_otp_challenges ADD CONSTRAINT email_otp_challenges_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE employee_mfa ADD CONSTRAINT employee_mfa_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE employees ADD CONSTRAINT employees_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
@@ -1441,6 +1462,7 @@ CREATE INDEX idx_ph_barangays_city_code ON public.ph_barangays USING btree (city
 CREATE INDEX idx_ph_cities_province_code ON public.ph_cities USING btree (province_code);
 CREATE INDEX idx_ph_cities_region_code ON public.ph_cities USING btree (region_code);
 CREATE INDEX idx_ph_provinces_region_code ON public.ph_provinces USING btree (region_code);
+CREATE INDEX idx_phlpost_postal_locality ON public.phlpost_postal_codes USING btree (province_key, locality_key);
 CREATE INDEX idx_push_outbox_employee ON public.push_outbox USING btree (employee_id, status);
 CREATE INDEX idx_push_outbox_pending ON public.push_outbox USING btree (status, id) WHERE (status = 'pending'::text);
 CREATE INDEX idx_push_outbox_unreviewed_errors ON public.push_outbox USING btree (created_at DESC) WHERE ((status = 'error'::text) AND (reviewed_at IS NULL));
