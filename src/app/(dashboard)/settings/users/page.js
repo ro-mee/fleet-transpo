@@ -38,6 +38,7 @@ export default function UsersPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [target, setTarget] = useState(null); // {employee, action: disable|enable}
+  const [resetTarget, setResetTarget] = useState(null);
   const [resetLink, setResetLink] = useState(null);
   const [copied, setCopied] = useState(false);
   const [resendTarget, setResendTarget] = useState(null);
@@ -100,6 +101,7 @@ export default function UsersPage() {
     onSuccess: (result) => {
       setResetLink(result.resetUrl);
       setCopied(false);
+      setResetTarget(null);
       toast.success("One-time reset link created (expires in 30 minutes)");
     },
     onError: (e) => toast.error(e.message || "Failed to create reset link"),
@@ -219,7 +221,7 @@ export default function UsersPage() {
                   variant="ghost"
                   size="sm"
                   className="h-8 px-3 rounded-full text-xs cursor-pointer"
-                  onClick={() => issueReset(u.employee_id)}
+                  onClick={() => setResetTarget(u)}
                   disabled={resetPending}
                   title="Create a one-time password reset link"
                 >
@@ -252,7 +254,7 @@ export default function UsersPage() {
         },
       }),
     ],
-    [canIssueReset, canResendInvite, issueReset, resetPending, resendMutation.isPending, user?.role]
+    [canIssueReset, canResendInvite, resetPending, resendMutation.isPending, user?.role]
   );
 
   return (
@@ -416,6 +418,18 @@ export default function UsersPage() {
         cancelLabel="Keep as is"
         loading={toggleMutation.isPending}
         onConfirm={() => toggleMutation.mutate({ employee_id: target.employee.employee_id, action: target.action })}
+      />
+
+      <ConfirmDialog
+        open={Boolean(resetTarget)}
+        onOpenChange={(open) => !open && setResetTarget(null)}
+        variant="warning"
+        title="Reset password?"
+        message={`A one-time reset link will be created for ${resetTarget?.first_name} ${resetTarget?.last_name} (${resetTarget?.email}). Any previous unused reset link stops working immediately. Share the new link privately — it expires in 30 minutes.`}
+        confirmLabel="Create reset link"
+        cancelLabel="Cancel"
+        loading={resetPending}
+        onConfirm={() => resetTarget && issueReset(resetTarget.employee_id)}
       />
 
       <ConfirmDialog
