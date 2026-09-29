@@ -159,9 +159,23 @@ export const COACH_MARK_MILESTONES = {
         body: "Complete the full vehicle safety check once a day, before your first trip. Each trip afterwards still needs its own quick pre-trip check — this one does not count for a trip.",
         actionText: "Got it",
         canSkip: true,
-        // `observe`: the driver's next act is to read this, then tap the real
-        // button. The guide explains; it asks for no tap of its own.
-        interaction: "observe",
+        // `passthrough` — the `observe` this replaces was simply wrong, and the
+        // spec's own description of this step is what proves it.
+        //
+        // §3.1c says: "The driver's next act is to read this, then tap the real
+        // button." That is not achievable under `observe` — the overlay maps
+        // `observe` to cutout `pointerEvents="auto"` (its header calls `auto`
+        // the PROTECTED-ACTIONS setting), so the cutout swallowed every tap on
+        // the button and the driver had to dismiss the card first. The spec
+        // described an interaction model its own `interaction` value delivered
+        // the opposite of. `passthrough` makes the code match the intent.
+        //
+        // Still no `requiresInteraction` (§7 Rule 3, and the "Explained, Not
+        // Required" property): this guide explains the control, it does not gate
+        // it. `tour_preshift` and `tour_end_duty` likewise stay `observe`, and
+        // for a further reason there — a tour tap on this button would run a
+        // REAL baseline and start duty.
+        interaction: "passthrough",
       },
     ],
   },
@@ -182,9 +196,13 @@ export const COACH_MARK_MILESTONES = {
         body: "Before you clock out, tell FleetOps whether you noticed anything unusual about the vehicle. Say nothing was unusual and your shift closes right away; describe a problem and it opens a work order for the vehicle.",
         actionText: "Got it",
         canSkip: true,
-        // `observe`: the driver reads this, then taps the real button. The guide
-        // explains the consequence; it asks for no tap of its own.
-        interaction: "observe",
+        // Same correction as `preshift.start`: `observe` blocked the very button
+        // the card was describing, which §3.1d explicitly says the driver's next
+        // act is. `passthrough` makes the code match that. Still no
+        // `requiresInteraction` — §7 Rule 3 / "Explained, Not Required". This
+        // button only navigates to `/end-duty`; the shift-closing write is the
+        // Submit on the next screen, and the guide never reaches it.
+        interaction: "passthrough",
       },
     ],
   },
@@ -626,6 +644,20 @@ export const COACH_MARK_MILESTONES = {
     key: "tour_fuel_flow",
     version: 1,
     route: "/fuel-report",
+    // The gating rule for this flow, and the two places it does not apply:
+    //
+    //   A step whose subject is an ACTION the driver performs is latched. Its
+    //   real control is the only way past it, and the tooltip's own button
+    //   renders disabled. A step that only ASKS TO BE READ is `observe`, and
+    //   "Got it" is the honest way past it.
+    //
+    //   The two exceptions are step 5 (nothing to press) and step 6 (§7 Rule 3
+    //   names Submit Fuel protected). Each is explained at its own step.
+    //
+    // Before this, every step here was ungated passthrough, so "Next" was a
+    // second, always-open exit: the whole six-step flow could be completed in
+    // three taps having pressed nothing. Same shape as the incident category
+    // step's fix, and for the same reason.
     steps: [
       {
         id: "tour.fuel.gauge_entry",
@@ -634,6 +666,7 @@ export const COACH_MARK_MILESTONES = {
         body: "Every fuel request begins with a photo of your dashboard gauge. Tap to practice capturing it.",
         actionText: "Capture Gauge",
         canSkip: true,
+        requiresInteraction: true,
         interaction: "passthrough",
       },
       {
@@ -643,6 +676,7 @@ export const COACH_MARK_MILESTONES = {
         body: "Gauge reading extracted (~75%). Tap Request Fuel to submit for fleet coordinator approval.",
         actionText: "Request Fuel",
         canSkip: true,
+        requiresInteraction: true,
         interaction: "passthrough",
       },
       {
@@ -650,6 +684,9 @@ export const COACH_MARK_MILESTONES = {
         targetId: "fuel.approval",
         title: "3. Vehicle Fuel Check",
         body: "Your request goes to the fleet coordinator, who approves a volume against your vehicle's tank and route. Here they approved 35.50 L — you may now refuel.",
+        // `observe`, correctly: there is nothing to press. The approval is
+        // something that HAPPENED to the driver, not something they do. "Got
+        // it" is the true way past it.
         actionText: "Got it",
         canSkip: true,
         interaction: "observe",
@@ -661,6 +698,7 @@ export const COACH_MARK_MILESTONES = {
         body: "Tap Scan receipt to practice scanning your gas station receipt.",
         actionText: "Scan Receipt",
         canSkip: true,
+        requiresInteraction: true,
         interaction: "passthrough",
       },
       {
@@ -668,9 +706,22 @@ export const COACH_MARK_MILESTONES = {
         targetId: "fuel.verify",
         title: "5. Verify Extracted Data",
         body: "Review the extracted liters (35.50 L), cost (₱2,350.00), and station (Shell). If the scan got any value wrong, tap that field and correct it before saving.",
+        // `observe`, NOT a latched passthrough — and this is the one step in the
+        // flow where the general rule does not apply, so it is called out rather
+        // than left to look like an oversight.
+        //
+        // A latch needs something to latch onto: a control the driver presses
+        // that then reports success. `fuel.verify` has neither. No code path
+        // anywhere calls `notifyInteraction("fuel.verify")`, and there is no
+        // discrete control to notify — the step points at a whole verification
+        // panel of fields the driver reads and may optionally correct, which is
+        // not a single event. Latching it would therefore have been
+        // un-completable: the tour would stop on step 5 forever.
+        //
+        // It is a read step, exactly like step 3, so "Next" is honest here.
         actionText: "Next →",
         canSkip: true,
-        interaction: "passthrough",
+        interaction: "observe",
       },
       {
         id: "tour.fuel.submit_button",
@@ -679,6 +730,18 @@ export const COACH_MARK_MILESTONES = {
         body: "Tap Save Fuel Entry to record your fuel log in tutorial mode.",
         actionText: "Save Entry",
         canSkip: true,
+        // NOT latched, and this is the one step where the general rule above is
+        // deliberately not applied. §7 Rule 3 names **Submit Fuel** in the
+        // Protected Action Guarantee: it must never become a tutorial-required
+        // action. Latching it would be exactly that, whatever the tour's
+        // `handleSubmit` happens to do today.
+        //
+        // The mitigating fact — that the tour branch opens a completion modal
+        // and writes nothing — is a property of the current implementation, not
+        // a guarantee the guide system can enforce, and a future change to that
+        // branch would silently inherit the protection. So the rule is honoured
+        // at the milestone level instead. Amending Rule 3 to carve out the
+        // simulated submit is a spec decision, not one to be made here.
         interaction: "passthrough",
       },
     ],

@@ -594,6 +594,7 @@ export function CoachMarkOverlay({
               canSkip={step.canSkip}
               allowBack={step.allowBack !== false}
               arrowPosition="none"
+              nextDisabled={Boolean(step.requiresInteraction)}
               onNext={onNext}
               onPrev={onPrev}
               onSkip={onSkip}
@@ -1001,6 +1002,12 @@ export function CoachMarkOverlay({
               arrowOffset={arrowOffset}
               style={tooltipStyle}
               onMeasure={setCardHeight}
+              // A latched step is one whose real control has to be pressed, so
+              // the card's own button is not a way past it. No live
+              // "is the latch open" state is needed: a satisfied latch advances
+              // inside the same handler that satisfies it, so it is never
+              // observed open on a rendered frame.
+              nextDisabled={Boolean(step.requiresInteraction)}
               compact={isFloatingBubble}
               badge={isFloatingBubble ? "emergency" : null}
               onNext={() => {

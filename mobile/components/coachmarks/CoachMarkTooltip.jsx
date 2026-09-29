@@ -20,6 +20,9 @@ export function CoachMarkTooltip({
   actionText = "Got it",
   canSkip = false,
   allowBack = true,
+  // True when this step's own button is what has to be pressed, so the primary
+  // control cannot be the way past it. See the note at the primary button.
+  nextDisabled = false,
   onNext,
   onPrev,
   onSkip,
@@ -258,9 +261,21 @@ export function CoachMarkTooltip({
               </Pressable>
             )}
 
+            {/* A latched step's primary button is shown DISABLED, not merely
+                inert. The provider already refuses to advance without the real
+                control's interaction, so leaving this looking tappable produced
+                a button that accepted the press and did nothing — a dead end
+                that looks like the intended path. Dimmed, it reads as "not this
+                one" and the label beside it ("Capture Gauge", "Request Fuel")
+                names the control that does work.
+
+                The press handler stays attached on purpose: `nextStep` is the
+                single place the gate is enforced, so the visual state and the
+                rule cannot drift apart. */}
             <Pressable
               onPress={onNext}
               hitSlop={4}
+              disabled={nextDisabled}
               style={({ pressed }) => [
                 styles.primaryBtn,
                 compact && styles.compactPrimaryBtn,
@@ -270,12 +285,26 @@ export function CoachMarkTooltip({
                     ? "rgba(255, 255, 255, 0.16)"
                     : "rgba(255, 255, 255, 0.32)",
                 },
+                nextDisabled && styles.primaryBtnDisabled,
                 pressed && { opacity: 0.90, transform: [{ scale: 0.97 }] },
               ]}
               accessibilityRole="button"
               accessibilityLabel={actionText}
+              accessibilityState={{ disabled: nextDisabled }}
+              accessibilityHint={
+                nextDisabled
+                  ? "Press the highlighted control on the screen to continue"
+                  : undefined
+              }
             >
-              <Text style={[styles.primaryBtnText, compact && styles.compactBtnText, { color: colors.onPrimary }]}>
+              <Text
+                style={[
+                  styles.primaryBtnText,
+                  compact && styles.compactBtnText,
+                  { color: colors.onPrimary },
+                  nextDisabled && styles.primaryBtnTextDisabled,
+                ]}
+              >
                 {actionText}
               </Text>
             </Pressable>
@@ -467,6 +496,16 @@ const styles = StyleSheet.create({
   primaryBtnText: {
     fontFamily: fonts.bodySemiBold,
     fontSize: moderateScale(13.5),
+  },
+  // A latched step's button is muted rather than recoloured: the card is themed
+  // off `colors.primary`, and a flat grey pill here would read as a different
+  // kind of control instead of "this one, not yet". Opacity over the token
+  // colour keeps it the same button, visibly unavailable.
+  primaryBtnDisabled: {
+    opacity: 0.38,
+  },
+  primaryBtnTextDisabled: {
+    opacity: 0.85,
   },
   compactBtnText: {
     fontSize: moderateScale(12),

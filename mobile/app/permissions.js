@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { fonts } from "../lib/theme";
 import { ErrorNotice } from "../components/ui";
 import {
@@ -98,6 +99,16 @@ export default function PermissionsScreen() {
     }
   }, [router]);
 
+  const allApproved =
+    permissions.length > 0 &&
+    permissions.every(
+      (p) => statuses[p.key]?.status === PERMISSION_STATUS.GRANTED
+    );
+
+  const ctaLabel = allApproved ? "Continue" : "Enable Permissions";
+  const ctaIcon = allApproved ? "checkmark-circle-outline" : "arrow-forward";
+  const ctaAction = allApproved ? () => router.replace("/") : onRequestPermissions;
+
   return (
     <OnboardingBackground showMapBg={true}>
       <OnboardingHeader step="2/2" compact={compact} />
@@ -107,7 +118,7 @@ export default function PermissionsScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           compact && styles.scrollContentCompact,
-          { paddingBottom: insets.bottom + 90 },
+          { paddingBottom: insets.bottom + (compact ? 95 : 120) },
         ]}
       >
         {/* Centered Hero Section */}
@@ -150,21 +161,31 @@ export default function PermissionsScreen() {
         </View>
       </ScrollView>
 
-      {/* Sticky Bottom CTA */}
-      <View
+      {/* Floating Bottom CTA Dock */}
+      <LinearGradient
+        colors={[
+          "rgba(3, 27, 27, 0)",
+          "rgba(3, 27, 27, 0.88)",
+          "rgba(3, 27, 27, 0.98)",
+        ]}
+        locations={[0, 0.3, 1]}
         style={[
           styles.stickyFooter,
           compact && styles.stickyFooterCompact,
-          { paddingBottom: Math.max(insets.bottom, 14) },
+          { paddingBottom: Math.max(insets.bottom + 12, 26) },
         ]}
+        pointerEvents="box-none"
       >
-        <OnboardingButton
-          label="Enable Permissions"
-          onPress={onRequestPermissions}
-          loading={loading}
-          compact={compact}
-        />
-      </View>
+        <View style={styles.footerInner}>
+          <OnboardingButton
+            label={ctaLabel}
+            icon={ctaIcon}
+            onPress={ctaAction}
+            loading={loading}
+            compact={compact}
+          />
+        </View>
+      </LinearGradient>
     </OnboardingBackground>
   );
 }
@@ -249,13 +270,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 18,
-    paddingTop: 10,
-    backgroundColor: "rgba(3, 27, 27, 0.96)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(120, 224, 210, 0.14)",
+    paddingTop: 16,
   },
   stickyFooterCompact: {
     paddingHorizontal: 14,
-    paddingTop: 8,
+    paddingTop: 12,
+  },
+  footerInner: {
+    width: "100%",
+    maxWidth: 520,
+    alignSelf: "center",
   },
 });

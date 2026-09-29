@@ -1334,6 +1334,87 @@ describe("Fuel tour advances exactly one step per driver action", () => {
     expect(verify.body).toContain("correct it");
   });
 
+  it("latches every step whose subject is an action the driver performs", () => {
+    // The bug: all six steps were ungated passthrough, so the tooltip's own
+    // "Next" was a second always-open exit and the whole flow completed in three
+    // taps having pressed nothing. The rule is now that a step with a real
+    // control behind it must be latched.
+    const flow = getMilestoneConfig("tour_fuel_flow");
+    const actioned = [
+      "tour.fuel.gauge_entry",
+      "tour.fuel.request_button",
+      "tour.fuel.scan_entry",
+    ];
+    for (const id of actioned) {
+      const step = flow.steps.find((s) => s.id === id);
+      expect(step.requiresInteraction, `${id} must be latched`).toBe(true);
+      expect(step.interaction, `${id} must open the hole`).toBe("passthrough");
+    }
+  });
+
+  it("leaves the two steps with nothing to press unlatched", () => {
+    // Both exceptions are load-bearing, and each fails differently if reverted.
+    const flow = getMilestoneConfig("tour_fuel_flow");
+
+    // Step 5 points at a whole verification panel, not a discrete control, and
+    // no code path anywhere calls `notifyInteraction("fuel.verify")`. Latching
+    // it would make the tour literally un-completable — it would stop here.
+    const verify = flow.steps.find((s) => s.id === "tour.fuel.verify");
+    expect(verify.requiresInteraction).toBeUndefined();
+    expect(verify.interaction).toBe("observe");
+    expect(fuelScreen).not.toContain('notifyInteraction?.("fuel.verify"');
+
+    // Step 6 is §7 Rule 3's named protected action. The tour's `handleSubmit`
+    // writes nothing today, but that is a property of the current
+    // implementation, not something the guide system enforces.
+    const submit = flow.steps.find((s) => s.id === "tour.fuel.submit_button");
+    expect(submit.requiresInteraction).toBeUndefined();
+  });
+
+  it("sends the success payload on every latched step's producer", () => {
+    // The latch is `data?.success !== true`, not "a notification arrived". A
+    // producer that omits it does the real work and leaves the tour frozen on
+    // that step — which is what every one of these did when the latch was
+    // switched on. Asserted per-call-site so a fourth latch cannot be added
+    // without someone meeting this.
+    for (const target of [
+      "fuel.gauge_entry",
+      "fuel.request_button",
+      "fuel.scan_entry",
+    ]) {
+      expect(
+        fuelScreen,
+        `${target} must report success to open its own latch`
+      ).toContain(`notifyInteraction?.("${target}", { success: true })`);
+    }
+    // The unlatched submit must NOT carry it: a stray payload on an unlatched
+    // step reads as a latch that does not exist.
+    expect(fuelScreen).toContain('notifyInteraction?.("fuel.submit_button");');
+  });
+
+  it("renders a latched step's own button as disabled", () => {
+    // The provider already refuses to advance an unlatched-required step, so
+    // leaving the button looking tappable produced a control that accepted the
+    // press and did nothing — a dead end wearing the costume of the intended
+    // path. Driven off `step.requiresInteraction` in both render branches.
+    const overlay = readFileSync(
+      new URL("../components/coachmarks/CoachMarkOverlay.jsx", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+    const occurrences = overlay.match(
+      /nextDisabled=\{Boolean\(step\.requiresInteraction\)\}/g
+    );
+    // The targeted branch and the centred fallback both render a card.
+    expect(occurrences).toHaveLength(2);
+
+    const tooltip = readFileSync(
+      new URL("../components/coachmarks/CoachMarkTooltip.jsx", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+    expect(tooltip).toContain("disabled={nextDisabled}");
+    expect(tooltip).toContain("accessibilityState={{ disabled: nextDisabled }}");
+  });
+
   it("does not fire the gauge advance on the press that opens the modal", () => {
     // The gauge tutorial modal fires `fuel.gauge_entry` when it completes. A
     // second notification on the press that opens it advanced the tour a step
@@ -1667,19 +1748,44 @@ describe("SOS Compact Floating Bubble & Spotlight Contour", () => {
 });
 
 describe("Guide 1 under two inspection types", () => {
-  it("adds the Start-Shift milestone as one observe step, not a seventh guide", () => {
+  it("adds the Start-Shift milestone as one passthrough step, not a seventh guide", () => {
     const m = getMilestoneConfig("preshift");
     expect(m).toMatchObject({ key: "preshift", version: 1, route: "/" });
     expect(m.steps).toHaveLength(1);
     expect(m.steps[0]).toMatchObject({
       id: "preshift.start",
       targetId: "home.preshift_start",
-      interaction: "observe",
+      // `passthrough`, not `observe` (§3.1c). The spec says the driver's next
+      // act is "to read this, then tap the real button", and `observe` cannot
+      // deliver that: the overlay maps `observe` to cutout
+      // `pointerEvents="auto"`, so the cutout swallowed the tap and the driver
+      // had to dismiss the card before the button worked at all.
+      interaction: "passthrough",
       canSkip: true,
       actionText: "Got it",
     });
-    // Rule 3: a protected action must never be tutorial-required.
+    // Rule 3 / "Explained, Not Required" still holds: the guide explains this
+    // control, it does not gate it. Fixing the blocked cutout did not require
+    // touching this, and must not.
     expect(m.steps[0].requiresInteraction).toBeFalsy();
+  });
+
+  it("lets the real button reach the guide, so the cutout is not the only way out", () => {
+    // The other half of the `observe` fix, and the part that cannot be asserted
+    // from the milestone config alone: a `passthrough` step is only reachable if
+    // something tells the guide the press happened. With no producer the driver
+    // would press the button, navigate away, and find the tip uncompleted and
+    // waiting on the next Home focus.
+    const home = readFileSync(
+      new URL("../app/(app)/(tabs)/index.js", import.meta.url),
+      "utf8"
+    ).replace(/\r\n/g, "\n");
+    expect(home).toContain('notifyInteraction?.("home.preshift_start")');
+    expect(home).toContain('notifyInteraction?.("home.end_duty")');
+    // The notification must not gate the navigation behind it.
+    expect(home).not.toMatch(
+      /await notifyInteraction\?\.\("home\.(preshift_start|end_duty)"\)[\s\S]{0,80}router\.push/
+    );
   });
 
   it("answers the mode each shared step is rendered in", () => {
@@ -2058,7 +2164,7 @@ describe("Tour duty bookends — Pre-Shift opens the shift, End Duty closes it",
       );
       expect(requestBlock).toContain("if (isTour) {");
       expect(requestBlock).toContain("setTourApproved(true);");
-      expect(requestBlock).toContain('notifyInteraction?.("fuel.request_button");');
+      expect(requestBlock).toContain('notifyInteraction?.("fuel.request_button", { success: true });');
       expect(requestBlock).toContain("return;");
       expect(requestBlock).not.toContain("api.post");
     });

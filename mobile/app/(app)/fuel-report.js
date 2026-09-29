@@ -271,10 +271,17 @@ export default function FuelReport() {
     if (isTour) {
       setTourApproved(true);
       // One action, one advance. `notifyInteraction` already advances a
-      // passthrough step (the provider's handler calls `nextStep` itself), so the
-      // extra `nextStep?.()` that used to sit here moved the tour TWO steps and
+      // passthrough step (the provider's handler calls `nextStep` itself), so
+      // the extra `nextStep?.()` that used to sit here moved the tour TWO steps and
       // skipped whichever tooltip came next.
-      notifyInteraction?.("fuel.request_button");
+      //
+      // `success: true` is required, not decorative. This step is latched
+      // (`requiresInteraction`), and the provider refuses to advance a latched
+      // step whose notification does not carry it — it is the same contract the
+      // Map practice swipes satisfy at `MapIntroPractice`. A bare
+      // `notifyInteraction(target)` here did the real work and left the tour
+      // frozen on step 2.
+      notifyInteraction?.("fuel.request_button", { success: true });
       return;
     }
     const value = Number(String(fuelLevelPercent).replace(/,/g, ""));
@@ -663,6 +670,9 @@ export default function FuelReport() {
 
   const handleSubmit = async () => {
     if (isTour) {
+      // Not latched — §7 Rule 3 names Submit Fuel protected — so no `success`
+      // payload is required here. The other tour latches on this screen do pass
+      // it; see the request-fuel notification for why that is not decorative.
       notifyInteraction?.("fuel.submit_button");
       setShowTourCompleteModal(true);
       return;
@@ -1273,8 +1283,9 @@ export default function FuelReport() {
           setRequestPurpose("Shift operational refuel");
           setTourGaugeModalVisible(false);
           // The gauge is captured HERE, so this is where the tour advances to
-          // "Request fuel". `notifyInteraction` advances on its own.
-          notifyInteraction?.("fuel.gauge_entry");
+          // "Request fuel". `notifyInteraction` advances on its own. Latched
+          // step: `success: true` is what the provider requires before it moves.
+          notifyInteraction?.("fuel.gauge_entry", { success: true });
         }}
       />
 
@@ -1295,8 +1306,9 @@ export default function FuelReport() {
           setReceiptUrl(sampleReceiptImg);
           setReceiptAsset({ uri: sampleReceiptImg });
           // Receipt scanned and the details view is up — advance to "verify the
-          // extracted data" exactly once.
-          notifyInteraction?.("fuel.scan_entry");
+          // extracted data" exactly once. Latched step: `success: true` is what
+          // the provider requires before it will move.
+          notifyInteraction?.("fuel.scan_entry", { success: true });
         }}
       />
 

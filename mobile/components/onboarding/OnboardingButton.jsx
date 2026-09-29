@@ -16,6 +16,7 @@ export function OnboardingButton({
   disabled = false,
   loading = false,
   compact = false,
+  icon = "arrow-forward",
   style,
 }) {
   const { colors } = onboardingTheme;
@@ -39,7 +40,7 @@ export function OnboardingButton({
             {label}
           </Text>
           <Ionicons
-            name="arrow-forward"
+            name={icon}
             size={compact ? 16 : 18}
             color={disabled ? colors.buttonDisabledText : colors.buttonText}
           />

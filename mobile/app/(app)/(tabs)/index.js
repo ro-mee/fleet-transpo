@@ -90,7 +90,7 @@ export default function Home() {
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now);
-  const { triggerMilestone, setTutorialTransition } = useCoachMarkActions();
+  const { triggerMilestone, notifyInteraction, setTutorialTransition } = useCoachMarkActions();
   // Read-only. The two Home duty controls are each gated on live state that is
   // never true mid-tour (see the banner and card below), so the tour steps have
   // to force their own control visible. Keyed on the tour milestone, never on
@@ -570,7 +570,19 @@ export default function Home() {
             <CoachMarkTarget targetId="home.preshift_start" radius={14} scrollRef={scrollRef}>
               <ClayButton
                 label={preShift.failed ? "RETAKE PRE-SHIFT CHECK" : "START PRE-SHIFT CHECK"}
-                onPress={() => router.push({ pathname: "/inspection", params: { mode: "preshift" } })}
+                onPress={() => {
+                  // Tell the guide the press happened, and navigate without
+                  // waiting on it. The guide only advances when its own
+                  // `preshift` step is the active one — so under `tour_preshift`
+                  // (deliberately `observe`, because a bare press here would run
+                  // a REAL baseline and start duty) this is a no-op and the
+                  // cascade stays the only thing that navigates.
+                  //
+                  // No `success` payload: this step is not latched (§7 Rule 3),
+                  // and the provider only reads that field for latched steps.
+                  notifyInteraction?.("home.preshift_start");
+                  router.push({ pathname: "/inspection", params: { mode: "preshift" } });
+                }}
               />
             </CoachMarkTarget>
           </ClayCard>
@@ -597,7 +609,13 @@ export default function Home() {
             <CoachMarkTarget targetId="home.end_duty" radius={14} scrollRef={scrollRef}>
               <ClayButton
                 label="END DUTY REPORT"
-                onPress={() => router.push("/end-duty")}
+                onPress={() => {
+                  // Same contract as the Pre-Shift button above: the guide is told
+                  // the press happened, and is a no-op unless its own `end_duty`
+                  // step is the active one. Not latched — §7 Rule 3.
+                  notifyInteraction?.("home.end_duty");
+                  router.push("/end-duty");
+                }}
               />
             </CoachMarkTarget>
           </ClayCard>

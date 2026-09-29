@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { api } from "../lib/api";
 import {
   CURRENT_PRIVACY_POLICY_VERSION,
@@ -119,22 +120,31 @@ export default function ConsentScreen() {
         />
       </ScrollView>
 
-      {/* Sticky Bottom CTA */}
-      <View
+      {/* Floating Bottom CTA Dock */}
+      <LinearGradient
+        colors={[
+          "rgba(3, 27, 27, 0)",
+          "rgba(3, 27, 27, 0.88)",
+          "rgba(3, 27, 27, 0.98)",
+        ]}
+        locations={[0, 0.3, 1]}
         style={[
           styles.stickyFooter,
           compact && styles.stickyFooterCompact,
-          { paddingBottom: Math.max(insets.bottom, 14) },
+          { paddingBottom: Math.max(insets.bottom + 12, 26) },
         ]}
+        pointerEvents="box-none"
       >
-        <OnboardingButton
-          label="Confirm & Continue"
-          onPress={onAccept}
-          disabled={!checked}
-          loading={submitting}
-          compact={compact}
-        />
-      </View>
+        <View style={styles.footerInner}>
+          <OnboardingButton
+            label="Confirm & Continue"
+            onPress={onAccept}
+            disabled={!checked}
+            loading={submitting}
+            compact={compact}
+          />
+        </View>
+      </LinearGradient>
     </OnboardingBackground>
   );
 }
@@ -222,13 +232,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: 18,
-    paddingTop: 10,
-    backgroundColor: "rgba(3, 27, 27, 0.96)",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(120, 224, 210, 0.14)",
+    paddingTop: 16,
   },
   stickyFooterCompact: {
     paddingHorizontal: 14,
-    paddingTop: 8,
+    paddingTop: 12,
+  },
+  footerInner: {
+    width: "100%",
+    maxWidth: 520,
+    alignSelf: "center",
   },
 });
