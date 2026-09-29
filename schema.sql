@@ -1034,6 +1034,8 @@ CREATE TABLE trips (
   customer_rating numeric(2,1),
   performance_notes text,
   gps_distance_km numeric(10,2),
+  at_pickup_at timestamptz,
+  at_pickup_override boolean DEFAULT false NOT NULL,
   CONSTRAINT chk_trip_status CHECK (((trip_status)::text = ANY ((ARRAY['Assigned'::character varying, 'Pending'::character varying, 'Approved'::character varying, 'Vehicle Assigned'::character varying, 'Driver Assigned'::character varying, 'Dispatched'::character varying, 'Driver Accepted'::character varying, 'Trip Started'::character varying, 'At Pickup'::character varying, 'Passenger Onboard'::character varying, 'En Route'::character varying, 'Drop-off'::character varying, 'Arrived'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT trips_pkey PRIMARY KEY (trip_id)
 );
@@ -1492,9 +1494,11 @@ CREATE INDEX idx_transport_requests_vehicle ON public.transportation_requests US
 CREATE INDEX idx_trip_monitor_alerts_active ON public.trip_monitor_alerts USING btree (active, last_detected_at DESC);
 CREATE INDEX idx_trip_monitor_alerts_trip ON public.trip_monitor_alerts USING btree (trip_id) WHERE active;
 CREATE INDEX idx_trips_analytics ON public.trips USING btree (vehicle_id, start_time, trip_status) WHERE (deleted_at IS NULL);
+CREATE INDEX idx_trips_at_pickup ON public.trips USING btree (at_pickup_at) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_trips_created_at ON public.trips USING btree (deleted_at, created_at DESC);
 CREATE INDEX idx_trips_date ON public.trips USING btree (start_time);
 CREATE INDEX idx_trips_driver ON public.trips USING btree (driver_id);
+CREATE INDEX idx_trips_driver_completed_end ON public.trips USING btree (driver_id, end_time) WHERE (((trip_status)::text = 'Completed'::text) AND (deleted_at IS NULL));
 CREATE INDEX idx_trips_driver_start ON public.trips USING btree (driver_id, start_time);
 CREATE INDEX idx_trips_on_time ON public.trips USING btree (on_time_completion);
 CREATE INDEX idx_trips_rating ON public.trips USING btree (customer_rating);
