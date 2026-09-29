@@ -2,6 +2,7 @@ import { query, transaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePhone, isBase64DataUrl } from "@/lib/validation/helpers";
 import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
+import { maskLicenseNumber } from "@/lib/drivers/license-eligibility";
 import { PRIVACY_POLICY, CURRENT_PRIVACY_POLICY_VERSION } from "@/lib/consent/policies";
 import { syncDriverStatus } from "@/services/status.service";
 import {
@@ -40,6 +41,9 @@ async function ensureDriverColumnsExist() {
 export async function GET(req) {
   try {
     const session = await requireDriver(req);
+    // Explicit self-view opt-in; requireDriver and the employee_id filter below
+    // keep this disclosure scoped to the authenticated driver's own record.
+    const revealLicense = new URL(req.url).searchParams.get("include_license") === "1";
     await ensureDriverColumnsExist();
 
     const { rows } = await query(
@@ -154,7 +158,7 @@ export async function GET(req) {
       avatarUrl: media.face_image_url || media.avatar_url || null,
       faceImageUrl: media.face_image_url || null,
       license: {
-        number: driver.license_number,
+        number: revealLicense ? driver.license_number : maskLicenseNumber(driver.license_number),
         type: driver.license_type,
         class: driver.license_class,
         expiry: driver.license_expiry,
@@ -269,13 +273,13 @@ export async function PATCH(req) {
       ]);
     }
     if (body.license_image_url !== undefined) {
-      await query(`UPDATE drivers SET license_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
+      await query(`UPDATE drivers SET license_image_url = $1, license_verified_at = NULL, license_verified_by = NULL, license_verification_method = NULL, updated_at = NOW() WHERE driver_id = $2`, [
         isBase64DataUrl(body.license_image_url) ? body.license_image_url : null,
         driver.driver_id,
       ]);
     }
     if (body.license_back_image_url !== undefined) {
-      await query(`UPDATE drivers SET license_back_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
+      await query(`UPDATE drivers SET license_back_image_url = $1, license_verified_at = NULL, license_verified_by = NULL, license_verification_method = NULL, updated_at = NOW() WHERE driver_id = $2`, [
         isBase64DataUrl(body.license_back_image_url) ? body.license_back_image_url : null,
         driver.driver_id,
       ]);

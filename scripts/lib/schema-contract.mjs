@@ -221,7 +221,7 @@ export const TABLES = Object.freeze({
   ph_regions: {
     classification: CLASSIFICATION.PRIVATE,
     reason:
-      "The 17 stable Philippine regions, seeded by migration 123. Root of the address cascade. Not personal data, but read only through the API — see the group note.",
+      "The 18 curated Philippine regions, seeded by migrations 123, 124 and 136. Root of the address cascade. Not personal data, but read only through the API — see the group note.",
     rlsNote:
       "Enabled explicitly by migration 123 along with a REVOKE of anon/authenticated. Migration 100 was a one-time list of 20 tables, not a standing rule, so a table created afterwards inherits nothing (SEC-DB-003), and RLS alone would still leave TRUNCATE reachable through the public anon key. No sequence exists to revoke: the primary key is the natural PSGC code.",
   },
@@ -295,9 +295,9 @@ export const TABLES = Object.freeze({
   phlpost_postal_codes: {
     classification: CLASSIFICATION.PRIVATE,
     reason:
-      "PHLPost postal-code reference rows (province/locality/postal_code, 958 rows captured 2026-09-27) — the geography chain's fourth lookup, keyed on the same province/locality keys as the PSGC tables. No application code reads it yet, so it is classified on reachability rather than sensitivity: it is reference data, but nothing legitimate uses the anon path.",
+      "PHLPost ZIP assignments used for a locality-level consistency check. The published locator is incomplete, so missing localities are classified as unknown; read only through authenticated APIs.",
     rlsNote:
-      "Found UNCLASSIFIED by the schema-contract gate on 2026-09-28 when Task 1's mandated db:dump refreshed schema.sql — the artifact had been behind live, so the table was invisible to the offline gate until then (the SEC-DB-003 shape, and the reason the gate is worth having). CONFIRMED from the database side rather than assumed: RLS enabled, zero policies, and no grant at all for anon or authenticated — only service_role, so TRUNCATE is not reachable through the public anon key either. npm run verify:anon returns an explicit 42501 (401 refused) rather than 200 [], and with 958 rows present the refusal is a real denial, not an empty table being read as one.",
+      "RLS explicitly enabled and anon/authenticated privileges revoked by migration 135, so neither public PostgREST role holds a grant and TRUNCATE is not reachable through the public anon key. CONFIRMED from the database side rather than assumed: npm run verify:anon returns an explicit 42501 (401 refused) rather than 200 [], and with 958 rows present the refusal is a real denial, not an empty table being read as one. Found UNCLASSIFIED by the schema-contract gate on 2026-09-28 when the mandated db:dump refreshed schema.sql — the artifact had been behind live, so the table was invisible to the offline gate until then (the SEC-DB-003 shape, and the reason the gate is worth having).",
   },
 
   // --- tracking & monitoring ----------------------------------------------

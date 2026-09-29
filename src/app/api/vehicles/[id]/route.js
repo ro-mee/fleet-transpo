@@ -2,6 +2,7 @@ import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
+import { SUPPORTED_LICENSE_CLASSES } from "@/lib/drivers/license-eligibility";
 
 const vehicleWriteSchema = {
   plate_number: { required: true, type: "plate", label: "Plate number", maxLength: 12 },
@@ -12,6 +13,7 @@ const vehicleWriteSchema = {
   color: { maxLength: 50, label: "Color" },
   seating_capacity: { type: "seating", label: "Passenger capacity" },
   category_id: { type: "id", label: "Vehicle category" },
+  required_license_class: { maxLength: 10, label: "Required driver license class" },
   purchase_price: { type: "positiveNumber", label: "Purchase price" },
   purchase_date: { type: "date", label: "Purchase date" },
   insurance_expiry: { type: "date", label: "Insurance expiry" },
@@ -53,6 +55,7 @@ const WRITABLE_COLUMNS = [
   "color",
   "seating_capacity",
   "category_id",
+  "required_license_class",
   "purchase_price",
   "purchase_date",
   "insurance_expiry",
@@ -98,6 +101,9 @@ export async function PUT(req, { params }) {
     const { documents, ...vehicleData } = body;
 
     const errors = validateBody(vehicleData, vehicleWriteSchema);
+    if (vehicleData.required_license_class && !SUPPORTED_LICENSE_CLASSES.includes(String(vehicleData.required_license_class).trim().toUpperCase())) {
+      errors.required_license_class = "Choose a supported required driver license class (B or B1).";
+    }
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
@@ -105,6 +111,7 @@ export async function PUT(req, { params }) {
     if (vehicleData.plate_number) vehicleData.plate_number = normalizePlate(vehicleData.plate_number);
     if (vehicleData.vehicle_name) vehicleData.vehicle_name = toVehicleTitleCase(vehicleData.vehicle_name);
     if (vehicleData.manufacturer) vehicleData.manufacturer = toVehicleTitleCase(vehicleData.manufacturer);
+    if (vehicleData.required_license_class) vehicleData.required_license_class = String(vehicleData.required_license_class).trim().toUpperCase();
 
     // Built from the allowlist rather than from the body's own keys. Empty
     // strings and undefined become null on the way, to avoid PostgreSQL's

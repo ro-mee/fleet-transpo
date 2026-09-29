@@ -83,6 +83,8 @@ export async function POST(req) {
       if (!valid) {
         return err("Current password is incorrect", 403);
       }
+    } else if (await bcrypt.compare(newPassword, employee.password_hash)) {
+      return err("New password must be different from the temporary password", 400);
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
@@ -117,6 +119,12 @@ export async function POST(req) {
     });
 
     if (forced) {
+      // Mobile refresh tokens are revoked above as well. The driver app signs
+      // in again with the permanent password instead of receiving a web cookie.
+      if (session.via === "bearer") {
+        return ok({ message: "Password set successfully", mustChangePassword: false, signInRequired: true });
+      }
+
       // Rotate-and-stay: the transaction above revoked every session including
       // this one, so the replacement cookie rides in THIS response. The token
       // carries mustChangePassword: false — the gate opens immediately.

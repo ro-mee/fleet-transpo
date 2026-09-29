@@ -133,7 +133,7 @@ function installDb({ driver = driverRow() } = {}) {
   });
 }
 
-const request = () => ({});
+const request = (url = `http://x/api/drivers/${DRIVER_ID}`) => ({ url });
 const context = () => ({ params: Promise.resolve({ id: String(DRIVER_ID) }) });
 
 /** The ids passed to the loader, in call order — Promise.all keeps the array order. */
@@ -230,5 +230,26 @@ describe("GET /api/drivers/[id] — the saved addresses it hands the picker", ()
 
     expect(res.status).toBe(404);
     expect(loadStructuredAddress).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/drivers/[id] — license number access", () => {
+  it("masks the license number in routine detail responses", async () => {
+    installDb({ driver: driverRow({ license_number: "N04-19-013583" }) });
+
+    const body = await (await GET(request(), context())).json();
+
+    expect(body.license_number).toBe("********3583");
+    expect(JSON.stringify(body)).not.toContain("N04-19-013583");
+  });
+
+  it("returns the full number to the authorized edit workflow", async () => {
+    installDb({ driver: driverRow({ license_number: "N04-19-013583" }) });
+    const permission = vi.spyOn(utils, "requirePermission");
+
+    const body = await (await GET(request(`http://x/api/drivers/${DRIVER_ID}?include_license=1`), context())).json();
+
+    expect(body.license_number).toBe("N04-19-013583");
+    expect(permission).toHaveBeenCalledWith(expect.anything(), "drivers", "update");
   });
 });

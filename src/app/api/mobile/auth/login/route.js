@@ -88,10 +88,11 @@ export async function POST(req) {
               e.last_name,
               e.phone,
               e.auth_version,
+              e.must_change_password,
+              e.temp_credential_expires_at,
               r.role_name,
               d.driver_id,
               d.driver_status,
-              d.license_number,
               e.avatar_url,
               d.face_image_url
          FROM employees e
@@ -148,6 +149,20 @@ export async function POST(req) {
         newValues: { channel: "mobile", reason: "missing_driver_link" },
       });
       return err("No driver record is linked to this account", 403);
+    }
+
+    if (
+      employee.must_change_password &&
+      employee.temp_credential_expires_at &&
+      new Date(employee.temp_credential_expires_at).getTime() < Date.now()
+    ) {
+      await writeAudit(req, null, {
+        action: "login_failure",
+        resource: "authentication",
+        resourceId: employee.employee_id,
+        newValues: { channel: "mobile", reason: "temp_password_expired" },
+      });
+      return err("TEMP_PASSWORD_EXPIRED", 401);
     }
 
     // Mandatory email OTP, mirroring the Credentials provider in src/lib/auth.js.
@@ -369,8 +384,8 @@ export async function POST(req) {
         lastName: employee.last_name,
         phone: employee.phone,
         status: employee.driver_status,
-        licenseNumber: employee.license_number,
         avatarUrl: employee.face_image_url || employee.avatar_url || null,
+        mustChangePassword: Boolean(employee.must_change_password),
       },
     });
   } catch (e) {

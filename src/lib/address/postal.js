@@ -6,10 +6,9 @@
 // gave us. `✓ Location verified` and `⚠ ZIP code not provided` are a normal,
 // expected pair, so nothing here is allowed to conflate the two.
 //
-// Philippine ZIP codes are four digits (1000–9999 in practice). We validate the
-// FORMAT only — we never look up whether a code matches the city, because that
-// would require a gazetteer we do not have and a wrong guess is worse than an
-// honest "not provided".
+// Philippine ZIP codes are four digits (1000–9999 in practice). This module
+// validates format only. Locality comparisons live in postal-reference.js and
+// use the incomplete PHLPost directory with an explicit unknown outcome.
 
 const PH_POSTAL_CODE_PATTERN = /^\d{4}$/;
 

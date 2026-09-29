@@ -62,10 +62,23 @@ export async function getUser() {
   return json ? JSON.parse(json) : null;
 }
 
+/** Removes enrollment items left by the retired biometric app lock. */
+export async function clearLegacyBiometricEnrollment() {
+  if (Platform.OS === "web") return;
+
+  await Promise.all([
+    SecureStore.deleteItemAsync("fleetops_biometric_sentinel", {
+      keychainService: "fleetops.biometric",
+    }).catch(() => {}),
+    SecureStore.deleteItemAsync("fleetops_biometric_meta").catch(() => {}),
+  ]);
+}
+
 export async function clearAll() {
   await Promise.all([
     store.deleteItem(KEYS.ACCESS_TOKEN),
     store.deleteItem(KEYS.REFRESH_TOKEN),
     store.deleteItem(KEYS.USER),
+    clearLegacyBiometricEnrollment(),
   ]);
 }

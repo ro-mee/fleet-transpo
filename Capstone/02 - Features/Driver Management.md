@@ -4,13 +4,18 @@ status: working
 tags: [feature, drivers, ocr, consent]
 source:
   - src/lib/driver/grounding.js
+  - src/lib/drivers/license-eligibility.js
   - src/lib/consent/driver-visibility.js
   - src/app/api/driver
+  - src/app/api/drivers
+  - src/app/api/driver-assignments
+  - src/app/api/substitute-driver-schedules
+  - supabase/migrations/137_driver_license_eligibility.sql
   - supabase/migrations/024_driverincidents.sql
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-09-23
+last_verified: 2026-09-27
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -20,9 +25,74 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 
 Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. 23 drivers.
 
+## Driver license eligibility — 2026-09-27
+
+Driver create/edit requires a syntactically valid license number, a separate exact expiry
+date, an explicit type, and a supported LTO class. Student Permits are rejected for fleet
+driving; Professional is the only supported type in the current form. Supported classes are
+B (M1: at most 8 passenger seats, GVW at most 5,000 kg) and B1 (M2: more than 8 passenger
+seats, GVW at most 5,000 kg), following the LTO code table. The license number is not parsed
+for an expiry date: the date is entered separately, and Gemini image-scan suggestions must be
+checked against the card.
+
+Each vehicle stores `required_license_class`, selected from its registration record. Fleet
+service category and passenger seating do not prove the LTO driver code, so existing vehicles
+are not backfilled by inference. `validatePairAvailability` applies the shared
+`src/lib/drivers/license-eligibility.js` rule at assignment; `PUT /api/trips/[id]/start`
+rechecks it against the current date and trip vehicle. An expiry date is valid through the
+end of that calendar day in Asia/Manila; it becomes ineligible the following day. The same
+rule is used by availability and compliance checks.
+
+Migration 137 adds an auditable staff review (`license_verified_at/by/method`). Editing any
+license field or replacing either license image clears that review. Routine API responses mask
+the number to its final four characters. Staff detail and edit flows return the full number
+only after `drivers.update`; the directory and detail pages reveal it only after an explicit
+eye-button request, while create/edit forms already have a show/hide control. The driver's own
+web and mobile profile also default to the masked number and offer an explicit reveal scoped to
+the authenticated driver's own record (`GET /api/driver/me?include_license=1`). Other driver
+records remain unavailable through that self endpoint. Staff without `drivers.update` and
+routine operational responses stay masked. License-card OCR returns the full extracted value
+only to a caller with `drivers.create` or `drivers.update` as well as scan permission, so staff
+can confirm the suggestion in the form. Storage remains plaintext in the database; response
+masking is not encryption. Reveal values are held only in the active screen state; normal API
+responses and cached profile data remain masked. Focused ESLint and `git diff --check` passed;
+tests were not run.
+
+Staff review records a physical-card or LTO Digital ID comparison. There is no LTO server
+integration, so a number's syntax, OCR result, or review timestamp does not prove authenticity,
+current activity, or absence of revocation. Existing drivers and vehicles have NULL review
+metadata/class and remain ineligible until staff review them. Custodial pairings and substitute
+coverage also recheck eligibility on write; bounded substitute coverage cannot run past the
+recorded expiry. Existing stored pairings are not deleted automatically, but their screens show
+the current license blocker and dispatch/start rechecks prevent use. See [[Dispatch]] and [[Trips]].
+The existing forms support only B and B1; B2 (goods vehicles) and larger vehicle codes remain
+unsupported pending confirmation of the fleet registrations and license-policy needs.
+
 ## Driver ≠ employee, exactly
 
 A driver **is** an employee with a `drivers` row. Credentials and `role_id` live on [[employees]]; licence, availability and performance on `drivers`. Mobile login authenticates against `employees`, then resolves a `driverId`. → [[Authentication]]
+
+## Driver login invitations — IMPLEMENTED (2026-09-28)
+
+The driver detail page's **Enable Login** action emails a generated temporary
+password through `PUT /api/drivers/[id]/account` (`{ sendInvite: true }`). It is
+available for an Active employee with a driver-compatible role, when SMTP is
+configured and the employee email passes the deliverability check. The page
+shows the recipient and a seven-day setup expiry. While setup is pending, the
+action becomes **Resend Invite**, which rotates the temporary password and
+expiry before sending the replacement email. A send failure returns an error
+and leaves the account pending so staff can retry.
+
+The driver enters the email and temporary password in the mobile app, completes
+the usual email OTP, then chooses a permanent password on the forced setup
+screen before reaching app content. The temporary password expires after seven
+days; staff must resend the invite if it has expired. After changing it, the
+driver signs in again with the new password and OTP. The existing manual reset
+path remains available for accounts that already have a permanent password.
+
+Staff should confirm that `employees.email` reaches the driver's real inbox.
+Driver creation may synthesize `first.last@fleetops.ph` when no email is
+provided. Full route and token details are in [[Authentication]].
 
 ## Licence scan — Gemini extraction (replaced Tesseract 2026-08-25)
 
@@ -231,6 +301,8 @@ that was actually supplied. A live census before the change found **55 driver ro
 > **Both routes fail hard, and that is now the point rather than a nicety.** `PUT` was already close, and its shape is worth stating exactly: the two registry rows are written in **one** `withTransaction` and the driver `UPDATE` runs *after* it, so a registry refusal refuses the whole request with nothing written at all. The one gap is the converse — if the driver `UPDATE` fails *after* the addresses commit, those rows are orphaned. Harmless by construction: the registry is append-only and nothing joins to it by value, and the caller still gets a failure. **`POST` was not atomic at all, and was restructured to become so.** Its employee and driver inserts went through the Supabase client (PostgREST over HTTPS), which cannot be enrolled in a `pg` `BEGIN`/`COMMIT` — a separate HTTP service is not a transaction handle — so the addresses were written in a *second* transaction and a failure there left a committed driver with both ids NULL, reported as a `warning`. Both inserts now run on `tx.query` inside one transaction, the addresses are written **before** the driver row so their ids go straight into its column list, and any failure rolls back all of it: no employee, no driver, no registry rows. The `warning` field and the old soft-delete-the-employee compensation are both gone. Neither insert needed anything only PostgREST provides — both are plain INSERTs with a `RETURNING` and a unique-violation check. See [[ADR-015 Address Owns Administration, Location Owns The Point]].
 >
 > **Not backfilled.** Existing drivers keep `address_id = NULL` and keep reading from their text columns; a driver is upgraded when a human next edits them, the same rule ADR-015 point (6) set for the locations. Design intent retained from the original note: a personal address is still **advisory** — an unverified address saves rather than blocks.
+
+> **Address checks and manual pin behavior — 2026-09-27.** The shared structured-address form now checks a four-digit ZIP against the PHLPost locality snapshot when that locality is covered. A covered mismatch blocks save; absent directory coverage or lookup failure is shown as unknown and remains saveable. The snapshot currently has no Caloocan row, so the existing Caloocan + 4122 value is not declared valid or invalid from this source. Map search is an explicit **Find on map** action sent through the authenticated server route; it can center the viewport or offer candidates, but never sets the pin or verifies the address. A manually placed pin is cleared when location details or geography change, while landmark and delivery-note edits preserve it. See [[Address Validation and Map Sync Analysis]] for routes, source, security controls and test evidence.
 
 ## Weekly work schedules & leave — CONFIRMED 2026-08-15
 

@@ -8,11 +8,9 @@
 // `@/services/geography.service`. This file is layout, state and submit, which is
 // what keeps it from becoming the second place those rules are written down.
 //
-// EVERY EDIT GOES THROUGH `setField`, AND `setField` RUNS `editDetail`. That is
-// the single place the pin is invalidated. Spreading the rule across a dozen
-// onChange handlers is how one of them quietly stops doing it, and the failure
-// that produces — a stored address carrying a coordinate from the text it used
-// to have — has no visible symptom.
+// EVERY TEXT EDIT GOES THROUGH `setField`, AND `setField` RUNS `editDetail`.
+// That is the single place location-bearing edits invalidate the pin. Delivery
+// notes do not clear it because they do not describe where the door is.
 //
 // SAVE IS DISABLED UNTIL THE ADDRESS IS COMPLETE, and the reason is on screen
 // twice, at two distances, because one of them was not enough. The checklist
@@ -55,6 +53,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import {
   EMPTY_STRUCTURED_ADDRESS,
+  detailAffectsLocation,
   editDetail,
   isSameStructuredAddress,
   requiredDetailFields,
@@ -64,6 +63,7 @@ import { AddressTypeSelector } from "./address-type-selector";
 import { AddressPreview } from "./address-preview";
 import { LocationCascade, useProvinceRequirement } from "./location-cascade";
 import { useAddressCentre } from "@/hooks/use-address-centre";
+import { usePostalCodeCheck } from "@/hooks/use-postal-code-check";
 
 // Leaflet touches `window` at import time, so the pin map is client-only — the
 // same loading strategy as every other map in this app.
@@ -179,14 +179,28 @@ export function AddressFormDialog({
    * server. `hasPin` is passed because a placed pin outranks the lookup — see
    * `SyncView`. `open` gates it so a closed dialog looks nothing up.
    */
-  const { centre, status: lookupStatus } = useAddressCentre(value, { enabled: open, hasPin });
+  const {
+    centre,
+    candidate: lookupCandidate,
+    candidates: lookupCandidates,
+    status: lookupStatus,
+    find: findOnMap,
+    chooseCandidate: chooseMapCandidate,
+    canFind,
+  } =
+    useAddressCentre(value, { enabled: open, hasPin });
+  const postalCheck = usePostalCodeCheck({
+    psgcBarangayCode: value.psgcBarangayCode,
+    postalCode: value.postalCode,
+    enabled: open,
+  });
 
   /**
    * Set when an edit cleared the pin the operator placed.
    *
-   * `editDetail` drops the pin on any detail change and `selectLevel` drops it on
-   * any level change — the barangay included. Both rules are required ("Address B
-   * must never be submitted with Latitude A") and both are tested. What is wrong
+   * `editDetail` drops the pin when location-bearing details change and
+   * `selectLevel` drops it on any level change — the barangay included. Both
+   * rules prevent "Address B must never be submitted with Latitude A". What is wrong
    * is that they are SILENT: the pin step is deliberately last on a long form, so
    * the map is far below whatever field was just edited and the operator is given
    * no reason to look. This flag is what makes the rule's side effect visible.
@@ -308,10 +322,16 @@ export function AddressFormDialog({
     [value, showTypeSelector, forcedType]
   );
 
-  const errors = useMemo(
-    () => structuredErrors(effective, { requiresProvince }),
-    [effective, requiresProvince]
-  );
+  const errors = useMemo(() => {
+    const next = structuredErrors(effective, { requiresProvince });
+    if (postalCheck.status === "mismatch") {
+      const listed = postalCheck.postalCodes.join(", ");
+      next.postalCode = listed
+        ? `ZIP does not match this locality. PHLPost lists ${listed}.`
+        : "ZIP does not match this locality's PHLPost listing.";
+    }
+    return next;
+  }, [effective, requiresProvince, postalCheck.status, postalCheck.postalCodes]);
   const remaining = Object.values(errors);
   const complete = remaining.length === 0;
 
@@ -335,13 +355,11 @@ export function AddressFormDialog({
   // messages on a form nobody has touched is noise, not help.
   const showErrors = touched || Boolean(value.regionCode);
 
-  /** The one route an address detail takes into state — and the pin's death. */
+  /** One route for detail edits, keeping pin invalidation in the shared helper. */
   function setField(field, next) {
     setTouched(true);
-    // Read from the value being edited, before the edit lands: this is the moment
-    // the pin is about to be taken, and the notice has to be raised even though
-    // nothing about the pin appears in the edit itself.
-    if (hasPin) setPinClearedByEdit(true);
+    // Read before the edit lands so the warning records why the pin disappeared.
+    if (hasPin && detailAffectsLocation(field)) setPinClearedByEdit(true);
     setValue((previous) => editDetail(previous, field, next));
   }
 
@@ -459,7 +477,15 @@ export function AddressFormDialog({
                 // value its own validator would reject.
                 transform={(raw) => raw.replace(/\D/g, "").slice(0, 4)}
                 error={showErrors ? errors.postalCode : undefined}
-                hint="4 digits"
+                hint={postalCheck.status === "checking"
+                  ? "Checking against PHLPost…"
+                  : postalCheck.status === "match"
+                    ? "Matches the PHLPost locality listing."
+                    : postalCheck.status === "unknown"
+                      ? "No PHLPost listing for this locality; verify the ZIP manually."
+                      : postalCheck.status === "unavailable"
+                        ? "Could not cross-check this ZIP; it will be checked again on save."
+                        : "4 digits"}
                 placeholder="4026"
                 inputMode="numeric"
                 maxLength={4}
@@ -537,13 +563,8 @@ export function AddressFormDialog({
             <div className="space-y-2.5">
               <SectionLabel>Map pin</SectionLabel>
 
-              {/* Why the pin the operator just placed is not there any more.
-                  It sits with the map rather than beside the field that caused
-                  it, because the field is unknowable here — any of the nine
-                  details, or any level of the cascade, could be the one. Said
-                  plainly rather than apologised for: the rule is right, and the
-                  operator needs to know it exists before they lose a pin to it
-                  a second time. */}
+              {/* The pin can no longer be used for the changed address. Notes do
+                  not clear it; location details and geography do. */}
               {pinClearedByEdit && !hasPin && (
                 <div
                   role="status"
@@ -553,9 +574,9 @@ export function AddressFormDialog({
                   <div className="min-w-0 text-xs leading-relaxed text-foreground-secondary">
                     <p className="font-bold text-foreground">Your pin was cleared.</p>
                     <p className="mt-0.5">
-                      Editing the address after placing a pin drops it — a pin for the
-                      old address is not a pin for the new one. Save without one, or
-                      click the map again to put it back.
+                      Changing the house, street, building, subdivision, ZIP, or
+                      selected geography clears the old pin. Save without one, or
+                      zoom in and place a new pin for this address.
                     </p>
                   </div>
                 </div>
@@ -565,7 +586,12 @@ export function AddressFormDialog({
                 latitude={value.latitude}
                 longitude={value.longitude}
                 centre={centre}
+                lookupCandidate={lookupCandidate}
+                lookupCandidates={lookupCandidates}
                 lookupStatus={lookupStatus}
+                onFind={findOnMap}
+                onChooseCandidate={chooseMapCandidate}
+                canFind={canFind}
                 onChange={({ latitude, longitude }) => {
                   // Placing a pin answers the notice. The map's own "Clear pin"
                   // button arrives the same way and clears it too — which is

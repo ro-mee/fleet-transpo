@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   buildRouteUrl,
+  addressCandidateFromSearch,
+  addressCandidatesFromSearch,
   centreFromSearch,
   decodePolyline,
-  searchUrl,
+  serverSearchUrl,
   staticImageUrl,
   rasterTileUrl,
   trafficTileUrl,
@@ -143,9 +145,9 @@ describe("staticImageUrl", () => {
   });
 });
 
-describe("searchUrl", () => {
+describe("serverSearchUrl", () => {
   it("points at the search endpoint and encodes the whole query as a path segment", () => {
-    const url = searchUrl("8572 Winding Creek Blvd, Santa Rosa City, 4026, Philippines");
+    const url = serverSearchUrl("8572 Winding Creek Blvd, Santa Rosa City, 4026, Philippines");
     expect(url).toContain("api.tomtom.com/search/2/search/");
     expect(url).toContain(".json?");
     // Commas and spaces are both encoded: the query is one path segment, not
@@ -155,24 +157,23 @@ describe("searchUrl", () => {
   });
 
   it("scopes to PH and defaults to a single result", () => {
-    const url = searchUrl("Caloocan City Hall");
+    const url = serverSearchUrl("Caloocan City Hall");
     expect(url).toContain("countrySet=PH");
     expect(url).toContain("limit=1");
     expect(new URL(url).searchParams.get("limit")).toBe("1");
   });
 
-  it("carries the PUBLIC key and never the server key", () => {
-    // The security assertion, not a formatting one: this URL is fetched from the
-    // browser, so a server key appearing here would be a leak.
-    const url = searchUrl("Caloocan City Hall");
-    expect(url).toContain("key=pub-key");
-    expect(url).not.toContain("srv-key");
+  it("carries the server key and never the public key", () => {
+    const url = serverSearchUrl("Caloocan City Hall");
+    expect(url).toContain("key=srv-key");
+    expect(url).not.toContain("pub-key");
   });
 
   it("survives a missing query or a missing key without throwing", () => {
+    delete process.env.TOMTOM_API_KEY;
     delete process.env.NEXT_PUBLIC_TOMTOM_API_KEY;
-    expect(searchUrl(null)).toContain("api.tomtom.com/search/2/search/.json");
-    expect(searchUrl("x")).not.toContain("key=");
+    expect(serverSearchUrl(null)).toContain("api.tomtom.com/search/2/search/.json");
+    expect(serverSearchUrl("x")).not.toContain("key=");
   });
 });
 
@@ -244,6 +245,40 @@ describe("centreFromSearch", () => {
     expect(centreFromSearch({ results: [{ position: { lat: "north", lon: 121 } }] })).toBeNull();
     expect(centreFromSearch({ results: [{ position: { lat: 120, lon: 121 } }] })).toBeNull();
     expect(centreFromSearch({ results: [{ position: { lat: 14, lon: 200 } }] })).toBeNull();
+  });
+});
+
+describe("addressCandidateFromSearch", () => {
+  it("returns only bounded candidate metadata and keeps its point separate from a pin", () => {
+    const candidate = addressCandidateFromSearch({
+      results: [{
+        position: { lat: 14.2811, lon: 121.4117 },
+        address: { freeformAddress: "8572 Winding Creek Boulevard" },
+        type: "Point Address",
+        matchConfidence: { score: 0.91 },
+      }],
+    });
+    expect(candidate).toMatchObject({
+      centre: { lat: 14.2811, lng: 121.4117 },
+      label: "8572 Winding Creek Boulevard",
+      precision: "Point Address",
+      confidence: 0.91,
+    });
+  });
+
+  it("does not turn a malformed result into a candidate", () => {
+    expect(addressCandidateFromSearch({ results: [{ position: { lat: 200, lon: 121 } }] })).toBeNull();
+  });
+
+  it("keeps multiple results as separate candidates for an explicit choice", () => {
+    const candidates = addressCandidatesFromSearch({
+      results: [
+        { position: { lat: 14.2, lon: 121.1 }, address: { freeformAddress: "Main Street" } },
+        { position: { lat: 14.3, lon: 121.2 }, address: { freeformAddress: "Main Road" } },
+      ],
+    });
+    expect(candidates.map((candidate) => candidate.label)).toEqual(["Main Street", "Main Road"]);
+    expect(addressCandidatesFromSearch({ results: [{ position: { lat: 200, lon: 121 } }] })).toEqual([]);
   });
 });
 

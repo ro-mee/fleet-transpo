@@ -7,7 +7,7 @@
 //   subsystemOwned-marked error            → 500 + zero app_errors rows
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as db from "@/lib/db";
-import { AuthError, handleError } from "@/lib/api/utils";
+import { AuthError, handleError, ok, okWithFullLicense } from "@/lib/api/utils";
 import { markSubsystemOwned } from "@/lib/app-errors";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -79,5 +79,24 @@ describe("handleError", () => {
     expect(res.status).toBe(500);
     await flush();
     expect(consoleSpy).toHaveBeenCalled();
+  });
+});
+
+describe("license number response masking", () => {
+  it("masks nested snake_case and camelCase fields in routine responses", async () => {
+    const response = ok({
+      driver: { license_number: "N04-19-013583" },
+      mobile: { licenseNumber: "C07-24-010969" },
+    });
+
+    expect(await response.json()).toEqual({
+      driver: { license_number: "********3583" },
+      mobile: { licenseNumber: "********0969" },
+    });
+  });
+
+  it("can return the full number only through the explicit privileged response helper", async () => {
+    const response = okWithFullLicense({ license_number: "N04-19-013583" });
+    expect(await response.json()).toEqual({ license_number: "N04-19-013583" });
   });
 });

@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // The module's only dependency is the pool, so the two functions can be tested
 // against each other rather than against two hand-written mocks that agree.
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
+vi.mock("@/services/postal-code.service", () => ({
+  checkPostalCodeForLocality: vi.fn(async () => ({ status: "unknown", postalCodes: [] })),
+}));
 
 import { query } from "@/lib/db";
 import { saveAddress, getAddress, loadStructuredAddress } from "@/services/address.service";

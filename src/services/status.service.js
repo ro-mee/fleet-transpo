@@ -4,6 +4,7 @@ import { suspensionAction } from "@/lib/drivers/compliance";
 import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
 import { employeeIdsForRoles, notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 import { driverAutoSuspendedDriver, driverAutoSuspendedStaff } from "@/lib/notifications/copy";
+import { licenseReferenceCalendarDay } from "@/lib/drivers/license-eligibility";
 
 function isBeforeToday(dateStr) {
   if (!dateStr) return false;
@@ -157,6 +158,7 @@ export async function syncComplianceNotifications() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split("T")[0];
+  const licenseTodayStr = licenseReferenceCalendarDay(new Date());
 
   // Expiry-scan audience is deliberately staff-only (fleet_manager, admin):
   // super_admin stays silent on routine ops; dispatcher and management act
@@ -197,7 +199,7 @@ export async function syncComplianceNotifications() {
   const { data: drivers } = await supabase
     .from("drivers")
     .select("driver_id, license_expiry")
-    .lt("license_expiry", todayStr)
+    .lt("license_expiry", licenseTodayStr)
     .is("deleted_at", null);
 
   const { data: existingLicenseNotes } = await supabase

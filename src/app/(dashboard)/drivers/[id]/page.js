@@ -27,7 +27,7 @@ import {
   User, IdCard, CalendarDays, Star, Phone, Mail,
   MapPin, Award, TrendingUp, ArrowLeft, Pencil, Archive,
   Clock, ShieldCheck, FileText, AlertCircle, CheckCircle2,
-  Heart, Upload, Truck, Eye, ZoomIn, FileImage, ShieldAlert,
+  Heart, Upload, Truck, Eye, EyeOff, LoaderCircle, ZoomIn, FileImage, ShieldAlert,
   Globe, Calendar, Briefcase, Activity, KeyRound, ChevronRight
 } from "lucide-react";
 
@@ -39,6 +39,8 @@ export default function DriverDetailPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [tripPage, setTripPage] = useState(1);
+  const [revealedLicense, setRevealedLicense] = useState(null);
+  const [loadingLicenseReveal, setLoadingLicenseReveal] = useState(false);
 
   // Account actions (set/reset password, enable login)
   const [accountDialogOpen, setAccountDialogOpen] = useState(false);
@@ -52,6 +54,29 @@ export default function DriverDetailPage() {
     queryFn: () => getDriver(id),
     enabled: !!id,
   });
+  const revealedLicenseValue = revealedLicense?.driverId === id ? revealedLicense.value : null;
+  const driverInvitePending = Boolean(driver?.account?.has_password && driver.account.must_change_password);
+  const driverNeedsInvite = Boolean(!driver?.account?.has_password || driverInvitePending);
+
+  const toggleLicenseReveal = async () => {
+    if (revealedLicenseValue !== null) {
+      setRevealedLicense(null);
+      return;
+    }
+    setLoadingLicenseReveal(true);
+    try {
+      const fullDriver = await getDriver(id, { includeLicense: true });
+      if (!fullDriver?.license_number) {
+        toast.error("No license number is available to show.");
+        return;
+      }
+      setRevealedLicense({ driverId: id, value: fullDriver.license_number });
+    } catch (err) {
+      toast.error(err.message || "Could not show the license number.");
+    } finally {
+      setLoadingLicenseReveal(false);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteDriver(id),
@@ -67,15 +92,26 @@ export default function DriverDetailPage() {
   });
 
   const accountMutation = useMutation({
-    mutationFn: () => syncDriverAccount(id, newPassword ? { password: newPassword } : {}),
+    mutationFn: () =>
+      syncDriverAccount(
+        id,
+        driverNeedsInvite ? { sendInvite: true } : newPassword ? { password: newPassword } : {}
+      ),
     onSuccess: (data) => {
-      toast.success(data?.account?.has_password ? "Driver login enabled" : "Driver login synced");
+      toast.success(
+        data?.account?.must_change_password
+          ? `Temporary password emailed to ${data.account.email}`
+          : data?.account?.has_password
+            ? "Driver password updated"
+            : "Driver login synced"
+      );
       setAccountDialogOpen(false);
       setNewPassword("");
       queryClient.invalidateQueries({ queryKey: ["driver", id] });
     },
     onError: (err) => {
       toast.error(err.message || "Failed to update driver login");
+      queryClient.invalidateQueries({ queryKey: ["driver", id] });
     },
   });
 
@@ -115,6 +151,8 @@ export default function DriverDetailPage() {
       </div>
     );
   }
+
+  const licenseNumber = revealedLicenseValue ?? driver.license_number;
 
   const emp = driver.employees || {};
   const trips = driver.trips || [];
@@ -196,15 +234,42 @@ export default function DriverDetailPage() {
                   <div className="flex items-center gap-2.5 text-sm text-foreground-secondary flex-wrap font-medium">
                     <span className="flex items-center gap-1.5"><IdCard className="w-4 h-4 text-foreground-muted" /> #{emp.employee_id || driver.employee_id}</span>
                     <span className="text-border text-lg leading-none">•</span>
-                    <span className="flex items-center gap-1.5"><FileText className="w-4 h-4 text-foreground-muted" /> <span className="font-data">{driver.license_number}</span></span>
+                    <span className="flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-foreground-muted" />
+                      <span className="font-data">{licenseNumber}</span>
+                      {can("drivers", "update") && driver.license_number && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-foreground-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                          onClick={toggleLicenseReveal}
+                          disabled={loadingLicenseReveal}
+                          aria-label={revealedLicenseValue !== null ? "Hide license number" : "Show license number"}
+                          title={revealedLicenseValue !== null ? "Hide license number" : "Show license number"}
+                          aria-pressed={revealedLicenseValue !== null}
+                        >
+                          {loadingLicenseReveal ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> :
+                            revealedLicenseValue !== null ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </Button>
+                      )}
+                    </span>
                     <span className="text-border text-lg leading-none">•</span>
                     <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-foreground-muted" /> Class {driver.license_class || "B"}</span>
                   </div>
                   {driver.account && (
                     <div className="flex items-center gap-2.5 pt-1">
-                      <Badge variant={driver.account.has_password ? "success" : "outline"} className={`px-2.5 py-0.5 text-[11px] font-bold ${!driver.account.has_password && "border-dashed text-foreground-muted"}`}>
-                        {driver.account.has_password ? "App Login Enabled" : "No Login Active"}
+                      <Badge
+                        variant={driverInvitePending ? "warning" : driver.account.has_password ? "success" : "outline"}
+                        className={`px-2.5 py-0.5 text-[11px] font-bold ${!driver.account.has_password && "border-dashed text-foreground-muted"}`}
+                      >
+                        {driverInvitePending ? "Password setup pending" : driver.account.has_password ? "App Login Enabled" : "No Login Active"}
                       </Badge>
+                      {driverInvitePending && driver.account.temp_credential_expires_at && (
+                        <span className="text-xs font-medium text-warning">
+                          Expires {new Date(driver.account.temp_credential_expires_at).toLocaleDateString()}
+                        </span>
+                      )}
                       <span className="text-xs font-medium text-foreground-muted">
                         {driver.account.email ? driver.account.email : "Email not set"}
                       </span>
@@ -223,7 +288,7 @@ export default function DriverDetailPage() {
                   className="rounded-xl text-xs h-10 px-4 font-semibold shadow-xs"
                 >
                   <KeyRound className="w-4 h-4 mr-2" />
-                  {driver.account?.has_password ? "Manage Login" : "Enable Login"}
+                  {driverInvitePending ? "Resend Invite" : driver.account?.has_password ? "Manage Login" : "Enable Login"}
                 </Button>
               )}
               {can("drivers", "update") && (
@@ -417,7 +482,7 @@ export default function DriverDetailPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-border/40 border-b border-border/40">
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">License Number</span>
-                      <span className="text-base font-bold font-data text-foreground tracking-wide">{driver.license_number}</span>
+                      <span className="text-base font-bold font-data text-foreground tracking-wide">{licenseNumber}</span>
                     </div>
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">Expiration Date</span>
@@ -853,38 +918,42 @@ export default function DriverDetailPage() {
               <div className="p-1.5 rounded-lg bg-primary/10 text-primary shadow-xs">
                 <KeyRound className="w-4 h-4" />
               </div>
-              {driver.account?.has_password ? "Manage Driver Password" : "Enable Driver Login"}
+              {driverNeedsInvite
+                ? driverInvitePending ? "Resend Driver Invite" : "Enable Driver Login"
+                : "Manage Driver Password"}
             </DialogTitle>
           </DialogHeader>
           <div className="p-6 space-y-5">
             <div className="flex gap-3 p-4 bg-info/5 border border-info/20 rounded-2xl text-xs text-foreground-secondary leading-relaxed">
               <AlertCircle className="w-4 h-4 text-info shrink-0 mt-0.5" />
               <p>
-                Enabling a login assigns the <strong>driver</strong> role and lets this
-                driver sign in on the web and mobile app. A password is required to protect
-                their personal data.
+                {driverNeedsInvite
+                  ? `FleetOps will email a temporary password to ${driver.account?.email || "the driver’s account email"}. It expires in 7 days, and the driver must choose a permanent password before using the app.`
+                  : "Set a new password for this driver account. The new password is stored securely and active sessions are revoked."}
               </p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-password" className="text-xs font-bold text-foreground-muted uppercase tracking-wider">New Password</Label>
-              <Input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Leave blank to keep current password"
-                className="h-11 rounded-xl bg-muted/20 border-border/60 focus:bg-surface focus:ring-primary/20 transition-all font-mono"
-              />
-            </div>
+            {!driverNeedsInvite && (
+              <div className="space-y-2">
+                <Label htmlFor="new-password" className="text-xs font-bold text-foreground-muted uppercase tracking-wider">New Password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Enter a new password"
+                  className="h-11 rounded-xl bg-muted/20 border-border/60 focus:bg-surface focus:ring-primary/20 transition-all font-mono"
+                />
+              </div>
+            )}
           </div>
           <div className="flex items-center justify-end gap-3 p-5 bg-muted/30 border-t border-border/40">
             <Button variant="outline" onClick={() => setAccountDialogOpen(false)} className="rounded-xl px-4 h-10 text-xs font-bold shadow-xs hover:bg-muted/60 border-border/80">Cancel</Button>
             <Button
               onClick={() => accountMutation.mutate()}
-              disabled={accountMutation.isPending}
+              disabled={accountMutation.isPending || (!driverNeedsInvite && !newPassword.trim())}
               className="rounded-xl px-5 h-10 text-xs font-bold shadow-sm"
             >
-              {driver.account?.has_password ? "Save Password" : "Enable Login"}
+              {driverNeedsInvite ? driverInvitePending ? "Resend Invite" : "Enable Login" : "Save Password"}
             </Button>
           </div>
         </DialogContent>

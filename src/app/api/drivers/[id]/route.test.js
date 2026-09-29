@@ -24,6 +24,9 @@ const resolveBarangayChain = vi.fn();
 vi.mock("@/lib/geo/psgc", () => ({
   resolveBarangayChain: (...args) => resolveBarangayChain(...args),
 }));
+vi.mock("@/services/postal-code.service", () => ({
+  checkPostalCodeForLocality: vi.fn(async () => ({ status: "unknown", postalCodes: [] })),
+}));
 
 vi.mock("@/lib/db", () => ({
   query: vi.fn(),
@@ -44,10 +47,11 @@ vi.mock("@/lib/drivers/compliance", () => ({
   suspensionAction: vi.fn(() => ({ action: "none" })),
 }));
 
-import { PUT } from "./route";
+import { GET, PUT } from "./route";
 import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
 import { saveAddress } from "@/services/address.service";
+import { writeAudit } from "@/lib/audit";
 
 const SANTA_ROSA = {
   region: { code: "0400000000", name: "CALABARZON (Region IV-A)" },
@@ -225,6 +229,44 @@ describe("PUT /api/drivers/[id] — an edit that does not touch the address", ()
     const columns = lastDriverUpdate(driverUpdates);
     expect(columns.address).toBe("12 Mabini St, Manila");
     expect(columns).not.toHaveProperty("address_id");
+  });
+});
+
+describe("GET /api/drivers/[id] — full license access", () => {
+  it("requires drivers.update when the editor requests the full license number", async () => {
+    const permissionSpy = vi.spyOn(utils, "requirePermission");
+    permissionSpy
+      .mockResolvedValueOnce({ user: { role: "dispatcher", employeeId: 4 } })
+      .mockRejectedValueOnce(new utils.AuthError("Forbidden", 403));
+    const querySpy = vi.spyOn(db, "query");
+
+    const response = await GET(new Request(`http://localhost/api/drivers/${DRIVER_ID}?include_license=1`), context());
+
+    expect(response.status).toBe(403);
+    expect(permissionSpy).toHaveBeenNthCalledWith(1, expect.anything(), "drivers", "read_all");
+    expect(permissionSpy).toHaveBeenNthCalledWith(2, expect.anything(), "drivers", "update");
+    expect(querySpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("PUT /api/drivers/[id] — license verification invalidation", () => {
+  it("clears verification when the license details change and audits only a masked number", async () => {
+    const { driverUpdates } = installDb();
+    const response = await PUT(request({
+      license_number: "N04-19-013583",
+      license_expiry: "2030-01-01",
+      license_type: "Professional",
+      license_class: "B1",
+    }), context());
+
+    expect(response.status).toBe(200);
+    expect(lastDriverUpdate(driverUpdates)).toMatchObject({
+      license_verified_at: null,
+      license_verified_by: null,
+      license_verification_method: null,
+    });
+    expect(JSON.stringify(writeAudit.mock.calls)).toContain("********3583");
+    expect(JSON.stringify(writeAudit.mock.calls)).not.toContain("N04-19-013583");
   });
 });
 

@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getDriver, updateDriver } from "@/services/driver.service";
+import { getDriver, updateDriver, verifyDriverLicense } from "@/services/driver.service";
 import { scanDocumentWithAi } from "@/services/ai.service";
 import { toast } from "@/components/ui/toast";
 import {
@@ -35,6 +35,8 @@ import {
   Zap,
   FileText,
   FileImage,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import Link from "next/link";
 import { AddressPickerField } from "@/components/address/address-picker-field";
@@ -48,6 +50,7 @@ import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/co
 import { StickyActionBar } from "@/components/ui/sticky-actions";
 import { PageEntrance } from "@/components/ui/page-entrance";
 import { cn } from "@/lib/utils";
+import { normalizeLicenseType } from "@/lib/drivers/license-eligibility";
 
 export default function EditDriverPage() {
   useRequireRole();
@@ -58,6 +61,7 @@ export default function EditDriverPage() {
   const [licenseImagePreview, setLicenseImagePreview] = useState(null);
   const [licenseBackImagePreview, setLicenseBackImagePreview] = useState(null);
   const [enlargeModalUrl, setEnlargeModalUrl] = useState(null);
+  const [showLicenseNumber, setShowLicenseNumber] = useState(false);
 
   const [isScanningFront, setIsScanningFront] = useState(false);
   const [isScanningBack, setIsScanningBack] = useState(false);
@@ -70,8 +74,8 @@ export default function EditDriverPage() {
   const [pickedEmergencyAddress, setPickedEmergencyAddress] = useState(null);
 
   const { data: driver, isLoading, isError } = useQuery({
-    queryKey: ["driver", id],
-    queryFn: () => getDriver(id),
+    queryKey: ["driver-edit", id],
+    queryFn: () => getDriver(id, { includeLicense: true }),
     enabled: !!id,
   });
 
@@ -85,8 +89,8 @@ export default function EditDriverPage() {
       position: "Driver",
       license_number: "",
       license_expiry: "",
-      license_type: "Professional",
-      license_class: "B",
+      license_type: "",
+      license_class: "",
       years_of_experience: 0,
       driver_status: "Available",
       license_image_url: "",
@@ -153,8 +157,8 @@ export default function EditDriverPage() {
       position: emp.position || "Driver",
       license_number: driver.license_number || "",
       license_expiry: driver.license_expiry ? driver.license_expiry.split("T")[0] : "",
-      license_type: driver.license_type || "Professional",
-      license_class: driver.license_class || "B",
+      license_type: normalizeLicenseType(driver.license_type) || driver.license_type || "",
+      license_class: driver.license_class || "",
       years_of_experience: driver.years_of_experience ?? 0,
       driver_status: driver.driver_status || "Available",
       license_image_url: imgUrl,
@@ -318,6 +322,7 @@ export default function EditDriverPage() {
     mutationFn: (payload) => updateDriver(id, payload),
     onSuccess: () => {
       toast.success("Driver updated successfully");
+      queryClient.invalidateQueries({ queryKey: ["driver-edit", id] });
       queryClient.invalidateQueries({ queryKey: ["driver", id] });
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
       queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
@@ -326,6 +331,17 @@ export default function EditDriverPage() {
     onError: (err) => {
       toast.error(err.message || "Failed to update driver");
     },
+  });
+
+  const verificationMutation = useMutation({
+    mutationFn: (method) => verifyDriverLicense(id, method),
+    onSuccess: () => {
+      toast.success("License review recorded");
+      queryClient.invalidateQueries({ queryKey: ["driver-edit", id] });
+      queryClient.invalidateQueries({ queryKey: ["driver", id] });
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+    },
+    onError: (err) => toast.error(err.message || "Failed to record license review"),
   });
 
   const onSubmit = (data) => {
@@ -523,42 +539,73 @@ export default function EditDriverPage() {
               <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
                   <FloatingField label="License Number" icon={IdCard} required>
-                    <input id="license_number" {...form.register("license_number")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data uppercase" />
+                    <div className="flex w-full items-center gap-2">
+                      <input id="license_number" type={showLicenseNumber ? "text" : "password"} autoComplete="off" {...form.register("license_number")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data uppercase" />
+                      <button type="button" onClick={() => setShowLicenseNumber((value) => !value)} aria-label={showLicenseNumber ? "Hide license number" : "Show license number"} className="text-foreground-muted hover:text-foreground">
+                        {showLicenseNumber ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </FloatingField>
 
                   <div>
                     <DatePicker
                       id="license_expiry"
                       label="License Expiration Date"
+                      required
                       value={form.watch("license_expiry")}
-                      onChange={(val) => form.setValue("license_expiry", val)}
+                      onChange={(val) => form.setValue("license_expiry", val, { shouldValidate: true, shouldDirty: true })}
                     />
-                    <p className="text-[11px] text-foreground-muted mt-1.5">
-                      Expired documents are allowed — status will reflect compliance risk.
-                    </p>
+                    <p className="text-[11px] text-foreground-muted mt-1.5">Enter the separate expiry date printed on the card. Scan suggestions must be checked against the card; the number does not supply this date. The license remains valid through that date in Philippine time.</p>
+                    {form.formState.errors.license_expiry?.message && <p className="text-xs text-danger mt-1">{form.formState.errors.license_expiry.message}</p>}
                   </div>
 
                   <Controller
                     control={form.control}
                     name="license_class"
                     render={({ field }) => (
-                      <FloatingField label="Vehicle License Class" icon={IdCard} required>
+                      <FloatingField label="LTO License Code" icon={IdCard} required>
                         <Select value={field.value} onValueChange={field.onChange}>
                           <SelectTrigger className="w-full bg-transparent border-0 h-auto p-0 focus:ring-0 focus:ring-offset-0 shadow-none text-xs font-semibold text-foreground py-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="B">Class B — Passenger Cars &amp; Light Vehicles</SelectItem>
-                            <SelectItem value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</SelectItem>
+                        <SelectItem value="B">B — M1 passenger vehicle (up to 8 passenger seats; GVW ≤ 5,000 kg)</SelectItem>
+                        <SelectItem value="B1">B1 — M2 passenger vehicle (more than 8 passenger seats; GVW ≤ 5,000 kg)</SelectItem>
                           </SelectContent>
                         </Select>
                       </FloatingField>
                     )}
                   />
 
-                  <FloatingField label="License Type" icon={Briefcase}>
-                    <input id="license_type" value="Professional Driver" readOnly className="w-full bg-transparent text-xs font-semibold text-foreground-secondary focus:outline-hidden py-1 cursor-not-allowed" />
-                  </FloatingField>
+                  <Controller
+                    control={form.control}
+                    name="license_type"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="License Type"
+                        icon={Briefcase}
+                        required
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Select type"
+                        error={form.formState.errors.license_type?.message}
+                      >
+                        {field.value && field.value !== "Professional" && (
+                          <SelectItem value={field.value} disabled>{field.value} — unsupported; update from the card</SelectItem>
+                        )}
+                        <SelectItem value="Professional">Professional</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
+
+                  <div className="md:col-span-2 rounded-xl border border-border/70 bg-muted/20 p-3">
+                    <p className="text-xs font-semibold">Staff review: {driver?.license_verified_at ? `recorded ${new Date(driver.license_verified_at).toLocaleString()}` : "not verified"}</p>
+                    <p className="text-[11px] text-foreground-muted mt-1">Review the number, type, class, and expiry against the physical card or LTO Digital ID. This records your review; it does not query LTO or prove the license remains active.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending} onClick={() => verificationMutation.mutate("physical_card")}>Confirm physical card checked</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending} onClick={() => verificationMutation.mutate("lto_digital_id")}>Confirm LTO Digital ID checked</Button>
+                    </div>
+                  </div>
 
                   <FloatingField label="Position Title" icon={Briefcase}>
                     <input id="position" {...form.register("position")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />

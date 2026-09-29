@@ -26,14 +26,9 @@ source:
   - mobile/lib/coach-marks.js
   - mobile/lib/map-intro.js
   - mobile/app/(app)/(tabs)/map.js
-  - mobile/lib/app-lock.js
-  - mobile/lib/app-lock-context.jsx
-  - mobile/lib/biometric.js
-  - mobile/components/AppLockScreen.jsx
-  - mobile/components/AppPrivacyVeil.jsx
-  - mobile/app/(app)/profile/security.js
+  - mobile/lib/storage.js
   - mobile/AGENTS.md
-last_verified: 2026-09-23
+last_verified: 2026-09-27
 ---
 
 # Mobile Architecture
@@ -141,84 +136,35 @@ This is correct practice, correctly documented: the client decodes to decide wha
 
 Separate from web — 15-minute access tokens, 30-day single-use rotating refresh tokens hashed in `mobile_refresh_tokens`, audience-split. Full detail in [[Authentication]].
 
-## App lock & lifecycle — IMPLEMENTED (2026-09-23)
+## Mobile biometric app lock — REMOVED (2026-09-27)
 
-The mobile app carries an optional, **off-by-default** biometric application lock,
-owned by `AppLockProvider` (`mobile/lib/app-lock-context.jsx`). Full security detail —
-storage, the sentinel, threat model, revocation interaction — lives in
-[[Authentication]]; what follows is the *architectural* placement in this app.
+`AppLockProvider`, the signed-in lock screen, and the background privacy veil are removed. The root layout now nests `AuthProvider → SettingsProvider → ThemeProvider`; the signed-in route guard retains its driver-session and consent checks, and the existing root foreground listener continues to run `syncQueue()`.
 
-**Provider position.** `RootLayout` nests it as
-`AuthProvider → AppLockProvider → SettingsProvider → ThemeProvider → ThemedApp`,
-inside auth because it reads the signed-in driver and must fall away with them, but
-outside theme so its own screens can use the clay tokens.
-
-**One gate, in the guard, not over it.** `mobile/app/(app)/_layout.js` renders
-`<AppLockScreen />` **instead of** the `<Stack>` when locked — never as an overlay. No
-protected screen is mounted, so nothing authenticated is on screen and nothing
-underneath is tappable. The check sits after the `isDriverSession` redirect and before
-the consent redirect, so a cold start reads: authenticate → consent if outstanding →
-app.
-
-**Two `AppState` listeners, deliberately not merged.** `RootLayout` keeps its existing
-one for `syncQueue()` on foreground; `AppLockProvider` owns a second for the lock
-clock. React Native supports several, and folding the lock into the sync listener
-would have put offline-queue behaviour at risk for no gain.
-
-**Lifecycle rules.**
-
-| Transition | Effect |
-|---|---|
-| Cold start, lock enabled | `locked = true` before the tree mounts |
-| `active` → `background` \| `inactive` | stamp `backgroundedAt`; raise `AppPrivacyVeil` |
-| `…` → `active`, elapsed ≥ 5 min | `locked = true` (session untouched) |
-| `…` → `active`, elapsed < 5 min | continue silently |
-| Sign Out | family revoked, offline cache cleared, **biometric cleared**, tokens cleared |
-| Lock | clears in-memory state only; the server family stays valid |
-
-**The privacy veil.** `AppPrivacyVeil` is the topmost element in `ThemedApp`, above
-the alert host and notification host, so nothing a driver was looking at can land in
-the OS task-switcher thumbnail. It is only raised when the lock is enabled — with the
-feature off, background transitions stay invisible rather than becoming a new flicker.
-Android additionally sets `FLAG_SECURE` while covered, released on resume so normal
-screenshots are unaffected; iOS obscuring remains best-effort (see [[Authentication]]).
-
-**Screen-capture module, not plugin.** `expo-screen-capture` is a dependency but is
-**not** registered in `mobile/app.json` plugins: the config plugin exists to add
-`DETECT_SCREEN_CAPTURE` for the screenshot-listener API, which this feature does not
-use. `preventScreenCaptureAsync()` sets `FLAG_SECURE` at runtime.
-
-**Background GPS is unaffected by design.** `useActiveTripGpsPoster` stays on in the
-guard, including while locked: trip location is operational data, not protected UI,
-and the refresh token stays readable for exactly this reason.
-
-**Verification (2026-09-23).** `npx eslint mobile/` — 0 problems; 55 tests across
-`app-lock.test.js` (18), `biometric-method.test.js` (14) and `biometric-errors.test.js`
-(23) all passing; `npm run verify:auth` 276 passed / 0 failed; `npm run db:status` 122
-applied / 0 pending / 0 changed, confirming this added no backend surface. Lint caught
-a `react-hooks/refs` warning (a ref assigned during render in `app-lock-context.jsx`,
-now written from an effect) that plain `npm run lint` would have passed silently. The
-full-repo `vitest run` aborted on the known out-of-memory fault late in the run with no
-failures recorded first — environmental, not this change. **Physical-device E2E on
-Android and iOS is the outstanding gate** and needs a fresh native build.
+A stored session opens directly into the app on cold start and resume. Active-trip GPS, consent, push setup, offline cache, and sign-out remain on their existing paths. The upgrade cleanup removes the old SecureStore enrollment sentinel and metadata, while preserving the access token, refresh token, and user record. No API or database change was needed. The opt-in lock previously reduced casual access to a signed-in phone; that protection is no longer present. Driver face-photo and attendance logic are unchanged. See [[Authentication]] and [[Biometric App Lock Removal Plan]].
 
 **Notification permission timing & push-token lifecycle (2026-09-26):**
-`signIn()` and session-restore cold-start are strictly decoupled from OS notification permission prompts. They call `registerDeviceTokenIfAuthorized()` which checks permission non-promptingly (`hasPushPermission()`); if permission is undetermined or denied, authentication proceeds without prompting. First-time permission prompting occurs during onboarding on the App Permissions screen (`mobile/app/permissions.js`) when the driver taps "Enable Permissions".
+`signIn()` and session-restore cold-start are strictly decoupled from OS notification permission prompts. They call `registerDeviceTokenIfAuthorized()` only for drivers who are not in forced first-login password setup; that helper checks permission non-promptingly (`hasPushPermission()`). If permission is undetermined or denied, authentication proceeds without prompting. First-time permission prompting occurs during onboarding on the App Permissions screen (`mobile/app/permissions.js`) when the driver taps "Enable Permissions".
 
 ## Profile screens share the web driver endpoint — CONFIRMED (`mobile/app/(app)/profile/*.js`)
 
 The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** — the same endpoint as the web driver home — not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
 
-## Driver credential screens — CONFIRMED (2026-09-13)
+## Driver credential screens — CONFIRMED (2026-09-28)
 
 Drivers change and recover passwords without the web dashboard, reusing the
-existing credential endpoints (no new backend route — full detail in
-[[Authentication]]):
+existing credential endpoints (the forced invite flow adds a screen, not a new
+password-change route — full detail in [[Authentication]]):
 
 - **Change** (`(app)/profile/change-password.js`): top row of Profile →
   Privacy & Security. Same `POST /api/auth/change-password` as web Settings >
   Security; success signs out (cache cleared before SecureStore) and returns
   to login on the `signInRequired` contract.
+- **First-login invite setup** (`set-password.js`, public, outside the `(app)`
+  guard): after the temporary password and normal email OTP, the driver sets a
+  permanent password before app access. It uses the existing
+  `POST /api/auth/change-password`; the server's `must_change_password` gate is
+  authoritative, and the mobile forced path signs out so the driver logs in
+  again with the permanent password.
 - **Recovery** (public, outside the `(app)` guard like login): `forgot-password.js`
   (email → generic server message; a reset link + paste-able code is emailed
   when SMTP delivery is configured, administrator wording otherwise) and
@@ -226,7 +172,7 @@ existing credential endpoints (no new backend route — full detail in
   "Forgot password?" entry on `login.js`. Paste-the-code — no deep-link config.
 - **Policy + offline rules (locked):** one pure validator
   (`mobile/lib/password-validation.js`, client≡server parity fuzz-pinned)
-  drives both screens' live checklists and submit gates; every credential
+  drives password screens' live checklists and submit gates; every credential
   mutation uses `queueOnFailure: false` — never queued, offline is a plain
   connection error under the global banner. Profile/Settings stay silent about
   caching per the Offline Read Mode UX rule.

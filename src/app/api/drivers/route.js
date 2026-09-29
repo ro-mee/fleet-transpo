@@ -10,6 +10,7 @@ import { ROLE_IDS } from "@/lib/constants";
 import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
+import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, isValidLicenseNumber } from "@/lib/drivers/license-eligibility";
 
 const EMPLOYEE_FIELDS = `json_build_object(
   'employee_id', e.employee_id,
@@ -65,6 +66,9 @@ export async function GET(req) {
         d.license_expiry,
         d.license_type,
         d.license_class,
+        d.license_verified_at,
+        d.license_verified_by,
+        d.license_verification_method,
         d.years_of_experience,
         d.driver_status,
         d.current_latitude,
@@ -120,8 +124,7 @@ export async function GET(req) {
         e.first_name ILIKE $${idx} OR 
         e.last_name ILIKE $${idx} OR 
         e.email ILIKE $${idx} OR 
-        e.phone ILIKE $${idx} OR 
-        d.license_number ILIKE $${idx}
+        e.phone ILIKE $${idx}
       )`;
       params.push(`%${search.trim()}%`);
       idx++;
@@ -155,6 +158,9 @@ export async function GET(req) {
           NULL AS license_expiry,
           NULL AS license_type,
           NULL AS license_class,
+          NULL AS license_verified_at,
+          NULL AS license_verified_by,
+          NULL AS license_verification_method,
           0 AS years_of_experience,
           'Incomplete' AS driver_status,
           NULL AS current_latitude,
@@ -187,19 +193,23 @@ export async function GET(req) {
 
     const { rows: data } = await query(sql, params);
     if (!data || !data.length) return ok([]);
+    const rowsWithLicenseFormat = data.map((driver) => ({
+      ...driver,
+      license_number_valid: isValidLicenseNumber(driver.license_number),
+    }));
 
     // Travel-date, pair-coupled availability: when a pickup_at is given, hide a
-    // driver whose license expires on/before that date OR whose active paired
+    // driver whose license expires before that date OR whose active paired
     // vehicle cannot travel that date (coding, registration/insurance). The
     // time-window conflict filter above still applies; this is the travel-day
     // projection + pairing rule. Ignored when no pickup_at is provided, so the
     // drivers list page is unaffected.
     if (pickupAt) {
       const ctx = await loadDriverTravelContext(pickupAt);
-      const scheduleCtx = await loadDriverScheduleContext(data.map((d) => d.driver_id));
+      const scheduleCtx = await loadDriverScheduleContext(rowsWithLicenseFormat.map((d) => d.driver_id));
       const pickup = new Date(pickupAt);
       const returnDate = returnAt ? new Date(returnAt) : null;
-      const filtered = data.filter((d) => {
+      const filtered = rowsWithLicenseFormat.filter((d) => {
           if (!driverCanTravel(d, ctx)) return false;
           const block = driverBlockReason({
             driverId: d.driver_id,
@@ -215,7 +225,7 @@ export async function GET(req) {
     }
 
     // Media columns hold object keys; resolve them for the response.
-    return ok(await signDriverMediaList(data));
+    return ok(await signDriverMediaList(rowsWithLicenseFormat));
   } catch (e) {
     return handleError(e);
   }
@@ -260,7 +270,7 @@ export async function POST(req) {
       email: { type: "email", label: "Email" },
       phone: { type: "phone", label: "Phone" },
       license_number: { required: true, type: "license", label: "License number", maxLength: 30 },
-      license_expiry: { type: "date", label: "License expiry" },
+      license_expiry: { required: true, type: "date", label: "License expiry" },
       // A stored scan reference binds to an <img src> for other staff, so it is
       // held to the same allow-list the sibling media endpoints already apply.
       license_image_url: { type: "mediaUrl", label: "License front scan" },
@@ -282,6 +292,7 @@ export async function POST(req) {
       address: { maxLength: 255, label: "Address" },
       password: { type: "password", label: "Password" },
     });
+    Object.assign(errors, validateLicenseDetails(body, { requireAll: true }));
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
@@ -458,9 +469,9 @@ export async function POST(req) {
           [
             empId,
             normalizeLicense(license_number),
-            license_expiry || null,
-            license_type || null,
-            license_class || null,
+            license_expiry,
+            normalizeLicenseType(license_type),
+            normalizeLicenseClasses(license_class)?.join(", ") || null,
             years_of_experience ? Number(years_of_experience) : 0,
             driver_status || "Available",
             residentialText,

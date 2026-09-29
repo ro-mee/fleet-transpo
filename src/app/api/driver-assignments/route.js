@@ -1,6 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { evaluateDriverLicenseEligibility, isValidLicenseNumber } from "@/lib/drivers/license-eligibility";
 
 // Custodial driver ↔ vehicle pairings (migration 017).
 //
@@ -19,7 +20,10 @@ const SELECT_ASSIGNMENT = `
   SELECT a.assignment_id, a.driver_id, a.vehicle_id, a.assigned_from, a.assigned_until,
          a.release_reason, a.notes, a.created_at, a.updated_at,
          v.plate_number, v.vehicle_name, v.vehicle_status,
-         e.first_name, e.last_name, e.avatar_url, d.face_image_url
+         v.required_license_class,
+         e.first_name, e.last_name, e.avatar_url, d.face_image_url,
+         d.license_number, d.license_type, d.license_class, d.license_expiry,
+         d.license_verified_at, d.license_verified_by, d.license_verification_method
     FROM driver_vehicle_assignments a
     LEFT JOIN vehicles v ON v.vehicle_id = a.vehicle_id
     LEFT JOIN drivers d ON d.driver_id = a.driver_id
@@ -56,7 +60,10 @@ export async function GET(req) {
       params
     );
 
-    return ok({ assignments: rows });
+    return ok({ assignments: rows.map((row) => ({
+      ...row,
+      license_number_valid: isValidLicenseNumber(row.license_number),
+    })) });
   } catch (e) {
     return handleError(e);
   }
@@ -89,20 +96,27 @@ export async function POST(req) {
     // as a raw FK violation from Postgres instead of a readable message.
     const [{ rows: dRows }, { rows: vRows }] = await Promise.all([
       query(
-        `SELECT d.driver_id, e.first_name, e.last_name
+        `SELECT d.driver_id, e.first_name, e.last_name, d.license_number,
+                d.license_type, d.license_class, d.license_expiry,
+                d.license_verified_at, d.license_verified_by, d.license_verification_method
            FROM drivers d
            LEFT JOIN employees e ON e.employee_id = d.employee_id
           WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
         [driverId]
       ),
       query(
-        `SELECT vehicle_id, plate_number, vehicle_status
+        `SELECT vehicle_id, plate_number, vehicle_status, required_license_class
            FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
         [vehicleId]
       ),
     ]);
     if (!dRows.length) return err("Driver not found.", 404);
     if (!vRows.length) return err("Vehicle not found.", 404);
+
+    const licenseEligibility = evaluateDriverLicenseEligibility(dRows[0], vRows[0]);
+    if (!licenseEligibility.eligible) {
+      return err(`Driver cannot be assigned to this vehicle: ${licenseEligibility.reasons.join(" ")}`, 409);
+    }
 
     const { rows: current } = await query(
       `${SELECT_ASSIGNMENT}
@@ -121,11 +135,12 @@ export async function POST(req) {
     if (heldByOther && body?.force !== true) {
       const who = `${heldByOther.first_name || ""} ${heldByOther.last_name || ""}`.trim()
         || `driver #${heldByOther.driver_id}`;
+      const { license_number: _licenseNumber, ...safeCurrentAssignment } = heldByOther;
       return Response.json(
         {
           error: `${vRows[0].plate_number} is currently assigned to ${who}. Reassign anyway?`,
           requires_force: true,
-          current_assignment: heldByOther,
+          current_assignment: safeCurrentAssignment,
         },
         { status: 409 }
       );

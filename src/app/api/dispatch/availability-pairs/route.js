@@ -78,7 +78,7 @@ export async function GET(req) {
       query(
         `SELECT v.vehicle_id, v.vehicle_name, v.plate_number, v.vehicle_status,
                 v.seating_capacity, v.registration_expiry, v.insurance_expiry,
-                v.category_id, vc.category_name
+                v.category_id, v.required_license_class, vc.category_name
            FROM vehicles v
            LEFT JOIN vehiclecategories vc ON vc.category_id = v.category_id
           WHERE v.deleted_at IS NULL
@@ -87,7 +87,9 @@ export async function GET(req) {
         [categoryId]
       ),
       query(
-        `SELECT d.driver_id, d.driver_status, d.license_expiry, d.face_image_url,
+        `SELECT d.driver_id, d.driver_status, d.license_number, d.license_type,
+                d.license_class, d.license_expiry, d.license_verified_at,
+                d.license_verified_by, d.license_verification_method, d.face_image_url,
                 e.first_name, e.last_name, e.avatar_url
            FROM drivers d
            LEFT JOIN employees e ON e.employee_id = d.employee_id
@@ -218,6 +220,7 @@ export async function GET(req) {
         returnAt,
         scheduleContext: scheduleCtx,
         dayScope,
+        requiredLicenseClass: v.required_license_class,
       });
 
       if (!pairing.ok) {

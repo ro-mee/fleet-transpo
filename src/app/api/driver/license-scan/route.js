@@ -126,7 +126,13 @@ export async function POST(req) {
     // another column — see `canonicalStoredRef`.
     const storedRef = canonicalStoredRef(fileName, "driver-licenses") || fileName;
 
-    const setClauses = [`${imageColumn} = $1`, "updated_at = NOW()"];
+    const setClauses = [
+      `${imageColumn} = $1`,
+      "license_verified_at = NULL",
+      "license_verified_by = NULL",
+      "license_verification_method = NULL",
+      "updated_at = NOW()",
+    ];
     const params = [storedRef];
     if (verdict.applyExpiry) {
       params.push(verdict.expiryDate);

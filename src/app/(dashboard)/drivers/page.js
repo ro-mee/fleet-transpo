@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/toast";
-import { getDrivers, deleteDriver, getDriverStats, linkDriverAccount } from "@/services/driver.service";
+import { getDrivers, getDriver, deleteDriver, getDriverStats, linkDriverAccount } from "@/services/driver.service";
 import {
   Users,
   UserCheck,
@@ -28,6 +28,8 @@ import {
   Pencil,
   Archive,
   Link2,
+  EyeOff,
+  LoaderCircle,
 } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -45,6 +47,30 @@ export default function DriversPage() {
   const [licenseClassFilter, setLicenseClassFilter] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [revealedLicense, setRevealedLicense] = useState(null);
+  const [loadingLicenseId, setLoadingLicenseId] = useState(null);
+
+  const toggleLicenseReveal = async (event, row) => {
+    event.stopPropagation();
+    if (revealedLicense?.driverId === row.driver_id) {
+      setRevealedLicense(null);
+      return;
+    }
+    setRevealedLicense(null);
+    setLoadingLicenseId(row.driver_id);
+    try {
+      const fullDriver = await getDriver(row.driver_id, { includeLicense: true });
+      if (!fullDriver?.license_number) {
+        toast.error("No license number is available to show.");
+        return;
+      }
+      setRevealedLicense({ driverId: row.driver_id, value: fullDriver.license_number });
+    } catch (err) {
+      toast.error(err.message || "Could not show the license number.");
+    } finally {
+      setLoadingLicenseId(null);
+    }
+  };
 
   const {
     data: drivers = [],
@@ -191,7 +217,27 @@ export default function DriversPage() {
       label: "License Info",
       render: (_, row) => (
         <div className="space-y-1 text-xs">
-          <div className="font-data font-bold text-foreground">{row.license_number || "—"}</div>
+          <div className="flex items-center gap-1">
+            <span className="font-data font-bold text-foreground">
+              {revealedLicense?.driverId === row.driver_id ? revealedLicense.value : row.license_number || "—"}
+            </span>
+            {can("drivers", "update") && row.license_number && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-foreground-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                onClick={(event) => toggleLicenseReveal(event, row)}
+                disabled={loadingLicenseId !== null}
+                aria-label={revealedLicense?.driverId === row.driver_id ? "Hide license number" : "Show license number"}
+                title={revealedLicense?.driverId === row.driver_id ? "Hide license number" : "Show license number"}
+                aria-pressed={revealedLicense?.driverId === row.driver_id}
+              >
+                {loadingLicenseId === row.driver_id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> :
+                  revealedLicense?.driverId === row.driver_id ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </Button>
+            )}
+          </div>
           <div className="text-foreground-secondary font-medium">
             Class {row.license_class || "—"} • {row.years_of_experience || 0} yrs exp
           </div>

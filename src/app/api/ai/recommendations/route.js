@@ -75,7 +75,7 @@ export async function GET(req) {
 
     if (type === "dispatch") {
       const { rows: drivers } = await query(
-        `SELECT d.driver_id, d.license_number, d.driver_status, d.license_expiry,
+        `SELECT d.driver_id, d.driver_status, d.license_expiry,
                 d.years_of_experience,
                 json_build_object(
                   'employee_id', e.employee_id,

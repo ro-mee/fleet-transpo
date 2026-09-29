@@ -26,14 +26,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, useMap, useMapEvents } from "react-leaflet";
-import { Crosshair } from "lucide-react";
+import { Crosshair, MapPin, Search } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 import "@/styles/map.css";
 import { rasterTileUrl } from "@/lib/tomtom";
 import {
   COUNTRY_ZOOM,
   DEFAULT_CENTER,
+  MIN_PIN_ZOOM,
   PIN_ZOOM,
+  canPlacePinAtZoom,
   isViewableCentre,
   planViewMove,
 } from "@/lib/address/pin-view";
@@ -62,20 +64,57 @@ import { cn } from "@/lib/utils";
  * `idle` has no line: there is nothing to explain before a barangay is chosen.
  */
 const LOOKUP_MESSAGES = Object.freeze({
+  stale: "The address changed after the last lookup. Find it again before placing a pin.",
   looking: "Finding this address on the map…",
-  found: "Centred on the address you entered — that is a lookup result, not a placed pin.",
-  empty: "That address was not found on the map. Zoom in and click to drop the pin.",
-  unavailable: "Address lookup is unavailable right now. Zoom in and click to drop the pin.",
+  ambiguous: "TomTom returned multiple possible locations. Choose one to center the map.",
+  empty: "TomTom returned no result. Zoom in and place the pin yourself.",
+  unavailable: "Address lookup is unavailable. Zoom in and place the pin yourself.",
 });
 
-/** Places the pin wherever the operator clicks. */
+/** Places the pin only after the map has reached street scale. */
 function ClickToPlace({ onPlace }) {
+  const map = useMap();
   useMapEvents({
     click(event) {
+      if (event.originalEvent?.target?.closest?.("[data-pin-center-control]")) return;
+      if (!canPlacePinAtZoom(map.getZoom())) return;
       onPlace(event.latlng.lat, event.latlng.lng);
     },
   });
   return null;
+}
+
+/** Keyboard-accessible way to pin the map after using its pan/zoom controls. */
+function PinAtMapCenter({ onPlace, onZoomChange }) {
+  const map = useMap();
+  const [zoom, setZoom] = useState(map.getZoom());
+  const canPlace = canPlacePinAtZoom(zoom);
+
+  useMapEvents({
+    zoomend() {
+      const nextZoom = map.getZoom();
+      setZoom(nextZoom);
+      onZoomChange(nextZoom);
+    },
+  });
+
+  return (
+    <button
+      type="button"
+      data-pin-center-control=""
+      disabled={!canPlace}
+      title={canPlace ? "Place pin at map center" : `Zoom in to level ${MIN_PIN_ZOOM} before placing a pin`}
+      aria-label="Place pin at map center"
+      onClick={() => {
+        const centre = map.getCenter();
+        onPlace(centre.lat, centre.lng);
+      }}
+      className="absolute bottom-3 right-3 z-[1000] inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/95 px-2.5 py-2 text-xs font-semibold text-foreground shadow-sm hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+      Place pin at center
+    </button>
+  );
 }
 
 /**
@@ -183,6 +222,11 @@ export default function AddressPinMap({
   centre = null,
   /** `useAddressCentre`'s status, for the one line under the map. */
   lookupStatus = "idle",
+  lookupCandidate = null,
+  lookupCandidates = [],
+  onFind,
+  onChooseCandidate,
+  canFind = false,
   onChange,
   className,
 }) {
@@ -230,6 +274,7 @@ export default function AddressPinMap({
   // Declared above the server guard, not after it: a hook that runs on the client
   // and not on the server is a hook-order mismatch waiting to happen.
   const [wheelZoom, setWheelZoom] = useState(false);
+  const [mapZoom, setMapZoom] = useState(initialZoom);
 
   // Leaflet cannot render on the server. The dialog dynamic-imports this file, so
   // this is belt-and-braces for any other caller.
@@ -259,6 +304,16 @@ export default function AddressPinMap({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={onFind}
+            disabled={!canFind || lookupStatus === "looking"}
+            aria-busy={lookupStatus === "looking"}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:text-foreground-muted disabled:no-underline"
+          >
+            <Search className="h-3.5 w-3.5" aria-hidden="true" />
+            {lookupStatus === "looking" ? "Finding…" : "Find on map"}
+          </button>
           {!wheelZoom && (
             <button
               type="button"
@@ -280,14 +335,19 @@ export default function AddressPinMap({
         </div>
       </div>
 
+      <p className="text-[0.7rem] leading-relaxed text-foreground-muted">
+        Find on map sends this address to TomTom only when you press the button. Its result centers the map; it does not place or verify a pin.
+        {hasPin ? " Clear the pin before searching again." : !canFind ? " Enter a barangay, house number, and street to search." : ""}
+      </p>
+
       <div
         role="application"
         aria-label={
           hasPin
             ? `Map with a pin placed at ${lat}, ${lng}. Click to move it.`
             : usableCentre
-              ? "Map centred on the address you entered. Click to place a pin."
-              : "Map of the Philippines. Click to place a pin."
+              ? `Map centred on the address you entered. Zoom to level ${MIN_PIN_ZOOM} to place a pin.`
+              : `Map of the Philippines. Zoom to level ${MIN_PIN_ZOOM} to place a pin.`
         }
         className="h-[220px] w-full overflow-hidden rounded-xl border border-border"
       >
@@ -298,6 +358,8 @@ export default function AddressPinMap({
           // That is the STARTING state, not the only one — `WheelZoom` above hands
           // the wheel over on request rather than leaving `+` as the sole way in.
           scrollWheelZoom={false}
+          keyboard={true}
+          keyboardPanDelta={40}
           style={{ height: "100%", width: "100%" }}
         >
           <TileLayer
@@ -307,6 +369,7 @@ export default function AddressPinMap({
           <SyncView hasPin={hasPin} centre={usableCentre} />
           <WheelZoom enabled={wheelZoom} />
           <ClickToPlace onPlace={place} />
+          <PinAtMapCenter onPlace={place} onZoomChange={setMapZoom} />
           {hasPin && (
             <CircleMarker
               center={[lat, lng]}
@@ -328,7 +391,9 @@ export default function AddressPinMap({
             Pin at {lat.toFixed(5)}, {lng.toFixed(5)}. Click the map to move it.
           </>
         ) : (
-          <>Click the map to drop a pin. The address saves without one.</>
+          canPlacePinAtZoom(mapZoom)
+            ? <>Click the map or use “Place pin at center” to drop a pin. The address saves without one.</>
+            : <>Zoom in to level {MIN_PIN_ZOOM} before placing a pin. The address saves without one.</>
         )}{" "}
         A pin records where someone said the door is — it does not verify that the
         address exists there, and is never treated as one.
@@ -339,10 +404,42 @@ export default function AddressPinMap({
           lookup would be talking about something the operator can no longer see.
           `idle` has no message at all — there is nothing to explain before a
           barangay has been chosen. */}
+      {!hasPin && lookupStatus === "found" && (
+        <p role="status" className="text-[0.7rem] leading-relaxed text-foreground-muted">
+          {lookupCandidate?.label ? `TomTom result: ${lookupCandidate.label}. ` : "TomTom found a result. "}
+          {lookupCandidate?.precision ? `Result type: ${lookupCandidate.precision}. ` : ""}
+          {Number.isFinite(lookupCandidate?.confidence)
+            ? `Provider text-match score: ${Math.round(lookupCandidate.confidence * 100)}%. `
+            : ""}
+          Review the map and place the pin yourself. The result and its score do not prove the door is there.
+        </p>
+      )}
       {!hasPin && LOOKUP_MESSAGES[lookupStatus] && (
         <p role="status" className="text-[0.7rem] leading-relaxed text-foreground-muted">
           {LOOKUP_MESSAGES[lookupStatus]}
         </p>
+      )}
+      {!hasPin && lookupStatus === "ambiguous" && (
+        <div className="space-y-1.5" role="group" aria-label="Choose a map search result">
+          {lookupCandidates.map((candidate, index) => (
+            <button
+              key={`${candidate.centre.lat},${candidate.centre.lng}`}
+              type="button"
+              onClick={() => onChooseCandidate?.(candidate)}
+              className="block w-full rounded-lg border border-border bg-background px-3 py-2 text-left text-xs hover:border-primary/50 hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-primary"
+            >
+              <span className="block font-semibold text-foreground">
+                {candidate.label || `Result ${index + 1}`}
+              </span>
+              <span className="mt-0.5 block text-foreground-muted">
+                {candidate.precision || "Unknown result type"}
+                {Number.isFinite(candidate.confidence)
+                  ? ` · text-match score ${Math.round(candidate.confidence * 100)}%`
+                  : ""}
+              </span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

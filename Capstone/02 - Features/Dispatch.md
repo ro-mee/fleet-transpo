@@ -9,7 +9,7 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-09-04
+last_verified: 2026-09-27
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
@@ -22,6 +22,20 @@ The reservation-backed trip-start route revalidates the committed driver/vehicle
 ## What it does
 
 Turns an approved request into a **committed booking of resources**: this vehicle, this driver, this window.
+
+## License eligibility — 2026-09-27
+
+The availability board and assignment-time `validatePairAvailability` use the same
+license rule. Student Permits, missing or malformed details, unsupported types/classes,
+expired licenses, absent staff review, missing vehicle class, and driver/vehicle class
+mismatches block the pair with a reason. The expiry date remains eligible through the end of
+its date in Asia/Manila. `vehicles.required_license_class` is explicitly selected from the
+registration; it is not inferred from service category or passenger capacity. Existing
+vehicles/drivers fail closed until reviewed. `override_reason` and manual review cannot bypass
+license blockers. Custodial-pair and substitute-schedule writes use the same eligibility rule;
+bounded substitute coverage cannot continue past the recorded expiry. The trip-start endpoint
+runs a fresh check as well. Existing assignments remain and display their license reason until
+staff corrects them. → [[Driver Management]] · [[Trips]]
 
 **Default surface is `/dispatch/calendar` (2026-09-23):** the status-lane board at `/dispatch` is gone — the page now `redirect`s to the calendar. Sidebar, command palette, dashboard cards, detail back-links and availability deep-links all target `/dispatch/calendar`. `NAV_ROLES["/dispatch"]` remains as the **prefix gate** for the whole `/dispatch/*` subtree; removing it would open `/dispatch/calendar` and `/dispatch/[id]` to any authenticated role.
 

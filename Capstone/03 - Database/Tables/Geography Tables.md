@@ -5,11 +5,15 @@ tags: [database, table, address, geography, psgc, reference]
 source:
   - supabase/migrations/123_psgc_geography.sql
   - supabase/migrations/124_barmm_region_code.sql
+  - supabase/migrations/136_negros_island_region.sql
   - scripts/import-psgc.mjs
+  - scripts/psgc-publication-import.mjs
+  - scripts/lib/psgc-publication.mjs
+  - scripts/lib/psgc-snapshot.mjs
   - scripts/psgc-normalize.mjs
   - scripts/lib/psgc-normalize.mjs
   - scripts/lib/schema-contract.mjs
-last_verified: 2026-09-24
+last_verified: 2026-09-27
 ---
 
 # Geography tables (`ph_regions`, `ph_provinces`, `ph_cities`, `ph_barangays`)
@@ -30,10 +34,10 @@ pin at a barangay whose name appears in two different cities.
 
 | Table | Key | Parent | Rows |
 |---|---|---|---|
-| `ph_regions` | `psgc_code` varchar(10) PK | — | 17 (seeded) |
+| `ph_regions` | `psgc_code` varchar(10) PK | — | 18 (curated) |
 | `ph_provinces` | `psgc_code` PK | `region_code` → `ph_regions` | 82 |
 | `ph_cities` | `psgc_code` PK | `region_code` → `ph_regions`, `province_code` → `ph_provinces` **NULLABLE** | 1,642 |
-| `ph_barangays` | `psgc_code` PK | `city_code` → `ph_cities` | 42,001 |
+| `ph_barangays` | `psgc_code` PK | `city_code` → `ph_cities` | 42,010 |
 
 Every FK is `ON DELETE CASCADE` — these are derived reference rows, unlike the `addresses`
 rows that reference them. `addresses.psgc_barangay_code` is the exception and is
@@ -53,22 +57,22 @@ unsaveable — the failure this column exists to prevent.
 
 ## What is seeded, and what is not
 
-**Regions are seeded by migration `123`; everything below them was imported on 2026-09-24.**
-The four levels were originally split differently — regions written into the migration, the rest
-left to an import — because regions are few, stable and enumerable, while writing provinces,
-cities and barangays from memory would assert specific barangays that may not exist.
+**Regions are curated by migrations `123`, `124` and `136`; the other three levels were
+refreshed from PSA's 2Q 2026 publication on 2026-09-27.** Provinces, cities and barangays
+come from the official publication rather than a hand-authored seed.
 
 That distinction no longer separates two states of the database, only two provenance routes.
 **All four levels are populated**, and the form's cascade works end to end today.
 
-NIR (Negros Island Region) is not in the seed: it was abolished in 2017 and re-established in
-2024, so it is newer than the stable set. Whether the import supplies it is the import file's
-business rather than this note's.
+Migration `136` adds the re-established Negros Island Region (NIR, code `1800000000`) while
+preserving the application's curated region display names. The 2026 source places Negros
+Occidental, Negros Oriental and Siquijor under NIR, and Sulu under Region IX.
 
 ## The importer takes parentage as input and validates it
 
 `scripts/import-psgc.mjs <file> [--dry-run]` reads CSV or JSON whose rows state their `level`
-and their parent codes explicitly.
+and parent codes explicitly. The ordinary import mode is an additive/upsert path and never
+deletes rows.
 
 It deliberately does **not** derive a parent by masking digits off the PSGC code. The digit
 layout is not uniform — the province segment is meaningless for the province-less cities,
@@ -77,16 +81,63 @@ class of code files those addresses under the wrong parent, silently. The parent
 from the file and then **validated**: every named parent must resolve to a row in the file or
 already in the table, or the whole import is rejected before anything is written.
 
-Everything imports in one transaction, upserts on `psgc_code` (so a re-import converges onto
-a corrected export), and never deletes — removing a code would null out every address
-pointing at it. PSGC churn is real; nothing schedules the re-import, which is a maintenance
-task this design creates and does not automate.
+The explicit `--sync-snapshot` mode is for reviewed, complete publications. It requires all
+four levels above minimum coverage floors, verifies every parent is present in that snapshot,
+backs up the live geography rows before writing, and refuses to retire a barangay code that a
+saved address still references. It locks address and geography writes during that check and
+the single transaction. New rows are upserted, then absent barangays, cities and provinces are
+retired from leaf to parent; region rows remain migration-owned. Use `--dry-run --sync-snapshot`
+first, then pass a new `--backup` path for the actual run. The saved JSON backup can be passed
+back through the same importer to restore the previous hierarchy; the address-reference guard
+also applies during restoration.
+
+PSGC releases are quarterly, but this repository has no scheduled refresh. Each publication
+must be reviewed and imported deliberately; this source refresh updates administrative
+geography only and does not validate street/house existence, ZIP coverage or the map pin.
+
+## PSA 2Q 2026 workbook refresh
+
+The source is the PSA *Philippine Standard Geographic Code (PSGC)* workbook, published
+30 June 2026. Its metadata requires acknowledgement of PSA; the adapter retains that source
+and constraint in the generated JSON, and this note records the attribution. The companion
+*National and Provincial Summary* workbook is a reconciliation source only.
+
+```
+node scripts/psgc-publication-import.mjs <PSA-publication.xlsx> --out scratch/psgc-2q-2026.json
+node scripts/import-psgc.mjs scratch/psgc-2q-2026.json --dry-run --sync-snapshot
+node scripts/import-psgc.mjs scratch/psgc-2q-2026.json --sync-snapshot --backup scratch/psgc-before-refresh.json
+```
+
+The converter validates the release totals: 18 regions, 82 provinces, 1,642 cities and
+municipalities, and 42,010 barangays. It skips the 14 Manila `SubMun` districts while keeping
+their barangays under City of Manila, and skips the two blank-level pseudo-parent labels for
+Isabela City and BARMM's Special Geographic Area. City class `HUC`/`ICC` means the city hangs
+directly from its region even if the workbook lists it inside a province section; `CC` cities
+retain their province, with City of Isabela as the explicit province-less exception represented
+by a pseudo-parent row. Municipalities retain the preceding province when present. The
+generated records also preserve PSA rich-text names as readable strings.
+
+Migration `136` seeds NIR with the display name `Negros Island Region (NIR)`. The refresh
+moved Negros Occidental, Negros Oriental and Siquijor into NIR, and Sulu into Region IX. The
+run retired 4 province codes, 82 city/municipality codes and 1,769 barangay codes; it added
+the replacement codes in one transaction. No linked address referenced a retired barangay,
+all 13 saved PSGC address links remained resolvable, and their stored region/province/city/
+barangay labels still match the refreshed chain.
+
+Post-refresh counts are 18 regions, 82 provinces, 1,642 cities/municipalities and 42,010
+barangays. Caloocan resolves to 193 barangays, all eight SGA clusters remain present with 63
+barangays total, and all 38 HUC/ICC cities plus City of Isabela are province-less. The refresh
+corrected 21 HUC/ICC cities that an earlier import had attached to a preceding province. The
+data contains neither ZIP codes nor coordinates.
 
 ## The converter, and the one rule it cannot prove
 
-No public PSGC dataset is published in the flat shape the importer wants. They arrive as one
-file per level, each with its own column names and its own idea of what a code looks like, so
-`scripts/lib/psgc-normalize.mjs` (with the CLI at `scripts/psgc-normalize.mjs`) is the seam:
+The PSA 2Q 2026 publication is one ordered workbook, but its hierarchy is conveyed by row
+order and geographic level rather than explicit parent columns. The dedicated adapter
+`scripts/psgc-publication-import.mjs` reads the `PSGC` sheet, uses the city-class field for
+HUC/ICC parentage, and left-pads numeric cells without changing already complete codes.
+Earlier per-level exports still use `scripts/lib/psgc-normalize.mjs` and its CLI
+`scripts/psgc-normalize.mjs`:
 
 ```
 node scripts/psgc-normalize.mjs [source-dir] [--out <file>] [--dry-run]
@@ -124,15 +175,10 @@ alike, so the codes are **prefix-nested**: `LEFT(code, n)` rolls a barangay up t
 province and region. The converter asserts that nesting at the parent's own width and refuses
 to write anything if a row's digits contradict the parent it names.
 
-**What is not settled** is which published form this is. A second dataset, `jgngo/psgc-data`
-(PSGC-DEC2017), agrees on the province *number* — Cavite is 21, Laguna is 34 — but not on
-where its padding goes: it writes Cavite as `0421000000` where this source writes
-`0402100000`. The two are not interchangeable, and mixing provinces from one with cities from
-the other produces a hierarchy where nothing joins. The form used here wins on two counts and
-is proven by neither: it nests by prefix (jgngo's does not — `0421000000` and `0400000000`
-differ at digit 3) and it matches the regions migration `123` seeds. Until PSA's own
-publication settles it, the import is self-consistent by construction and the converter is the
-single place a correction lands.
+The selected reference is PSA's 2Q 2026 publication (30 June 2026), acknowledged as required
+by its metadata. The companion *National and Provincial Summary* workbook was used only to
+reconcile aggregate totals; it has no row-level hierarchy and is not imported. The publication
+contains no ZIP codes or coordinates, so it does not alter postal checks or map-pin behavior.
 
 ## Two levels the four-level model does not have
 
@@ -153,9 +199,10 @@ stored city would have flagged all 897 for a collapse that was deliberate.
 
 **BARMM's Special Geographic Area is the reverse.** Its 63 barangays — the ones that joined
 the region by plebiscite in 2019 — sit under clusters, not cities, and the clusters **are**
-rows (`geo_level = SGU`). Dropping them as "not a city" orphans all 63, so they are kept in
-the city table, which is the only slot this model has for them. They carry `is_city = false`,
-because they are not cities and the column means what it says.
+rows (`geo_level = SGU` in the earlier per-level export; `Mun` in PSA's 2Q 2026 workbook).
+Dropping them as "not a city" orphans all 63, so they are kept in the city table, which is the
+only slot this model has for them. They carry `is_city = false`, because they are not cities
+and the column means what it says.
 
 Both are consequences of modelling four levels where the country has five. They are recorded
 rather than hidden: a future reader adding a district level should find these two paragraphs,
@@ -222,10 +269,9 @@ until the PSGC import ran**, and on empty tables `200 []` would have been INCONC
 than a pass. That is precisely the trap `ai_prompt_templates` and `trip_monitor_alerts` fell
 into.
 
-Because that verdict was taken against empty tables, it is worth **re-running `verify:anon`
-now that 42,001 barangays are in them**. The reasoning says nothing changes — a privilege
-refusal cannot depend on how many rows it refuses — but this repository has a standing rule
-that reasoning about a gate is not the gate, and the check costs one command.
+The 2026-09-24 verification below records the first populated state (42,001 barangays).
+The later PSA 2Q 2026 snapshot and its paired access-control verification are documented in
+the refresh section above and in [[Migrations]].
 
 ### The import, 2026-09-24
 

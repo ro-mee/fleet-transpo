@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
+import { maskLicenseNumber } from "@/lib/drivers/license-eligibility";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -41,7 +42,7 @@ export async function GET(req) {
         face_image_url: dr.face_image_url || null,
         avatar_url: dr.avatar_url || null,
         document_type: "Driver License",
-        document_number: dr.license_number,
+        document_number: maskLicenseNumber(dr.license_number),
         expiry_date: dr.license_expiry,
         days_left: daysUntil(dr.license_expiry),
         status: "driver",

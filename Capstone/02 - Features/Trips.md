@@ -12,7 +12,7 @@ source:
   - mobile/lib/tracking.js
   - src/app/api/mobile/driver/inspections/route.js
   - src/lib/inspections/checklists.js
-last_verified: 2026-09-23
+last_verified: 2026-09-27
 related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 ---
 
@@ -23,6 +23,15 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 Records what actually happened: start odometer, GPS positions, arrival, completion odometer.
 
 A [[dispatchschedules]] row is the **promise**; a `trips` row is the **execution**. 2 rows.
+
+## Start-time driver license recheck — 2026-09-27
+
+Before trip start, `/api/trips/[id]/start` reloads the current driver credentials and vehicle
+requirement. It blocks expired, Student Permit, malformed, unsupported, unreviewed, or
+vehicle-class-incompatible licenses with the first reason. The expiry date is valid through
+the end of that calendar day in Asia/Manila. The check is repeated even if the driver passed
+assignment-time validation, so a license expiring between assignment and departure blocks
+start.
 
 ## START ROUTE is gated — CONFIRMED 2026-08-14
 

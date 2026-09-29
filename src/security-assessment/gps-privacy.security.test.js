@@ -72,7 +72,8 @@ describe('SEC-GPS-001 — standby storage fields never leak through a generic re
 
   it('the scrubber is applied in the shared serializer, not per route', () => {
     const source = readFileSync(new URL('../lib/api/utils.js', import.meta.url), 'utf8');
-    expect(source).toMatch(/JSON\.stringify\(data\s*,\s*omitStandbyStorage\)/);
+    expect(source).toMatch(/JSON\.stringify\(data\s*,\s*replacer\)/);
+    expect(source).toMatch(/const filtered = omitStandbyStorage\(key, value\)/);
   });
 
   it('the two direct-Response.json position feeds are the only ones that carry coordinates', () => {

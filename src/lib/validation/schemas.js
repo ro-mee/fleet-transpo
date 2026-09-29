@@ -12,6 +12,13 @@ import {
   LEGAL_DRIVING_AGE,
   isPassword,
 } from "./index";
+import {
+  normalizeLicenseClasses,
+  normalizeLicenseType,
+  isValidLicenseExpiry,
+  isValidLicenseNumber,
+  SUPPORTED_LICENSE_CLASSES,
+} from "@/lib/drivers/license-eligibility";
 
 const requiredString = (label, opts = {}) =>
   z
@@ -68,6 +75,12 @@ export const vehicleSchema = z.object({
     (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
     z.number().int().min(LIMITS.SEAT_MIN).max(LIMITS.SEAT_MAX).optional()
   ),
+  required_license_class: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .min(1, "Required driver license class is required.")
+    .refine((value) => SUPPORTED_LICENSE_CLASSES.includes(value), "Choose a supported required driver license class."),
   category_id: coerceId("Vehicle category"),
   vehicle_status: z.string().default("Available"),
   purchase_price: z.preprocess(
@@ -129,12 +142,23 @@ export const driverSchema = z.object({
     .trim()
     .min(1, "License number is required.")
     .max(30, "License number must be at most 30 characters.")
+    .refine(isValidLicenseNumber, "License number is malformed.")
     .transform((v) => v.toUpperCase()),
   // Past license expiries are allowed: real records arrive already expired and
   // staff must record the truth (compliance risk is surfaced from the value).
-  license_expiry: dateString("License expiry"),
-  license_type: z.string().optional(),
-  license_class: z.string().optional(),
+  license_expiry: z
+    .string()
+    .min(1, "License expiration date is required.")
+    .refine(isValidLicenseExpiry, "License expiration date must be a valid date."),
+  license_type: z
+    .string()
+    .min(1, "License type is required.")
+    .refine((value) => !/^student(?:\s|$)/i.test(value.trim()), "Student Permit is not eligible for driving assignments.")
+    .refine((value) => Boolean(normalizeLicenseType(value)), "Professional is the only license type currently supported for fleet driving."),
+  license_class: z
+    .string()
+    .min(1, "License class is required.")
+    .refine((value) => Boolean(normalizeLicenseClasses(value)), "Supported license classes are B and B1."),
   years_of_experience: z.preprocess(
     (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
     z.number().int().min(0, "Years of experience must be a positive number.").max(70).optional()

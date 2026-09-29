@@ -337,14 +337,15 @@ export async function effectiveStandbyVehicle(driverId, now = new Date()) {
   const [{ rows: pairs }, { rows: substitutes }, { rows: drivers }, { rows: vehicles }] = await Promise.all([
     query('SELECT driver_id,vehicle_id FROM driver_vehicle_assignments WHERE assigned_until IS NULL'),
     query('SELECT vehicle_id,substitute_driver_id,effective_from,effective_until FROM substitute_vehicle_schedules'),
-    query('SELECT driver_id,driver_status,license_expiry FROM drivers WHERE deleted_at IS NULL'),
-    query('SELECT vehicle_id,vehicle_status FROM vehicles WHERE deleted_at IS NULL'),
+    query('SELECT driver_id,driver_status,license_number,license_type,license_class,license_expiry,license_verified_at,license_verified_by,license_verification_method FROM drivers WHERE deleted_at IS NULL'),
+    query('SELECT vehicle_id,vehicle_status,required_license_class FROM vehicles WHERE deleted_at IS NULL'),
   ]);
   const scheduleContext = await loadDriverScheduleContext(drivers.map(d => d.driver_id));
   const driverById = new Map(drivers.map(d => [Number(d.driver_id), d]));
   const matches = vehicles.filter(vehicle => vehicleOperationallyAvailable(vehicle)).filter(vehicle => {
     const pair = resolveVehiclePairing({ vehicleId: vehicle.vehicle_id, pickupDate: now, returnAt: now,
-      activePairs: pairs, activeSubstitutes: substitutes, driverById, scheduleContext, now });
+      activePairs: pairs, activeSubstitutes: substitutes, driverById, scheduleContext, now,
+      requiredLicenseClass: vehicle.required_license_class });
     return pair.ok && Number(pair.driver?.driver_id) === Number(driverId);
   });
   return matches.length === 1 ? matches[0].vehicle_id : null;

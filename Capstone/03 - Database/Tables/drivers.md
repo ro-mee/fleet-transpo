@@ -5,7 +5,7 @@ tags: [database, table, drivers]
 source:
   - src/lib/consent/driver-visibility.js
   - src/lib/driver/
-last_verified: 2026-08-11
+last_verified: 2026-09-27
 ---
 
 # Table: `drivers`
@@ -34,11 +34,25 @@ Four editable fields — a phone number and three images. Everything else about 
 
 A column added to this table tomorrow is invisible and non-editable until someone adds it to those lists. That's the correct polarity: forgetting is safe. → [[Fail Closed By Default]] · [[Driver Consent]]
 
-## Licence images and OCR
+## Licence OCR — historical note, superseded 2026-09-27
 
-Licence uploads run through Tesseract.js OCR with a **6-second timeout that resolves to `""`** — a blank field the driver fills in by hand, never a half-parsed licence number. → [[Graceful Degradation]]
+The current licence scan uses Gemini OCR to suggest a licence number and expiry date; staff must compare those suggestions with the physical card before saving, and neither suggestion verifies authenticity or active status. → [[Graceful Degradation]]
 
 `LICENSE_REUPLOAD_WINDOW_DAYS = 30` bounds how long a re-upload is accepted.
+
+## License review and assignment fields — migration 137
+
+`license_verified_at`, `license_verified_by` and `license_verification_method` record a staff
+attestation after checking the physical card or LTO Digital ID. Any credential or card-image
+change clears the attestation. It is not an LTO verification API result.
+
+Dispatch eligibility requires a valid Professional license, supported class (B or B1), an
+exact expiry date that has not passed in Asia/Manila, and staff review metadata. Student
+Permits are ineligible. The full license number remains plaintext in `drivers.license_number`;
+routine API serializers mask it. A driver can explicitly request only their own full number
+through the authenticated `/api/driver/me?include_license=1` profile read; staff detail/edit reads
+require `drivers.update`. This is access/display masking, not encryption. NULL verification
+metadata on existing rows is intentional and blocks assignment until review.
 
 ## Vehicle pairing lives elsewhere
 

@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { getGpsHealth } from '@/lib/gps';
+import { licenseExpiryIsBefore } from '@/lib/drivers/license-eligibility';
 import { EVIDENCE_TYPES, projectEvidenceFacts, usableRecordIdentity } from '@/lib/dispatch/evidence-contract';
 import { evaluateDispatchCandidate } from '@/services/dispatch-radar.service';
 import { resolveRequestEstimate } from '@/services/route-resolver.service';
@@ -123,7 +124,7 @@ export async function resolveCompliance(db, { vehicleId, driverId, bookingDate, 
   const { rows } = await db.query(
     `SELECT license_expiry FROM drivers WHERE driver_id=$1 AND deleted_at IS NULL`, [driverId]);
   if (!rows[0]) throw new Error('Record not found.');
-  const expired = rows[0].license_expiry && +new Date(rows[0].license_expiry) < +new Date(bookingDate);
+  const expired = licenseExpiryIsBefore(rows[0].license_expiry, bookingDate);
   const item = { field: 'license', expiry: rows[0].license_expiry, status: expired ? 'EXPIRED' : 'VALID' };
   return { verdict: expired ? 'blocked' : 'clear', subject: 'driver', bookingDate, ...item, items: [item] };
 }

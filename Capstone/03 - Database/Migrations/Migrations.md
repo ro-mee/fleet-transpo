@@ -5,19 +5,26 @@ tags: [database, migrations]
 source:
   - supabase/migrations
   - AGENTS.md
-last_verified: 2026-09-18
+last_verified: 2026-09-27
 ---
 
 # Migrations
 
-**118** files in `supabase/migrations/`, contiguous `001`–`115` except for a
-missing `090`, with exactly four duplicated numbers (`036`, `037`, `059`,
-`060` — two files each, applied in filename order; this set is frozen by
-`npm run db:check`), backed by a ledger and a checked-in `schema.sql`.
+## 2026-09-27 — `137_driver_license_eligibility.sql`
 
-> Counted with `ls supabase/migrations/*.sql | wc -l`. This vault said "38 files"
-> for the pre-backfill state; the real number was 39. If a count here matters to
-> you, re-run the command rather than trusting the note.
+Adds nullable license review fields to `drivers` (`license_verified_at`,
+`license_verified_by`, `license_verification_method`) and nullable
+`vehicles.required_license_class`, with reviewer, method, and supported-class constraints.
+The change is additive: existing data is preserved, while existing drivers and vehicles
+remain unverified/unmapped until staff review. Assignment and trip start fail closed until
+then. `npm run db:up` applied it; `npm run db:dump` confirms the columns and constraints in
+the live schema. No table or RLS policy was added.
+
+**137 migration files are on disk; 137 are applied, with 0 pending and 0 changed** as of
+2026-09-27. The ledger still has historical missing-file and stale-key entries; check
+`npm run db:status` for the current list. Four duplicate-number pairs (`036`, `037`, `059`,
+`060`) remain frozen by `npm run db:check`. The full-filename ledger and generated `schema.sql`
+remain the migration record and schema review artifact.
 
 ## How to apply one — CONFIRMED PROCEDURE
 
@@ -822,3 +829,38 @@ grant implies them.
 ## Related
 
 [[Database Overview]] · [[DEBT Schema Drift From Migrations]] · [[Quick Reference]] · [[ADR-008 Manual Migration Procedure]] · [[ERD]] · [[SEC Database Password In Git History]]
+
+## 2026-09-27 — `135_phlpost_postal_codes.sql`
+
+`npm run db:status` before implementation showed 134 applied and 0 pending; version 135 was free. The migration was applied with `npm run db:up`, then `npm run db:dump` refreshed the generated `schema.sql`. Final status: 135 applied, 0 pending, 0 changed; `npm run db:check` passed.
+
+| Version | File | Purpose |
+|---|---|---|
+| **135** | `phlpost_postal_codes.sql` | `phlpost_postal_codes`, a normalized snapshot of PHLPost's ZIP Code Locator. Contains 958 unique four-digit locality assignments captured 2026-09-27. One malformed populated source row was omitted; incomplete coverage is preserved as unknown. |
+
+The table is reference data for ZIP-to-locality consistency checks, not a claim that the locator is complete or that a postal code proves an address. It has RLS enabled and `REVOKE ALL PRIVILEGES` for `anon` and `authenticated`. `db:contract` reported 0 violations; `verify:anon` returned explicit HTTP 401 / SQLSTATE 42501 for this table. The live read-only count confirmed 958 rows, Indang/Cavite → 4122, and no Caloocan entries.
+
+Source snapshot: [PHLPost ZIP Code Locator](https://phlpost.gov.ph/zip-code-locator/).
+
+## 2026-09-27 — `136_negros_island_region.sql` and PSA PSGC refresh
+
+Before applying, `npm run db:status` showed 135 applied, 0 pending and 0 changed; migration
+136 was the only pending file. `npm run db:up` applied it. The migration idempotently adds
+region code `1800000000` with the curated display name `Negros Island Region (NIR)` and short
+name `NIR`; it changes no schema and no grants. `npm run db:dump` completed with 66 tables,
+1 view, 133 foreign keys, 168 standalone indexes, 17 functions and 24 triggers; there was no
+structural diff.
+
+The row-level data refresh used the PSA *Philippine Standard Geographic Code* publication
+dated 30 June 2026. Its companion National and Provincial Summary workbook was used only for
+aggregate reconciliation. The converter preserves the PSA attribution requirement and
+produces 18 regions, 82 provinces, 1,642 cities/municipalities and 42,010 barangays. The
+snapshot importer saved a pre-refresh rollback JSON, enforced complete parentage, locked
+geography and address writes for the transaction, and refused to retire any barangay code
+referenced by an address. Final live counts match the publication; all 13 linked address codes
+still resolve, Caloocan has 193 barangays, and the eight SGA clusters retain 63 barangays.
+
+`npm run db:contract`: 0 violations, all 67 relations classified. `npm run verify:anon`:
+0 exposed and 18 explicit refusals; 49 HTTP-empty responses were inconclusive from the probe
+and are resolved by the live contract as RLS-enabled with no anon policy. Focused geography
+tests: 30/30; touched-file ESLint clean. `npm run db:status`: 136 applied, 0 pending, 0 changed.

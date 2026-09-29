@@ -5,12 +5,13 @@
 // incidents/resolution.js). Callers own all DB writes and notifications.
 
 import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
+import { licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
 
 const SUSPENDED = DRIVER_STATUS.SUSPENDED;
 const LICENSE_EXPIRED = DRIVER_SUSPENSION_REASON.LICENSE_EXPIRED;
 
 /**
- * Is the license expired as of today (server-local date)?
+ * Is the license expired as of today in Asia/Manila?
  * Null/invalid expiry counts as NOT expired — absence of data must never
  * auto-suspend a driver.
  *
@@ -19,17 +20,7 @@ const LICENSE_EXPIRED = DRIVER_SUSPENSION_REASON.LICENSE_EXPIRED;
  * "Sun Aug 22 2027…" sliced to "Sun Aug 22" parses as year 2001.
  */
 export function licenseExpired(licenseExpiry, now = new Date()) {
-  if (!licenseExpiry) return false;
-  let d;
-  if (licenseExpiry instanceof Date) {
-    d = licenseExpiry;
-  } else {
-    d = new Date(`${String(licenseExpiry).slice(0, 10)}T00:00:00`);
-    if (Number.isNaN(d.getTime())) return false;
-  }
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const atMidnight = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  return atMidnight.getTime() < today.getTime();
+  return licenseExpiryIsBefore(licenseExpiry, now);
 }
 
 /**

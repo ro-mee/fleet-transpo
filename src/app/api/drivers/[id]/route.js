@@ -1,7 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { saveAddress, loadStructuredAddress } from "@/services/address.service";
 import { resolvePickedAddress } from "@/lib/address/picked";
-import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, okWithFullLicense, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
 import { LEGAL_DRIVING_AGE, isAtLeastAge } from "@/lib/validation/age";
 import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
@@ -11,6 +11,7 @@ import { suspensionAction } from "@/lib/drivers/compliance";
 import { syncDriverStatus } from "@/services/status.service";
 import { notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 import { driverReinstatedDriver, driverReinstatedStaff } from "@/lib/notifications/copy";
+import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, maskLicenseNumber } from "@/lib/drivers/license-eligibility";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -34,6 +35,8 @@ async function ensureDriverColumnsExist() {
 export async function GET(req, { params }) {
   try {
     await requirePermission(req, "drivers", "read_all");
+    const revealLicense = new URL(req.url).searchParams.get("include_license") === "1";
+    if (revealLicense) await requirePermission(req, "drivers", "update");
     await ensureDriverColumnsExist();
     const { id } = await params;
 
@@ -91,7 +94,8 @@ export async function GET(req, { params }) {
     try {
       const { rows: empRows } = await query(
         `SELECT e.employee_id, e.first_name, e.last_name, e.email, e.phone, e.position, e.avatar_url,
-                r.role_name AS role, e.password_hash IS NOT NULL AS has_password
+                r.role_name AS role, e.password_hash IS NOT NULL AS has_password,
+                e.must_change_password, e.temp_credential_expires_at
            FROM employees e
            LEFT JOIN roles r ON r.role_id = e.role_id
           WHERE e.employee_id = $1 LIMIT 1`,
@@ -109,6 +113,8 @@ export async function GET(req, { params }) {
           avatar_url: row.avatar_url,
           role: row.role ?? "driver",
           has_password: Boolean(row.has_password),
+          must_change_password: Boolean(row.must_change_password),
+          temp_credential_expires_at: row.temp_credential_expires_at,
         };
       }
     } catch (accErr) {
@@ -127,8 +133,7 @@ export async function GET(req, { params }) {
 
     // Media columns hold object keys; resolve them to short-lived URLs for the
     // response. See `lib/drivers/media` — never persist what this returns.
-    return ok(
-      await signDriverMedia({
+    const responseData = await signDriverMedia({
         ...driver,
         ...stats,
         trips,
@@ -139,8 +144,8 @@ export async function GET(req, { params }) {
         structured_address_reason: residential.ok ? null : residential.reason,
         emergency_structured_address: emergency.ok ? emergency.value : null,
         emergency_structured_address_reason: emergency.ok ? null : emergency.reason,
-      })
-    );
+      });
+    return revealLicense ? okWithFullLicense(responseData) : ok(responseData);
   } catch (e) {
     return handleError(e);
   }
@@ -178,6 +183,7 @@ export async function PUT(req, { params }) {
       nationality: { maxLength: 100, label: "Nationality" },
       address: { maxLength: 255, label: "Address" },
     });
+    Object.assign(errors, validateLicenseDetails(body));
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
@@ -222,7 +228,8 @@ export async function PUT(req, { params }) {
 
     // Fetch existing driver to get employee_id
     const { rows: existingRows } = await query(
-      `SELECT d.driver_id, d.employee_id, e.email
+      `SELECT d.driver_id, d.employee_id, e.email, d.license_number, d.license_expiry,
+              d.license_type, d.license_class, d.license_image_url, d.license_back_image_url
          FROM drivers d
          LEFT JOIN employees e ON e.employee_id = d.employee_id
         WHERE d.driver_id = $1 AND d.deleted_at IS NULL
@@ -237,8 +244,8 @@ export async function PUT(req, { params }) {
     const driverPayload = {};
     if (license_number !== undefined) driverPayload.license_number = normalizeLicense(license_number);
     if (license_expiry !== undefined) driverPayload.license_expiry = license_expiry || null;
-    if (license_type !== undefined) driverPayload.license_type = license_type || null;
-    if (license_class !== undefined) driverPayload.license_class = license_class || null;
+    if (license_type !== undefined) driverPayload.license_type = normalizeLicenseType(license_type);
+    if (license_class !== undefined) driverPayload.license_class = normalizeLicenseClasses(license_class)?.join(", ") || null;
     if (years_of_experience !== undefined) {
       const exp = Number(years_of_experience);
       driverPayload.years_of_experience = Number.isFinite(exp) ? exp : 0;
@@ -263,6 +270,19 @@ export async function PUT(req, { params }) {
     const storedLicenceBack = toStoredMediaRef(license_back_image_url, "driver-licenses");
     if (storedLicenceFront !== undefined) driverPayload.license_image_url = storedLicenceFront;
     if (storedLicenceBack !== undefined) driverPayload.license_back_image_url = storedLicenceBack;
+
+    const credentialChanged =
+      (license_number !== undefined && normalizeLicense(license_number) !== existing.license_number) ||
+      (license_expiry !== undefined && (license_expiry || null) !== String(existing.license_expiry || "").slice(0, 10) && (license_expiry || null) !== existing.license_expiry) ||
+      (license_type !== undefined && normalizeLicenseType(license_type) !== existing.license_type) ||
+      (license_class !== undefined && normalizeLicenseClasses(license_class)?.join(", ") !== existing.license_class) ||
+      (storedLicenceFront !== undefined && storedLicenceFront !== existing.license_image_url) ||
+      (storedLicenceBack !== undefined && storedLicenceBack !== existing.license_back_image_url);
+    if (credentialChanged) {
+      driverPayload.license_verified_at = null;
+      driverPayload.license_verified_by = null;
+      driverPayload.license_verification_method = null;
+    }
     if (emergency_contact_name !== undefined) driverPayload.emergency_contact_name = emergency_contact_name || null;
     if (emergency_contact_phone !== undefined) driverPayload.emergency_contact_phone = emergency_contact_phone || null;
     if (emergency.value) driverPayload.emergency_contact_address = emergency.value.formattedAddress;
@@ -301,6 +321,27 @@ export async function PUT(req, { params }) {
         ...vals,
         id,
       ]);
+    }
+
+    if (credentialChanged) {
+      await writeAudit(req, null, {
+        action: "update",
+        resource: "drivers",
+        resourceId: Number(id) || null,
+        oldValues: {
+          license_number: maskLicenseNumber(existing.license_number),
+          license_expiry: existing.license_expiry,
+          license_type: existing.license_type,
+          license_class: existing.license_class,
+        },
+        newValues: {
+          license_number: maskLicenseNumber(driverPayload.license_number ?? existing.license_number),
+          license_expiry: driverPayload.license_expiry ?? existing.license_expiry,
+          license_type: driverPayload.license_type ?? existing.license_type,
+          license_class: driverPayload.license_class ?? existing.license_class,
+          verification_cleared: true,
+        },
+      });
     }
 
     // Build employee update payload

@@ -15,7 +15,7 @@ export async function GET(req) {
 
     const { rows } = await query(
       `SELECT e.employee_id, e.email, e.first_name, e.last_name, e.phone,
-              d.driver_id, d.driver_status, d.license_number, d.license_expiry,
+              d.driver_id, d.driver_status, d.license_expiry,
               d.current_latitude, d.current_longitude, d.last_location_update
          FROM employees e
          JOIN drivers d ON d.employee_id = e.employee_id AND d.deleted_at IS NULL
@@ -76,7 +76,6 @@ export async function GET(req) {
       phone: me.phone,
       driverId: me.driver_id,
       driverStatus: me.driver_status,
-      licenseNumber: me.license_number,
       licenseExpiry: me.license_expiry,
       lastLocation: me.last_location_update
         ? {

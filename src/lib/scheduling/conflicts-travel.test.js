@@ -93,3 +93,26 @@ describe("evaluateRequestConflicts — travel buffer (§4.8.3)", () => {
     expect(findings.some((f) => f.type === CONFLICT_TYPE.TRAVEL_BUFFER)).toBe(false);
   });
 });
+
+describe("evaluateRequestConflicts — driver license eligibility", () => {
+  it("surfaces a class mismatch with an actionable reason to staff", () => {
+    const findings = evaluateRequestConflicts(REQ, {
+      vehicle: { vehicle_id: 2, required_license_class: "B1" },
+      driver: {
+        driver_id: 5,
+        first_name: "Juan",
+        last_name: "Dela Cruz",
+        license_number: "N04-19-013583",
+        license_type: "Professional",
+        license_class: "B",
+        license_expiry: "2028-01-01",
+        license_verified_at: "2026-08-01T10:00:00+08:00",
+        license_verified_by: 9,
+        license_verification_method: "physical_card",
+      },
+    });
+    const finding = findings.find((item) => item.type === CONFLICT_TYPE.DRIVER_LICENSE_INELIGIBLE);
+    expect(finding?.severity).toBe("blocking");
+    expect(finding?.message).toMatch(/License class does not cover this vehicle/i);
+  });
+});
