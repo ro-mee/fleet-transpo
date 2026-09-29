@@ -54,6 +54,9 @@ Capstone/.obsidian/
 # agent scratch workspaces (subagent-driven development ledgers/briefs)
 .superpowers/
 
+# linked git worktrees for isolated agent work
+.worktrees/
+
 # local probes, census scripts and debug output — never commit
 scratch/
 *.bak
