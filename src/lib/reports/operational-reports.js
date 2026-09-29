@@ -154,109 +154,148 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
   };
 }
 
-/** Shared server payload for Driver Performance. */
+export const PUNCTUALITY_GRACE_MINUTES = 5;
+
+/** Shared server payload for Driver Performance: completed trips + punctuality. */
 export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to = DEFAULT_REPORT_TO) {
-  const [{ rows: drivers }, { rows: tripRows }, { rows: incidentRows }] = await Promise.all([
+  const params = [from, to, String(PUNCTUALITY_GRACE_MINUTES)];
+  const [{ rows: driverRows }, { rows: fleetLateRows }, { rows: tripRows }] = await Promise.all([
     query(
       `SELECT d.driver_id,
-               COALESCE(e.first_name, '') AS first_name,
-               COALESCE(e.last_name, '') AS last_name,
-               d.face_image_url,
-               e.avatar_url,
-              COUNT(t.trip_id)::int AS total_trips,
-              ROUND(AVG(t.customer_rating)::numeric, 1) AS rating,
-              ROUND(AVG(t.smooth_driving_score)::numeric, 1) AS performance_score,
-              ROUND(SUM(t.distance)::numeric, 1) AS total_distance,
-              ROUND(AVG(CASE WHEN t.on_time_completion THEN 1 ELSE 0 END)::numeric, 2) AS on_time_rate,
-              ROUND(AVG(t.cost_per_km)::numeric, 2) AS cost_per_km,
-              (SELECT COUNT(*)::int FROM driverincidents di
-                WHERE di.driver_id = d.driver_id
-                  AND di.deleted_at IS NULL
-                  AND di.incident_date >= $1::date
-                  AND di.incident_date < ($2::date + 1)) AS incidents,
-              d.driver_status
-         FROM drivers d
-         LEFT JOIN employees e ON d.employee_id = e.employee_id
-         LEFT JOIN trips t ON t.driver_id = d.driver_id
-           AND t.trip_status = 'Completed'
-           AND t.deleted_at IS NULL
-           AND t.end_time >= $1::date
-           AND t.end_time < ($2::date + 1)
-         WHERE d.deleted_at IS NULL
-         GROUP BY d.driver_id, e.first_name, e.last_name, d.driver_status, d.face_image_url, e.avatar_url`,
-      [from, to]
+        COALESCE(NULLIF(CONCAT_WS(' ', e.first_name, e.last_name), ''), 'Unknown') AS name,
+        d.face_image_url,
+        e.avatar_url,
+        d.driver_status,
+        COUNT(t.trip_id)::int AS completed_trips,
+        COUNT(*) FILTER (
+          WHERE t.at_pickup_at IS NOT NULL
+            AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+            AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+        )::int AS measured_trips,
+        COUNT(*) FILTER (
+          WHERE t.at_pickup_at IS NOT NULL
+            AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+            AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+            AND t.at_pickup_at <= COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                + ($3 || ' minutes')::interval
+        )::int AS on_time_trips,
+        COUNT(*) FILTER (
+          WHERE t.at_pickup_at IS NOT NULL
+            AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+            AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+            AND t.at_pickup_at > COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                + ($3 || ' minutes')::interval
+        )::int AS late_trips,
+        COUNT(*) FILTER (WHERE COALESCE(t.at_pickup_override, FALSE) = TRUE)::int AS override_trips,
+        ROUND(AVG(CASE WHEN t.at_pickup_at IS NOT NULL
+            AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+            AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+            AND t.at_pickup_at > COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                + ($3 || ' minutes')::interval
+          THEN EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60 END)::numeric, 1) AS avg_late_minutes,
+        ROUND(MAX(CASE WHEN t.at_pickup_at IS NOT NULL
+            AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+            AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+            AND t.at_pickup_at > COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                + ($3 || ' minutes')::interval
+          THEN EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60 END)::numeric, 1) AS max_late_minutes
+   FROM drivers d
+   LEFT JOIN employees e ON d.employee_id = e.employee_id
+   LEFT JOIN trips t ON t.driver_id = d.driver_id
+     AND t.trip_status = 'Completed' AND t.deleted_at IS NULL
+     AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+   LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+   LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+  WHERE d.deleted_at IS NULL
+  GROUP BY d.driver_id, e.first_name, e.last_name, d.driver_status, d.face_image_url, e.avatar_url`,
+      params
     ),
     query(
-      `SELECT t.trip_id, t.driver_id, t.vehicle_id, t.start_time, t.end_time,
-              t.distance, t.actual_duration, t.trip_status, t.on_time_completion,
-              t.customer_rating, t.smooth_driving_score, t.cost_per_km,
-              CONCAT_WS(' ', e.first_name, e.last_name) AS driver_name,
-              v.plate_number
-         FROM trips t
-         LEFT JOIN drivers d ON d.driver_id = t.driver_id
-         LEFT JOIN employees e ON e.employee_id = d.employee_id
-         LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
-        WHERE t.trip_status = 'Completed'
-          AND t.deleted_at IS NULL
-          AND t.end_time >= $1::date
-          AND t.end_time < ($2::date + 1)
-        ORDER BY t.end_time, t.trip_id`,
-      [from, to]
+      `SELECT
+   ROUND(AVG(EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60)::numeric, 1) AS avg_late_minutes,
+   ROUND(MAX(EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60)::numeric, 1) AS max_late_minutes
+   FROM trips t
+   LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+   LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+  WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
+    AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+    AND t.at_pickup_at IS NOT NULL
+    AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+    AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+    AND t.at_pickup_at > COALESCE(ds.scheduled_departure, tr.pickup_datetime) + ($3 || ' minutes')::interval`,
+      params
     ),
     query(
-      `SELECT di.incident_id, di.driver_id, di.vehicle_id, di.trip_id,
-              di.incident_type, di.incident_date, di.severity, di.status,
-              di.expense_amount, di.description,
-              CONCAT_WS(' ', e.first_name, e.last_name) AS driver_name,
-              v.plate_number
-         FROM driverincidents di
-         LEFT JOIN drivers d ON d.driver_id = di.driver_id
-         LEFT JOIN employees e ON e.employee_id = d.employee_id
-         LEFT JOIN vehicles v ON v.vehicle_id = di.vehicle_id
-        WHERE di.deleted_at IS NULL
-          AND di.incident_date >= $1::date
-          AND di.incident_date < ($2::date + 1)
-        ORDER BY di.incident_date, di.incident_id`,
-      [from, to]
+      `SELECT t.trip_id, t.driver_id,
+   COALESCE(NULLIF(CONCAT_WS(' ', e.first_name, e.last_name), ''), 'Unknown') AS driver_name,
+   COALESCE(ds.scheduled_departure, tr.pickup_datetime) AS scheduled_pickup,
+   t.at_pickup_at, COALESCE(t.at_pickup_override, FALSE) AS override,
+   CASE WHEN t.at_pickup_at IS NULL OR COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NULL THEN NULL
+        ELSE ROUND((EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60)::numeric, 1) END AS variance_minutes,
+   CASE WHEN t.at_pickup_at IS NULL OR COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NULL THEN 'unmeasured'
+        WHEN COALESCE(t.at_pickup_override, FALSE) = TRUE THEN 'override'
+        WHEN t.at_pickup_at <= COALESCE(ds.scheduled_departure, tr.pickup_datetime) + ($3 || ' minutes')::interval THEN 'on_time'
+        ELSE 'late' END AS result
+   FROM trips t
+   LEFT JOIN drivers d ON d.driver_id = t.driver_id
+   LEFT JOIN employees e ON e.employee_id = d.employee_id
+   LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+   LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+  WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
+    AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+  ORDER BY t.end_time, t.trip_id`,
+      params
     ),
   ]);
 
-  const details = (drivers || []).map((row) => ({
-    driver_id: row.driver_id,
-    name: fullName(row),
-    face_image_url: row.face_image_url || null,
-    avatar_url: row.avatar_url || null,
-    total_trips: Number(row.total_trips) || 0,
-    rating: nullableNumber(row.rating),
-    performance_score: nullableNumber(row.performance_score),
-    total_distance: nullableNumber(row.total_distance),
-    on_time_rate: nullableNumber(row.on_time_rate),
-    incidents: Number(row.incidents) || 0,
-    cost_per_km: nullableNumber(row.cost_per_km),
-    driver_status: row.driver_status,
-  })).sort((a, b) => b.performance_score - a.performance_score || b.total_trips - a.total_trips || a.name.localeCompare(b.name));
-  const scored = details.filter((row) => row.performance_score > 0);
-  const monthMap = new Map();
-  for (const trip of tripRows || []) {
-    const month = monthOf(trip.end_time);
-    if (month === "Unknown") continue;
-    const row = monthMap.get(month) || { month, trips: 0, distance: 0 };
-    row.trips += 1;
-    row.distance += number(trip.distance);
-    monthMap.set(month, row);
-  }
-  const totalTrips = details.reduce((sum, row) => sum + row.total_trips, 0);
+  const details = (driverRows || []).map((row) => {
+    const completed = Number(row.completed_trips) || 0;
+    const measured = Number(row.measured_trips) || 0;
+    const onTime = Number(row.on_time_trips) || 0;
+    const late = Number(row.late_trips) || 0;
+    const override = Number(row.override_trips) || 0;
+    const unmeasured = Math.max(0, completed - measured - override);
+    return {
+      driver_id: row.driver_id,
+      name: row.name,
+      face_image_url: row.face_image_url || null,
+      avatar_url: row.avatar_url || null,
+      driver_status: row.driver_status,
+      completed_trips: completed,
+      measured_trips: measured,
+      on_time_trips: onTime,
+      late_trips: late,
+      unmeasured_trips: unmeasured,
+      override_trips: override,
+      punctuality_rate: measured === 0 ? null : Math.round((onTime / measured) * 100),
+      avg_late_minutes: nullableNumber(row.avg_late_minutes),
+      max_late_minutes: nullableNumber(row.max_late_minutes),
+    };
+  }).sort((a, b) => (b.punctuality_rate ?? -1) - (a.punctuality_rate ?? -1) || b.completed_trips - a.completed_trips);
+
+  const measuredTrips = details.reduce((sum, row) => sum + row.measured_trips, 0);
+  const onTimeTrips = details.reduce((sum, row) => sum + row.on_time_trips, 0);
+  const lateTrips = details.reduce((sum, row) => sum + row.late_trips, 0);
+  const unmeasuredTrips = details.reduce((sum, row) => sum + row.unmeasured_trips, 0);
+  const overrideTrips = details.reduce((sum, row) => sum + row.override_trips, 0);
+  const totalCompletedTrips = details.reduce((sum, row) => sum + row.completed_trips, 0);
+  const fleetLate = (fleetLateRows || [])[0] || {};
   return {
-    totalDrivers: (drivers || []).length,
-    totalTrips,
-    totalDistance: round((tripRows || []).reduce((sum, row) => sum + number(row.distance), 0)),
-    avgScore: scored.length ? Math.round(scored.reduce((sum, row) => sum + row.performance_score, 0) / scored.length) : 0,
-    topDrivers: scored.slice(0, 10).map((row) => ({ name: row.name, score: row.performance_score, trips: row.total_trips, rating: row.rating })),
+    totalDrivers: (driverRows || []).length,
+    totalCompletedTrips,
+    punctuality: {
+      measuredTrips,
+      onTimeTrips,
+      lateTrips,
+      unmeasuredTrips,
+      overrideTrips,
+      onTimeRate: measuredTrips === 0 ? null : Math.round((onTimeTrips / measuredTrips) * 100),
+      avgLateMinutes: nullableNumber(fleetLate.avg_late_minutes),
+      maxLateMinutes: nullableNumber(fleetLate.max_late_minutes),
+    },
     details,
-    monthlyData: [...monthMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => a.month.localeCompare(b.month)),
     trips: tripRows || [],
-    incidents: incidentRows || [],
-    methodology: "Driver score is the average smooth-driving score on completed, non-deleted trips ending in the selected period. On-time rate follows the existing report rule (true = 1, all other values = 0). Drivers without completed measurements remain unscored; the workbook leaves rate, score, rating, distance, and cost/km blank for them.",
+    methodology: "Completed non-deleted trips by end_time in window. Measured = has server-stamped at_pickup_at and a scheduled pickup (dispatch plan, else booking promise); geofence-override arrivals are excluded from on-time/late and shown separately. On-time = at_pickup_at within 5 min after scheduled pickup; early = on-time. Rate = on-time / measured only.",
   };
 }
 
