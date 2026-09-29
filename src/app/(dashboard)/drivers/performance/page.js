@@ -212,12 +212,21 @@ export default function DriverPerformancePage() {
   });
 
   const details = data?.details || [];
-  const summary = buildPunctualitySummary(details);
+  const rowSummary = buildPunctualitySummary(details);
+  // The payload's own fleet total is authoritative — it is the same
+  // `totalCompletedTrips` every other reports surface reads, so the page must
+  // not re-derive it from the rows and drift from them silently. The row sum is
+  // only the fallback while the payload is missing (and during loading). The
+  // fleet rate is NOT taken from here: the payload carries no fleet-level rate,
+  // so it stays the ratio of the row totals.
+  const serverCompletedTrips = data?.totalCompletedTrips;
+  const summary = Number.isFinite(serverCompletedTrips)
+    ? { ...rowSummary, totalCompletedTrips: serverCompletedTrips }
+    : rowSummary;
   const rosterEmpty = !isLoading && details.length === 0;
   // Both empty states are a dash, never a 0%: an empty period is not a fleet
   // that missed every pickup.
   const noTrips = !isLoading && !rosterEmpty && summary.totalCompletedTrips === 0;
-  const showEmptyState = rosterEmpty || noTrips;
   const noMeasurements = summary.measuredTrips === 0;
 
   const kpis = [

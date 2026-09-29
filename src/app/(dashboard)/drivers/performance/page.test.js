@@ -95,6 +95,17 @@ function render(data) {
 
 const KPI_LABELS = ["Completed Trips", "Punctuality", "On-Time", "Late", "Not Measured"];
 
+// StatCard renders `<span … title={label}>{label}</span>`, and its value is the
+// first paragraph after that span. Reading the card from its own label
+// attribute is what makes a dropped card fail — a bare substring check cannot,
+// because "On-Time" and "Late" are table headers too.
+function kpiValue(html, label) {
+  const at = html.indexOf(`title="${label}"`);
+  if (at === -1) return null;
+  const match = html.slice(at).match(/<p[^>]*>([^<]*)<\/p>/);
+  return match ? match[1].trim() : null;
+}
+
 beforeEach(() => {
   // This repo's Vitest JSX transform uses the classic React runtime.
   vi.stubGlobal("React", React);
@@ -152,9 +163,32 @@ describe("buildPunctualitySummary", () => {
 describe("Driver Performance Center", () => {
   it("renders the five KPI cards", () => {
     const html = render(payload([driver()]));
+    // Scoped to each card's own label attribute, not to a loose substring:
+    // "On-Time" and "Late" also occur as table headers, so deleting those two
+    // cards used to leave this assertion green.
     for (const label of KPI_LABELS) {
-      expect(html).toContain(label);
+      expect(html, `KPI card "${label}" is missing`).toContain(`title="${label}"`);
     }
+  });
+
+  it("takes the fleet completed total from the server payload, not from the row sum", () => {
+    // The rows below sum to 14 completed trips; the payload deliberately says
+    // 99. Rendering 14 here is what re-deriving the aggregate from `details`
+    // looks like — and it is what would silently desynchronise this page from
+    // the other reports surfaces once they read the same payload.
+    const data = payload([
+      driver({ driver_id: 1, completed_trips: 10, measured_trips: 6, on_time_trips: 5, late_trips: 1, override_trips: 2, unmeasured_trips: 2 }),
+      driver({ driver_id: 2, name: "Ben Cruz", completed_trips: 4, measured_trips: 3, on_time_trips: 2, late_trips: 1, override_trips: 0 }),
+    ]);
+    data.totalCompletedTrips = 99;
+    const html = render(data);
+    expect(kpiValue(html, "Completed Trips")).toBe("99");
+    // The ring and its caption describe the same fleet as the headline, so they
+    // read the same total rather than contradicting it.
+    expect(html).toContain("of 99 completed trips");
+    // The fleet rate has no payload counterpart at fleet level, so it is still
+    // the weighted ratio of the rows: (5 + 2) / (6 + 3).
+    expect(kpiValue(html, "Punctuality")).toBe("78%");
   });
 
   it("shows the weighted fleet rate with its raw counts, never an average of per-driver rates", () => {
@@ -200,11 +234,15 @@ describe("Driver Performance Center", () => {
 
   it("renders the punctuality table columns", () => {
     const html = render(payload([driver()]));
-    // "Driver", "Status", "Completed", "Avg Late" and "View" are table-only
-    // labels, so their presence cannot be satisfied by the KPI band above.
-    for (const label of ["Driver", "Status", "Completed", "Punctuality", "On-Time", "Late", "Avg Late", "View"]) {
-      expect(html).toContain(label);
-    }
+    // The plan's column contract, read back from the rendered headers in order.
+    // A bare substring check cannot carry this: every label here also occurs in
+    // the KPI band, the ring centre or the table title, so the previous version
+    // passed against a table with Completed / On-Time / Late deleted and the
+    // rate column relabelled "On-Time" — the exact drift this task repaired.
+    const headers = [...html.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/g)].map((m) =>
+      m[1].replace(/<[^>]+>/g, "").trim()
+    );
+    expect(headers).toEqual(["Driver", "Status", "Completed", "Punctuality", "On-Time", "Late", "Avg Late", "View"]);
     expect(html).toContain("88%");
     expect(html).toContain("+12.4 min");
     // The View cell keeps the profile affordance the previous page carried.
