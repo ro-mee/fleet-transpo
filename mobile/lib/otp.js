@@ -81,10 +81,13 @@ export function parseOtpLock(message) {
 }
 
 /** Failed verifications before a challenge burns. Mirrors otp-policy. */
-export const OTP_MAX_ATTEMPTS = 5;
+export const OTP_MAX_ATTEMPTS = 3;
 
 /** Burned challenges before the account freezes. Mirrors otp-policy. */
 export const OTP_LOCKOUT_LIMIT = 3;
+
+/** Fixed freeze window, measured from the account's first burn. Mirrors otp-policy. */
+export const OTP_LOCKOUT_WINDOW_MS = 15 * 60_000;
 
 /** Wire prefix of the attempts-left token. Mirrors otp-policy. */
 export const OTP_ATTEMPTS_LEFT_PREFIX = "OTP_ATTEMPTS_LEFT:";
@@ -119,4 +122,47 @@ export function formatLockWait(seconds) {
   if (total < 60) return `${total} second${total === 1 ? "" : "s"}`;
   const minutes = Math.ceil(total / 60);
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+/**
+ * Copy for a wrong code with attempts left. Mirrors the server's
+ * describeOtpAttemptsLeft word for word — the OTP step and the login form must
+ * not be able to say different things about the same verdict.
+ */
+export function describeOtpAttemptsLeft(attemptsLeft) {
+  const left = Number(attemptsLeft);
+  const n = Number.isFinite(left)
+    ? Math.min(OTP_MAX_ATTEMPTS, Math.max(1, Math.floor(left)))
+    : OTP_MAX_ATTEMPTS;
+  if (n === 1) {
+    return "Incorrect code. 1 attempt left. One more wrong code cancels this code, and you'll need your password again for a new one.";
+  }
+  return `Incorrect code. ${n} attempt${n === 1 ? "" : "s"} left.`;
+}
+
+/**
+ * Copy for the burned challenge — the code is cancelled after OTP_MAX_ATTEMPTS
+ * wrong codes. Mirrors the server's describeOtpBurn word for word (parity pins
+ * compare the strings), in three lines: what happened, what to do, what it
+ * costs. The screen says "cancelled code", never "strike" — the token and the
+ * field keep the name, the reader does not, and "failed codes" was wrong by a
+ * factor of three (three wrong codes cancel one code).
+ */
+export function describeOtpBurn({ strike } = {}) {
+  const raw = Number(strike);
+  const n = Number.isFinite(raw)
+    ? Math.min(OTP_LOCKOUT_LIMIT, Math.max(1, Math.floor(raw)))
+    : 1;
+  const more = OTP_LOCKOUT_LIMIT - n;
+  const windowMinutes = Math.round(OTP_LOCKOUT_WINDOW_MS / 60_000);
+  const consequence =
+    more > 0
+      ? ` — ${more} more will lock this account for ` +
+        `${windowMinutes} minute${windowMinutes === 1 ? "" : "s"}.`
+      : ".";
+  return (
+    `Your code was cancelled after ${OTP_MAX_ATTEMPTS} wrong codes.\n` +
+    "Enter your password again to get a new code.\n" +
+    `Cancelled code ${n} of ${OTP_LOCKOUT_LIMIT}${consequence}`
+  );
 }

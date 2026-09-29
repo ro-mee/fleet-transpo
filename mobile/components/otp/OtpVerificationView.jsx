@@ -17,11 +17,11 @@ import { AuthHeader } from "../auth/AuthHeader";
 import { OtpInput } from "./OtpInput";
 import {
   OTP_CODE_DIGITS,
-  OTP_LOCKOUT_LIMIT,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_SUCCESS_HOLD_MS,
   OTP_TTL_SECONDS,
   OTP_VERIFY_MIN_MS,
+  describeOtpAttemptsLeft,
   formatCountdown,
   formatLockWait,
   isEmailLike,
@@ -50,8 +50,8 @@ import {
 export function OtpVerificationView({
   identifier = "",
   onVerify,
-  onResend,
   onVerified,
+  onBurned,
   onBack,
 }) {
   const { colors, scheme } = useTheme();
@@ -61,7 +61,6 @@ export function OtpVerificationView({
   const [phase, setPhase] = useState("entering"); // entering | verifying | error | success
   const [errorMsg, setErrorMsg] = useState(null);
   const [infoMsg, setInfoMsg] = useState(null);
-  const [resending, setResending] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [now, setNow] = useState(() => Date.now());
@@ -92,7 +91,6 @@ export function OtpVerificationView({
   const remainingSec = Math.max(0, Math.round((expiresAt - now) / 1000));
   const expired = remainingSec <= 0;
   const cooldownSec = Math.max(0, Math.round((cooldownUntil - now) / 1000));
-  const canResend = cooldownSec <= 0 && !resending && phase !== "verifying" && phase !== "success";
 
   const masked = isEmailLike(identifier) ? maskEmailAddress(identifier) : null;
 
@@ -147,13 +145,13 @@ export function OtpVerificationView({
         if (message === "MFA_INVALID") {
           fail("Incorrect verification code.\nPlease check the code and try again.");
         } else if (attemptsLeft !== null) {
-          fail(`Incorrect code.\n${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left.`);
+          fail(describeOtpAttemptsLeft(attemptsLeft));
         } else if (strike !== null) {
-          const more = OTP_LOCKOUT_LIMIT - strike;
-          fail(
-            `That code was wrong. Strike ${strike} of ${OTP_LOCKOUT_LIMIT}.\n` +
-              `${more} more failed code${more === 1 ? "" : "s"} will freeze this account for 15 minutes.`
-          );
+          // The challenge was burned on the 3rd wrong code: these digits can
+          // never verify again, and a strike ends the OTP step rather than
+          // replacing the code — the login form re-proves the password before
+          // a new one is minted, so the verdict copy belongs to that form.
+          onBurned?.(strike);
         } else if (message === "MFA_UNAVAILABLE") {
           fail("Verification is temporarily unavailable. Please try again shortly.", {
             keepCode: true,
@@ -181,7 +179,7 @@ export function OtpVerificationView({
         }
       }
     },
-    [fail, onVerify, onVerified, successAnim]
+    [fail, onBurned, onVerify, onVerified, successAnim]
   );
 
   // Automatic verification lives in the change handler (not an effect):
@@ -203,42 +201,6 @@ export function OtpVerificationView({
     },
     [phase, recoveryMode, verifyWith]
   );
-
-  const handleResend = useCallback(async () => {
-    if (!canResend) return;
-    setResending(true);
-    setErrorMsg(null);
-    try {
-      await onResend();
-      if (!mountedRef.current) return;
-      setExpiresAt(Date.now() + OTP_TTL_SECONDS * 1000);
-      setCooldownUntil(Date.now() + OTP_RESEND_COOLDOWN_SECONDS * 1000);
-      setCode("");
-      setRecoveryCode("");
-      setPhase("entering");
-      setInfoMsg("A new code is on its way to your registered email.");
-      setTimeout(() => inputRef.current?.focusFirst(), 100);
-    } catch (e) {
-      if (!mountedRef.current) return;
-      const message = e?.message || "The code could not be resent. Please try again.";
-      const lockSecs = parseOtpLock(message);
-      if (lockSecs !== null) {
-        setErrorMsg(`Too many incorrect codes. Try again in ${formatLockWait(lockSecs)}.`);
-        setPhase("error");
-      } else if (/cooldown|too many|wait/i.test(message)) {
-        setErrorMsg("Please wait a moment before requesting a new code.");
-        setPhase("error");
-      } else if (e?.status === 0 || /network|connection|offline/i.test(message)) {
-        setErrorMsg("No connection. Check your connection and try again.");
-        setPhase("error");
-      } else {
-        setErrorMsg(message);
-        setPhase("error");
-      }
-    } finally {
-      if (mountedRef.current) setResending(false);
-    }
-  }, [canResend, onResend]);
 
   const handleBack = useCallback(() => {
     // Clear OTP state before leaving so nothing lingers in memory.
@@ -394,25 +356,13 @@ export function OtpVerificationView({
             </Text>
           </View>
 
-          {resending ? (
-            <View style={styles.metaItem}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={[styles.metaText, { color: colors.primary }]}>Sending…</Text>
-            </View>
-          ) : canResend ? (
-            <Pressable
-              onPress={handleResend}
-              accessibilityRole="button"
-              accessibilityLabel="Resend verification code"
-              style={styles.metaTap}
-            >
-              <Text style={[styles.metaText, styles.metaLink, { color: colors.primary }]}>
-                Resend
-              </Text>
-            </Pressable>
+          {cooldownSec > 0 ? (
+            <Text style={[styles.metaText, { color: colors.outline }]}>
+              Request again in {formatCountdown(cooldownSec)}
+            </Text>
           ) : (
             <Text style={[styles.metaText, { color: colors.outline }]}>
-              Resend in {formatCountdown(cooldownSec)}
+              Sign in again for a new code
             </Text>
           )}
         </View>
@@ -499,15 +449,6 @@ const styles = StyleSheet.create({
     lineHeight: moderateScale(20),
     flexShrink: 1,
     textAlign: "center",
-  },
-  metaLink: {
-    fontFamily: fonts.bodySemiBold,
-  },
-  metaTap: {
-    paddingVertical: moderateScale(8),
-    paddingHorizontal: moderateScale(6),
-    minHeight: moderateScale(40),
-    justifyContent: "center",
   },
   recoveryTap: {
     alignItems: "center",

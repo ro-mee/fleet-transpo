@@ -24,7 +24,14 @@ import { ClayCard, ClayButton, ClayInput } from "../components/clay";
 import { AuthHeader } from "../components/auth/AuthHeader";
 import { OtpVerificationView } from "../components/otp/OtpVerificationView";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
-import { OTP_LOCKOUT_LIMIT, formatLockWait, parseOtpAttemptsLeft, parseOtpLock, parseOtpStrike } from "../lib/otp";
+import {
+  describeOtpAttemptsLeft,
+  describeOtpBurn,
+  formatLockWait,
+  parseOtpAttemptsLeft,
+  parseOtpLock,
+  parseOtpStrike,
+} from "../lib/otp";
 
 /**
  * The one-time offer shown right after a successful password + OTP sign-in.
@@ -183,6 +190,10 @@ export default function LoginScreen() {
   }, [offerDriver, enrolling, enableBiometric, finishBiometricOffer]);
 
   const handleLogin = async () => {
+    // The OTP step offers no resend link any more, so re-submitting this form
+    // is the resend path — and after a strike, the only way to a new code. That
+    // is what keeps a new code costing the password: `signIn` here is the
+    // credential check, not a bare "send me another code" call.
     if (!username.trim() || !password) {
       setError("Please enter both username and password.");
       return;
@@ -204,13 +215,13 @@ export default function LoginScreen() {
       } else if (e.message === "MFA_INVALID") {
         setError("That verification code is invalid or already used.");
       } else if (attemptsLeft !== null) {
-        setError(`Incorrect code — ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left.`);
+        setError(describeOtpAttemptsLeft(attemptsLeft));
       } else if (strike !== null) {
-        const more = OTP_LOCKOUT_LIMIT - strike;
-        setError(
-          `That code was wrong. Strike ${strike} of ${OTP_LOCKOUT_LIMIT} — request a new code. ` +
-            `${more} more failed code${more === 1 ? "" : "s"} will freeze this account for 15 minutes.`
-        );
+        // Defensive: this step never submits a code, so the server has no
+        // challenge to burn and cannot answer with a strike. The wording is
+        // shared with the OTP step's hand-back so the two can never disagree
+        // if that ever changes; nothing was requested from here.
+        setError(describeOtpBurn({ strike }));
       } else if (e.message === "OTP_UNDELIVERABLE") {
         setError(
           "No verification code could be sent to this account. Contact your administrator."
@@ -232,15 +243,17 @@ export default function LoginScreen() {
   // view can play its success animation before navigating.
   const handleVerifyOtp = (otpCode) => signIn(username.trim(), password, { otpCode });
 
-  // Re-submitting the sign-in without a code IS the resend: the server
-  // issues a fresh challenge and answers MFA_REQUIRED again.
-  const handleResendOtp = async () => {
-    try {
-      await signIn(username.trim(), password, { otpCode: "" });
-    } catch (e) {
-      if (e.message === "MFA_REQUIRED") return;
-      throw e;
-    }
+  /**
+   * A strike ends the OTP step: the burned code can never verify, nothing is
+   * sent for the driver, and a new code costs the password again. The password
+   * state is dropped so the form cannot re-submit what is still in memory, and
+   * the verdict copy lands on the form — the surface that can re-prove the
+   * credential.
+   */
+  const handleOtpBurned = (strike) => {
+    setPassword("");
+    setMfaRequired(false);
+    setError(describeOtpBurn({ strike }));
   };
 
   // Rendered in both branches: the offer fires after OTP verification, which
@@ -272,8 +285,8 @@ export default function LoginScreen() {
           <OtpVerificationView
             identifier={username.trim()}
             onVerify={handleVerifyOtp}
-            onResend={handleResendOtp}
             onVerified={handlePostLogin}
+            onBurned={handleOtpBurned}
             onBack={() => {
               setMfaRequired(false);
             }}
