@@ -12,10 +12,14 @@ import {
   OTP_LOCKOUT_WINDOW_MS,
 } from "@/lib/auth/otp-policy";
 import { isEmailConfigured, sendOtpEmail } from "@/lib/email/smtp";
-import { checkAccountLockout, recordFailedAttempt, clearAccountLockout, LOCKOUT_LIMIT } from "@/lib/auth/account-lockout";
+import { checkAccountLockout, recordFailedAttempt, clearAccountLockout } from "@/lib/auth/account-lockout";
 import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { recordNewDeviceAlert } from "@/lib/auth/new-device-alert";
-import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
+import {
+  getSecurityPolicy,
+  absoluteTtlSecondsOrDefault,
+  warmSecurityPolicy,
+} from "@/services/security-policy.service";
 import { hashTrustedDeviceToken, trustedDeviceTokenFromCookieHeader } from "@/lib/auth/trusted-device";
 import { signedUrlFor, isResolvableMediaRef } from "@/lib/storage/object-refs";
 import { AVATAR_BUCKETS } from "@/lib/drivers/media";
@@ -40,15 +44,19 @@ export const authOptions = {
         // stuffing. 5 attempts per minute.
         const ip = clientIp({ headers: new Headers(req?.headers || {}) });
         const normalizedEmail = String(email).toLowerCase().trim();
-        const [ipBucket, accountBucket] = await Promise.all([
+        const [ipBucket, accountBucket, policy] = await Promise.all([
           rateLimit(`login:ip:${ip}`, { limit: 5, windowMs: 60_000 }),
           rateLimit(`login:account:${normalizedEmail}`, { limit: 5, windowMs: 60_000 }),
+          // Loaded once here and reused below for the lockout budget and the
+          // session row, so one sign-in reads the policy exactly once (and
+          // warms the cache the NextAuth maxAge getter depends on).
+          getSecurityPolicy(),
         ]);
         if (!ipBucket.allowed || !accountBucket.allowed) {
           throw new Error("Too many login attempts. Please try again in a minute.");
         }
 
-        const lockout = await checkAccountLockout(normalizedEmail);
+        const lockout = await checkAccountLockout(normalizedEmail, policy);
         if (!lockout.allowed) {
           throw new Error(`ACCOUNT_LOCKED:${lockout.retryAfter}`);
         }
@@ -77,11 +85,15 @@ export const authOptions = {
             resourceId: employee?.employee_id,
             newValues: { channel: "web" },
           });
-          const lockoutBucket = await recordFailedAttempt(normalizedEmail);
+          const lockoutBucket = await recordFailedAttempt(normalizedEmail, policy);
           if (!lockoutBucket.allowed && lockoutBucket.remaining === 0) {
             await raiseSecurityAlert(auditReq, {
               type: "account_locked",
-              details: { channel: "web", failures: LOCKOUT_LIMIT, windowMinutes: 15 },
+              details: {
+                channel: "web",
+                failures: policy.lockoutLimit,
+                windowMinutes: policy.lockoutWindowMinutes,
+              },
             });
           }
           return null;
@@ -209,10 +221,17 @@ export const authOptions = {
             throw new Error("MFA_REQUIRED");
           };
 
-          // No code supplied. This branch is also the resend path — the client
-          // re-submits the form. It only ever runs after the password verified,
-          // which is why no code is ever sent to an unauthenticated caller and
-          // there is no enumeration surface to defend.
+          // No code supplied: this is the resend path. The client re-submits
+          // the form — the MFA dialog's Resend code button and the plain submit
+          // button both land here, because there is no separate resend endpoint.
+          // It only ever runs after the password verified, which is why no code
+          // is ever sent to an unauthenticated caller and there is no
+          // enumeration surface to defend; the 60-second cooldown on this
+          // branch is what stops a resend racing itself.
+          //
+          // After a burn neither affordance is reachable anyway: the MFA step
+          // closes and the in-memory password is dropped, so the user must type
+          // the password again before a code can be minted.
           if (!otpCode) {
             await requireCode(await sendNewCode());
           }
@@ -307,12 +326,17 @@ export const authOptions = {
 
         const sessionId = randomUUID();
         const userAgent = auditReq.headers.get("user-agent") || null;
+        // The configured policy governs THIS session only from here on: the
+        // values are written onto the row, and every later check reads the row
+        // rather than the constant. Sessions issued before an administrator
+        // changed the policy keep the numbers they were created with — which is
+        // why a save applies to new sessions and never logs anyone out early.
         try {
           await query(
             `INSERT INTO web_sessions
                (session_id, employee_id, expires_at, ip_address, user_agent, idle_timeout_seconds)
              VALUES ($1, $2, NOW() + ($3 || ' seconds')::INTERVAL, $4, $5, $6)`,
-            [sessionId, employee.employee_id, WEB_SESSION_TTL_SECONDS, ip, userAgent, IDLE_TIMEOUT_SECONDS]
+            [sessionId, employee.employee_id, policy.absoluteTtlSeconds, ip, userAgent, policy.idleTimeoutSeconds]
           );
         } catch {
           throw new Error("Unable to start a secure session.");
@@ -326,6 +350,7 @@ export const authOptions = {
           employee,
           userAgent,
           kind: "web",
+          lookbackDays: policy.newDeviceLookbackDays,
         });
 
         await writeAudit(auditReq, null, {
@@ -411,9 +436,26 @@ export const authOptions = {
     strategy: "jwt",
     // Dashboard credentials should not remain valid for the framework's
     // 30-day default idle window.
-    maxAge: 12 * 60 * 60,
+    //
+    // A GETTER, not a number: NextAuth re-reads `authOptions.session` on every
+    // request (core/init.js spreads it into the per-request options), so this
+    // is the one place a configured absolute lifetime can take effect without
+    // rebuilding authOptions. It resolves from the cached policy — never from
+    // the database — because the spread happens synchronously before any of our
+    // code runs. A cold instance answers with the default 12h until its first
+    // read lands, which is the pre-config behaviour, and shortening is never
+    // affected either way: `web_sessions.expires_at` is the authoritative check
+    // and it is written from the policy at login.
+    get maxAge() {
+      return absoluteTtlSecondsOrDefault();
+    },
   },
 };
+
+// Warm the policy cache at module load so the getter above has an answer before
+// the first request that needs it. Fire-and-forget: a failure leaves the entry
+// uncached and the login path reads it properly anyway.
+warmSecurityPolicy();
 
 export async function auth() {
   const { getServerSession } = await import("next-auth");

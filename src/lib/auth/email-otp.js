@@ -20,7 +20,7 @@ import {
  * The code never determines which login attempt it belongs to: only one
  * challenge per employee is ever live, because issuing a new one deletes the
  * previous. That is why no challenge id travels over the wire, and why
- * re-submitting the sign-in form is the resend path.
+ * re-submitting the sign-in form — and nothing else — is the resend path.
  */
 
 export const OTP_PURPOSE_LOGIN = "login";

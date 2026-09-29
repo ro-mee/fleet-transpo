@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { DEFAULT_SECURITY_POLICY } from "@/lib/security-policy";
 
 /**
  * How long a browser may skip the emailed code.
@@ -12,8 +13,12 @@ import { createHash, randomBytes } from "node:crypto";
  *
  * This is the reason the honest claim is "MFA at first sign-in per device",
  * not "MFA on every sign-in" — see Authentication.md.
+ *
+ * The DEFAULT: `trustedDeviceCookieOptions` takes the configured value from
+ * the security policy, and falls back to this when it is not given.
  */
-export const TRUSTED_DEVICE_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const TRUSTED_DEVICE_TTL_SECONDS =
+  DEFAULT_SECURITY_POLICY.trustedDeviceTtlDays * 24 * 60 * 60;
 export const TRUSTED_DEVICE_COOKIE =
   process.env.NODE_ENV === "production"
     ? "__Host-fleetops-trusted-device"

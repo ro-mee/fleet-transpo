@@ -122,6 +122,12 @@ describe("SA-RBAC sensitive settings separation", () => {
     expect(rolesFor("ai_settings", "read")).toEqual(["super_admin"]);
     expect(rolesFor("ai_settings", "update")).toEqual(["super_admin"]);
     expect(rolesFor("system", "read")).toEqual(["super_admin"]);
+    // Security & session policy is written through system.update, so the
+    // denial has to be stated, not merely implied by the action's absence —
+    // an absent key and a false one behave the same at runtime, but only the
+    // false one shows up when someone reads the matrix looking for who may
+    // change how long a session lives.
+    expect(rolesFor("system", "update")).toEqual(["super_admin"]);
   });
 
   it("SA-RBAC-016/017: admin retains operational settings and fleet access", () => {

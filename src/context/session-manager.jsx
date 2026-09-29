@@ -13,13 +13,11 @@ import { signOut as nextAuthSignOut } from "next-auth/react";
 import { setSuppressAuthToasts, toast } from "@/components/ui/toast";
 import { saveReturnTo } from "@/lib/auth/return-to";
 import {
-  IDLE_TIMEOUT_SECONDS,
   WEB_SESSION_TTL_SECONDS,
-  IDLE_WARNING_SECONDS,
+  IDLE_TIMEOUT_SECONDS,
   ABSOLUTE_WARNING_SECONDS,
-  ACTIVITY_HEARTBEAT_INTERVAL_SECONDS,
-  ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS,
 } from "@/lib/auth/session-policy";
+import { deriveIdleWindows } from "@/lib/security-policy";
 import {
   subscribeSessionEvents,
   dispatchSessionAuthError,
@@ -33,18 +31,76 @@ import { clearAllReservationMessages } from "@/components/reservations/copilot-c
 // be independent 5-minute literals, which silently collided once the idle
 // timeout itself was reduced to 5 minutes: the warning window became the entire
 // timeout window and the modal never dismissed.
-const IDLE_WARNING_MS = IDLE_WARNING_SECONDS * 1000;
 const ABSOLUTE_WARNING_MS = ABSOLUTE_WARNING_SECONDS * 1000;
-const ACTIVITY_HEARTBEAT_INTERVAL_MS = ACTIVITY_HEARTBEAT_INTERVAL_SECONDS * 1000;
-const ACTIVITY_HEARTBEAT_MIN_GAP_MS = ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS * 1000;
-// Full idle window in ms — the optimistic local reset slides the visible
-// deadline by exactly this on every verified human interaction.
-const IDLE_TIMEOUT_MS = IDLE_TIMEOUT_SECONDS * 1000;
+
+/**
+ * Every timing this component runs on, derived from two numbers: the idle
+ * window a session was minted with, and its absolute TTL.
+ *
+ * The derivation is `deriveIdleWindows` from `@/lib/security-policy` — the
+ * same function the settings form reads ranges from and the server validates
+ * against — so a configured value cannot produce a warning window wider than
+ * the timeout it guards, a throttle looser than the deadline it protects, or
+ * dialog copy that disagrees with the countdown beside it. That is the same
+ * invariant the module constants above encode, just evaluated per session
+ * instead of once at build time.
+ *
+ * @param {number} idleTimeoutSeconds
+ * @param {number} absoluteTtlSeconds
+ */
+function windowsFor(idleTimeoutSeconds, absoluteTtlSeconds) {
+  const idle =
+    Number.isFinite(Number(idleTimeoutSeconds)) && Number(idleTimeoutSeconds) > 0
+      ? Number(idleTimeoutSeconds)
+      : IDLE_TIMEOUT_SECONDS;
+  const absolute =
+    Number.isFinite(Number(absoluteTtlSeconds)) && Number(absoluteTtlSeconds) > 0
+      ? Number(absoluteTtlSeconds)
+      : WEB_SESSION_TTL_SECONDS;
+  const derived = deriveIdleWindows(idle);
+  return {
+    /** The raw seconds, kept so a partial heartbeat can update one without losing the other. */
+    idleTimeoutSeconds: idle,
+    absoluteTtlSeconds: absolute,
+    /** Full idle window — how far an optimistic reset slides the deadline. */
+    idleTimeoutMs: idle * 1000,
+    /** Remaining idle under this opens the "Are you still there?" dialog. */
+    idleWarningMs: derived.idleWarningSeconds * 1000,
+    /** Floor between two server-confirmed slides. */
+    heartbeatMinGapMs: derived.heartbeatMinGapSeconds * 1000,
+    /** Backstop interval for the periodic heartbeat. */
+    heartbeatIntervalMs: derived.heartbeatIntervalSeconds * 1000,
+    /** Dialog copy: "extends your idle session by N minutes". */
+    idleExtensionMinutes: Math.max(1, Math.round(idle / 60)),
+    /** Dialog copy: "your N-hour session maximum limit". */
+    absoluteSessionLimitHours: Math.max(1, Math.round(absolute / 3600)),
+  };
+}
+
+/** Used until the first heartbeat reports the session's own timings. */
+const DEFAULT_WINDOWS = windowsFor(IDLE_TIMEOUT_SECONDS, WEB_SESSION_TTL_SECONDS);
+
+/**
+ * Structural equality, so a heartbeat reporting the same timings is a no-op.
+ * Without it every heartbeat would allocate a new object, re-run the listener
+ * and interval effects, and re-render the whole shell once a minute for a
+ * value that never changed.
+ */
+const sameWindows = (a, b) =>
+  a.idleTimeoutSeconds === b.idleTimeoutSeconds &&
+  a.absoluteTtlSeconds === b.absoluteTtlSeconds &&
+  a.idleTimeoutMs === b.idleTimeoutMs &&
+  a.idleWarningMs === b.idleWarningMs &&
+  a.heartbeatMinGapMs === b.heartbeatMinGapMs &&
+  a.heartbeatIntervalMs === b.heartbeatIntervalMs &&
+  a.idleExtensionMinutes === b.idleExtensionMinutes &&
+  a.absoluteSessionLimitHours === b.absoluteSessionLimitHours;
 
 const SessionManagerContext = createContext({
   modalState: null,
   idleExpiresAt: null,
   absoluteExpiresAt: null,
+  windows: DEFAULT_WINDOWS,
   staySignedIn: async () => {},
 });
 
@@ -89,6 +145,26 @@ export function SessionManagerProvider({ children }) {
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [errorCode, setErrorCode] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Timings for THIS session, as reported by the heartbeat. This changes at
+  // most once — when the first response reveals a configured policy that
+  // differs from the shipped defaults — and only then do the listener and
+  // interval effects below re-arm. Before that, the defaults stand, so an
+  // unreachable heartbeat degrades to today's behaviour rather than to a
+  // session with no timeout at all.
+  const [windows, setWindows] = useState(DEFAULT_WINDOWS);
+
+  const applyWindows = useCallback((payload) => {
+    if (!payload) return;
+    if (payload.idleTimeoutSeconds == null && payload.absoluteTtlSeconds == null) return;
+    setWindows((prev) => {
+      const next = windowsFor(
+        payload.idleTimeoutSeconds ?? prev.idleTimeoutSeconds,
+        payload.absoluteTtlSeconds ?? prev.absoluteTtlSeconds
+      );
+      return sameWindows(prev, next) ? prev : next;
+    });
+  }, []);
 
   // Activity tracking — pure DOM events only. No network/polling contamination!
   // lastActivityRef records WHEN the last interaction happened; lastSlideRef
@@ -153,6 +229,7 @@ export function SessionManagerProvider({ children }) {
       }
       if (!res.ok) return;
       const data = await res.json();
+      applyWindows(data);
       if (data?.expiresAt && data?.idleExpiresAt) {
         setAbsoluteExpiresAt(new Date(data.expiresAt).getTime());
         const serverIdle = new Date(data.idleExpiresAt).getTime();
@@ -165,14 +242,14 @@ export function SessionManagerProvider({ children }) {
         const now = Date.now();
         const unflushed =
           lastActivityRef.current > lastSlideRef.current &&
-          now - lastActivityRef.current < ACTIVITY_HEARTBEAT_MIN_GAP_MS + 5000;
-        const optimistic = lastActivityRef.current + IDLE_TIMEOUT_MS;
+          now - lastActivityRef.current < windows.heartbeatMinGapMs + 5000;
+        const optimistic = lastActivityRef.current + windows.idleTimeoutMs;
         setIdleExpiresAt(unflushed && optimistic > serverIdle ? optimistic : serverIdle);
       }
     } catch {
       // Network blip; the next tick or visibility change will re-sync.
     }
-  }, [triggerExpired]);
+  }, [triggerExpired, applyWindows, windows]);
 
   /**
    * Slides the idle deadline. This is the ONLY thing that may move
@@ -190,7 +267,7 @@ export function SessionManagerProvider({ children }) {
    */
   const extendSession = useCallback(async ({ force = false } = {}) => {
     if (inFlightRef.current) return false;
-    if (!force && Date.now() - lastSlideRef.current < ACTIVITY_HEARTBEAT_MIN_GAP_MS) {
+    if (!force && Date.now() - lastSlideRef.current < windows.heartbeatMinGapMs) {
       return false;
     }
     inFlightRef.current = true;
@@ -207,6 +284,7 @@ export function SessionManagerProvider({ children }) {
       }
       if (!res.ok) return false;
       const data = await res.json();
+      applyWindows(data);
       lastSlideRef.current = Date.now();
       if (pendingFlushRef.current) {
         clearTimeout(pendingFlushRef.current);
@@ -233,7 +311,7 @@ export function SessionManagerProvider({ children }) {
     } finally {
       inFlightRef.current = false;
     }
-  }, [triggerExpired]);
+  }, [triggerExpired, applyWindows, windows]);
 
   // 1. Global window.fetch 401 interceptor (scoped to app API routes)
   useEffect(() => {
@@ -300,7 +378,7 @@ export function SessionManagerProvider({ children }) {
       // scheduled flush or a racing GET may already hold a newer value).
       setIdleExpiresAt((prev) => {
         if (prev == null) return prev;
-        const optimistic = now + IDLE_TIMEOUT_MS;
+        const optimistic = now + windows.idleTimeoutMs;
         return optimistic > prev ? optimistic : prev;
       });
       // Dismiss a warning the moment the user proves they are there — waiting
@@ -311,10 +389,10 @@ export function SessionManagerProvider({ children }) {
       );
 
       const sinceSlide = now - lastSlideRef.current;
-      if (sinceSlide >= ACTIVITY_HEARTBEAT_MIN_GAP_MS) {
+      if (sinceSlide >= windows.heartbeatMinGapMs) {
         void extendSession();
       } else if (!pendingFlushRef.current) {
-        const wait = ACTIVITY_HEARTBEAT_MIN_GAP_MS - sinceSlide + 250;
+        const wait = windows.heartbeatMinGapMs - sinceSlide + 250;
         pendingFlushRef.current = setTimeout(() => {
           pendingFlushRef.current = null;
           void extendSession();
@@ -332,7 +410,7 @@ export function SessionManagerProvider({ children }) {
         pendingFlushRef.current = null;
       }
     };
-  }, [user, extendSession]);
+  }, [user, extendSession, windows]);
 
   // 3. Subscribe to Session Bus (handles local 401s + BroadcastChannel events from other tabs)
   useEffect(() => {
@@ -404,14 +482,14 @@ export function SessionManagerProvider({ children }) {
       const now = Date.now();
       if (
         lastActivityRef.current > lastSlideRef.current &&
-        now - lastSlideRef.current >= ACTIVITY_HEARTBEAT_MIN_GAP_MS
+        now - lastSlideRef.current >= windows.heartbeatMinGapMs
       ) {
         void extendSession();
       }
-    }, ACTIVITY_HEARTBEAT_INTERVAL_MS);
+    }, windows.heartbeatIntervalMs);
 
     return () => clearInterval(interval);
-  }, [user, extendSession]);
+  }, [user, extendSession, windows.heartbeatIntervalMs, windows.heartbeatMinGapMs]);
 
   // 7. Real-time countdown timer tick (1-second resolution)
   useEffect(() => {
@@ -445,7 +523,7 @@ export function SessionManagerProvider({ children }) {
       }
 
       // Check idle warning threshold
-      if (remainingIdle <= IDLE_WARNING_MS) {
+      if (remainingIdle <= windows.idleWarningMs) {
         const remainingSec = Math.ceil(remainingIdle / 1000);
         setCountdownSeconds(remainingSec);
         setSuppressAuthToasts(true);
@@ -473,7 +551,7 @@ export function SessionManagerProvider({ children }) {
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [user, idleExpiresAt, absoluteExpiresAt, modalState, triggerExpired]);
+  }, [user, idleExpiresAt, absoluteExpiresAt, modalState, triggerExpired, windows.idleWarningMs]);
 
   // 8. "Stay signed in" Action Handler. `force` because the user explicitly
   // asked — an explicit click should never be throttled away.
@@ -543,6 +621,7 @@ export function SessionManagerProvider({ children }) {
         modalState,
         idleExpiresAt,
         absoluteExpiresAt,
+        windows,
         staySignedIn: handleStaySignedIn,
       }}
     >
@@ -551,8 +630,8 @@ export function SessionManagerProvider({ children }) {
       <SessionTimeoutDialog
         state={modalState === null ? "hidden" : modalState}
         remainingSeconds={countdownSeconds}
-        idleExtensionMinutes={Math.round(IDLE_TIMEOUT_SECONDS / 60)}
-        absoluteSessionLimitHours={Math.round(WEB_SESSION_TTL_SECONDS / 3600)}
+        idleExtensionMinutes={windows.idleExtensionMinutes}
+        absoluteSessionLimitHours={windows.absoluteSessionLimitHours}
         errorCode={errorCode}
         isAbsoluteWarning={modalState === "absolute_warning"}
         onExtendSession={handleStaySignedIn}

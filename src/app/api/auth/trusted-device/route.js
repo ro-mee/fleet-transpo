@@ -6,12 +6,12 @@ import { clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import {
   TRUSTED_DEVICE_COOKIE,
-  TRUSTED_DEVICE_TTL_SECONDS,
   createTrustedDeviceToken,
   hashTrustedDeviceToken,
   normalizeTrustedDeviceToken,
   trustedDeviceCookieOptions,
 } from "@/lib/auth/trusted-device";
+import { getSecurityPolicy } from "@/services/security-policy.service";
 
 export async function POST(req) {
   try {
@@ -19,11 +19,16 @@ export async function POST(req) {
     const authVersion = Number(session.user.authVersion);
     if (!Number.isSafeInteger(authVersion)) return err("Session cannot remember this device", 409);
 
+    // The configured lifetime governs both the row and the cookie, so they can
+    // never disagree about when this device stops being trusted.
+    const { trustedDeviceTtlDays } = await getSecurityPolicy();
+    const trustedTtlSeconds = trustedDeviceTtlDays * 24 * 60 * 60;
+
     const cookieStore = await cookies();
     const currentToken = normalizeTrustedDeviceToken(cookieStore.get(TRUSTED_DEVICE_COOKIE)?.value);
     const token = createTrustedDeviceToken();
     const tokenHash = hashTrustedDeviceToken(token);
-    const expiresAt = new Date(Date.now() + TRUSTED_DEVICE_TTL_SECONDS * 1000);
+    const expiresAt = new Date(Date.now() + trustedTtlSeconds * 1000);
     const employeeId = session.user.employeeId;
     const ip = clientIp(req);
     const userAgent = req.headers.get("user-agent") || null;
@@ -52,13 +57,13 @@ export async function POST(req) {
       remembered: true,
       expiresAt: expiresAt.toISOString(),
     });
-    response.cookies.set(TRUSTED_DEVICE_COOKIE, token, trustedDeviceCookieOptions());
+    response.cookies.set(TRUSTED_DEVICE_COOKIE, token, trustedDeviceCookieOptions(trustedTtlSeconds));
 
     await writeAudit(req, session, {
       action: "trusted_device_enabled",
       resource: "trusted_web_device",
       resourceId: device?.device_id,
-      newValues: { expires_in_days: 30 },
+      newValues: { expires_in_days: trustedDeviceTtlDays },
     });
 
     return response;

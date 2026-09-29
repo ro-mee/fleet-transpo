@@ -14,11 +14,10 @@ import {
 import { rememberTrustedDevice, revokeTrustedDevice, signIn } from "@/services/auth.service";
 import {
   OTP_RESEND_COOLDOWN_SECONDS,
-  OTP_TTL_SECONDS,
-  describeOtpTtl,
+  describeOtpAttemptsLeft,
+  describeOtpBurn,
   formatLockWait,
   maskEmailAddress,
-  OTP_LOCKOUT_LIMIT,
   parseOtpAttemptsLeft,
   parseOtpLock,
   parseOtpStrike,
@@ -424,7 +423,6 @@ function MfaVerificationDialog({
   onToggleRecovery,
   onResend,
   resendSeconds,
-  resendNotice,
   email,
   recoveryMode,
   status,
@@ -571,18 +569,14 @@ function MfaVerificationDialog({
               />
             )}
 
-            <div className="mt-4 flex items-start gap-2.5 text-[#536078] dark:text-slate-400">
-              {recoveryMode ? (
+            {recoveryMode && (
+              <div className="mt-4 flex items-start gap-2.5 text-[#536078] dark:text-slate-400">
                 <Smartphone className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={1.6} />
-              ) : (
-                <Mail className="mt-0.5 h-5 w-5 shrink-0" strokeWidth={1.6} />
-              )}
-              <p className="text-sm leading-[1.45]">
-                {recoveryMode
-                  ? "Each recovery code works once. Use one you saved when you set up your account."
-                  : `The code expires in ${describeOtpTtl(OTP_TTL_SECONDS)}. If it has not arrived, check your spam folder.`}
-              </p>
-            </div>
+                <p className="text-sm leading-[1.45]">
+                  Each recovery code works once. Use one you saved when you set up your account.
+                </p>
+              </div>
+            )}
 
             <div
               id="mfa-code-status"
@@ -598,21 +592,19 @@ function MfaVerificationDialog({
             </div>
 
             {!recoveryMode && (
-              <div className="mt-2 text-center">
+              <p className="mt-3 text-center text-[12px] leading-relaxed text-[#536078] dark:text-slate-400">
+                {resendSeconds > 0
+                  ? `A new code can be requested in ${resendSeconds}s.`
+                  : "A new code can be requested now."}{" "}
                 <button
                   type="button"
                   onClick={onResend}
-                  disabled={loading || isSuccess || resendSeconds > 0}
-                  className="text-[13px] font-semibold text-[#3475e8] underline-offset-2 transition-colors duration-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3475e8] focus-visible:ring-offset-2 focus-visible:ring-offset-[#f9fbff] disabled:cursor-default disabled:text-[#7b8599] disabled:no-underline dark:text-[#6f9bf0] dark:focus-visible:ring-offset-slate-950 dark:disabled:text-slate-500"
+                  disabled={loading || resendSeconds > 0}
+                  className="font-semibold text-[#3e73e7] underline underline-offset-2 transition-colors hover:text-[#2f5cc4] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {resendSeconds > 0 ? `Email a new code in ${resendSeconds}s` : "Email me a new code"}
+                  Resend code
                 </button>
-                {resendNotice && (
-                  <p className="mt-1 text-[12px] leading-relaxed text-[#536078] dark:text-slate-400">
-                    {resendNotice}
-                  </p>
-                )}
-              </div>
+              </p>
             )}
 
             <label
@@ -697,7 +689,6 @@ export default function LoginPage() {
   // resend that would silently do nothing. Imported from the shared policy
   // module so the two cannot drift apart.
   const [resendSeconds, setResendSeconds] = useState(0);
-  const [resendNotice, setResendNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dismissedNotice, setDismissedNotice] = useState(false);
@@ -798,6 +789,26 @@ export default function LoginPage() {
     }, 0);
   };
 
+  /**
+   * A strike ends the MFA step.
+   *
+   * The challenge is burned, so the digits in hand can never verify again, and
+   * nothing is sent for the user: a new code costs the password again. The
+   * dialog closes, the in-memory password is dropped so the field cannot
+   * re-submit what is already known, and the verdict lands on the form — which
+   * is the one surface that can re-prove the credential. The caret goes back to
+   * the password field because it is the step that unblocks the sign-in.
+   */
+  const handBurnBackToForm = (strike) => {
+    setMfaRequired(false);
+    setMfaCode("");
+    setMfaRecoveryMode(false);
+    setMfaStatus("idle");
+    setPassword("");
+    setError(describeOtpBurn({ strike }));
+    setTimeout(() => document.getElementById("password")?.focus(), 0);
+  };
+
   const handleMfaSubmit = async (submittedCode = mfaCode) => {
     if (loading || mfaStatus === "success" || lockSeconds > 0) return;
 
@@ -843,17 +854,16 @@ export default function LoginPage() {
 
       const attemptsLeft = parseOtpAttemptsLeft(err.message);
       if (attemptsLeft !== null) {
-        failAttempt(`Incorrect code — ${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left.`);
+        failAttempt(describeOtpAttemptsLeft(attemptsLeft));
         return;
       }
 
       const strike = parseOtpStrike(err.message);
       if (strike !== null) {
-        const more = OTP_LOCKOUT_LIMIT - strike;
-        failAttempt(
-          `That code was wrong. Strike ${strike} of ${OTP_LOCKOUT_LIMIT} — request a new code. ` +
-            `${more} more failed code${more === 1 ? "" : "s"} will freeze this account for 15 minutes.`
-        );
+        // This verdict means the challenge was burned on the 3rd wrong code:
+        // the digits in hand can never verify again, and a strike ends the MFA
+        // step rather than replacing the code, so both factors are re-proved.
+        handBurnBackToForm(strike);
         return;
       }
 
@@ -895,60 +905,29 @@ export default function LoginPage() {
   };
 
   /**
-   * Re-sends the code.
+   * Sends the first code, and resends it.
    *
-   * There is no resend endpoint: submitting the form with no code is the resend.
+   * There is no resend endpoint: submitting the form with no code IS the resend.
    * `authorize` only runs after the password verified, so a stray caller cannot
-   * make this mail anybody, and the server's own cooldown is the throttle — which
-   * is why the button below mirrors that cooldown instead of trusting itself.
+   * make this mail anybody, and the server's own `OTP_RESEND_COOLDOWN_SECONDS`
+   * remains the throttle.
+   *
+   * `resend: true` is the in-dialog **Resend code** button (restored
+   * 2026-09-29). It clears the `mfaRequired` short-circuit — the dialog is open
+   * by definition, so without that the button could never run — and reuses
+   * every branch below unchanged, which is the whole point: it is the same
+   * re-submit, not a second code path. The re-proof it cannot skip is the
+   * server's: `signIn` still carries the password and `authorize` verifies it
+   * before `sendNewCode()`. After a strike none of this is reachable anyway —
+   * `handBurnBackToForm` closes the MFA step and drops the in-memory password
+   * before there is a button to press. The button is also gated on its own
+   * countdown, so it can never fire into the cooldown and silently do nothing.
    */
-  const handleResendCode = async () => {
-    if (loading || mfaStatus === "success" || resendSeconds > 0) return;
-    setError("");
-    setResendNotice("");
-    setLoading(true);
-    try {
-      // Never returns a session: the server answers MFA_REQUIRED whenever no
-      // code is supplied, which is exactly what is wanted here.
-      await signIn(email, password, { otpCode: "" });
-    } catch (err) {
-      if (err.message === "MFA_REQUIRED") {
-        setMfaCode("");
-        setMfaStatus("idle");
-        setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
-        setResendNotice(`A new code is on its way to ${maskEmailAddress(email)}.`);
-        return;
-      }
-      if (err.message === "OTP_UNDELIVERABLE" || err.message === "MFA_UNAVAILABLE") {
-        setError(
-          "No verification code could be sent to this account. Contact your administrator."
-        );
-        setMfaStatus("error");
-        return;
-      }
-      if (err.message === "TEMP_PASSWORD_EXPIRED") {
-        setError("This temporary password has expired. Ask your administrator to resend it.");
-        setMfaStatus("error");
-        return;
-      }
-      const otpLockSecs = parseOtpLock(err.message);
-      if (otpLockSecs !== null) {
-        setLockSeconds(otpLockSecs);
-        setError(otpLockMessage(otpLockSecs));
-        setMfaStatus("error");
-        return;
-      }
-      setError("We couldn't send a new code. Please try again.");
-      setMfaStatus("error");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e, { resend = false } = {}) => {
     e.preventDefault();
     // Frozen accounts wait out the visible countdown — no wasted attempts.
-    if (lockSeconds > 0 || mfaRequired) return;
+    if (lockSeconds > 0 || (mfaRequired && !resend)) return;
+    if (resend && (resendSeconds > 0 || loading)) return;
     setError("");
 
     const values = { email, password };
@@ -969,7 +948,6 @@ export default function LoginPage() {
             setMfaStatus("idle");
             setError("");
             setResendSeconds(OTP_RESEND_COOLDOWN_SECONDS);
-            setResendNotice("");
             return;
           }
           if (err.message === "MFA_INVALID") {
@@ -1026,6 +1004,12 @@ export default function LoginPage() {
     });
     if (!isValid) return;
   };
+
+  // The dialog's Resend code button. Deliberately a one-liner over
+  // handleSubmit: there is no resend endpoint, so the only honest shape for
+  // "send another code" is the same password-carrying re-submit the plain
+  // submit button already makes. The cooldown gate lives in handleSubmit.
+  const handleResendCode = (e) => handleSubmit(e, { resend: true });
 
   const emailField = fieldError("email");
   const passwordField = fieldError("password");
@@ -1178,7 +1162,7 @@ export default function LoginPage() {
                           className="flex items-start gap-2.5 rounded-[0.9rem] bg-danger-bg px-3.5 py-3 text-sm text-danger"
                         >
                           <AlertCircle className="mt-px h-4 w-4 shrink-0" strokeWidth={2} />
-                          <span>
+                          <span className="whitespace-pre-line">
                             {error}
                             {lockSeconds > 0 && (
                               <> Try again in <strong className="tabular-nums">{lockSeconds}s</strong>.</>
@@ -1302,7 +1286,6 @@ export default function LoginPage() {
         onToggleRecovery={toggleMfaRecoveryMode}
         onResend={handleResendCode}
         resendSeconds={resendSeconds}
-        resendNotice={resendNotice}
         email={email}
         recoveryMode={mfaRecoveryMode}
         status={mfaStatus}

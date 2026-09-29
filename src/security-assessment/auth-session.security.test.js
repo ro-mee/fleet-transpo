@@ -487,13 +487,52 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     expect(strikeAt).toBeLessThan(genericAt);
   });
 
-  it('the web MFA dialog speaks attempts left, the strike, and shares one failure shape', () => {
+  it('the web MFA dialog speaks attempts left, the strike, and hands a burn back to the form', () => {
     const page = read('app/(auth)/login/page.js');
     expect(page).toMatch(/parseOtpAttemptsLeft\(err\.message\)/);
     expect(page).toMatch(/parseOtpStrike\(err\.message\)/);
-    expect(page).toMatch(/Incorrect code — \$\{attemptsLeft\} attempt\$\{attemptsLeft === 1 \? "" : "s"\} left\./);
-    expect(page).toMatch(/Strike \$\{strike\} of \$\{OTP_LOCKOUT_LIMIT\} — request a new code\./);
+    // The copy is the shared policy helper, not a local template: the web
+    // modal and the two mobile surfaces must not be able to say different
+    // things about the same token, which is how the OTP screen became the one
+    // surface that never told the user their code was dead.
+    expect(page).toMatch(/failAttempt\(describeOtpAttemptsLeft\(attemptsLeft\)\)/);
+    expect(page).not.toMatch(/That code was wrong/);
     expect(page).toMatch(/failAttempt\("That verification code is invalid or already used\."\)/);
+    // A strike ends the MFA step, so a new code costs a fresh password: the
+    // dialog closes, the in-memory password is dropped, and the verdict lands
+    // on the form — which is the hand-back helper, called from this branch.
+    // Nothing auto-sends — the removed path is pinned as absent.
+    const burnBlock = page.slice(
+      page.indexOf('const handBurnBackToForm'),
+      page.indexOf('if (err.message === "MFA_UNAVAILABLE")')
+    );
+    expect(burnBlock).toMatch(/setMfaRequired\(false\)/);
+    expect(burnBlock).toMatch(/setPassword\(""\)/);
+    expect(burnBlock).toMatch(/describeOtpBurn\(\{ strike \}\)/);
+    expect(burnBlock).toMatch(/handBurnBackToForm\(strike\)/);
+    expect(page).not.toMatch(/requestNewCodeAfterBurn/);
+    // The web dialog's **Resend code** button. It was removed on 2026-09-28
+    // because it minted from a screen that already held the password; it was
+    // restored on 2026-09-29 as a deliberate reversal, and this pins WHY that
+    // is allowed rather than pretending the old objection was wrong:
+    //   1. it is not a second code path — it re-enters handleSubmit with
+    //      { resend: true }, so the send ladder, the error ladder and the
+    //      password check are shared with the plain submit button;
+    //   2. it is gated on the server's own cooldown (the countdown the button
+    //      waits on is OTP_RESEND_COOLDOWN_SECONDS), so it cannot race;
+    //   3. it still cannot mint after a burn — the two assertions above are the
+    //      proof: the dialog is closed and the password is dropped first, so
+    //      there is no button left to press and no password left to carry.
+    // The wiring is one layer deep (dialog onClick -> onResend -> this helper),
+    // so each hop is pinned rather than only the first.
+    expect(page).toMatch(/const handleResendCode = \(e\) => handleSubmit\(e, \{ resend: true \}\);/);
+    expect(page).toMatch(/onResend=\{handleResendCode\}/);
+    expect(page).toMatch(/onClick=\{onResend\}/);
+    expect(page).toMatch(/disabled=\{loading \|\| resendSeconds > 0\}/);
+    expect(page).toMatch(/if \(resend && \(resendSeconds > 0 \|\| loading\)\) return;/);
+    expect(page).toMatch(/if \(lockSeconds > 0 \|\| \(mfaRequired && !resend\)\) return;/);
+    // The old verbose label is gone; the restored button is "Resend code".
+    expect(page).not.toMatch(/Email me a new code/);
   });
 
   it('the mobile channel maps attempts and strikes and freezes on the third burn itself', () => {
@@ -515,16 +554,31 @@ describe('SEC-AUTH-006 — burned codes freeze the account, not just the challen
     expect(strikeAt).toBeLessThan(genericAt);
   });
 
-  it('both mobile surfaces speak attempts, strikes, and the freeze', () => {
+  it('both mobile surfaces speak attempts and strikes, and a burn costs the password again', () => {
     const otpView = repo('mobile/components/otp/OtpVerificationView.jsx');
     expect(otpView).toMatch(/parseOtpAttemptsLeft\(message\)/);
     expect(otpView).toMatch(/parseOtpStrike\(message\)/);
-    expect(otpView).toMatch(/attempt\$\{attemptsLeft === 1 \? "" : "s"\} left\./);
-    expect(otpView).toMatch(/Strike \$\{strike\} of \$\{OTP_LOCKOUT_LIMIT\}\./);
+    expect(otpView).toMatch(/fail\(describeOtpAttemptsLeft\(attemptsLeft\)\)/);
+    expect(otpView).not.toMatch(/That code was wrong/);
+    // A strike ends the OTP step: the screen hands the verdict back to the
+    // login form, which re-proves the password before any new code is minted —
+    // no auto-resend, and no Resend affordance left to bypass the requirement.
+    expect(otpView).toMatch(/onBurned\?\.\(strike\)/);
+    expect(otpView).not.toMatch(/requestReplacementCode/);
+    expect(otpView).not.toMatch(/Resend verification code/);
     const login = repo('mobile/app/login.js');
     expect(login).toMatch(/parseOtpAttemptsLeft\(e\?\.message\)/);
     expect(login).toMatch(/parseOtpStrike\(e\?\.message\)/);
-    expect(login).toMatch(/Strike \$\{strike\} of \$\{OTP_LOCKOUT_LIMIT\} — request a new code\./);
+    expect(login).toMatch(/describeOtpAttemptsLeft\(attemptsLeft\)/);
+    expect(login).toMatch(/describeOtpBurn\(\{ strike \}\)/);
+    expect(login).not.toMatch(/That code was wrong/);
+    expect(login).not.toMatch(/handleResendOtp/);
+    const burn = login.slice(
+      login.indexOf('handleOtpBurned'),
+      login.indexOf('const biometricOffer')
+    );
+    expect(burn).toMatch(/setPassword\(""\)/);
+    expect(burn).toMatch(/setMfaRequired\(false\)/);
   });
 
   it('the admin emergency path answers 429 with a wait, not a generic 500', () => {

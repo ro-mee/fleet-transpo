@@ -1,12 +1,19 @@
-import { requireAuth, ok, handleError, AuthError } from "@/lib/api/utils";
+import { requireAuth, ok, handleError, AuthError, absoluteTtlSecondsOf } from "@/lib/api/utils";
 import { query } from "@/lib/db";
-import { IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
+import { IDLE_TIMEOUT_SECONDS, WEB_SESSION_TTL_SECONDS } from "@/lib/auth/session-policy";
 
 const DASHBOARD_ROLES = ["super_admin", "admin", "fleet_manager", "dispatcher", "management"];
 
 /**
  * GET /api/auth/heartbeat
  * Returns authoritative session expiration timestamps without altering last_seen_at.
+ *
+ * Alongside the deadlines it reports the two timings this session was minted
+ * with — the idle window and the absolute TTL — because the client's countdown,
+ * warning threshold and dialog copy are all derived from them. Both come from
+ * the session ROW, not from the current policy: a saved configuration governs
+ * sessions created after it was saved, so quoting the live policy to an older
+ * session would describe a limit it never had.
  */
 export async function GET(req) {
   try {
@@ -21,6 +28,7 @@ export async function GET(req) {
       idleExpiresAt: details.idleExpiresAt,
       expiresAt: details.expiresAt,
       idleTimeoutSeconds: details.idleTimeoutSeconds,
+      absoluteTtlSeconds: details.absoluteTtlSeconds ?? WEB_SESSION_TTL_SECONDS,
     });
   } catch (e) {
     return handleError(e);
@@ -47,7 +55,7 @@ export async function POST(req) {
         WHERE session_id = $1
           AND revoked_at IS NULL
           AND expires_at > NOW()
-        RETURNING last_seen_at, expires_at, idle_timeout_seconds`,
+        RETURNING created_at, last_seen_at, expires_at, idle_timeout_seconds`,
       [sessionId]
     );
 
@@ -65,6 +73,7 @@ export async function POST(req) {
       idleExpiresAt,
       expiresAt: updated.expires_at,
       idleTimeoutSeconds: idleSeconds,
+      absoluteTtlSeconds: absoluteTtlSecondsOf(updated) ?? WEB_SESSION_TTL_SECONDS,
     });
   } catch (e) {
     return handleError(e);

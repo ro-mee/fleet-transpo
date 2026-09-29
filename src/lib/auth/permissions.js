@@ -171,7 +171,7 @@ const MATRIX = {
     // Connector/integration status and other platform configuration are
     // Super Admin only. Operational settings stay shared via `settings`,
     // `dispatch_settings`, and `uvvrp`.
-    system: { read: false },
+    system: { read: false, update: false },
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   fleet_manager: {
@@ -216,7 +216,7 @@ const MATRIX = {
     device_tokens: { create: true, delete: true },
     search: { read: true },
     employees: { read: true },
-    system: { read: false },
+    system: { read: false, update: false },
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   dispatcher: {
@@ -258,7 +258,7 @@ const MATRIX = {
     device_tokens: { create: true, delete: true },
     search: { read: true },
     employees: { read: false },
-    system: { read: false },
+    system: { read: false, update: false },
   },
   driver: {
     vehicles: { read: true },
@@ -285,7 +285,7 @@ const MATRIX = {
     device_tokens: { create: true, delete: true },
     notifications: { read: true, update: true, delete: true },
     employees: { read: true },
-    system: { read: false },
+    system: { read: false, update: false },
   },
   management: {
     vehicles: { read: true, read_all: true },
@@ -321,7 +321,7 @@ const MATRIX = {
     fuelallocations: { read: true },
     scheduled_reports: { read: true },
     employees: { read: false },
-    system: { read: false },
+    system: { read: false, update: false },
   },
 };
 

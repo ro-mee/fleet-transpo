@@ -84,12 +84,33 @@ export async function resolveIdentity(req) {
   return { ...session, user, via: "session" };
 }
 
+/**
+ * The absolute lifetime a session was minted with, in seconds.
+ *
+ * `expires_at` is an absolute deadline and `created_at` an absolute start, so
+ * their difference is the TTL the login path wrote — which is the configured
+ * policy AT SIGN-IN. Sessions keep the policy they were born with; reading the
+ * live policy here would make the client describe a limit the session never
+ * had. Returns null when the row lacks either column, so callers can fall back
+ * to the shipped default rather than emit a nonsense number.
+ *
+ * @param {{created_at?: Date|string, expires_at?: Date|string}} sessionRecord
+ * @returns {number|null}
+ */
+export function absoluteTtlSecondsOf(sessionRecord) {
+  const created = sessionRecord?.created_at;
+  const expires = sessionRecord?.expires_at;
+  if (!created || !expires) return null;
+  const ttl = Math.round((new Date(expires).getTime() - new Date(created).getTime()) / 1000);
+  return Number.isFinite(ttl) && ttl > 0 ? ttl : null;
+}
+
 async function resolveCurrentIdentity(user, via = "session") {
   let sessionDetails = null;
   if (via === "session") {
     if (!user.sessionId) throw new AuthError("Session expired. Please sign in again.", 401, "SESSION_INVALID");
     const { rows: sessionRows } = await query(
-      `SELECT session_id, last_seen_at, expires_at, revoked_at, idle_timeout_seconds
+      `SELECT session_id, created_at, last_seen_at, expires_at, revoked_at, idle_timeout_seconds
          FROM web_sessions
         WHERE session_id = $1
           AND employee_id = $2
@@ -118,6 +139,10 @@ async function resolveCurrentIdentity(user, via = "session") {
       expiresAt: sessionRecord.expires_at,
       idleTimeoutSeconds: idleSeconds,
       idleExpiresAt: new Date(idleExpiresAt).toISOString(),
+      // The absolute lifetime AS WRITTEN AT SIGN-IN, not today's policy. The
+      // client renders it as copy ("your 12-hour session maximum"), and a
+      // saved policy only governs sessions created after it was saved.
+      absoluteTtlSeconds: absoluteTtlSecondsOf(sessionRecord),
     };
 
     // NOTE: identity resolution is deliberately READ-ONLY for session timing.

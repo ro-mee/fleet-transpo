@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { ok, err, handleError } from "@/lib/api/utils";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { checkAccountLockout, recordFailedAttempt, clearAccountLockout } from "@/lib/auth/account-lockout";
+import { getSecurityPolicy } from "@/services/security-policy.service";
 import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { writeAudit } from "@/lib/audit";
 import {
@@ -56,9 +57,12 @@ export async function POST(req) {
     // per-account, so neither a spoofed client nor a single account can drive
     // unlimited bcrypt compares. The mobile credential endpoint was previously
     // unthrottled — the largest brute-force gap in the system.
-    const [ipBucket, accountBucket] = await Promise.all([
+    const [ipBucket, accountBucket, policy] = await Promise.all([
       rateLimit(`mobile-login:ip:${clientIp(req)}`, { limit: 5, windowMs: 60_000 }),
       rateLimit(`mobile-login:account:${email}`, { limit: 5, windowMs: 60_000 }),
+      // One read per attempt, reused below for the lockout budget and the
+      // new-device lookback — mirrors src/lib/auth.js.
+      getSecurityPolicy(),
     ]);
     if (!ipBucket.allowed || !accountBucket.allowed) {
       const retryAfter = Math.max(ipBucket.retryAfter, accountBucket.retryAfter);
@@ -68,7 +72,7 @@ export async function POST(req) {
       );
     }
 
-    const lockout = await checkAccountLockout(email);
+    const lockout = await checkAccountLockout(email, policy);
     if (!lockout.allowed) {
       return new Response(
         JSON.stringify({ error: `Too many failed attempts. Try again in ${lockout.retryAfter} seconds.` }),
@@ -116,7 +120,7 @@ export async function POST(req) {
         resourceId: employee?.employee_id,
         newValues: { channel: "mobile" },
       });
-      const lockoutBucket = await recordFailedAttempt(email);
+      const lockoutBucket = await recordFailedAttempt(email, policy);
       if (!lockoutBucket.allowed && lockoutBucket.remaining === 0) {
         await raiseSecurityAlert(req, {
           type: "account_locked",
@@ -209,8 +213,10 @@ export async function POST(req) {
     };
 
     if (!otpCode) {
-      // Also the resend path: the client re-submits. It only ever runs after the
-      // password verified, so no code reaches an unauthenticated caller.
+      // The only resend path: the client submits the form again, because a
+      // strike ends the OTP step and the screen carries no resend link. It only
+      // ever runs after the password verified, so no code reaches an
+      // unauthenticated caller.
       const delivery = await sendNewCode();
       if (!delivery.ok) {
         if (delivery.reason === "otp_locked") {
@@ -341,6 +347,7 @@ export async function POST(req) {
       employee,
       userAgent: req.headers?.get?.("user-agent") || null,
       kind: "mobile",
+      lookbackDays: policy.newDeviceLookbackDays,
     });
 
     await writeAudit(req, null, {

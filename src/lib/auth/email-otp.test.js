@@ -15,6 +15,8 @@ import {
   OTP_MAX_ATTEMPTS,
   OTP_RESEND_COOLDOWN_SECONDS,
   OTP_TTL_SECONDS,
+  describeOtpAttemptsLeft,
+  describeOtpBurn,
   describeOtpTtl,
   formatLockWait,
   isDeliverableEmailAddress,
@@ -536,15 +538,23 @@ describe("OTP_LOCKED token", () => {
 });
 
 describe("OTP_ATTEMPTS_LEFT token", () => {
+  it("holds the three-attempt ceiling the product decided on", () => {
+    // The ceiling is a product decision, not an implementation detail: the
+    // token range, the burn copy and both clients' clamping all read it, so a
+    // future change has to be a deliberate edit to this pin.
+    expect(OTP_MAX_ATTEMPTS).toBe(3);
+  });
+
   it("parses a count inside the challenge policy", () => {
-    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:4")).toBe(4);
+    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:2")).toBe(2);
     expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:1")).toBe(1);
-    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:5")).toBe(OTP_MAX_ATTEMPTS);
+    expect(parseOtpAttemptsLeft("OTP_ATTEMPTS_LEFT:3")).toBe(OTP_MAX_ATTEMPTS);
   });
 
   it("falls through on anything malformed or out of policy", () => {
     for (const bad of [
       "OTP_ATTEMPTS_LEFT:0",
+      "OTP_ATTEMPTS_LEFT:4",
       "OTP_ATTEMPTS_LEFT:6",
       "OTP_ATTEMPTS_LEFT:1.5",
       "OTP_ATTEMPTS_LEFT:abc",
@@ -581,5 +591,107 @@ describe("OTP_STRIKE token", () => {
     ]) {
       expect(parseOtpStrike(bad)).toBeNull();
     }
+  });
+});
+
+/**
+ * The copy helpers are the contract between the wire token and the screen.
+ * They live in the policy module precisely so the three login surfaces cannot
+ * say different things about the same verdict — which is how the mobile OTP
+ * screen ended up the only one that did not tell the user to request a new
+ * code after the last failure.
+ */
+describe("describeOtpAttemptsLeft", () => {
+  it("counts down while attempts remain", () => {
+    expect(describeOtpAttemptsLeft(3)).toBe("Incorrect code. 3 attempts left.");
+    expect(describeOtpAttemptsLeft(2)).toBe("Incorrect code. 2 attempts left.");
+    expect(describeOtpAttemptsLeft(OTP_MAX_ATTEMPTS)).toBe(
+      `Incorrect code. ${OTP_MAX_ATTEMPTS} attempts left.`
+    );
+  });
+
+  it("names the cost of the last attempt, because the next failure cancels the code", () => {
+    const last = describeOtpAttemptsLeft(1);
+    expect(last).toContain("1 attempt left");
+    expect(last).toContain("cancels this code");
+    expect(last).toContain("password again");
+  });
+
+  it("clamps anything out of policy instead of printing it", () => {
+    expect(describeOtpAttemptsLeft(99)).toBe(describeOtpAttemptsLeft(OTP_MAX_ATTEMPTS));
+    expect(describeOtpAttemptsLeft(0)).toBe(describeOtpAttemptsLeft(1));
+    expect(describeOtpAttemptsLeft(-3)).toBe(describeOtpAttemptsLeft(1));
+    expect(describeOtpAttemptsLeft("nonsense")).toBe(describeOtpAttemptsLeft(OTP_MAX_ATTEMPTS));
+    expect(describeOtpAttemptsLeft(1.5)).toBe(describeOtpAttemptsLeft(1));
+  });
+});
+
+describe("describeOtpBurn", () => {
+  it("says what happened, then what to do, then what it costs", () => {
+    const msg = describeOtpBurn({ strike: 1 });
+    const lines = msg.split("\n");
+    // Three lines in the order describeOtpBurn's own JSDoc fixes: event,
+    // action, deterrent. The opener is not a restatement — it is the only
+    // place the reader is told the code in their hand is dead. The attempt
+    // copy before it could only promise that one MORE wrong code would do it.
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe(`Your code was cancelled after ${OTP_MAX_ATTEMPTS} wrong codes.`);
+    expect(lines[1]).toBe("Enter your password again to get a new code.");
+    expect(lines[2]).toBe(
+      `Cancelled code 1 of ${OTP_LOCKOUT_LIMIT} — ${OTP_LOCKOUT_LIMIT - 1} more will lock this account for ` +
+        `${Math.round(OTP_LOCKOUT_WINDOW_MS / 60_000)} minutes.`
+    );
+  });
+
+  it("counts cancelled codes, never 'failed codes', so the number matches what a strike is", () => {
+    // A strike is one *code* (three wrong entries), so the old "2 more failed
+    // codes" understated the cost threefold. The unit is pinned, both plurals —
+    // and so is the word the screen uses: the wording pass dropped "strike"
+    // from the copy, so only the OTP_STRIKE token and the `strike` field may
+    // carry it. This is the assertion the copy used to fail, so pin it hard.
+    const second = describeOtpBurn({ strike: 2 });
+    expect(second).not.toMatch(/failed code/);
+    expect(second).not.toMatch(/strike/i);
+    expect(second).toContain(
+      `Cancelled code 2 of ${OTP_LOCKOUT_LIMIT} — 1 more will lock this account for ` +
+        `${Math.round(OTP_LOCKOUT_WINDOW_MS / 60_000)} minutes.`
+    );
+  });
+
+  it("never promises a code that nothing sent", () => {
+    // Auto-resend left with the 3-attempt policy: a strike mints nothing, so
+    // no burn copy may claim a replacement is in flight.
+    for (const strike of [1, 2, 3]) {
+      const msg = describeOtpBurn({ strike });
+      expect(msg).not.toContain("on its way");
+      expect(msg).not.toContain("couldn't send");
+    }
+  });
+
+  it("drops the lock warning when the lock would already have tripped", () => {
+    const last = describeOtpBurn({ strike: OTP_LOCKOUT_LIMIT });
+    expect(last).toContain(`Cancelled code ${OTP_LOCKOUT_LIMIT} of ${OTP_LOCKOUT_LIMIT}.`);
+    expect(last).not.toContain("lock this account");
+  });
+
+  it("derives the ceiling and the window from the policy constants", () => {
+    const minutes = Math.round(OTP_LOCKOUT_WINDOW_MS / 60_000);
+    const msg = describeOtpBurn({ strike: 1 });
+    expect(msg).toContain(`Cancelled code 1 of ${OTP_LOCKOUT_LIMIT} —`);
+    expect(msg).toContain(`${minutes} minute${minutes === 1 ? "" : "s"}.`);
+  });
+
+  it("clamps an out-of-policy strike rather than printing it", () => {
+    // 99 clamps to the ceiling, where the warning is dropped (a period, no
+    // clause); 0 and nonsense clamp to 1, where the warning clause is present.
+    expect(describeOtpBurn({ strike: 99 })).toContain(
+      `Cancelled code ${OTP_LOCKOUT_LIMIT} of ${OTP_LOCKOUT_LIMIT}.`
+    );
+    expect(describeOtpBurn({ strike: "not-a-number" })).toContain(
+      `Cancelled code 1 of ${OTP_LOCKOUT_LIMIT} —`
+    );
+    expect(describeOtpBurn({ strike: 0 })).toContain(
+      `Cancelled code 1 of ${OTP_LOCKOUT_LIMIT} —`
+    );
   });
 });

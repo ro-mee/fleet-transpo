@@ -19,6 +19,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { sessionDeviceLabel } from "./sessions";
 import { isDeliverableEmailAddress } from "./otp-policy";
+import { DEFAULT_SECURITY_POLICY } from "@/lib/security-policy";
 import { loadPreferenceRows, channelEnabled } from "@/lib/notifications/preferences";
 import { flushOutbox } from "@/services/push.service";
 import { isEmailConfigured, sendNewSignInAlertEmail } from "@/lib/email/smtp";
@@ -26,8 +27,9 @@ import { isEmailConfigured, sendNewSignInAlertEmail } from "@/lib/email/smtp";
 /** Key in NOTIFICATION_EVENTS (src/lib/constants.js). */
 export const NEW_DEVICE_EVENT_KEY = "new_sign_in";
 
-/** How far back a sign-in counts as precedent for "a device we have seen". */
-export const NEW_DEVICE_WINDOW_DAYS = 90;
+/** How far back a sign-in counts as precedent for "a device we have seen".
+ *  The default; callers pass the configured value from the security policy. */
+export const NEW_DEVICE_WINDOW_DAYS = DEFAULT_SECURITY_POLICY.newDeviceLookbackDays;
 
 /**
  * The comparison key for a stored `login_success` audit row.
@@ -95,8 +97,12 @@ export function newDeviceCopy(label) {
  * resource_id)` does.
  *
  * @param {number} employeeId
+ * @param {number} [lookbackDays] configured new-device lookback, else the default
  */
-async function loadPriorLogins(employeeId) {
+async function loadPriorLogins(employeeId, lookbackDays = NEW_DEVICE_WINDOW_DAYS) {
+  const days = Number.isFinite(Number(lookbackDays)) && Number(lookbackDays) > 0
+    ? Number(lookbackDays)
+    : NEW_DEVICE_WINDOW_DAYS;
   const { rows } = await query(
     `SELECT user_agent, new_values->>'channel' AS channel
        FROM audit_logs
@@ -104,7 +110,7 @@ async function loadPriorLogins(employeeId) {
         AND action = 'login_success'
         AND resource_id = $1
         AND created_at > NOW() - make_interval(days => $2::int)`,
-    [employeeId, NEW_DEVICE_WINDOW_DAYS]
+    [employeeId, days]
   );
   return rows;
 }
@@ -158,9 +164,16 @@ async function sendAlertEmail(email, label) {
  * @param {{employee_id: number, email?: string}} p.employee
  * @param {string|null} [p.userAgent]
  * @param {"web"|"mobile"} [p.kind]
+ * @param {number} [p.lookbackDays] configured new-device lookback (security
+ *   policy); omitted, the default applies
  * @returns {Promise<{alerted: boolean, reason?: string, label?: string}>}
  */
-export async function recordNewDeviceAlert({ employee, userAgent = null, kind = "web" }) {
+export async function recordNewDeviceAlert({
+  employee,
+  userAgent = null,
+  kind = "web",
+  lookbackDays,
+}) {
   try {
     const employeeId = Number(employee?.employee_id);
     if (!employeeId) return { alerted: false, reason: "no_employee" };
@@ -169,7 +182,7 @@ export async function recordNewDeviceAlert({ employee, userAgent = null, kind = 
 
     let priorRows;
     try {
-      priorRows = await loadPriorLogins(employeeId);
+      priorRows = await loadPriorLogins(employeeId, lookbackDays);
     } catch {
       // Cannot establish history, so cannot claim a device is unfamiliar.
       // Silence beats a false accusation.

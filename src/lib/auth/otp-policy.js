@@ -25,18 +25,21 @@ export const OTP_TTL_SECONDS = 300;
 
 /**
  * Failed verifications allowed against one challenge before it is burned.
- * Five attempts against a 10^6 space leaves a 5-in-a-million guess chance.
+ * Three attempts against a 10^6 space leaves a 3-in-a-million guess chance,
+ * and the account-level lockout below compounds it. The ceiling is not what
+ * protects the code — the TTL above and the freeze below are — so it is kept
+ * deliberately tight: every burned challenge costs the password again.
  */
-export const OTP_MAX_ATTEMPTS = 5;
+export const OTP_MAX_ATTEMPTS = 3;
 
 /**
  * Burned challenges allowed against one ACCOUNT before every code request and
  * verification is frozen for `OTP_LOCKOUT_WINDOW_MS`.
  *
  * The per-challenge ceiling above resets on each resend, so it alone cannot
- * stop a password holder looping `issue → 5 guesses → issue`; this is what
- * stops that loop. Three burns is 15 wrong codes per fixed window — against a
- * 10^6 space that is roughly one guess a minute.
+ * stop a password holder looping `issue → 3 guesses → issue`; this is what
+ * stops that loop. Three burns is nine wrong codes per fixed window — against
+ * a 10^6 space that is roughly one guess every two minutes.
  */
 export const OTP_LOCKOUT_LIMIT = 3;
 
@@ -95,7 +98,7 @@ export const OTP_STRIKE_PREFIX = "OTP_STRIKE:";
  * anything else. Same contract as parseOtpLock: one helper decides both the
  * branch and the count, a malformed token falls through to the caller's
  * generic message, and the range is checked against the policy ceiling so a
- * corrupt token cannot show "7 attempts left" under a 5-attempt challenge.
+ * corrupt token cannot show "7 attempts left" under a 3-attempt challenge.
  */
 export function parseOtpAttemptsLeft(message) {
   if (typeof message !== "string" || !message.startsWith(OTP_ATTEMPTS_LEFT_PREFIX)) return null;
@@ -120,6 +123,69 @@ export function formatLockWait(seconds) {
   if (total < 60) return `${total} second${total === 1 ? "" : "s"}`;
   const minutes = Math.ceil(total / 60);
   return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+/**
+ * Copy for a wrong code while the challenge still has attempts left.
+ *
+ * Lives here, not in the three login surfaces, because they already drifted:
+ * the web modal and the mobile login form told the user to request a new code
+ * after the last failure and the mobile OTP screen — the one a driver actually
+ * sees — did not. One helper, three callers, no way to ship two messages.
+ *
+ * The last attempt says what the next failure costs. Three wrong codes is the
+ * number that burns the challenge and ends the MFA step, and a bare "1 attempt
+ * left" does not tell them that.
+ */
+export function describeOtpAttemptsLeft(attemptsLeft) {
+  const left = Number(attemptsLeft);
+  const n = Number.isFinite(left)
+    ? Math.min(OTP_MAX_ATTEMPTS, Math.max(1, Math.floor(left)))
+    : OTP_MAX_ATTEMPTS;
+  if (n === 1) {
+    return "Incorrect code. 1 attempt left. One more wrong code cancels this code, and you'll need your password again for a new one.";
+  }
+  return `Incorrect code. ${n} attempt${n === 1 ? "" : "s"} left.`;
+}
+
+/**
+ * Copy for the failure that burns the challenge, in three short lines:
+ *
+ *   1. what happened   — the code is cancelled, and why
+ *   2. what to do      — the password again, because a strike ends the MFA step
+ *   3. what it costs   — how many more cancelled codes lock the account
+ *
+ * Plain words on purpose. The wire token and the field are still `OTP_STRIKE`
+ * / `strike`, but the screen never says "strike": the reader has just been told
+ * their code was cancelled, so that is the thing counted, and "failed codes"
+ * was actively wrong — three wrong codes cancel ONE code, so the number read a
+ * third of its true size. The count still comes from `strike`, so the sentence
+ * tracks the ladder: 1 of 3 → "2 more", 2 of 3 → "1 more", 3 of 3 → no warning
+ * (that burn answers `OTP_LOCKED` before this copy is reached).
+ *
+ * Order is deliberate — the fact they can act on first, the deterrent second,
+ * because a reader who stops after one line should still know what to do. The
+ * lines are joined with `\n`; both surfaces render the string in a text block
+ * (the web alert is `whitespace-pre-line`), and nothing is ever sent for the
+ * user here, so the copy promises no code.
+ */
+export function describeOtpBurn({ strike } = {}) {
+  const raw = Number(strike);
+  const n = Number.isFinite(raw)
+    ? Math.min(OTP_LOCKOUT_LIMIT, Math.max(1, Math.floor(raw)))
+    : 1;
+  const more = OTP_LOCKOUT_LIMIT - n;
+  const windowMinutes = Math.round(OTP_LOCKOUT_WINDOW_MS / 60_000);
+  const consequence =
+    more > 0
+      ? ` — ${more} more will lock this account for ` +
+        `${windowMinutes} minute${windowMinutes === 1 ? "" : "s"}.`
+      : ".";
+  return (
+    `Your code was cancelled after ${OTP_MAX_ATTEMPTS} wrong codes.\n` +
+    "Enter your password again to get a new code.\n" +
+    `Cancelled code ${n} of ${OTP_LOCKOUT_LIMIT}${consequence}`
+  );
 }
 
 /**

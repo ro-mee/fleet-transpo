@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit";
 import { isEmailConfigured, sendTempPasswordEmail } from "@/lib/email/smtp";
 import { isDeliverableEmailAddress } from "@/lib/auth/otp-policy";
 import { generateTempPassword, tempPasswordExpiry } from "@/lib/auth/temp-password";
+import { getSecurityPolicy } from "@/services/security-policy.service";
 import { revokeEmployeeSessions } from "@/lib/auth/sessions";
 
 // Admin-initiated re-issue of an invited account's temporary password.
@@ -55,7 +56,8 @@ export async function POST(req, { params }) {
 
     const tempPassword = generateTempPassword();
     const hash = await bcrypt.hash(tempPassword, 10);
-    const expiresAt = tempPasswordExpiry();
+    const { tempPasswordTtlDays } = await getSecurityPolicy();
+    const expiresAt = tempPasswordExpiry(undefined, tempPasswordTtlDays);
 
     const changed = await withTransaction(async (tx) => {
       const { rows: updated } = await tx.query(

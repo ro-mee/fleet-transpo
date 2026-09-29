@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { encode } from "next-auth/jwt";
 import { query } from "@/lib/db";
-import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
+import { getSecurityPolicy } from "@/services/security-policy.service";
 
 // Mints a fresh NextAuth session cookie for a brand-new web_sessions row.
 //
@@ -13,9 +13,10 @@ import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessio
 // auth_version bump already invalidated anything that held the old token.
 //
 // The cookie shape must match what NextAuth's own credentials login writes
-// (name field, 12h maxAge, Path=/ HttpOnly SameSite=Lax, __Secure- prefix in
-// production) or the session would decode differently depending on how the
-// user signed in.
+// (name field, Path=/ HttpOnly SameSite=Lax, __Secure- prefix in production) or
+// the session would decode differently depending on how the user signed in.
+// `maxAge` follows the configured absolute session lifetime so both paths mint
+// the same cookie for the same policy.
 
 export function sessionCookieName(env = process.env) {
   return env.NODE_ENV === "production"
@@ -24,12 +25,15 @@ export function sessionCookieName(env = process.env) {
 }
 
 export async function mintRotatedSession({ employee, ip, userAgent }) {
+  // Read before the INSERT: this mints a NEW session row, so it takes the
+  // policy as it stands now, not the one the revoked session was created under.
+  const policy = await getSecurityPolicy();
   const sessionId = randomUUID();
   await query(
     `INSERT INTO web_sessions
        (session_id, employee_id, expires_at, ip_address, user_agent, idle_timeout_seconds)
      VALUES ($1, $2, NOW() + ($3 || ' seconds')::INTERVAL, $4, $5, $6)`,
-    [sessionId, employee.employeeId, WEB_SESSION_TTL_SECONDS, ip || null, userAgent || null, IDLE_TIMEOUT_SECONDS]
+    [sessionId, employee.employeeId, policy.absoluteTtlSeconds, ip || null, userAgent || null, policy.idleTimeoutSeconds]
   );
 
   const token = {
@@ -53,14 +57,14 @@ export async function mintRotatedSession({ employee, ip, userAgent }) {
   const encoded = await encode({
     token,
     secret: process.env.NEXTAUTH_SECRET,
-    maxAge: WEB_SESSION_TTL_SECONDS,
+    maxAge: policy.absoluteTtlSeconds,
   });
 
   const attrs = [
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
-    `Max-Age=${WEB_SESSION_TTL_SECONDS}`,
+    `Max-Age=${policy.absoluteTtlSeconds}`,
     ...(process.env.NODE_ENV === "production" ? ["Secure"] : []),
   ];
   return {

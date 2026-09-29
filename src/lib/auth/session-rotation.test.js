@@ -1,12 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decode } from "next-auth/jwt";
 
+// `mintRotatedSession` reads the configured security policy before it writes
+// the row, so two statements leave this module: a SELECT on system_settings and
+// the INSERT. Both go through `@/lib/db`, and a single shared spy would let the
+// policy read swallow `mockRejectedValueOnce` in the insert-failure test — a
+// failure that then looks like a passed test because the INSERT never ran. The
+// router splits them so each assertion lands on the statement it is about.
 const insertMock = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
+const settingsMock = vi.fn().mockResolvedValue({ rows: [] });
 vi.mock("@/lib/db", () => ({
-  query: (...args) => insertMock(...args),
+  query: (sql, ...args) =>
+    String(sql).includes("web_sessions") ? insertMock(sql, ...args) : settingsMock(sql, ...args),
 }));
 
 import { mintRotatedSession, sessionCookieName } from "./session-rotation";
+import { clearSettingCache } from "@/lib/system-settings";
 
 const EMPLOYEE = {
   employeeId: 7,
@@ -26,8 +35,13 @@ beforeEach(() => {
   originalSecret = process.env.NEXTAUTH_SECRET;
   originalNodeEnv = process.env.NODE_ENV;
   process.env.NEXTAUTH_SECRET = "unit-test-secret-not-production";
+  // Cold every run: the policy read is cached for 30s in production, and a warm
+  // cache between tests here would decide whether the INSERT is even reached.
+  clearSettingCache();
   insertMock.mockClear();
   insertMock.mockResolvedValue({ rows: [], rowCount: 1 });
+  settingsMock.mockClear();
+  settingsMock.mockResolvedValue({ rows: [] });
 });
 
 afterEach(() => {

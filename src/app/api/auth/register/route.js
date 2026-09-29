@@ -8,6 +8,7 @@ import { canAssignRole, assignRejectionHint } from "@/lib/auth/privilege";
 import { isEmailConfigured, sendTempPasswordEmail } from "@/lib/email/smtp";
 import { isDeliverableEmailAddress } from "@/lib/auth/otp-policy";
 import { generateTempPassword, tempPasswordExpiry } from "@/lib/auth/temp-password";
+import { getSecurityPolicy } from "@/services/security-policy.service";
 
 export { canAssignRole };
 
@@ -74,7 +75,8 @@ export async function POST(req) {
 
     const tempPassword = generateTempPassword();
     const hash = await bcrypt.hash(tempPassword, 10);
-    const expiresAt = tempPasswordExpiry();
+    const { tempPasswordTtlDays } = await getSecurityPolicy();
+    const expiresAt = tempPasswordExpiry(undefined, tempPasswordTtlDays);
     const { rows } = await query(
       `INSERT INTO employees (email, password_hash, first_name, last_name, role_id, must_change_password, temp_credential_expires_at)
        VALUES ($1, $2, $3, $4, $5, true, $6)

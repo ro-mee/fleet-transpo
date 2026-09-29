@@ -11,12 +11,17 @@ import {
   formatCountdownSpoken,
 } from "@/lib/auth/countdown";
 
-// Stock copy, built once from the policy constant rather than from the live
-// value — the attribute must not churn every second on a node the user may be
-// hovering, and the *rule* ("expires after N minutes idle") is what the tooltip
-// needs to explain. The running number is already on screen beside it.
-const IDLE_MINUTES = Math.round(IDLE_TIMEOUT_SECONDS / 60);
-const TOOLTIP = `Session expires after ${IDLE_MINUTES} minute${IDLE_MINUTES === 1 ? "" : "s"} of inactivity. It resets when you click or type.`;
+// The *rule* ("expires after N minutes idle") is what the tooltip explains; the
+// running number is already on screen beside it. It comes from the session's
+// configured idle window rather than a build-time constant, but it is still
+// static per session: it must not churn every second on a node the user may be
+// hovering, and React only rewrites `title` when the string actually differs.
+// The shipped default is the fallback for a context that has not synced yet.
+const tooltipFor = (windows) => {
+  const idleMs = windows?.idleTimeoutMs ?? IDLE_TIMEOUT_SECONDS * 1000;
+  const idleMinutes = Math.max(1, Math.round(idleMs / 60000));
+  return `Session expires after ${idleMinutes} minute${idleMinutes === 1 ? "" : "s"} of inactivity. It resets when you click or type.`;
+};
 
 const TONES = {
   neutral: "border-border bg-background/60 text-foreground-muted",
@@ -38,7 +43,7 @@ const TONES = {
  * once a second for no reason.
  */
 export function SessionCountdown() {
-  const { idleExpiresAt } = useSessionManager();
+  const { idleExpiresAt, windows } = useSessionManager();
   const [secondsRemaining, setSecondsRemaining] = useState(null);
 
   useEffect(() => {
@@ -78,7 +83,7 @@ export function SessionCountdown() {
       // as "four colon thirty-two" and not as a duration.
       role="timer"
       aria-label={`Session expires in ${formatCountdownSpoken(secondsRemaining)}`}
-      title={TOOLTIP}
+      title={tooltipFor(windows)}
       className={cn(
         "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 select-none",
         "font-data text-xs font-semibold tabular-nums leading-none",
