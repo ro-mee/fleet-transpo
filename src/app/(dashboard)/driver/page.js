@@ -2,7 +2,10 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { getNotificationHref } from "@/lib/notifications/target";
+import { NotificationCard } from "@/components/notifications/notification-card";
 import {
   AlertTriangle,
   ArrowRight,
@@ -75,6 +78,7 @@ function FeedState({ queries, children, errorTitle = "This information is unavai
 
 export default function DriverHomePage() {
   useRequireRole();
+  const router = useRouter();
 
   const profileQuery = useQuery({ queryKey: ["driver-me"], queryFn: getMyDriverProfile });
   const tripsQuery = useQuery({ queryKey: ["driver-trips", "dashboard"], queryFn: () => getMyTrips({ limit: 100 }), enabled: Boolean(profileQuery.data) });
@@ -176,7 +180,39 @@ export default function DriverHomePage() {
           <Card className="rounded-2xl border-border/80"><CardHeader className="border-b border-border/70 p-5"><CardTitle className="flex items-center gap-2 text-sm"><Fuel className="h-4 w-4 text-primary" /> Fuel request</CardTitle></CardHeader><CardContent className="space-y-4 p-5"><FeedState queries={fuelQuery} errorTitle="Fuel request status is unavailable">{latestFuel ? <><div className="flex items-center justify-between gap-3"><p className="text-sm font-medium text-foreground">Request #{latestFuel.fuel_request_id}</p><StatusBadge status={latestFuel.status} entity="fuel" /></div><p className="text-xs text-foreground-secondary">{latestFuel.requested_liters ? `${latestFuel.requested_liters} L requested` : "Requested amount not recorded"}</p></> : <p className="text-sm text-foreground-secondary">No fuel request recorded.</p>}<Link href="/driver/fuel" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open fuel workspace <ArrowRight className="h-3.5 w-3.5" /></Link></FeedState></CardContent></Card>
           <Card className="rounded-2xl border-border/80"><CardHeader className="border-b border-border/70 p-5"><CardTitle className="flex items-center gap-2 text-sm"><ShieldAlert className="h-4 w-4 text-danger" /> Safety action</CardTitle></CardHeader><CardContent className="space-y-4 p-5"><p className="text-sm leading-relaxed text-foreground-secondary">Report an incident, near miss or assistance request as soon as it is safe.</p><Link href="/driver/incidents" className="inline-flex items-center gap-2 rounded-xl bg-danger px-4 py-2.5 text-sm font-semibold text-white hover:bg-danger/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger focus-visible:ring-offset-2">Report incident <ArrowRight className="h-4 w-4" /></Link></CardContent></Card>
         </div>
-        <Card className="overflow-hidden rounded-2xl border-border/80"><CardHeader className="border-b border-border/70 p-5 bg-hover/30"><div className="flex items-center justify-between gap-4"><div><CardTitle className="text-[15px] font-semibold text-foreground tracking-tight">Important notifications</CardTitle><p className="mt-1 text-xs text-foreground-secondary">Unread items plus alerts and warnings for your account.</p></div><Link href="/notifications" className="text-xs font-semibold text-primary hover:underline">View all</Link></div></CardHeader><CardContent className="p-0"><FeedState queries={notificationsQuery} errorTitle="Important notifications are unavailable">{importantNotifications.length ? <div className="divide-y divide-border/40">{importantNotifications.map((item) => <div key={item.notification_id} className="flex items-start gap-3 px-5 py-4 transition-colors hover:bg-hover/40"><div className="relative mt-0.5"><AlertTriangle className="h-4 w-4 shrink-0 text-warning" /><span className="absolute -top-1 -right-1 flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning opacity-75"></span><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-warning"></span></span></div><div><p className="text-sm font-semibold text-foreground tracking-tight">{item.title || item.type || "Notification"}</p><p className="mt-0.5 text-[13px] text-foreground-secondary">{item.message || "No additional detail recorded"}</p></div></div>)}</div> : <EmptyState icon={ShieldCheck} title="No important notifications" description="You're caught up on unread items, alerts, and warnings." className="py-10" />}</FeedState></CardContent></Card>
+        <Card className="overflow-hidden rounded-2xl border-border/80">
+          <CardHeader className="border-b border-border/70 p-5 bg-hover/30">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-[15px] font-semibold text-foreground tracking-tight">Important notifications</CardTitle>
+                <p className="mt-1 text-xs text-foreground-secondary">Unread items plus alerts and warnings for your account.</p>
+              </div>
+              <Link href="/notifications" className="text-xs font-semibold text-primary hover:underline">View all</Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4">
+            <FeedState queries={notificationsQuery} errorTitle="Important notifications are unavailable">
+              {importantNotifications.length ? (
+                <div className="flex flex-col gap-2.5">
+                  {importantNotifications.map((item) => (
+                    <NotificationCard
+                      key={item.notification_id}
+                      notification={item}
+                      compact={true}
+                      onClick={() => {
+                        const href = getNotificationHref(item, "driver");
+                        if (href) router.push(href);
+                        else router.push("/notifications");
+                      }}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <EmptyState icon={ShieldCheck} title="No important notifications" description="You're caught up on unread items, alerts, and warnings." className="py-10" />
+              )}
+            </FeedState>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <ActionLink href="/driver/trips" icon={Truck} label="My trips" detail={`${profile.performance?.total_trips ?? 0} completed in performance history`} />

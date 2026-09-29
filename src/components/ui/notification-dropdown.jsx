@@ -7,53 +7,16 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { getNotificationHref } from "@/lib/notifications/target";
-import { notificationCategory, severityBadge } from "@/lib/notifications/presentation";
+import { NotificationCard } from "@/components/notifications/notification-card";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
 import { getNotifications, markAsRead, markAllAsRead } from "@/services/notification.service";
-import { formatDate, cn } from "@/lib/utils";
-import {
-  Bell,
-  CheckCheck,
-  ChevronRight,
-  Info,
-  AlertTriangle,
-  CheckCircle2,
-  CalendarCheck,
-  Send,
-  Wrench,
-  Fuel,
-  Route,
-} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Bell, CheckCheck, ChevronRight } from "lucide-react";
 import { toast } from "@/components/ui/toast";
-
-const typeIcons = {
-  Info: Info,
-  Warning: AlertTriangle,
-  Alert: AlertTriangle,
-  Success: CheckCircle2,
-  Reservation: CalendarCheck,
-  Dispatch: Send,
-  Maintenance: Wrench,
-  Fuel: Fuel,
-  Trip: Route,
-};
-
-const typeBg = {
-  Info: "bg-info/10 text-info",
-  Warning: "bg-warning/10 text-warning",
-  Alert: "bg-danger/10 text-danger",
-  Success: "bg-success/10 text-success",
-  Reservation: "bg-primary/10 text-primary",
-  Dispatch: "bg-primary/10 text-primary",
-  Maintenance: "bg-warning/10 text-warning",
-  Fuel: "bg-warning/10 text-warning",
-  Trip: "bg-primary/10 text-primary",
-};
 
 function toastTypeFor(type) {
   if (type === "Alert" || type === "Warning") return "warning";
@@ -210,8 +173,8 @@ export function NotificationDropdown() {
           )}
         </div>
 
-        {/* List of recent notifications with Luxury Ethereal Floating Cards */}
-        <div className="max-h-[380px] overflow-y-auto p-3 space-y-2.5">
+        {/* List of recent notifications with clean neutral cards */}
+        <div className="max-h-[380px] overflow-y-auto p-3 space-y-2">
           {recent.length === 0 ? (
             <div className="p-8 text-center text-foreground-muted space-y-1.5">
               <div className="w-12 h-12 rounded-2xl bg-muted/40 flex items-center justify-center mx-auto mb-3 text-foreground-muted/60">
@@ -221,85 +184,15 @@ export function NotificationDropdown() {
               <p className="text-xs text-foreground-secondary">You&apos;re all caught up!</p>
             </div>
           ) : (
-            recent.map((notif) => {
-              const category = notificationCategory(notif.reference_type);
-              const severity = severityBadge(notif.severity);
-              const isUnread = !notif.is_read;
-              const type = notif.type === 'Alert' ? 'error' : (notif.type?.toLowerCase() || 'info');
-
-              const cardStyle = {
-                info: "from-sky-500/10 via-sky-500/5 to-surface/80 border-sky-500/25",
-                success: "from-emerald-500/10 via-emerald-500/5 to-surface/80 border-emerald-500/25",
-                warning: "from-amber-500/10 via-amber-500/5 to-surface/80 border-amber-500/25",
-                error: "from-rose-500/10 via-rose-500/5 to-surface/80 border-rose-500/25",
-              }[type] || "from-sky-500/10 via-sky-500/5 to-surface/80 border-sky-500/25";
-
-              const iconBoxStyle = {
-                info: "bg-sky-500/15 border-sky-500/30 text-sky-600 dark:text-sky-400",
-                success: "bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
-                warning: "bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400",
-                error: "bg-rose-500/15 border-rose-500/30 text-rose-600 dark:text-rose-400",
-              }[type] || "bg-sky-500/15 border-sky-500/30 text-sky-600 dark:text-sky-400";
-
-              return (
-                <div
-                  key={notif.notification_id}
-                  onClick={() => openNotification(notif)}
-                  className={cn(
-                    "group relative flex items-start gap-3.5 p-3.5 rounded-[18px] bg-gradient-to-r border transition-all duration-300 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5",
-                    cardStyle,
-                    isUnread ? "ring-1 ring-primary/40 shadow-sm" : "opacity-70 hover:opacity-100"
-                  )}
-                >
-                  {/* Glowing Squircle Icon Container */}
-                  <div className={cn("w-10 h-10 rounded-[12px] border flex items-center justify-center flex-shrink-0 shadow-xs", iconBoxStyle)}>
-                    {type === 'success' ? (
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="9 12 11 14 15 10" /></svg>
-                    ) : type === 'warning' ? (
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
-                    ) : type === 'error' ? (
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-                    ) : (
-                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-                    )}
-                  </div>
-
-                  {/* Body Content */}
-                  <div className="flex-1 min-w-0 pt-0.5">
-                    <div className="flex items-center justify-between gap-1 mb-0.5">
-                      <p className={cn("text-[13px] font-extrabold tracking-tight truncate", isUnread ? "text-foreground" : "text-foreground-secondary")}>
-                        {notif.title}
-                      </p>
-                      {isUnread && <span className="w-2 h-2 rounded-full bg-primary shrink-0 animate-pulse" />}
-                    </div>
-                    {notif.message && (
-                      <p className="text-[12px] text-foreground-secondary/90 line-clamp-2 leading-relaxed">
-                        {notif.message}
-                      </p>
-                    )}
-                    
-                    <span className="text-[10px] font-medium text-foreground-muted/70 block pt-1">
-                      {notif.sent_at ? formatDate(notif.sent_at) : ""}
-                    </span>
-
-                    {(category || severity) && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
-                        {category?.label && (
-                          <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider", category.chipClass)}>
-                            {category.label}{notif.reference_id ? ` #${notif.reference_id}` : ""}
-                          </span>
-                        )}
-                        {severity && (
-                          <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider", severity.chipClass)}>
-                            {severity.label}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })
+            recent.map((notif) => (
+              <NotificationCard
+                key={notif.notification_id || `${notif.message}-${notif.title}`}
+                notification={notif}
+                compact={true}
+                onClick={openNotification}
+                onMarkAsRead={(id) => markReadMut.mutate(id)}
+              />
+            ))
           )}
         </div>
 
