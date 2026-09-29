@@ -32,6 +32,18 @@ SELECT status, count(*) FROM trips GROUP BY status;
 
 → [[Open Questions]]
 
+## Pickup punctuality columns (2026-09-29, migration `139_driver_punctuality.sql`)
+
+`at_pickup_at TIMESTAMPTZ NULL` — authoritative pickup-arrival timestamp,
+written server-side on the `At Pickup` transition, first-write-wins so retries
+never rewrite history. `at_pickup_override BOOLEAN NOT NULL DEFAULT FALSE` —
+marks arrivals recorded with `geofence_override=true` (claimed, not
+geofence-proven). Partial indexes `idx_trips_at_pickup` and
+`idx_trips_driver_completed_end`. Pre-existing Completed rows have NULL and
+correctly read as Not Measured. Punctuality anchor is
+`dispatchschedules.scheduled_departure` with a 5-minute grace; see the Driver
+Punctuality plan (`docs/superpowers/plans/2026-09-29-driver-punctuality.md`).
+
 ## Notable — cancellation state
 
 `CANCELLED` is explicitly supported as a terminal state. Like `COMPLETED`, once a trip is `CANCELLED`, it cannot transition to any other status.

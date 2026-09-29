@@ -10,6 +10,23 @@ last_verified: 2026-09-27
 
 # Migrations
 
+## 2026-09-29 — `139_driver_punctuality.sql` (Driver Punctuality, Task 1 of 9)
+
+Adds the authoritative pickup-arrival timestamp for Driver Punctuality to
+`trips`: `at_pickup_at TIMESTAMPTZ NULL` (written server-side by
+`setTripStatus()` on the `At Pickup` transition, first-write-wins) and
+`at_pickup_override BOOLEAN NOT NULL DEFAULT FALSE` (arrivals recorded with
+`geofence_override=true` — claimed, not geofence-proven — so the report can
+separate them), plus partial indexes `idx_trips_at_pickup` and
+`idx_trips_driver_completed_end`. Idempotent (`IF NOT EXISTS`); no backfill —
+pre-existing Completed rows correctly read as Not Measured. `npm run db:up`
+applied it; `npm run db:dump` diff shows exactly the two columns + two
+indexes; `information_schema` confirms both on live; `npm run db:contract`
+0 violations (no new table/view, `trips` RLS posture unchanged);
+`npm run verify:anon` 0 EXPOSED with `trips` explicitly refused (401).
+No new RLS policy needed — new columns on the existing `trips` table.
+→ Driver Punctuality plan (`docs/superpowers/plans/2026-09-29-driver-punctuality.md`), Task 2 wires the writer.
+
 ## 2026-09-27 — `137_driver_license_eligibility.sql`
 
 Adds nullable license review fields to `drivers` (`license_verified_at`,
