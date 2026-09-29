@@ -99,6 +99,11 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
 
   const sets = ["trip_status = $1", "updated_at = NOW()"];
   const values = [to];
+  // Authoritative pickup stamp + override latch, same statement as the flip.
+  if (to === TRIP_STATUS.AT_PICKUP) {
+    sets.push("at_pickup_at = COALESCE(at_pickup_at, NOW())");
+    sets.push(`at_pickup_override = at_pickup_override OR ${geofenceOverride === true ? "TRUE" : "FALSE"}`);
+  }
   const allowedExtra = Object.entries(extra || {});
   for (const [col, val] of allowedExtra) {
     sets.push(`${col} = $${values.length + 1}`);
