@@ -43,6 +43,11 @@ geofence-proven). Partial indexes `idx_trips_at_pickup` and
 correctly read as Not Measured. Punctuality anchor is
 `dispatchschedules.scheduled_departure` with a 5-minute grace; see the Driver
 Punctuality plan (`docs/superpowers/plans/2026-09-29-driver-punctuality.md`).
+Writer implemented 2026-09-29 in `setTripStatus`
+(`src/services/transition.service.js`, commit `6156c8e`): same-statement
+`at_pickup_at = COALESCE(at_pickup_at, NOW())` stamp plus `OR` override latch,
+AT_PICKUP transitions only; verified by
+`src/services/transition-punctuality.test.js` (full suite 3228 passed).
 
 ## Notable — cancellation state
 
