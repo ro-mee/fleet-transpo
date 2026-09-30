@@ -535,6 +535,13 @@ Verified: `rule-engine.test.js` 22/22 (tie-breaker cap + dead-signal
 invariance), `pair-scoring.test.js` 48/48, `dispatch-advisor.test.js` 3/3,
 driver API suites green.
 
+## Driver Information Edit and Cleared Field Handling (2026-09-30)
+
+When editing a driver via `/drivers/[id]/edit` (`src/app/(dashboard)/drivers/[id]/edit/page.js`):
+- Previously, falsy guards (`if (data.field?.trim()) payload.field = ...`) dropped cleared optional fields (`phone`, `address`, `sex`, `birthdate`, `nationality`, `emergency_contact_*`) from the request payload. Because `PUT /api/drivers/[id]` interprets omitted fields as "do not modify", cleared values were never removed in PostgreSQL.
+- The client form now normalizes cleared/empty optional values to `null` (e.g. `phone: data.phone?.trim() || null`), allowing the backend to explicitly update those database columns to `NULL`.
+- `driver_status` is now sent conditionally only when modified on the edit page. If unchanged, it is omitted (`undefined`) so that the backend's automatic compliance reinstatement check (`if (driver_status === undefined)`) can evaluate license expiry renewal and lift suspensions automatically.
+
 ## Driver Detail Position Title and License Verification Badges (2026-09-30)
 
 The Driver Detail Page (`src/app/(dashboard)/drivers/[id]/page.js`) now renders:
@@ -560,6 +567,18 @@ The web Driver Profile page (`src/app/(dashboard)/driver/profile/page.js`) now r
 - "Emergency Contact" card displaying Next of Kin Contact Name, Phone Number, and Address.
 
 Verified with unit tests (`src/app/api/driver/me/route.test.js` - 1/1 pass, driver API suite 7/7 files, 44/44 pass) and clean ESLint checks.
+
+## Mobile Driver Profile Information Exposure (2026-09-30)
+
+The mobile driver app's Personal Information screen (`mobile/app/(app)/profile/personal.js`) now renders:
+- Driver Position (`profile?.position || "Driver"`).
+- Birthdate (`profile?.birthdate || "—"`).
+- Formatted Sex (`profile?.sex === 'M' ? 'Male' : profile?.sex === 'F' ? 'Female' : (profile?.sex || "—")`).
+- Nationality (`profile?.nationality || 'Filipino'`).
+- Residential Address (`profile?.address || "—"`).
+- A dedicated Emergency Contact `ClayCard` section displaying Contact Name, Phone Number, and Address when emergency contact data is present on file.
+
+Verified with mobile test suite: 46 test files passed, 525 tests passed in `mobile/lib/`.
 
 ## Open questions
 

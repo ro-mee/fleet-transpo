@@ -54,6 +54,10 @@ through the authenticated `/api/driver/me?include_license=1` profile read; staff
 require `drivers.update`. This is access/display masking, not encryption. NULL verification
 metadata on existing rows is intentional and blocks assignment until review.
 
+## Personal and emergency contact exposure — 2026-09-30
+
+`address`, `birthdate`, `sex`, `nationality`, `emergency_contact_name`, `emergency_contact_phone`, and `emergency_contact_address` columns are now exposed via `GET /api/driver/me` for the authenticated driver's self-view (rendered on both web `/driver/profile` and mobile `profile/personal.js`). When an operator edits a driver via `/drivers/[id]/edit`, optional fields that are cleared now send `null` so that database columns are properly set to `NULL` rather than being ignored.
+
 ## Vehicle pairing lives elsewhere
 
 Which vehicle a driver is assigned is **not** a column here — it's [[driver_vehicle_assignments]], with partial unique indexes enforcing at most one active pairing per driver and per vehicle. That's what forces reassignment through `withTransaction`. → [[Connection Pooling vs Transactions]]
