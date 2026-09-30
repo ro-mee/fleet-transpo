@@ -132,7 +132,7 @@ export default function EditDriverPage() {
     seededDriverId.current = driver.driver_id;
 
     const emp = driver.employees || {};
-    const imgUrl = driver.face_image_url || emp.avatar_url || "";
+    const imgUrl = driver.license_image_url || "";
     const backUrl = driver.license_back_image_url || "";
     if (imgUrl) setLicenseImagePreview(imgUrl);
     if (backUrl) setLicenseBackImagePreview(backUrl);
@@ -358,16 +358,22 @@ export default function EditDriverPage() {
 
     if (data.email?.trim()) payload.email = data.email.trim();
     if (data.phone?.trim()) payload.phone = data.phone.trim();
+    else if (driver?.employees?.phone) payload.phone = null;
     if (data.license_expiry) payload.license_expiry = data.license_expiry;
     if (data.license_type) payload.license_type = data.license_type;
     if (data.license_class) payload.license_class = data.license_class;
     if (data.address?.trim()) payload.address = data.address.trim();
     if (data.sex?.trim()) payload.sex = data.sex.trim();
+    else if (driver?.sex) payload.sex = null;
     if (data.birthdate) payload.birthdate = data.birthdate;
+    else if (driver?.birthdate) payload.birthdate = null;
     if (data.nationality?.trim()) payload.nationality = data.nationality.trim();
+    else if (driver?.nationality) payload.nationality = null;
     if (data.emergency_contact_name?.trim()) payload.emergency_contact_name = data.emergency_contact_name.trim();
+    else if (driver?.emergency_contact_name) payload.emergency_contact_name = null;
     if (data.emergency_contact_address?.trim()) payload.emergency_contact_address = data.emergency_contact_address.trim();
     if (data.emergency_contact_phone?.trim()) payload.emergency_contact_phone = data.emergency_contact_phone.trim();
+    else if (driver?.emergency_contact_phone) payload.emergency_contact_phone = null;
 
     // Sent ONLY when the operator picked one on this visit. Omitting the field is
     // what tells the API to leave the stored text and its registry row alone —
@@ -376,6 +382,11 @@ export default function EditDriverPage() {
     if (pickedEmergencyAddress) payload.emergency_structured_address = pickedEmergencyAddress;
 
     updateMutation.mutate(payload);
+  };
+
+  const onInvalid = (errors) => {
+    const firstError = Object.values(errors).find((error) => error?.message)?.message;
+    toast.error(firstError || "Please review the highlighted fields before saving.");
   };
 
   // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form manages its own subscription store
@@ -405,7 +416,7 @@ export default function EditDriverPage() {
       </Button>
       <Button
         type="button"
-        onClick={form.handleSubmit(onSubmit)}
+        onClick={form.handleSubmit(onSubmit, onInvalid)}
         disabled={isSaving}
         className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
       >
@@ -434,7 +445,7 @@ export default function EditDriverPage() {
       />
       <StickyActionBar>{formActions}</StickyActionBar>
 
-      <form onSubmit={form.handleSubmit(onSubmit)}>
+      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
           {/* ── LEFT COLUMN: 3 Section Cards (7 Cols) ── */}
@@ -538,7 +549,7 @@ export default function EditDriverPage() {
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
-                  <FloatingField label="License Number" icon={IdCard} required>
+                  <FloatingField label="License Number" icon={IdCard} required error={form.formState.errors.license_number?.message}>
                     <div className="flex w-full items-center gap-2">
                       <input id="license_number" type={showLicenseNumber ? "text" : "password"} autoComplete="off" {...form.register("license_number")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data uppercase" />
                       <button type="button" onClick={() => setShowLicenseNumber((value) => !value)} aria-label={showLicenseNumber ? "Hide license number" : "Show license number"} className="text-foreground-muted hover:text-foreground">
@@ -563,7 +574,7 @@ export default function EditDriverPage() {
                     control={form.control}
                     name="license_class"
                     render={({ field }) => (
-                      <FloatingField label="LTO License Code" icon={IdCard} required>
+                      <FloatingField label="LTO License Code" icon={IdCard} required error={form.formState.errors.license_class?.message}>
                         <Select value={field.value} onValueChange={field.onChange}>
                           <SelectTrigger className="w-full bg-transparent border-0 h-auto p-0 focus:ring-0 focus:ring-offset-0 shadow-none text-xs font-semibold text-foreground py-1">
                             <SelectValue />
