@@ -15,7 +15,7 @@ source:
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-09-27
+last_verified: 2026-09-30
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -34,6 +34,14 @@ B (M1: at most 8 passenger seats, GVW at most 5,000 kg) and B1 (M2: more than 8 
 seats, GVW at most 5,000 kg), following the LTO code table. The license number is not parsed
 for an expiry date: the date is entered separately, and Gemini image-scan suggestions must be
 checked against the card.
+
+## Editing driver records — save feedback and optional clears (2026-09-30)
+
+The edit form uses the same `driverEditSchema` as driver creation. Under the license policy above, a missing or invalid license number, expiry, type, or class blocks the save. The form now shows the license number and class errors inline and reports the first client validation error in a toast, so a blocked submit is visible. The validation requirements and server-side eligibility checks are unchanged.
+
+When an operator clears an existing nullable value, the form now sends `null` for employee phone, sex, birthdate, nationality, emergency contact name, and emergency contact phone. Blank email remains omitted because it is the employee's login identity. Residential and emergency addresses remain governed by the structured address picker so a save cannot leave a registry address ID behind. The front scan preview now uses `driver.license_image_url` rather than the driver's face image or employee avatar, preventing an unrelated edit from replacing the license scan.
+
+Verification: source review confirmed the edit form's invalid-submit path, nullable `PUT /api/drivers/[id]` mappings, and license media field. Automated tests were not run from this remote-file editing session.
 
 Each vehicle stores `required_license_class`, selected from its registration record. Fleet
 service category and passenger seating do not prove the LTO driver code, so existing vehicles
