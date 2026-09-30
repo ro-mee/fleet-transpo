@@ -230,7 +230,77 @@ describe("PUT /api/drivers/[id] — an edit that does not touch the address", ()
     expect(columns.address).toBe("12 Mabini St, Manila");
     expect(columns).not.toHaveProperty("address_id");
   });
+
+  it("clears optional fields when null or empty strings are passed in PUT", async () => {
+    const existing = {
+      driver_id: DRIVER_ID,
+      employee_id: 99,
+      email: "driver@example.com",
+      license_number: "N01-12-345678",
+      license_expiry: "2030-01-01",
+      license_type: "Professional",
+      license_class: "B",
+      license_image_url: null,
+      license_back_image_url: null,
+      emergency_contact_phone: "09171234567",
+      nationality: "FILIPINO",
+    };
+
+    let updatedDriverPayload = null;
+    let updatedEmployeePayload = null;
+
+    db.query.mockImplementation(async (sql, params) => {
+      if (sql.includes("FROM drivers d") && sql.includes("WHERE d.driver_id = $1")) {
+        return { rows: [existing] };
+      }
+      if (sql.includes("UPDATE drivers SET")) {
+        updatedDriverPayload = { sql, params };
+        return { rows: [{ driver_id: DRIVER_ID }] };
+      }
+      if (sql.includes("UPDATE employees SET")) {
+        updatedEmployeePayload = { sql, params };
+        return { rows: [{ employee_id: 99 }] };
+      }
+      return { rows: [] };
+    });
+
+    const req = {
+      url: `http://localhost/api/drivers/${DRIVER_ID}`,
+      json: async () => ({
+        first_name: "Juan",
+        last_name: "Dela Cruz",
+        license_number: "N01-12-345678",
+        license_expiry: "2030-01-01",
+        license_type: "Professional",
+        license_class: "B",
+        emergency_contact_phone: null,
+        nationality: null,
+        phone: null,
+        sex: null,
+        birthdate: null,
+        address: null,
+        emergency_contact_name: null,
+        emergency_contact_address: null,
+      }),
+    };
+
+    const res = await PUT(req, { params: Promise.resolve({ id: String(DRIVER_ID) }) });
+    expect(res.status).toBe(200);
+    expect(updatedDriverPayload).not.toBeNull();
+    // Verify optional fields are set to null in the SQL params
+    expect(updatedDriverPayload.sql).toContain("emergency_contact_phone =");
+    expect(updatedDriverPayload.sql).toContain("nationality =");
+    expect(updatedDriverPayload.sql).toContain("sex =");
+    expect(updatedDriverPayload.sql).toContain("birthdate =");
+    expect(updatedDriverPayload.sql).toContain("address =");
+    expect(updatedDriverPayload.sql).toContain("emergency_contact_name =");
+    expect(updatedDriverPayload.sql).toContain("emergency_contact_address =");
+    expect(updatedEmployeePayload).not.toBeNull();
+    expect(updatedEmployeePayload.sql).toContain("phone =");
+  });
 });
+
+
 
 describe("GET /api/drivers/[id] — full license access", () => {
   it("requires drivers.update when the editor requests the full license number", async () => {

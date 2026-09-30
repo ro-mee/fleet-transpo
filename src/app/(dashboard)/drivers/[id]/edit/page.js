@@ -350,28 +350,30 @@ export default function EditDriverPage() {
       last_name: data.last_name.trim(),
       license_number: data.license_number.trim(),
       years_of_experience: data.years_of_experience ?? 0,
-      driver_status: data.driver_status || "Available",
-      position: data.position || "Driver",
+      position: data.position?.trim() || "Driver",
       license_image_url: licenseImagePreview || data.license_image_url || null,
       license_back_image_url: licenseBackImagePreview || data.license_back_image_url || null,
+      // Pass null when cleared so backend clears the column rather than ignoring it
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
+      license_expiry: data.license_expiry || null,
+      license_type: data.license_type || null,
+      license_class: data.license_class || null,
+      sex: data.sex?.trim() || null,
+      birthdate: data.birthdate || null,
+      nationality: data.nationality?.trim() || null,
+      emergency_contact_name: data.emergency_contact_name?.trim() || null,
+      emergency_contact_phone: data.emergency_contact_phone?.trim() || null,
+      address: data.address?.trim() || null,
+      emergency_contact_address: data.emergency_contact_address?.trim() || null,
     };
 
-    if (data.email?.trim()) payload.email = data.email.trim();
-    if (data.phone?.trim()) payload.phone = data.phone.trim();
-    if (data.license_expiry) payload.license_expiry = data.license_expiry;
-    if (data.license_type) payload.license_type = data.license_type;
-    if (data.license_class) payload.license_class = data.license_class;
-    if (data.address?.trim()) payload.address = data.address.trim();
-    if (data.sex?.trim()) payload.sex = data.sex.trim();
-    if (data.birthdate) payload.birthdate = data.birthdate;
-    if (data.nationality?.trim()) payload.nationality = data.nationality.trim();
-    if (data.emergency_contact_name?.trim()) payload.emergency_contact_name = data.emergency_contact_name.trim();
-    if (data.emergency_contact_address?.trim()) payload.emergency_contact_address = data.emergency_contact_address.trim();
-    if (data.emergency_contact_phone?.trim()) payload.emergency_contact_phone = data.emergency_contact_phone.trim();
+    // If driver_status was not modified on this screen, do not send it so the
+    // backend's automatic reinstatement check is not bypassed.
+    if (data.driver_status && data.driver_status !== driver?.driver_status) {
+      payload.driver_status = data.driver_status;
+    }
 
-    // Sent ONLY when the operator picked one on this visit. Omitting the field is
-    // what tells the API to leave the stored text and its registry row alone —
-    // which is what makes renaming a driver not silently drop their address.
     if (pickedAddress) payload.structured_address = pickedAddress;
     if (pickedEmergencyAddress) payload.emergency_structured_address = pickedEmergencyAddress;
 
