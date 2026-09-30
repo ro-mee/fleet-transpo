@@ -17,7 +17,7 @@ import { getMyDriverProfile, updateMyDriverProfile } from "@/services/driver.ser
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
-import { IdCard, Award, Fingerprint, Pencil, Phone, ScanLine, Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { IdCard, Award, Pencil, Phone, ScanLine, Eye, EyeOff, LoaderCircle, User, ShieldAlert } from "lucide-react";
 
 function Stat({ label, value }) {
   return (
@@ -158,9 +158,16 @@ export default function DriverProfilePage() {
               </div>
             )}
             <div className="min-w-0">
-              <p className="truncate text-lg font-bold text-foreground">
-                {profile.firstName} {profile.lastName}
-              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="truncate text-lg font-bold text-foreground">
+                  {profile.firstName} {profile.lastName}
+                </p>
+                {profile.position && (
+                  <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-foreground-muted">
+                    {profile.position}
+                  </span>
+                )}
+              </div>
               <div className="mt-1">
                 <StatusBadge status={profile.driverStatus} entity="driver" />
               </div>
@@ -236,6 +243,60 @@ export default function DriverProfilePage() {
             </div>
           </CardContent>
         </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <User className="w-4 h-4 text-primary" /> Personal Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="sm:col-span-2">
+                <p className="text-foreground-muted">Residential Address</p>
+                <p className="font-medium mt-1 leading-relaxed">{profile.address || "—"}</p>
+              </div>
+              <div>
+                <p className="text-foreground-muted">Birthdate</p>
+                <p className="font-medium mt-1">{profile.birthdate ? formatDate(profile.birthdate) : "—"}</p>
+              </div>
+              <div>
+                <p className="text-foreground-muted">Sex</p>
+                <p className="font-medium mt-1">{profile.sex || "—"}</p>
+              </div>
+              <div>
+                <p className="text-foreground-muted">Nationality</p>
+                <p className="font-medium mt-1">{profile.nationality || "—"}</p>
+              </div>
+              <div>
+                <p className="text-foreground-muted">Position</p>
+                <p className="font-medium mt-1">{profile.position || "Driver"}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-primary" /> Emergency Contact
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-xs">
+              <div>
+                <p className="text-foreground-muted">Contact Name</p>
+                <p className="font-medium mt-1">{profile.emergencyContact?.name || profile.emergency_contact_name || "—"}</p>
+              </div>
+              <div>
+                <p className="text-foreground-muted">Phone Number</p>
+                <p className="font-medium mt-1">{profile.emergencyContact?.phone || profile.emergency_contact_phone || "—"}</p>
+              </div>
+              <div>
+                <p className="text-foreground-muted">Address</p>
+                <p className="font-medium mt-1 leading-relaxed">{profile.emergencyContact?.address || profile.emergency_contact_address || "—"}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <Card className="border-0 shadow-sm">
           <CardHeader>

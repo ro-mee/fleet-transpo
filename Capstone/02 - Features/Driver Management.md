@@ -501,6 +501,66 @@ guard on the trip-grain query), live `verify-reports.mjs` §6 (15 checks of
 the route against independent SQL, all passing), `db:contract` 0 violations,
 `verify:anon` 0 EXPOSED. Full suite 3288/3288.
 
+## Performance Profile unified on punctuality (2026-09-30)
+
+The Driver Info Overview "Performance Profile" card and its header KPI no
+longer read `AVG(smooth_driving_score)` from `driver_stats` (no writer UI
+exists for `customer_rating` / `smooth_driving_score`, so it almost always
+rendered "Not enough completed trips").
+
+- `GET /api/drivers/[id]` now also returns All-Time punctuality computed
+  with the same definition as the report (`punctuality_completed/measured/
+  on_time/late/override/unmeasured/rate`, grace 5 min, override excluded,
+  rate divides by measured only).
+- The card shows `punctuality_rate` + `on_time of measured`, with `— No
+  measured trips` as the empty state, plus a link to `/drivers/performance`.
+- `total_trips` / `total_distance` still come from `driver_stats` (the
+  performance report carries no distance).
+
+## Rule engine off dead rating signals (2026-09-30)
+
+`scoreDispatchDrivers` (`src/lib/ai/rule-engine.js`) no longer adds +25/+18/
++8 for `avg_guest_rating` or +15/+8 for `avg_driving_score`. It applies a
+punctuality tie-breaker over the last 90 days (±3 max: +3 at ≥95%, +1 at
+≥85%, −3 below 70%, minimum 5 measured trips) so feasibility and workload
+fairness still dominate. The prep query
+(`dispatch-recommendation-preparation.service.js`) supplies `punct_measured/
+on_time/late/rate` instead of the two AVG columns; `dispatch-advisor.js`
+exposes them on the candidate and keeps `avg_guest_rating` /
+`avg_driving_score` / `rating` as null legacy keys; `pair-scoring.js`
+evidence reads "Punctuality X% (Y of Z measured)" with zero ranking points
+(H8 unchanged).
+
+Verified: `rule-engine.test.js` 22/22 (tie-breaker cap + dead-signal
+invariance), `pair-scoring.test.js` 48/48, `dispatch-advisor.test.js` 3/3,
+driver API suites green.
+
+## Driver Detail Position Title and License Verification Badges (2026-09-30)
+
+The Driver Detail Page (`src/app/(dashboard)/drivers/[id]/page.js`) now renders:
+- An employee position badge (`emp.position || "Driver"`) alongside the driver's full name in the header identity block.
+- An explicit staff review status badge in the License & Credentials card header:
+  - If verified (`driver.license_verified_at`), displays an emerald check badge: `Verified ({driver.license_verification_method || "Staff Review"})`.
+  - If unverified, displays an amber clock badge: `Pending Staff Review`.
+
+## Driver Personal Details and Emergency Contact Exposure (2026-09-30)
+
+`GET /api/driver/me` (`src/app/api/driver/me/route.js`) now selects and exposes driver personal and emergency contact information from `employees` and `drivers`:
+- `position` (`employees.position`)
+- `address` (`drivers.address`)
+- `sex` (`drivers.sex`)
+- `birthdate` (`drivers.birthdate`)
+- `nationality` (`drivers.nationality`)
+- `emergencyContact`: `{ name, phone, address }` (`drivers.emergency_contact_name`, `drivers.emergency_contact_phone`, `drivers.emergency_contact_address`)
+- Backward-compatible top-level keys: `emergency_contact_name`, `emergency_contact_phone`, `emergency_contact_address`, and `data` sub-object.
+
+The web Driver Profile page (`src/app/(dashboard)/driver/profile/page.js`) now renders:
+- Position title badge alongside the driver's name in the header identity block.
+- "Personal Details" card displaying Residential Address, Birthdate, Sex, Nationality, and Position.
+- "Emergency Contact" card displaying Next of Kin Contact Name, Phone Number, and Address.
+
+Verified with unit tests (`src/app/api/driver/me/route.test.js` - 1/1 pass, driver API suite 7/7 files, 44/44 pass) and clean ESLint checks.
+
 ## Open questions
 
 - The old "Standard Morning Shift" card was replaced by the real schedule; the

@@ -47,10 +47,12 @@ export async function GET(req) {
     await ensureDriverColumnsExist();
 
     const { rows } = await query(
-      `SELECT e.employee_id, e.email, e.first_name, e.last_name, e.phone, e.avatar_url,
+      `SELECT e.employee_id, e.email, e.first_name, e.last_name, e.phone, e.position, e.avatar_url,
               d.driver_id, d.driver_status, d.license_number, d.license_type,
               d.license_class, d.license_expiry, d.years_of_experience,
-              d.face_image_url, d.license_image_url, d.license_back_image_url
+              d.face_image_url, d.license_image_url, d.license_back_image_url,
+              d.address, d.sex, d.birthdate, d.nationality,
+              d.emergency_contact_name, d.emergency_contact_phone, d.emergency_contact_address
          FROM employees e
          JOIN drivers d ON d.employee_id = e.employee_id AND d.deleted_at IS NULL
         WHERE e.employee_id = $1 AND e.deleted_at IS NULL
@@ -155,6 +157,31 @@ export async function GET(req) {
       phone: driver.phone,
       driverId: driver.driver_id,
       driverStatus: driver.driver_status,
+      position: driver.position || "Driver",
+      address: driver.address || null,
+      sex: driver.sex || null,
+      birthdate: driver.birthdate || null,
+      nationality: driver.nationality || null,
+      emergencyContact: {
+        name: driver.emergency_contact_name || null,
+        phone: driver.emergency_contact_phone || null,
+        address: driver.emergency_contact_address || null,
+      },
+      emergency_contact_name: driver.emergency_contact_name || null,
+      emergency_contact_phone: driver.emergency_contact_phone || null,
+      emergency_contact_address: driver.emergency_contact_address || null,
+      data: {
+        position: driver.position || "Driver",
+        address: driver.address || null,
+        sex: driver.sex || null,
+        birthdate: driver.birthdate || null,
+        nationality: driver.nationality || null,
+        emergencyContact: {
+          name: driver.emergency_contact_name || null,
+          phone: driver.emergency_contact_phone || null,
+          address: driver.emergency_contact_address || null,
+        },
+      },
       avatarUrl: media.face_image_url || media.avatar_url || null,
       faceImageUrl: media.face_image_url || null,
       license: {
