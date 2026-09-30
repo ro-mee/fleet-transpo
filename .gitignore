@@ -61,3 +61,10 @@ Capstone/.obsidian/
 scratch/
 *.bak
 *.log
+
+# Motion Reel generation & video artifacts
+motion/
+fleetops-e2e.mp4
+fleetops-e2e-poster.jpg
+*.mp4
+
