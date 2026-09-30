@@ -366,40 +366,100 @@ for (const row of perVehSql) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. /api/reports/driver-performance
+// 6. /api/reports/driver-performance — completed trips + pickup punctuality.
 // ---------------------------------------------------------------------------
 console.log(`\n6. reports/driver-performance`);
 const perf = await callReport("app/api/reports/driver-performance/route.js");
+check("report retired avgScore", !Object.prototype.hasOwnProperty.call(perf || {}, "avgScore"), JSON.stringify(Object.keys(perf || {})));
+check("report retired topDrivers", !Object.prototype.hasOwnProperty.call(perf || {}, "topDrivers"), JSON.stringify(Object.keys(perf || {})));
+check("report exposes totalCompletedTrips", Object.prototype.hasOwnProperty.call(perf || {}, "totalCompletedTrips"), JSON.stringify(Object.keys(perf || {})));
+check("report exposes punctuality", perf.punctuality !== null && typeof perf.punctuality === "object", JSON.stringify(perf.punctuality));
+check("methodology describes punctuality", typeof perf.methodology === "string" && /punctuality|measured/i.test(perf.methodology), String(perf.methodology).slice(0, 120));
+const { PUNCTUALITY_GRACE_MINUTES } = await app("lib/reports/operational-reports.js");
+// Independent SQL: trip-grain aggregates with the definitional anchor
+// (dispatch plan, else booking promise), override exclusion, and grace —
+// written as one GROUP BY here versus the route's per-driver SELECT, so a
+// join fan-out or a JS roll-up bug shows up as a mismatch.
 const perfSql = (await query(
-  `SELECT d.driver_id,
-          (SELECT COUNT(*)::int FROM trips t WHERE t.driver_id = d.driver_id
-             AND t.trip_status = 'Completed' AND t.deleted_at IS NULL
-             AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)) AS total_trips,
-          (SELECT COALESCE(ROUND(SUM(t.distance)::numeric,1),0) FROM trips t WHERE t.driver_id = d.driver_id
-             AND t.trip_status = 'Completed' AND t.deleted_at IS NULL
-             AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)) AS total_distance,
-           (SELECT COUNT(*)::int FROM driverincidents di WHERE di.driver_id = d.driver_id
-             AND di.deleted_at IS NULL
-             AND di.incident_date >= $1::date AND di.incident_date < ($2::date + 1)) AS incidents
-     FROM drivers d WHERE d.deleted_at IS NULL ORDER BY d.driver_id`,
-  [FROM, TO]
+  `SELECT t.driver_id,
+          COUNT(*)::int AS completed_trips,
+          COUNT(*) FILTER (
+            WHERE t.at_pickup_at IS NOT NULL
+              AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+              AND COALESCE(t.at_pickup_override, FALSE) = FALSE)::int AS measured_trips,
+          COUNT(*) FILTER (
+            WHERE t.at_pickup_at IS NOT NULL
+              AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+              AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+              AND t.at_pickup_at <= COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                  + ($3 || ' minutes')::interval)::int AS on_time_trips,
+          COUNT(*) FILTER (
+            WHERE t.at_pickup_at IS NOT NULL
+              AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+              AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+              AND t.at_pickup_at > COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                  + ($3 || ' minutes')::interval)::int AS late_trips,
+          COUNT(*) FILTER (WHERE COALESCE(t.at_pickup_override, FALSE) = TRUE)::int AS override_trips
+     FROM trips t
+     LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+     LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+    WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
+      AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+    GROUP BY t.driver_id`,
+  [FROM, TO, String(PUNCTUALITY_GRACE_MINUTES)]
 )).rows;
-eq("totalDrivers", perf.totalDrivers, perfSql.length, 0);
-const tripSum = perfSql.reduce((s, r) => s + r.total_trips, 0);
-const routeTripSum = (perf.details || []).reduce((s, r) => s + Number(r.total_trips || 0), 0);
-check(`details total_trips sums to ${tripSum}`, routeTripSum === tripSum, `route ${routeTripSum}`);
+const liveDrivers = (await query(`SELECT COUNT(*)::int AS n FROM drivers WHERE deleted_at IS NULL`)).rows[0].n;
+eq("totalDrivers", perf.totalDrivers, liveDrivers, 0);
+const sum = (rows, key) => rows.reduce((s, r) => s + Number(r[key] || 0), 0);
+eq("totalCompletedTrips", perf.totalCompletedTrips, sum(perfSql, "completed_trips"), 0);
 for (const row of perfSql) {
   const hit = (perf.details || []).find((r) => r.driver_id === row.driver_id);
   if (!hit) { check(`details[driver ${row.driver_id}] present`, false, "missing"); continue; }
-  check(`details[driver ${row.driver_id}].total_trips`, Number(hit.total_trips) === row.total_trips, `route ${hit.total_trips} vs ${row.total_trips}`);
-  eq(`details[driver ${row.driver_id}].total_distance`, hit.total_distance, row.total_distance, 0.11);
+  check(`details[driver ${row.driver_id}].completed_trips`, hit.completed_trips === row.completed_trips, `route ${hit.completed_trips} vs ${row.completed_trips}`);
+  check(`details[driver ${row.driver_id}].measured_trips`, hit.measured_trips === row.measured_trips, `route ${hit.measured_trips} vs ${row.measured_trips}`);
+  check(`details[driver ${row.driver_id}].on_time_trips`, hit.on_time_trips === row.on_time_trips, `route ${hit.on_time_trips} vs ${row.on_time_trips}`);
+  check(`details[driver ${row.driver_id}].late_trips`, hit.late_trips === row.late_trips, `route ${hit.late_trips} vs ${row.late_trips}`);
+  check(`details[driver ${row.driver_id}].override_trips`, hit.override_trips === row.override_trips, `route ${hit.override_trips} vs ${row.override_trips}`);
+  check(
+    `details[driver ${row.driver_id}].unmeasured_trips`,
+    hit.unmeasured_trips === row.completed_trips - row.measured_trips - row.override_trips,
+    `route ${hit.unmeasured_trips} vs ${row.completed_trips - row.measured_trips - row.override_trips}`
+  );
+  const expectedRate = row.measured_trips === 0 ? null : Math.round((row.on_time_trips / row.measured_trips) * 100);
+  check(`details[driver ${row.driver_id}].punctuality_rate`, hit.punctuality_rate === expectedRate, `route ${hit.punctuality_rate} vs ${expectedRate}`);
 }
-const incidentTotal = perfSql.reduce((s, r) => s + r.incidents, 0);
-const routeIncidents = (perf.details || []).reduce((s, r) => s + Number(r.incidents || 0), 0);
 check(
-  `details incidents sums to ${incidentTotal}`,
-  routeIncidents === incidentTotal,
-  `route reports ${routeIncidents} — the field is hardcoded`
+  "every completed trip is attributed to a roster driver",
+  (perf.details || []).every((d) => sum(perfSql.filter((r) => r.driver_id === d.driver_id), "completed_trips") === d.completed_trips),
+  "a details row disagrees with the trip grain"
+);
+eq("punctuality.measuredTrips", perf.punctuality.measuredTrips, sum(perfSql, "measured_trips"), 0);
+eq("punctuality.onTimeTrips", perf.punctuality.onTimeTrips, sum(perfSql, "on_time_trips"), 0);
+eq("punctuality.lateTrips", perf.punctuality.lateTrips, sum(perfSql, "late_trips"), 0);
+eq("punctuality.unmeasuredTrips", perf.punctuality.unmeasuredTrips, sum(perfSql, "completed_trips") - sum(perfSql, "measured_trips") - sum(perfSql, "override_trips"), 0);
+eq("punctuality.overrideTrips", perf.punctuality.overrideTrips, sum(perfSql, "override_trips"), 0);
+check(
+  "punctuality.onTimeRate",
+  perf.punctuality.onTimeRate === (perf.punctuality.measuredTrips === 0 ? null : Math.round((perf.punctuality.onTimeTrips / perf.punctuality.measuredTrips) * 100)),
+  `route ${perf.punctuality.onTimeRate}`
+);
+const liveAvgLate = (await query(
+  `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (t.at_pickup_at - COALESCE(ds.scheduled_departure, tr.pickup_datetime)))/60)::numeric, 1) AS v
+     FROM trips t
+     LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+     LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+    WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
+      AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+      AND t.at_pickup_at IS NOT NULL
+      AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+      AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+      AND t.at_pickup_at > COALESCE(ds.scheduled_departure, tr.pickup_datetime) + ($3 || ' minutes')::interval`,
+  [FROM, TO, String(PUNCTUALITY_GRACE_MINUTES)]
+)).rows[0].v;
+check(
+  "punctuality.avgLateMinutes",
+  (liveAvgLate == null && perf.punctuality.avgLateMinutes == null) || near(perf.punctuality.avgLateMinutes, liveAvgLate, 0.11),
+  `route ${perf.punctuality.avgLateMinutes} vs ${liveAvgLate}`
 );
 
 // ---------------------------------------------------------------------------
@@ -499,7 +559,11 @@ try {
   for (const [name, book] of Object.entries(books)) {
     const imageCount = book.worksheets.reduce((sum, sheet) => sum + sheet.getImages().length, 0);
     check(`${name} workbook has no static images`, imageCount === 0, `found ${imageCount}`);
-    check(`${name} workbook has three native charts`, book.__package.chartCount === 3 && book.__package.drawingCount === 3, `charts ${book.__package.chartCount}, drawings ${book.__package.drawingCount}`);
+    // The driver workbook carries two native charts (completed + punctuality)
+    // once it has driver rows, and none when the period is empty — every other
+    // workbook carries three.
+    const expectedCharts = name === "drivers" ? ((perf.details || []).length ? 2 : 0) : 3;
+    check(`${name} workbook has ${expectedCharts} native chart(s)`, book.__package.chartCount === expectedCharts && book.__package.drawingCount === expectedCharts, `charts ${book.__package.chartCount}, drawings ${book.__package.drawingCount}`);
     check(`${name} workbook package has no media files`, book.__package.mediaCount === 0, `found ${book.__package.mediaCount}`);
   }
   const fuelSummary = books.fuel.getWorksheet("Summary");
@@ -510,8 +574,15 @@ try {
   check("maintenance detail rows match payload", books.maintenance.getWorksheet("Details").rowCount - 1 === (mnt.records || []).length, "Details row count differs");
   check("fleet Summary distance matches payload", near(cellResult(books.fleet.getWorksheet("Summary").getCell("G6")), util.totalDistance), `workbook ${cellResult(books.fleet.getWorksheet("Summary").getCell("G6"))} vs ${util.totalDistance}`);
   check("fleet trip detail rows match payload", books.fleet.getWorksheet("Trip Details").rowCount - 1 === (util.trips || []).length, "Trip Details row count differs");
-  check("driver Summary trip count matches payload", near(cellResult(books.drivers.getWorksheet("Summary").getCell("G6")), perf.totalTrips), `workbook ${cellResult(books.drivers.getWorksheet("Summary").getCell("G6"))} vs ${perf.totalTrips}`);
+  check("driver Summary completed matches payload", near(cellResult(books.drivers.getWorksheet("Summary").getCell("C6")), perf.totalCompletedTrips), `workbook ${cellResult(books.drivers.getWorksheet("Summary").getCell("C6"))} vs ${perf.totalCompletedTrips}`);
   check("driver detail rows match payload", books.drivers.getWorksheet("Driver Details").rowCount - 1 === (perf.details || []).length, "Driver Details row count differs");
+  const tripSheet = books.drivers.getWorksheet("Trip Details");
+  check(
+    "driver trip rows match payload",
+    tripSheet.rowCount - 1 === (perf.trips || []).length ||
+      ((perf.trips || []).length === 0 && tripSheet.getCell("A2").value === "No completed trips in this period."),
+    `Trip Details rows ${tripSheet.rowCount} vs ${(perf.trips || []).length}`
+  );
   check("fleet-cost Summary total matches payload", near(cellResult(books.cost.getWorksheet("Summary").getCell("A6")), cost.totals.total_cost), `workbook ${cellResult(books.cost.getWorksheet("Summary").getCell("A6"))} vs ${cost.totals.total_cost}`);
   check("fleet-cost vehicle rows match payload", books.cost.getWorksheet("Vehicle Costs").rowCount - 1 === (cost.details || []).length, "Vehicle Costs row count differs");
   check("financial Summary total matches payload", near(cellResult(books.financial.getWorksheet("Summary").getCell("A6")), fin.totalCost), `workbook ${cellResult(books.financial.getWorksheet("Summary").getCell("A6"))} vs ${fin.totalCost}`);

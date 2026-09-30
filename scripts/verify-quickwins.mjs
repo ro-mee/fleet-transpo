@@ -8,8 +8,9 @@
 //       reach this endpoint at all; the non-ops actor here is `management`,
 //       which exercises the same caller-scoping branch.
 //   (b) Report date range (task 16): GET /api/reports/driver-performance?from&to
-//       returns the same response shape as before (totalDrivers / avgScore /
-//       topDrivers) — shape-only, since it cannot be meaningfully exercised
+//       returns the punctuality response shape (totalDrivers /
+//       totalCompletedTrips / punctuality) and no longer carries the retired
+//       score fields — shape-only, since it cannot be meaningfully exercised
 //       without seeded completed trips.
 //
 // A third check used to live here: that POST /api/reservations returned 410
@@ -164,8 +165,10 @@ try {
   );
   check("report returns 200", report.status === 200, `got ${report.status}`);
   check("report exposes totalDrivers", Object.prototype.hasOwnProperty.call(report.body || {}, "totalDrivers"), JSON.stringify(report.body));
-  check("report exposes avgScore", Object.prototype.hasOwnProperty.call(report.body || {}, "avgScore"), JSON.stringify(report.body));
-  check("report exposes topDrivers", Array.isArray(report.body?.topDrivers), JSON.stringify(report.body?.topDrivers));
+  check("report exposes totalCompletedTrips", Object.prototype.hasOwnProperty.call(report.body || {}, "totalCompletedTrips"), JSON.stringify(report.body));
+  check("report exposes punctuality", report.body?.punctuality !== null && typeof report.body?.punctuality === "object", JSON.stringify(report.body?.punctuality));
+  check("report retired avgScore", !Object.prototype.hasOwnProperty.call(report.body || {}, "avgScore"), JSON.stringify(report.body));
+  check("report retired topDrivers", !Object.prototype.hasOwnProperty.call(report.body || {}, "topDrivers"), JSON.stringify(report.body));
 } catch (e) {
   failures.push(`unexpected harness error: ${e.stack || e.message}`);
 } finally {
