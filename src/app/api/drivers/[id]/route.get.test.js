@@ -172,6 +172,18 @@ describe("GET /api/drivers/[id] — the saved addresses it hands the picker", ()
     expect(loadedIds()).toEqual([RESIDENTIAL_ID, EMERGENCY_ID]);
   });
 
+  it("returns DATE columns as their saved calendar days", async () => {
+    installDb({ driver: driverRow({
+      license_expiry: new Date(2031, 8, 20),
+      birthdate: new Date(1993, 4, 27),
+    }) });
+
+    const body = await (await GET(request(), context())).json();
+
+    expect(body.license_expiry).toBe("2031-09-20");
+    expect(body.birthdate).toBe("1993-05-27");
+  });
+
   it("sends both keys even when neither address can be reopened", async () => {
     loadStructuredAddress.mockResolvedValue({ ok: false, reason: "no-psgc-code" });
     installDb();

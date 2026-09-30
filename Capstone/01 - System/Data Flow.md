@@ -63,7 +63,7 @@ sequenceDiagram
 | Live position | `trips` GPS columns | mobile every 30 s |
 | Driver↔vehicle pairing | `driver_vehicle_assignments` | `withTransaction` |
 | Outbound record | `integration_log` (149 rows) | `emitTransportStatus` |
-| Everything security-relevant | `audit_logs` (226 rows) | `writeAudit()` |
+| Selected security events and tracked operational mutations | `audit_logs` (1,324 live rows as of 2026-09-30) | `writeAudit()`; coverage is partial, see [[Security Audit]] |
 
 ## Three status vocabularies move in parallel — CONFIRMED
 

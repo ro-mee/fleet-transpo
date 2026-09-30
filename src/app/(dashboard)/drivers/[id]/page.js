@@ -12,6 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getDriver, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
 import { licenseExpired } from "@/lib/drivers/compliance";
+import { licenseCalendarDay } from "@/lib/drivers/license-eligibility";
+import { formatCalendarDate } from "@/lib/dates";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RenewLicenseDialog } from "@/components/drivers/renew-license-dialog";
@@ -160,12 +162,11 @@ export default function DriverDetailPage() {
   const licenseBackImage = driver.license_back_image_url || null;
 
   // Dispatch Readiness Evaluations
-  const isLicenseValid = driver.license_expiry
-    ? new Date(driver.license_expiry) > new Date()
-    : true;
+  const isLicenseValid = Boolean(licenseCalendarDay(driver.license_expiry)) && !licenseExpired(driver.license_expiry);
+  const hasStaffLicenseReview = Boolean(driver.license_verified_at);
   const isStatusAvailable = driver.driver_status === "Available";
   const hasNoActiveTrip = !trips.some((t) => t.trip_status === "In Progress" || t.trip_status === "Assigned");
-  const isReadyForDispatch = isLicenseValid && isStatusAvailable && hasNoActiveTrip;
+  const isReadyForDispatch = isLicenseValid && hasStaffLicenseReview && isStatusAvailable && hasNoActiveTrip;
 
   return (
     <div className="space-y-6 w-full pb-10">
@@ -178,7 +179,7 @@ export default function DriverDetailPage() {
             <div className="flex-1 text-sm">
               <p className="font-bold text-foreground">License renewed — driver still marked Suspended</p>
               <p className="text-xs text-foreground-secondary font-medium mt-0.5">
-                The expiry now reads {driver.license_expiry ? formatDate(driver.license_expiry) : "—"}.
+                The expiry now reads {formatCalendarDate(driver.license_expiry)}.
                 Reinstate to make the driver dispatchable again.
               </p>
             </div>
@@ -255,7 +256,7 @@ export default function DriverDetailPage() {
                       )}
                     </span>
                     <span className="text-border text-lg leading-none">•</span>
-                    <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-foreground-muted" /> Class {driver.license_class || "B"}</span>
+                    <span className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-foreground-muted" /> {driver.license_class ? `Class ${driver.license_class}` : "Class not recorded"}</span>
                   </div>
                   {driver.account && (
                     <div className="flex items-center gap-2.5 pt-1">
@@ -318,7 +319,7 @@ export default function DriverDetailPage() {
                 <span className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider">Readiness</span>
               </div>
               <span className={`text-[15px] font-bold ${isReadyForDispatch ? "text-success" : "text-warning"}`}>
-                {isReadyForDispatch ? "Ready to Dispatch" : "Not Ready"}
+                {isReadyForDispatch ? "Basic checks passed" : "Not Ready"}
               </span>
             </div>
             
@@ -431,7 +432,7 @@ export default function DriverDetailPage() {
                     </div>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:px-6 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted flex items-center gap-2 mb-1 sm:mb-0"><Calendar className="w-3.5 h-3.5" /> Birthdate</span>
-                      <span className="text-sm font-semibold text-foreground">{driver.birthdate ? formatDate(driver.birthdate) : "—"}</span>
+                      <span className="text-sm font-semibold text-foreground">{formatCalendarDate(driver.birthdate)}</span>
                     </div>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 sm:px-6 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted flex items-center gap-2 mb-1 sm:mb-0"><User className="w-3.5 h-3.5" /> Sex</span>
@@ -463,7 +464,7 @@ export default function DriverDetailPage() {
                       <RenewLicenseDialog 
                         canManage={can("drivers", "update")} 
                         driverId={driver.driver_id}
-                        currentExpiry={driver.license_expiry ? formatDate(driver.license_expiry) : null}
+                        currentExpiry={driver.license_expiry ? formatCalendarDate(driver.license_expiry) : null}
                       />
                       {licenseImage && (
                         <Button
@@ -487,7 +488,7 @@ export default function DriverDetailPage() {
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">Expiration Date</span>
                       <span className={`text-base font-bold flex items-center gap-2 ${isLicenseValid ? "text-foreground" : "text-danger"}`}>
-                        {driver.license_expiry ? formatDate(driver.license_expiry) : "—"}
+                        {formatCalendarDate(driver.license_expiry)}
                         {!isLicenseValid && <AlertCircle className="w-4 h-4 shrink-0" />}
                       </span>
                     </div>
@@ -495,11 +496,11 @@ export default function DriverDetailPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/40">
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">Class</span>
-                      <Badge variant="outline" className="w-max rounded-lg px-2.5 py-0.5 text-xs font-bold border-border/60">Class {driver.license_class || "B"}</Badge>
+                      <Badge variant="outline" className="w-max rounded-lg px-2.5 py-0.5 text-xs font-bold border-border/60">{driver.license_class ? `Class ${driver.license_class}` : "Not recorded"}</Badge>
                     </div>
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">Type</span>
-                      <span className="text-sm font-semibold text-foreground">{driver.license_type || "Professional"}</span>
+                      <span className="text-sm font-semibold text-foreground">{driver.license_type || "Not recorded"}</span>
                     </div>
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">Experience</span>
@@ -617,18 +618,28 @@ export default function DriverDetailPage() {
                   Dispatch Readiness Evaluation
                 </CardTitle>
                 <Badge variant={isReadyForDispatch ? "success" : "danger"} className="rounded-full px-4 py-1 text-xs font-bold uppercase tracking-wider shadow-none">
-                  {isReadyForDispatch ? "Ready to Dispatch" : "Not Ready"}
+                  {isReadyForDispatch ? "Basic checks passed" : "Not Ready"}
                 </Badge>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border/40">
+                <div className="grid grid-cols-1 md:grid-cols-4 divide-y md:divide-y-0 md:divide-x divide-border/40">
                   <div className="p-5 flex flex-col gap-2 hover:bg-muted/5 transition-colors">
                     <div className="flex items-center gap-2 font-semibold text-xs text-foreground-muted uppercase tracking-wider">
                       {isLicenseValid ? <CheckCircle2 className="w-4 h-4 text-success" /> : <AlertCircle className="w-4 h-4 text-danger" />}
-                      License Validity
+                      Expiry Date
                     </div>
                     <span className={`text-base font-bold ${isLicenseValid ? "text-foreground" : "text-danger"}`}>
-                      {isLicenseValid ? "Valid & Active" : "Expired License"}
+                      {isLicenseValid ? "Date current" : licenseCalendarDay(driver.license_expiry) ? "Expiry date passed" : "Date not recorded"}
+                    </span>
+                  </div>
+
+                  <div className="p-5 flex flex-col gap-2 hover:bg-muted/5 transition-colors">
+                    <div className="flex items-center gap-2 font-semibold text-xs text-foreground-muted uppercase tracking-wider">
+                      {hasStaffLicenseReview ? <CheckCircle2 className="w-4 h-4 text-success" /> : <AlertCircle className="w-4 h-4 text-warning" />}
+                      Staff License Review
+                    </div>
+                    <span className={`text-base font-bold ${hasStaffLicenseReview ? "text-foreground" : "text-warning"}`}>
+                      {hasStaffLicenseReview ? "Recorded" : "Not verified"}
                     </span>
                   </div>
 
@@ -648,6 +659,7 @@ export default function DriverDetailPage() {
                     <span className="text-base font-bold text-foreground">{hasNoActiveTrip ? "No Active Trip" : "Currently On Trip"}</span>
                   </div>
                 </div>
+                <p className="px-5 py-3 text-xs text-foreground-muted border-t border-border/40">Vehicle license class compatibility is checked when assigning or starting a trip.</p>
               </CardContent>
             </Card>
           </div>

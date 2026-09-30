@@ -43,6 +43,10 @@ When an operator clears an existing nullable value, the form now sends `null` fo
 
 Verification: source review confirmed the edit form's invalid-submit path, nullable `PUT /api/drivers/[id]` mappings, and license media field. Automated tests were not run from this remote-file editing session.
 
+**Edit reopening and save confirmation, 2026-09-30:** The reported Sex, LTO code, and type did persist for driver 19, but the edit form could reopen from a stale TanStack Query row. Its one-time form seed then ignored the fresh response. The edit page now fetches on mount and waits for that fetch before seeding or showing the form. The detail API returns license expiry and birthdate as date-only strings; a PostgreSQL `DATE` serialized as a UTC timestamp had also put the previous day into the edit form. The edit form sends Sex explicitly, and the API and page compare submitted Sex, class, and type with persisted values before reporting success. These changes apply to the shared edit path for all drivers. See [[Bugs]] for live-row evidence and verification limits.
+
+The driver detail readiness card now requires a recorded staff license review along with a current expiry date, available status, and no active trip. It shows expiry and review as separate checks; an expiry date alone is not called an active license. A passing card says "Basic checks passed" because vehicle code compatibility is determined at assignment and trip start.
+
 Each vehicle stores `required_license_class`, selected from its registration record. Fleet
 service category and passenger seating do not prove the LTO driver code, so existing vehicles
 are not backfilled by inference. `validatePairAvailability` applies the shared
@@ -52,7 +56,7 @@ end of that calendar day in Asia/Manila; it becomes ineligible the following day
 rule is used by availability and compliance checks.
 
 Migration 137 adds an auditable staff review (`license_verified_at/by/method`). Editing any
-license field or replacing either license image clears that review. Routine API responses mask
+license field or replacing either license image clears that review. An unchanged date-only expiry no longer clears it because the PUT route reads the existing PostgreSQL `DATE` as text before comparison. Routine API responses mask
 the number to its final four characters. Staff detail and edit flows return the full number
 only after `drivers.update`; the directory and detail pages reveal it only after an explicit
 eye-button request, while create/edit forms already have a show/hide control. The driver's own
@@ -66,10 +70,9 @@ masking is not encryption. Reveal values are held only in the active screen stat
 responses and cached profile data remain masked. Focused ESLint and `git diff --check` passed;
 tests were not run.
 
-Staff review records a physical-card or LTO Digital ID comparison. There is no LTO server
+Staff review records a physical-card or LTO Digital ID comparison. The review route reads the stored expiry as date-only text so existing PostgreSQL `DATE` values pass its YYYY-MM-DD validation. The edit form requires staff to save pending changes before recording review, preventing review of the old stored license while new values are on screen. There is no LTO server
 integration, so a number's syntax, OCR result, or review timestamp does not prove authenticity,
-current activity, or absence of revocation. Existing drivers and vehicles have NULL review
-metadata/class and remain ineligible until staff review them. Custodial pairings and substitute
+current activity, or absence of revocation. Existing driver review metadata and most vehicle required classes are NULL, so pairings remain ineligible until staff review each license and classify each vehicle from its registration record. A 2026-09-30 read-only live snapshot found 10 active drivers, all with null review metadata, though all 10 had recorded license class and type; 20 of 21 active vehicles had no required class. No records were auto-verified or backfilled. Custodial pairings and substitute
 coverage also recheck eligibility on write; bounded substitute coverage cannot run past the
 recorded expiry. Existing stored pairings are not deleted automatically, but their screens show
 the current license blocker and dispatch/start rechecks prevent use. See [[Dispatch]] and [[Trips]].

@@ -62,3 +62,22 @@ it("stores an authorized review and audits only a masked license number", async 
   }));
   expect(JSON.stringify(writeAudit.mock.calls)).not.toContain("N04-19-013583");
 });
+
+it("validates an existing PostgreSQL DATE using its calendar day", async () => {
+  const tx = {
+    query: vi.fn(async (sql) => sql.includes("SELECT license_number")
+      ? { rows: [{
+          ...LICENSE,
+          license_expiry: sql.includes("license_expiry::text")
+            ? "2031-09-20"
+            : new Date(2031, 8, 20),
+        }] }
+      : { rows: [{ license_verified_at: "2026-09-30T10:00:00+08:00", license_verified_by: 9, license_verification_method: "physical_card" }] }),
+  };
+  withTransaction.mockImplementation((write) => write(tx));
+
+  const response = await POST(request(), context);
+
+  expect(response.status).toBe(200);
+  expect(tx.query.mock.calls[0][0]).toContain("license_expiry::text");
+});

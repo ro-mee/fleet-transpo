@@ -3670,6 +3670,8 @@ useEffect(() => {
 }, [driver, form]);
 ```
 
+This snippet records the 2026-09-27 patch. The 2026-09-30 fix below keeps the identity guard in state so the form can show a loading skeleton until a fresh row has been seeded.
+
 `driver_id` is the row's primary key — the route does `SELECT d.*` filtered by
 `WHERE d.driver_id = $1`, so it is on every response, and it is already the field
 the rest of the app routes on (`drivers/page.js:243`, `drivers/new/page.js:109`).
@@ -4176,4 +4178,18 @@ While verified in vitest source-level tests and contract assertions, physical ge
 **Fix.** Restart `npm run dev`. If port 3000 is held by a leftover process, kill it first (a second instance silently moves to 3001 while the stale one keeps serving 404s on 3000).
 
 **Diagnostic recipe (reusable).** When next-auth client fetches fail with HTML: `curl -s -o NUL -w "%{http_code} %{content_type}" http://127.0.0.1:3000/api/auth/providers` — `404 text/html` means the route never matched (stale dev server), not a credentials/DB problem. `401/200 application/json` means routing is fine and the fault is downstream.
+
+## Driver edit reopens with blank fields; existing-license review gap — 2026-09-30
+
+An operator reported that `/drivers/19/edit` showed a green success message, the detail page then displayed Sex `M`, Class B, and Professional, but reopening edit showed empty selects. The detail page displayed expiry Sep 20, 2031 while the edit form showed Sep 19. This affects the shared edit path for all drivers. The earlier read-only query, taken before the reported save, had `sex = NULL`; a later read-only query against the configured live DB found driver 19 **persisted** as `sex = 'M'`, `license_class = 'B'`, `license_type = 'Professional'`, and `license_expiry::text = '2031-09-20'`. No production record was edited during this investigation.
+
+**Root cause:** `onSuccess` invalidated `['driver-edit', id]` and navigated immediately. TanStack Query kept the inactive cached row, so remounting edit exposed it while a fresh request ran. The form's `seededDriverId` guard then seeded once from stale data and ignored the updated row. The edit page now requests a fresh row on mount, waits for the request before seeding, and shows its skeleton until the correct driver's form has been seeded. The API now returns `license_expiry` and `birthdate` as date-only strings; previously `pg` serialized the PostgreSQL `DATE` as a UTC timestamp, and `.split('T')[0]` in the editor selected the previous UTC date. The detail page formats date-only values as calendar dates and does not invent Class B or Professional when a value is absent.
+
+**Staff review gap:** `POST /api/drivers/[id]/verify-license` selected `license_expiry` as a `pg` Date object, then passed `String(date)` to a strict YYYY-MM-DD validator. Existing records could fail review even when expiry was valid. It now selects `license_expiry::text`. The PUT path also compared an unchanged submitted date string with the existing Date object, clearing `license_verified_at/by/method` on unrelated edits. It now compares date-only strings. The review buttons are disabled while the editor has unsaved changes, including programmatic scan, upload, and date changes, so staff cannot attest to old stored credentials while new values are in the form. Review remains a staff comparison with a physical card or LTO Digital ID; it is not an LTO authenticity lookup.
+
+The driver detail readiness card previously treated a future expiry date as "Valid & Active" and could say "Ready to Dispatch" with no staff review. It now lists expiry and review separately, requires both for a passing basic check, and leaves vehicle class compatibility to assignment and trip start.
+
+The edit form still sends Sex explicitly. The PUT route checks Sex, class, and type against its `UPDATE ... RETURNING` row; the page checks the returned values before green success. A 2026-09-30 read-only snapshot found 10 active drivers with null review metadata, all 10 with recorded class and type, and 20 of 21 active vehicles without `required_license_class`. Migration 137 intentionally did not infer historical reviews or vehicle classes; staff must review the licenses and classify vehicles from registration evidence before pairings become eligible. No auto-verification or production data writes were made.
+
+Verification: focused GET/PUT route tests passed 19/19, and verify-license route tests passed 4/4, including PostgreSQL DATE regression cases and an unchanged-expiry review-preservation case. Targeted ESLint and `git diff --check` passed. No authenticated browser retest has been completed.
 

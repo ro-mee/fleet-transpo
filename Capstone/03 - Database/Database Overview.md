@@ -39,7 +39,7 @@ flowchart TB
         T[trips<br/>2]
     end
     subgraph Cross["CROSS-CUTTING"]
-        AL[audit_logs<br/>226]
+        AL[audit_logs<br/>1,324*]
         AI[ailogs<br/>731 — biggest]
         N[notifications<br/>164]
         IL[integration_log<br/>149]
@@ -59,7 +59,7 @@ flowchart TB
 | Table | Rows | Read |
 |---|---|---|
 | `ailogs` | 731 | [[DEBT Runtime DDL On Hot Path]] |
-| `audit_logs` | 226 | |
+| `audit_logs` | 1,324* | |
 | `notifications` | 164 | [[Notifications]] |
 | `integration_log` | 149 | [[integration_log]] |
 | `reservation_events` | 69 | [[Request Lifecycle]] |
@@ -70,6 +70,8 @@ flowchart TB
 | `transportation_requests` | 15 | |
 | `trips` | **2** | |
 | `dispatchschedules` | **2** | [[dispatchschedules]] |
+
+* `audit_logs` was refreshed from the live database on 2026-09-30; other counts above remain the 2026-08-11 snapshot.
 
 **Ten tables have zero rows:** `fuelrecords`, `vehicleinspection`, `notification_preferences`, `recommendation_snapshots`, `ai_insights`, `ai_recommendations`, `uvvrp_violations`, `driverattendance`, `service_types`, `booking_channels`.
 

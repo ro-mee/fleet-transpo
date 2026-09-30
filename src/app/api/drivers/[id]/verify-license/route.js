@@ -19,7 +19,8 @@ export async function POST(req, { params }) {
 
     const verified = await withTransaction(async (tx) => {
       const { rows } = await tx.query(
-        `SELECT license_number, license_type, license_class, license_expiry
+        `SELECT license_number, license_type, license_class,
+                license_expiry::text AS license_expiry
            FROM drivers WHERE driver_id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       );

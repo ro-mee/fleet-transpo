@@ -111,7 +111,14 @@ function installDb({ failOn } = {}) {
     // The existing-driver lookup, before anything is written.
     if (text.includes("d.employee_id, e.email")) {
       return {
-        rows: [{ driver_id: DRIVER_ID, employee_id: 55, email: "juan@fleetops.ph" }],
+        rows: [{
+          driver_id: DRIVER_ID,
+          employee_id: 55,
+          email: "juan@fleetops.ph",
+          sex: null,
+          license_class: "B",
+          license_type: "Professional",
+        }],
         rowCount: 1,
       };
     }
@@ -140,7 +147,17 @@ function installDb({ failOn } = {}) {
         throw err;
       }
       driverUpdates.push({ sql: text, params });
-      return { rows: [], rowCount: 1 };
+      const assignments = text.match(/UPDATE drivers SET ([\s\S]*?) WHERE/)?.[1] || "";
+      const updated = { sex: null, license_class: "B", license_type: "Professional" };
+      assignments
+        .split(",")
+        .map((assignment) => assignment.trim())
+        .filter(Boolean)
+        .forEach((assignment, index) => {
+          const column = assignment.split("=")[0].trim();
+          if (Object.hasOwn(updated, column)) updated[column] = params[index];
+        });
+      return { rows: [{ sex: updated.sex, license_class: updated.license_class, license_type: updated.license_type }], rowCount: 1 };
     }
     // The response SELECT.
     return { rows: [{ driver_id: DRIVER_ID, first_name: "Juan" }], rowCount: 1 };
@@ -250,6 +267,44 @@ describe("GET /api/drivers/[id] — full license access", () => {
 });
 
 describe("PUT /api/drivers/[id] — license verification invalidation", () => {
+  it("keeps staff review when an unchanged PostgreSQL DATE is submitted", async () => {
+    const { driverUpdates } = installDb();
+    const originalQuery = db.query.getMockImplementation();
+    db.query.mockImplementation((sql, params) => {
+      if (String(sql).includes("d.employee_id, e.email")) {
+        return Promise.resolve({
+          rows: [{
+            driver_id: DRIVER_ID,
+            employee_id: 55,
+            email: "juan@fleetops.ph",
+            license_number: "N04-19-013583",
+            license_expiry: String(sql).includes("d.license_expiry::text")
+              ? "2031-09-20"
+              : new Date(2031, 8, 20),
+            license_type: "Professional",
+            license_class: "B",
+            license_image_url: null,
+            license_back_image_url: null,
+          }],
+          rowCount: 1,
+        });
+      }
+      return originalQuery(sql, params);
+    });
+
+    const response = await PUT(request({
+      license_number: "N04-19-013583",
+      license_expiry: "2031-09-20",
+      license_type: "Professional",
+      license_class: "B",
+      sex: "M",
+    }), context());
+
+    expect(response.status).toBe(200);
+    expect(lastDriverUpdate(driverUpdates)).not.toHaveProperty("license_verified_at");
+    expect(writeAudit).not.toHaveBeenCalled();
+  });
+
   it("clears verification when the license details change and audits only a masked number", async () => {
     const { driverUpdates } = installDb();
     const response = await PUT(request({

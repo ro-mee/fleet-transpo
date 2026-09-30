@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
@@ -73,10 +73,11 @@ export default function EditDriverPage() {
   const [pickedAddress, setPickedAddress] = useState(null);
   const [pickedEmergencyAddress, setPickedEmergencyAddress] = useState(null);
 
-  const { data: driver, isLoading, isError } = useQuery({
+  const { data: driver, isLoading, isFetching, isError } = useQuery({
     queryKey: ["driver-edit", id],
     queryFn: () => getDriver(id, { includeLicense: true }),
     enabled: !!id,
+    refetchOnMount: "always",
   });
 
   const form = useForm({
@@ -107,10 +108,12 @@ export default function EditDriverPage() {
 
   // Which driver the form currently holds, so the seeding below is keyed on
   // IDENTITY rather than on the object — see the effect immediately after.
-  const seededDriverId = useRef(null);
+  const [seededDriverId, setSeededDriverId] = useState(null);
 
   useEffect(() => {
-    if (!driver) return;
+    // An invalidated query can reopen with its old cached row while a fresh
+    // request is still running. Seed only from the completed fetch.
+    if (!driver || isFetching) return;
 
     // Seeding is per-driver, and `driver_id` is what says which driver that is.
     // Keying this on the `driver` OBJECT instead would make it run on every
@@ -128,8 +131,7 @@ export default function EditDriverPage() {
     // A different id, by contrast, is a different driver and must re-seed. The App
     // Router does not remount between `/drivers/60/edit` and `/drivers/61/edit`,
     // so this comparison is what catches that navigation.
-    if (seededDriverId.current === driver.driver_id) return;
-    seededDriverId.current = driver.driver_id;
+    if (seededDriverId === driver.driver_id) return;
 
     const emp = driver.employees || {};
     const imgUrl = driver.license_image_url || "";
@@ -156,7 +158,7 @@ export default function EditDriverPage() {
       phone: emp.phone || "",
       position: emp.position || "Driver",
       license_number: driver.license_number || "",
-      license_expiry: driver.license_expiry ? driver.license_expiry.split("T")[0] : "",
+      license_expiry: driver.license_expiry || "",
       license_type: normalizeLicenseType(driver.license_type) || driver.license_type || "",
       license_class: driver.license_class || "",
       years_of_experience: driver.years_of_experience ?? 0,
@@ -165,13 +167,14 @@ export default function EditDriverPage() {
       license_back_image_url: backUrl,
       address: driver.address || "",
       sex: driver.sex || "",
-      birthdate: driver.birthdate ? driver.birthdate.split("T")[0] : "",
+      birthdate: driver.birthdate || "",
       nationality: driver.nationality || "",
       emergency_contact_name: driver.emergency_contact_name || "",
       emergency_contact_address: driver.emergency_contact_address || "",
       emergency_contact_phone: driver.emergency_contact_phone || "",
     });
-  }, [driver, form]);
+    setSeededDriverId(driver.driver_id);
+  }, [driver, isFetching, form, seededDriverId]);
 
   // Fill ONLY currently-blank form fields from an extraction result — never
   // overwrites anything already typed. Returns how many fields were filled.
@@ -180,7 +183,7 @@ export default function EditDriverPage() {
     const setIfBlank = (name, value) => {
       if (value === null || value === undefined || String(value).trim() === "") return;
       if (String(form.getValues(name) ?? "").trim() !== "") return;
-      form.setValue(name, value, { shouldValidate: true });
+      form.setValue(name, value, { shouldValidate: true, shouldDirty: true });
       count += 1;
     };
     setIfBlank("license_number", data.license_number);
@@ -271,7 +274,7 @@ export default function EditDriverPage() {
       reader.onloadend = () => {
         const result = reader.result;
         setLicenseImagePreview(result);
-        form.setValue("license_image_url", result);
+        form.setValue("license_image_url", result, { shouldDirty: true });
         toast.success("Front License scan updated! Scanning automatically...");
         handleAiScanFront(result);
       };
@@ -294,7 +297,7 @@ export default function EditDriverPage() {
       reader.onloadend = () => {
         const result = reader.result;
         setLicenseBackImagePreview(result);
-        form.setValue("license_back_image_url", result);
+        form.setValue("license_back_image_url", result, { shouldDirty: true });
         toast.success("Back License scan updated! Scanning automatically...");
         handleAiScanBack(result);
       };
@@ -306,7 +309,7 @@ export default function EditDriverPage() {
     if (!licenseImagePreview) return;
     const rotated = await rotateBase64Image(licenseImagePreview, 90);
     setLicenseImagePreview(rotated);
-    form.setValue("license_image_url", rotated);
+    form.setValue("license_image_url", rotated, { shouldDirty: true });
     toast.success("Rotated Front License 90°");
   };
 
@@ -314,13 +317,26 @@ export default function EditDriverPage() {
     if (!licenseBackImagePreview) return;
     const rotated = await rotateBase64Image(licenseBackImagePreview, 90);
     setLicenseBackImagePreview(rotated);
-    form.setValue("license_back_image_url", rotated);
+    form.setValue("license_back_image_url", rotated, { shouldDirty: true });
     toast.success("Rotated Back License 90°");
   };
 
   const updateMutation = useMutation({
     mutationFn: (payload) => updateDriver(id, payload),
-    onSuccess: () => {
+    onSuccess: (updatedDriver, payload) => {
+      const persistedFields = ["sex", "license_class", "license_type"];
+      const mismatch = persistedFields.some(
+        (field) => updatedDriver?.[field] !== (payload[field] ?? null)
+      );
+      if (mismatch) {
+        toast.error("Changes could not be confirmed as saved. Reload the driver and try again.");
+        queryClient.invalidateQueries({ queryKey: ["driver-edit", id] });
+        queryClient.invalidateQueries({ queryKey: ["driver", id] });
+        queryClient.invalidateQueries({ queryKey: ["drivers"] });
+        queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
+        return;
+      }
+
       toast.success("Driver updated successfully");
       queryClient.invalidateQueries({ queryKey: ["driver-edit", id] });
       queryClient.invalidateQueries({ queryKey: ["driver", id] });
@@ -352,6 +368,7 @@ export default function EditDriverPage() {
       years_of_experience: data.years_of_experience ?? 0,
       driver_status: data.driver_status || "Available",
       position: data.position || "Driver",
+      sex: data.sex?.trim() || null,
       license_image_url: licenseImagePreview || data.license_image_url || null,
       license_back_image_url: licenseBackImagePreview || data.license_back_image_url || null,
     };
@@ -363,8 +380,6 @@ export default function EditDriverPage() {
     if (data.license_type) payload.license_type = data.license_type;
     if (data.license_class) payload.license_class = data.license_class;
     if (data.address?.trim()) payload.address = data.address.trim();
-    if (data.sex?.trim()) payload.sex = data.sex.trim();
-    else if (driver?.sex) payload.sex = null;
     if (data.birthdate) payload.birthdate = data.birthdate;
     else if (driver?.birthdate) payload.birthdate = null;
     if (data.nationality?.trim()) payload.nationality = data.nationality.trim();
@@ -393,7 +408,7 @@ export default function EditDriverPage() {
   const values = form.watch();
   const isSaving = updateMutation.isPending;
 
-  if (isLoading) return <DetailSkeleton />;
+  if (isLoading || (driver && seededDriverId !== driver.driver_id)) return <DetailSkeleton />;
 
   if (isError || !driver) {
     return (
@@ -487,7 +502,7 @@ export default function EditDriverPage() {
                       id="birthdate"
                       label="Birthdate"
                       value={form.watch("birthdate")}
-                      onChange={(val) => form.setValue("birthdate", val, { shouldValidate: true })}
+                      onChange={(val) => form.setValue("birthdate", val, { shouldValidate: true, shouldDirty: true })}
                       minAge={LEGAL_DRIVING_AGE}
                       error={form.formState.errors.birthdate?.message}
                     />
@@ -613,9 +628,10 @@ export default function EditDriverPage() {
                     <p className="text-xs font-semibold">Staff review: {driver?.license_verified_at ? `recorded ${new Date(driver.license_verified_at).toLocaleString()}` : "not verified"}</p>
                     <p className="text-[11px] text-foreground-muted mt-1">Review the number, type, class, and expiry against the physical card or LTO Digital ID. This records your review; it does not query LTO or prove the license remains active.</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending} onClick={() => verificationMutation.mutate("physical_card")}>Confirm physical card checked</Button>
-                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending} onClick={() => verificationMutation.mutate("lto_digital_id")}>Confirm LTO Digital ID checked</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending || isSaving || form.formState.isDirty} onClick={() => verificationMutation.mutate("physical_card")}>Confirm physical card checked</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending || isSaving || form.formState.isDirty} onClick={() => verificationMutation.mutate("lto_digital_id")}>Confirm LTO Digital ID checked</Button>
                     </div>
+                    {form.formState.isDirty && <p className="text-[11px] text-warning mt-2">Save changes before recording a license review.</p>}
                   </div>
 
                   <FloatingField label="Position Title" icon={Briefcase}>

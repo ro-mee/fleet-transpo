@@ -568,6 +568,38 @@ existence-oracle ruling stands). Verified: email-otp outcome tests (strike
 `otp.test.js` parity pins, `login-status/route.test.js` green, full suite +
 touched-file lint green.
 
+## Audit log coverage review — 2026-09-30
+
+This review supersedes the 2026-09-01 finding that authentication and session events were absent. A read-only aggregate query against the live `audit_logs` table found **1,324 rows**, from 2026-08-01 through 2026-09-30, with **37 action values across 29 resources**. The query returned counts and action/resource names only; it did not inspect employee identities, IP addresses, or old/new payloads.
+
+### What is currently represented
+
+| Area | Live rows and examples |
+|---|---|
+| Authentication and sessions | `authentication` 539; `mobile_session` 85; `trusted_web_device` 14; `employee_mfa` 6; `mobile_refresh_tokens` 1. Includes login success/failure, MFA requirements/failures, logout, session revocation, password reset/change, trusted-device changes, and security alerts. |
+| Requests and trip execution | `transportation_requests` 215; `trips` 201; `dispatchschedules` 22; `driver_assignments` 63; `routes` 11. Trip and dispatch status transitions are logged through shared transition services. Reservation history is separately recorded in `reservation_events`. |
+| Incidents and driver records | `driverincidents` 55; `employees` 30; `drivers` 23; `driver_account` 7. Includes incident submission, acknowledgement, grounding, responder assignment/arrival/resolution, selected driver updates, license verification, and account invitations. |
+| Fleet, fuel, and system administration | `vehiclemaintenance` 5 (incident-created work orders); `vehicles` 3; fuel resources 11 total; UVVRP policy 6; push health/review actions 14; plus route/location, AI instruction/provider, hotel/dispatch/security policy, and sync events. |
+
+The shared writer records actor, action, resource, optional resource ID and before/after JSON, request IP/user-agent when a request is supplied, and timestamp. Action names include both generic verbs (`create`, `update`, `delete`) and specific events such as `login_success`, `mfa_failure`, `ground`, `verify`, `health_retry_push`, and `driver_confirm_resolution`.
+
+### High-value gaps found in current write paths
+
+- **Fleet and maintenance changes:** vehicle `PUT` changes, vehicle document/category changes, driver creation and soft deletion are not audited; direct maintenance creation and edits/completion/archive have no general audit entry. Incident-driven automatic maintenance creation is logged, but ordinary work-order changes are not.
+- **Approval and finance decisions:** expense approve/reject, mobile expense/fuel submissions, and driver leave approve/decline mutate records without `writeAudit()`. Duty start/end and vehicle inspection submissions also have no general audit entry; their domain rows remain the operational records.
+- **Driver privacy and profile changes:** the driver's self-service phone/media/license updates and license-scan update are not consistently audited. Staff and self-service endpoints can reveal a full license number with `include_license=1`, but successful disclosure is not logged. License verification itself is logged. Record a reveal event without storing the license value or image.
+- **AI provider configuration:** provider deletion is logged, but provider creation and updates (including default/provider configuration changes) are not.
+- **Audit access and discoverability:** `GET /api/audit` is not itself logged. The viewer's action filter exposes only `create`, `update`, `delete`, `assign`, `dispatch`, and `reject`, while the live table has 37 action values; login, MFA, security, incident, and health events cannot be selected directly in that filter.
+
+### Recommended additions and reliability limits
+
+1. Add before/after audit entries for vehicle/document/category, driver, and maintenance mutations; expense/fuel and leave decisions; duty/inspection submissions; self-service license/photo changes; and AI provider create/update. Include the actor, target ID, changed fields, decision/reason, and outcome. Allowlist payload fields; never store passwords, tokens, OTPs, provider secrets, full license numbers, or image contents.
+2. Log successful full-license disclosures and explicit audit-log exports/access with actor, target, scope, and timestamp. Consider recording only selected high-risk authorization denials (for example, attempts to reveal protected identity data) to avoid noisy routine-denial logs.
+3. Make the viewer discoverable across the real event taxonomy (or use distinct action/resource values from the API) so custom security events can be reviewed without querying the database directly.
+4. Improve completeness for high-risk writes: `writeAudit()` is best-effort and catches/swallow failures, so the business mutation can succeed while its audit insert fails. Use a same-transaction audit write or durable outbox for critical actions, and alert on audit-write failures. Some transition-service calls pass no request object, so their IP and user-agent fields are null; pass safe request metadata or add a request/correlation identifier where the boundary permits it.
+
+Do not send every GPS fix, polling request, or notification read into `audit_logs`; those are high-volume telemetry/UI events. Keep domain histories such as `reservation_events`, `integration_log`, and inspection/attendance records as their own sources, adding concise audit summaries only for consequential transitions.
+
 ## Related
 
 [[Authentication]] · [[Why RLS Is Not A Boundary]] · [[Bugs]] · [[Current State]]

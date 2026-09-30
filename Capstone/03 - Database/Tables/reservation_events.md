@@ -36,7 +36,7 @@ That last one is the highest-value query in the vault: it's a **direct test of t
 
 ## Not the same as `audit_logs`
 
-`audit_logs` (226 rows) is general-purpose. `reservation_events` is domain-specific and complete for its domain. Don't reconstruct reservation history from `audit_logs`.
+`audit_logs` (1,324 live rows as of 2026-09-30) is general-purpose and has partial operational coverage. `reservation_events` is domain-specific and complete for its domain. Don't reconstruct reservation history from `audit_logs`.
 
 ## Related
 

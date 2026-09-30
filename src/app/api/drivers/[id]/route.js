@@ -4,6 +4,7 @@ import { resolvePickedAddress } from "@/lib/address/picked";
 import { requirePermission, parseBody, ok, okWithFullLicense, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
 import { LEGAL_DRIVING_AGE, isAtLeastAge } from "@/lib/validation/age";
+import { toCalendarDay } from "@/lib/dates";
 import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
 import { writeAudit } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
@@ -11,7 +12,7 @@ import { suspensionAction } from "@/lib/drivers/compliance";
 import { syncDriverStatus } from "@/services/status.service";
 import { notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 import { driverReinstatedDriver, driverReinstatedStaff } from "@/lib/notifications/copy";
-import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, maskLicenseNumber } from "@/lib/drivers/license-eligibility";
+import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, maskLicenseNumber, licenseCalendarDay } from "@/lib/drivers/license-eligibility";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -136,6 +137,8 @@ export async function GET(req, { params }) {
     const responseData = await signDriverMedia({
         ...driver,
         ...stats,
+        license_expiry: licenseCalendarDay(driver.license_expiry),
+        birthdate: toCalendarDay(driver.birthdate),
         trips,
         account,
         // Both keys are always present, so a null `structured_address` never has
@@ -228,7 +231,8 @@ export async function PUT(req, { params }) {
 
     // Fetch existing driver to get employee_id
     const { rows: existingRows } = await query(
-      `SELECT d.driver_id, d.employee_id, e.email, d.license_number, d.license_expiry,
+      `SELECT d.driver_id, d.employee_id, e.email, d.license_number,
+              d.license_expiry::text AS license_expiry,
               d.license_type, d.license_class, d.license_image_url, d.license_back_image_url
          FROM drivers d
          LEFT JOIN employees e ON e.employee_id = d.employee_id
@@ -273,7 +277,7 @@ export async function PUT(req, { params }) {
 
     const credentialChanged =
       (license_number !== undefined && normalizeLicense(license_number) !== existing.license_number) ||
-      (license_expiry !== undefined && (license_expiry || null) !== String(existing.license_expiry || "").slice(0, 10) && (license_expiry || null) !== existing.license_expiry) ||
+      (license_expiry !== undefined && (license_expiry || null) !== existing.license_expiry) ||
       (license_type !== undefined && normalizeLicenseType(license_type) !== existing.license_type) ||
       (license_class !== undefined && normalizeLicenseClasses(license_class)?.join(", ") !== existing.license_class) ||
       (storedLicenceFront !== undefined && storedLicenceFront !== existing.license_image_url) ||
@@ -317,10 +321,27 @@ export async function PUT(req, { params }) {
     if (driverKeys.length > 0) {
       const setClause = driverKeys.map((k, i) => `${k} = $${i + 1}`).join(", ");
       const vals = Object.values(driverPayload);
-      await query(`UPDATE drivers SET ${setClause} WHERE driver_id = $${driverKeys.length + 1}`, [
-        ...vals,
-        id,
-      ]);
+      const { rows: persistedRows } = await query(
+        `UPDATE drivers SET ${setClause} WHERE driver_id = $${driverKeys.length + 1}
+         RETURNING sex, license_class, license_type`,
+        [...vals, id]
+      );
+      const persisted = persistedRows[0];
+      if (!persisted) return err("Driver not found", 404);
+
+      // A successful SQL request is not enough to claim the edit succeeded:
+      // these controlled fields must round-trip exactly to what the editor sent.
+      // Returning them from the UPDATE makes the check refer to the row that was
+      // just written, not a later read that could race another edit.
+      const persistedFields = ["sex", "license_class", "license_type"];
+      const failedField = persistedFields.find(
+        (field) => Object.prototype.hasOwnProperty.call(body, field)
+          && persisted[field] !== (driverPayload[field] ?? null)
+      );
+      if (failedField) {
+        console.error(`Driver ${id} update did not persist submitted ${failedField}.`);
+        return err("Driver changes could not be verified. Reload the driver and try again.", 500);
+      }
     }
 
     if (credentialChanged) {
@@ -516,7 +537,13 @@ export async function PUT(req, { params }) {
     `;
 
     const { rows: updatedRows } = await query(fetchSql, [id]);
-    return ok(await signDriverMedia({ ...updatedRows[0], reinstated }));
+    if (!updatedRows[0]) return err("Driver not found", 404);
+    return ok(await signDriverMedia({
+      ...updatedRows[0],
+      license_expiry: licenseCalendarDay(updatedRows[0].license_expiry),
+      birthdate: toCalendarDay(updatedRows[0].birthdate),
+      reinstated,
+    }));
   } catch (e) {
     return handleError(e);
   }
