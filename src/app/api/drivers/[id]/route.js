@@ -1,18 +1,19 @@
 import { query, withTransaction } from "@/lib/db";
 import { saveAddress, loadStructuredAddress } from "@/services/address.service";
 import { resolvePickedAddress } from "@/lib/address/picked";
-import { requirePermission, parseBody, ok, okWithFullLicense, err, errValidation, handleError } from "@/lib/api/utils";
+import { AuthError, requireAuth, requirePermission, parseBody, ok, okWithFullLicense, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
 import { LEGAL_DRIVING_AGE, isAtLeastAge } from "@/lib/validation/age";
 import { toCalendarDay } from "@/lib/dates";
 import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditRequired } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { syncDriverStatus } from "@/services/status.service";
 import { notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 import { driverReinstatedDriver, driverReinstatedStaff } from "@/lib/notifications/copy";
-import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, maskLicenseNumber, licenseCalendarDay } from "@/lib/drivers/license-eligibility";
+import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, licenseCalendarDay } from "@/lib/drivers/license-eligibility";
+import { rateLimit } from "@/lib/rate-limit";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -34,8 +35,9 @@ async function ensureDriverColumnsExist() {
 }
 
 export async function GET(req, { params }) {
+  let session = null;
   try {
-    await requirePermission(req, "drivers", "read_all");
+    session = await requirePermission(req, "drivers", "read_all");
     const revealLicense = new URL(req.url).searchParams.get("include_license") === "1";
     if (revealLicense) await requirePermission(req, "drivers", "update");
     await ensureDriverColumnsExist();
@@ -148,15 +150,37 @@ export async function GET(req, { params }) {
         emergency_structured_address: emergency.ok ? emergency.value : null,
         emergency_structured_address_reason: emergency.ok ? null : emergency.reason,
       });
-    return revealLicense ? okWithFullLicense(responseData) : ok(responseData);
+    if (revealLicense) {
+      await withTransaction((tx) => writeAuditRequired(tx, req, session, {
+        action: "license_full_response_prepared",
+        resource: "drivers",
+        resourceId: driver.driver_id,
+        newValues: { channel: "staff_driver_record", outcome: "prepared" },
+      }));
+      return okWithFullLicense(responseData);
+    }
+    const { license_number: _licenseNumber, ...safeResponse } = responseData;
+    return ok(safeResponse);
   } catch (e) {
+    if (e?.status === 403 && new URL(req.url).searchParams.get("include_license") === "1") {
+      const deniedSession = session || await requireAuth(req, ["*"]).catch(() => null);
+      if (deniedSession) {
+        const limit = await rateLimit(`sensitive-denial:license-full:${deniedSession.user.employeeId}`, { limit: 5, windowMs: 60_000 });
+        if (limit.allowed) await writeAudit(req, deniedSession, {
+          action: "sensitive_access_denied",
+          resource: "drivers",
+          resourceId: Number((await params).id) || null,
+          newValues: { reason_code: "permission_denied", scope: "full_license" },
+        });
+      }
+    }
     return handleError(e);
   }
 }
 
 export async function PUT(req, { params }) {
   try {
-    await requirePermission(req, "drivers", "update");
+    const session = await requirePermission(req, "drivers", "update");
     await ensureDriverColumnsExist();
     const { id } = await params;
     const body = await parseBody(req);
@@ -231,9 +255,16 @@ export async function PUT(req, { params }) {
 
     // Fetch existing driver to get employee_id
     const { rows: existingRows } = await query(
-      `SELECT d.driver_id, d.employee_id, e.email, d.license_number,
+      `SELECT d.driver_id, d.employee_id, e.email, e.first_name AS employee_first_name,
+              e.last_name AS employee_last_name, e.phone AS employee_phone,
+              e.position AS employee_position, e.avatar_url AS employee_avatar_url,
+              d.license_number, d.driver_status, d.years_of_experience, d.address,
               d.license_expiry::text AS license_expiry,
-              d.license_type, d.license_class, d.license_image_url, d.license_back_image_url
+              d.license_type, d.license_class, d.license_image_url, d.license_back_image_url,
+              d.sex, d.birthdate::text AS birthdate, d.nationality,
+              d.emergency_contact_name, d.emergency_contact_phone, d.emergency_contact_address,
+              d.address_id, d.emergency_contact_address_id, d.license_verified_at,
+              d.license_verified_by, d.license_verification_method
          FROM drivers d
          LEFT JOIN employees e ON e.employee_id = d.employee_id
         WHERE d.driver_id = $1 AND d.deleted_at IS NULL
@@ -291,7 +322,6 @@ export async function PUT(req, { params }) {
     if (emergency_contact_phone !== undefined) driverPayload.emergency_contact_phone = emergency_contact_phone || null;
     if (emergency.value) driverPayload.emergency_contact_address = emergency.value.formattedAddress;
     else if (emergency_contact_address !== undefined) driverPayload.emergency_contact_address = emergency_contact_address || null;
-    driverPayload.updated_at = new Date().toISOString();
 
     // ── The registry rows, before the driver is pointed at them ──────────────
     // One transaction for both addresses, so a driver can never end up pointing
@@ -303,31 +333,33 @@ export async function PUT(req, { params }) {
     // a `pg` transaction), so the only honest options were a degraded success or
     // unwinding a created account. Here nothing has been written yet, so a hard
     // refusal costs the operator a retry and leaves no half-done state.
-    const savedAddressIds = (residential.value || emergency.value)
-      ? await withTransaction(async (tx) => ({
-          address_id: residential.value ? await saveAddress(residential.value, { tx }) : null,
-          emergency_contact_address_id: emergency.value ? await saveAddress(emergency.value, { tx }) : null,
-        }))
-      : null;
 
-    // Only the columns whose field was actually picked. Setting one to null
-    // because the OTHER was picked would clear an address the operator never
-    // touched — the same "omitted is not empty" rule, applied to the id.
-    if (residential.value) driverPayload.address_id = savedAddressIds.address_id;
-    if (emergency.value) driverPayload.emergency_contact_address_id = savedAddressIds.emergency_contact_address_id;
 
-    // Update driver record via raw SQL query helper
-    const driverKeys = Object.keys(driverPayload);
+    // Keep the driver row, linked employee, credential revocation, and event in
+    // one transaction so a required audit failure rolls the edit back.
+    await withTransaction(async (tx) => {
+    if (residential.value) driverPayload.address_id = await saveAddress(residential.value, { tx });
+    if (emergency.value) driverPayload.emergency_contact_address_id = await saveAddress(emergency.value, { tx });
+
+    const sameFieldValue = (current, next) => {
+      if (current == null || next == null) return current == null && next == null;
+      if (current instanceof Date || next instanceof Date) return toCalendarDay(current) === toCalendarDay(next);
+      return String(current) === String(next);
+    };
+    const driverKeys = Object.keys(driverPayload).filter((key) => !sameFieldValue(existing[key], driverPayload[key]));
+    if (driverKeys.length) {
+      driverKeys.push("updated_at");
+    }
     if (driverKeys.length > 0) {
       const setClause = driverKeys.map((k, i) => `${k} = $${i + 1}`).join(", ");
-      const vals = Object.values(driverPayload);
-      const { rows: persistedRows } = await query(
+      const vals = driverKeys.map((key) => driverPayload[key]);
+      const { rows: persistedRows } = await tx.query(
         `UPDATE drivers SET ${setClause} WHERE driver_id = $${driverKeys.length + 1}
          RETURNING sex, license_class, license_type`,
         [...vals, id]
       );
       const persisted = persistedRows[0];
-      if (!persisted) return err("Driver not found", 404);
+      if (!persisted) throw new AuthError("Driver not found", 404);
 
       // A successful SQL request is not enough to claim the edit succeeded:
       // these controlled fields must round-trip exactly to what the editor sent.
@@ -340,29 +372,8 @@ export async function PUT(req, { params }) {
       );
       if (failedField) {
         console.error(`Driver ${id} update did not persist submitted ${failedField}.`);
-        return err("Driver changes could not be verified. Reload the driver and try again.", 500);
+        throw new AuthError("Driver changes could not be verified. Reload the driver and try again.", 500);
       }
-    }
-
-    if (credentialChanged) {
-      await writeAudit(req, null, {
-        action: "update",
-        resource: "drivers",
-        resourceId: Number(id) || null,
-        oldValues: {
-          license_number: maskLicenseNumber(existing.license_number),
-          license_expiry: existing.license_expiry,
-          license_type: existing.license_type,
-          license_class: existing.license_class,
-        },
-        newValues: {
-          license_number: maskLicenseNumber(driverPayload.license_number ?? existing.license_number),
-          license_expiry: driverPayload.license_expiry ?? existing.license_expiry,
-          license_type: driverPayload.license_type ?? existing.license_type,
-          license_class: driverPayload.license_class ?? existing.license_class,
-          verification_cleared: true,
-        },
-      });
     }
 
     // Build employee update payload
@@ -381,26 +392,44 @@ export async function PUT(req, { params }) {
       // column holds a key rather than a URL.
       employeePayload.avatar_url = (storedLicenceFront && typeof storedLicenceFront === "string" && storedLicenceFront.length <= 512 && isAllowedStoredImageRef(storedLicenceFront)) ? storedLicenceFront : null;
     }
-    employeePayload.updated_at = new Date().toISOString();
-
     // Update linked employee record
-    const empKeys = Object.keys(employeePayload);
+    const employeeExistingKey = (key) => key === "email" ? "email" : `employee_${key}`;
+    const empKeys = Object.keys(employeePayload).filter((key) => !sameFieldValue(existing[employeeExistingKey(key)], employeePayload[key]));
+    if (empKeys.length) {
+      employeePayload.updated_at = new Date().toISOString();
+      empKeys.push("updated_at");
+    }
     if (empKeys.length > 0 && existing.employee_id) {
       const setClause = empKeys.map((k, i) => `${k} = $${i + 1}`).join(", ");
-      const vals = Object.values(employeePayload);
+      const vals = empKeys.map((key) => employeePayload[key]);
       const credentialClause = email !== undefined && normalizeEmail(email) !== normalizeEmail(existing.email)
         ? ", auth_version = auth_version + 1"
         : "";
-      await query(
+      await tx.query(
         `UPDATE employees SET ${setClause}${credentialClause} WHERE employee_id = $${empKeys.length + 1}`,
         [...vals, existing.employee_id]
       );
       if (email !== undefined && normalizeEmail(email) !== normalizeEmail(existing.email)) {
-        await query(`UPDATE web_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE employee_id = $1 AND revoked_at IS NULL`, [existing.employee_id]);
-        await query(`DELETE FROM mobile_refresh_tokens WHERE employee_id = $1`, [existing.employee_id]);
-        await query(`DELETE FROM password_reset_tokens WHERE employee_id = $1 AND used_at IS NULL`, [existing.employee_id]);
+        await tx.query(`UPDATE web_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE employee_id = $1 AND revoked_at IS NULL`, [existing.employee_id]);
+        await tx.query(`DELETE FROM mobile_refresh_tokens WHERE employee_id = $1`, [existing.employee_id]);
+        await tx.query(`DELETE FROM password_reset_tokens WHERE employee_id = $1 AND used_at IS NULL`, [existing.employee_id]);
       }
     }
+
+    const changedFields = [...new Set([
+      ...driverKeys.filter((key) => key !== "updated_at"),
+      ...empKeys.filter((key) => key !== "updated_at"),
+    ])];
+    if (changedFields.length) {
+      await writeAuditRequired(tx, req, session, {
+        action: "update",
+        resource: "drivers",
+        resourceId: Number(id),
+        oldValues: { driver_status: existing.driver_status },
+        newValues: { changed_fields: changedFields, verification_cleared: credentialChanged },
+      });
+    }
+    });
 
     // License-renewal reinstatement (gated): saving a valid expiry while the
     // driver carries a compliance suspension ('license_expired') lifts it.
@@ -425,11 +454,23 @@ export async function PUT(req, { params }) {
           licenseExpiry: after.rows[0]?.license_expiry,
         });
         if (decision.action === "restore") {
-          await query(
-            `UPDATE drivers SET driver_status = $1, suspension_reason = NULL, updated_at = NOW()
-              WHERE driver_id = $2`,
-            ["Available", id]
-          );
+          const reinstatement = await withTransaction(async (tx) => {
+            const { rows } = await tx.query(
+              `UPDATE drivers SET driver_status = $1, suspension_reason = NULL, updated_at = NOW()
+                WHERE driver_id = $2 RETURNING driver_id`,
+              ["Available", id]
+            );
+            if (!rows[0]) return false;
+            await writeAuditRequired(tx, req, session, {
+              action: "driver_status_reinstated",
+              resource: "drivers",
+              resourceId: Number(id),
+              oldValues: { driver_status: after.rows[0]?.driver_status },
+              newValues: { status: "Available", reason_code: "license_renewal" },
+            });
+            return true;
+          });
+          if (!reinstatement) throw new Error("Driver could not be reinstated");
           reinstated = true;
           const name = after.rows[0]?.name || `Driver #${id}`;
 
@@ -501,13 +542,6 @@ export async function PUT(req, { params }) {
               }).catch(() => {});
             }
           }
-          await writeAudit(req, null, {
-            action: "update",
-            resource: "drivers",
-            resourceId: Number(id) || null,
-            oldValues: { driver_status: "Suspended" },
-            newValues: { driver_status: "Available", reason: "license renewed — compliance suspension lifted" },
-          });
         }
       } catch (complianceErr) {
         console.warn("license-renewal reinstatement skipped:", complianceErr?.message || complianceErr);
@@ -538,12 +572,14 @@ export async function PUT(req, { params }) {
 
     const { rows: updatedRows } = await query(fetchSql, [id]);
     if (!updatedRows[0]) return err("Driver not found", 404);
-    return ok(await signDriverMedia({
+    const updated = await signDriverMedia({
       ...updatedRows[0],
       license_expiry: licenseCalendarDay(updatedRows[0].license_expiry),
       birthdate: toCalendarDay(updatedRows[0].birthdate),
       reinstated,
-    }));
+    });
+    const { license_number: _licenseNumber, ...safeUpdated } = updated;
+    return ok(safeUpdated);
   } catch (e) {
     return handleError(e);
   }
@@ -551,13 +587,27 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requirePermission(req, "drivers", "delete");
-    const { id } = await params;
-
-    await query(
-      `UPDATE drivers SET deleted_at = CURRENT_TIMESTAMP WHERE driver_id = $1`,
-      [id]
-    );
+    const session = await requirePermission(req, "drivers", "delete");
+    const id = Number((await params).id);
+    const archived = await withTransaction(async (tx) => {
+      const { rows: current } = await tx.query(
+        `SELECT driver_status FROM drivers WHERE driver_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      );
+      if (!current[0]) return false;
+      const { rows } = await tx.query(
+        `UPDATE drivers SET deleted_at = CURRENT_TIMESTAMP WHERE driver_id = $1 AND deleted_at IS NULL RETURNING driver_id`,
+        [id]
+      );
+      if (!rows[0]) return false;
+      await writeAuditRequired(tx, req, session, {
+        action: "delete", resource: "drivers", resourceId: id,
+        oldValues: { driver_status: current[0].driver_status },
+        newValues: { deleted_at: true, outcome: "archived" },
+      });
+      return true;
+    });
+    if (!archived) return err("Driver not found", 404);
 
     return ok({ message: "Driver archived successfully" });
   } catch (e) {

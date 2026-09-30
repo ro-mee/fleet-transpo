@@ -157,6 +157,7 @@ CREATE TABLE audit_logs (
   ip_address varchar(50),
   user_agent text,
   created_at timestamptz DEFAULT now(),
+  event_key uuid,
   CONSTRAINT audit_logs_pkey PRIMARY KEY (log_id)
 );
 
@@ -1383,6 +1384,7 @@ CREATE INDEX idx_attendance_open_driver ON public.driverattendance USING btree (
 CREATE INDEX idx_attendance_status ON public.driverattendance USING btree (status);
 CREATE INDEX idx_audit_created ON public.audit_logs USING btree (created_at);
 CREATE INDEX idx_audit_employee ON public.audit_logs USING btree (employee_id);
+CREATE UNIQUE INDEX idx_audit_event_key ON public.audit_logs USING btree (event_key) WHERE (event_key IS NOT NULL);
 CREATE INDEX idx_audit_resource ON public.audit_logs USING btree (resource, resource_id);
 CREATE INDEX idx_auth_rate_limits_updated ON public.auth_rate_limits USING btree (updated_at);
 CREATE UNIQUE INDEX idx_company_card_active_assignment ON public.company_card_assignments USING btree (company_card_id) WHERE (unassigned_at IS NULL);

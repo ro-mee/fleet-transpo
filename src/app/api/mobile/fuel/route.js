@@ -9,6 +9,7 @@ import {
 import { ACTIVE_FUEL_TRIP_STATUSES, fuelFulfillmentError, fuelTankCapacityError, fuelTypeMismatch } from "@/lib/fuel/request-policy";
 import { computeFuelFlags, detectDuplicateReceipt } from "@/lib/fuel/transaction-integrity";
 import { authorizeCompanyCardForDriver } from "@/lib/auth/company-cards";
+import { writeAudit } from "@/lib/audit";
 
 /**
  * POST /api/mobile/fuel
@@ -231,7 +232,7 @@ export async function POST(req) {
           LIMIT 1`,
         [session.user.driverId, body.client_submission_id]
       );
-      if (duplicate[0]) return duplicate[0];
+      if (duplicate[0]) return { record: duplicate[0], inserted: false };
 
       const policyError = fuelFulfillmentError(requests[0], liters);
       if (policyError) {
@@ -287,9 +288,17 @@ export async function POST(req) {
           WHERE fuel_request_id = $1`,
         [fuelRequestId]
       );
-      return rows[0];
+      return { record: rows[0], inserted: true };
     });
-    return ok(await signFuelReceipt(record), 201);
+    if (record.inserted) {
+      await writeAudit(req, session, {
+        action: "fuel_submitted",
+        resource: "fuelrecords",
+        resourceId: record.record?.fuel_record_id,
+        newValues: { status: record.record?.status || SUBMITTED_STATUS, source: "mobile" },
+      });
+    }
+    return ok(await signFuelReceipt(record.record), 201);
   } catch (e) {
     if (e?.status) return err(e.message, e.status);
     if (e?.code === "23505") return err("This fuel request already has a receipt", 409);

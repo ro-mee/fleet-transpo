@@ -90,7 +90,6 @@ export function DriverAvailabilityBoard() {
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(d =>
-        d.license_number?.toLowerCase().includes(q) ||
         d.employees?.first_name?.toLowerCase().includes(q) ||
         d.employees?.last_name?.toLowerCase().includes(q)
       );
@@ -148,7 +147,6 @@ export function DriverAvailabilityBoard() {
       label: "License Info",
       render: (_, row) => (
         <div className="space-y-1 text-xs">
-          <div className="font-data font-bold text-foreground">{row.license_number || "—"}</div>
           <div className="text-foreground-secondary font-medium">
             Class {row.license_class || "—"} • {row.years_of_experience || 0} yrs exp
           </div>
@@ -311,7 +309,6 @@ export function DriverAvailabilityBoard() {
                     <div className="bg-muted/20 p-3 rounded-xl border border-border/40 grid grid-cols-2 gap-2">
                       <div>
                         <p className="text-xs text-foreground-secondary mb-0.5">Number</p>
-                        <p className="font-data font-bold text-sm">{selectedDriver.license_number || "—"}</p>
                       </div>
                       <div>
                         <p className="text-xs text-foreground-secondary mb-0.5">Class</p>

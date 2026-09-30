@@ -26,6 +26,13 @@ describe("POST /api/vehicle-maintenance", () => {
       }
       return { rows: [] };
     });
+    vi.spyOn(db, "withTransaction").mockImplementation((callback) => callback({
+      query: async (sql, values) => {
+        if (sql.includes("set_config('statement_timeout'")) return { rows: [], rowCount: 0 };
+        if (sql.includes("INSERT INTO audit_logs")) return { rows: [{ log_id: 1 }], rowCount: 1 };
+        return db.query(sql, values);
+      },
+    }));
   });
 
   afterEach(() => {

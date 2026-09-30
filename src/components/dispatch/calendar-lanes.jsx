@@ -202,7 +202,7 @@ export function LaneGrid({
       id: d.driver_id,
       label:
         [d.first_name, d.last_name].filter(Boolean).join(" ").trim() || `Driver #${d.driver_id}`,
-      detail: d.license_number ? `License ${d.license_number}` : "License not recorded",
+      detail: d.has_license ? "License on file" : "License not recorded",
       status: d.driver_status || "Unknown",
       unavailable: ["On Leave", "Suspended"].includes(d.driver_status),
     }));

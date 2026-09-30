@@ -2,6 +2,7 @@ import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { setDuty } from "@/services/standby.service";
+import { writeAudit } from "@/lib/audit";
 import { notificationRolesFor } from "@/lib/notifications/recipients";
 import { INSPECTION_TYPES, CRITICAL_ITEM_IDS, validateChecklist, isChecklistType, CLIENT_SUBMISSION_ID_RE } from "@/lib/inspections/checklists";
 import { PRE_START_TRIP_STATUSES, DRIVER_ACTIVE_TRIP_STATUSES } from "@/lib/trips/status-groups";
@@ -250,6 +251,22 @@ export async function POST(req) {
           message: dutyError?.message ?? "Duty could not be started.",
         };
       }
+    }
+
+    if (inserted) {
+      await writeAudit(req, session, {
+        action: "vehicle_inspection_submitted",
+        resource: "vehicleinspection",
+        resourceId: inspection.inspection_id,
+        newValues: {
+          vehicle_id: vehicleId,
+          trip_id: tripIdForInsert,
+          inspection_type: inspectionType,
+          status: inspection.status,
+          started_duty: duty?.started === true,
+          source: "mobile",
+        },
+      });
     }
 
     return ok(duty ? { ...inspection, duty } : inspection, inserted ? 201 : 200);

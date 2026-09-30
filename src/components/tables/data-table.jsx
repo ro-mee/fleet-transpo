@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useId } from "react";
+import { useState, useMemo, useId, useEffect } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -61,6 +61,7 @@ export function DataTable({
   // so tables get filtered-vs-first-run differentiation for free.
   isFiltered,
   onResetFilters,
+  onVisibleRowsChange,
   tableClassName,
 }) {
   const searchInputId = useId();
@@ -117,6 +118,10 @@ export function DataTable({
 
   const totalRows = manualPagination ? (rowCount ?? data.length) : table.getFilteredRowModel().rows.length;
   const { pageSize: currentPageSize } = table.getState().pagination;
+  useEffect(() => {
+    if (!onVisibleRowsChange) return;
+    onVisibleRowsChange(table.getRowModel().rows.map((row) => row.original));
+  }, [onVisibleRowsChange, pageIndex, pageSize, data, globalFilter, sorting, table]);
   const pageCount = table.getPageCount();
   const visibleStart = totalRows ? pageIndex * currentPageSize + 1 : 0;
   const visibleEnd = Math.min((pageIndex + 1) * currentPageSize, totalRows);

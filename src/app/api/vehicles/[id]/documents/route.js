@@ -1,5 +1,6 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { writeAuditRequired } from "@/lib/audit";
 
 // Client-writable columns for vehicledocuments. Column names are never taken
 // from the request body — that would allow SQL injection via crafted keys.
@@ -25,7 +26,7 @@ export async function GET(req, { params }) {
 
 export async function POST(req, { params }) {
   try {
-    await requirePermission(req, "vehicles", "update");
+    const session = await requirePermission(req, "vehicles", "update");
     const { id } = await params;
     const body = await parseBody(req);
     const columns = [];
@@ -41,10 +42,14 @@ export async function POST(req, { params }) {
     values.push(+id);
     const cols = columns.join(", ");
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-    const { rows } = await query(
-      `INSERT INTO vehicledocuments (${cols}) VALUES (${placeholders}) RETURNING *`,
-      values
-    );
-    return ok(rows[0], 201);
+    const row = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(`INSERT INTO vehicledocuments (${cols}) VALUES (${placeholders}) RETURNING *`, values);
+      await writeAuditRequired(tx, req, session, {
+        action: "create", resource: "vehicledocuments", resourceId: rows[0]?.document_id,
+        newValues: { vehicle_id: Number(id), changed_fields: DOC_WRITABLE.filter((key) => body[key] !== undefined), outcome: "created" },
+      });
+      return rows[0];
+    });
+    return ok(row, 201);
   } catch (e) { return handleError(e); }
 }

@@ -149,6 +149,8 @@ export default function DocumentExpirationPage() {
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["documents-expiring"],
     queryFn: () => getExpiringDocuments(),
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 
   const items = useMemo(() => data?.items || [], [data]);

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { getDriver, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
+import { getDriver, getDriverLicenseMasks, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
 import { licenseExpired } from "@/lib/drivers/compliance";
 import { licenseCalendarDay } from "@/lib/drivers/license-eligibility";
 import { formatCalendarDate } from "@/lib/dates";
@@ -56,6 +56,15 @@ export default function DriverDetailPage() {
     queryFn: () => getDriver(id),
     enabled: !!id,
   });
+  const { data: maskedLicenseRows = [] } = useQuery({
+    queryKey: ["driver-license-mask", id],
+    queryFn: () => getDriverLicenseMasks([Number(id)], "staff_detail"),
+    enabled: Boolean(driver?.driver_id),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const maskedLicense = maskedLicenseRows[0]?.license_number ?? null;
   const revealedLicenseValue = revealedLicense?.driverId === id ? revealedLicense.value : null;
   const driverInvitePending = Boolean(driver?.account?.has_password && driver.account.must_change_password);
   const driverNeedsInvite = Boolean(!driver?.account?.has_password || driverInvitePending);
@@ -154,7 +163,7 @@ export default function DriverDetailPage() {
     );
   }
 
-  const licenseNumber = revealedLicenseValue ?? driver.license_number;
+  const licenseNumber = revealedLicenseValue ?? maskedLicense ?? "—";
 
   const emp = driver.employees || {};
   const trips = driver.trips || [];
@@ -238,7 +247,7 @@ export default function DriverDetailPage() {
                     <span className="flex items-center gap-1.5">
                       <FileText className="w-4 h-4 text-foreground-muted" />
                       <span className="font-data">{licenseNumber}</span>
-                      {can("drivers", "update") && driver.license_number && (
+                      {can("drivers", "update") && maskedLicense && (
                         <Button
                           type="button"
                           variant="ghost"

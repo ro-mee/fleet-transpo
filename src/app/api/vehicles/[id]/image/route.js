@@ -2,11 +2,12 @@ import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { query } from "@/lib/db";
 import { validateImage } from "@/lib/uploads/validator";
+import { writeAudit } from "@/lib/audit";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req, context) {
   try {
-    await requirePermission(req, "vehicles", "update");
+    const session = await requirePermission(req, "vehicles", "update");
     
     const params = await context.params;
     const vehicleId = Number(params.id);
@@ -70,6 +71,13 @@ export async function POST(req, context) {
       console.error("Database update error:", dbError);
       return err("Failed to update vehicle record with image.", 500);
     }
+
+    await writeAudit(req, session, {
+      action: "update",
+      resource: "vehicles",
+      resourceId: vehicleId,
+      newValues: { changed_fields: ["image_url"], outcome: "updated" },
+    });
 
     return ok({ image_url: imageUrl });
   } catch (error) {

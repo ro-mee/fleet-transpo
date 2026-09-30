@@ -1,7 +1,7 @@
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { loadScanImage, scanDocumentWithGemini } from "@/lib/ai/gemini-document";
 import { logAiRequest } from "@/lib/ai/logger";
 import { evaluateLicenseScan } from "@/lib/ai/license-scan-policy";
@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { notificationRolesFor } from "@/lib/notifications/recipients";
 import { canonicalStoredRef } from "@/lib/storage/object-refs";
 import { v4 as uuidv4 } from "uuid";
+import { writeAuditRequired } from "@/lib/audit";
 
 /**
  * POST /api/driver/license-scan
@@ -140,10 +141,29 @@ export async function POST(req) {
     }
     params.push(session.user.driverId);
 
-    await query(
-      `UPDATE drivers SET ${setClauses.join(", ")} WHERE driver_id = $${params.length}`,
-      params
-    );
+    await withTransaction(async (tx) => {
+      const { rows } = await tx.query(
+        `UPDATE drivers SET ${setClauses.join(", ")} WHERE driver_id = $${params.length} AND deleted_at IS NULL RETURNING driver_id`,
+        params
+      );
+      if (!rows[0]) {
+        const error = new Error("Driver record not found");
+        error.status = 404;
+        throw error;
+      }
+      await writeAuditRequired(tx, req, session, {
+        action: "license_scan_updated",
+        resource: "drivers",
+        resourceId: rows[0].driver_id,
+        newValues: {
+          side,
+          changed_fields: verdict.applyExpiry ? [imageColumn, "license_expiry"] : [imageColumn],
+          verification_cleared: true,
+          outcome: "accepted",
+          channel: "mobile",
+        },
+      });
+    });
 
     delete scanned.document_is_license_card;
 

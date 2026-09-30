@@ -18,7 +18,6 @@ export async function GET(req, { params }) {
         row_to_json(v.*) as vehicles,
         json_build_object(
           'driver_id', d.driver_id,
-          'license_number', d.license_number,
           'employees', json_build_object(
             'first_name', e.first_name,
             'last_name', e.last_name

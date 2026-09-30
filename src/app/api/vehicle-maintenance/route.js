@@ -1,8 +1,9 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
+import { writeAuditRequired } from "@/lib/audit";
 
 // The API's field names, kept as-is so existing clients do not break, mapped to
 // the columns that actually exist. Before this map, the schema accepted
@@ -218,15 +219,29 @@ export async function POST(req) {
     if (columns.length === 0) return err("No writable fields were provided", 400);
 
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-    const { rows } = await query(
-      `INSERT INTO vehiclemaintenance (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`,
-      values
-    );
-    if (rows[0]?.vehicle_id) {
+    const row = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(
+        `INSERT INTO vehiclemaintenance (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`,
+        values
+      );
+      await writeAuditRequired(tx, req, session, {
+        action: "maintenance_created",
+        resource: "vehiclemaintenance",
+        resourceId: rows[0]?.maintenance_id,
+        newValues: {
+          vehicle_id: rows[0]?.vehicle_id,
+          status: rows[0]?.status,
+          changed_fields: columns,
+          source_incident_id: rows[0]?.source_incident_id,
+        },
+      });
+      return rows[0];
+    });
+    if (row?.vehicle_id) {
       const { syncVehicleStatus } = await import("@/services/status.service");
-      await syncVehicleStatus(rows[0].vehicle_id);
-      await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0]);
+      await syncVehicleStatus(row.vehicle_id);
+      await recomputeVehicleSchedule(row.vehicle_id, row);
     }
-    return ok(rows[0], 201);
+    return ok(row, 201);
   } catch (e) { return handleError(e); }
 }

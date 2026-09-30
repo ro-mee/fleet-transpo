@@ -13,7 +13,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { DocumentScanCard } from "@/components/ui/document-scan-card";
 import { toast } from "@/components/ui/toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getMyDriverProfile, updateMyDriverProfile } from "@/services/driver.service";
+import { getMyDriverProfile, getMyDriverLicenseMask, updateMyDriverProfile } from "@/services/driver.service";
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
@@ -80,6 +80,14 @@ export default function DriverProfilePage() {
   const { data: profile, isLoading, isError } = useQuery({
     queryKey: ["driver-me"],
     queryFn: getMyDriverProfile,
+  });
+  const { data: maskedLicense } = useQuery({
+    queryKey: ["driver-me-license-mask"],
+    queryFn: () => getMyDriverLicenseMask(),
+    enabled: Boolean(profile?.driverId),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const [revealedLicense, setRevealedLicense] = useState(null);
   const [loadingLicense, setLoadingLicense] = useState(false);
@@ -184,8 +192,8 @@ export default function DriverProfilePage() {
               <div>
                 <p className="text-foreground-muted">License Number</p>
                 <div className="mt-1 flex items-center gap-1.5">
-                  <p className="font-mono font-medium">{revealedLicense ?? profile.license.number ?? "—"}</p>
-                  {profile.license.number && (
+                  <p className="font-mono font-medium">{revealedLicense ?? maskedLicense?.license_number ?? "—"}</p>
+                  {maskedLicense?.license_number && (
                     <Button
                       type="button"
                       variant="ghost"

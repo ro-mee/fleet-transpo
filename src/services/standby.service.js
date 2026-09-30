@@ -37,6 +37,7 @@ export async function setDuty(driverId, active) {
   }
   return withTransaction(async (tx) => {
     await tx.query('SELECT driver_id FROM drivers WHERE driver_id=$1 FOR UPDATE', [driverId]);
+    let changed = true;
     if (active) {
       const state = await standbyState(driverId, tx);
       if (!state?.consented) throw new AuthError('Accept the current privacy policy before starting duty.', 403);
@@ -63,18 +64,20 @@ export async function setDuty(driverId, active) {
       //
       // The `WHERE` already distinguishes "reopen a closed row" from "do nothing to a
       // live one", so clearing the marker cannot touch a duty that was never closed.
-      await tx.query(`INSERT INTO driverattendance (driver_id,date,time_in,status,check_in_method)
+      const attendance = await tx.query(`INSERT INTO driverattendance (driver_id,date,time_in,status,check_in_method)
         VALUES ($1,(NOW() AT TIME ZONE 'Asia/Manila')::date,NOW(),'Present','manual')
         ON CONFLICT (driver_id,date) DO UPDATE SET time_in=NOW(), time_out=NULL, status='Present',
           end_duty_outcome=NULL
-        WHERE driverattendance.time_out IS NOT NULL OR driverattendance.time_in IS NULL`, [driverId]);
+        WHERE driverattendance.time_out IS NOT NULL OR driverattendance.time_in IS NULL
+        RETURNING attendance_id`, [driverId]);
+      changed = attendance.rowCount > 0;
       await tx.query("UPDATE drivers SET driver_status='Available' WHERE driver_id=$1 AND driver_status='Off Duty'", [driverId]);
       await tx.query('UPDATE drivers SET standby_tracking_enabled=true WHERE driver_id=$1', [driverId]);
     } else {
       await tx.query('UPDATE driverattendance SET time_out=NOW() WHERE driver_id=$1 AND time_in IS NOT NULL AND time_out IS NULL', [driverId]);
       await tx.query('UPDATE drivers SET standby_tracking_enabled=false, standby_session_family=NULL WHERE driver_id=$1', [driverId]);
     }
-    return { checkedIn: active };
+    return { checkedIn: active, changed };
   });
 }
 
@@ -188,7 +191,7 @@ export async function endDutyWithReport({ driverId, vehicleId, report, clientSub
     // two arms can match two different rows and the statement has no ORDER BY, so
     // `priorRows[0]` left the answer to a plan the application does not control.
     if (priorRows.some(r => r?.end_duty_outcome === 'NoVehicle')) {
-      return { checkedIn: false, inspectionId: null, reported: false, recorded: false, late };
+      return { checkedIn: false, inspectionId: null, reported: false, recorded: false, changed: false, late };
     }
 
     // No pairing means there is nothing to inspect, and vehicleinspection.vehicle_id
@@ -212,14 +215,15 @@ export async function endDutyWithReport({ driverId, vehicleId, report, clientSub
     // (The copies in `scripts/verify-duty-autoclose.mjs` are of the REPORTED close, not
     // this one, so this statement's text can change without desyncing anything there.)
     if (!vehicleId) {
-      await tx.query(`UPDATE driverattendance
+      const { rows: closed } = await tx.query(`UPDATE driverattendance
           SET time_out=COALESCE(time_out,NOW()), end_duty_outcome='NoVehicle',
               end_duty_submission_id=COALESCE(end_duty_submission_id,$3),
               remarks=CASE WHEN end_duty_outcome='NoVehicle' THEN remarks
                            ELSE COALESCE(remarks||' | ','')||'Ended duty with no vehicle pairing; no End Duty report recorded' END
-        WHERE driver_id=$1 AND date=$2::date AND time_in IS NOT NULL`, [driverId, day, clientSubmissionId]);
+        WHERE driver_id=$1 AND date=$2::date AND time_in IS NOT NULL
+        RETURNING attendance_id`, [driverId, day, clientSubmissionId]);
       await tx.query('UPDATE drivers SET standby_tracking_enabled=false, standby_session_family=NULL WHERE driver_id=$1', [driverId]);
-      return { checkedIn: false, inspectionId: null, reported: false, recorded: false, late };
+      return { checkedIn: false, inspectionId: null, reported: false, recorded: false, changed: closed.length > 0, late };
     }
 
     // severity is NULL for a reported defect rather than a guessed level: the
@@ -290,7 +294,7 @@ export async function endDutyWithReport({ driverId, vehicleId, report, clientSub
       // return above, which also returns `recorded: false` and must keep answering 200.
       // `reported: false` rather than `check.reported`: nothing was recorded, so the
       // request's own claim about a defect is not something this return can assert.
-      return { checkedIn: false, inspectionId: null, reported: false, recorded: false,
+      return { checkedIn: false, inspectionId: null, reported: false, recorded: false, changed: false,
                reason: 'submission_id_already_used', late };
     }
     // The day this transaction closes. Normally the one resolved above — but a RECOVERED
@@ -329,7 +333,7 @@ export async function endDutyWithReport({ driverId, vehicleId, report, clientSub
               ELSE remarks END
       WHERE driver_id=$1 AND date=$2::date AND time_in IS NOT NULL`, [driverId, reportDay, appendLateRemark]);
     await tx.query('UPDATE drivers SET standby_tracking_enabled=false, standby_session_family=NULL WHERE driver_id=$1', [driverId]);
-    return { checkedIn: false, inspectionId, reported: check.reported, recorded: true, late };
+    return { checkedIn: false, inspectionId, reported: check.reported, recorded: true, changed: Boolean(rows[0]?.inspection_id), late };
   });
 }
 

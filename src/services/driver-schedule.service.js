@@ -7,6 +7,7 @@
 // it cares about and calls the pure helper. Load the context once per request,
 // never per driver, to keep the query count flat.
 import { query, withTransaction } from "@/lib/db";
+import { writeAuditRequired } from "@/lib/audit";
 
 /** Approved-leave + work-schedule context for a set of driver ids. */
 export async function loadDriverScheduleContext(driverIds) {
@@ -149,7 +150,7 @@ export async function listAllLeaveRequests({ driverId } = {}) {
  * Approve or decline a leave request. Declining always works; approving is
  * rejected with 409 when an overlapping request is already Approved.
  */
-export async function reviewLeaveRequest(leaveRequestId, status, reviewerId, notes = null) {
+export async function reviewLeaveRequest(leaveRequestId, status, reviewerId, notes = null, { req, session } = {}) {
   if (!["Approved", "Declined"].includes(status)) {
     const e = new Error("status must be Approved or Declined");
     e.status = 400;
@@ -159,13 +160,18 @@ export async function reviewLeaveRequest(leaveRequestId, status, reviewerId, not
 
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(
-      `SELECT driver_id, start_date, end_date, leave_type FROM driver_leave_requests WHERE leave_request_id = $1`,
+      `SELECT driver_id, start_date, end_date, leave_type, status FROM driver_leave_requests WHERE leave_request_id = $1 FOR UPDATE`,
       [id]
     );
     const current = rows[0];
     if (!current) {
       const e = new Error("Leave request not found");
       e.status = 404;
+      throw e;
+    }
+    if (current.status !== "Pending") {
+      const e = new Error("This leave request has already been reviewed.");
+      e.status = 409;
       throw e;
     }
 
@@ -208,10 +214,22 @@ export async function reviewLeaveRequest(leaveRequestId, status, reviewerId, not
     const { rows: updated } = await tx.query(
       `UPDATE driver_leave_requests
           SET status = $2, reviewed_by = $3, reviewed_at = NOW(), review_notes = $4
-        WHERE leave_request_id = $1
+        WHERE leave_request_id = $1 AND status = 'Pending'
         RETURNING *`,
       [id, status, reviewerId ? Number(reviewerId) : null, notes]
     );
+    if (!updated[0]) {
+      const e = new Error("This leave request has already been reviewed.");
+      e.status = 409;
+      throw e;
+    }
+    await writeAuditRequired(tx, req, session, {
+      action: "leave_request_reviewed",
+      resource: "driver_leave_requests",
+      resourceId: id,
+      oldValues: { status: "Pending" },
+      newValues: { status, decision: status === "Approved" ? "approve" : "decline", leave_request_id: id },
+    });
     return updated[0];
   });
 }

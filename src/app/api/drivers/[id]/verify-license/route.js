@@ -1,9 +1,8 @@
 import { withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
-import { writeAudit } from "@/lib/audit";
+import { writeAuditRequired } from "@/lib/audit";
 import {
   LICENSE_VERIFICATION_METHODS,
-  maskLicenseNumber,
   validateLicenseDetails,
 } from "@/lib/drivers/license-eligibility";
 
@@ -40,24 +39,20 @@ export async function POST(req, { params }) {
           RETURNING license_verified_at, license_verified_by, license_verification_method`,
         [id, employeeId, body.method]
       );
-      return { ...updated[0], license_number: driver.license_number };
+      if (!updated[0]) return null;
+      await writeAuditRequired(tx, req, session, {
+        action: "verify",
+        resource: "drivers",
+        resourceId: Number(id),
+        newValues: { verification_method: updated[0].license_verification_method, outcome: "verified" },
+      });
+      return updated[0];
     });
 
     if (!verified) return err("Driver not found", 404);
     if (verified.errors) return err("License details must be complete and valid before verification.", 400);
     if (verified.error) return err(verified.error, 400);
 
-    await writeAudit(req, session, {
-      action: "verify",
-      resource: "drivers",
-      resourceId: Number(id) || null,
-      newValues: {
-        license_number: maskLicenseNumber(verified.license_number),
-        license_verified_at: verified.license_verified_at,
-        license_verified_by: verified.license_verified_by,
-        license_verification_method: verified.license_verification_method,
-      },
-    });
     return ok({
       license_verified_at: verified.license_verified_at,
       license_verified_by: verified.license_verified_by,

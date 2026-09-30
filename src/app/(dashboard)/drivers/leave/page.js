@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRoleAccess } from "@/hooks/use-role-access";
-import { getDriverLeaveRequests, reviewDriverLeave } from "@/services/driver.service";
+import { getDriverLeaveRequests, getDriverLicenseMasks, reviewDriverLeave } from "@/services/driver.service";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { CalendarClock, Loader2, CheckCircle2, XCircle, User, IdCard, CalendarDays } from "lucide-react";
@@ -32,6 +32,8 @@ export default function DriverLeaveRequestsPage() {
   const { can } = useRoleAccess();
   const [filter, setFilter] = useState("Pending");
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [selectedLicenseMask, setSelectedLicenseMask] = useState(null);
+  const [loadingLicenseMask, setLoadingLicenseMask] = useState(false);
   const [declining, setDeclining] = useState(null);
 
   const { data: leave = [], isLoading, isError } = useQuery({
@@ -50,6 +52,20 @@ export default function DriverLeaveRequestsPage() {
 
   const rows = filter === "All" ? leave : leave.filter((l) => l.status === filter);
   const pendingCount = leave.filter((l) => l.status === "Pending").length;
+
+  const openDetails = async (request) => {
+    setSelectedRequest(request);
+    setSelectedLicenseMask(null);
+    setLoadingLicenseMask(true);
+    try {
+      const [row] = await getDriverLicenseMasks([Number(request.driver_id)], "leave_review");
+      setSelectedLicenseMask(row?.license_number ?? null);
+    } catch {
+      setSelectedLicenseMask(null);
+    } finally {
+      setLoadingLicenseMask(false);
+    }
+  };
 
   return (
     <div className="space-y-6 w-full">
@@ -152,7 +168,7 @@ export default function DriverLeaveRequestsPage() {
                         variant="ghost"
                         size="sm"
                         className="h-8 rounded-xl text-xs font-semibold text-primary hover:bg-primary/10"
-                        onClick={() => setSelectedRequest(l)}
+                        onClick={() => openDetails(l)}
                       >
                         View Details
                       </Button>
@@ -165,7 +181,7 @@ export default function DriverLeaveRequestsPage() {
         </Card>
       )}
 
-      <Dialog open={!!selectedRequest} onOpenChange={(open) => !open && setSelectedRequest(null)}>
+      <Dialog open={!!selectedRequest} onOpenChange={(open) => !open && (setSelectedRequest(null), setSelectedLicenseMask(null))}>
         <DialogContent className="max-w-lg w-[95vw] md:w-[480px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
           {selectedRequest && (
             <>
@@ -186,7 +202,7 @@ export default function DriverLeaveRequestsPage() {
                       </Badge>
                     </div>
                     <p className="text-xs text-foreground-muted mt-0.5 flex items-center gap-1.5">
-                      <IdCard className="w-3.5 h-3.5" /> License: <span className="font-data font-bold text-foreground">{selectedRequest.driver?.license_number || "—"}</span>
+                      <IdCard className="w-3.5 h-3.5" /> License: <span className="font-data font-bold text-foreground">{selectedLicenseMask || (loadingLicenseMask ? "Loading…" : "—")}</span>
                     </p>
                   </div>
                 </div>

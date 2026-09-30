@@ -42,7 +42,10 @@ vi.mock("@/lib/drivers/media", () => ({
 
 // Not part of the address path; stubbed only so the route can run to completion.
 vi.mock("@/services/status.service", () => ({ syncDriverStatus: vi.fn(async () => {}) }));
-vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn(async () => {}) }));
+vi.mock("@/lib/audit", () => ({
+  writeAudit: vi.fn(async () => {}),
+  writeAuditRequired: vi.fn(async () => ({ log_id: 1 })),
+}));
 vi.mock("@/lib/drivers/compliance", () => ({
   suspensionAction: vi.fn(() => ({ action: "none" })),
 }));
@@ -51,7 +54,7 @@ import { GET, PUT } from "./route";
 import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
 import { saveAddress } from "@/services/address.service";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditRequired } from "@/lib/audit";
 
 const SANTA_ROSA = {
   region: { code: "0400000000", name: "CALABARZON (Region IV-A)" },
@@ -115,9 +118,31 @@ function installDb({ failOn } = {}) {
           driver_id: DRIVER_ID,
           employee_id: 55,
           email: "juan@fleetops.ph",
+          employee_first_name: "Juan",
+          employee_last_name: "Dela Cruz",
+          employee_phone: null,
+          employee_position: "Driver",
+          employee_avatar_url: null,
+          license_number: "N04-19-013583",
+          driver_status: "Available",
+          years_of_experience: 0,
+          address: null,
+          license_expiry: "2031-09-20",
+          license_image_url: null,
+          license_back_image_url: null,
           sex: null,
           license_class: "B",
           license_type: "Professional",
+          birthdate: null,
+          nationality: null,
+          emergency_contact_name: null,
+          emergency_contact_phone: null,
+          emergency_contact_address: null,
+          address_id: null,
+          emergency_contact_address_id: null,
+          license_verified_at: "2026-09-27T10:00:00+08:00",
+          license_verified_by: 9,
+          license_verification_method: "physical_card",
         }],
         rowCount: 1,
       };
@@ -164,7 +189,11 @@ function installDb({ failOn } = {}) {
   });
 
   db.withTransaction.mockImplementation(async (fn) => {
-    txQuery = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    txQuery = vi.fn(async (sql, params) => {
+      if (String(sql).includes("set_config('statement_timeout'")) return { rows: [], rowCount: 0 };
+      if (String(sql).includes("INSERT INTO audit_logs")) return { rows: [{ log_id: 1 }], rowCount: 1 };
+      return db.query(sql, params);
+    });
     try {
       const out = await fn({ query: txQuery });
       state.committed = true;
@@ -219,12 +248,11 @@ describe("PUT /api/drivers/[id] — an edit that does not touch the address", ()
     // would silently detach a driver's home from the registry.
     const { driverUpdates } = installDb();
 
-    const res = await PUT(request({ first_name: "Juana" }), context());
+    const res = await PUT(request({ first_name: "Juana", sex: "M" }), context());
 
     expect(res.status).toBe(200);
-    // No pick arrived, so there is no address write to wrap: this route only
-    // opens a transaction when one of the two fields actually carried one.
-    expect(db.withTransaction).not.toHaveBeenCalled();
+    // The field edit and audit still share a transaction; no address row is made.
+    expect(db.withTransaction).toHaveBeenCalledTimes(1);
     expect(saveAddress).not.toHaveBeenCalled();
 
     const columns = lastDriverUpdate(driverUpdates);
@@ -262,7 +290,7 @@ describe("GET /api/drivers/[id] — full license access", () => {
     expect(response.status).toBe(403);
     expect(permissionSpy).toHaveBeenNthCalledWith(1, expect.anything(), "drivers", "read_all");
     expect(permissionSpy).toHaveBeenNthCalledWith(2, expect.anything(), "drivers", "update");
-    expect(querySpy).not.toHaveBeenCalled();
+    expect(querySpy.mock.calls.some(([sql]) => String(sql).includes("FROM drivers"))).toBe(false);
   });
 });
 
@@ -302,10 +330,20 @@ describe("PUT /api/drivers/[id] — license verification invalidation", () => {
 
     expect(response.status).toBe(200);
     expect(lastDriverUpdate(driverUpdates)).not.toHaveProperty("license_verified_at");
-    expect(writeAudit).not.toHaveBeenCalled();
+    expect(writeAuditRequired).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ user: expect.objectContaining({ employeeId: 1 }) }),
+      expect.objectContaining({
+        action: "update",
+        resource: "drivers",
+        resourceId: 7,
+        newValues: expect.objectContaining({ verification_cleared: false }),
+      })
+    );
   });
 
-  it("clears verification when the license details change and audits only a masked number", async () => {
+  it("clears verification when license details change and audits field names without license values", async () => {
     const { driverUpdates } = installDb();
     const response = await PUT(request({
       license_number: "N04-19-013583",
@@ -320,8 +358,10 @@ describe("PUT /api/drivers/[id] — license verification invalidation", () => {
       license_verified_by: null,
       license_verification_method: null,
     });
-    expect(JSON.stringify(writeAudit.mock.calls)).toContain("********3583");
-    expect(JSON.stringify(writeAudit.mock.calls)).not.toContain("N04-19-013583");
+    expect(JSON.stringify(writeAuditRequired.mock.calls)).toContain('"license_expiry"');
+    expect(JSON.stringify(writeAuditRequired.mock.calls)).not.toContain('"license_number"');
+    expect(JSON.stringify(writeAuditRequired.mock.calls)).not.toContain("********3583");
+    expect(JSON.stringify(writeAuditRequired.mock.calls)).not.toContain("N04-19-013583");
   });
 });
 
@@ -366,6 +406,17 @@ describe("PUT /api/drivers/[id] — an edit that does pick", () => {
 });
 
 describe("PUT /api/drivers/[id] — a failure fails hard", () => {
+  it("rolls back the driver edit when its required audit event fails", async () => {
+    const { driverUpdates, state } = installDb();
+    writeAuditRequired.mockRejectedValueOnce(new Error("audit unavailable"));
+
+    const response = await PUT(request({ first_name: "Juana", sex: "M" }), context());
+
+    expect(response.status).toBe(500);
+    expect(driverUpdates).toHaveLength(1);
+    expect(state.rolledBack).toBe(true);
+  });
+
   it("returns a failure and updates no driver row when the address write fails", async () => {
     // Nothing is committed yet when the registry write runs, so there is no
     // partial state to compensate for — but ONLY because the addresses are saved
@@ -396,7 +447,8 @@ describe("PUT /api/drivers/[id] — a failure fails hard", () => {
     const res = await PUT(request({ structured_address: RESIDENTIAL_PICK }), context());
 
     expect(res.status).toBe(500);
-    expect(state.committed).toBe(true);
+    expect(state.committed).toBe(false);
+    expect(state.rolledBack).toBe(true);
     expect(saveAddress).toHaveBeenCalledTimes(1);
     expect(driverUpdates).toHaveLength(0);
   });

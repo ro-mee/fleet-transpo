@@ -46,6 +46,10 @@ export function getPool() {
       connectionString: process.env.DATABASE_URL,
       max: 10,
       idleTimeoutMillis: 30000,
+      // Do not let a request wait indefinitely for a checked-out connection.
+      // Keep this separate from statement_timeout, which remains transaction-
+      // scoped for audit writes so it cannot leak to unrelated pooled queries.
+      connectionTimeoutMillis: 5000,
       // Supabase's pooler refuses non-TLS connections; without this every
       // attempt fails auth and trips ECIRCUITBREAKER on the pooler.
       ssl: { rejectUnauthorized: false },

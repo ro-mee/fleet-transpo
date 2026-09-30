@@ -1,8 +1,8 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isUrl } from "@/lib/validation";
-import { writeAudit } from "@/lib/audit";
+import { writeAuditRequired } from "@/lib/audit";
 
 // Strips the raw api_key before a row leaves the server so update responses
 // never expose the secret.
@@ -16,7 +16,7 @@ function maskProvider(row) {
 
 export async function PUT(req, { params }) {
   try {
-    await requirePermission(req, "ai_settings", "update");
+    const session = await requirePermission(req, "ai_settings", "update");
     const { id } = await params;
     const body = await parseBody(req);
 
@@ -36,12 +36,9 @@ export async function PUT(req, { params }) {
       return errValidation(errors);
     }
 
-    if (body.is_default) {
-      await query(`UPDATE aiproviders SET is_default = false WHERE provider_id != $1`, [+id]);
-    }
-
     const fields = [];
     const values = [];
+    const changedKeys = [];
     let idx = 1;
 
     for (const key of [
@@ -51,27 +48,39 @@ export async function PUT(req, { params }) {
       if (body[key] !== undefined) {
         fields.push(`${key} = $${idx++}`);
         values.push(body[key]);
+        changedKeys.push(key);
       }
     }
 
     if (body.api_key && !body.api_key.startsWith("••••")) {
       fields.push(`api_key = $${idx++}`);
       values.push(body.api_key);
+      changedKeys.push("provider_configuration");
     }
 
     if (fields.length === 0) return err("No fields to update", 400);
 
     values.push(+id);
-    const { rowCount } = await query(
-      `UPDATE aiproviders SET ${fields.join(", ")}, updated_at = NOW() WHERE provider_id = $${idx}`,
-      values
-    );
-
-    if (!rowCount) return err("Provider not found", 404);
-
-    const { rows: [updated] } = await query(
-      `SELECT * FROM aiproviders WHERE provider_id = $1`, [+id]
-    );
+    const updated = await withTransaction(async (tx) => {
+      const { rows: before } = await tx.query(`SELECT provider_id FROM aiproviders WHERE provider_id = $1 FOR UPDATE`, [+id]);
+      if (!before[0]) return null;
+      if (body.is_default) {
+        await tx.query(`UPDATE aiproviders SET is_default = false WHERE provider_id != $1`, [+id]);
+      }
+      const { rows, rowCount } = await tx.query(
+        `UPDATE aiproviders SET ${fields.join(", ")}, updated_at = NOW() WHERE provider_id = $${idx} RETURNING *`,
+        values
+      );
+      if (!rowCount || !rows[0]) return null;
+      await writeAuditRequired(tx, req, session, {
+        action: "update",
+        resource: "aiproviders",
+        resourceId: Number(id),
+        newValues: { changed_fields: changedKeys, status: rows[0].is_enabled ? "enabled" : "disabled", outcome: "updated" },
+      });
+      return rows[0];
+    });
+    if (!updated) return err("Provider not found", 404);
     return ok(maskProvider(updated));
   } catch (e) { return handleError(e); }
 }
@@ -79,12 +88,14 @@ export async function PUT(req, { params }) {
 export async function DELETE(req, { params }) {
   try {
     const session = await requirePermission(req, "ai_settings", "update");
-    const { id } = await params;
-
-    const { rowCount } = await query(`DELETE FROM aiproviders WHERE provider_id = $1`, [+id]);
-    if (!rowCount) return err("Provider not found", 404);
-
-    await writeAudit(req, session, { action: "delete", resource: "aiproviders", resourceId: id });
+    const id = Number((await params).id);
+    const deleted = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(`DELETE FROM aiproviders WHERE provider_id = $1 RETURNING provider_id`, [id]);
+      if (!rows[0]) return false;
+      await writeAuditRequired(tx, req, session, { action: "delete", resource: "aiproviders", resourceId: id, newValues: { outcome: "deleted" } });
+      return true;
+    });
+    if (!deleted) return err("Provider not found", 404);
 
     return ok({ message: "AI Provider deleted successfully" });
   } catch (e) { return handleError(e); }

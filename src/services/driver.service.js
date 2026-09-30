@@ -8,6 +8,27 @@ export async function getDriver(id, { includeLicense = false } = {}) {
   return apiFetch(`/api/drivers/${id}${includeLicense ? "?include_license=1" : ""}`);
 }
 
+function newAuditEventKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+export async function getDriverLicenseMasks(driverIds, source, eventKey = newAuditEventKey()) {
+  const result = await apiFetch("/api/drivers/license-views", {
+    method: "POST",
+    body: { driver_ids: driverIds, source, event_key: eventKey },
+  });
+  return result?.drivers ?? [];
+}
+
+export async function getMyDriverLicenseMask(eventKey = newAuditEventKey()) {
+  const result = await apiFetch(`/api/driver/me/license?event_key=${encodeURIComponent(eventKey)}`);
+  return result?.license ?? null;
+}
+
 export async function createDriver(driver) {
   return apiFetch("/api/drivers", { method: "POST", body: driver });
 }

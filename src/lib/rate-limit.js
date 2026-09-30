@@ -17,20 +17,21 @@ import { query } from "@/lib/db";
  * @param {number} [opts.limit]      Max hits per window (default 10).
  * @param {number} [opts.windowMs]   Window length in ms (default 60000).
  */
-export async function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
+export async function rateLimit(key, { limit = 10, windowMs = 60_000, cost = 1 } = {}) {
   try {
+    const hitCost = Number.isSafeInteger(cost) && cost > 0 ? Math.min(cost, 1000) : 1;
     const { rows } = await query(
       `WITH cleanup AS (
          DELETE FROM auth_rate_limits
           WHERE updated_at < NOW() - INTERVAL '1 day'
        )
        INSERT INTO auth_rate_limits (bucket_key, window_started_at, hit_count, updated_at)
-       VALUES ($1, NOW(), 1, NOW())
+       VALUES ($1, NOW(), LEAST($4, $3 + 1), NOW())
        ON CONFLICT (bucket_key) DO UPDATE
          SET hit_count = CASE
                WHEN auth_rate_limits.window_started_at + ($2::double precision * INTERVAL '1 millisecond') <= NOW()
-                 THEN 1
-               ELSE LEAST(auth_rate_limits.hit_count + 1, $3 + 1)
+                 THEN LEAST($4, $3 + 1)
+               ELSE LEAST(auth_rate_limits.hit_count + $4, $3 + 1)
              END,
              window_started_at = CASE
                WHEN auth_rate_limits.window_started_at + ($2::double precision * INTERVAL '1 millisecond') <= NOW()
@@ -41,7 +42,7 @@ export async function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
        RETURNING hit_count,
          GREATEST(0, CEIL(EXTRACT(EPOCH FROM
            (window_started_at + ($2::double precision * INTERVAL '1 millisecond') - NOW())))::int) AS retry_after`,
-      [String(key).slice(0, 512), windowMs, limit]
+      [String(key).slice(0, 512), windowMs, limit, hitCost]
     );
 
     const hitCount = Number(rows[0]?.hit_count) || 1;

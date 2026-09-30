@@ -1,7 +1,7 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
-import { writeAudit } from "@/lib/audit";
+import { writeAuditRequired } from "@/lib/audit";
 import { SUPPORTED_LICENSE_CLASSES } from "@/lib/drivers/license-eligibility";
 
 const vehicleWriteSchema = {
@@ -145,41 +145,29 @@ export async function POST(req) {
     const cols = keys.join(", ");
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
 
-    const { rows } = await query(
-      `INSERT INTO vehicles (${cols}) VALUES (${placeholders}) RETURNING *`,
-      values
-    );
-
-    const newVehicle = rows[0];
-
-    // Insert linked documents into vehicledocuments table
-    if (Array.isArray(documents) && documents.length > 0 && newVehicle?.vehicle_id) {
-      for (const doc of documents) {
-        if (!doc.document_type || (!doc.file_url && !doc.expiry_date && !doc.document_number)) continue;
-        try {
-          await query(
+    const newVehicle = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(
+        `INSERT INTO vehicles (${cols}) VALUES (${placeholders}) RETURNING *`,
+        values
+      );
+      const created = rows[0];
+      if (Array.isArray(documents) && documents.length > 0 && created?.vehicle_id) {
+        for (const doc of documents) {
+          if (!doc.document_type || (!doc.file_url && !doc.expiry_date && !doc.document_number)) continue;
+          await tx.query(
             `INSERT INTO vehicledocuments (vehicle_id, document_type, document_number, file_url, expiry_date, status)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [
-              newVehicle.vehicle_id,
-              doc.document_type,
-              doc.document_number?.trim() || null,
-              doc.file_url || null,
-              doc.expiry_date || null,
-              doc.status || "Active",
-            ]
+            [created.vehicle_id, doc.document_type, doc.document_number?.trim() || null, doc.file_url || null, doc.expiry_date || null, doc.status || "Active"]
           );
-        } catch (docErr) {
-          console.warn("Failed to insert vehicle document:", docErr);
         }
       }
-    }
-
-    await writeAudit(req, session, {
-      action: "create",
-      resource: "vehicles",
-      resourceId: newVehicle?.vehicle_id,
-      newValues: newVehicle,
+      await writeAuditRequired(tx, req, session, {
+        action: "create",
+        resource: "vehicles",
+        resourceId: created?.vehicle_id,
+        newValues: { changed_fields: keys, vehicle_status: created?.vehicle_status, outcome: "created" },
+      });
+      return created;
     });
 
     return ok(newVehicle, 201);

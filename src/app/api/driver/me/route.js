@@ -1,8 +1,8 @@
-import { query, transaction } from "@/lib/db";
+import { query, transaction, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePhone, isBase64DataUrl } from "@/lib/validation/helpers";
 import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
-import { maskLicenseNumber } from "@/lib/drivers/license-eligibility";
+import { writeAuditRequired } from "@/lib/audit";
 import { PRIVACY_POLICY, CURRENT_PRIVACY_POLICY_VERSION } from "@/lib/consent/policies";
 import { syncDriverStatus } from "@/services/status.service";
 import {
@@ -147,6 +147,15 @@ export async function GET(req) {
     // short-lived one too, so a ten-year token never leaves the server.
     const media = await signDriverMedia(driver);
 
+    if (revealLicense) {
+      await withTransaction((tx) => writeAuditRequired(tx, req, session, {
+        action: "license_full_response_prepared",
+        resource: "drivers",
+        resourceId: driver.driver_id,
+        newValues: { channel: "self_profile", outcome: "prepared" },
+      }));
+    }
+
     return ok({
       employeeId: driver.employee_id,
       email: driver.email,
@@ -158,7 +167,7 @@ export async function GET(req) {
       avatarUrl: media.face_image_url || media.avatar_url || null,
       faceImageUrl: media.face_image_url || null,
       license: {
-        number: revealLicense ? driver.license_number : maskLicenseNumber(driver.license_number),
+        ...(revealLicense ? { number: driver.license_number } : {}),
         type: driver.license_type,
         class: driver.license_class,
         expiry: driver.license_expiry,
@@ -224,6 +233,7 @@ export async function PATCH(req) {
     if (disallowed.length > 0) {
       return err(`Driver may not edit: ${disallowed.join(", ")}`, 403);
     }
+    if (requested.length === 0) return ok({ message: "Profile updated" });
 
     const errors = validateBody(body, {
       phone: { type: "phone", label: "Phone" },
@@ -241,11 +251,13 @@ export async function PATCH(req) {
       return errValidation(errors);
     }
 
-    const { rows: drv } = await query(
+    const updateResult = await withTransaction(async (tx) => {
+    const { rows: drv } = await tx.query(
       `SELECT d.driver_id, d.employee_id
          FROM drivers d
         WHERE d.driver_id = $1 AND d.deleted_at IS NULL
-        LIMIT 1`,
+        LIMIT 1
+        FOR UPDATE`,
       [driverId]
     );
     const driver = drv[0];
@@ -254,7 +266,7 @@ export async function PATCH(req) {
     }
 
     if (body.phone !== undefined) {
-      await query(`UPDATE employees SET phone = $1, updated_at = NOW() WHERE employee_id = $2`, [
+      await tx.query(`UPDATE employees SET phone = $1, updated_at = NOW() WHERE employee_id = $2`, [
         normalizePhone(body.phone) || null,
         driver.employee_id,
       ]);
@@ -267,23 +279,37 @@ export async function PATCH(req) {
       // this door. A key passes through requalified; a legacy storage URL has
       // its key recovered from the path; anything else the rule accepted is
       // left verbatim, which is the behaviour that existed before.
-      await query(`UPDATE drivers SET face_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
+      await tx.query(`UPDATE drivers SET face_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
         toStoredMediaRef(body.face_image_url, "face-captures") ?? null,
         driver.driver_id,
       ]);
     }
     if (body.license_image_url !== undefined) {
-      await query(`UPDATE drivers SET license_image_url = $1, license_verified_at = NULL, license_verified_by = NULL, license_verification_method = NULL, updated_at = NOW() WHERE driver_id = $2`, [
+      await tx.query(`UPDATE drivers SET license_image_url = $1, license_verified_at = NULL, license_verified_by = NULL, license_verification_method = NULL, updated_at = NOW() WHERE driver_id = $2`, [
         isBase64DataUrl(body.license_image_url) ? body.license_image_url : null,
         driver.driver_id,
       ]);
     }
     if (body.license_back_image_url !== undefined) {
-      await query(`UPDATE drivers SET license_back_image_url = $1, license_verified_at = NULL, license_verified_by = NULL, license_verification_method = NULL, updated_at = NOW() WHERE driver_id = $2`, [
+      await tx.query(`UPDATE drivers SET license_back_image_url = $1, license_verified_at = NULL, license_verified_by = NULL, license_verification_method = NULL, updated_at = NOW() WHERE driver_id = $2`, [
         isBase64DataUrl(body.license_back_image_url) ? body.license_back_image_url : null,
         driver.driver_id,
       ]);
     }
+
+    await writeAuditRequired(tx, req, session, {
+      action: "driver_self_profile_updated",
+      resource: "drivers",
+      resourceId: driver.driver_id,
+      newValues: {
+        changed_fields: requested,
+        verification_cleared: body.license_image_url !== undefined || body.license_back_image_url !== undefined,
+        channel: "self_service",
+      },
+    });
+    return null;
+    });
+    if (updateResult instanceof Response) return updateResult;
 
     // license_expiry is intentionally not driver-patchable: it is applied
     // server-side from a validated front-scan via /api/driver/license-scan.

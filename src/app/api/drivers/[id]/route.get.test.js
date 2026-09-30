@@ -50,7 +50,10 @@ vi.mock("@/lib/drivers/media", () => ({
 // Not part of the read path; stubbed only so the module graph matches the one
 // the route is actually loaded with.
 vi.mock("@/services/status.service", () => ({ syncDriverStatus: vi.fn(async () => {}) }));
-vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn(async () => {}) }));
+vi.mock("@/lib/audit", () => ({
+  writeAudit: vi.fn(async () => {}),
+  writeAuditRequired: vi.fn(async () => ({ log_id: 1 })),
+}));
 vi.mock("@/lib/drivers/compliance", () => ({
   suspensionAction: vi.fn(() => ({ action: "none" })),
 }));
@@ -58,6 +61,7 @@ vi.mock("@/lib/drivers/compliance", () => ({
 import { GET } from "./route";
 import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
+import * as audit from "@/lib/audit";
 
 const DRIVER_ID = 7;
 const RESIDENTIAL_ID = 11;
@@ -147,6 +151,7 @@ beforeEach(() => {
   vi.spyOn(utils, "requirePermission").mockResolvedValue({
     user: { role: "admin", employeeId: 1 },
   });
+  db.withTransaction.mockImplementation((callback) => callback({ query: vi.fn() }));
 });
 
 afterEach(() => {
@@ -246,12 +251,12 @@ describe("GET /api/drivers/[id] — the saved addresses it hands the picker", ()
 });
 
 describe("GET /api/drivers/[id] — license number access", () => {
-  it("masks the license number in routine detail responses", async () => {
+  it("omits the license number from routine detail responses", async () => {
     installDb({ driver: driverRow({ license_number: "N04-19-013583" }) });
 
     const body = await (await GET(request(), context())).json();
 
-    expect(body.license_number).toBe("********3583");
+    expect(body).not.toHaveProperty("license_number");
     expect(JSON.stringify(body)).not.toContain("N04-19-013583");
   });
 
@@ -263,5 +268,19 @@ describe("GET /api/drivers/[id] — license number access", () => {
 
     expect(body.license_number).toBe("N04-19-013583");
     expect(permission).toHaveBeenCalledWith(expect.anything(), "drivers", "update");
+    expect(audit.writeAuditRequired).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ user: expect.objectContaining({ employeeId: 1 }) }), expect.objectContaining({
+      action: "license_full_response_prepared",
+      resourceId: DRIVER_ID,
+    }));
+  });
+
+  it("fails closed when the full-license audit insert fails", async () => {
+    installDb({ driver: driverRow({ license_number: "N04-19-013583" }) });
+    audit.writeAuditRequired.mockRejectedValueOnce(new Error("audit unavailable"));
+
+    const response = await GET(request(`http://x/api/drivers/${DRIVER_ID}?include_license=1`), context());
+
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(await response.json())).not.toContain("N04-19-013583");
   });
 });

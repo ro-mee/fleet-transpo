@@ -34,7 +34,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     };
 
     querySpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
-      if (sql.includes("SELECT status FROM vehiclemaintenance")) {
+      if (sql.includes("SELECT") && sql.includes("FROM vehiclemaintenance")) {
         return { rows: [mockRecord] };
       }
       if (sql.includes("UPDATE vehiclemaintenance")) {
@@ -51,6 +51,13 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
       }
       return { rows: [] };
     });
+    vi.spyOn(db, "withTransaction").mockImplementation((callback) => callback({
+      query: async (sql, values) => {
+        if (sql.includes("set_config('statement_timeout'")) return { rows: [], rowCount: 0 };
+        if (sql.includes("INSERT INTO audit_logs")) return { rows: [{ log_id: 1 }], rowCount: 1 };
+        return db.query(sql, values);
+      },
+    }));
   });
 
   afterEach(() => {
@@ -74,7 +81,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     // Setup the mock to return the updated status
     const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "Scheduled" }] };
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "In Progress" }] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "In Progress" }] };
       return { rows: [] };
     });
 
@@ -87,7 +94,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(json.completed_by).toBeFalsy();
     
     // Verify query was called but without completed_by
-    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE"));
+    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE vehiclemaintenance"));
     expect(updateCall[0]).not.toContain("completed_by");
   });
 
@@ -98,7 +105,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "In Progress" }] };
       // Server stamps completed_by from the session; the record id travels
       // last in values, so don't read it off values[values.length - 1].
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: 777 }] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: 777 }] };
       return { rows: [] };
     });
 
@@ -110,7 +117,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(json.status).toBe("Completed");
     expect(json.completed_by).toBe(777);
 
-    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE"));
+    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE vehiclemaintenance"));
     expect(updateCall[0]).toContain("completed_by = $");
     expect(updateCall[0]).toContain("completed_at = CURRENT_TIMESTAMP");
   });
@@ -131,7 +138,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
     expect(res.status).toBe(409);
     
-    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE"));
+    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE vehiclemaintenance"));
     expect(updateCall).toBeUndefined(); // Ensure UPDATE was never executed
   });
 
@@ -141,7 +148,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     
     const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "Completed" }] };
-      if (sql.includes("UPDATE")) return { rows: [mockRecord] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [mockRecord] };
       return { rows: [] };
     });
 
@@ -149,7 +156,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
     expect(res.status).toBe(200);
     
-    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE"));
+    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE vehiclemaintenance"));
     // Ensure it didn't inject completed_by
     expect(updateCall[0]).not.toContain("completed_by = $");
   });
@@ -161,7 +168,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "Scheduled" }] };
       // Same note as Test 2 & 3: completed_by comes from the session (555),
       // not from the last values entry (the record id).
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: 555 }] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: 555 }] };
       return { rows: [] };
     });
 
@@ -178,7 +185,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(json.status).toBe("Completed");
     expect(json.completed_by).toBe(555); // Overridden by server auth
 
-    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE"));
+    const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE vehiclemaintenance"));
     expect(updateCall[0]).toContain("completed_by = $");
     // The fake completed_by is stripped because it's not in FIELD_TO_COLUMN.
     // Ensure the query uses session employeeId
@@ -189,7 +196,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
   it("Test 9: pre-check SELECT uses only [id] (no untyped $1 params)", async () => {
     const selectSpy = vi.spyOn(db, "query").mockImplementation(async (sql, values) => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "In Progress" }] };
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed" }] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Completed" }] };
       return { rows: [] };
     });
 
@@ -211,7 +218,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(selectCall).toBeDefined();
     expect(selectCall[1]).toEqual([maintenanceId]);
 
-    const updateCall = selectSpy.mock.calls.find((c) => c[0].includes("UPDATE"));
+    const updateCall = selectSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"));
     expect(updateCall).toBeDefined();
     // id goes last so every $n lines up with values[n-1]
     expect(updateCall[1][updateCall[1].length - 1]).toBe(maintenanceId);
@@ -253,7 +260,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
       if (sql.includes("SELECT status")) {
         return { rows: [{ status: "Pending Inspection", created_by: 48, repair_completed_by: 42 }] };
       }
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed" }] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Completed" }] };
       return { rows: [] };
     });
 
@@ -264,7 +271,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     );
     expect(blocked.status).toBe(403);
     expect((await blocked.json()).error).toContain("cannot approve its completion");
-    expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE"))).toBeUndefined();
+    expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"))).toBeUndefined();
 
     // 6 repaired nothing and opened nothing → allowed.
     const allowed = await PUT(
@@ -304,7 +311,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
       if (sql.includes("SELECT status")) {
         return { rows: [{ status: "In Progress", repair_completed_by: null }] };
       }
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Pending Inspection" }] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Pending Inspection" }] };
       return { rows: [] };
     });
 
@@ -312,7 +319,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
     expect(res.status).toBe(200);
 
-    const updateCall = updateSpy.mock.calls.find((c) => c[0].includes("UPDATE"));
+    const updateCall = updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"));
     expect(updateCall[0]).toContain("repair_completed_by = $");
     expect(updateCall[0]).toContain("repair_completed_at = CURRENT_TIMESTAMP");
     expect(updateCall[1]).toContain(42);
@@ -327,7 +334,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
       if (sql.includes("SELECT status")) {
         return { rows: [{ status: "In Progress", repair_completed_by: null }] };
       }
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed" }] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Completed" }] };
       return { rows: [] };
     });
 
@@ -344,7 +351,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
     expect(res.status).toBe(200);
 
-    const updateCall = updateSpy.mock.calls.find((c) => c[0].includes("UPDATE"));
+    const updateCall = updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"));
     expect(updateCall[0]).not.toContain("inspection_required");
     expect(updateCall[0]).not.toContain("inspection_completed_at");
     expect(updateCall[0]).not.toContain("inspection_notes");

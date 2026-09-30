@@ -2,6 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { toCalendarDay } from "@/lib/dates";
 import { authorizeCompanyCardForDriver } from "@/lib/auth/company-cards";
+import { writeAudit } from "@/lib/audit";
 
 const WRITABLE_COLUMNS = [
   "client_submission_id",
@@ -95,7 +96,7 @@ export async function POST(req) {
           LIMIT 1`,
         [body.client_submission_id]
       );
-      if (duplicateSubmission[0]) return duplicateSubmission[0];
+      if (duplicateSubmission[0]) return { record: duplicateSubmission[0], inserted: false };
 
       // F-01 & F-02: Server-side Ownership and Trust Boundary
       const { rows: scans } = await tx.query(
@@ -241,10 +242,17 @@ export async function POST(req) {
         [body.client_submission_id]
       );
 
-      return rows[0];
+      return { record: rows[0], inserted: true };
     });
-
-    return ok(record, 201);
+    if (record.inserted) {
+      await writeAudit(req, session, {
+        action: "expense_submitted",
+        resource: "expense_records",
+        resourceId: record.record?.id,
+        newValues: { status: record.record?.status || SUBMITTED_STATUS, source: "mobile" },
+      });
+    }
+    return ok(record.record, 201);
   } catch (e) {
     if (e?.status) return err(e.message, e.status);
     if (e?.code === "23505") return err("An expense with this submission ID already exists", 409);

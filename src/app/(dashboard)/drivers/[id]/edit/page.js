@@ -78,6 +78,8 @@ export default function EditDriverPage() {
     queryFn: () => getDriver(id, { includeLicense: true }),
     enabled: !!id,
     refetchOnMount: "always",
+    refetchOnWindowFocus: false,
+    retry: false,
   });
 
   const form = useForm({

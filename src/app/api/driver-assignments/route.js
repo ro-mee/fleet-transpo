@@ -61,7 +61,7 @@ export async function GET(req) {
     );
 
     return ok({ assignments: rows.map((row) => ({
-      ...row,
+      ...(({ license_number: _licenseNumber, ...safeRow }) => safeRow)(row),
       license_number_valid: isValidLicenseNumber(row.license_number),
     })) });
   } catch (e) {
@@ -128,7 +128,10 @@ export async function POST(req) {
     // Already paired exactly this way — nothing to do. Idempotent rather than a
     // spurious unique-violation 500.
     const identical = current.find((a) => a.driver_id === driverId && a.vehicle_id === vehicleId);
-    if (identical) return ok({ assignment: identical, unchanged: true });
+    if (identical) {
+      const { license_number: _licenseNumber, ...safeAssignment } = identical;
+      return ok({ assignment: safeAssignment, unchanged: true });
+    }
 
     // Someone else currently holds this vehicle. Needs an explicit override.
     const heldByOther = current.find((a) => a.vehicle_id === vehicleId && a.driver_id !== driverId);
@@ -187,7 +190,8 @@ export async function POST(req) {
       },
     });
 
-    return ok({ assignment: created[0], replaced: current.map((a) => a.assignment_id) }, 201);
+    const { license_number: _licenseNumber, ...safeCreated } = created[0];
+    return ok({ assignment: safeCreated, replaced: current.map((a) => a.assignment_id) }, 201);
   } catch (e) {
     // The partial unique indexes are the real guard; if a concurrent request
     // wins the race, surface that as a conflict rather than a 500.

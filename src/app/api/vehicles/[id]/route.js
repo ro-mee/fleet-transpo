@@ -1,7 +1,7 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
-import { writeAudit } from "@/lib/audit";
+import { writeAuditRequired } from "@/lib/audit";
 import { SUPPORTED_LICENSE_CLASSES } from "@/lib/drivers/license-eligibility";
 
 const vehicleWriteSchema = {
@@ -95,7 +95,7 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    await requirePermission(req, "vehicles", "update");
+    const session = await requirePermission(req, "vehicles", "update");
     const id = (await params).id;
     const body = await parseBody(req);
     const { documents, ...vehicleData } = body;
@@ -133,60 +133,63 @@ export async function PUT(req, { params }) {
     }
 
     const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
-    const { rows } = await query(
-      `UPDATE vehicles SET ${setClause} WHERE vehicle_id = $${keys.length + 1} AND deleted_at IS NULL RETURNING *`,
-      [...values, id]
-    );
-    if (!rows[0]) return err("Vehicle not found", 404);
+    const updatedVehicle = await withTransaction(async (tx) => {
+      const { rows: beforeRows } = await tx.query(
+        `SELECT vehicle_status FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      );
+      if (!beforeRows[0]) return null;
 
-    const updatedVehicle = rows[0];
+      const { rows } = await tx.query(
+        `UPDATE vehicles SET ${setClause} WHERE vehicle_id = $${keys.length + 1} AND deleted_at IS NULL RETURNING *`,
+        [...values, id]
+      );
+      if (!rows[0]) return null;
 
-    // Upsert attached vehicle documents
-    if (Array.isArray(documents) && documents.length > 0) {
-      for (const doc of documents) {
-        if (!doc.document_type) continue;
-
-        const { rows: existingDocs } = await query(
-          `SELECT document_id FROM vehicledocuments WHERE vehicle_id = $1 AND document_type = $2 AND deleted_at IS NULL LIMIT 1`,
-          [id, doc.document_type]
-        );
-
-        if (existingDocs.length > 0) {
-          await query(
-            `UPDATE vehicledocuments
-             SET document_number = $1, file_url = $2, expiry_date = $3, status = $4, updated_at = NOW()
-             WHERE document_id = $5`,
-            [
-              doc.document_number?.trim() || null,
-              doc.file_url || null,
-              doc.expiry_date || null,
-              doc.status || "Active",
-              existingDocs[0].document_id,
-            ]
+      if (Array.isArray(documents) && documents.length > 0) {
+        for (const doc of documents) {
+          if (!doc.document_type) continue;
+          const { rows: existingDocs } = await tx.query(
+            `SELECT document_id FROM vehicledocuments WHERE vehicle_id = $1 AND document_type = $2 AND deleted_at IS NULL LIMIT 1`,
+            [id, doc.document_type]
           );
-        } else if (doc.file_url || doc.expiry_date || doc.document_number) {
-          await query(
-            `INSERT INTO vehicledocuments (vehicle_id, document_type, document_number, file_url, expiry_date, status)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [
-              id,
-              doc.document_type,
-              doc.document_number?.trim() || null,
-              doc.file_url || null,
-              doc.expiry_date || null,
-              doc.status || "Active",
-            ]
-          );
+          if (existingDocs.length > 0) {
+            await tx.query(
+              `UPDATE vehicledocuments
+                  SET document_number = $1, file_url = $2, expiry_date = $3, status = $4, updated_at = NOW()
+                WHERE document_id = $5`,
+              [doc.document_number?.trim() || null, doc.file_url || null, doc.expiry_date || null, doc.status || "Active", existingDocs[0].document_id]
+            );
+          } else if (doc.file_url || doc.expiry_date || doc.document_number) {
+            await tx.query(
+              `INSERT INTO vehicledocuments (vehicle_id, document_type, document_number, file_url, expiry_date, status)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [id, doc.document_type, doc.document_number?.trim() || null, doc.file_url || null, doc.expiry_date || null, doc.status || "Active"]
+            );
+          }
         }
       }
-    }
+
+      if (vehicleData.vehicle_status === "Decommissioned") {
+        const { rows: finalStatus } = await tx.query(
+          `UPDATE vehicles SET vehicle_status = 'Decommissioned' WHERE vehicle_id = $1 RETURNING *`,
+          [id]
+        );
+        if (finalStatus[0]) rows[0] = finalStatus[0];
+      }
+
+      await writeAuditRequired(tx, req, session, {
+        action: "update",
+        resource: "vehicles",
+        resourceId: Number(id),
+        oldValues: { vehicle_status: beforeRows[0].vehicle_status },
+        newValues: { changed_fields: [...keys, ...(documents?.length ? ["documents"] : [])], vehicle_status: rows[0].vehicle_status },
+      });
+      return rows[0];
+    });
+    if (!updatedVehicle) return err("Vehicle not found", 404);
 
     const { syncVehicleStatus } = await import("@/services/status.service");
-
-    // Explicitly allow setting Decommissioned, but no other status can be forced.
-    if (vehicleData.vehicle_status === "Decommissioned") {
-      await query(`UPDATE vehicles SET vehicle_status = 'Decommissioned' WHERE vehicle_id = $1`, [id]);
-    }
 
     // Reassert safety invariant
     await syncVehicleStatus(id);
@@ -209,13 +212,28 @@ export async function PUT(req, { params }) {
 export async function DELETE(req, { params }) {
   try {
     const session = await requirePermission(req, "vehicles", "delete");
-    const id = (await params).id;
-    const { rowCount } = await query(
-      `UPDATE vehicles SET deleted_at = NOW() WHERE vehicle_id = $1`,
-      [id]
-    );
-    if (rowCount === 0) return err("Vehicle not found", 404);
-    await writeAudit(req, session, { action: "delete", resource: "vehicles", resourceId: id });
+    const id = Number((await params).id);
+    const archived = await withTransaction(async (tx) => {
+      const { rows: current } = await tx.query(
+        `SELECT vehicle_status FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      );
+      if (!current[0]) return false;
+      const { rows } = await tx.query(
+        `UPDATE vehicles SET deleted_at = NOW() WHERE vehicle_id = $1 AND deleted_at IS NULL RETURNING vehicle_id`,
+        [id]
+      );
+      if (!rows[0]) return false;
+      await writeAuditRequired(tx, req, session, {
+        action: "delete",
+        resource: "vehicles",
+        resourceId: id,
+        oldValues: { vehicle_status: current[0].vehicle_status },
+        newValues: { deleted_at: true, outcome: "archived" },
+      });
+      return true;
+    });
+    if (!archived) return err("Vehicle not found", 404);
     return ok({ deleted: true });
   } catch (e) { return handleError(e); }
 }

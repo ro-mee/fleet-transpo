@@ -333,11 +333,6 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
                       />
                       <div>
                       <p className="text-xs font-bold text-foreground">{currentEvent.driverDisplayName}</p>
-                      {currentEvent.driver?.license_number && (
-                        <p className="font-data text-[11px] text-foreground-muted">
-                          Lic: {currentEvent.driver.license_number}
-                        </p>
-                      )}
                       {currentEvent.driver?.driver_status && (
                         <p className="text-[10px] text-foreground-secondary mt-0.5">
                           Status: {currentEvent.driver.driver_status}

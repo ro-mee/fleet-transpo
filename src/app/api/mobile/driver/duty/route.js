@@ -6,6 +6,7 @@ import { driverDayEligibility } from '@/lib/scheduling/day-eligibility';
 import { raiseEndDutyWorkOrder } from '@/lib/inspections/maintenance';
 import { CLIENT_SUBMISSION_ID_RE } from '@/lib/inspections/checklists';
 import { toCalendarDay } from '@/lib/dates';
+import { writeAudit } from '@/lib/audit';
 
 const reply = data => Response.json(data, { headers: { 'Cache-Control': 'private, no-store' } });
 
@@ -221,7 +222,18 @@ export async function POST(req) {
 
     // Starting duty still goes through setDuty, which owns the whole gate order:
     // roster/leave, then privacy consent, then the day's pre-shift baseline.
-    if (body.active) return reply(await setDuty(session.user.driverId, true));
+    if (body.active) {
+      const started = await setDuty(session.user.driverId, true);
+      if (started.changed) {
+        await writeAudit(req, session, {
+          action: "duty_started",
+          resource: "drivers",
+          resourceId: session.user.driverId,
+          newValues: { started: true, source: "mobile_duty" },
+        });
+      }
+      return reply(started);
+    }
 
     // Ending duty requires the End Duty report — the report and the time_out are
     // one transaction, so a driver cannot clock out having reported nothing.
@@ -323,6 +335,15 @@ export async function POST(req) {
     // and must keep answering 200.
     if (result.reason === 'submission_id_already_used') {
       return err('client_submission_id was already used', 409);
+    }
+
+    if (result.changed) {
+      await writeAudit(req, session, {
+        action: "duty_ended",
+        resource: "drivers",
+        resourceId: session.user.driverId,
+        newValues: { status: "Off Duty", outcome: result.reported ? "reported" : result.recorded ? "report_recorded" : "no_vehicle", source: "mobile_duty" },
+      });
     }
 
     // Best-effort, after the commit. A maintenance failure must not strand the

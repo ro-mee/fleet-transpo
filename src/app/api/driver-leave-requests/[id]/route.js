@@ -23,7 +23,8 @@ export async function PATCH(req, { params }) {
       id,
       body.status,
       session.user?.employeeId ?? null,
-      body.notes || null
+      body.notes || null,
+      { req, session }
     );
     return ok(row);
   } catch (e) { return handleError(e); }

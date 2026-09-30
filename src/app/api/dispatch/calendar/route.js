@@ -110,7 +110,7 @@ export async function GET(req) {
       ).then((r) => r.rows).catch(() => []),
 
       query(
-        `SELECT d.driver_id, d.driver_status, d.license_number, d.license_expiry,
+        `SELECT d.driver_id, d.driver_status, (d.license_number IS NOT NULL) AS has_license,
                 d.face_image_url, e.first_name, e.last_name, e.avatar_url
            FROM drivers d
            LEFT JOIN employees e ON d.employee_id = e.employee_id

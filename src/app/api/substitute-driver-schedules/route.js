@@ -27,6 +27,11 @@ const SELECT_SCHEDULE = `
     LEFT JOIN employees e ON e.employee_id = d.employee_id
 `;
 
+function safeSchedule(row) {
+  const { license_number, ...safe } = row;
+  return { ...safe, license_number_valid: isValidLicenseNumber(license_number) };
+}
+
 /**
  * GET /api/substitute-driver-schedules
  *   ?vehicle_id=  ?driver_id=  ?date=YYYY-MM-DD
@@ -63,10 +68,7 @@ export async function GET(req) {
       params
     );
 
-    return ok({ schedules: rows.map((row) => ({
-      ...row,
-      license_number_valid: isValidLicenseNumber(row.license_number),
-    })) });
+    return ok({ schedules: rows.map(safeSchedule) });
   } catch (e) {
     return handleError(e);
   }
@@ -174,7 +176,7 @@ export async function POST(req) {
       },
     });
 
-    return ok({ schedule: created[0] }, 201);
+    return ok({ schedule: safeSchedule(created[0]) }, 201);
   } catch (e) {
     if (e?.code === "23505") {
       return err("That vehicle already has an open-ended substitute scheduled. Release it first.", 409);

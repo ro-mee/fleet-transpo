@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
-import { evaluateDriverLicenseEligibility, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
+import { evaluateDriverLicenseEligibility, isValidLicenseNumber, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
 
 // Substitute driver schedule item routes (migration 032).
 //
@@ -23,6 +23,12 @@ const SELECT_SCHEDULE = `
     LEFT JOIN employees e ON e.employee_id = d.employee_id
    WHERE s.substitute_id = $1
 `;
+
+function safeSchedule(row) {
+  if (!row) return row;
+  const { license_number, ...safe } = row;
+  return { ...safe, license_number_valid: isValidLicenseNumber(license_number) };
+}
 
 async function loadSchedule(id) {
   const { rows } = await query(SELECT_SCHEDULE, [id]);
@@ -114,7 +120,7 @@ export async function PATCH(req, { params }) {
         : null,
     });
 
-    return ok({ schedule });
+    return ok({ schedule: safeSchedule(schedule) });
   } catch (e) {
     if (e?.code === "23505") return err("Another open-ended substitute already covers this vehicle.", 409);
     return handleError(e);

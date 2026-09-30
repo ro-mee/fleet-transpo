@@ -329,11 +329,6 @@ export function ReceiptVerificationModal({
                         <p className="font-bold text-foreground text-xs md:text-sm truncate">
                           {driverName}
                         </p>
-                        {driver.license_number && (
-                          <span className="text-[10px] font-mono text-foreground-muted block truncate">
-                            Lic: {driver.license_number}
-                          </span>
-                        )}
                       </div>
                     </div>
 

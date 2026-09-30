@@ -1,7 +1,8 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isUrl } from "@/lib/validation";
+import { writeAuditRequired } from "@/lib/audit";
 
 // Strips the raw api_key before a row leaves the server. Matches the masking
 // the GET handler applies so POST/PUT responses never expose the secret.
@@ -26,7 +27,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requirePermission(req, "ai_settings", "update");
+    const session = await requirePermission(req, "ai_settings", "update");
     const body = await parseBody(req);
 
     if (!body.display_name || !body.model_name) {
@@ -49,34 +50,39 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
-    await query(
-      `INSERT INTO aiproviders (
+    const provider = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(
+        `INSERT INTO aiproviders (
         provider_name, display_name, base_url, api_key, model_name,
         temperature, max_tokens, timeout_ms, is_enabled, is_default
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        body.provider_name || "Custom",
-        body.display_name,
-        body.base_url || "https://api.openai.com/v1",
-        body.api_key || null,
-        body.model_name,
-        body.temperature ?? 0.7,
-        body.max_tokens ?? 1500,
-        body.timeout_ms ?? 10000,
-        body.is_enabled ?? true,
-        body.is_default ?? false,
-      ]
-    );
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [
+          body.provider_name || "Custom",
+          body.display_name,
+          body.base_url || "https://api.openai.com/v1",
+          body.api_key || null,
+          body.model_name,
+          body.temperature ?? 0.7,
+          body.max_tokens ?? 1500,
+          body.timeout_ms ?? 10000,
+          body.is_enabled ?? true,
+          body.is_default ?? false,
+        ]
+      );
+      const created = rows[0];
+      if (!created) throw new Error("Failed to create provider");
+      if (body.is_default) {
+        await tx.query(`UPDATE aiproviders SET is_default = false WHERE provider_id != $1`, [created.provider_id]);
+      }
+      await writeAuditRequired(tx, req, session, {
+        action: "create",
+        resource: "aiproviders",
+        resourceId: created.provider_id,
+        newValues: { changed_fields: ["provider_configuration"], status: created.is_enabled ? "enabled" : "disabled", outcome: "created" },
+      });
+      return created;
+    });
 
-    const { rows: [newProvider] } = await query(
-      `SELECT * FROM aiproviders ORDER BY provider_id DESC LIMIT 1`
-    );
-    if (!newProvider) return err("Failed to create provider", 500);
-
-    if (body.is_default) {
-      await query(`UPDATE aiproviders SET is_default = false WHERE provider_id != $1`, [newProvider.provider_id]);
-    }
-
-    return ok(maskProvider(newProvider), 201);
+    return ok(maskProvider(provider), 201);
   } catch (e) { return handleError(e); }
 }

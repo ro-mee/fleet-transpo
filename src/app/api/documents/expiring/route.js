@@ -1,6 +1,8 @@
-import { query } from "@/lib/db";
-import { requirePermission, ok, handleError } from "@/lib/api/utils";
+import { query, withTransaction } from "@/lib/db";
+import { AuthError, requirePermission, ok, handleError } from "@/lib/api/utils";
 import { maskLicenseNumber } from "@/lib/drivers/license-eligibility";
+import { writeAuditRequired } from "@/lib/audit";
+import { rateLimit } from "@/lib/rate-limit";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -13,7 +15,9 @@ function daysUntil(date) {
 
 export async function GET(req) {
   try {
-    await requirePermission(req, "vehicles", "update");
+    const session = await requirePermission(req, "vehicles", "update");
+    const viewLimit = await rateLimit(`license-view:expiring-documents:${session.user.employeeId}`, { limit: 10, windowMs: 60_000 });
+    if (!viewLimit.allowed) throw new AuthError("License view limit reached. Try again later.", 429, "RATE_LIMITED");
     const { rows: vehicles } = await query(
       `SELECT vehicle_id, plate_number, vehicle_name, model, manufacturer,
               license_plate_expiry, insurance_expiry, registration_expiry
@@ -87,6 +91,16 @@ export async function GET(req) {
     const expiring90 = items.filter((i) => i.days_left != null && i.days_left > 30 && i.days_left <= 90);
     const expired = items.filter((i) => i.days_left != null && i.days_left < 0);
     const sorted = [...items].sort((a, b) => (a.days_left ?? 1e9) - (b.days_left ?? 1e9));
+
+    const driverIds = [...new Set(items.filter((item) => item.kind === "driver").map((item) => item.driver_id))];
+    if (driverIds.length) {
+      await withTransaction((tx) => writeAuditRequired(tx, req, session, {
+        action: "license_masked_viewed",
+        resource: "drivers",
+        resourceId: driverIds.length === 1 ? driverIds[0] : null,
+        newValues: { driver_ids: driverIds.slice(0, 25), count: driverIds.length, source: "expiring_documents" },
+      }));
+    }
 
     return ok({ items: sorted, totals: { total: items.length, expired: expired.length, expiring30: expiring30.length, expiring90: expiring90.length } });
   } catch (e) { return handleError(e); }

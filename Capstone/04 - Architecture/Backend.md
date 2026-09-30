@@ -65,7 +65,7 @@ Use `withTransaction` whenever two statements must be atomic. The canonical case
 
 | Helper | Location | Does |
 |---|---|---|
-| `writeAudit()` | audit lib | Best-effort append to `audit_logs` (1,324 live rows as of 2026-09-30) |
+| `writeAudit()` / `writeAuditRequired()` | `src/lib/audit.js` | Bounded best-effort append or transaction-bound required event; 1,328 live rows and ~552 KiB table+indexes as of 2026-10-01. See [[Audit Logging Coverage and Load Plan]] for capacity gate. |
 | `assertTripOwnership()` | trips lib | 404-on-not-yours → [[Anti Enumeration 404 vs 403]] |
 | `syncVehicleStatus` / `syncDriverStatus` | `src/services/status.service.js` (:11, :232) | Propagate status across the vocabularies → [[Data Flow]] |
 | `advanceReservation()` | `reservation-lifecycle.service.js` | **The only** legal writer of request status → [[ADR-007 Single Writer For Reservation Status]] |

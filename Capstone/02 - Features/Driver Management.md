@@ -79,6 +79,8 @@ the current license blocker and dispatch/start rechecks prevent use. See [[Dispa
 The existing forms support only B and B1; B2 (goods vehicles) and larger vehicle codes remain
 unsupported pending confirmation of the fleet registrations and license-policy needs.
 
+**License-view audit coverage (2026-10-01):** General driver roster/profile APIs omit the license number. A dedicated staff endpoint records deliberate masked views for visible directory rows, and the self-service license endpoint records an intentional masked screen view before returning it. The mobile License & Compliance screen queues deliberate opens locally when offline and replays them in bounded batches under the same authenticated driver account. Full-number responses use the required audit path before disclosure, including the staff edit form's authorized fresh load. Audit metadata contains field names and outcome only, never a license value or scan. See [[Audit Logging Coverage and Load Plan]] for queue limits and the remaining staging load gate.
+
 ## Driver ≠ employee, exactly
 
 A driver **is** an employee with a `drivers` row. Credentials and `role_id` live on [[employees]]; licence, availability and performance on `drivers`. Mobile login authenticates against `employees`, then resolves a `driverId`. → [[Authentication]]

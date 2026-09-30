@@ -11,7 +11,7 @@ last_verified: 2026-08-11
 # SEC: Database Password In Git History
 
 > **CLOSED 2026-08-11 — password rotated.** The leaked value
-> `GWQsgVVjhsLHrJvS` is now rejected by the server (`password
+> `[revoked value omitted]` is now rejected by the server (`password
 > authentication failed`), and `.env` carries a new password that connects
 > and runs the full toolchain. History still contains the old value, which is
 > now worthless; rotation is what closed this. The note below is the record

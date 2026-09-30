@@ -8,11 +8,11 @@ vi.mock("@/lib/api/utils", () => ({
   err: (error, status) => Response.json({ error }, { status }),
   handleError: (error) => Response.json({ error: error.message }, { status: error.status ?? 500 }),
 }));
-vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn() }));
+vi.mock("@/lib/audit", () => ({ writeAuditRequired: vi.fn() }));
 
 import { withTransaction } from "@/lib/db";
 import { requirePermission, parseBody } from "@/lib/api/utils";
-import { writeAudit } from "@/lib/audit";
+import { writeAuditRequired } from "@/lib/audit";
 import { POST } from "./route";
 
 const LICENSE = {
@@ -57,10 +57,13 @@ it("stores an authorized review and audits only a masked license number", async 
   const response = await POST(request(), context);
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ license_verification_method: "physical_card", license_verified_by: 9 });
-  expect(writeAudit).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({
-    newValues: expect.objectContaining({ license_number: "********3583" }),
+  expect(writeAuditRequired).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ user: expect.objectContaining({ employeeId: 9 }) }), expect.objectContaining({
+    action: "verify",
+    resource: "drivers",
+    resourceId: 7,
+    newValues: { verification_method: "physical_card", outcome: "verified" },
   }));
-  expect(JSON.stringify(writeAudit.mock.calls)).not.toContain("N04-19-013583");
+  expect(JSON.stringify(writeAuditRequired.mock.calls)).not.toContain("N04-19-013583");
 });
 
 it("validates an existing PostgreSQL DATE using its calendar day", async () => {

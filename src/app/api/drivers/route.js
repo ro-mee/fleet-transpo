@@ -11,6 +11,7 @@ import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.serv
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, isValidLicenseNumber } from "@/lib/drivers/license-eligibility";
+import { writeAuditRequired } from "@/lib/audit";
 
 const EMPLOYEE_FIELDS = `json_build_object(
   'employee_id', e.employee_id,
@@ -193,10 +194,10 @@ export async function GET(req) {
 
     const { rows: data } = await query(sql, params);
     if (!data || !data.length) return ok([]);
-    const rowsWithLicenseFormat = data.map((driver) => ({
-      ...driver,
-      license_number_valid: isValidLicenseNumber(driver.license_number),
-    }));
+    const rowsWithLicenseFormat = data.map((driver) => {
+      const { license_number: _licenseNumber, ...safeDriver } = driver;
+      return { ...safeDriver, license_number_valid: isValidLicenseNumber(driver.license_number) };
+    });
 
     // Travel-date, pair-coupled availability: when a pickup_at is given, hide a
     // driver whose license expires before that date OR whose active paired
@@ -233,7 +234,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requirePermission(req, "drivers", "create");
+    const session = await requirePermission(req, "drivers", "create");
     await ensureDriverColumnsExist();
     const body = await parseBody(req);
 
@@ -493,6 +494,13 @@ export async function POST(req) {
           throw new Error("Failed to insert driver record");
         }
 
+        await writeAuditRequired(tx, req, session, {
+          action: "create",
+          resource: "drivers",
+          resourceId: newDriverId,
+          newValues: { changed_fields: ["employee", "license", "profile"], driver_status: driver_status || "Available", outcome: "created" },
+        });
+
         return newDriverId;
       });
     } catch (txError) {
@@ -535,7 +543,9 @@ export async function POST(req) {
     // No `warning` field. The create either committed every address the operator
     // picked or returned a 4xx/5xx above, so there is no partial success left for
     // a caller to have to notice.
-    return ok(await signDriverMedia(rows[0]), 201);
+    const created = await signDriverMedia(rows[0]);
+    const { license_number: _licenseNumber, ...safeCreated } = created;
+    return ok(safeCreated, 201);
   } catch (e) {
     return handleError(e);
   }

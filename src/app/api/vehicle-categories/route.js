@@ -1,6 +1,7 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { writeAudit, writeAuditRequired } from "@/lib/audit";
 
 const DEFAULT_HOTEL_CATEGORIES = [
   { category_name: "VIP Guest Transport", description: "Executive SUVs & Luxury Vehicles for VIP Guest Pickups", seating_capacity: 7 },
@@ -24,23 +25,32 @@ const CATEGORY_WRITABLE = [
 
 export async function GET(req) {
   try {
-    await requirePermission(req, "categories", "read");
+    const session = await requirePermission(req, "categories", "read");
     let { rows } = await query(
       `SELECT * FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
     );
 
     // Auto-seed default Hotel categories if none exist in database
     if (!rows || rows.length === 0) {
+      let insertedCount = 0;
       for (const cat of DEFAULT_HOTEL_CATEGORIES) {
         try {
-          await query(
+          const seeded = await query(
             `INSERT INTO vehiclecategories (category_name, description, seating_capacity, status)
-             VALUES ($1, $2, $3, 'Active')`,
+             VALUES ($1, $2, $3, 'Active') RETURNING category_id`,
             [cat.category_name, cat.description, cat.seating_capacity]
           );
+          insertedCount += seeded.rows.length;
         } catch (seedErr) {
           console.warn("Auto-seed category skipped:", seedErr);
         }
+      }
+      if (insertedCount > 0) {
+        await writeAudit(req, session, {
+          action: "system_seed",
+          resource: "vehiclecategories",
+          newValues: { source: "default_categories", count: insertedCount, outcome: "inserted" },
+        });
       }
       const seeded = await query(
         `SELECT * FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
@@ -54,7 +64,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requirePermission(req, "categories", "create");
+    const session = await requirePermission(req, "categories", "create");
     const body = await parseBody(req);
 
     const errors = validateBody(body, {
@@ -78,10 +88,14 @@ export async function POST(req) {
     if (keys.length === 0) return err("No valid fields provided", 400);
     const cols = keys.join(", ");
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
-    const { rows } = await query(
-      `INSERT INTO vehiclecategories (${cols}) VALUES (${placeholders}) RETURNING *`,
-      values
-    );
-    return ok(rows[0], 201);
+    const row = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(`INSERT INTO vehiclecategories (${cols}) VALUES (${placeholders}) RETURNING *`, values);
+      await writeAuditRequired(tx, req, session, {
+        action: "create", resource: "vehiclecategories", resourceId: rows[0]?.category_id,
+        newValues: { changed_fields: keys, outcome: "created" },
+      });
+      return rows[0];
+    });
+    return ok(row, 201);
   } catch (e) { return handleError(e); }
 }

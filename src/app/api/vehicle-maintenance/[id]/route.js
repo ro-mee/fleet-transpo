@@ -1,9 +1,10 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 import { vehicleRepaired } from "@/lib/notifications/copy";
+import { writeAuditRequired } from "@/lib/audit";
 
 // Repeated rather than shared with the POST route: the two accept different
 // required fields, and coupling them would make a PUT-only field silently
@@ -69,57 +70,49 @@ export async function PUT(req, { params }) {
       return errValidation(errors);
     }
 
-    // Check prior state before allowing changes. This lookup uses its own
-    // [id] param: passing the SET values array here would leave $1..$N-1
-    // unreferenced and Postgres fails the parse with
-    // "could not determine data type of parameter $1" (500 on every PUT).
-    const beforeRow = (await query(
-      `SELECT status, created_by, repair_completed_by FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL`,
-      [id]
-    )).rows[0];
+    const updateResult = await withTransaction(async (tx) => {
+      // Lock the active row so concurrent reviews cannot both pass the state
+      // guards and commit conflicting maintenance transitions.
+      const beforeRow = (await tx.query(
+        `SELECT status, created_by, repair_completed_by FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      )).rows[0];
+      if (!beforeRow) return { error: err("Maintenance record not found", 404) };
 
-    if (!beforeRow) return err("Maintenance record not found", 404);
+      const sets = [];
+      const values = [];
+      const seen = new Set();
+      for (const [field, column] of Object.entries(FIELD_TO_COLUMN)) {
+        if (body[field] === undefined) continue;
+        if (seen.has(column)) continue;
+        seen.add(column);
+        values.push(body[field] === "" ? null : body[field]);
+        sets.push(`${column} = $${values.length}`);
+      }
+      if (sets.length === 0) return { error: err("No writable fields were provided", 400) };
 
-    const sets = [];
-    const values = [];
-    const seen = new Set();
-    for (const [field, column] of Object.entries(FIELD_TO_COLUMN)) {
-      if (body[field] === undefined) continue;
-      if (seen.has(column)) continue;
-      seen.add(column);
-      values.push(body[field] === "" ? null : body[field]);
-      sets.push(`${column} = $${values.length}`);
-    }
-    if (sets.length === 0) return err("No writable fields were provided", 400);
+      const beforeStatus = beforeRow.status;
+      const isTransitioningToCompleted = body.status === "Completed" && beforeStatus !== "Completed";
+      const isTransitioningToPendingInspection = body.status === "Pending Inspection" && beforeStatus !== "Pending Inspection";
+      if (beforeStatus === "Completed" && body.status && body.status !== "Completed") {
+        return { error: err("Completed maintenance records cannot be reopened.", 409) };
+      }
 
-    // An archived record is not editable. Without the deleted_at predicate
-    // below, a PUT could amend a soft-deleted row and the recompute would
-    // then push the vehicle's schedule from a record that is supposed
-    // to be gone.
-    
-    const beforeStatus = beforeRow.status;
-    const isTransitioningToCompleted = body.status === 'Completed' && beforeStatus !== 'Completed';
-    const isTransitioningToPendingInspection = body.status === 'Pending Inspection' && beforeStatus !== 'Pending Inspection';
-
-    if (beforeStatus === 'Completed' && body.status && body.status !== 'Completed') {
-      return err("Completed maintenance records cannot be reopened.", 409);
-    }
-    
-    if (isTransitioningToPendingInspection) {
+      if (isTransitioningToPendingInspection) {
       // The moment the repair is declared finished. Stamping the actor here is
       // what gives the completion guard below a real repairer to compare
       // against: created_by is the ticket's provenance, not the mechanic —
       // on an incident-sourced work order it names whoever resolved the
       // incident, which is why the old guard denied the admin its own queue.
-      sets.push(`repair_completed_at = CURRENT_TIMESTAMP`);
-      sets.push(`repair_completed_by = $${values.length + 1}`);
-      values.push(session.user.employeeId);
-    }
+        sets.push(`repair_completed_at = CURRENT_TIMESTAMP`);
+        sets.push(`repair_completed_by = $${values.length + 1}`);
+        values.push(session.user.employeeId);
+      }
 
-    if (isTransitioningToCompleted) {
+      if (isTransitioningToCompleted) {
       const { hasRole } = await import("@/lib/auth/permissions");
       if (!hasRole(session.user, ["super_admin", "admin", "fleet_manager"])) {
-        return err("Only a Fleet Manager or Admin can approve maintenance completion.", 403);
+          return { error: err("Only a Fleet Manager or Admin can approve maintenance completion.", 403) };
       }
 
       // Separation of duties, keyed to whoever declared the repair finished.
@@ -132,34 +125,50 @@ export async function PUT(req, { params }) {
         beforeRow.repair_completed_by != null &&
         Number(beforeRow.repair_completed_by) === Number(session.user.employeeId)
       ) {
-        return err("The person who completed this repair cannot approve its completion.", 403);
+          return { error: err("The person who completed this repair cannot approve its completion.", 403) };
       }
 
       // Client-supplied approval fields cannot reach the SET list: FIELD_TO_COLUMN
       // is the allowlist and none of them appear in it. An earlier revision also
       // spliced them out of `sets` here, which would have desynchronised `values`
       // and shifted every later $n had it ever matched — unreachable, and a trap.
-      sets.push(`manager_approved_by = $${values.length + 1}`);
-      values.push(session.user.employeeId);
+        sets.push(`manager_approved_by = $${values.length + 1}`);
+        values.push(session.user.employeeId);
       
-      sets.push(`manager_approved_at = CURRENT_TIMESTAMP`);
+        sets.push(`manager_approved_at = CURRENT_TIMESTAMP`);
       
-      sets.push(`completed_by = $${values.length + 1}`);
-      values.push(session.user.employeeId);
+        sets.push(`completed_by = $${values.length + 1}`);
+        values.push(session.user.employeeId);
       
-      sets.push(`completed_at = CURRENT_TIMESTAMP`);
-    }
+        sets.push(`completed_at = CURRENT_TIMESTAMP`);
+      }
 
-    // The id goes last so every $n above lines up with values[n-1].
-    values.push(id);
-    const idParamIndex = values.length;
+      values.push(id);
+      const idParamIndex = values.length;
 
-    const { rows } = await query(
-      `UPDATE vehiclemaintenance SET ${sets.join(", ")}
+      const { rows } = await tx.query(
+        `UPDATE vehiclemaintenance SET ${sets.join(", ")}
         WHERE maintenance_id = $${idParamIndex} AND deleted_at IS NULL RETURNING *`,
-      values
-    );
-    if (!rows[0]) return err("Maintenance record not found", 404);
+        values
+      );
+      if (!rows[0]) return { error: err("Maintenance record not found", 404) };
+      const action = rows[0].deleted_at
+        ? "maintenance_archived"
+        : isTransitioningToCompleted
+          ? "maintenance_completed"
+          : "maintenance_updated";
+      await writeAuditRequired(tx, req, session, {
+        action,
+        resource: "vehiclemaintenance",
+        resourceId: rows[0].maintenance_id,
+        oldValues: { status: beforeStatus },
+        newValues: { changed_fields: [...seen], status: rows[0].status, source_incident_id: rows[0].source_incident_id },
+      });
+      return { row: rows[0], beforeStatus };
+    });
+    if (updateResult.error) return updateResult.error;
+    const beforeStatus = updateResult.beforeStatus;
+    const rows = [updateResult.row];
     if (rows[0]?.vehicle_id) {
       const { syncVehicleStatus } = await import("@/services/status.service");
       await syncVehicleStatus(rows[0].vehicle_id);

@@ -11,7 +11,7 @@ source:
   - "mobile/lib/storage.js"
   - "mobile/lib/auth.js"
   - "mobile/app/(app)/_layout.js"
-last_verified: 2026-09-27
+last_verified: 2026-09-30
 ---
 
 # Security Audit
@@ -587,19 +587,63 @@ The shared writer records actor, action, resource, optional resource ID and befo
 
 - **Fleet and maintenance changes:** vehicle `PUT` changes, vehicle document/category changes, driver creation and soft deletion are not audited; direct maintenance creation and edits/completion/archive have no general audit entry. Incident-driven automatic maintenance creation is logged, but ordinary work-order changes are not.
 - **Approval and finance decisions:** expense approve/reject, mobile expense/fuel submissions, and driver leave approve/decline mutate records without `writeAudit()`. Duty start/end and vehicle inspection submissions also have no general audit entry; their domain rows remain the operational records.
-- **Driver privacy and profile changes:** the driver's self-service phone/media/license updates and license-scan update are not consistently audited. Staff and self-service endpoints can reveal a full license number with `include_license=1`, but successful disclosure is not logged. License verification itself is logged. Record a reveal event without storing the license value or image.
+- **Driver privacy and profile changes:** the driver's self-service phone/media/license updates and license-scan update are not consistently audited. Staff and self-service endpoints can reveal a full license number with `include_license=1`, but successful disclosure is not logged. Deliberate viewing of a masked number is also not distinguished from background profile fetches; the mobile license screen can show a cached number without a network request. License verification itself is logged. Record access without storing either license value or an image.
 - **AI provider configuration:** provider deletion is logged, but provider creation and updates (including default/provider configuration changes) are not.
 - **Audit access and discoverability:** `GET /api/audit` is not itself logged. The viewer's action filter exposes only `create`, `update`, `delete`, `assign`, `dispatch`, and `reject`, while the live table has 37 action values; login, MFA, security, incident, and health events cannot be selected directly in that filter.
 
 ### Recommended additions and reliability limits
 
 1. Add before/after audit entries for vehicle/document/category, driver, and maintenance mutations; expense/fuel and leave decisions; duty/inspection submissions; self-service license/photo changes; and AI provider create/update. Include the actor, target ID, changed fields, decision/reason, and outcome. Allowlist payload fields; never store passwords, tokens, OTPs, provider secrets, full license numbers, or image contents.
-2. Log successful full-license disclosures and explicit audit-log exports/access with actor, target, scope, and timestamp. Consider recording only selected high-risk authorization denials (for example, attempts to reveal protected identity data) to avoid noisy routine-denial logs.
+2. Log every successful full-license response and each deliberate masked-license view, plus audit-log access/detail/export, with actor, target, scope, and timestamp. A mobile cached masked view needs a bounded client-reported offline replay path; generic profile refreshes must not count as views. Consider recording only selected high-risk authorization denials (for example, attempts to reveal protected identity data) to avoid noisy routine-denial logs.
 3. Make the viewer discoverable across the real event taxonomy (or use distinct action/resource values from the API) so custom security events can be reviewed without querying the database directly.
 4. Improve completeness for high-risk writes: `writeAudit()` is best-effort and catches/swallow failures, so the business mutation can succeed while its audit insert fails. Use a same-transaction audit write or durable outbox for critical actions, and alert on audit-write failures. Some transition-service calls pass no request object, so their IP and user-agent fields are null; pass safe request metadata or add a request/correlation identifier where the boundary permits it.
 
 Do not send every GPS fix, polling request, or notification read into `audit_logs`; those are high-volume telemetry/UI events. Keep domain histories such as `reservation_events`, `integration_log`, and inspection/attendance records as their own sources, adding concise audit summaries only for consequential transitions.
 
+The staged coverage, payload, reliability, viewer, and load-control design is in [[Audit Logging Coverage and Load Plan]] (prepared 2026-10-01). The 1,324-row count was only a starting snapshot and is not a production capacity limit.
+
+### Implementation follow-up — 2026-10-01
+
+The preceding gap list records the 2026-09-30 audit review. The approved core changes are now implemented: bounded transaction-aware audit writes; cursor-paged audit viewing and separate detail access; deliberate masked-license view logging, including bounded offline mobile replay; required auditing before full-license disclosure; and event coverage for the reviewed consequential fleet, driver, maintenance, finance/leave, duty/inspection, and AI-provider paths. General roster/profile APIs no longer return license numbers. Audit metadata excludes license values, scans, provider secrets, and media contents.
+
+Migration 140 adds the replay idempotency key. It was applied through the repository migration runner and the schema dump was refreshed. `npm run db:check` passes, and the live `npm run db:contract` reports zero violations. Focused tests pass (140 tests across 17 files); the route-auth audit passes 294/294 methods. A live 2026-10-01 snapshot found 1,328 audit rows and approximately 552 KiB for the table and indexes. The staging exercise at 10x observed peak event rate has not been run; production capacity, latency/storage alert thresholds, and retention policy therefore remain open acceptance decisions. See [[Audit Logging Coverage and Load Plan]].
+
+## Database and SQL injection review — 2026-09-30
+
+### Scope and conclusion
+
+Read-only review of the shared PostgreSQL connector, SQL-building paths in the API and server services, all API route methods, the migration ledger, live table/view security state, and public-role database grants. No application or database behavior was changed. No SQL injection was confirmed in the request-driven SQL construction reviewed. Parameterized values remain the right primary defense; identifiers and SQL fragments still require fixed allowlists.
+
+The known 2026-08-20 flaw that interpolated client-provided object keys into nine routes was recorded as fixed. Current dynamic insert/update columns reviewed here are selected from fixed writable-column lists; sort expressions are selected from constant maps; request values are passed separately to `query(text, params)`. This is a source review, not an injection fuzz test or proof of every business authorization rule.
+
+### Current verification
+
+- `npm run db:status`: 139 applied, 0 pending, 0 changed. Three old ledger keys remain without matching files (`113_maintenance_repairer_identity.sql`, `114_app_errors_rls.sql`, `115_rls_gap_tables.sql`); the status command reports them as historical ledger entries.
+- `npm run db:check`: all 139 migration files valid.
+- `npm run verify:auth`: all 290 exported API methods have a guard or reviewed protocol exception.
+- `npm run db:contract`: 67 live relations classified (66 tables, one view), 0 contract violations; 66 tables have RLS enabled and `driver_stats` is `security_invoker`.
+- `npm run verify:anon -- --quiet`: 0 rows exposed, 19 explicit refusals, 48 `200 []` results. The command does not report a clean pass because empty results are ambiguous; the database contract resolves those 48 as RLS enabled with no anon policy. Neither command checks all table privileges or public RPC execution rights.
+- The live application connection is `postgres` with `BYPASSRLS=true` (`rolsuper=false`). The application therefore relies on server-side authorization and query construction, not RLS, as its application access boundary.
+
+### Findings
+
+1. **SEC-DB-007 — broad public-role grants and defaults (HIGH, open).** Effective catalog privileges show `anon` can `TRUNCATE` 54 public tables and `authenticated` can `TRUNCATE` 55; both roles also retain broad DML grants on many tables. Default ACLs for both `postgres` and `supabase_admin` grant anon/authenticated table DML, `TRUNCATE`, `TRIGGER`, `REFERENCES`, and `MAINTAIN`, sequence access, and function `EXECUTE`. RLS blocks ordinary row access where no policy exists, but RLS does not apply to `TRUNCATE`. The prior audit correctly notes PostgREST has no `TRUNCATE` operation, so this review does not claim an anon-key HTTP table-wipe path was demonstrated. The effective grants and defaults are still excessive, weaken future-table safety, and are not checked by the current contract gate. Revoke unneeded existing and default privileges for both object-owner roles, then add contract checks for `TRUNCATE` and other non-RLS privileges.
+
+2. **SEC-DB-008 — public execution of security-definer functions (HIGH, open).** The live catalog reports 11 `SECURITY DEFINER` routines executable by `anon` and `authenticated`. This includes `update_incident_sla_breaches()`, a mutating helper intended for the scheduled SLA task, and a legacy location function whose referenced relations are absent. Trigger-returning functions may not be callable through PostgREST, and this review did not issue RPC requests. Inventory callable routines, revoke execute from public API roles by default, and grant only the exact RPCs that are intentionally public and safe. Extend the database contract to inspect function ACLs.
+
+3. **SEC-DB-009 — privileged runtime database identity (MEDIUM, open design debt).** `src/lib/db.js` connects as `postgres`, which bypasses RLS and can read every public relation. A missed authorization check or future SQL injection therefore has a large blast radius. Separate the migration owner from a runtime database role with only the table/function privileges the app needs; do not make RLS claims for the current owner connection.
+
+4. **SEC-DB-010 — TLS peer verification disabled (MEDIUM, open hardening).** The PostgreSQL pool sets `ssl.rejectUnauthorized: false`. TLS is enabled, but the client does not validate the database server certificate. Configure certificate validation using the provider-supported CA/verification mode before changing this setting.
+
+5. **Credential hygiene — historical password value removed from the current incident note.** The note states the old value was rotated and rejected on 2026-08-11; its literal has now been removed from the working-tree markdown. Existing Git history is unchanged, and this review did not attempt a live password test. Do not reuse the old value; rotate again if its invalidation is uncertain.
+
+### Recommended order
+
+1. Close SEC-DB-007 and SEC-DB-008: revoke broad grants and default ACLs for `anon`/`authenticated`, explicitly preserve only intended access, and make `db:contract` fail on unexpected `TRUNCATE` or callable security-definer routines.
+2. Create a least-privilege runtime database identity separate from migrations; keep authorization checks in route/service code for the current design.
+3. Preserve parameterized values and fixed identifier/sort allowlists; add a regression gate that rejects request-derived SQL identifiers or scalar interpolation.
+4. Enable TLS certificate verification with a provider-supported trust chain.
+5. Keep `verify:anon` and `db:contract` as a pair; a `200 []` is resolved only when live catalog policy/grants explain it.
 ## Related
 
 [[Authentication]] · [[Why RLS Is Not A Boundary]] · [[Bugs]] · [[Current State]]

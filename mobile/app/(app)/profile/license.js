@@ -1,14 +1,18 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image, Modal } from 'react-native';
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
-import { api } from "../../../lib/api";
+import { api, isTransportFailure } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
+import { useAuth } from "../../../lib/auth";
+import { useConnectivity } from "../../../lib/connectivity-context";
+import { CACHE_KEYS, getCached, resolveDriverId, setCached } from "../../../lib/offline-cache";
+import { createLicenseViewEventKey, enqueueLicenseView, getPendingLicenseViewCount, listLicenseViewEvents, removeLicenseViewEvents } from "../../../lib/license-audit-queue";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
 import { ClayBadge, ClayButton, ClayCard } from "../../../components/clay";
@@ -75,17 +79,99 @@ export default function LicenseInformation() {
   const insets = useSafeAreaInsets();
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
+  const { user } = useAuth();
+  const connectivity = useConnectivity();
+  const connectivityStatus = useRef(connectivity.status);
+  useEffect(() => { connectivityStatus.current = connectivity.status; }, [connectivity.status]);
+  const cacheDriverId = resolveDriverId(user);
+  const driverId = user?.driverId ?? null;
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently; the alert only fires when nothing was ever saved.
   const { profile, loading, reload } = useDriverProfile({
     onError: () => AppAlert.alert("Error", "Could not load license info."),
   });
+  const profileLicenseRef = useRef(null);
+  useEffect(() => { profileLicenseRef.current = profile?.license?.number ?? null; }, [profile?.license?.number]);
 
   const [uploadingSide, setUploadingSide] = useState(null);
   const [viewerImage, setViewerImage] = useState(null);
   const [revealedLicense, setRevealedLicense] = useState(null);
   const [loadingLicenseReveal, setLoadingLicenseReveal] = useState(false);
+  const [maskedLicenseNumber, setMaskedLicenseNumber] = useState(null);
+  const [pendingLicenseAuditCount, setPendingLicenseAuditCount] = useState(0);
+  const [droppedLicenseAuditCount, setDroppedLicenseAuditCount] = useState(0);
+
+  useFocusEffect(useCallback(() => {
+    if (!cacheDriverId || !Number.isSafeInteger(Number(driverId)) || Number(driverId) <= 0) return undefined;
+    let active = true;
+    const event = {
+      event_key: createLicenseViewEventKey(),
+      driver_id: Number(driverId),
+      observed_at: new Date().toISOString(),
+    };
+
+    const queueForSync = async () => {
+      const queued = await enqueueLicenseView(cacheDriverId, event);
+      if (!active) return;
+      setPendingLicenseAuditCount(queued.count);
+      if (queued.dropped) setDroppedLicenseAuditCount((count) => count + queued.dropped);
+    };
+
+    const openLicense = async () => {
+      const cached = await getCached(cacheDriverId, CACHE_KEYS.DRIVER_LICENSE);
+      const cachedNumber = cached?.data?.license_number ?? profileLicenseRef.current ?? null;
+      if (active && cachedNumber) setMaskedLicenseNumber(cachedNumber);
+
+      if (connectivityStatus.current === "offline") {
+        await queueForSync();
+        return;
+      }
+      try {
+        const result = await api.get(`/api/driver/me/license?event_key=${encodeURIComponent(event.event_key)}`);
+        const number = result?.license?.license_number ?? null;
+        if (active) setMaskedLicenseNumber(number);
+        if (number) await setCached(cacheDriverId, CACHE_KEYS.DRIVER_LICENSE, { license_number: number });
+      } catch (error) {
+        if (isTransportFailure(error)) await queueForSync();
+      }
+    };
+
+    openLicense().catch(() => {});
+    return () => { active = false; };
+  }, [cacheDriverId, driverId]));
+
+  useEffect(() => {
+    if (connectivity.status !== "online" || !cacheDriverId || !Number.isSafeInteger(Number(driverId)) || Number(driverId) <= 0) return;
+    let active = true;
+    const flush = async () => {
+      const pending = await listLicenseViewEvents(cacheDriverId);
+      const staleAccountEvents = pending.filter((event) => Number(event.driver_id) !== Number(driverId));
+      if (staleAccountEvents.length) {
+        const remaining = await removeLicenseViewEvents(cacheDriverId, staleAccountEvents.map((event) => event.event_key));
+        if (active) {
+          setPendingLicenseAuditCount(remaining);
+          setDroppedLicenseAuditCount((count) => count + staleAccountEvents.length);
+        }
+      }
+      const batch = pending.filter((event) => Number(event.driver_id) === Number(driverId)).slice(0, 20);
+      if (!batch.length) return;
+      try {
+        await api.post("/api/driver/me/license", { events: batch }, { queueOnFailure: false });
+        const remaining = await removeLicenseViewEvents(cacheDriverId, batch.map((event) => event.event_key));
+        if (active) setPendingLicenseAuditCount(remaining);
+      } catch {
+        // Retain the bounded event batch for the next online transition.
+      }
+    };
+    flush().catch(() => {});
+    return () => { active = false; };
+  }, [connectivity.status, cacheDriverId, driverId]);
+
+  useEffect(() => {
+    if (!cacheDriverId) return;
+    getPendingLicenseViewCount(cacheDriverId).then(setPendingLicenseAuditCount).catch(() => {});
+  }, [cacheDriverId]);
 
   const toDataUrl = async (asset) => {
     const context = ImageManipulator.manipulate(asset.uri);
@@ -214,9 +300,9 @@ export default function LicenseInformation() {
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>License Number</Text>
             <View style={styles.licenseNumberValue}>
               <Text style={[styles.infoValue, styles.licenseNumberText, { color: colors.onSurface }]} numberOfLines={1}>
-                {revealedLicense ?? license?.number ?? "—"}
+                {revealedLicense ?? maskedLicenseNumber ?? license?.number ?? "—"}
               </Text>
-              {license?.number && (
+              {(maskedLicenseNumber || license?.number) && (
                 <Pressable
                   onPress={toggleLicenseReveal}
                   disabled={loadingLicenseReveal}
@@ -239,6 +325,13 @@ export default function LicenseInformation() {
               )}
             </View>
           </View>
+          {(pendingLicenseAuditCount > 0 || droppedLicenseAuditCount > 0) && (
+            <Text style={{ color: droppedLicenseAuditCount ? colors.error : colors.onSurfaceVariant, fontSize: 12, paddingHorizontal: 20, paddingBottom: 8 }}>
+              {droppedLicenseAuditCount > 0
+                ? `${droppedLicenseAuditCount} offline view${droppedLicenseAuditCount === 1 ? "" : "s"} could not be queued.`
+                : `${pendingLicenseAuditCount} offline view${pendingLicenseAuditCount === 1 ? "" : "s"} waiting to sync.`}
+            </Text>
+          )}
           <InfoRow label="License Class" value={license?.class} colors={colors} isDark={isDark} />
           <InfoRow label="License Type" value={license?.type} colors={colors} isDark={isDark} />
           <InfoRow

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/toast";
-import { getDrivers, getDriver, deleteDriver, getDriverStats, linkDriverAccount } from "@/services/driver.service";
+import { getDrivers, getDriver, getDriverLicenseMasks, deleteDriver, getDriverStats, linkDriverAccount } from "@/services/driver.service";
 import {
   Users,
   UserCheck,
@@ -49,6 +49,11 @@ export default function DriversPage() {
   const [exporting, setExporting] = useState(false);
   const [revealedLicense, setRevealedLicense] = useState(null);
   const [loadingLicenseId, setLoadingLicenseId] = useState(null);
+  const [visibleDriverIds, setVisibleDriverIds] = useState([]);
+  const onVisibleRowsChange = useCallback((rows) => {
+    const ids = rows.map((row) => Number(row.driver_id)).filter((id) => Number.isSafeInteger(id) && id > 0).sort((a, b) => a - b);
+    setVisibleDriverIds((current) => current.length === ids.length && current.every((id, index) => id === ids[index]) ? current : ids);
+  }, []);
 
   const toggleLicenseReveal = async (event, row) => {
     event.stopPropagation();
@@ -85,8 +90,19 @@ export default function DriversPage() {
         search: search ? search : undefined,
       }),
     placeholderData: (prev) => prev,
-    refetchInterval: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
+
+  const { data: visibleLicenseMasks = [] } = useQuery({
+    queryKey: ["driver-license-masks", visibleDriverIds],
+    queryFn: () => getDriverLicenseMasks(visibleDriverIds, "staff_directory"),
+    enabled: visibleDriverIds.length > 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+  const licenseMaskByDriverId = Object.fromEntries(visibleLicenseMasks.map((row) => [row.driver_id, row.license_number]));
 
   const { data: stats } = useQuery({
     queryKey: ["driver-stats"],
@@ -129,7 +145,6 @@ export default function DriversPage() {
         { label: "Name", accessor: (d) => (d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "") },
         { label: "Email", accessor: (d) => d.employees?.email || "" },
         { label: "Phone", accessor: (d) => d.employees?.phone || "" },
-        { label: "License #", key: "license_number" },
         { label: "License Expiry", key: "license_expiry" },
         { label: "License Class", key: "license_class" },
         { label: "Experience (yrs)", key: "years_of_experience" },
@@ -219,9 +234,9 @@ export default function DriversPage() {
         <div className="space-y-1 text-xs">
           <div className="flex items-center gap-1">
             <span className="font-data font-bold text-foreground">
-              {revealedLicense?.driverId === row.driver_id ? revealedLicense.value : row.license_number || "—"}
+              {revealedLicense?.driverId === row.driver_id ? revealedLicense.value : licenseMaskByDriverId[row.driver_id] || "—"}
             </span>
-            {can("drivers", "update") && row.license_number && (
+            {can("drivers", "update") && row.license_number_valid && (
               <Button
                 type="button"
                 variant="ghost"
@@ -401,6 +416,7 @@ export default function DriversPage() {
             columns={columns}
             data={drivers}
             pageSize={10}
+            onVisibleRowsChange={onVisibleRowsChange}
             title="Drivers Directory"
             description="Manage operational drivers and licensing."
             icon={Users}
