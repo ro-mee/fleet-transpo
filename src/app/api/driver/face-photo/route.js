@@ -5,6 +5,7 @@ import { validateBase64Image } from "@/lib/uploads/validator";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notificationRolesFor } from "@/lib/notifications/recipients";
 import { query } from "@/lib/db";
+import { writeAudit } from "@/lib/audit";
 import { canonicalStoredRef, signedUrlFor } from "@/lib/storage/object-refs";
 import { v4 as uuidv4 } from "uuid";
 
@@ -122,6 +123,18 @@ export async function POST(req) {
         [storedRef, session.user.driverId]
       );
     }
+
+    // Object storage and the profile rows cannot share a transaction. Keep this
+    // summary best-effort and omit the object key, signed URL, and image bytes.
+    await writeAudit(req, session, {
+      action: "update",
+      resource: "drivers",
+      resourceId: Number(session.user.driverId),
+      newValues: {
+        changed_fields: ["face_image_url", "avatar_url"],
+        outcome: "updated",
+      },
+    });
 
     notifyStaffOfFacePhotoUpdate(session.user.driverId).catch((e) =>
       console.warn("Face photo staff notification skipped:", e.message)

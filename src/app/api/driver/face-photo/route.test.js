@@ -14,6 +14,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { POST } from "./route";
 import * as db from "@/lib/db";
 import * as apiUtils from "@/lib/api/utils";
+import * as audit from "@/lib/audit";
 import * as admin from "@/lib/supabase/admin";
 
 afterEach(() => {
@@ -52,6 +53,7 @@ function mockDb() {
 describe("POST /api/driver/face-photo", () => {
   it("stores the photo and writes the driver's own face_image_url", async () => {
     vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+    const auditSpy = vi.spyOn(audit, "writeAudit").mockResolvedValue(null);
     const from = mockStorage();
     const querySpy = mockDb();
 
@@ -72,6 +74,21 @@ describe("POST /api/driver/face-photo", () => {
     expect(update[1][0]).toMatch(/^face-captures\/7\/[0-9a-f-]{36}\.jpg$/);
     expect(update[1][0]).not.toBe(body.face_image_url);
     expect(from).toHaveBeenCalledWith("face-captures");
+    expect(auditSpy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      user: expect.objectContaining({ driverId: 7 }),
+    }), {
+      action: "update",
+      resource: "drivers",
+      resourceId: 7,
+      newValues: {
+        changed_fields: ["face_image_url", "avatar_url"],
+        outcome: "updated",
+      },
+    });
+    const auditPayload = JSON.stringify(auditSpy.mock.calls);
+    expect(auditPayload).not.toContain(JPEG_DATA_URL);
+    expect(auditPayload).not.toContain(body.face_image_url);
+    expect(auditPayload).not.toContain("face-captures/7/");
   });
 
   it("rejects a missing file_url with a validation error", async () => {
