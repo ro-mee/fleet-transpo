@@ -34,7 +34,7 @@ Failure states across the reporting surfaces now follow the shared primitives in
 - **`/reports`** — an errored tab renders an explicit retry panel instead of the "No records in this period" empty copy (a failure must never read as an empty period). Genuine-empty arrays still get the empty state. Date bounds use a local-day helper (`toLocalDay`, `en-CA`) because `.toISOString()` dropped "today" at UTC+8; Custom with missing dates no longer silently searches 1970→2100 — it shows "Pick both dates to set a custom range.", holds the export button, and queries the default month. Plates stay whole as React keys/identity and are truncated only visually (`title` carries the full plate).
 - **`/analytics`** — per-card `QueryErrorBanner`s above pickup volume, fleet-risk, fuel, and driver cards; the hardcoded "92% Healthy" badge was replaced with a healthy share derived from `maintenanceRiskPie` (hidden while data is absent); `KPI_TONES.danger.deltaText` fixed from `text-warning` to `text-danger`.
 - **`/executive`** — banner-at-top per failed feed so partial data still shows; KPIs show "—" during load (never "…"); driver severity inverted grammar fixed (≥70 Strong/success, ≥40 Developing/warning, else Improving/info); root `select-none` removed.
-- **Other surfaces** — `/reports/cost` uses `TableSkeleton` + right-aligned numeric columns + neutral Cost/km tone; `/fleet/documents` gained a compliance error panel and local-safe expiry dates via `formatCalendarDate`; `/maintenance/predictive` gates all-zero summaries behind a retry panel and rows link to `/fleet/vehicles/[id]`; `/tracking/history` KPIs are relabeled "(recent)" / "Latest 50 shown" (query caps at 50) and rows deep-link to `/trips/{trip_id}`; `/drivers/performance` has a retry panel, ghost refresh button, driver-entity `StatusBadge`, and a Score-column provenance tooltip ("Average smooth-driving score reported per completed trip" — the API computes `AVG(smooth_driving_score)` over completed trips).
+- **Other surfaces** — `/reports/cost` uses `TableSkeleton` + right-aligned numeric columns + neutral Cost/km tone; `/fleet/documents` gained a compliance error panel and local-safe expiry dates via `formatCalendarDate`; `/maintenance/predictive` gates all-zero summaries behind a retry panel and rows link to `/fleet/vehicles/[id]`; `/tracking/history` KPIs are relabeled "(recent)" / "Latest 50 shown" (query caps at 50) and rows deep-link to `/trips/{trip_id}`; `/drivers/performance` has a retry panel, ghost refresh button, driver-entity `StatusBadge`, and a punctuality column with an `—` + "No pickup timing measurements available." tooltip when a driver has no measured trips (the old smooth-driving-score column and its provenance tooltip were removed 2026-09-30).
 
 The current report/analytics cleanup is **work in progress and uncommitted** as of 2026-08-23.
 
@@ -161,6 +161,39 @@ INFERRED: any report over fuel efficiency, driver attendance, or trip volume cur
 **Do not treat a working reports page as evidence the reports are right.** With 2 trips, an off-by-one in a date range or a wrong join produces output indistinguishable from correct output.
 
 **TODO:** seed a realistic dataset (say 200 trips across 3 months) and re-check each report against hand-computed expected values. This is the single highest-value testing task for the reporting feature.
+
+## Driver payload is punctuality now, not a score — 2026-09-30
+
+`getDriverPerformanceReport()` returns `{ totalDrivers, totalCompletedTrips,
+punctuality: { measuredTrips, onTimeTrips, lateTrips, unmeasuredTrips,
+overrideTrips, onTimeRate, avgLateMinutes, maxLateMinutes }, details: [{
+completed_trips, measured_trips, on_time_trips, late_trips, unmeasured_trips,
+override_trips, punctuality_rate, avg_late_minutes, max_late_minutes }],
+trips: [{ trip_id, scheduled_pickup, at_pickup_at, variance_minutes, result }],
+methodology }`. `avgScore`, `topDrivers`, `totalTrips`, `totalDistance`,
+`monthlyData` and `incidents` are gone from this payload; every consumer
+(`reports` Drivers tab, `analytics`, `executive` snapshot, role dashboards,
+Excel workbooks, AI narrative, `verify-reports`/`verify-quickwins`) was moved
+in the same release so no orphaned `avgScore` read remains.
+
+Workbook: the Driver Performance workbook is Summary (Drivers, Completed,
+Fleet Punctuality, On-Time, Late, Unmeasured, Overrides) / Driver Details
+(Driver, Status, Completed, Measured, On-Time, Late, Punctuality, Avg Late,
+Max Late) / Trip Details (`#id | Driver | Scheduled Pickup | Actual At Pickup
+| Variance ±m | Result`, e.g. `+9m Late` / `-3m On Time` / `— Unmeasured`).
+Percents are stored as fractions with `0.0%` formats; unmeasured cells show
+`—`, never `0`. The executive workbook's driver KPI, Analysis signal and
+Driver Leaderboard read the same payload. Narrative: the drivers fallback
+copy is "Drivers completed N trips … M had measurable pickup timing, with K
+arriving within the allowed pickup window, for a fleet punctuality rate of
+R%." — no "safety score", no "top performer"; unmeasured periods say "No
+pickup timing measurements available for this period."
+
+Live note 2026-09-30: `verify-reports.mjs` §6 passes 15/15 against live, but
+the seed window holds 0 completed trips (seed data was cleaned), so every
+driver reads as unmeasured and the remaining script failures (seed anchors,
+fuel/fleet charts, maintenance-cost drift) are empty-data artifacts in
+sections this change did not touch — not regressions.
 
 ## Related
 

@@ -462,6 +462,45 @@ Both are fail-quiet. `checkedIn` is false whenever the duty fetch has not
 succeeded, so an offline or unresolved read hides the quick action rather than
 offering to end a shift the app cannot confirm is running.
 
+## Driver punctuality — replaces the performance score (2026-09-30)
+
+The Performance Center (`/drivers/performance`) no longer shows a Driver
+Performance Score. `AVG(smooth_driving_score)` mixed an uncalibrated 1–5
+tap-rating with real lateness into one number, so it now shows two honest
+concepts instead: **Completed Trips** (activity) + **Pickup Punctuality**
+(arriving at the pickup on time).
+
+- **Anchor:** `dispatchschedules.scheduled_departure` (the same pickup-time
+  anchor the Start Window logic already uses). When a trip has no dispatch
+  plan, the booking promise `transportation_requests.pickup_datetime` is the
+  fallback. Dispatch plan wins when present.
+- **Grace:** one named constant, `PUNCTUALITY_GRACE_MINUTES = 5`
+  (`src/lib/reports/operational-reports.js`). Arrival at or before
+  scheduled + 5 min is on-time; arriving early — even hours early — is
+  on-time. 10:00 scheduled vs 09:58 → on-time; 10:05 → on-time; 10:06 → late.
+- **Authoritative stamp:** `trips.at_pickup_at` (migration
+  `139_driver_punctuality`, plus `at_pickup_override`), written server-side
+  by `setTripStatus()` on the `At Pickup` transition in the SAME statement
+  as the status flip, first-write-wins (`COALESCE(at_pickup_at, NOW())`) so
+  retries never rewrite history. Trips that skip the pickup hop
+  (`IN_PROGRESS → PASSENGER_ONBOARD`) keep NULL and read as unmeasured.
+- **Override handling:** arrivals recorded with `geofence_override=true` are
+  claims, not geofence-proven arrivals. They latch `at_pickup_override`,
+  count in `completed` + `overrideTrips`, and are EXCLUDED from on-time/late.
+- **Missing is never late:** the on-time rate divides by *measured* trips
+  only. Zero measured trips renders `—` ("No pickup timing measurements
+  available"), never `0%`. Old completed rows from before the stamp existed
+  correctly read as Not Measured; no backfill was needed (throwaway data).
+- **Not deleted, just unused here:** `smooth_driving_score`,
+  `customer_rating`, `on_time_completion` and the `driver_stats` view still
+  exist. Only the Performance Center stopped depending on them.
+
+Verified: `transition-punctuality.test.js` (stamp + first-write-wins),
+`driver-punctuality.test.js` (grain + math incl. the soft-deleted-driver
+guard on the trip-grain query), live `verify-reports.mjs` §6 (15 checks of
+the route against independent SQL, all passing), `db:contract` 0 violations,
+`verify:anon` 0 EXPOSED. Full suite 3288/3288.
+
 ## Open questions
 
 - The old "Standard Morning Shift" card was replaced by the real schedule; the
