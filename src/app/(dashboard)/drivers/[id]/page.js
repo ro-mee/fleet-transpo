@@ -225,6 +225,9 @@ export default function DriverDetailPage() {
                     <h1 className="text-3xl font-bold text-foreground tracking-tight">
                       {emp.first_name} {emp.last_name}
                     </h1>
+                    <Badge variant="outline" className="rounded-full px-3 py-0.5 text-xs font-semibold border-border/80 text-foreground-secondary">
+                      {emp.position || "Driver"}
+                    </Badge>
                     <StatusBadge
                       status={driver.driver_status || "Available"}
                       entity="driver"
@@ -353,20 +356,20 @@ export default function DriverDetailPage() {
                 <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
                   <Star className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider">Safety Score</span>
+                <span className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider">Punctuality</span>
               </div>
               <div className="flex items-baseline gap-1">
-                {driver.performance_score != null ? (
+                {driver.punctuality_rate != null ? (
                   <>
                     <span className="text-xl font-bold text-amber-600 dark:text-amber-500">
-                      {(driver.performance_score * 20).toFixed(0)}
+                      {Math.round(Number(driver.punctuality_rate))}%
                     </span>
-                    <span className="text-xs font-medium text-amber-600/70 dark:text-amber-500/70">/ 100</span>
+                    <span className="text-xs font-medium text-amber-600/70 dark:text-amber-500/70">on-time</span>
                   </>
                 ) : (
                   <>
                     <span className="text-xl font-bold text-foreground-muted">—</span>
-                    <span className="text-xs font-medium text-foreground-muted">Not enough completed trips</span>
+                    <span className="text-xs font-medium text-foreground-muted">No measured trips</span>
                   </>
                 )}
               </div>
@@ -460,6 +463,17 @@ export default function DriverDetailPage() {
                       License &amp; Credentials
                     </CardTitle>
                     <div className="flex items-center gap-2">
+                      {driver.license_verified_at ? (
+                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-xs px-2.5 py-0.5 flex items-center gap-1 font-medium">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Verified ({driver.license_verification_method || "Staff Review"})
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 text-xs px-2.5 py-0.5 flex items-center gap-1 font-medium">
+                          <Clock className="w-3 h-3" />
+                          Pending Staff Review
+                        </Badge>
+                      )}
                       <RenewLicenseDialog 
                         canManage={can("drivers", "update")} 
                         driverId={driver.driver_id}
@@ -548,6 +562,9 @@ export default function DriverDetailPage() {
                     </div>
                     Performance Profile
                   </CardTitle>
+                  <CardDescription className="text-xs text-foreground-muted mt-1">
+                    Same pickup punctuality as the Driver Performance Center (All Time).
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="p-5 space-y-4">
                   <div className="flex items-center gap-4 p-4 rounded-[16px] bg-gradient-to-r from-amber-500/10 to-transparent border border-amber-500/20 shadow-inner">
@@ -556,12 +573,12 @@ export default function DriverDetailPage() {
                     </div>
                     <div>
                       <div className="flex items-baseline gap-1">
-                        {driver.performance_score != null ? (
+                        {driver.punctuality_rate != null ? (
                           <>
                             <span className="text-3xl font-black text-foreground tracking-tight">
-                              {(driver.performance_score * 20).toFixed(0)}
+                              {Math.round(Number(driver.punctuality_rate))}%
                             </span>
-                            <span className="text-sm font-bold text-foreground-muted">/ 100</span>
+                            <span className="text-sm font-bold text-foreground-muted">on-time</span>
                           </>
                         ) : (
                           <>
@@ -569,10 +586,12 @@ export default function DriverDetailPage() {
                           </>
                         )}
                       </div>
-                      {driver.performance_score != null ? (
-                        <p className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider mt-0.5">Safety &amp; Efficiency Score</p>
+                      {driver.punctuality_rate != null ? (
+                        <p className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider mt-0.5">
+                          {driver.punctuality_on_time ?? 0} of {driver.punctuality_measured ?? 0} measured trips
+                        </p>
                       ) : (
-                        <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider mt-0.5">Not enough completed trips</p>
+                        <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider mt-0.5">No measured trips yet</p>
                       )}
                     </div>
                   </div>
@@ -587,6 +606,9 @@ export default function DriverDetailPage() {
                       <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider mt-1">Total KM</p>
                     </div>
                   </div>
+                  <Button variant="ghost" size="sm" className="w-full rounded-xl text-xs font-bold text-primary hover:bg-primary/5" onClick={() => router.push("/drivers/performance")}>
+                    View full performance report
+                  </Button>
                 </CardContent>
               </Card>
             </div>
