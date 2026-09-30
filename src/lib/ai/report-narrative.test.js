@@ -32,8 +32,17 @@ describe("report-narrative: payload validity gate", () => {
 
   it("accepts real payloads per report type, including honest zeros", () => {
     expect(isValidReportPayload("fleet", { utilization: 0, totalTrips: 0, totalDistance: 0, byVehicle: [] })).toBe(true);
-    expect(isValidReportPayload("drivers", { totalDrivers: 12, avgScore: 88, topDrivers: [] })).toBe(true);
+    expect(isValidReportPayload("drivers", {
+      totalDrivers: 12,
+      totalCompletedTrips: 40,
+      punctuality: { measuredTrips: 32, onTimeTrips: 30, lateTrips: 2, unmeasuredTrips: 7, overrideTrips: 1, onTimeRate: 94 },
+    })).toBe(true);
     expect(isValidReportPayload("fuel", { totalLiters: 0, totalCost: 0 })).toBe(true);
+  });
+
+  it("rejects the retired score payload the punctuality rewrite removed", () => {
+    expect(isValidReportPayload("drivers", { avgScore: 88 })).toBe(false);
+    expect(isValidReportPayload("drivers", { topDrivers: [] })).toBe(false);
   });
 
   it("rejects payloads carrying none of the report's fields", () => {
@@ -64,15 +73,24 @@ describe("report-narrative: per-tab identity guard", () => {
 
 describe("report-narrative: cross-report contamination", () => {
   const FLEET_PHRASES = ["Fleet utilization", "busiest unit", "idle assets", "idle units"];
-  const DRIVER_PHRASES = ["safety performance score", "top performer", "drivers are on the roster"];
+  const DRIVER_PHRASES = ["punctuality rate", "measurable pickup timing", "allowed pickup window"];
   const FUEL_PHRASES = ["of fuel were consumed", "average of PHP"];
   const MAINT_PHRASES = ["work orders", "due for service"];
   const FINANCIAL_PHRASES = ["Total operational cost", "cost-per-km", "PHP 15 threshold", "/km run"];
 
   const driversPayload = {
     totalDrivers: 12,
-    avgScore: 88,
-    topDrivers: [{ name: "Juan Dela Cruz", score: 94, trips: 8 }],
+    totalCompletedTrips: 40,
+    punctuality: {
+      measuredTrips: 32,
+      onTimeTrips: 30,
+      lateTrips: 2,
+      unmeasuredTrips: 7,
+      overrideTrips: 1,
+      onTimeRate: 94,
+      avgLateMinutes: 9.5,
+      maxLateMinutes: 14,
+    },
   };
 
   it("drivers narrative never reads as fleet/fuel/maintenance/financial copy", () => {
@@ -81,8 +99,33 @@ describe("report-narrative: cross-report contamination", () => {
     for (const phrase of [...FLEET_PHRASES, ...FUEL_PHRASES, ...MAINT_PHRASES, ...FINANCIAL_PHRASES]) {
       expect(text).not.toContain(phrase);
     }
-    expect(out.narrative).toContain("88/100");
-    expect(out.narrative).toContain("Juan Dela Cruz");
+    expect(out.narrative).toContain("40 trips");
+    expect(out.narrative).toContain("32 had measurable pickup timing");
+    expect(out.narrative).toContain("30 arriving within the allowed pickup window");
+    expect(out.narrative).toContain("94%");
+    expect(text).not.toContain("safety");
+    expect(text).not.toContain("top performer");
+  });
+
+  it("drivers narrative reports unmeasured periods honestly, never as 0%", () => {
+    const out = deterministicNarrative("drivers", {
+      totalDrivers: 12,
+      totalCompletedTrips: 15,
+      punctuality: { measuredTrips: 0, onTimeTrips: 0, lateTrips: 0, unmeasuredTrips: 15, overrideTrips: 0, onTimeRate: null, avgLateMinutes: null, maxLateMinutes: null },
+    });
+    expect(out.narrative).toContain("No pickup timing measurements available for this period.");
+    expect(out.narrative).not.toContain("0%");
+    expect(out.flag).toBe(FLAG.SUCCESS);
+  });
+
+  it("drivers narrative watches a weak punctuality rate", () => {
+    const out = deterministicNarrative("drivers", {
+      totalDrivers: 4,
+      totalCompletedTrips: 20,
+      punctuality: { measuredTrips: 20, onTimeTrips: 12, lateTrips: 8, unmeasuredTrips: 0, overrideTrips: 0, onTimeRate: 60, avgLateMinutes: 11, maxLateMinutes: 25 },
+    });
+    expect(out.narrative).toContain("60%");
+    expect(out.flag).toBe(FLAG.WATCH);
   });
 
   it("fleet narrative never reads as driver/fuel/maintenance/financial copy", () => {
@@ -125,6 +168,19 @@ describe("report-narrative: snapshot builder", () => {
     expect(s.total_trips).toBe(142);
     expect(s.total_distance_km).toBe(10450);
     expect(s.top_vehicles).toHaveLength(1);
+  });
+
+  it("flattens driver punctuality numbers without inventing a score", () => {
+    const s = buildReportSnapshot("drivers", {
+      totalDrivers: 12,
+      totalCompletedTrips: 40,
+      punctuality: { measuredTrips: 32, onTimeTrips: 30, lateTrips: 2, unmeasuredTrips: 7, overrideTrips: 1, onTimeRate: 94, avgLateMinutes: 9.5 },
+    });
+    expect(s.completed_trips).toBe(40);
+    expect(s.measured_trips).toBe(32);
+    expect(s.on_time_rate).toBe(94);
+    expect(s).not.toHaveProperty("avg_score");
+    expect(s).not.toHaveProperty("top_drivers");
   });
 
   it("handles unknown reports gracefully", () => {

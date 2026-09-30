@@ -42,7 +42,7 @@ export const REPORT_SCHEMAS = {
   fleet: ["utilization", "totalTrips", "totalDistance"],
   fuel: ["totalLiters", "totalCost", "avgCost"],
   maintenance: ["totalCost", "totalRecords"],
-  drivers: ["totalDrivers", "avgScore"],
+  drivers: ["totalDrivers", "totalCompletedTrips", "punctuality"],
   financial: ["totalCost", "tripCost", "fuelCost", "maintCost", "costPerKm"],
   analytics: ["utilization", "totalTrips", "totalDistance", "totalCost", "costPerKm", "maintDue"],
 };
@@ -62,7 +62,7 @@ export function isValidReportPayload(report, data) {
   if (Object.keys(data).length === 0) return false;
   const schema = REPORT_SCHEMAS[report];
   if (!schema) return true;
-  const carriers = new Set([...schema, "byVehicle", "byCategory", "byType", "topDrivers", "vehicleRoster", "monthlyData", "fuelRecords"]);
+  const carriers = new Set([...schema, "byVehicle", "byCategory", "byType", "vehicleRoster", "monthlyData", "fuelRecords"]);
   return Object.keys(data).some((key) => carriers.has(key) && data[key] !== undefined && data[key] !== null);
 }
 
@@ -120,17 +120,21 @@ export function buildReportSnapshot(report, data) {
           cost: Math.round(num(t?.cost)),
         })),
       };
-    case "drivers":
+    case "drivers": {
+      const p = data?.punctuality || {};
       return {
         ...base,
         total_drivers: Math.round(num(data?.totalDrivers)),
-        avg_score: round1(data?.avgScore),
-        top_drivers: (data?.topDrivers || []).slice(0, 4).map((d) => ({
-          name: d?.name,
-          score: num(d?.score),
-          trips: num(d?.trips),
-        })),
+        completed_trips: Math.round(num(data?.totalCompletedTrips)),
+        measured_trips: Math.round(num(p?.measuredTrips)),
+        on_time_trips: Math.round(num(p?.onTimeTrips)),
+        late_trips: Math.round(num(p?.lateTrips)),
+        unmeasured_trips: Math.round(num(p?.unmeasuredTrips)),
+        override_trips: Math.round(num(p?.overrideTrips)),
+        on_time_rate: p?.onTimeRate == null ? null : Math.round(num(p.onTimeRate)),
+        avg_late_minutes: p?.avgLateMinutes == null ? null : round1(p.avgLateMinutes),
       };
+    }
     case "financial":
       return {
         ...base,
@@ -225,20 +229,36 @@ export function deterministicNarrative(report, data) {
       };
     }
     case "drivers": {
-      const total = Math.round(num(data?.totalDrivers));
-      const avg = round1(data?.avgScore);
-      const top = (data?.topDrivers || [])[0];
-      const low = (data?.topDrivers || []).filter((d) => num(d?.score) < 80).length;
-      const risk = avg < 85 || low > 0;
+      const total = Math.round(num(data?.totalCompletedTrips));
+      const p = data?.punctuality || {};
+      const measured = Math.round(num(p?.measuredTrips));
+      const onTime = Math.round(num(p?.onTimeTrips));
+      const late = Math.round(num(p?.lateTrips));
+      const unmeasured = Math.round(num(p?.unmeasuredTrips));
+      const rate = p?.onTimeRate == null ? null : Math.round(num(p.onTimeRate));
+      // No measurements is not a 0% punctuality — it is an absence of evidence.
+      if (measured === 0 || rate == null) {
+        return {
+          narrative:
+            `Drivers completed ${total} trip${total === 1 ? "" : "s"} during the selected period. ` +
+            "No pickup timing measurements available for this period.",
+          actions: total > 0 ? ["Ensure drivers record the At Pickup arrival so punctuality can be measured."] : [],
+          flag: FLAG.SUCCESS,
+        };
+      }
       return {
         narrative:
-          `${total} driver${total === 1 ? "" : "s"} are on the roster with an average safety performance score of ${avg}/100` +
-          (top ? `; the top performer is ${top.name} (${num(top?.score)}/100).` : "."),
+          `Drivers completed ${total} trips during the selected period. ${measured} had measurable pickup timing, ` +
+          `with ${onTime} arriving within the allowed pickup window, for a fleet punctuality rate of ${rate}%.`,
         actions: [
-          avg < 90 ? "Reinforce defensive-driving training to lift the fleet average score." : "Fleet-wide performance is strong — preserve current coaching cadence.",
-          low > 0 ? `Flag ${low} driver${low === 1 ? "" : "s"} scoring below 80 for a performance review.` : null,
+          late > 0
+            ? `Review the ${late} late pickup${late === 1 ? "" : "s"} for dispatch or traffic patterns worth fixing.`
+            : "No late pickups recorded — preserve the current dispatch timing.",
+          unmeasured > 0
+            ? `${unmeasured} completed trip${unmeasured === 1 ? "" : "s"} had no pickup timing; arrival-stamp coverage can still improve.`
+            : null,
         ].filter(Boolean),
-        flag: risk ? FLAG.WATCH : FLAG.SUCCESS,
+        flag: rate < 80 ? FLAG.WATCH : FLAG.SUCCESS,
       };
     }
     case "financial": {
