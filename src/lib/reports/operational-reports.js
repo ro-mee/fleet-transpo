@@ -239,7 +239,8 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
    LEFT JOIN employees e ON e.employee_id = d.employee_id
    LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
    LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
-  WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
+   WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
+    AND d.deleted_at IS NULL
     AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
   ORDER BY t.end_time, t.trip_id`,
       params

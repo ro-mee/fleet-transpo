@@ -144,4 +144,15 @@ describe("getDriverPerformanceReport punctuality rewrite (Task 3)", () => {
     expect(fleetLateSql).toContain("LEFT JOIN drivers d ON d.driver_id = t.driver_id");
     expect(fleetLateSql).toContain("d.deleted_at IS NULL");
   });
+
+  it("scopes the trip-grain query to non-deleted drivers", async () => {
+    mockReport();
+    await getDriverPerformanceReport("2026-09-01", "2026-09-30");
+    // Query C feeds the workbook/payload `trips` rows. Without the guard it returns
+    // soft-deleted drivers' trips while `details` (Query A) excludes them, so the
+    // Trip Details sheet would list more completed trips than the Summary counts.
+    const tripSql = vi.mocked(query).mock.calls[2][0];
+    expect(tripSql).toContain("LEFT JOIN drivers d ON d.driver_id = t.driver_id");
+    expect(tripSql).toContain("d.deleted_at IS NULL");
+  });
 });

@@ -151,7 +151,13 @@ async function writeWorkbook(book, charts = []) {
       if (typeof cell.numFmt === "string") cell.numFmt = cell.numFmt.replace(/^PHP\b/, '"PHP"');
     }));
     sheet.columns.forEach((column) => {
-      if (typeof column.numFmt === "string") column.numFmt = column.numFmt.replace(/^PHP\b/, '"PHP"');
+      // Guard the assignment: Column.numFmt's setter cascades onto every cell
+      // in the column, so writing back an unchanged value would wipe
+      // per-cell overrides (e.g. a 0.0% KPI cell under a 0.00 column).
+      if (typeof column.numFmt === "string") {
+        const sanitized = column.numFmt.replace(/^PHP\b/, '"PHP"');
+        if (sanitized !== column.numFmt) column.numFmt = sanitized;
+      }
     });
   });
   return addNativeCharts(await book.xlsx.writeBuffer(), book, charts);
@@ -387,93 +393,53 @@ export async function buildFleetUtilizationWorkbook(report, { from, to }) {
   ]);
 }
 
+const punctualityResultText = (result) => result === "late"
+  ? "Late"
+  : result === "override" ? "Override" : result === "on_time" ? "On Time" : "Unmeasured";
+
+const punctualityVarianceText = (row) => {
+  if (row == null || row.variance_minutes == null) return "— Unmeasured";
+  const minutes = Number(row.variance_minutes);
+  const label = row.result === "late" ? "Late" : row.result === "override" ? "Override" : "On Time";
+  return `${minutes > 0 ? "+" : ""}${minutes}m ${label}`;
+};
+
 export async function buildDriverPerformanceWorkbook(report, { from, to }) {
-  const book = workbook("Driver Performance");
-  const summary = baseSummary(book, "Summary", "Driver Performance Scorecard", from, to);
+  const book = workbook("Driver Punctuality");
+  const summary = baseSummary(book, "Summary", "Driver Punctuality", from, to);
   const details = report.details || [];
-  const scored = details.filter((row) => row.total_trips > 0 && row.performance_score > 0);
-  const totalDistance = report.totalDistance || details.reduce((sum, row) => sum + (row.total_distance || 0), 0);
-  kpi(summary, 5, 1, "Driver roster", report.totalDrivers, "0");
-  kpi(summary, 5, 3, "Scored drivers", scored.length, "0");
-  kpi(summary, 5, 5, "Average performance score", report.avgScore || null, "0");
-  kpi(summary, 5, 7, "Completed trips", report.totalTrips, "0");
-  kpi(summary, 9, 1, "Distance recorded", totalDistance, '0.00 "km"');
-  kpi(summary, 9, 3, "Drivers with incidents", details.filter((row) => row.incidents > 0).length, "0");
+  const trips = report.trips || [];
+  const punctuality = report.punctuality || {};
+  const fleetRate = punctuality.onTimeRate == null ? null : punctuality.onTimeRate / 100;
+  kpi(summary, 5, 1, "Drivers", report.totalDrivers, "0");
+  kpi(summary, 5, 3, "Completed", report.totalCompletedTrips, "0");
+  kpi(summary, 5, 5, "Fleet Punctuality", fleetRate, "0.0%");
+  kpi(summary, 5, 7, "On-Time", punctuality.onTimeTrips, "0");
+  kpi(summary, 9, 1, "Late", punctuality.lateTrips, "0");
+  kpi(summary, 9, 3, "Unmeasured", punctuality.unmeasuredTrips, "0");
+  kpi(summary, 9, 5, "Overrides", punctuality.overrideTrips, "0");
   methodology(summary, 14, report.methodology);
 
-  const analysis = book.addWorksheet("Analysis", { properties: { tabColor: { argb: COLORS.blue } } });
-  styleTitle(analysis, "A1:K2", "Driver Rankings & Scorecard", COLORS.blue);
-  analysis.mergeCells("A3:K3");
-  analysis.getCell("A3").value = "Score, rating, on-time rate, distance and cost/km are blank when a driver has no completed-trip measurements. The assessment and rank columns are editable formulas.";
-  analysis.getCell("A3").font = { size: 10, italic: true, color: { argb: COLORS.muted } };
-  analysis.getCell("A3").alignment = { wrapText: true };
-  analysis.addRow([]);
-  analysis.addRow(["Rank", "Driver", "Status", "Completed trips", "Distance (km)", "Performance score", "Customer rating", "On-time rate", "Incidents", "Cost/km", "Assessment"]);
-  styleHeader(analysis.getRow(5), COLORS.blue);
-  details.forEach((item, index) => {
-    const rowNumber = index + 6;
-    const measured = item.total_trips > 0;
-    const line = analysis.addRow([null, safeText(item.name), safeText(item.driver_status || "Unknown"), item.total_trips, measured ? item.total_distance : null, measured ? item.performance_score : null, measured ? item.rating : null, measured ? item.on_time_rate : null, item.incidents, measured ? item.cost_per_km : null, null]);
-    formula(line.getCell(1), `IF(F${rowNumber}="","",RANK.EQ(F${rowNumber},$F$6:$F$${Math.max(6, details.length + 5)}))`, measured && item.performance_score > 0 ? index + 1 : null, "0");
-    formula(line.getCell(11), `IF(OR(D${rowNumber}=0,F${rowNumber}=""),"Insufficient data",IF(F${rowNumber}>=70,"Strong",IF(F${rowNumber}>=40,"Monitor","Needs review")))`, measured && item.performance_score != null ? (item.performance_score >= 70 ? "Strong" : item.performance_score >= 40 ? "Monitor" : "Needs review") : "Insufficient data");
-    line.getCell(6).numFmt = "0.0";
-    line.getCell(7).numFmt = "0.0";
-    line.getCell(8).numFmt = "0.0%";
-    line.getCell(10).numFmt = 'PHP #,##0.00';
-  });
-  finishTable(analysis, [9, 26, 18, 16, 16, 18, 18, 14, 12, 14, 18], 5, Math.max(5, details.length + 5));
-  if (details.length) {
-    addDataBar(analysis, `F6:F${details.length + 5}`, COLORS.blue);
-    addColorScale(analysis, `H6:H${details.length + 5}`);
-    addIconSet(analysis, `I6:I${details.length + 5}`);
-    textStatus(analysis, `K6:K${details.length + 5}`, [["Strong", "DCFCE7", COLORS.green], ["Monitor", "FEF3C7", COLORS.amber], ["Needs review", "FEE2E2", COLORS.red], ["Insufficient data", "F8FAFC", COLORS.muted]]);
-  } else noData(analysis, "A6:K8", "No drivers in this period.");
-
-  const summaryStart = 19;
-  section(summary, summaryStart, 8, "Top driver performance", COLORS.blue);
-  const summaryHeader = summary.addRow(["Rank", "Driver", "Status", "Completed trips", "Distance (km)", "Score", "On-time rate", "Assessment"]);
-  styleHeader(summaryHeader, COLORS.blue);
-  details.slice(0, 10).forEach((item, index) => {
-    const target = summary.addRow(Array.from({ length: 8 }, () => null));
-    const sourceRow = index + 6;
-    const measured = item.total_trips > 0;
-    const values = [index + 1, item.name, item.driver_status, item.total_trips, measured ? item.total_distance : null, measured ? item.performance_score : null, measured ? item.on_time_rate : null, measured && item.performance_score != null ? (item.performance_score >= 70 ? "Strong" : item.performance_score >= 40 ? "Monitor" : "Needs review") : "Insufficient data"];
-    values.forEach((value, column) => formula(target.getCell(column + 1), `'Analysis'!${String.fromCharCode(65 + column)}${sourceRow}`, value, column === 6 ? "0.0%" : null));
-  });
-  if (details.length) {
-    styleBody(summary, summaryStart + 2, summaryStart + details.slice(0, 10).length + 1);
-    addDataBar(summary, `F${summaryStart + 2}:F${summaryStart + details.slice(0, 10).length + 1}`, COLORS.blue);
-  } else noData(summary, `A${summaryStart + 1}:H${summaryStart + 3}`, "No drivers in this period.");
-
-  const trends = book.addWorksheet("Trends", { properties: { tabColor: { argb: COLORS.teal } } });
-  styleTitle(trends, "A1:D2", "Driver Performance Trends", COLORS.teal);
-  trends.addRow([]);
-  trends.addRow(["Month", "Completed trips", "Distance (km)", "Average km/trip"]);
-  styleHeader(trends.getRow(4), COLORS.teal);
-  (report.monthlyData || []).forEach((row, index) => {
-    const rowNumber = index + 5;
-    const line = trends.addRow([row.month, row.trips, row.distance, null]);
-    formula(line.getCell(4), `IF(B${rowNumber}=0,"",C${rowNumber}/B${rowNumber})`, row.trips ? row.distance / row.trips : null, "0.00");
-  });
-  finishTable(trends, [16, 18, 16, 18], 4, Math.max(4, (report.monthlyData || []).length + 4));
-  if (report.monthlyData?.length) addDataBar(trends, `C5:C${report.monthlyData.length + 4}`, COLORS.teal);
-  else noData(trends, "A5:D7", "No completed-trip trend in this period.");
-
-  detailSheet(book, "Driver Details", ["Driver ID", "Driver", "Status", "Completed trips", "Distance (km)", "Performance score", "Customer rating", "On-time rate", "Incidents", "Cost/km"], details.map((item) => [item.driver_id, safeText(item.name), safeText(item.driver_status || "Unknown"), item.total_trips, item.total_trips ? item.total_distance : null, item.total_trips ? item.performance_score : null, item.total_trips ? item.rating : null, item.total_trips ? item.on_time_rate : null, item.incidents, item.total_trips ? item.cost_per_km : null]), [12, 26, 18, 16, 16, 18, 18, 14, 12, 14]);
+  detailSheet(book, "Driver Details", ["Driver", "Status", "Completed", "Measured", "On-Time", "Late", "Punctuality", "Avg Late", "Max Late"], details.map((item) => [safeText(item.name), safeText(item.driver_status || "Unknown"), item.completed_trips, item.measured_trips, item.on_time_trips, item.late_trips, item.punctuality_rate == null ? "—" : item.punctuality_rate / 100, item.avg_late_minutes ?? "—", item.max_late_minutes ?? "—"]), [26, 14, 14, 14, 14, 14, 16, 14, 14]);
   const driverDetails = book.getWorksheet("Driver Details");
-  driverDetails.getColumn(8).numFmt = "0.0%";
-  driverDetails.getColumn(10).numFmt = 'PHP #,##0.00';
-  addDataBar(driverDetails, `F2:F${Math.max(2, driverDetails.rowCount)}`, COLORS.blue);
-  detailSheet(book, "Incidents", ["Incident ID", "Date", "Driver", "Plate", "Type", "Severity", "Status", "Expense", "Description"], (report.incidents || []).map((row) => [row.incident_id, instant(row.incident_date), safeText(row.driver_name), safeText(row.plate_number), safeText(row.incident_type), safeText(row.severity), safeText(row.status), row.expense_amount == null ? null : number(row.expense_amount), safeText(row.description)]), [12, 20, 24, 15, 24, 14, 14, 16, 42]);
-  const incidents = book.getWorksheet("Incidents");
-  incidents.getColumn(2).numFmt = "yyyy-mm-dd hh:mm";
-  incidents.getColumn(8).numFmt = 'PHP #,##0.00';
-  addDataBar(incidents, `H2:H${Math.max(2, incidents.rowCount)}`, COLORS.red);
-  return writeWorkbook(book, [
-    nativeChart("Summary", "Driver performance score", `B21:B${20 + Math.min(10, details.length)}`, Math.min(10, details.length), [chartSeries("F20", `F21:F${20 + Math.min(10, details.length)}`, COLORS.blue)], { direction: "bar", numberFormat: "0.0", anchor: { from: { col: 9, row: 18 }, to: { col: 17, row: 34 } } }),
-    nativeChart("Analysis", "On-time completion rate by driver", `B6:B${details.length + 5}`, details.length, [chartSeries("H5", `H6:H${details.length + 5}`, COLORS.teal)], { direction: "bar", numberFormat: "0%", anchor: { from: { col: 12, row: 3 }, to: { col: 20, row: 19 } } }),
-    nativeChart("Trends", "Monthly completed trips", `A5:A${(report.monthlyData || []).length + 4}`, (report.monthlyData || []).length, [chartSeries("B4", `B5:B${(report.monthlyData || []).length + 4}`, COLORS.teal)], { type: "line", numberFormat: "#,##0", anchor: { from: { col: 5, row: 3 }, to: { col: 13, row: 19 } } }),
-  ]);
+  driverDetails.getColumn(7).numFmt = "0.0%";
+  driverDetails.getColumn(8).numFmt = "0.0";
+  driverDetails.getColumn(9).numFmt = "0.0";
+  if (details.length) addDataBar(driverDetails, `C2:C${Math.max(2, driverDetails.rowCount)}`, COLORS.blue);
+  else noData(driverDetails, "A2:I4", "No completed trips in this period.");
+
+  detailSheet(book, "Trip Details", ["#id", "Driver", "Scheduled Pickup", "Actual At Pickup", "Variance ±m", "Result"], trips.map((row) => [row.trip_id, safeText(row.driver_name), row.scheduled_pickup ? instant(row.scheduled_pickup) : "—", row.at_pickup_at ? instant(row.at_pickup_at) : "—", punctualityVarianceText(row), punctualityResultText(row.result)]), [12, 26, 20, 20, 16, 14]);
+  const tripDetails = book.getWorksheet("Trip Details");
+  tripDetails.getColumn(3).numFmt = "yyyy-mm-dd hh:mm";
+  tripDetails.getColumn(4).numFmt = "yyyy-mm-dd hh:mm";
+  if (!trips.length) noData(tripDetails, "A2:F4", "No completed trips in this period.");
+
+  const charts = [];
+  if (details.length) {
+    charts.push(nativeChart("Summary", "Completed trips by driver", `A2:A${details.length + 1}`, details.length, [chartSeries("C1", `C2:C${details.length + 1}`, COLORS.blue)], { sourceSheet: "Driver Details", direction: "bar", numberFormat: "#,##0", anchor: { from: { col: 9, row: 14 }, to: { col: 17, row: 30 } } }));
+    charts.push(nativeChart("Driver Details", "Punctuality by driver", `A2:A${details.length + 1}`, details.length, [chartSeries("G1", `G2:G${details.length + 1}`, COLORS.teal)], { direction: "bar", numberFormat: "0.0%", anchor: { from: { col: 10, row: 3 }, to: { col: 18, row: 19 } } }));
+  }
+  return writeWorkbook(book, charts);
 }
 
 function costMonthly(report) {
@@ -827,7 +793,7 @@ export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }
   kpi(summary, 9, 1, "Fuel cost", financial?.fuelRecords?.length ? financial.fuelCost : null, 'PHP #,##0.00');
   kpi(summary, 9, 3, "Maintenance cost", financial?.maintenanceRecords?.length ? financial.maintCost : null, 'PHP #,##0.00');
   kpi(summary, 9, 5, "Total operating cost", executiveFinancialRows ? financial.totalCost : null, 'PHP #,##0.00');
-  kpi(summary, 9, 7, "Average driver score", drivers?.avgScore || null, "0");
+  kpi(summary, 9, 7, "Driver punctuality", drivers?.punctuality?.onTimeRate == null ? null : drivers.punctuality.onTimeRate / 100, "0.0%");
   methodology(summary, 14, "This workbook combines the same Fleet Activity, Fuel Consumption, Financial Summary and Driver Performance payloads used by the Analytics page. Fuel efficiency is estimated only when the fuel report's minimum-distance rule is met; missing measurements remain blank.");
   section(summary, 19, 3, "Operating cost mix", COLORS.blue);
   const costMixHeader = summary.addRow(["Component", "Recorded cost", "Share"]);
@@ -850,17 +816,19 @@ export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }
   analysis.addRow([]);
   analysis.addRow(["Signal", "Value", "Unit / rule", "Status"]);
   styleHeader(analysis.getRow(4), COLORS.blue);
+  const driverRate = drivers?.punctuality?.onTimeRate == null ? null : drivers.punctuality.onTimeRate / 100;
   const signals = [
     ["Current in-use rate", fleet?.fleetSize ? fleet.utilization / 100 : null, "Current fleet status", fleet?.fleetSize ? "Available" : "Insufficient data"],
     ["Trip records", fleet?.totalTrips ?? null, "Selected start-time window", fleet?.totalTrips != null ? "Available" : "Insufficient data"],
     ["Estimated fuel efficiency", fuel?.estimatedEfficiency ?? null, "Completed distance / eligible fuel; 50 km minimum", fuel?.estimatedEfficiency == null ? "Insufficient data" : "Estimated"],
     ["Cost per km", financial?.costPerKm && financial.totalDistance ? financial.costPerKm : null, "Recorded fuel + maintenance / distance", financial?.totalDistance ? "Derived" : "Insufficient data"],
-    ["Average driver score", drivers?.avgScore || null, "Scored completed trips", drivers?.avgScore ? "Derived" : "Insufficient data"],
+    ["Driver punctuality", driverRate, "On-time / measured pickups", driverRate == null ? "Insufficient data" : "Derived"],
   ];
   signals.forEach((row) => analysis.addRow([safeText(row[0]), row[1] == null ? "" : row[1], safeText(row[2]), safeText(row[3])]));
   finishTable(analysis, [28, 18, 48, 20], 4, 4 + signals.length);
   analysis.getColumn(2).numFmt = "0.00";
   analysis.getCell("B5").numFmt = "0.0%";
+  analysis.getCell("B9").numFmt = "0.0%";
   if (signals.length) addColorScale(analysis, `B5:B${4 + signals.length}`);
   textStatus(analysis, `D5:D${4 + signals.length}`, [["Available", "DCFCE7", COLORS.green], ["Derived", "DBEAFE", COLORS.blue], ["Estimated", "FEF3C7", COLORS.amber], ["Insufficient data", "F8FAFC", COLORS.muted]]);
 
@@ -888,8 +856,9 @@ export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }
   detailSheet(book, "Vehicle Activity", ["Rank", "Vehicle", "Plate", "Trip records", "Distance (km)", "Current status"], (fleet?.byVehicle || []).map((row, index) => [index + 1, safeText(row.vehicle), safeText(row.plate), row.trips, row.distance, safeText(row.vehicle_status)]), [9, 28, 15, 14, 16, 20]);
   const vehicles = book.getWorksheet("Vehicle Activity");
   addDataBar(vehicles, `E2:E${Math.max(2, vehicles.rowCount)}`, COLORS.blue);
-  detailSheet(book, "Driver Leaderboard", ["Rank", "Driver", "Score", "Completed trips", "Rating"], (drivers?.topDrivers || []).map((row, index) => [index + 1, safeText(row.name), number(row.score), row.trips, row.rating == null ? null : number(row.rating)]), [9, 28, 14, 16, 14]);
+  detailSheet(book, "Driver Leaderboard", ["Rank", "Driver", "Completed", "Punctuality", "On-Time", "Late"], (drivers?.details || []).map((row, index) => [index + 1, safeText(row.name), row.completed_trips, row.punctuality_rate == null ? "—" : row.punctuality_rate / 100, row.on_time_trips, row.late_trips]), [9, 28, 14, 14, 14, 14]);
   const leaderboard = book.getWorksheet("Driver Leaderboard");
+  leaderboard.getColumn(4).numFmt = "0.0%";
   addDataBar(leaderboard, `C2:C${Math.max(2, leaderboard.rowCount)}`, COLORS.blue);
   return writeWorkbook(book, [
     nativeChart("Summary", "Recorded operating cost mix (PHP)", "A21:A22", 2, [chartSeries("B20", "B21:B22", COLORS.blue)], { numberFormat: '"PHP" #,##0', anchor: { from: { col: 5, row: 18 }, to: { col: 13, row: 33 } } }),
