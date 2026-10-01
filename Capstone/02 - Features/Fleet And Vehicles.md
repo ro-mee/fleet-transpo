@@ -59,3 +59,24 @@ On the vehicle form (`fleet/vehicles/new`), attaching an OR/CR or Insurance file
 ## Related
 
 [[Dispatch]] · [[Maintenance]] · [[Fuel]] · [[UVVRP Number Coding]] · [[Feature Index]]
+
+## "Vehicle edit category and license class are blank" — 2026-10-01 (data, not a bug)
+
+Reported as a prefill failure on the vehicle edit form. It is not one.
+
+Read-only live probe on 2026-10-01 (`scratch/qa-remediation-baseline.mjs`):
+
+```
+vehicles (non-deleted): 21 total | 16 with NULL category_id | 20 with NULL required_license_class
+```
+
+`GET /api/vehicles/[id]` selects `v.*` (both columns included), and the form's `form.reset()` assigns exactly what the row holds (`category_id: vehicle.category_id || undefined`, `required_license_class: vehicle.required_license_class?.toUpperCase() || ""`). The controls were truthfully showing a column the system had **never recorded** for most of the fleet. This is the same dataset noted in the 2026-09-30 driver/licence review entry: 20/21 active vehicles lack a required license class.
+
+There was, however, a real presentation defect: an empty control is indistinguishable from a failed prefill, so the next reader reports the same symptom again. The form now distinguishes the two states and names the one it is in:
+
+- the trigger reads **"Not recorded — select a category"** / **"Not recorded — choose the code on the registration"** instead of the generic placeholder, and
+- a hint appears beneath it: *"No category is stored on this vehicle — this control was never prefilled with one. Pick one and save to record it."* / *"No LTO code is stored on this vehicle, so it has to be chosen before this record can be saved."*
+
+Both notices are computed from the **loaded row** (`storedCategoryMissing` / `storedLicenseMissing`), so a vehicle that *does* have the values shows neither, and neither appears while the row is still loading. The LTO code was already `required` in `vehicleSchema` and stays required — a deliberate selection is enforced on save, and the hint now explains why. `category_id` remains optional in the schema; making it mandatory would block unrelated edits on 16 vehicles, and that is a product decision, not a bug fix.
+
+**Verification.** `src/app/(dashboard)/fleet/vehicles/new/page.test.js` (5 tests) renders the real form with a mocked query and pins: the missing-value notice and placeholder for each column, the notice being conditional on the loaded row (none while loading, none for a populated row), and each column being flagged independently. (The prefilled *values* land through `form.reset` inside an effect, which a static render does not run — what these tests assert is that the form never reports a value as missing when the record has one.)

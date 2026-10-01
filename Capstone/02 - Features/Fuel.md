@@ -267,3 +267,23 @@ Save one Petron and one Skyewin/Shell scan against an active trip, then verify t
 ## Related
 
 [[Fleet And Vehicles]] · [[DEBT Services Folder Mixes Two Concerns]] · [[Feature Index]] · [[Reports]]
+
+## Export exports the view you are looking at — 2026-10-01 (implemented)
+
+The header **Export CSV** button always exported fuel **receipt claims**, whichever of the three views (Registry / Monthly Budget / Permits) was on screen — and it did it wrong. `getFuelRecords` answers in paginated mode with an envelope, `{ rows, total, counts }`, and that object was handed straight to `exportToCSV`, which tests `data?.length` — `undefined` on an object — and returns `{ count: 0 }` without writing a file. Clicking Export with **45 permits** visible produced no download and a toast reading *"Exported undefined records"*.
+
+Confirmed against live on 2026-10-01: `fuelrequests` = **45** rows, `fuelrecords` = **1**. The two lists are different entities and the export could match neither.
+
+`src/lib/fuel/export-targets.js` now yields one target per view, each with its own `entity`, button `label`, `filename`, `columns` and `collect()`:
+
+| View | Exports | Endpoint |
+|---|---|---|
+| Registry | receipt claims | `GET /api/fuel` (through `collectPagedRows`, so **every** page of the active filter, not page 1) |
+| Monthly Budget | monthly budget rows | `GET /api/fuel/allocations` |
+| Permits | fuel permits | `GET /api/fuel/requests` |
+
+`collectPagedRows()` lives in `src/lib/export.js` beside `exportToCSV` and keeps the envelope-unwrapping in one place: it reads `rows`, walks pages until `total` is reached, stops on an empty page (a wrong `total` cannot spin), honours a `maxPages` bound, and passes a bare array through for endpoints that do not paginate. The button in the header names its entity ("Export receipt claims" / "Export permits" / "Export monthly budget") so the label can no longer disagree with the file, and an empty filter produces a warning instead of a silent no-op.
+
+The old `pageSize: total` call was also an unbounded single query; the paged walk replaces it.
+
+**Verification.** `src/lib/export.test.js` (8 tests) — including the root-cause pin that `exportToCSV` refuses a paginated envelope and reports `count: 0` — and `src/lib/fuel/export-targets.test.js` (7 tests), which asserts the 45-permit case explicitly: the permits view must call the permits endpoint, must not touch `getFuelRecords`, and must carry the active status/search filter through every page of the registry walk.

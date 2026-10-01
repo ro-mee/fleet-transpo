@@ -608,3 +608,16 @@ Verified with mobile test suite: 46 test files passed, 525 tests passed in `mobi
 ## Related
 
 [[employees]] · [[driver_vehicle_assignments]] · [[Mobile Architecture]] · [[Driver Consent]] · [[Feature Index]]
+
+## Driver Performance "All Time" — 2026-10-01 (verified, no change)
+
+Reported as *"All Time shows 0 completed trips while shorter periods show 4"*. It is **not reproducible at the API layer**, and the page needed no formula change. Read-only probe against live on 2026-10-01:
+
+| Window | `getDriverPerformanceReport().totalCompletedTrips` |
+|---|---|
+| `1970-01-01 → 2100-01-01` (All Time) | 4 |
+| trailing 30 days | 4 |
+
+Completed trips by `end_time` without the driver join: 6 all-time vs 4 for 30 days. So All Time already contains every shorter window, and `resolvePresetRange("all")` spans the epoch to `2100-01-01` at both ends.
+
+What *was* worth pinning is the invariant, now covered by tests: `resolvePresetRange("all")` must contain `30d`/`90d`/`year`; the page must render the server's `totalCompletedTrips` unchanged (it must never re-derive a total for the `all` preset); and every `getDriverPerformanceReport` query must keep the same half-open `end_time >= $1::date AND < ($2::date + 1)` predicate so widening `$1/$2` can only add rows. The genuine cross-report inconsistency — different reports windowing on different date columns (`start_time` for fleet utilisation, `end_time` here, `maintenance_date` for maintenance, `created_at` for request volume) — is named in [[Reports]] rather than papered over.

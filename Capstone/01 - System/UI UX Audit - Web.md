@@ -577,3 +577,16 @@ no case for them either. Findings and fixes (`calendar/page.js`,
   5. **Dashboard Dropdown Alignment:** Converted all remaining raw `<select>` elements in `/maintenance` (modal form), `/system/errors` (source filter), `/system/audit` (action and target filters), and `/settings/ai` (provider and model selects) to unified Radix `Select` / `FloatingSelect`.
 - **Verification:** Vitest test suite (`date-picker.test.js` 2/2 green), ESLint clean across all modified files, 0 raw `<select>` occurrences remaining in application code.
 
+
+
+### Admin Operations Center audit (2026-10-01, impeccable critique+audit + ui-ux-pro-max)
+
+- Target: admin Operations Center (role-dashboard.jsx AdminDashboard, operations-cards.jsx RequestPipelineCard + panels, app-shell.jsx, stat-card.jsx, hero-header.jsx). Mode: Operate.
+- Method: single-context inline review + detect.mjs CLI on dashboard files (32 findings: 28x design-system-font-size advisory, 2x gray-on-color warning at operations-cards.jsx:412, 2x design-system-color advisory). No browser overlay.
+- Scores: heuristics ~27/40 (Acceptable/Good boundary); audit ~12/20 (Acceptable). Cognitive load 3/8 fails = moderate.
+- P1-1 Volume-sorted attention strip re-sorts 6 cells by count on every poll, positions jump; fix with fixed severity-ordered slots (layout).
+- P1-2 Request Journey weight: hidden-lg 7-col SVG grid + separate mobile flow, 192px stage cards with 10-11px microcopy below ramp (distill, typeset).
+- P1-3 Stage color drift vs strict status palette + 700-ink rule; slate-on-tint washout (colorize).
+- P2-4 Inverted hero competes with attention strip (quieter). P2-5 Five stacked decision zones, no single primary CTA (clarify).
+- Kept: honest FeedState states, tabular-nums, focus-visible rings + aria-labels, LivePulseBeacon discipline, StatCard link semantics.
+- Verification: source review + detector CLI only; no code changed; browser QA pending.

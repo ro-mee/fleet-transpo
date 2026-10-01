@@ -5,7 +5,7 @@ tags: [status, dashboard]
 source:
   - "(whole repository)"
   - "live DB dnxuphhxlzidvwtdqqkq"
-last_verified: 2026-09-02
+last_verified: 2026-10-01
 ---
 
 # Current State
@@ -22,7 +22,7 @@ last_verified: 2026-09-02
 - **UVVRP number coding:** live and set to `block` mode for Manila.
 - **Double-booking prevention:** app check + DB trigger. See [[ADR-006 Dual Double-Booking Guard]].
 - **CI/security baseline:** GitHub Actions now runs install, lint, all tests, migration filename validation, and the production build. CORS, account role assignment, unexpected API errors, and vehicle-image uploads have explicit guards and tests.
-- **Test suite:** **826/826 tests across 81 files** pass (repo root + `mobile/lib` unit tests; counted at PR #4 completion, 2026-09-08). Temporary implementation checks were removed after verification; the retained suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
+- **Test suite:** **3489 passed / 6 failed across 297 files** (repo root + `mobile/lib` unit tests; measured 2026-10-01). The six failures are the **pre-existing** set recorded on 2026-10-01 after the `feature/driver-info-edit-sync` merge (`auth-session` counter cap, `no-legacy-role` `system_admin` scan, `upload-storage` licence-signing scan, `standby` ×2, `driver-assignments` verified pairing) and are unrelated to current work. The retained suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
 - **Schema is recorded in the repo** — `schema.sql` is checked in, so drift is visible in any diff, and a ledger records what has been applied. Rebuilding a fresh DB is `schema.sql` + `migrate.mjs baseline`, **not** `db:up` — and that path is untested. The runner hashes LF-normalized content (EOL churn can't trip it) and offers `db:rebaseline` for the rare deliberate re-record. See [[Migrations]].
 
 ## What is broken — CONFIRMED
@@ -31,6 +31,10 @@ last_verified: 2026-09-02
 |---|---|---|
 | ~~A live DB password sits in git history~~ | ~~**1**~~ | **CLOSED 2026-08-11 — rotated.** The leaked value is now rejected by the server. History still holds it; it is worthless. → [[SEC Database Password In Git History]] |
 | CI lint currently uses a warning ceiling while React Compiler/UI warnings are paid down | — | [[Bugs]] |
+| ~~AI Insights labelled raw `vehicle_status='Available'` as “ready for guest dispatch”~~ | ~~**Medium**~~ | **CLOSED 2026-10-01** — the card now names the status count it measures and points at Resource Availability for dispatchability; the page count reads *Active Insights*. → [[AI Advisory]] |
+| ~~Booking cancellation UI promised Booking notification while the only working gateway is mock~~ | ~~**Medium**~~ | **CLOSED 2026-10-01** — `emitTransportStatus`/`advanceReservation`/the cancel route now return the delivery result and both dialogs + toasts report it; the dialog says the notice is *queued*, not delivered. **Capability gap remains:** a real HTTP Booking gateway does not exist. → [[Request Lifecycle]] |
+| ~~AI Insights omitted incidents while claiming all core alerts were active~~ | ~~**Medium**~~ | **CLOSED 2026-10-01** — the deterministic-mode copy names its real coverage and links to the Incidents registry. **Product decision open:** whether this feed should ingest incident SLA findings, or the escalator should page on Moderate too. → [[Manual Functional Testing Follow-up Audit]] |
+| ~~Predictive Maintenance called computed predictions “Health Records”~~ | ~~**Low**~~ | **CLOSED 2026-10-01** — heading is now “Vehicle Health Predictions (N of total)”. The reported default-view zero was never reproduced (live endpoint: 21 predictions). → [[Maintenance]] |
 
 **Live Monitoring & Delay Intelligence — PR #4 (2026-09-08):** deterministic operational intelligence over live trips (NOT the AI copilot — that is PR #5). While a trip is in the live window the system answers *okay pa ba? male-late ba? nalilihis ba? maaapektuhan ba ang susunod na assigned trip?* — and **recommends only**: nothing in this layer mutates a trip, dispatch, or assignment.
 
