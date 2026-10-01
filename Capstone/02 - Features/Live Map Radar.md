@@ -75,3 +75,69 @@ Standby poll moved to 30 s. New `Available resources` card (verified standby pin
 ## Editor-only TS noise fix — 2026-09-16
 
 VSCode reported `TS1128 Declaration or statement expected` at the tail of `mobile/components/TomTomMap.js` (and the earlier 180-error cascade on `DriverHomeCards.jsx`). Root cause is project config, not code: the repo's only `jsconfig.json` sits at the root with no `jsx` flag, so the TS server parsed mobile JSX without JSX support. Added editor-only `mobile/jsconfig.json` (`jsx: react-jsx`, `checkJs: false`) so `mobile/` is its own TS project. No runtime effect (Metro/ESLint ignore jsconfig). Verified: `tsc -p mobile/jsconfig.json` 0 errors, ESLint clean on `TomTomMap.js` + `DriverHomeCards.jsx`. Reload VSCode window to clear stale Problems.
+
+## Driver Companion Map Tab Empty States (2026-09-30, implemented)
+
+Added dedicated, status-aware empty states to the mobile Map tab (`mobile/app/(app)/(tabs)/map.js`) when the driver is not in an active operational state, matching the FleetOps Driver Companion dark visual design language (`#040D0A`, emerald glow accents `#34D399` / `#10B981`):
+
+- **Supported Empty States (3):**
+  1. **Off Duty**: Status Pill `OFF DUTY`, Title `You’re Off Duty`, Description `Live trip tracking becomes available when you start your shift.`, vector icon `map-marker-off`.
+  2. **Rest Day**: Status Pill `REST DAY`, Title `Today is Your Rest Day`, Description `No operational map or trip tracking is needed today.`, vector icon `calendar-minus`.
+  3. **Currently on Leave**: Status Pill `ON LEAVE`, Title `You’re Currently on Leave`, Description `Live trip tracking will be available when you return to active duty.`, vector icon `calendar-blank-outline` with diagonal slash bar.
+
+- **Visual Hierarchy & Shared Architecture:**
+  - **Top App Header**: FleetOps logo badge with car icon (`#34D399`), "FleetOps" title, "DRIVER COMPANION" uppercase tracking subtitle, circular notification bell button linking to `/notifications`.
+  - **Atmospheric Background**: Deep dark teal/black gradient canvas (`#06130E` to `#020504`) with subtle abstract curved emerald wave ribbons (`borderWidth: 1.5`, sweeping gradient arcs) matching the companion design system.
+  - **Centered Icon Card**: Squircle container (110x110dp, `borderRadius: 32`) with emerald neon edge highlights (`rgba(52, 211, 153, 0.45)`), soft ambient outer halo glow (`rgba(16, 185, 129, 0.16)`), and crisp white vector glyphs.
+  - **Status Pill**: Capsule badge (`borderRadius: 22`) with glowing green pulse dot (`#34D399`) and bold tracking text.
+  - **Pull-to-Refresh**: Wrapped in `ScrollView` with `RefreshControl` tied to `handleEmptyRefresh` to trigger `duty.refresh()` and `loadTrip()`, allowing drivers to re-evaluate their duty state immediately on-demand.
+  - **Bottom Navigation**: Preserves active Map tab on `CurvedPillTabBar` without any parallel screens or duplicate route stacks.
+
+- **Operational Safety Gates:**
+  - Zero active map, stale routes, previous trip lines, fake trip states, or pickup/destination markers rendered during empty states.
+  - Location watching and trip polling intervals are suppressed while in an empty state to conserve device battery and network bandwidth.
+  - Seamlessly re-engages GPS watching and trip polling as soon as the driver checks in or starts an active trip.
+  - Tested and verified: `mobile/lib/map-empty-state.test.js` (8 tests passing), ESLint clean on `map.js`.
+
+## Cross-State Map UI/UX Consistency & Functional Verification (2026-09-30, implemented)
+
+Executed a comprehensive UI/UX audit and functional verification across all map states based on `impeccable`, `ui-ux-pro-max`, and `high-end-visual-design` principles:
+
+1. **State Audit & Visual Uniformity**:
+   - **Standby Radar Header (`standbyHeader`) Floating Card**: Wrapped naked floating text in a tactile clay capsule card (`styles.standbyHeaderCard`, `mats.compactShade`, `borderRadius: 20`, padding, subtle border), guaranteeing contrast across both light ivory and dark OLED map tiles while establishing spatial rhythm matching the bottom sheet and legend cards.
+   - **Real-Time Notification Banner (`toastBanner`) Safe Layout**: Removed hardcoded `top: 104` and coupled positioning with `insets.top + 92`, eliminating layout collision with the standby header on devices with tall dynamic islands or camera notches.
+   - **Informative GPS Loading State**: Enhanced the centered `globe.json` loading screen with explicit contextual status feedback (`Acquiring GPS position…` with `type.bodyMd`, `colors.onSurfaceVariant`), satisfying UI/UX Pro Max Priority 2 (feedback on wait states).
+   - **Permission Denied State Alignment**: Elevated `permissionDenied` container with safe area insets (`paddingTop: Math.max(insets.top, 24) + 16`) and wrapped the location glyph inside a nested double-bezel clay tile (`permIconWrap` + `permIconInner`), harmonizing with the companion empty-state design architecture.
+   - **WebView Turn-by-Turn Nav Header Safe Area**: Added dynamic `topInset` prop to `TomTomMap.js` (passing `Math.max(insets.top, 20) + 10`), eliminating camera notch / dynamic island occlusion on the HTML turn-by-turn banner.
+
+2. **Functional Wiring**:
+   - **Passenger Call Action**: Replaced the previously non-functional passenger call icon in the expanded active trip sheet with an active, accessible handler (`Linking.openURL('tel:' + activeTrip.passenger_phone)` if phone exists; graceful `AppAlert.alert("Contact Unavailable", ...)` fallback when omitted from the reservation; tactile scale feedback `pressed ? 0.95 : 1`).
+   - **Trip State Machine**: Verified all 11 backend route contracts (`/accept`, `/start`, `/pickup-check`, `/at-pickup`, `/onboard`, `/enroute`, `/destination-check`, `/dropoff`, `/complete`), departure window clock gates, arrival proximity override flows, and offline sync queuing (`wasQueued`).
+
+3. **Verification**:
+    - ESLint: zero errors, zero warnings on `mobile/app/(app)/(tabs)/map.js` and `mobile/components/TomTomMap.js`.
+    - Unit tests: **44 test files passed, 514 tests passed (100%)** in `mobile/lib/`.
+    - Full repository test suite: **257 test files passed, 3,266 tests passed (100%)**.
+
+## Map focus-effect infinite loop fix (2026-09-30, implemented)
+
+`mobile/app/(app)/(tabs)/map.js` crashed with `Maximum update depth exceeded` and flooded `GET /api/mobile/driver/duty` (~120 ms cadence). Root cause: the `useFocusEffect(useCallback(..., [loadTrip, emptyStateKey, duty]))` depended on the whole `duty` object, but `useDuty()` returns a fresh spread object every render — so the expo-router focus effect (a `React.useEffect` on the callback identity) re-ran on every render while focused, calling `setDriverLocation({...})` + `duty.refresh()` (both setState) and re-rendering into itself. Fix: depend only on the stable `duty.refresh` (`const dutyRefresh = duty?.refresh`), same for `handleEmptyRefresh`, and re-seed the driver marker with a functional set + equality bail-out so an unchanged fix returns `prev` instead of minting a new object.
+
+Verified: ESLint clean on `mobile/app/(app)/(tabs)/map.js`.
+
+## Poll-churn follow-ups (2026-09-30, implemented)
+
+Two render-churn issues found during the post-fix audit, neither a crash:
+
+1. **15 s poll re-rendered forever.** `loadTrip` called `setActiveTrip` / `setNearbyTrips` with freshly-minted objects on every poll, so the whole screen (plus radar markers and WebView props) re-rendered every 15 s even when nothing changed. Both setters are now functional with a `samePayload` deep-equal bail-out (serialized comparison — drift-proof against new server fields, trivial cost at this payload size), so an unchanged poll keeps the previous references and renders nothing.
+2. **`mapIntroActiveLayers` memo — no change needed.** Suspected `mats.clayTile` / `colors` were fresh per render; verified they are stable (`clayMaterials()` returns shared module objects, `useTheme()` value is memoized and `colors` is a shared palette). Its only real churn source was `activeTrip` identity, which fix 1 resolves.
+
+Verified: ESLint clean; `standby-map` (1), `map-empty-state` (8) and `coach-marks` (142) suites pass — 151 tests.
+
+## Light & Dark Theme Adaptability for Map Empty States (2026-09-30, implemented)
+
+Made the Map tab empty states (`Off Duty`, `Rest Day`, `On Leave`) dynamically responsive to device color schemes (`useColorScheme()` light / dark):
+- **Dark Appearance:** Deep teal/black canvas (`#040D0A`), sweeping darker emerald wave arcs, neon glowing emerald icon squircle (`rgba(52, 211, 153, 0.45)` border), glowing badge `#34D399` with dark badge surface, white headline (`#FFFFFF`), and muted body copy (`#A7F3D0`).
+- **Light Appearance:** Crisp, clean mint-white canvas (`#F4F7F5` to `#F0FDF4`), soft forest ribbon strokes (`rgba(16, 185, 129, 0.18)`), mint-accented clay squircle (`#E6F4EA` surface, `#86EFAC` border, soft outer shadow), `#15803D` vector glyph, forest green badge pill (`#DCFCE7` surface, `#15803D` text), deep evergreen headline (`#17382F`), and readable secondary text (`#4B6358`).
+- **Consistent Tokens via `emptyTheme`:** Extracted dynamic color tokens into a clean memoized object (`emptyTheme`) to prevent inline conditional sprawl and guarantee immediate response to OS-level theme toggles without tearing.
+- **Verification:** ESLint clean on `mobile/app/(app)/(tabs)/map.js`, Vitest `mobile/lib/map-empty-state.test.js` passing.

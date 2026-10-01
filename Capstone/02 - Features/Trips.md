@@ -47,29 +47,31 @@ start.
 - Config: `departureBufferMinutes` / `earlyStartAllowanceMinutes` in `src/lib/dispatch-policy.js` (defaults 10/10), overridable via `system_settings.dispatch_policy`.
 - Distinct from the **dispatch safety buffer** (`travel-buffer.js`): that answers "can this resource be *assigned* to the next booking?"; this answers "when may the driver *actually start*?". The two are deliberately separate.
 
-### Three inspection types — Pre-Shift (baseline) vs Pre-Trip (per trip) vs Post-Shift (End Duty) — 2026-09-23
+### Three inspection types — Pre-Shift (baseline) vs Pre-Trip (per trip) vs Post-Shift (End Duty) — updated 2026-09-29
 
 `vehicleinspection` now records three distinct checks, told apart by `inspection_type`:
 
 | | **Pre-Shift** | **Pre-Trip** | **Post-Shift** |
 |---|---|---|---|
-| UI label | Start Duty | Pre-Trip Check | **End Duty** |
-| Checklist | 7 items (cabin, aircon, dashboard, exterior, brakes, tires, fuel) | 4 critical items (dashboard, brakes, tires, exterior) | **none** — one question + free text |
+| UI label | Start Duty / Pre-Shift Check | Pre-Trip Check | **End Duty** |
+| Checklist | 5 safety baseline items (`sounds`, `lights`, `dashboard`, `steering`, `brakes_tires`) | 3 items: Safety (`brakes_tires`), Passenger Check (`passenger_items`), Cabin Ready (`cabin_ready`) | **none** — one question + free text |
 | Cadence | Once per day, per driver | Once per trip | Once per duty session, at the end |
 | `trip_id` | **`NULL`** — not trip-scoped | the trip it clears | **`NULL`** |
 | Opens from | Home banner → `/inspection?mode=preshift` | trip detail / map / `/inspection?tripId=` | Home nudge (30 min before shift end) / Profile `End duty` → `/end-duty` |
 | Written by | `POST /api/mobile/driver/inspections` | same | **`POST /api/mobile/driver/duty` `{active:false}`** — never the inspections route |
-| Enforced by the server? | **Yes** — `setDuty(true)` requires the row (see below) | Yes — the START gate above | Yes — it *is* the clock-out |
+| Enforced by the server? | **Yes** — `setDuty(true)` requires a `Passed` Pre-Shift row for today | Yes — the START gate requires a `Passed` Pre-Trip row | Yes — it *is* the clock-out |
 
-`severity` is derived, not supplied: no FAIL → `None`; FAIL on a critical item → `High`; FAIL only on a non-critical item → `Medium`. Dispatch is notified for `High`/`Medium`; **no Pre-Shift or Pre-Trip inspection ever flips `vehicle_status`** (see [[Maintenance]]). A **Post-Shift** row stores `severity = NULL` for a reported fault instead — the driver answered one question, so no severity was assessed and inventing one would put a judgement in the record nobody made.
+`severity` is derived, not supplied: no FAIL → `None`; blocking failure (any failed Pre-Shift item, or Pre-Trip `brakes_tires`) → `High`; non-blocking finding (`passenger_items = ITEMS FOUND`) → `Medium`. Dispatch is notified for `High`/`Medium`; **no Pre-Shift or Pre-Trip inspection ever flips `vehicle_status`** (see [[Maintenance]]). A **Post-Shift** row stores `severity = NULL` for a reported fault instead.
+
+**Pre-Shift baseline gate on Start Duty:** All five Pre-Shift items are critical roadworthiness checks. A negative finding on ANY item (`UNUSUAL SOUND HEARD`, `ISSUE FOUND`, `WARNING LIGHT PRESENT`) requires driver remarks, marks the inspection as `Failed`, surfaces the issue to dispatch, and server-authoritatively **blocks Start Duty** (`setDuty(true)` rejects with `409 PRESHIFT_REQUIRED` because `preshift_baseline` requires `i.status = 'Passed'`).
+
+**Pre-Trip gate on Start Trip:** Pre-Trip confirms `brakes_tires` (hard safety gate: `ISSUE FOUND` fails the inspection and blocks Start Trip), `passenger_items` (non-blocking finding: `ITEMS FOUND` requires a description and logs the finding to dispatch without blocking trip departure), and `cabin_ready` (mandatory service-readiness acknowledgment). Start Trip requires `vehicleinspection.status = 'Passed'`.
 
 **The Post-Shift report is atomic with the clock-out.** `endDutyWithReport` (`src/services/standby.service.js`) inserts the row, closes `driverattendance.time_out` and clears standby tracking **in one transaction**, so there is no state where duty ended without a report and none where a report exists with duty still open. `client_submission_id` + the partial unique index on `(driver_id, client_submission_id)` make a retried submit return the first row rather than filing a second — a flaky connection cannot produce two End Duty records. `active:false` with no valid `report` is `400 REPORT_INVALID`; the mobile screen never queues this offline (`queueOnFailure:false`, matching the existing duty toggle), because the outbox cannot replay an atomic server transaction and a driver told "saved" while still checked in is the one failure this must not have.
 
 **A reported fault opens a `vehiclemaintenance` order** via `ensureInspectionMaintenance`, keyed on the new `vehiclemaintenance.source_inspection_id` (migration `121`), mirroring the incident path's `source_incident_id`. Grounding is decided by keyword (`shouldGroundReportedDefect`, `src/lib/driver/grounding.js`): a match writes `status='In Progress'`/`priority='High'`, which is what removes the vehicle from `GET /api/vehicles/available` (it excludes `In Progress` and `Pending Inspection`); no match writes `Scheduled`/`Normal` and leaves the vehicle dispatchable. Saying "nothing unusual" files no order at all. The keyword test decides **urgency only, never whether a report is recorded** — prose it fails to match still files a `Scheduled` order for a human to read. The work order is raised **after** the transaction commits and never throws: a maintenance failure must not strand a driver at the end of their shift (it is logged via `writeAppError` instead).
 
-**Known residual — a FAILED Pre-Shift baseline still does not block Start Duty.** The gate is the row's **existence**, matching the owner's word "indication". Whether a `Failed` baseline should also block the start — and whether it should ground the vehicle through the same maintenance escalation the End Duty report uses — is a deliberate open policy fork, not an oversight. Recorded here the way [[Maintenance]] records the optional four-eyes gate, so a later reader learns it from the note rather than inferring from "the gate exists" that the verdict is checked.
-
-**Not wired (yet):** feeding the **checklist** findings (Pre-Shift / Pre-Trip FAILs) into predictive maintenance. **Partially wired since 2026-09-23:** all 4 Pre-Trip quick items are hard-block items (a FAIL blocks the start until re-inspected), and Pre-Shift FAILs are severity-classified (`High` critical / `Medium` non-critical) **dispatch notifications only** — never auto-grounding. **The End Duty (Post-Shift) report is the one path that does reach `vehiclemaintenance`** — see the three-type table above. Repeated checklist findings are still only recorded in `vehicleinspection.checklist`.
+**Not wired (yet):** feeding the **checklist** findings (Pre-Shift / Pre-Trip FAILs) into predictive maintenance. **Partially wired:** Pre-Trip `brakes_tires` is a hard-block item (a FAIL blocks the start until re-inspected), and Pre-Shift FAILs are severity-classified (`High` critical) **dispatch notifications only** — never auto-grounding. **The End Duty (Post-Shift) report is the one path that does reach `vehiclemaintenance`** — see the three-type table above. Repeated checklist findings are still only recorded in `vehicleinspection.checklist`.
 
 **Mobile start-gating (home + trip detail + live map):**
 - **Unified START gate** — a pre-start trip (Pending/Approved/Assigned/Vehicle Assigned/Driver Assigned/Dispatched/Driver Accepted) shows a real START button on the home card, the trip-detail bottom bar, and the live map **when the departure window is reached AND the pre-trip inspection is `Passed`**. Before that it shows **VIEW DETAILS** / a disabled `START ROUTE IN X MIN` / `PRE-TRIP CHECK REQUIRED`. The button is NOT limited to `Driver Accepted` anymore — an `Assigned` trip in-window shows `ACCEPT & START`, and pressing it accepts first (Assigned → Driver Accepted) then starts (Driver Accepted → Trip Started), since the start endpoint only allows the one-hop `Driver Accepted → Trip Started` transition.
@@ -141,6 +143,33 @@ Two details worth noting:
 ## Open questions
 
 - With 2 rows, most of this is unexercised. Which of the 13 trip statuses have ever actually occurred? **TODO:** `SELECT status, count(*) FROM trips GROUP BY status`.
+
+## Status-Aware Mobile Empty States — Trips & Home Tabs (2026-09-30, implemented)
+
+Introduced status-aware empty states across the Driver Companion Trips tab (`mobile/app/(app)/(tabs)/trips.js`) and Home tab primary assignment card (`mobile/components/home/DriverHomeCards.jsx` & `mobile/app/(app)/(tabs)/index.js`):
+
+- **Centralized Resolution Helper (`mobile/lib/duty-empty-states.js`):**
+  Defines `resolveDutyEmptyState(duty, profile)` with strict priority hierarchy:
+  1. `on_leave` (Driver profile status `on_leave` or `duty.isOnLeave` = true)
+  2. `rest_day` (`duty.isRestDay` = true)
+  3. `off_duty` (`!duty.isCheckedIn` = true)
+  4. Returns `null` if driver is checked in / on-duty.
+
+- **Trips Tab (`trips.js`):**
+  - When the trip queue has zero items (`sections.length === 0`), checks `resolveDutyEmptyState(duty, profile)`.
+  - If driver is non-operational (`Off Duty`, `Rest Day`, `On Leave`), displays a status-aware empty card (`ClayCard`, vector glyph `map-marker-off`, `calendar-minus`, or `calendar-blank-outline`, matching `ClayBadge` pill, title, and descriptive copy).
+  - Replaces misleading "vehicle is active on standby" radar animation with a calm, informative notice.
+  - Active standby drivers who ARE checked in continue to see the real-time scanning `RadarPulse`.
+  - Pull-to-refresh calls both `load()` and `duty.refresh?.()`.
+
+- **Home Tab Assignment Card (`DriverHomeCards.jsx`):**
+  - Accepts `emptyState` resolved from `resolveDutyEmptyState(duty, driverProfile)`.
+  - When driver has no active trip and is non-operational, suppresses the pulsating radar and displays a status card with matching icon, title, and copy ("Check in to receive assignments", "Enjoy your rest day", "On leave").
+
+- **Verification:**
+  - `mobile/lib/duty-empty-states.test.js` (7 tests passing)
+  - `mobile/lib/trips-empty-state.test.js` (4 tests passing)
+  - ESLint clean on all touched files.
 
 ## Related
 

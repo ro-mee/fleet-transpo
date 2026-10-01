@@ -354,6 +354,18 @@ writes it to the timeline. Found by the security assessment (SEC-DISP-004, HIGH)
   files to `HEAD` produces 8 failures — the fail-before half of the acceptance
   rule.
 
+## Dispatch Copilot audit remediation — 2026-09-30
+
+Eight-item remediation from the Dispatch Copilot audit (deterministic ranking vs LLM narration vs dispatcher confirmation). Full suite **3343/3343 in 267 files** green after the change.
+
+- **Queue vs detail assign contract.** `PUT .../[id]/assign` accepts `assignment_source: 'queue' | 'detail'`. Queue origin without `plan_token` is now 409 `PLAN_TOKEN_REQUIRED`; detail is an explicitly labelled single-request path with full pair revalidation and `assignment_source` in timeline metadata. Queue UI sends `queue` + token; detail sends `detail` (`transport.service.js`, `ai-recommendation-panel.jsx`).
+- **H8 driver-performance alignment.** `driverReadiness()` no longer scores guest rating or years of experience — informational display only. Completed Trips never adds points (would fight workload fairness); punctuality reserved as a future late tie-breaker after feasibility, never overriding eligibility.
+- **2026-09-30: dead rating signals removed.** `scoreDispatchDrivers` (`rule-engine.js`) dropped the +25/+15 guest-rating and driving-score blocks (`customer_rating` / `smooth_driving_score` have no writer UI); the prep query now supplies 90-day `punct_measured/on_time/late/rate` and the scorer applies a ±3 punctuality tie-breaker (≥95% +3, ≥85% +1, <70% −3, min 5 measured). Pair-engine evidence reads punctuality with zero points — H8 unchanged.
+- **No fake confidence.** `scoreFleetPair` returns `rank_score` (deterministic rank key) and `confidence: null` (deprecated); the rationale prompt feeds verified evidence basis instead of `Pair score X/100`.
+- **Eligible vs blocked contract.** Payload carries `eligibleCandidates[]` / `blockedCandidates[]` (radar splits post-`INFEASIBLE` filter); `candidates[]` retained for compatibility only.
+- **Legacy quarantine.** Top-level `vehicle.recommended` / `driver.recommended` flagged `_deprecated_legacy_ranking` — never a commit source; decision is `pair.*` only. Shared `daysUntil` single-owned by `pair-scoring.js`.
+- **Wording.** Copilot never sounds like the assigner (`Confirm assignment`, `Evidence Ready`, `Recommended option` / `Alternate option`, `Schedule fit`, `preparation time`, `This option passed a fresh check. Dispatcher confirmation is required.`); user-facing name standardized to Dispatch Copilot.
+
 ## Related
 
 [[Dispatch State Machine]] · [[Trips]] · [[AI Advisory]] · [[UVVRP Number Coding]] · [[Feature Index]]

@@ -1,5 +1,12 @@
 # FleetOps — Fleet & Logistics Management System
 
+**Web Font Preload — Geist Mono No Longer Preloaded on Every Route (2026-09-30, implemented & verified):**
+The driver detail/edit pages logged Chrome's *"The resource …woff2 was preloaded using link preload but not used within a few seconds from the window's load event"* twice — once per face. `src/app/layout.js` declares both `Inter` and `Geist_Mono` at the root layout, and a face declared in the root layout is preloaded on **every** route, whether or not the route renders it. Most routes never render Geist Mono — `/drivers/[id]/edit` has zero `font-mono` usage (its license field renders in Inter through `font-data`) — so the 23 KB latin woff2 was fetched on every page load and could never be used, which is precisely the condition Chrome reports.
+- `Geist_Mono` now declares `preload: false`. The face still resolves through `--font-geist-mono` and `font-display: swap` still applies; the surfaces that use it (fuel and incident receipts, `kbd` hints, the confirm-dialog counter, the driver license inputs) fetch it on demand.
+- `Inter` keeps its preload: it is the first-paint UI face on every route (`--font-sans` / `--font-data`), so disabling it would trade the warning for a real font swap on every cold load. The warning Chrome can still emit for it in some conditions is the open upstream issue (vercel/next.js#51524 / NEXT-1307).
+Verification: headless-Chrome probes (CDP) against the dev server and against a production build (`next build` + `next start`) — exactly one font preload per route (Inter's latin woff2) on `/login` and `/drivers/19/edit`, `document.fonts.load('16px "Geist Mono"')` resolving to a loaded face and changing the glyph width of `font-mono` text (378px fallback → 320px), zero font-preload console warnings. `npm run build` succeeded, `npm run test:run` passed **268 files / 3,360 tests**, `npx eslint src/app/layout.js` exit 0. Docs: `Capstone/04 - Architecture/Frontend.md`, `Capstone/07 - Development/Bugs.md`, `SYSTEM.md`.
+
+
 **Driver Personal Details and Emergency Contact Exposure (2026-09-30, implemented & verified):**
 Expanded `GET /api/driver/me` (`src/app/api/driver/me/route.js`) and the web Driver Profile page (`src/app/(dashboard)/driver/profile/page.js`):
 - `GET /api/driver/me` now queries and returns driver personal details (`position`, `address`, `sex`, `birthdate`, `nationality`), structured `emergencyContact` (`{ name, phone, address }`), flat emergency keys, and `data` compatibility block.

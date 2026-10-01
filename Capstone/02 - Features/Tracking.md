@@ -5,9 +5,12 @@ tags: [feature, tracking, gps, mobile]
 source:
   - mobile/lib/tracking.js
   - mobile/lib/background-tracking.js
+  - mobile/lib/gps-odometer.js
+  - mobile/app/(app)/(tabs)/map.js
+  - mobile/components/TomTomMap.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
-last_verified: 2026-08-31
-related: ["[[Trips]]", "[[Mobile Architecture]]"]
+last_verified: 2026-09-29
+related: ["[[Trips]]", "[[Mobile Architecture]]", "[[Live Map Radar]]"]
 ---
 
 # Feature: Tracking
@@ -196,7 +199,135 @@ The endpoint requires trips:read_all, uses private/no-store responses, and reuse
 
 Verified: 15 focused tests across four files; targeted ESLint; web production build (200 pages); route authorization audit (264 guarded methods, zero failures); new identity SQL executed successfully against the configured database. Real-device/browser acceptance remains pending.
 
-## Live Map operations workspace — v3 (2026-09-14, implemented)
+## Driver Mobile Map audit — 2026-09-29
+
+A full end-to-end audit of the driver mobile map and everything feeding it
+(screen → hooks → APIs → DB → response → UI). Fixes below are confirmed defects,
+not refactors. Verification is stated honestly: **no physical device was used**,
+so every background-GPS and compass claim remains NOT VERIFIED ON DEVICE.
+
+### 1. Live GPS is never queued offline (data integrity, high)
+
+`lib/tracking.js` already passed `queueOnFailure: false` on the responder and
+standby branches, with a comment explaining why: a live point replayed from the
+offline outbox overwrites the driver's *current* position with a stale one. The
+**trip** branch and the background task did not pass it, so a trip-GPS ping was
+the only operational write still replayable — minutes-old coordinates landing on
+the dispatcher's live map, and becoming the basis for the geofence/monitor
+verdicts returned in the same response. Both now pass it.
+
+### 2. One odometer rule set (`mobile/lib/gps-odometer.js`, new)
+
+The segment rules existed as two hand-copied blocks — foreground in `map.js`,
+background in `background-tracking.js` — and had **drifted**. The foreground copy
+counted a segment on `(speed > 1 || seg > 0.02)`, an OR, so its own comment
+("only counted when the vehicle is actually moving") was not what ran: a parked
+vehicle drifting >20 m billed mileage every cycle. **Neither copy had any
+time-delta guard** although both assumed fixes are "≤3s apart", so a resume gap
+or tunnel could add a phantom segment.
+
+The shared module measures from a stable **anchor** (not the previous fix — a
+wobble would otherwise bill a 60 m segment each cycle) and applies:
+
+| Rule | Value | Rationale |
+|---|---|---|
+| Max segment | 400 m | beyond this it is a glitch, not driving |
+| Max implied speed | 180 km/h | matches the server's own `TRAIL_MAX_KMH` |
+| Max anchor gap | 5 min | a stale fix is not a driving baseline |
+| Speed `>= 0` | authoritative | "stopped" beats magnitude: parked is parked |
+| Speed `null`/`-1` | unknown | magnitude may carry it, gap-bounded |
+
+Also: no distance banks without a leg context (it previously silently fell
+through to `leg2`), and the leg list is no longer duplicated — `legForStatus()`
+is now the single definition shared with the background task.
+
+Tests: `mobile/lib/gps-odometer.test.js` (15) — jump rejection incl. the
+`14.60,121.00 → 14.90,121.40` scenario, sub-400 m teleport caught only by implied
+speed, parked-jitter rejection, a 5-minute stationary drift banking zero, Trip
+A → Trip B isolation, leg-flip straddling fix.
+
+### 3. WebView document escaping (`components/TomTomMap.js`)
+
+The map is one `<script>` block. Any dynamic value that closes its own quote,
+carries a line break, or emits `</script` makes the whole block a syntax error:
+`initMap()` never runs, MAP_READY never fires, and the globe.json overlay spins
+forever. Addresses escaped **only** the single quote, so a trailing backslash
+(`C:\path\`) escaped the closing quote — the identical whole-map failure the
+label fix was written for. Popup labels are also interpolated into
+`setHTML(...)`, so they additionally needed HTML escaping. Now: one
+`escapeJsString` (backslash, quote, U+2028/9, newlines) plus `escapeHtml`.
+
+Tests: `mobile/lib/map-webview-escaping.test.js` (15) — apostrophes, `</script>`,
+trailing backslash, newlines, U+2028/9, Unicode, and a mixed torture value, each
+**round-tripped through a real JS parser** rather than string-compared.
+
+### 4. Fake map entities were also suppressing real ones (high)
+
+`getOperationalRadarMarkers` builds real assignment pins from the driver's own
+pending trips **plus** hard-coded gas stations and fleet drivers at fixed offsets
+from the live position. The whole builder sat behind `if (!driverLocation ||
+!__DEV__) return []`, so **production rendered an empty radar** and the coverage
+legend described layers that could never appear — real assignments were
+collaterally suppressed by the same gate that hid the fakes. A real trip with
+unresolved coordinates was placed at `lat + 0.008`, i.e. a **fabricated pin on a
+real dispatch** ~900 m from wherever the driver was standing.
+
+Now: real assignments always render, a trip without coordinates is skipped
+rather than guessed, and only the fabricated entities sit behind
+`DEMO_ENTITY_MODE = __DEV__`. Verified in the exported production bundle — the
+station/driver strings are absent (constant-folded away) while `assignment`,
+`MAP_READY` and `pickup-check` are all present.
+
+### 5. Accept/Start race on the map (correctness)
+
+The swipe fired `accept` **without awaiting**, then awaited `start`. The server
+state machine allows only `Assigned → Driver Accepted → Trip Started`, one hop at
+a time, so `start` raced the accept and could 409 with "Cannot move a trip from
+Assigned to Trip Started". The driver saw a failure for what is really two
+ordered steps. Accept is now awaited first.
+
+### 6. The standby "Live Tracking" chip could not go stale (truthfulness)
+
+The header's freshness test is `now - poster.standbyObservedAt <= 90000`, but
+`now` was only advanced by an interval that ran **while a pre-start trip was
+showing**. During idle/standby `now` stayed frozen at module load, so the
+difference was large and negative and the chip kept claiming a live publication
+long after the poster had stopped or failed. The tick now runs unconditionally.
+
+### 7. Active-trip selection could pick a pending trip
+
+The screen took the first non-terminal row, but the server orders by
+`scheduled_departure ASC NULLS LAST`, so a pending assignment sorting ahead of
+the trip being driven won — wrong route, wrong status header, wrong swipe
+action, and the odometer re-pointed at an unstarted trip. A GPS-tracked trip now
+always wins; pre-start is the fallback.
+
+### 8. Impure state updater
+
+`toggleCoverage` called `setSelectedMarker` from inside the
+`setCoverageVisibility` updater — a side effect during React's render phase
+(StrictMode double-invokes it; concurrent rendering warns). Moved out.
+
+### Known limitations, deliberately unchanged
+
+- **Background GPS is NOT device-verified.** Static analysis confirms the wiring
+  (permission request, `TaskManager` definition, AppState start/stop, trip/leg
+  context, AsyncStorage merge), not that Android/iOS actually delivers fixes
+  while minimised or locked.
+- **`onMapDragged` is a no-op** in the map screen, so a manual pan leaves the
+  camera following again on the next ~16 m move. Intentional or not, it is
+  unchanged — a UX decision, not a defect.
+- ETA/distance on the map are **live TomTom** (`ROUTE_CALCULATED`) with
+  freshness/leg-change invalidation (2026-09-30): no live route yet or a failed
+  refresh renders "Calculating live route…" / "Route temporarily unavailable"
+  plus a separate "Planned" line — the server-stored
+  `estimated_duration`/`estimated_distance` is never substituted into the live
+  slot. The radar assignment card's "Est. arrival" is a **client estimate**
+  (haversine × 20 km/h), labelled as an estimate and dev-only.
+
+→ [[Bugs]] · [[Live Map Radar]] · [[Trips]]
+
+
 
 The Live Map is now a dispatcher operations workspace reusing the existing engines (shared trip-phase resolver, cheap-fleet + full-detail monitor, intent-anchored off-route corridor, geofence target chain, standby eligibility, RBAC). No new engine, provider, migration, or mobile scope.
 
@@ -209,3 +340,54 @@ The Live Map is now a dispatcher operations workspace reusing the existing engin
 - **Projection**: `TRIPS_SELECT` gains `priority/is_vip/is_emergency/derived_priority/service_type_id/service_name` (+ `service_types` join); guest PII stays out (pinned by test). `recorded_at` remains `COALESCE(device, NOW())` device-capture-or-server-fallback; health basis unchanged.
 
 Verified: full Vitest 114 files / 1164 tests green (incl. 3 overdue, 3 endpointTargets, 3 projection tests; one legacy fleet test re-pinned to future-baseline for the new overdue rule); targeted ESLint clean; live-DB projection check (14 keys incl. new signals); `next build` 201 pages; route-auth audit 266/266. Browser/device acceptance pending.
+
+## Driver mobile live-ETA honesty pass — 2026-09-30 (implemented)
+
+Static audit confirmed the route/ETA/traffic pipeline is genuinely TomTom
+(`traffic: true`, `computeTravelTimeFor: all`, `sectionType: traffic`), but the
+UI overstated it in seven HIGH ways. Fixed in
+`mobile/app/(app)/(tabs)/map.js` + `mobile/components/TomTomMap.js`:
+
+1. **Leg-change stale ETA:** `routeData` cleared only on `trip_id` change, so
+   pickup→destination kept showing the old leg's minutes. Now cleared on
+   `trip_id | pickup/dest phase | dest coords` (`routeLegKey` effect).
+2. **Failure left stale ETA visible:** recalc/initial failures only set the
+   WebView banner text; native kept old numbers. WebView now posts
+   `ROUTE_UNAVAILABLE` (and `ROUTE_REFRESHING` on recalc start); native marks
+   `routeStale` and renders "Route temporarily unavailable" instead of numbers.
+3. **Planned estimates posed as live ETA:** `estimated_duration/distance`
+   (whole planned trip) filled the live slot before TomTom answered. Now the
+   live slot shows `--` + "Calculating live route…" with the plan on a separate
+   "Planned ~N min · M km" line.
+4. **`+N min` implied addition:** TomTom `travelTime` already includes traffic.
+   Badge now reads "Incl. ~N min traffic" (neutral, 2–4 min) or "Heavy traffic ·
+   incl. ~N min" (≥5 min, aligned with the server monitor threshold); <2 min
+   shows no badge.
+5. **Per-section badges were invented:** total delay was split proportionally by
+   degree deltas and labelled `+N min`. Now prefers `sec.delayInSeconds` when
+   exposed; fallback stays length-weighted but uses haversine meters and is
+   labelled `~N min`, shown only for ≥2 min.
+6. **`ROAD_CLOSED` → `ROAD_CLOSURE`:** the explicit closure branch never
+   matched TomTom's documented category; both strings now accepted (closure
+   still reddens via `magnitudeOfDelay >= 3` regardless).
+7. **Stuck-in-traffic starvation:** refresh skipped when moved <~20 m, so a jam
+   never refreshed. Now refreshes on movement OR route age ≥4 min.
+8. **Single active route:** initial load requested `maxAlternatives: 1` then the
+   refresh dropped it to 0 with no explanation. Now 0 everywhere — no phantom
+   alternative line.
+9. **`Driver Accepted` no longer poses as en route:** header read "EN ROUTE TO
+   PICKUP" before START ROUTE; now "READY TO START".
+10. **Route payload carries provenance:** `ROUTE_CALCULATED` includes
+    `calculatedAt`, `trafficAware: true`, `source: 'tomtom'`, and
+    `noTrafficTravelTimeInSeconds` when present.
+
+Deliberately unchanged (documented limits): traffic colouring covers the
+**active route only** (no whole-map flow overlay — defense wording must say
+"traffic along the active route"); the travelled portion of the polyline is not
+yet trimmed; endpoint resolution is still per-module (shared
+`resolveTripEndpoints` is future work).
+
+Verified: ESLint clean on both touched files; `mobile/lib` 46 files / 525
+tests green. No physical-device run — live-key ETA refresh, rerouting,
+pickup→destination switch, GPS jitter, and network loss/recovery still need a
+side-by-side device acceptance vs TomTom/Google Maps.

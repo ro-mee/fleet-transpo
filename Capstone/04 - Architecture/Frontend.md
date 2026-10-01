@@ -6,7 +6,7 @@ source:
   - src/app
   - src/components
   - package.json
-last_verified: 2026-09-23
+last_verified: 2026-09-30
 ---
 
 # Frontend
@@ -114,6 +114,28 @@ a pointer would be a lie would stop working. Per-component fixes alongside it: `
 **Theme switching (standardized 2026-08-23, reworked 2026-09-05):** `use-theme.js` (`ThemeProvider`, `toggle`, `setMode`) flips the `.dark` class on `<html>`; all theme colors are CSS variables (`--bg`, `--sf`, `--fg`, …) consumed via Tailwind v4 `@theme inline`, and `color-scheme` is set per theme so scrollbars/form controls match. The blocking pre-paint script (`fleetops-theme` from `localStorage` → `.dark` on `<html>`) is delivered via `<Script strategy="beforeInteractive">` in `src/app/layout.js` — a raw `<script>` in `<head>` triggered React 19's never-executed-on-client dev warning (fixed 2026-09-06; same synchronous before-paint execution, no theme flash).
 - **View Transition path (supported browsers):** `document.startViewTransition()` + declarative CSS keyframes (`theme-reveal` / `theme-conceal` in `globals.css`) animating `clip-path: circle()` on the transition pseudo-layer (450ms, `cubic-bezier(0.22,1,0.36,1)`), expanding from the clicked toggle for light→dark and contracting back into it for dark→light. Origin/radius travel as `--theme-x/--theme-y/--theme-r`, set synchronously *before* `startViewTransition` with the initial clip in plain CSS — so the first paint is already a dot and the dark layer never flashes full-screen first. (An earlier WAAPI-after-`transition.ready` variant had exactly that pre-flash and was replaced.) Layering/`animation: none` resets live under `[data-theme-transition="expand"|"shrink"]`; cleanup is time-based (600ms) with a generation guard so a rapid re-toggle can't wipe the newer transition. (The old `@keyframes theme-expand/shrink` + `--theme-x/--theme-y`-only CSS approach is gone.)
 - **Fallback fade (no View Transition API, hidden tab, or VT throw):** `commitWithFade()` adds `html.theme-fade` (~350ms of `background-color`/`border-color`/`color`/`fill`/`stroke` transitions, toggle button excluded, `box-shadow` excluded) so the page cross-fades instead of snapping. `prefers-reduced-motion` keeps the instant cut in every path.
+
+**Font loading (2026-09-30):** both faces are declared in `src/app/layout.js`, so Next injects a
+`<link rel="preload" as="font">` for each of them on **every** route — a face declared in the root
+layout is preloaded on all routes, whether or not the route renders it. **Inter keeps its preload**:
+it *is* the UI face (`--font-sans` and `--font-data` in `globals.css` both resolve to
+`--font-inter`), so every route paints with it, and dropping the preload would buy a silent console
+with a real font swap on every cold load. **`Geist_Mono` is declared with `preload: false`**: it is a
+code/ID face (fuel and incident receipts, `kbd` hints, the confirm-dialog counter, the license
+inputs on the driver surfaces) that most routes never render — the driver edit form in particular
+deliberately shows license data in Inter through `font-data` — so those routes were fetching the
+23 KB latin file only to leave it unused, which Chrome reports as *"preloaded using link preload but
+not used within a few seconds from the window's load event"* (the two warnings pasted from the
+driver detail and edit pages, one per face). `preload: false` keeps the face: `font-mono` still
+resolves and `font-display: swap` still applies, the file is simply fetched when a surface first
+needs it. Verified against the dev server and a production build: exactly one font preload per route
+(Inter), Inter loaded at first paint, and `document.fonts.load('16px "Geist Mono"')` still resolving
+to a loaded face that changes the glyph width of `font-mono` text (378px fallback → 320px). The
+Inter warning can still appear in some conditions — it is the open upstream issue
+([vercel/next.js#51524](https://github.com/vercel/next.js/issues/51524) / NEXT-1307, plus discussion
+#49607), which fires whenever a preloaded resource is not consumed within a few seconds of `load`,
+including Next's own route-prefetch/hoisting paths; the only app-side way to silence it is to stop
+preloading the face, which is the trade described above.
 
 **The address field (2026-09-23, superseded 2026-09-24):**
 `src/components/address/address-form-dialog.jsx` is the **one** address input in the

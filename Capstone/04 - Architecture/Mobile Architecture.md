@@ -7,6 +7,8 @@ source:
   - mobile/app/(app)/_layout.js
   - mobile/lib/api.js
   - mobile/lib/tracking.js
+  - mobile/lib/gps-odometer.js
+  - mobile/components/TomTomMap.js
   - mobile/lib/rbac.js
   - mobile/lib/permissions.js
   - mobile/lib/connectivity-state.js
@@ -123,6 +125,49 @@ the interactive preview is limited to one card per Home render.
 - **Single publish per tick (2026-09-22):** trip → one full publish; responder → one `lastSentAt` publish; standby → one combined `{standbyObservedAt, lastSentAt, error:null}` publish (the old trailing `!tripId` publish double-fired on standby and re-rendered all subscribers every 30 s). Idle duty GET cadence is unchanged (every 30 s — a move onto the 60 s gate was planned and explicitly rejected to keep standby response ≤30 s).
 
 Background tracking **requires a custom dev build** (not Expo Go) — see the "Version warning" note below — and Android production release needs Play Store review. The old foreground-only decision is superseded: [[ADR-010 Foreground Only GPS]] → [[ADR-011 Background GPS Tracking]].
+
+### Driver Mobile Map audit — 2026-09-29
+
+Full end-to-end trace of the driver map (screen → hook → API → DB → response →
+UI) with six confirmed defects fixed. Architecture, permissions, RBAC, geofence
+enforcement and the server state machine were all preserved; every change is a
+narrow correction. Detail and reasoning → [[Tracking]], filed bugs → [[Bugs]].
+
+- **Live GPS is never queued offline.** The poster already passed
+  `queueOnFailure: false` on its responder and standby branches; the **trip**
+  branch and the background task did not, so a trip-GPS ping could sit in the
+  offline outbox and later overwrite the driver's *current* position on the live
+  map — and supply the geofence/monitor verdicts returned with it. This makes
+  "live location is never replayed" true for every operational write, not two
+  thirds of them.
+- **One odometer rule set** (`mobile/lib/gps-odometer.js`). The segment rules
+  were duplicated in the foreground watcher and the background task and had
+  drifted; the foreground copy's own comment did not match its code, and neither
+  copy had a time-delta guard. Distance now measures from a stable **anchor**
+  (not the previous fix, which lets a wobble bill a full segment each cycle) and
+  applies one rule set: 400 m segment cap, 180 km/h implied-speed cap matching
+  the server's own `TRAIL_MAX_KMH`, a 5-minute anchor-gap ceiling, and a
+  measured-zero speed that overrides magnitude. Leg assignment is no longer
+  duplicated — `legForStatus()` is the single definition.
+- **WebView document escaping.** The map is one `<script>` block, so one
+  unescaped trip value is a whole-map outage. Addresses previously escaped only
+  the single quote (a trailing backslash reproduced the exact failure the label
+  fix was written for); popups additionally needed HTML escaping.
+- **Fabricated map entities no longer suppress real ones.** The `__DEV__` gate
+  covered the entire radar builder, so production rendered an empty radar and the
+  coverage legend described layers that could not appear — the driver's own real
+  pending assignments were collateral damage of the same gate that hid the fake
+  gas stations and fleet drivers. Real assignments always render; a trip without
+  coordinates is skipped rather than placed at a guessed offset; only the
+  fabricated entities remain dev-gated. Verified in the exported bundle.
+- **Accept now completes before Start.** The server allows one status hop at a
+  time, so the unawaited accept made Start race it and 409.
+- **The standby "Live Tracking" chip can now go stale.** Its freshness test read a
+  clock that only advanced while a pre-start trip was showing.
+
+**Not verified by this audit:** background GPS on real hardware. Static analysis
+confirms the wiring, not that Android/iOS delivers fixes while minimised or
+locked.
 
 ## Client-side role decoding — CONFIRMED (`mobile/lib/rbac.js`)
 
