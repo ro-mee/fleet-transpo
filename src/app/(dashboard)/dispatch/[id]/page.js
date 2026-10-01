@@ -195,7 +195,11 @@ export default function DispatchDetailPage() {
   const cancelMutation = useMutation({
     mutationFn: () => cancelDispatch(dispatchId, cancelReason.trim() || null),
     onSuccess: () => {
-      toast.success("Dispatch cancelled");
+      // Matches what the endpoint did: the dispatch and its open trips are
+      // cancelled and the guest's request is released back to the queue. Saying
+      // just "Dispatch cancelled" left the dispatcher to guess whether the
+      // booking had been cancelled with it.
+      toast.success("Dispatch stood down — the request is back in the queue for reassignment");
       setConfirmCancel(false);
       setCancelReason("");
       invalidate();
@@ -582,11 +586,17 @@ export default function DispatchDetailPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Cancel this dispatch?</DialogTitle>
-              {/* Same consequence wording as the board's cancel dialog — the
-                  request keeps its own status and is re-dispatched from the
-                  queue, not cancelled with the run. */}
+              {/* Describes what the endpoint ACTUALLY does — setDispatchStatus's
+                  cancel path releases the pair, cancels the dispatch's open
+                  trips, and returns the request to Scheduled. It must not
+                  promise "the request keeps its own status" (which read as
+                  "nothing happens to the request") nor imply the guest's
+                  transport is cancelled; cancelling the request is its own
+                  explicit action in the queue. Only Scheduled and In Progress
+                  dispatches offer this button at all; the state machine refuses
+                  a Completed or Cancelled one. */}
               <DialogDescription>
-                {`${dispatch.dispatch_number || `DSP-${dispatch.dispatch_id}`} will be stood down. The vehicle and driver return to the pool. The originating request keeps its own status — reassign or re-dispatch it from the queue.`}
+                {`${dispatch.dispatch_number || `DSP-${dispatch.dispatch_id}`} will be stood down and any trip it has open will be cancelled. The vehicle and driver return to the pool. The guest's request is NOT cancelled — it is released back to Scheduled and stays in the queue so you can assign a replacement pair.`}
               </DialogDescription>
             </DialogHeader>
             <div className="px-6">

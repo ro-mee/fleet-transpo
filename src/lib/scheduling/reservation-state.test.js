@@ -62,8 +62,17 @@ describe("canTransitionReservation", () => {
     expect(canTransitionReservation(L.IN_PROGRESS, L.SCHEDULED).ok).toBe(true);
     // Other reverse hops stay forbidden.
     expect(canTransitionReservation(L.IN_PROGRESS, L.ASSIGNED).ok).toBe(false);
-    expect(canTransitionReservation(L.ASSIGNED, L.SCHEDULED).ok).toBe(false);
     expect(canTransitionReservation(L.COMPLETED, L.SCHEDULED).ok).toBe(false);
+  });
+
+  it("allows the release hop Assigned → Scheduled (dispatch stood down pre-start)", () => {
+    // Cancelling a dispatch releases the pair and returns the request to the
+    // queue, exactly as both cancel dialogs promise. Without this edge the
+    // release is impossible, and the old code cancelled the guest's request
+    // instead — see setDispatchStatus in src/services/transition.service.js.
+    expect(canTransitionReservation(L.ASSIGNED, L.SCHEDULED).ok).toBe(true);
+    // It is a direct hop only: Assigned can still only go forward to In Progress.
+    expect(canTransitionReservation(L.SCHEDULED, L.PENDING).ok).toBe(false);
   });
 
   it("rejects unknown statuses", () => {
@@ -90,19 +99,36 @@ describe("transitionPath", () => {
   });
 
   it("returns null for unreachable targets", () => {
-    // Reverse hop is intentional for incident aborts; other backward moves are not.
+    // Release hops are intentional; other backward moves are not.
     expect(transitionPath(L.IN_PROGRESS, L.SCHEDULED)).toEqual([L.IN_PROGRESS, L.SCHEDULED]);
+    expect(transitionPath(L.ASSIGNED, L.SCHEDULED)).toEqual([L.ASSIGNED, L.SCHEDULED]);
     expect(transitionPath(L.IN_PROGRESS, L.PENDING)).toBeNull();
-    // BFS must not invent Assigned → In Progress → Scheduled as a requeue path.
-    expect(transitionPath(L.ASSIGNED, L.SCHEDULED)).toBeNull();
     expect(transitionPath(L.COMPLETED, L.CANCELLED)).toBeNull();
+  });
+
+  it("never routes a longer path through a release hop back into Scheduled", () => {
+    // A release hop is a teardown move, legal only as the first step of a path.
+    // BFS must not detour a forward route through it.
+    expect(transitionPath(L.PENDING, L.COMPLETED)).toEqual([
+      L.PENDING,
+      L.SCHEDULED,
+      L.ASSIGNED,
+      L.IN_PROGRESS,
+      L.COMPLETED,
+    ]);
+    expect(transitionPath(L.ASSIGNED, L.IN_PROGRESS)).toEqual([L.ASSIGNED, L.IN_PROGRESS]);
+    expect(transitionPath(L.ASSIGNED, L.COMPLETED)).toEqual([
+      L.ASSIGNED,
+      L.IN_PROGRESS,
+      L.COMPLETED,
+    ]);
   });
 });
 
 describe("nextStatuses", () => {
   it("exposes the single forward hop plus Cancelled for non-terminal states", () => {
     expect(nextStatuses(L.PENDING)).toEqual([L.SCHEDULED, L.CANCELLED]);
-    expect(nextStatuses(L.ASSIGNED)).toEqual([L.IN_PROGRESS, L.CANCELLED]);
+    expect(nextStatuses(L.ASSIGNED)).toEqual([L.IN_PROGRESS, L.SCHEDULED, L.CANCELLED]);
     expect(nextStatuses(L.IN_PROGRESS)).toEqual([L.COMPLETED, L.SCHEDULED, L.CANCELLED]);
   });
 

@@ -1,16 +1,19 @@
-// DB-backed verification harness for the cancellation cascade (task 17 / plan).
+// DB-backed verification harness for the cancellation cascade.
 //
-// Tasks 13-14 closed the cancel-cascade holes: cancelling a Booking request
-// cancels its open dispatches and trips, and cancelling a dispatch directly
-// cancels its trip and (for a request-driven dispatch) the request. This harness
-// proves both directions against the live database through the REAL route
-// handlers:
+// Cancelling is TWO different acts with two different meanings, and the harness
+// pins both:
 //
-//   (a) PUT /api/integration/transport-requests/[id]/cancel on a request that
-//       has an open dispatch + trip -> dispatch Cancelled AND trip Cancelled
-//       AND request Cancelled.
-//   (b) PUT /api/dispatch/[id]/cancel -> trip Cancelled AND
-//       (request-driven dispatch) request Cancelled.
+//   (a) PUT /api/integration/transport-requests/[id]/cancel — an explicit
+//       REQUEST cancellation. It takes everything down: the request goes
+//       Cancelled, its open dispatches are Cancelled and their open trips are
+//       Cancelled.
+//   (b) PUT /api/dispatch/[id]/cancel — a DISPATCH stand-down. The vehicle and
+//       driver are released and open trips are cancelled, but the guest still
+//       needs transport: the request is RELEASED to Scheduled (Assignable again,
+//       pair cleared) and is NOT cancelled. This is what both cancel dialogs
+//       promise, and it is what the app did NOT do before — it cancelled the
+//       request, so 45 cancelled requests existed purely because someone stood a
+//       dispatch down.
 //
 // Seeding note: the request -> dispatch -> trip chain is seeded DIRECTLY via
 // query (request at `Assigned`, an In Progress dispatch linked by request_id, a
@@ -215,7 +218,11 @@ try {
   check("open trip cascaded to Cancelled", a[0]?.trip_status === "Cancelled", JSON.stringify(a[0]?.trip_status));
 
   // -------------------------------------------------------------------------
-  // (b) Cancel a dispatch directly.
+  // (b) Stand a dispatch down.
+  //
+  // The dispatch and its open trip go Cancelled and the pair is released, but
+  // the REQUEST MUST SURVIVE: it is released to Scheduled, still the guest's
+  // transport, and re-assignable. Cancelling it here was the defect.
   // -------------------------------------------------------------------------
   const chainB = await seedChain();
   console.log(`2. Seeded request #${chainB.requestId} -> dispatch #${chainB.dispatchId} -> trip #${chainB.tripId}`);
@@ -229,7 +236,8 @@ try {
   check("dispatch cancel PUT returns 200", dispRes.status === 200, `got ${dispRes.status}`);
 
   const { rows: b } = await query(
-    `SELECT d.status AS dispatch_status, t.trip_status, r.fleet_status AS request_status
+    `SELECT d.status AS dispatch_status, t.trip_status, r.fleet_status AS request_status,
+            r.vehicle_id, r.driver_id
        FROM dispatchschedules d
        JOIN trips t ON t.dispatch_id = d.dispatch_id
        LEFT JOIN transportation_requests r ON r.request_id = d.request_id
@@ -238,7 +246,27 @@ try {
   );
   check("dispatch is Cancelled", b[0]?.dispatch_status === "Cancelled", JSON.stringify(b[0]?.dispatch_status));
   check("trip cascaded to Cancelled", b[0]?.trip_status === "Cancelled", JSON.stringify(b[0]?.trip_status));
-  check("request-driven dispatch cascades request to Cancelled", b[0]?.request_status === "Cancelled", JSON.stringify(b[0]?.request_status));
+  check(
+    "request is RELEASED to Scheduled, not cancelled",
+    b[0]?.request_status === "Scheduled",
+    JSON.stringify(b[0]?.request_status)
+  );
+  check(
+    "released pair is cleared so the request can be re-assigned",
+    b[0]?.vehicle_id === null && b[0]?.driver_id === null,
+    JSON.stringify({ vehicle_id: b[0]?.vehicle_id, driver_id: b[0]?.driver_id })
+  );
+
+  const { rows: releaseEvents } = await query(
+    `SELECT event_type, from_status, to_status FROM reservation_events
+      WHERE request_id = $1 AND event_type = 'dispatch_released'`,
+    [chainB.requestId]
+  );
+  check(
+    "release is on the request timeline as dispatch_released",
+    releaseEvents.length === 1 && releaseEvents[0].from_status === "Assigned" && releaseEvents[0].to_status === "Scheduled",
+    JSON.stringify(releaseEvents)
+  );
 
   // The dispatch route guards its own transition machine — a terminal dispatch
   // cannot be cancelled again.

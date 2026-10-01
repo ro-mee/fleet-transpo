@@ -118,6 +118,11 @@ export const RESERVATION_EVENT = {
   // Incident abort of an In Progress run: request requeues (In Progress →
   // Scheduled) for a replacement pair instead of going Cancelled.
   INCIDENT_REQUEUED: "INCIDENT_REQUEUED",
+  // Dispatch stood down BEFORE the run started: the pair returns to the pool and
+  // the request is released to Scheduled (Assigned → Scheduled), still the
+  // guest's transport. Distinct from INCIDENT_REQUEUED (an In Progress abort
+  // caused by an incident) and from CANCELLED (an explicit request cancellation).
+  DISPATCH_RELEASED: "dispatch_released",
 };
 
 export const DISPATCH_STATUS = {

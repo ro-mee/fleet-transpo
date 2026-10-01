@@ -25,13 +25,20 @@ function nowIso() {
  * @param {object} request  a transportation_requests row (needs external_booking_id, request_id, fleet_status)
  * @param {object} [extra]  optional { driver, vehicle, eta, occurredAt, fleetStatus }
  *                          fleetStatus overrides request.fleet_status for the mapping.
- * @returns {Promise<{ delivered: boolean }>}
+ * @returns {Promise<{ delivered: boolean, gateway: string, reason?: string }>}
+ *   `gateway` names the implementation that answered ("mock" or "http").
+ *   `delivered: true` from the MOCK means only that Fleet's own stub accepted
+ *   the call — nothing left the process. A caller that reports the outcome to a
+ *   human needs that distinction; without it "delivered" becomes a promise
+ *   Fleet cannot keep.
  */
 export async function emitTransportStatus(request, extra = {}) {
+  const gateway = getBookingGateway();
+
   if (!request?.external_booking_id) {
     // Nothing to correlate on the Booking side — this request didn't originate
     // from an external booking, so there's nobody to notify.
-    return { delivered: false };
+    return { delivered: false, gateway: gateway.name, reason: "no-external-booking-id" };
   }
 
   const fleetStatus = extra.fleetStatus || request.fleet_status;
@@ -45,7 +52,6 @@ export async function emitTransportStatus(request, extra = {}) {
     occurred_at: extra.occurredAt || nowIso(),
   };
 
-  const gateway = getBookingGateway();
   let logId = null;
 
   try {
@@ -75,7 +81,7 @@ export async function emitTransportStatus(request, extra = {}) {
         [logId]
       );
     }
-    return { delivered: result?.delivered ?? true };
+    return { delivered: result?.delivered ?? true, gateway: gateway.name };
   } catch (e) {
     console.warn("emitTransportStatus: delivery failed:", e?.message || e);
     if (logId != null) {
@@ -84,7 +90,7 @@ export async function emitTransportStatus(request, extra = {}) {
         [String(e?.message || e).slice(0, 1000), logId]
       ).catch(() => {});
     }
-    return { delivered: false };
+    return { delivered: false, gateway: gateway.name, reason: "delivery-failed" };
   }
 }
 

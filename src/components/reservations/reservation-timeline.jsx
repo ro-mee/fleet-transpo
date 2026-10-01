@@ -57,6 +57,11 @@ const EVENT_STYLE = {
     tone: "danger",
     label: "Requeued after incident",
   },
+  [E.DISPATCH_RELEASED]: {
+    icon: CalendarClock,
+    tone: "warning",
+    label: "Dispatch cancelled — request released",
+  },
 };
 
 const FALLBACK = { icon: CircleDot, tone: "secondary", label: null };
