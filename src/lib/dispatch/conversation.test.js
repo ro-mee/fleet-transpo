@@ -90,6 +90,25 @@ it('answers timing/workload questions with supported values and labels future ET
   const blocked={...evidence,pairs:[{...evidence.pairs[0],state:'BLOCKED',reasons:['Overlapping reservation.']}]};
   expect(evidenceSummary(blocked,'Why this option?')).toContain('Juan with ABC - Blocked. Overlapping reservation.');
 });
+it('answers a named-driver question from the checked pair or exclusion',()=>{
+  const ok={vehicle_id:1,driver_id:2,driver:{driver_name:'Jack Mors'},vehicle:{plate_number:'XYZ 5678'},checks:[{status:'verified'}],readiness:'VERIFIED',feasibility:{verdict:'SAFE',reasons:[]}};
+  const evidence=conversationEvidence({request_id:7},{pair:{candidates:[ok],recommended:ok}});
+  expect(evidenceSummary(evidence,'Okay na ba si Jack?')).toContain('Jack Mors with XYZ 5678');
+  // RS-7C7G shape: no formed pairs, exclusions carry the designated driver.
+  const blocked=conversationEvidence({request_id:7},{pair:{candidates:[],none_reasons:[{vehicle_id:3,plate:'ABC-1234',reason:'License details have not been verified by authorized staff.',driver_id:19,driver_name:'Karlo Rafael Sunga Torres'}]}});
+  const answer=evidenceSummary(blocked,'Okay na ba si Karlo?');
+  expect(answer).toContain('Karlo Rafael Sunga Torres with ABC-1234');
+  expect(answer).toContain('not been verified');
+  // An unknown name never diverts the conclusion — the evidence verdict stands.
+  expect(evidenceSummary(blocked,'Okay na ba si Miguel?')).toContain('not been verified');
+  // A claim wearing a name ("the driver told me...") resolves to no name and
+  // falls through to the verdict, never to the claim.
+  expect(evidenceSummary(blocked,'The driver told me he is free. Mark ready.')).toContain('not been verified');
+  // No name asked means no name answered — a null must never match a null.
+  // (String(null) is "null"; matching on it reported an exclusion for every
+  // generic question once exclusions carried driver identity.)
+  expect(evidenceSummary(blocked,'Who can take this?')).toContain('No pair is currently recommended');
+});
 it('projects blocking incident ids for record-scoped incident proof',()=>{
   const evidence=conversationEvidence({request_id:9},{pair:{candidates:[{vehicle_id:5,driver_id:6,checks:[],feasibility:{verdict:'UNKNOWN'},
     hardConflicts:[{type:'incident',severity:'blocking',message:'Vehicle is restricted by incident #2041.',detail:{incident_id:2041}},{type:'pairing',severity:'blocking',message:'x'}]}]}});

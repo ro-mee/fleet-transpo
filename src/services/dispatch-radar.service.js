@@ -237,9 +237,19 @@ export async function applyDispatchRadar({ request, estimate, recommendation, no
   }
   rankDispatchPairs(candidates, policy);
   const safe = candidates.filter(c => c.feasibility?.verdict !== 'INFEASIBLE');
+  const blocked = candidates.filter(c => c.feasibility?.verdict === 'INFEASIBLE');
   recommendation.pair.recommended = safe[0] ?? null;
   recommendation.pair.alternate = safe[1] ?? null;
-  recommendation.pair.none_reasons = [...(recommendation.pair.none_reasons ?? []), ...candidates.filter(c=>c.feasibility?.verdict==='INFEASIBLE').map(c=>({vehicle_id:c.vehicle_id,reason:c.feasibility.reasons.join(' ')}))];
-  for (const kind of ['vehicle','driver']) recommendation[kind] = { recommended:safe[0]?.[kind] ?? null,alternate:safe[1]?.[kind] ?? null,considered:candidates.length };
+  // Explicit split so consumers never read an INFEASIBLE row as assignable.
+  // `candidates` is retained for backward compatibility only.
+  recommendation.pair.eligibleCandidates = safe;
+  recommendation.pair.blockedCandidates = blocked;
+  recommendation.pair.none_reasons = [...(recommendation.pair.none_reasons ?? []), ...candidates.filter(c=>c.feasibility?.verdict==='INFEASIBLE').map(c=>{
+    const first = c.driver?.employees?.first_name ?? c.driver?.first_name ?? '';
+    const last = c.driver?.employees?.last_name ?? c.driver?.last_name ?? '';
+    const driverName = `${first} ${last}`.trim() || (c.driver?.driver_id != null ? `Driver #${c.driver.driver_id}` : null);
+    return {vehicle_id:c.vehicle_id,reason:c.feasibility.reasons.join(' '),driver_id:c.driver?.driver_id ?? null,driver_name:driverName};
+  })];
+  for (const kind of ['vehicle','driver']) recommendation[kind] = { _deprecated_legacy_ranking: true, recommended:safe[0]?.[kind] ?? null,alternate:safe[1]?.[kind] ?? null,considered:candidates.length };
   return recommendation;
 }

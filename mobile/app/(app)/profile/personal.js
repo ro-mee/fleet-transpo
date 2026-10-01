@@ -87,12 +87,13 @@ export default function PersonalInformation() {
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
         <ClayCard variant="standard" style={styles.sectionCard}>
+          <InfoRow label="Position" value={profile?.position || "Driver"} colors={colors} isDark={isDark} />
           <InfoRow label="Full Name" value={driverName} colors={colors} isDark={isDark} />
           <InfoRow label="Employee ID" value={profile?.employeeId} colors={colors} isDark={isDark} />
           <InfoRow label="Email" value={profile?.email} colors={colors} isDark={isDark} />
 
           {/* Editable Phone Row */}
-          <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+          <View style={[styles.infoRow, { borderBottomWidth: 1, borderBottomColor: isDark ? colors.outlineVariant + "40" : "transparent" }]}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Phone</Text>
             {editingPhone ? (
               <View style={styles.phoneEdit}>
@@ -133,7 +134,28 @@ export default function PersonalInformation() {
               </Pressable>
             )}
           </View>
+
+          <InfoRow label="Birthdate" value={profile?.birthdate || "—"} colors={colors} isDark={isDark} />
+          <InfoRow
+            label="Sex"
+            value={profile?.sex === "M" ? "Male" : profile?.sex === "F" ? "Female" : (profile?.sex || "—")}
+            colors={colors}
+            isDark={isDark}
+          />
+          <InfoRow label="Nationality" value={profile?.nationality || "Filipino"} colors={colors} isDark={isDark} />
+          <InfoRow label="Residential Address" value={profile?.address || "—"} colors={colors} isDark={isDark} isLast />
         </ClayCard>
+
+        {(profile?.emergencyContact?.name || profile?.emergency_contact_name) && (
+          <ClayCard variant="standard" style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionHeading, { color: colors.onSurfaceVariant }]}>Emergency Contact</Text>
+            </View>
+            <InfoRow label="Contact Name" value={profile.emergencyContact?.name || profile.emergency_contact_name} colors={colors} isDark={isDark} />
+            <InfoRow label="Phone Number" value={profile.emergencyContact?.phone || profile.emergency_contact_phone} colors={colors} isDark={isDark} />
+            <InfoRow label="Address" value={profile.emergencyContact?.address || profile.emergency_contact_address} colors={colors} isDark={isDark} isLast />
+          </ClayCard>
+        )}
 
         {/* Hub: related compliance screens live inside Personal Information */}
         <ClayCard variant="standard" style={styles.sectionCard}>
@@ -164,6 +186,17 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 4,
     overflow: "hidden",
+  },
+  sectionHeader: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 6,
+  },
+  sectionHeading: {
+    fontSize: 13,
+    fontFamily: fonts.dataSemiBold,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
   infoRow: {
     flexDirection: "row",

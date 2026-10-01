@@ -202,4 +202,30 @@ describe("scoreDispatchDrivers", () => {
     expect(a.score).toBe(b.score);
     expect(a.reasons.some((r) => /pickup/i.test(r))).toBe(false);
   });
+
+  it("uses punctuality as a small tie-breaker, never a large swing", () => {
+    const base = {
+      driver_status: "Available", license_expiry: "2035-01-01",
+      _proximity_relevant: false, _schedule_load: 0, total_completed_trips: 20,
+    };
+    const star = { ...base, driver_id: 1, punct_measured: 25, punct_on_time: 25, punct_rate: 100 };
+    const late = { ...base, driver_id: 2, punct_measured: 25, punct_on_time: 10, punct_rate: 40 };
+    const [a, b] = scoreDispatchDrivers([late, star]);
+    expect(a.driver.driver_id).toBe(star.driver_id);
+    // Tie-breaker only: the gap stays small so feasibility still dominates.
+    expect(a.score - b.score).toBeLessThanOrEqual(6);
+    expect(a.reasons.some((r) => /punctual/i.test(r))).toBe(true);
+  });
+
+  it("ignores guest-rating fields entirely (dead signal)", () => {
+    const base = {
+      driver_status: "Available", license_expiry: "2035-01-01",
+      _proximity_relevant: false, _schedule_load: 0, total_completed_trips: 20,
+      punct_measured: 10, punct_on_time: 9, punct_rate: 90,
+    };
+    const [a] = scoreDispatchDrivers([{ ...base, driver_id: 1, avg_guest_rating: 5, avg_driving_score: 99 }]);
+    const [b] = scoreDispatchDrivers([{ ...base, driver_id: 1, avg_guest_rating: 1, avg_driving_score: 10 }]);
+    expect(a.score).toBe(b.score);
+    expect(a.reasons.some((r) => /guest rating|driving score/i.test(r))).toBe(false);
+  });
 });

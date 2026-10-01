@@ -151,8 +151,10 @@ Never store or audit the plaintext code, and never put it in a URL.
   mobile OTP screen's Resend link) because a resend carries the password, so
   minting from the modal would bypass the re-proof the strike is meant to cost.
   **On 2026-09-29 the web button came back**, relabelled *Resend code*: it sits
-  directly after *A new code can be requested in Ns*, stays disabled until that
-  countdown reaches zero, and calls `handleResendCode` — a one-line adapter
+  directly in the status area, and on 2026-09-30 was updated to swap cleanly with
+  the countdown: while the cooldown runs, only *A new code can be requested in Ns.*
+  renders; once the countdown hits zero, that sentence disappears and is replaced
+  by the clickable *Resend code* button. It calls `handleResendCode` — a one-line adapter
   onto `handleSubmit(e, { resend: true })`, the very handler the form's submit
   uses. That is the whole argument resolved rather than dodged: the button
   re-runs `validate({ email, password })` and `signIn(email, password, {

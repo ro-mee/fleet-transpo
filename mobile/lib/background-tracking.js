@@ -3,6 +3,7 @@ import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
+import { accumulateFix, createAccumulator } from "./gps-odometer";
 
 /**
  * Background location tracking for the driver's active trip.
@@ -29,7 +30,7 @@ import { api } from "./api";
 const TASK_NAME = "fleetops-background-location";
 
 const STORAGE_KEY = "fleetops_bg_tracking";
-// Shape: { tripId, leg: "leg1"|"leg2"|null, km1, km2, prev: {lat,lng}|null }
+// Shape: { tripId, leg: "leg1"|"leg2"|null, km1, km2, prev: {lat,lng,atMs}|null }
 
 // Statuses where the driver is travelling to the pickup; anything else is the
 // second leg to the destination. Mirrors map.js so both agree on leg assignment.
@@ -47,24 +48,9 @@ const HEADING_TO_PICKUP_STATUSES = [
 
 const HEADING_TO_PICKUP = new Set(HEADING_TO_PICKUP_STATUSES);
 
-// km between two lat/lng pairs (haversine). Same formula as map.js.
-function haversineKm(latA, lonA, latB, lonB) {
-  const R = 6371;
-  const p1 = (latA * Math.PI) / 180;
-  const p2 = (latB * Math.PI) / 180;
-  const dp = ((latB - latA) * Math.PI) / 180;
-  const dl = ((lonB - lonA) * Math.PI) / 180;
-  const a =
-    Math.sin(dp / 2) * Math.sin(dp / 2) +
-    Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-// Same noise filter as map.js: drop >400m/3s jumps (glitches) and GPS jitter
-// while parked (short segment with ~0 speed).
-const MAX_SEGMENT_KM = 0.4;
-const MIN_MOVING_SEGMENT_KM = 0.02;
+// km between two lat/lng pairs and the segment acceptance rules now live in
+// ./gps-odometer so the foreground watcher and this task cannot drift apart
+// again. This module only owns the per-leg totals and the previous fix.
 
 const DEFAULT_CONTEXT = { tripId: null, leg: null, km1: 0, km2: 0, prev: null };
 // Foreground status/AppState events can arrive back-to-back. Serialize context
@@ -120,19 +106,38 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
       recorded_at: loc.timestamp ? new Date(loc.timestamp).toISOString() : undefined,
     };
     if (ctx.tripId) {
-      api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body).catch(() => {});
+      // queueOnFailure:false is load-bearing, not an optimisation. Live
+      // location must never be replayed from the offline outbox: a queued ping
+      // that syncs twenty minutes later would overwrite the driver's CURRENT
+      // position with a stale one on the dispatcher's live map and in the
+      // geofence/monitor verdicts derived from it. The responder and standby
+      // branches of lib/tracking.js already say exactly this; the trip branch
+      // and this task were the two that did not.
+      api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body, { queueOnFailure: false }).catch(() => {});
     }
 
-    // Accumulate km per leg, same rules as the foreground watcher.
-    if (ctx.tripId && ctx.leg && ctx.prev) {
-      const seg = haversineKm(ctx.prev.lat, ctx.prev.lng, lat, lng);
-      const speed = loc.coords?.speed ?? 0;
-      if (seg > 0 && seg <= MAX_SEGMENT_KM && (speed > 1 || seg > MIN_MOVING_SEGMENT_KM)) {
-        if (ctx.leg === "leg1") ctx.km1 += seg;
-        else ctx.km2 += seg;
-      }
+    // Accumulate km per leg through the SAME rules the foreground watcher uses
+    // (./gps-odometer), so a backgrounded stretch cannot accumulate distance
+    // the foreground would have rejected as jitter.
+    if (ctx.tripId && ctx.leg) {
+      const acc = createAccumulator();
+      acc.leg1 = Number(ctx.km1) || 0;
+      acc.leg2 = Number(ctx.km2) || 0;
+      acc.leg = ctx.leg;
+      acc.prev = ctx.prev || null;
+      accumulateFix(acc, {
+        lat,
+        lng,
+        speedMs: loc.coords?.speed ?? null,
+        atMs: loc.timestamp ?? null,
+        leg: ctx.leg,
+      });
+      ctx.km1 = acc.leg1;
+      ctx.km2 = acc.leg2;
     }
-    ctx.prev = { lat, lng };
+    // Always re-anchor, dropped segment or not: the rejected fix is the driver's
+    // real position and the next segment must be measured from it.
+    ctx.prev = { lat, lng, atMs: loc.timestamp ?? null };
   }
 
   await saveContext(ctx);

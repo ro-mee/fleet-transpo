@@ -396,7 +396,7 @@ describe("buildChecklist", () => {
     expect(c.find((i) => i.text.includes("2 dispatch") && !i.pass)).toBeTruthy();
   });
 
-  it("marks the top-ranked pair as the highest fleet score", () => {
+  it("marks the top-ranked pair as the highest-ranked eligible fit", () => {
     const res = buildFleetPairRecommendations({
       request: mkRequest(),
       vehicles: [mkVehicle()],
@@ -404,7 +404,7 @@ describe("buildChecklist", () => {
       activePairs: [{ driver_id: 1, vehicle_id: 1 }],
       now: NOW,
     });
-    expect(res.recommended.checklist.some((i) => i.text.startsWith("Highest fleet score") && i.pass)).toBe(true);
+    expect(res.recommended.checklist.some((i) => i.text === "Highest-ranked eligible fit" && i.pass)).toBe(true);
   });
 });
 
@@ -710,7 +710,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
 
 
 describe("dayScope (today-overview interpretation)", () => {
-  // Tuesday 2026-08-04, shift 06:00-22:00 � a full-day review window can never
+  // Tuesday 2026-08-04, shift 06:00-22:00 � a full-day review window can never
   // fit inside it, which is exactly the collision dayScope resolves.
   const dayCtx = (driverId, row) => ({
     schedules: new Map([[driverId, new Map([[2, row]])]]),

@@ -23,15 +23,15 @@
  * property of the checklist, not of the status, and are unaffected.
  */
 
-/** The one item the tutorial fails, so the remarks tip has something to point at. */
-export const QUICK_PASS_FAILED_ID = "tires";
+/** The one non-blocking item the tutorial fails, so the remarks tip has something to point at. */
+export const QUICK_PASS_FAILED_ID = "passenger_items";
 
 /**
  * The remark seeded for {@link QUICK_PASS_FAILED_ID}. Plausible and specific, so
  * it reads like a real finding in the demo rather than a placeholder.
  */
 export const QUICK_PASS_FAIL_REMARK =
-  "Low tire pressure on the front left — needs air before departure.";
+  "Found an umbrella left behind by previous passenger.";
 
 /** The two states a checklist item can hold. */
 export const CHECKLIST_PASS = "PASS";

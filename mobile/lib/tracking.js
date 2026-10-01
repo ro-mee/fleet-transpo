@@ -256,6 +256,14 @@ export function useActiveTripGpsPoster(enabled) {
             // Trip GPS wins when both exist: it updates the same
             // drivers.current_* columns the responder evaluation reads, so
             // posting twice would only be a duplicate.
+            //
+            // queueOnFailure:false — live location is NEVER queued. A ping that
+            // sat in the outbox and synced minutes later would overwrite the
+            // driver's current position on the dispatcher's live map with a
+            // stale one, and the stale point is what the geofence and monitor
+            // verdicts below would then be computed from. The responder and
+            // standby branches already pass it; this one did not, which is how
+            // a trip-GPS ping was the only operational write still replayable.
             const res = await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude,
@@ -264,7 +272,7 @@ export function useActiveTripGpsPoster(enabled) {
               altitude: loc.coords.altitude ?? null,
               accuracy: loc.coords.accuracy ?? null,
               recorded_at: new Date(loc.timestamp).toISOString(),
-            });
+            }, { queueOnFailure: false });
             // PR #3: the server describes this ping against the trip's
             // pickup/destination geofences. Screens turn near_* into a
             // human-confirmed arrival suggestion — never an auto-transition.

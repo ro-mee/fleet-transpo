@@ -4,7 +4,7 @@ title: Bugs
 tags: [development, bugs]
 source:
   - (see individual notes)
-last_verified: 2026-09-21
+last_verified: 2026-09-30
 ---
 
 # Bugs
@@ -35,7 +35,88 @@ The leaked database password was **rotated on
 2026-08-11** and the old value is now rejected by the server →
 [[SEC Database Password In Git History]]
 
-### Severity 2 — correctness hazards
+- ~~**VS Code IDE: Problems panel flooded with 1K+ syntax errors due to dirty in-memory editor buffers and unconstrained jsconfig scoping.**~~
+  **CLOSED 2026-09-30.** VS Code Problems panel showed 1,368+ errors across 18 open files (`scenes.js` [782], `operations-cards.jsx` [224], `map.js` [259], `render-stills.js` [2], etc.). Deep diagnostics via VS Code language server inspection revealed all files on disk were 100% syntactically valid and passed all 3,343 tests and ESLint checks with zero errors. The root cause was 50 tabs left dirty/unsaved in memory with draft edits (duplicate array entries, unclosed braces/JSX tags), causing tsserver and CSS language services to validate in-memory buffers instead of disk. Fixed by: (1) Reverting dirty buffers to disk versions rather than saving broken drafts, (2) adding explicit `include` and `exclude` paths to `jsconfig.json`, `mobile/jsconfig.json`, and `motion/jsconfig.json` to prevent tsserver from crawling `.worktrees`, `.next`, and auxiliary tools, and (3) adding `files.watcherExclude` in `.vscode/settings.json`.
+- ~~**Mobile client: nested API endpoints (`/api/mobile/auth/login`) returned 404 due to stale Turbopack dev router cache.**~~
+  **CLOSED 2026-09-30.** Mobile client sign-in failed with `Request failed (404)` despite `POST /api/auth/forgot-password`
+  working over LAN (`192.168.0.200:3000`). Root cause was a stale `.next/dev` Turbopack router cache on Windows failing to
+  dynamically map 3-level deep routes under `src/app/api/mobile/`. Fixed by terminating the stale node process, clearing
+  `.next`, and restarting `npm run dev`. Verified with live probes returning `400` / `401` JSON errors rather than HTML 404s.
+- ~~**Web: the driver detail and edit pages logged Chrome's "preloaded … but not used within a few seconds" warning, twice each.**~~
+  **CLOSED 2026-09-30.** `src/app/layout.js` declared `Inter` and `Geist_Mono`, and a face declared in the
+  root layout is preloaded on **every** route. Most routes never render Geist Mono — `/drivers/[id]/edit`
+  has no `font-mono` usage at all (its license field renders in Inter through `font-data`) — so the 23 KB
+  latin woff2 was fetched on every page load and could not be used, which is exactly the condition Chrome
+  reports. `Geist_Mono` now declares **`preload: false`**; the face still resolves through
+  `--font-geist-mono` and `font-display: swap` still applies, and the surfaces that use it fetch it on
+  demand. Inter keeps its preload because every route paints with it — the warning Chrome can still emit
+  for it is the open upstream issue (vercel/next.js#51524 / NEXT-1307) covered in [[Frontend]].
+  Verified by headless-Chrome probes against the dev server and a production build: one font preload per
+  route, `document.fonts.load('16px "Geist Mono"')` resolving to a loaded face, and no preload warnings on
+  `/login` or `/drivers/[id]/edit`.
+- ~~**Driver mobile map: live trip GPS was the only replayable write.**~~
+  **CLOSED 2026-09-29.** The poster already passed `queueOnFailure: false` on
+  its responder and standby branches — with a comment saying a stale replay must
+  not overwrite the live position — but the **trip** branch and the background
+  task did not, so a failed trip-GPS ping sat in the offline outbox and later
+  landed on the dispatcher's live map *and* became the basis for the
+  geofence/monitor verdicts returned alongside it. Both now pass the flag. → [[Tracking]]
+- ~~**Driver mobile map: the odometer counted parked jitter and had no time
+  guard.**~~ **CLOSED 2026-09-29.** The foreground and background copies of the
+  segment rules had drifted; the foreground one used `(speed > 1 || seg > 0.02)`,
+  an OR, so its own comment ("only counted when the vehicle is actually moving")
+  was not what ran — a parked vehicle drifting >20 m billed mileage every cycle,
+  and `vehicles.mileage` drives maintenance due-dates. Neither copy had a
+  time-delta guard despite assuming ≤3 s fixes. Replaced by one shared
+  anchor-based rule set (`mobile/lib/gps-odometer.js`), 15 tests. → [[Tracking]]
+- ~~**Driver mobile map: fabricated markers were also suppressing real ones.**~~
+  **CLOSED 2026-09-29.** The whole radar builder sat behind `if (!driverLocation
+  || !__DEV__)`, so production rendered an **empty** radar and the coverage legend
+  described layers that could never appear — the driver's own real pending
+  assignments were suppressed by the same gate that hid the fake gas stations and
+  fleet drivers. A real trip with unresolved coordinates was additionally placed
+  at `lat + 0.008`, a fabricated pin on a real dispatch. Real assignments now
+  always render; only the fabricated entities are dev-gated. Verified in the
+  exported production bundle. → [[Tracking]]
+- ~~**Driver mobile map: a trailing backslash in an address killed the whole
+  WebView.**~~ **CLOSED 2026-09-29.** Addresses escaped only the single quote, so
+  `C:\path\` escaped the closing quote and made the single `<script>` block a
+  syntax error — MAP_READY never fired and the loading overlay spun forever, the
+  identical failure the label escaping was written for. Popups also needed HTML
+  escaping, not just JS-string escaping. → [[Tracking]]
+- ~~**Driver mobile map: accept/start raced the server state machine.**~~ **CLOSED
+  2026-09-29.** The swipe fired `accept` without awaiting, then awaited `start`;
+  since the machine allows one hop at a time (`Assigned → Driver Accepted → Trip
+  Started`), `start` could 409 for an action that is really two ordered steps.
+- ~~**Driver mobile map: the standby "Live Tracking" chip could not go stale.**~~
+  **CLOSED 2026-09-29.** Its freshness test used a `now` that only advanced while
+  a *pre-start trip* was showing, so during idle/standby the difference stayed
+  negative and the chip kept claiming a live publication after the poster had
+  stopped. A truthfulness defect: the driver is told dispatch can see them when it
+  cannot.
+- ~~**Driver mobile map: a pending trip could shadow the active one.**~~ **CLOSED
+  2026-09-29.** The screen took the first non-terminal row while the server orders
+  by `scheduled_departure ASC NULLS LAST`, so a pending assignment sorting ahead
+  won — wrong route, wrong header, wrong swipe action, and the odometer re-pointed
+  at an unstarted trip.
+- ~~**Driver mobile map: focus effect re-ran on every render, crashing the tab
+  and flooding duty.**~~ **CLOSED 2026-09-30.** `map.js` passed the whole `duty`
+  object into its `useFocusEffect` dep array, but `useDuty()` returns a fresh
+  spread object each render — and expo-router's focus effect is a `React.useEffect`
+  on the callback identity — so while focused it re-ran per render, calling
+  `setDriverLocation({...})` + `duty.refresh()` back into itself: `Maximum update
+  depth exceeded` plus a `GET /api/mobile/driver/duty` every ~120 ms. Deps narrowed
+  to the stable `duty.refresh`; the re-seed uses a functional set with an equality
+  bail-out. A same-day audit of all 10 other `useFocusEffect` sites (Home,
+  Trips, History, Vehicle, Work Schedule, Permissions, layout, `use-duty`,
+  `use-pre-shift`) found no second instance: all depend on stable loaders or
+  primitives, and the coach-mark triggers are idempotent-guarded. → [[Live Map Radar]]
+- **Driver mobile map: background GPS is unverified on any device.** **OPEN —
+  needs hardware.** The wiring is sound in static analysis (background
+  permission request, `TaskManager` definition, AppState start/stop, trip/leg
+  context, AsyncStorage merge with a trip-id guard), but nothing here proves
+  Android or iOS actually delivers fixes while the app is minimised or the
+  screen is locked. Unit tests cannot establish it. Checklist in [[Tracking]].
 
 - **The address form discards work silently — both halves fixed, browser checks
   run 2026-09-25 as runbook steps 5–8 (the operator's report; unlike steps 9–11
@@ -4192,4 +4273,25 @@ The driver detail readiness card previously treated a future expiry date as "Val
 The edit form still sends Sex explicitly. The PUT route checks Sex, class, and type against its `UPDATE ... RETURNING` row; the page checks the returned values before green success. A 2026-09-30 read-only snapshot found 10 active drivers with null review metadata, all 10 with recorded class and type, and 20 of 21 active vehicles without `required_license_class`. Migration 137 intentionally did not infer historical reviews or vehicle classes; staff must review the licenses and classify vehicles from registration evidence before pairings become eligible. No auto-verification or production data writes were made.
 
 Verification: focused GET/PUT route tests passed 19/19, and verify-license route tests passed 4/4, including PostgreSQL DATE regression cases and an unchanged-expiry review-preservation case. Targeted ESLint and `git diff --check` passed. No authenticated browser retest has been completed.
+## Fixed — 2026-09-30 — RS-7C7G showed "Renew driver license" for valid licenses
+
+**Reported.** RS-7C7G (Okada Patron, 1 guest) showed no eligible option with two "Renew driver license" recovery buttons, while both drivers' licenses are valid (Karlo Torres expiry 2033, Jack Mors 2027, both Professional/B).
+
+**Root cause, verified against live (read-only).** The engine was correct; the recovery labels were wrong. Two fail-closed gates fired, both by design (→ [[Dispatch]] license section):
+1. Both drivers were never staff-verified (`license_verified_at/by/method` NULL) → "License details have not been verified by authorized staff."
+2. Both vehicles (XYZ 5678, ABC-1234) have `required_license_class = NULL` (predates the required-field rule) → "Vehicle required license class is missing or unsupported."
+
+But `recoveryActionForCheck` mapped every license check to "Renew driver license", and `recoveryActionForExclusion` matched any reason containing "license" to the same — so an unverified license and a vehicle-record fix both read as "renew", pointing at the wrong record.
+
+**Fix (`decision.js`, `evidence-contract.js`).** License recovery is now chosen from the recorded message: unverified → new `LICENSE_UNVERIFIED` / "Verify driver license" (driver record); missing/uncovering required class → new `VEHICLE_LICENSE_CLASS` / "Set required license class" (vehicle record); everything else keeps `LICENSE_EXPIRED` / "Renew driver license". Both codes resolve COMPLIANCE proofs with the correct subject lane (driver / vehicle).
+
+**Data still required (operator action, not code).** Verify both drivers' licenses via the driver-record staff review, and set Required driver license class = B on XYZ 5678 and ABC-1234. Recheck RS-7C7G afterwards.
+
+**Verified.** New `decision.test.js` case pins all five branches (check + exclusion paths); expired-message behavior unchanged (`fleetmate-evidence.test.js` LICENSE_EXPIRED assertion still green). Focused scope 330/330 in 33 files.
+
+**Follow-up, same day — the verify button itself was broken.** After filling everything in, staff verification failed with "License details must be complete and valid before verification." Root cause: `isValidLicenseExpiry` only accepted `YYYY-MM-DD` strings, but node-postgres returns DATE columns as Date objects — so `validateLicenseDetails(..., { requireAll: true })` rejected every real row, making verification impossible for all drivers. The dispatch eligibility path was unaffected (it reads dates via `licenseCalendarDay`, which handles both shapes). Fix: `isValidLicenseExpiry` now accepts anything `licenseCalendarDay` parses; the details validator passes the raw value instead of `String(...)`. Regression tests pin the DB-shaped Date input plus continued rejection of missing/unparseable expiries (`license-eligibility.test.js` "staff verification gate"). 48/48 green across the license, verify-route, schema, and driver-route suites.
+
+**Follow-up, same day — "okay na ba si Karlo?" was deflected.** A named-driver status question matched no scope signal (no fleet keyword, no follow-up pattern), so the Copilot returned the out-of-scope redirect even mid-conversation about that driver. Fix, three layers: (1) `copilot-intents.js` recognizes person references (`si/ni/kay` + name, `driver <name>`) and bare check-ins (`okay na ba?`, `kamusta?`) as in-scope when fleet history or an active recommendation exists — a cold name with nothing to resolve against still stays out; `verif*` joined the fleet vocabulary. (2) Exclusions now carry `driver_id/driver_name` (engine pairing-failure skips, radar INFEASIBLE rows, advisor projection, conversation projection with driver-scoped recovery). (3) `evidenceSummary` resolves the asked name against checked pairs then exclusions (stop-word-stripped so "Why is Driver Marco unavailable?" still reaches Marco, while "the driver told me he is free" strips to nothing and falls through to the verdict). Trap found while fixing: `String(null)` is `"null"`, so null names matched each other — `nameTokenMatch` now refuses nulls, pinned by test. Full suite 3355/3355 in 267 files.
+
+**Follow-up, same day — the Copilot's "license number is missing" for Karlo was wrong.** After the operator set ABC-1234's required class to B, the Copilot still reported Karlo's license number as missing — but the database row has had `N04-19-013583` all along (verified read-only: number/type/class/expiry all present, only staff verification pending). Root cause: the preparation roster query (`dispatch-recommendation-preparation.service.js`) selected only `driver_id, driver_status, license_expiry, years_of_experience` — every other license field was undefined on the engine's rows, so the eligibility gate read a complete license as missing. (It only surfaced now because a NULL vehicle required class takes the expiry-only path; setting the class switched the full check on.) Fix: the roster now selects `license_number, license_type, license_class, license_verified_at/by/method` — the same columns every other engine-feeding query already loads. Correct state after fix: Karlo × ABC-1234 is blocked only on staff verification ("Verify driver license"); Jack × XYZ 5678 on verification plus the still-NULL vehicle class. Pinned by a roster-column test. Note: the operator's license edit also reset Karlo's verification to NULL (edit clears it by design), so the "Confirm physical card checked" click must come after saving the edit.
 

@@ -9,10 +9,13 @@ import {
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { api, isTransportFailure } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { useDuty } from "../../../lib/use-duty";
+import { useDriverProfile } from "../../../lib/driver-profile";
+import { DUTY_EMPTY_STATES, resolveDutyEmptyState } from "../../../lib/duty-empty-states";
 import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../../lib/offline-cache";
 import { offlineViewState } from "../../../lib/offline-ux";
 import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/OfflineStates";
@@ -114,6 +117,28 @@ export default function TripsTab() {
   const [lastSynced, setLastSynced] = useState(null);
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
+  const duty = useDuty();
+  const { profile } = useDriverProfile();
+
+  const emptyStateKey = useMemo(() => {
+    return resolveDutyEmptyState({
+      duty,
+      profile,
+      user,
+      activeTrip: trips.find((t) => !["Completed", "Cancelled"].includes(t.trip_status)),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- field-level identity prevents churn on fresh object references
+  }, [
+    duty?.loaded,
+    duty?.checkedIn,
+    duty?.today?.blocked,
+    duty?.today?.reason,
+    profile?.driverStatus,
+    user?.driver_status,
+    user?.status,
+    trips,
+  ]);
+
   // Unstable counts as online (the amber banner speaks for it) — only a fully
   // offline verdict switches the list to saved data.
   const { status } = useConnectivity();
@@ -187,7 +212,14 @@ export default function TripsTab() {
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 96 }]}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              Promise.allSettled([load(), duty.refresh?.()]).finally(() => setRefreshing(false));
+            }}
+            tintColor={colors.primary}
+          />
         }
       >
         <ClayCard variant="hero" style={styles.summary}>
@@ -217,6 +249,32 @@ export default function TripsTab() {
         ) : sections.length === 0 ? (
           view.state === "never-synced" ? (
             <NeverSyncedCard body="Connect once while online to save your trips for offline viewing." />
+          ) : emptyStateKey && DUTY_EMPTY_STATES[emptyStateKey] ? (
+            <ClayCard variant="standard" style={styles.emptyCard}>
+              <View style={[styles.statusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+                {emptyStateKey === "off_duty" && (
+                  <MaterialCommunityIcons name="map-marker-off" size={32} color={colors.primary} />
+                )}
+                {emptyStateKey === "rest_day" && (
+                  <MaterialCommunityIcons name="calendar-minus" size={32} color={colors.primary} />
+                )}
+                {emptyStateKey === "on_leave" && (
+                  <View style={styles.calendarSlashIconWrap}>
+                    <MaterialCommunityIcons name="calendar-blank-outline" size={32} color={colors.primary} />
+                    <View style={[styles.calendarSlashBar, { backgroundColor: colors.primary }]} />
+                  </View>
+                )}
+              </View>
+              <ClayBadge label={DUTY_EMPTY_STATES[emptyStateKey].statusPill} tone="primary" statusDot />
+              <View style={{ alignItems: "center", gap: 4, paddingHorizontal: 20 }}>
+                <Text style={[type.cardTitle, { textAlign: "center" }]}>
+                  {DUTY_EMPTY_STATES[emptyStateKey].tripsTitle}
+                </Text>
+                <Text style={[type.supporting, { textAlign: "center", maxWidth: 280 }]}>
+                  {DUTY_EMPTY_STATES[emptyStateKey].tripsDescription}
+                </Text>
+              </View>
+            </ClayCard>
           ) : (
             <ClayCard variant="standard" style={styles.emptyCard}>
               {view.state === "empty-confirmed" && !offline ? (
@@ -273,5 +331,25 @@ const styles = StyleSheet.create({
   metaLeft: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
   plateChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 16 },
   detailsBtn: { marginTop: 4 },
+  statusIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarSlashIconWrap: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calendarSlashBar: {
+    position: "absolute",
+    width: 36,
+    height: 2.5,
+    borderRadius: 1.5,
+    transform: [{ rotate: "45deg" }],
+  },
 });
 

@@ -78,6 +78,69 @@ export async function GET(req, { params }) {
       console.warn("Driver stats lookup skipped:", statsErr);
     }
 
+    // Punctuality (All Time) — same definition as the Driver Performance
+    // report (operational-reports.js): completed non-deleted trips, measured =
+    // server-stamped at_pickup_at + scheduled pickup anchor, geofence
+    // overrides excluded from on-time/late. Rate divides by MEASURED only.
+    let punctuality = {
+      punctuality_completed: 0,
+      punctuality_measured: 0,
+      punctuality_on_time: 0,
+      punctuality_late: 0,
+      punctuality_override: 0,
+      punctuality_unmeasured: 0,
+      punctuality_rate: null,
+    };
+    try {
+      const { rows: punctRows } = await query(
+        `SELECT COUNT(t.trip_id)::int AS completed,
+          COUNT(*) FILTER (
+            WHERE t.at_pickup_at IS NOT NULL
+              AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+              AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+          )::int AS measured,
+          COUNT(*) FILTER (
+            WHERE t.at_pickup_at IS NOT NULL
+              AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+              AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+              AND t.at_pickup_at <= COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                  + ('5 minutes')::interval
+          )::int AS on_time,
+          COUNT(*) FILTER (
+            WHERE t.at_pickup_at IS NOT NULL
+              AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
+              AND COALESCE(t.at_pickup_override, FALSE) = FALSE
+              AND t.at_pickup_at > COALESCE(ds.scheduled_departure, tr.pickup_datetime)
+                  + ('5 minutes')::interval
+          )::int AS late,
+          COUNT(*) FILTER (WHERE COALESCE(t.at_pickup_override, FALSE) = TRUE)::int AS overrides
+           FROM trips t
+           LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+           LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+          WHERE t.driver_id = $1 AND t.trip_status = 'Completed' AND t.deleted_at IS NULL`,
+        [id]
+      );
+      const p = punctRows?.[0];
+      if (p) {
+        const completed = Number(p.completed) || 0;
+        const measured = Number(p.measured) || 0;
+        const onTime = Number(p.on_time) || 0;
+        const late = Number(p.late) || 0;
+        const overrides = Number(p.overrides) || 0;
+        punctuality = {
+          punctuality_completed: completed,
+          punctuality_measured: measured,
+          punctuality_on_time: onTime,
+          punctuality_late: late,
+          punctuality_override: overrides,
+          punctuality_unmeasured: Math.max(0, completed - measured - overrides),
+          punctuality_rate: measured === 0 ? null : Math.round((onTime / measured) * 100),
+        };
+      }
+    } catch (punctErr) {
+      console.warn("Driver punctuality lookup skipped:", punctErr);
+    }
+
     // Fetch trip history
     let trips = [];
     try {
@@ -139,6 +202,7 @@ export async function GET(req, { params }) {
     const responseData = await signDriverMedia({
         ...driver,
         ...stats,
+        ...punctuality,
         license_expiry: licenseCalendarDay(driver.license_expiry),
         birthdate: toCalendarDay(driver.birthdate),
         trips,
@@ -209,6 +273,9 @@ export async function PUT(req, { params }) {
       sex: { maxLength: 20, label: "Sex" },
       nationality: { maxLength: 100, label: "Nationality" },
       address: { maxLength: 255, label: "Address" },
+      emergency_contact_name: { maxLength: 255, label: "Emergency contact name" },
+      emergency_contact_phone: { type: "phone", label: "Emergency contact phone" },
+      emergency_contact_address: { maxLength: 500, label: "Emergency contact address" },
     });
     Object.assign(errors, validateLicenseDetails(body));
     if (!isValidObject(errors)) {
@@ -380,7 +447,7 @@ export async function PUT(req, { params }) {
     const employeePayload = {};
     if (first_name !== undefined) employeePayload.first_name = normalizeName(first_name);
     if (last_name !== undefined) employeePayload.last_name = normalizeName(last_name);
-    if (email !== undefined) employeePayload.email = normalizeEmail(email);
+    if (email !== undefined && email !== null && String(email).trim() !== "") employeePayload.email = normalizeEmail(email);
     if (phone !== undefined) employeePayload.phone = normalizePhone(phone) || null;
     if (position !== undefined) employeePayload.position = position || "Driver";
     if (storedLicenceFront !== undefined) {
@@ -402,14 +469,15 @@ export async function PUT(req, { params }) {
     if (empKeys.length > 0 && existing.employee_id) {
       const setClause = empKeys.map((k, i) => `${k} = $${i + 1}`).join(", ");
       const vals = empKeys.map((key) => employeePayload[key]);
-      const credentialClause = email !== undefined && normalizeEmail(email) !== normalizeEmail(existing.email)
+      const isEmailChanging = email !== undefined && email !== null && String(email).trim() !== "" && normalizeEmail(email) !== normalizeEmail(existing.email);
+      const credentialClause = isEmailChanging
         ? ", auth_version = auth_version + 1"
         : "";
       await tx.query(
         `UPDATE employees SET ${setClause}${credentialClause} WHERE employee_id = $${empKeys.length + 1}`,
         [...vals, existing.employee_id]
       );
-      if (email !== undefined && normalizeEmail(email) !== normalizeEmail(existing.email)) {
+      if (isEmailChanging) {
         await tx.query(`UPDATE web_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE employee_id = $1 AND revoked_at IS NULL`, [existing.employee_id]);
         await tx.query(`DELETE FROM mobile_refresh_tokens WHERE employee_id = $1`, [existing.employee_id]);
         await tx.query(`DELETE FROM password_reset_tokens WHERE employee_id = $1 AND used_at IS NULL`, [existing.employee_id]);

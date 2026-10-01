@@ -272,7 +272,7 @@ export function guardDisclosure(guards) {
     clauses.push(`\nLive GPS was not part of this evaluation: ${gps.reason}. Its absence is deliberate rather than a gap in the evidence, and it does not indicate a tracking problem with the vehicle.`);
   }
   if (guards?.probabilitySought || guards?.volunteeredRate) {
-    clauses.push('\nFleetMate does not rate the odds of a trip succeeding and does not promise an arrival time. The deterministic checks above are the whole basis for a decision; no wording here can raise or lower that outcome.');
+    clauses.push('\nDispatch Copilot does not rate the odds of a trip succeeding and does not promise an arrival time. The deterministic checks above are the whole basis for a decision; no wording here can raise or lower that outcome.');
   }
   return clauses.join('');
 }

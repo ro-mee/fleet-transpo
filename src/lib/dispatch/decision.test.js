@@ -1,5 +1,5 @@
 import {it,expect} from 'vitest';
-import {dispatchDecision,dispatchConfirmation,isFuelNoise} from './decision';
+import {dispatchDecision,dispatchConfirmation,isFuelNoise,recoveryActionForCheck,recoveryActionForExclusion} from './decision';
 const safe={checks:[{id:'capacity',status:'verified'}],readiness:'VERIFIED',evaluated:true,feasibility:{verdict:'SAFE'},reviewable:true};
 const now=Date.parse('2026-09-15T00:00:00Z');
 const ready={canAssign:true,pair:safe,decision:dispatchDecision(safe),now};
@@ -77,4 +77,37 @@ it('filters fuel noise out of reasons while keeping other advisories visible',()
   const d = dispatchDecision({...safe,advisories:[{message:'Fuel at 10% — refuel before departure.'},{message:'Check assignment'}]});
   expect(d.state).toBe('ALL_CLEAR');
   expect(d.reasons).toEqual(['Check assignment']);
+});
+it('routes license failures to the fix they actually need',()=>{
+  // RS-7C7G: valid licenses blocked as unverified must ask for verification,
+  // not renewal — and a missing vehicle required class must open the vehicle.
+  const unverified = recoveryActionForCheck(
+    {id:'license',status:'blocking',message:'Driver Juan is not eligible: License details have not been verified by authorized staff.'},
+    {driverId:7,vehicleId:3});
+  expect(unverified.code).toBe('LICENSE_UNVERIFIED');
+  expect(unverified.label).toBe('Verify driver license');
+  expect(unverified.record).toBe('driver');
+  const vehicleClass = recoveryActionForCheck(
+    {id:'license',status:'blocking',message:'Driver Juan is not eligible: Vehicle required license class is missing or unsupported.'},
+    {driverId:7,vehicleId:3});
+  expect(vehicleClass.code).toBe('VEHICLE_LICENSE_CLASS');
+  expect(vehicleClass.label).toBe('Set required license class');
+  expect(vehicleClass.record).toBe('vehicle');
+  expect(vehicleClass.id).toBe(3);
+  const expired = recoveryActionForCheck(
+    {id:'license',status:'blocking',message:'Driver license is expired.'},
+    {driverId:7,vehicleId:3});
+  expect(expired.code).toBe('LICENSE_EXPIRED');
+  expect(expired.label).toBe('Renew driver license');
+  const exclusion = recoveryActionForExclusion(
+    {reason:'License details have not been verified by authorized staff.',vehicleId:3},
+    {driverId:7});
+  expect(exclusion.code).toBe('LICENSE_UNVERIFIED');
+  expect(exclusion.label).toBe('Verify driver license');
+  const exclusionClass = recoveryActionForExclusion(
+    {reason:'Vehicle required license class is missing or unsupported.',vehicleId:3},
+    {driverId:7});
+  expect(exclusionClass.code).toBe('VEHICLE_LICENSE_CLASS');
+  expect(exclusionClass.record).toBe('vehicle');
+  expect(exclusionClass.id).toBe(3);
 });

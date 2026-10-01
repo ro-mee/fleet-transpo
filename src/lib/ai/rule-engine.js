@@ -213,10 +213,12 @@ export function scoreReservationVehicles(vehicles = [], passengerCount = 1) {
 }
 
 // 2. Dispatch Driver Scoring
-// Primary signal: guest reviews (avg_guest_rating, 1–5 scale from customer_rating on trips).
-// Secondary signal: smooth_driving_score (system-tracked driving behaviour).
-// Years of experience is deliberately NOT used — a driver with one year and perfect
-// guest reviews outperforms a 10-year veteran with poor ratings.
+// Primary signal is operational feasibility (license, status, schedule load).
+// Reliability signal is pickup punctuality over the last 90 days — the same
+// Completed + Punctuality definition as the Driver Performance Center.
+// customer_rating / smooth_driving_score have no writer UI and are unused.
+// Punctuality is a LATE TIE-BREAKER only (±3 max) so it never overrides
+// eligibility or fights workload fairness (H8).
 export function scoreDispatchDrivers(drivers = []) {
   const dayMs = 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -225,41 +227,30 @@ export function scoreDispatchDrivers(drivers = []) {
     let score = 30;
     const reasons = [];
 
-    // PRIMARY: Guest rating (customer_rating AVG from completed trips, 1–5 scale).
-    const guestRating = Number(d.avg_guest_rating);
-    const tripCount   = Number(d.total_completed_trips) || 0;
-    if (!Number.isNaN(guestRating) && guestRating > 0 && tripCount > 0) {
-      if (guestRating >= 4.5) {
-        score += 25;
-        reasons.push(`Outstanding guest rating: ${guestRating.toFixed(1)}/5 across ${tripCount} trips`);
-      } else if (guestRating >= 4.0) {
-        score += 18;
-        reasons.push(`High guest rating: ${guestRating.toFixed(1)}/5 (${tripCount} trips)`);
-      } else if (guestRating >= 3.0) {
-        score += 8;
-        reasons.push(`Average guest rating: ${guestRating.toFixed(1)}/5 (${tripCount} trips)`);
+    // Punctuality tie-breaker (last 90 days, measured trips only).
+    const measured = Number(d.punct_measured) || 0;
+    const onTime = Number(d.punct_on_time) || 0;
+    const rate = d.punct_rate != null ? Number(d.punct_rate)
+      : measured > 0 ? Math.round((onTime / measured) * 100) : null;
+    const tripCount = Number(d.total_completed_trips) || 0;
+    if (measured >= 5 && rate != null) {
+      if (rate >= 95) {
+        score += 3;
+        reasons.push(`Highly punctual: ${rate}% on-time (${onTime} of ${measured} measured)`);
+      } else if (rate >= 85) {
+        score += 1;
+        reasons.push(`Punctual: ${rate}% on-time (${onTime} of ${measured} measured)`);
+      } else if (rate < 70) {
+        score -= 3;
+        reasons.push(`Often late: ${rate}% on-time (${onTime} of ${measured} measured) — monitor`);
       } else {
-        score -= 8;
-        reasons.push(`Low guest rating: ${guestRating.toFixed(1)}/5 — monitor performance`);
+        reasons.push(`Punctuality ${rate}% (${onTime} of ${measured} measured)`);
       }
     } else if (tripCount === 0) {
       // New driver with no trip history — neutral, no penalty.
-      reasons.push("New driver — no guest ratings yet");
-    }
-
-    // SECONDARY: Smooth driving score (system-tracked, 0–100).
-    const drivingScore = Number(d.avg_driving_score);
-    if (!Number.isNaN(drivingScore) && drivingScore > 0) {
-      if (drivingScore >= 85) {
-        score += 15;
-        reasons.push(`Excellent driving score: ${drivingScore.toFixed(0)}/100`);
-      } else if (drivingScore >= 70) {
-        score += 8;
-        reasons.push(`Good driving score: ${drivingScore.toFixed(0)}/100`);
-      } else if (drivingScore < 50) {
-        score -= 8;
-        reasons.push(`Low driving score: ${drivingScore.toFixed(0)}/100`);
-      }
+      reasons.push("New driver — no trip history yet");
+    } else {
+      reasons.push("Not enough measured trips for a punctuality signal");
     }
 
     // License validity
@@ -299,8 +290,10 @@ export function scoreDispatchDrivers(drivers = []) {
 
     return {
       driver: d,
-      avg_guest_rating:     d.avg_guest_rating ?? null,
-      avg_driving_score:    d.avg_driving_score ?? null,
+      punct_measured: measured,
+      punct_on_time: onTime,
+      punct_late: Number(d.punct_late) || 0,
+      punct_rate: rate,
       total_completed_trips: tripCount,
       score: Math.min(Math.max(score, 10), 100),
       confidence: (Math.min(Math.max(score, 10), 100) / 100).toFixed(2),

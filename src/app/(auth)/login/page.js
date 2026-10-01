@@ -593,17 +593,18 @@ function MfaVerificationDialog({
 
             {!recoveryMode && (
               <p className="mt-3 text-center text-[12px] leading-relaxed text-[#536078] dark:text-slate-400">
-                {resendSeconds > 0
-                  ? `A new code can be requested in ${resendSeconds}s.`
-                  : "A new code can be requested now."}{" "}
-                <button
-                  type="button"
-                  onClick={onResend}
-                  disabled={loading || resendSeconds > 0}
-                  className="font-semibold text-[#3e73e7] underline underline-offset-2 transition-colors hover:text-[#2f5cc4] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Resend code
-                </button>
+                {resendSeconds > 0 ? (
+                  `A new code can be requested in ${resendSeconds}s.`
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onResend}
+                    disabled={loading || resendSeconds > 0}
+                    className="font-semibold text-[#3e73e7] underline underline-offset-2 transition-colors hover:text-[#2f5cc4] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Resend code
+                  </button>
+                )}
               </p>
             )}
 

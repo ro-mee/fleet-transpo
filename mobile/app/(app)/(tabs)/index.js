@@ -30,6 +30,7 @@ import { useCoachMarkActions, useCoachMarkStatus } from "../../../components/coa
 import { CoachMarkTarget } from "../../../components/coachmarks/CoachMarkTarget";
 import { usePreShift } from "../../../lib/use-pre-shift";
 import { useDuty } from "../../../lib/use-duty";
+import { DUTY_EMPTY_STATES, resolveDutyEmptyState } from "../../../lib/duty-empty-states";
 import { missedReportCopy, lateReportHref } from "../../../lib/missed-report";
 import { ClayCard, ClayButton } from "../../../components/clay";
 import {
@@ -202,6 +203,26 @@ export default function Home() {
   const { current: activeTrip, upcoming } = selectHomeTrips(trips, activeStatuses);
   const visibleUpcoming = upcoming.slice(0, HOME_UPCOMING_LIMIT);
   const hiddenUpcomingCount = Math.max(0, upcoming.length - HOME_UPCOMING_LIMIT);
+
+  const emptyStateKey = useMemo(() => {
+    return resolveDutyEmptyState({
+      duty,
+      profile: driverProfile,
+      user,
+      activeTrip,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- field-level identity prevents churn on fresh object references
+  }, [
+    duty?.loaded,
+    duty?.checkedIn,
+    duty?.today?.blocked,
+    duty?.today?.reason,
+    driverProfile?.driverStatus,
+    user?.driver_status,
+    user?.status,
+    activeTrip,
+  ]);
+  const homeEmptyState = emptyStateKey ? DUTY_EMPTY_STATES[emptyStateKey] : null;
 
   const canManageTrip = canAction(user, ACTIONS.MANAGE_TRIP);
   const canReportLocation = canAction(user, ACTIONS.REPORT_LOCATION);
@@ -702,6 +723,7 @@ export default function Home() {
               they were. Dynamic layout below only runs with trip data. */}
           <AssignmentsHeading onPress={goTrips} />
           <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
+            emptyState={homeEmptyState}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview={Boolean(activeTrip)}
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}

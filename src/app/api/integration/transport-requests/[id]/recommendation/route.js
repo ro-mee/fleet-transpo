@@ -9,8 +9,11 @@ import { isFuelNoise } from "@/lib/dispatch/decision";
 
 // Dispatch recommendation — the advisory panel behind the review dialog.
 //
-// The scoring is deterministic (lib/ai/dispatch-advisor.js): the rule engine
-// picks the candidate and every number traces to a rule.
+// The ranking is deterministic (lib/ai/pair-scoring.js + dispatch radar +
+// recommendation-ranking.js): the dispatch evaluation and ranking pipeline
+// places an eligible option first on current operational evidence, and every
+// claim traces to that evidence. No numeric rank key is ever shown to the
+// dispatcher or fed to narration as a probability.
 //
 // GET returns that scored payload immediately, with `narration: null`.
 // GET ?narrate=1 is a SEPARATE, slower call that asks the configured LLM
@@ -27,7 +30,7 @@ const NARRATION_BUDGET_MS = 25000;
 
 const RATIONALE_INSTRUCTIONS =
   "You are a fleet dispatch assistant for a hotel transportation desk. " +
-  "You are given a transport request and the pairing a deterministic scorer already chose. " +
+  "You are given a transport request and the option the deterministic dispatch evaluation and ranking pipeline placed first on current operational evidence. " +
   "Write exactly three short plain-text lines starting with 'Fit:', 'Ready:', and 'Check:'. " +
   "Keep each line to 18 words or fewer. Fit must name the selected vehicle and driver plus the strongest matching fact. " +
   "Ready must include only the most relevant pickup-window, leave, capacity, location, maintenance, or workload fact. " +
@@ -81,6 +84,24 @@ function buildRationalePrompt(request, recommendation) {
       : `Seats ${seats} for ${passengers} passenger(s) — ${seats - passengers} spare seat(s).`
     : `Seating capacity not recorded; ${passengers} passenger(s) expected.`;
 
+  // Recommendation basis from verified evidence — never a numeric score.
+  // The final order comes from the evidence comparator (reliability → efficiency
+  // → workload → schedule fit), so narrating a rank key would misrepresent it
+  // and invites fake probability ("87% confident").
+  const basis = pair?.decisionEvidence?.explanation
+    || (pair?.reasons ?? []).filter((r) => !/fuel/i.test(String(r))).slice(0, 3).join("; ")
+    || "none recorded";
+  const pairingLine = pair?.is_designated
+    ? "This is the vehicle's designated driver."
+    : pair?.replacement_reason
+      ? `Substitute driver because: ${pair.replacement_reason}`
+      : pair?.reason_type === 'designated'
+        ? "Designated pairing."
+        : "Evaluated pairing.";
+  const workloadLine = pair?.workload
+    ? `Workload for this date: ${Number(pair.workload.trips_7d) || 0} trip(s) in the last 7 days; lighter recorded load is preferred only after timing reliability.`
+    : null;
+
   const lines = [
     `Dispatch context: ${pair?.dispatchContext?.mode ?? 'Unverified'}. Readiness: ${pair?.readiness ?? 'REVIEW_REQUIRED'}. Feasibility: ${pair?.feasibility?.verdict ?? 'UNKNOWN'}. ${(pair?.feasibility?.reasons ?? []).join(' ')}`,
     `Guest: ${request?.guest_name || "Walk-in guest"} · ${passengers} passenger(s)`,
@@ -95,7 +116,7 @@ function buildRationalePrompt(request, recommendation) {
       ? [
           `Chosen vehicle: ${known(v.vehicle_name)} (plate ${known(v.plate_number)}).`,
           seatLine,
-          `Pair score ${known(pair?.score ?? v.score, (x) => `${x}/100`)}. Scorer reasons: ${(pair?.reasons ?? v.reasons ?? []).join("; ") || "none recorded"}.`,
+          `Recommendation basis: ${basis}.`,
           `Scheduled dispatches in this window: ${known(v.schedule_load)}. Service risk: ${known(v.maintenance?.risk)}.`,
         ].join(" ")
       : `Chosen vehicle: none — ${recommendation.vehicle?.considered ?? 0} vehicle(s) were available but none fit this request.`,
@@ -105,13 +126,10 @@ function buildRationalePrompt(request, recommendation) {
           `Experience: ${known(d.years_of_experience, (x) => `${x} year(s)`)}.`,
           `Guest rating: ${known(d.rating, (x) => `${x}/5`)} — "not recorded" means this driver has no completed rated trips yet, NOT a poor rating.`,
           distanceLine,
-          `Pair score ${known(pair?.score ?? d.score, (x) => `${x}/100`)}. Scorer reasons: ${(pair?.reasons ?? d.reasons ?? []).join("; ") || "none recorded"}.`,
+          `Recommendation basis: ${basis}.`,
           `Scheduled dispatches in this window: ${known(d.schedule_load)}.`,
-          pair?.is_designated
-            ? "This is the vehicle's designated driver."
-            : pair?.replacement_reason
-              ? `Substitute driver because: ${pair.replacement_reason}`
-              : "",
+          pairingLine,
+          workloadLine,
         ]
           .filter(Boolean)
           .join(" ")
@@ -129,15 +147,14 @@ function buildRationalePrompt(request, recommendation) {
  * Load the exact vehicle/driver the client pinned, shaped like the advisor's
  * own candidates so buildRationalePrompt() can consume either.
  *
- * The review dialog assembles its "Best Available Pair" from the DB-backed
- * custodial pairings and is what "Approve & Assign Now" commits, while the pair
- * engine ranks its own candidate pool by score. The two can legitimately choose
- * differently, and a checklist about a pair the dispatcher is NOT assigning is
- * worse than no checklist. So the caller pins the pair it is showing and the
- * narration follows it.
+ * The review dialog assembles its dispatch option from the live evaluated
+ * pairs and Confirm assignment commits it; the narration always follows the
+ * pair the dispatcher is actually reviewing, never a separately ranked pick.
+ * A checklist about an option the dispatcher is NOT assigning is worse than
+ * no checklist, so the caller pins the option it is showing.
  *
  * Returns null halves when an id is absent or no longer matches a live row —
- * the caller then falls back to the scored pair.
+ * the caller then falls back to the recommended option.
  */
 /**
  * Ask the provider for a rationale, bounded by NARRATION_BUDGET_MS.

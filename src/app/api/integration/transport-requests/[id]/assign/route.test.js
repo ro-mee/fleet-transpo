@@ -15,6 +15,7 @@ import { requirePermission } from '@/lib/api/utils';
 import { loadRequest,advanceReservation } from '@/services/reservation-lifecycle.service';
 import { recordReservationEvent } from '@/services/reservation-events.service';
 import { validatePairAvailability } from '@/services/recommendation.service';
+import { getActiveRecommendation, markRecommendationConsumed } from '@/services/recommendation.service';
 import { createDispatchForRequest,syncDispatchSideEffects } from '@/services/dispatch-autocreate.service';
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { verifyPlanToken } from '@/services/dispatch-plan-evidence.service';
@@ -54,11 +55,29 @@ it('blocks assignments when the authoritative license check reports ineligibilit
  expect(syncDispatchSideEffects).not.toHaveBeenCalled();
 });
 it('rechecks the plan inside the locked commit before writing if state races after the initial check',async()=>{
- const tx={query:vi.fn()};
- commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
- advanceReservation.mockImplementation(async ({writeAssignment})=>writeAssignment('UPDATE transportation_requests',[]));
- verifyPlanToken.mockResolvedValueOnce({revision:'same'}).mockRejectedValueOnce(Object.assign(new Error('Stale plan'),{status:409}));
- expect((await PUT(request(),params)).status).toBe(409);
- expect(verifyPlanToken).toHaveBeenLastCalledWith('signed',{requestId:'1',vehicleId:2,driverId:3,mode:'verified'},tx);
- expect(tx.query).not.toHaveBeenCalled();expect(createDispatchForRequest).not.toHaveBeenCalled();expect(syncDispatchSideEffects).not.toHaveBeenCalled();
+  const tx={query:vi.fn()};
+  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
+  advanceReservation.mockImplementation(async ({writeAssignment})=>writeAssignment('UPDATE transportation_requests',[]));
+  verifyPlanToken.mockResolvedValueOnce({revision:'same'}).mockRejectedValueOnce(Object.assign(new Error('Stale plan'),{status:409}));
+  expect((await PUT(request(),params)).status).toBe(409);
+  expect(verifyPlanToken).toHaveBeenLastCalledWith('signed',{requestId:'1',vehicleId:2,driverId:3,mode:'verified'},tx);
+  expect(tx.query).not.toHaveBeenCalled();expect(createDispatchForRequest).not.toHaveBeenCalled();expect(syncDispatchSideEffects).not.toHaveBeenCalled();
+});
+it('requires a plan token for queue assignments that omit it',async()=>{
+  const req=new Request('http://localhost/assign',{method:'PUT',body:JSON.stringify({vehicle_id:2,driver_id:3,assignment_source:'queue'})});
+  const response=await PUT(req,params);expect(response.status).toBe(409);
+  expect((await response.json()).code).toBe('PLAN_TOKEN_REQUIRED');
+  expect(advanceReservation).not.toHaveBeenCalled();
+});
+it('allows an explicitly labelled detail assignment without a plan token',async()=>{
+  commitDispatchEvidence.mockImplementation(async (_token,write)=>write({rows:[{request_id:1}]},[],{}));
+  advanceReservation.mockImplementation(async ({writeAssignment,metadata})=>{
+    expect(metadata.assignment_source).toBe('detail');
+    return {ok:true,request:{request_id:1}};
+  });
+  validatePairAvailability.mockResolvedValueOnce({ok:true,commitToken:{revision:'same'},evidence:{}});
+  getActiveRecommendation.mockResolvedValueOnce({snapshot:null});
+  const req=new Request('http://localhost/assign',{method:'PUT',body:JSON.stringify({vehicle_id:2,driver_id:3,assignment_source:'detail'})});
+  expect((await PUT(req,params)).status).toBe(200);
+  expect(verifyPlanToken).not.toHaveBeenCalled();
 });

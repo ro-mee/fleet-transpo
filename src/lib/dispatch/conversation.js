@@ -73,7 +73,8 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
   });});
   const exclusionCtx = { requestId: request.request_id };
   const projectedExclusions = exclusions.slice(0,30).map(r=>({vehicleId:r.vehicle_id,plate:r.plate ?? null,reason:r.reason,prefiltered:r.prefiltered === true,
-    recovery:recoveryActionForExclusion({ reason: r.reason, vehicleId: r.vehicle_id }, exclusionCtx)}));
+    driverId:r.driver_id ?? null,driverName:r.driver_name ?? null,
+    recovery:recoveryActionForExclusion({ reason: r.reason, vehicleId: r.vehicle_id }, {...exclusionCtx, driverId: r.driver_id ?? null})}));
   return {requestId:request.request_id,pickupAt:request.pickup_datetime,status:request.fleet_status,
     pickupLocal:request.pickup_datetime && Number.isFinite(+new Date(request.pickup_datetime)) ? new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(new Date(request.pickup_datetime))+' (Philippine time)' : null,
     passengers:request.passenger_count,evaluatedAt:recommendation.evaluatedAt,
@@ -211,9 +212,59 @@ function pairLine(pair = {}) {
   return `${pairLabel(pair)} - ${status}. ${reason}${action ? ` Next step: ${action}` : ''}${disclosure && !hasDisclosure ? ` ${disclosure}` : ''}`;
 }
 
+// Words that are never part of a driver's name. Stripping them keeps "Why is
+// Driver Marco unavailable?" resolving to Marco — while a claim like "the
+// driver told me he is free" strips to nothing and falls through to the
+// evidence verdict instead of hijacking the answer.
+const NAME_STOP_WORDS = new Set(('a,an,the,this,that,these,those,is,are,was,were,be,been,being,do,does,did,can,could,should,would,will,shall,may,might,must,not,no,yes,why,how,what,who,whom,which,when,where,and,or,but,for,with,without,on,off,of,in,to,at,by,free,busy,available,unavailable,verified,unverified,blocked,blocking,ready,eligible,ineligible,okay,ok,goods,good,clear,cleared,fixed,assigned,leave,here,there,now,today,still,already,yet,again,ever,never,always,please,lang,na,ba,pa,bang,daw,raw,din,rin,naman,nga,siya,niya,kaniya,kayo,ka,mo,ko,namin,natin,sila,yung,yong,ang,mga,ng,sa,kay,si,ni,driver,drivers,vehicle,option,pair,he,she,it,they,we,you,me,him,her,them,us,his,hers,theirs,ours,yours,mine,told,said,says,say,tell,claim,mark,assign').split(','));
+function stripNameStops(name) {
+  return String(name).split(/[\s.]+/).filter(t => t.length > 1 && !NAME_STOP_WORDS.has(t.toLowerCase())).join(' ');
+}
 function optionNumberForPair(evidence, pair, fallback) {
   const option = (evidence.displayedOptions ?? []).find(o => o.status === 'resolved' && o.vehicleId === pair?.vehicleId && o.driverId === pair?.driverId);
   return option?.option ?? fallback;
+}
+
+// "Okay na ba si Karlo?" — resolve a named person against the current
+// evidence before any topic branch. Matches first/last-name tokens against
+// checked pairs first, then exclusions (which now carry driver identity).
+// Returns null when no name is asked about, or a bounded honest answer.
+function askedDriverName(question = '') {
+  const m = /(?:\bsi|\bni|\bkay|\bkina)\s+([a-zà-ÿ][a-zà-ÿ'’.~-]*(?:\s+[a-zà-ÿ][a-zà-ÿ'’.~-]*){0,3})/i.exec(String(question))
+    ?? /\bdriver\s+([a-zà-ÿ][a-zà-ÿ'’.~-]*(?:\s+[a-zà-ÿ][a-zà-ÿ'’.~-]*){0,3})/i.exec(String(question));
+  if (!m) return null;
+  const name = m[1].replace(/[.?!]+$/, '').trim();
+  return name || null;
+}
+function nameTokenMatch(known, asked) {
+  // Null is not a name: String(null) is "null", which would otherwise match
+  // another null and report a driver nobody asked about.
+  if (known == null || asked == null) return false;
+  const parts = String(known).toLowerCase().split(/[\s.]+/).filter(p => p.length > 1);
+  const tokens = String(asked).toLowerCase().split(/[\s.]+/).filter(p => p.length > 1);
+  if (!parts.length || !tokens.length) return false;
+  return tokens.every(t => parts.some(p => p === t || p.startsWith(t)));
+}
+function exclusionLine(e = {}) {
+  const who = e.driverName && e.plate ? `${e.driverName} with ${e.plate}`
+    : e.driverName || e.plate || 'That option';
+  const reason = cleanOperationalText(e.reason || 'No detailed reason recorded.');
+  const step = e.recovery?.label ? ` Next step: ${cleanOperationalText(e.recovery.label)}.` : '';
+  return `${who} — ${reason}${step}`;
+}
+function namedDriverStatus(evidence, question = '') {
+  const raw = askedDriverName(question);
+  if (!raw) return null;
+  const asked = stripNameStops(raw);
+  if (!asked) return null;
+  const inPairs = (evidence.pairs ?? []).filter(p => nameTokenMatch(p.driverName, asked));
+  if (inPairs.length) return inPairs.slice(0, 2).map(pairLine).join('\n');
+  const inExclusions = (evidence.exclusions ?? []).filter(e =>
+    nameTokenMatch(e.driverName, asked) || nameTokenMatch(e.reason, asked));
+  if (inExclusions.length) return inExclusions.slice(0, 2).map(exclusionLine).join('\n');
+  // A name with no match is not an answer — fall through to the evidence
+  // verdict so claims and unknown names can never divert the conclusion.
+  return null;
 }
 
 function samePair(a, b) {
@@ -238,6 +289,11 @@ export function evidenceSummary(evidence, question = '') {
     ? evidence.pairs.filter(p=>p.vehicleId===evidence.selection.vehicleId && p.driverId===evidence.selection.driverId)
     : option ? evidence.pairs.filter(p=>p.vehicleId===option.vehicleId && p.driverId===option.driverId) : evidence.pairs;
   const name = pairLabel;
+  // A named driver ("okay na ba si Karlo?") is answered from the evidence
+  // first: the pair line when checked, the exclusion line when skipped, or an
+  // honest no-match — never a generic summary wearing the name.
+  const named = namedDriverStatus(evidence, question);
+  if (named) return named + coverageDisclosure(evidence.coverage);
   // Bounded evidence-only topics; other questions retain the honest general summary.
   const comparison = /\b(why|better|compare|recommend|workload|fair|buffer)\b|bakit|mas maganda/i.test(question);
   const eta = /\b(eta|arrival|arrive|distance|traffic)\b/i.test(question);

@@ -55,6 +55,24 @@ export async function PUT(req, { params }) {
     }
 
     const planSelection = { requestId: id, vehicleId, driverId, mode:force ? 'manual' : 'verified' };
+    // Queue vs detail contract (audit #1): a queue-originated assignment must
+    // carry the signed plan token so queue-coverage is rechecked in-tx. A
+    // detail (single-request) assignment is explicitly labelled and still gets
+    // the full pair-level revalidation below; its provenance is recorded in
+    // metadata rather than silently sharing the queue path.
+    const assignmentSource = body?.assignment_source === 'queue' || body?.assignment_source === 'detail'
+      ? body.assignment_source
+      : (body.plan_token !== undefined ? 'queue' : 'detail');
+    if (assignmentSource === 'queue' && body.plan_token === undefined) {
+      return Response.json(
+        {
+          error: 'This queue assignment needs a fresh queue analysis before confirmation.',
+          code: 'PLAN_TOKEN_REQUIRED',
+          hint: 'Analyze this service date again, then confirm from the queue proposal.',
+        },
+        { status: 409 }
+      );
+    }
     if (body.plan_token !== undefined) await verifyPlanToken(body.plan_token, planSelection);
 
     const travel = await resolveTravelSignals({
@@ -138,6 +156,7 @@ export async function PUT(req, { params }) {
         vehicle_id: vehicleId,
         driver_id: driverId,
         forced: force,
+        assignment_source: assignmentSource,
         manual_review: pairCheck.reviewed === true,
         acknowledged_findings: force ? [...(pairCheck.evidence?.advisories ?? []).filter((a) => !isFuelNoise(a?.message)), ...(pairCheck.evidence?.feasibility?.reasons ?? []).map(message=>({message}))] : undefined,
         // PR #2 thesis field: why the dispatcher ignored the advisory/blocks.

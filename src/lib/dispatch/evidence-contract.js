@@ -82,6 +82,7 @@ export const COMPLIANCE_SUBJECT_BY_CHECK = {
 };
 export const COMPLIANCE_SUBJECT_BY_CODE = {
   REGISTRATION_EXPIRED: 'vehicle', INSURANCE_EXPIRED: 'vehicle', LICENSE_EXPIRED: 'driver',
+  LICENSE_UNVERIFIED: 'driver', VEHICLE_LICENSE_CLASS: 'vehicle',
 };
 const COMPLIANCE_SUBJECTS = ['vehicle', 'driver'];
 
@@ -167,6 +168,8 @@ export function proofTypeForRecovery(recovery = {}) {
     case 'PAIRING': return EVIDENCE_TYPES.PAIRING;
     case 'CAPACITY_MISMATCH': return EVIDENCE_TYPES.CAPACITY;
     case 'LICENSE_EXPIRED':
+    case 'LICENSE_UNVERIFIED':
+    case 'VEHICLE_LICENSE_CLASS':
     case 'REGISTRATION_EXPIRED':
     case 'INSURANCE_EXPIRED': return EVIDENCE_TYPES.COMPLIANCE;
     case 'DRIVER_UNAVAILABLE':
