@@ -16,7 +16,18 @@ const FLEETMATE_COURTESY_REPLY = 'Hi. How can I help with this reservation or fl
 const HISTORY_PAIR_PREFIX = /^\[asked about vehicle #[^/]+ \/ driver #[^\]]+\]\s*/i;
 const COURTESY = /^(?:hi|hello|hey|good morning|good afternoon|good evening|thanks?|thank you|salamat|ok(?:ay)?|got it|noted|understood|great)[.!?, ]*$/i;
 const CONTEXTUAL_FOLLOW_UP = /^(?:why(?: not)?(?: this (?:pair|option|match))?|what changed|what(?:'s| is) different|compare(?: them| these| those| the options)?|how about (?:the other (?:one|option)|option\s*[12ab])?|what about (?:tomorrow|today|that day|the other one|traffic|weather|gps|eta)|tomorrow|today|bukas|ngayon|can you explain(?: that)?|explain(?: that)?|the other (?:one|option)|is anyone free(?: that day)?|summarize(?: the situation)?(?: in (?:one|two) sentences)?|what should i check next|sign(?: it)?)[.!?, ]*$/i;
-const FLEET_SIGNAL = /\b(?:fleetops?|fleetmate|reservation|bookings?|dispatch|assignment|assign(?:ed|ment)?|driver|vehicle|van|car|bus|passenger|pax|seat(?:s|ing)?|capacity|pickup|drop[- ]?off|trip|route|eta|arrival|gps|location|maintenance|incident|compliance|licen[cs]e|registration|insurance|leave|attendance|schedule|availability|available|unavailable|ready|readiness|workload|reassign|replacement|substitute|fairness|option\s*[12ab]|pair|match|recommend(?:ation)?|conflict|overlap|blocked|queue)\b/i;
+const FLEET_SIGNAL = /\b(?:fleetops?|fleetmate|reservation|bookings?|dispatch|assignment|assign(?:ed|ment)?|driver|vehicle|van|car|bus|passenger|pax|seat(?:s|ing)?|capacity|pickup|drop[- ]?off|trip|route|eta|arrival|gps|location|maintenance|incident|compliance|licen[cs]e|verif\w*|registration|insurance|leave|attendance|schedule|availability|available|unavailable|ready|readiness|workload|reassign|replacement|substitute|fairness|option\s*[12ab]|pair|match|recommend(?:ation)?|conflict|overlap|blocked|queue)\b/i;
+// A named person the dispatcher is asking about ("okay na ba si karlo?",
+// "kamusta si Jack?", "is Karlo verified?"). The classifier cannot resolve
+// the name — that happens against server evidence later — but a person
+// reference plus a status word is a question about this reservation's people,
+// never general knowledge. Gated on conversation context like other
+// follow-ups, so a cold "si karlo" with nothing to resolve against still
+// stays out of scope.
+const PERSON_MARKER = /\b(?:si|ni|kay|kina)\s+[a-zà-ÿ][a-zà-ÿ'’.~-]*|\bdriver\s+[a-zà-ÿ][a-zà-ÿ'’.~-]*/i;
+// Bare check-ins that only make sense as a follow-up ("okay na ba?", "ok na?",
+// "kamusta?"). Meaningless without context, so they need it.
+const STATUS_CHECK_IN = /^(?:ok(?:ay)?|goods?|pwede(?: na)?|kamusta(?: na)?|ayos(?: na)?|all good\??)(?:\s+(?:na(?: ba)?|ba|pa))?[.?! ]*$/i;
 const UNRELATED_TASK = [
   /^(?:recommend|suggest|what|which)\s+(?:a\s+)?(?:movie|film|show|game|song)\b/i,
   /\bwho\s+should\s+i\s+vote\s+for\b/i,
@@ -53,6 +64,14 @@ function lastMeaningfulUserTurn(history = []) {
   return '';
 }
 
+function isPersonFollowUp(value) {
+  const text = normalizeScopeText(value);
+  // A bare name with context ("si Jack?", "driver Karlo") is a follow-up
+  // about this reservation's people; with a status word it is even clearer.
+  // Without context there is nothing to resolve the name against.
+  return PERSON_MARKER.test(text) || STATUS_CHECK_IN.test(text);
+}
+
 function hasFleetConversationContext(history = []) {
   let active = false;
   for (const turn of history) {
@@ -63,6 +82,9 @@ function hasFleetConversationContext(history = []) {
       active = false;
     } else if (isFleetQuestion(text)) {
       active = true;
+    } else if (isPersonFollowUp(text)) {
+      // A name/status follow-up rides on existing context — it neither
+      // creates it (nothing to resolve against) nor destroys it.
     } else if (!CONTEXTUAL_FOLLOW_UP.test(text)) {
       active = false;
     }
@@ -81,9 +103,12 @@ export function classifyCopilotScope(message = '', history = [], { hasActiveCont
   const lastUser = lastMeaningfulUserTurn(history);
   const contextAllowed = priorContext || (hasActiveContext && !isUnrelatedTask(lastUser) &&
     (!lastUser || isFleetQuestion(lastUser) || CONTEXTUAL_FOLLOW_UP.test(lastUser)));
-  return CONTEXTUAL_FOLLOW_UP.test(text) && contextAllowed
-    ? { kind: 'in-scope' }
-    : { kind: 'out-of-scope' };
+  if (CONTEXTUAL_FOLLOW_UP.test(text) && contextAllowed) return { kind: 'in-scope' };
+  // "Okay na ba si Karlo?" — a person reference, or a bare check-in, is a
+  // follow-up about this reservation's people. Without context there is
+  // nothing to resolve the name against, so it stays out.
+  if (isPersonFollowUp(text) && contextAllowed && !isUnrelatedTask(text)) return { kind: 'in-scope' };
+  return { kind: 'out-of-scope' };
 }
 
 export function copilotCourtesyReply() {

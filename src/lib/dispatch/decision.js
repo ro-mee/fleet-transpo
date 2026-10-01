@@ -10,6 +10,8 @@ export const RECOVERY_CODES = {
   PAIRING: 'PAIRING',
   DRIVER_UNAVAILABLE: 'DRIVER_UNAVAILABLE',
   LICENSE_EXPIRED: 'LICENSE_EXPIRED',
+  LICENSE_UNVERIFIED: 'LICENSE_UNVERIFIED',
+  VEHICLE_LICENSE_CLASS: 'VEHICLE_LICENSE_CLASS',
   REGISTRATION_EXPIRED: 'REGISTRATION_EXPIRED',
   INSURANCE_EXPIRED: 'INSURANCE_EXPIRED',
   UVVRP_RESTRICTED: 'UVVRP_RESTRICTED',
@@ -55,10 +57,29 @@ function recoveryForCheckId(id, ctx = {}) {
 
 // Map one authoritative check to a single advisory recovery action.
 // Never classifies by display prose: check.id decides, message is evidence only.
+// Exception: the license check carries several distinct failures in its message
+// (expired vs unverified vs vehicle class), each needing a different fix.
 export function recoveryActionForCheck(check = {}, ctx = {}) {
   if (!check || (check.status !== 'blocking' && check.status !== 'missing')) return null;
+  if (check.id === 'license') return { ...licenseRecovery(check.message, ctx), status: check.status, message: check.message ?? null };
   const base = recoveryForCheckId(check.id, ctx);
   return { ...base, status: check.status, message: check.message ?? null };
+}
+
+// License failures need different fixes, so the recovery is chosen from the
+// recorded message rather than the check id alone. An unverified-but-valid
+// license needs staff verification, not renewal; a missing vehicle required
+// class is a vehicle-record fix, not a driver-license one. Anything else keeps
+// the renewal action (expired, missing, malformed, unsupported).
+function licenseRecovery(message, ctx = {}) {
+  const text = String(message ?? '');
+  if (/required license class is missing|does not cover this vehicle/i.test(text)) {
+    return { code: RECOVERY_CODES.VEHICLE_LICENSE_CLASS, fix: 'record', label: 'Set required license class', record: 'vehicle', id: ctx.vehicleId ?? null, hint: 'Set the required driver license class on the vehicle record.' };
+  }
+  if (/not been verified by authorized staff/i.test(text)) {
+    return { code: RECOVERY_CODES.LICENSE_UNVERIFIED, fix: 'record', label: 'Verify driver license', record: 'driver', id: ctx.driverId ?? null, hint: 'Have authorized staff verify the license on the driver record.' };
+  }
+  return { code: RECOVERY_CODES.LICENSE_EXPIRED, fix: 'record', label: 'Renew driver license', record: 'driver', id: ctx.driverId ?? null, hint: 'Renew the license on the driver record.' };
 }
 
 // Fixable record issues first, then missing-evidence verification, then
@@ -76,7 +97,12 @@ export function recoveryActionForExclusion(exclusion = {}, ctx = {}) {
   if (/too small for/i.test(reason)) return { code: RECOVERY_CODES.CAPACITY_MISMATCH, fix: 'choice', label: 'Needs a larger vehicle', record: 'request', id: ctx.requestId ?? null, hint: 'Too small for this party; choose a larger vehicle class.', vehicleId };
   if (/insurance/i.test(reason)) return { code: RECOVERY_CODES.INSURANCE_EXPIRED, fix: 'record', label: 'Renew vehicle insurance', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };
   if (/registration/i.test(reason)) return { code: RECOVERY_CODES.REGISTRATION_EXPIRED, fix: 'record', label: 'Renew vehicle registration', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };
-  if (/license/i.test(reason)) return { code: RECOVERY_CODES.LICENSE_EXPIRED, fix: 'record', label: 'Renew driver license', record: 'driver', id: ctx.driverId ?? null, hint: reason, vehicleId };
+  if (/license/i.test(reason)) {
+    // Exclusions carry the vehicle separately from the context, so thread it
+    // through: a vehicle-class fix must open the vehicle, not the driver.
+    const action = licenseRecovery(reason, { ...ctx, vehicleId: vehicleId ?? ctx.vehicleId });
+    return { ...action, hint: reason, vehicleId };
+  }
   if (/number-coding|coding restricted|uvvrp/i.test(reason)) return { code: RECOVERY_CODES.UVVRP_RESTRICTED, fix: 'choice', label: 'Coding-bound: another vehicle or date', record: 'vehicle', id: vehicleId, hint: 'Number coding is date-bound; this vehicle cannot serve that pickup day. Choose another vehicle or move the date.', vehicleId };
   if (/status is/i.test(reason)) return { code: RECOVERY_CODES.VEHICLE_STATUS, fix: 'record', label: 'Check vehicle record', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };
   if (/maintenance/i.test(reason)) return { code: RECOVERY_CODES.MAINTENANCE_CONFLICT, fix: 'record', label: 'Check maintenance record', record: 'maintenance', id: vehicleId, hint: reason, vehicleId };
@@ -121,7 +147,7 @@ export function dispatchConfirmation({ canAssign, pair, decision, awaitingResult
       return disabled('Queue plan expired. Analyze this service date again.', 'analyze');
     if (!queue.proposal) return disabled('This reservation has no proposal in this queue analysis.', 'analyze');
     if (queue.proposal.dependsOnRequestIds?.length) return disabled('Waiting for the preceding reservation. Confirm it, then analyze again.', 'analyze');
-    if (!queue.token) return disabled('Queue proposal has no valid confirmation token. Analyze again.', 'analyze');
+    if (!queue.token) return disabled('This queue analysis is no longer valid. Analyze this service date again.', 'analyze');
     if (queue.validation?.isError) return disabled('Queue validation failed. Analyze this service date again.', 'analyze');
     // Only a validation with no successful result yet blocks. A poll landing on a
     // current successful validation is a background refresh and must not disable
@@ -133,11 +159,11 @@ export function dispatchConfirmation({ canAssign, pair, decision, awaitingResult
     if (queue.proposal.outcome !== 'VERIFIED' && queue.proposal.confirmationMode !== 'manual') return disabled('This queue proposal is not verified for confirmation.', 'analyze');
   }
   if (awaitingResult) return disabled('Checking current availability…');
-  if (!pair) return disabled('No current pair is selected. Review exclusions or recheck this reservation.', 'recheck');
+  if (!pair) return disabled('No current option is selected. Review exclusions or recheck this reservation.', 'recheck');
   if (!decision.canConfirm && !decision.canReview)
     return disabled(decision.reasons[0] || (decision.state === 'BLOCKED' ? 'Resolve the blocking checks before confirming.' : 'Required evidence needs verification.'), 'recheck');
   if (!decision.canConfirm && !reason.trim()) return disabled('Enter the manual verification reason before review.');
-  return { canSubmit: true, message: decision.canConfirm ? 'Ready to review this pair.' : 'Manual verification required. Review the reason and pair.', recovery: null };
+  return { canSubmit: true, message: decision.canConfirm ? 'Ready to review this option.' : 'Manual verification required. Review the reason and option.', recovery: null };
 }
 export function evidenceExpired(pair, now = Date.now()) {
   return [pair?.evidenceExpiresAt, pair?.proximity?.expiresAt, pair?.dispatchContext?.evidenceExpiresAt, pair?.temporalContext?.nextBoundaryAt]

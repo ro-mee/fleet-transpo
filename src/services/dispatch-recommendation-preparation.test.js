@@ -95,6 +95,30 @@ describe("fetchCandidates prefiltered", () => {
     );
   });
 
+  it("loads every license column the eligibility gate reads (RS-7C7G)", async () => {
+    // The pair engine judges licenses from these rows. A missing column reads
+    // as a missing license detail — the roster once omitted all of them, so a
+    // complete license in the database was reported as "license number is
+    // missing" for every driver.
+    mockDb();
+    await fetchCandidates(REQUEST, TRIP);
+    const rosterCall = query.mock.calls.find((c) =>
+      String(c[0]).includes("FROM drivers d")
+    );
+    expect(rosterCall).toBeDefined();
+    for (const column of [
+      "d.license_number",
+      "d.license_type",
+      "d.license_class",
+      "d.license_expiry",
+      "d.license_verified_at",
+      "d.license_verified_by",
+      "d.license_verification_method",
+    ]) {
+      expect(String(rosterCall[0])).toContain(column);
+    }
+  });
+
   it("keeps soft-deleted vehicles hidden at the SQL level", async () => {
     mockDb();
     await fetchCandidates(REQUEST, TRIP);

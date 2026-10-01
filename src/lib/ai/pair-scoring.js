@@ -52,8 +52,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // never overrides the designated-driver match (+45) or a big ETA gap.
 const FAIRNESS_WEIGHT = 15;
 
-/** Whole days from `now` to an ISO/date string; null when absent or unparseable. */
-function daysUntil(value, now = new Date()) {
+/** Whole days from `now` to an ISO/date string; null when absent or unparseable. Shared with dispatch-advisor. */
+export function daysUntil(value, now = new Date()) {
   if (!value) return null;
   const t = new Date(value).getTime();
   const n = new Date(now).getTime();
@@ -390,6 +390,14 @@ export function resolveVehiclePairing({
   };
 }
 
+/** Driver display name from the joined employees row, with id fallback. */
+function pairDriverName(driver) {
+  const first = driver?.employees?.first_name ?? driver?.first_name ?? "";
+  const last = driver?.employees?.last_name ?? driver?.last_name ?? "";
+  const name = `${first} ${last}`.trim();
+  return name || (driver?.driver_id != null ? `Driver #${driver.driver_id}` : null);
+}
+
 /** Vehicle readiness signal, 0..1. Higher is better. */
 function vehicleReadiness(vehicle) {
   let s = 0;
@@ -420,11 +428,11 @@ function driverReadiness(driver) {
   let s = 0;
   if (driver?.driver_status === "Available") s += 0.35;
 
-  const rating = Number(driver?.avg_guest_rating);
-  if (Number.isFinite(rating) && rating > 0) s += Math.min(0.2, (rating / 5) * 0.2);
-
-  const experience = Number(driver?.years_of_experience);
-  if (Number.isFinite(experience)) s += Math.min(0.1, (experience / 10) * 0.1);
+  // H8: punctuality is informational only — displayed as evidence but carries
+  // no ranking points here. Completed Trips must not add points either
+  // (rich-get-richer fights workload fairness). The small ±3 punctuality
+  // tie-breaker lives in scoreDispatchDrivers (legacy advisory path) only,
+  // never as additive score in the pair engine.
 
   const licenseDays = daysUntil(driver?.license_expiry);
   if (licenseDays !== null) s += (licenseDays > 90 ? 1 : licenseDays > 30 ? 0.5 : 0) * 0.15;
@@ -449,9 +457,12 @@ function driverReadiness(driver) {
  * @param {object} params.request  transportation_requests row
  * @param {object} params.trip     estimateTrip() result
  * @param {number} [params.passengers]
- * @returns {{ score:number, confidence:number, reasons:string[], is_designated:boolean,
+ * @returns {{ score:number, rank_score:number, confidence:number|null, reasons:string[], is_designated:boolean,
  *             reason_type:'designated'|'replacement', replacement_reason:string|null,
  *             estimated_pickup_minutes:number|null, distance_km:number|null }}
+ * `score`/`rank_score` is a deterministic rank key (0..100), NOT a probability.
+ * `confidence` is deprecated (legacy normalized score, always null) — never
+ * narrate it as certainty and never feed it to the LLM.
  */
 export function scoreFleetPair({ vehicle, driver, designated, request, trip, passengers }) {
   const pax = Number(passengers) || Number(request?.passenger_count) || 1;
@@ -497,8 +508,11 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
 
   // --- Driver readiness (0..1 -> up to 20) ---
   score += driverReadiness(driver) * 20;
-  const rating = Number(driver?.avg_guest_rating);
-  if (Number.isFinite(rating) && rating > 0) reasons.push(`Guest rating ${rating.toFixed(1)}/5.`);
+  const pMeasured = Number(driver?.punct_measured) || 0;
+  const pOnTime = Number(driver?.punct_on_time) || 0;
+  const pRate = driver?.punct_rate != null ? Number(driver.punct_rate)
+    : pMeasured > 0 ? Math.round((pOnTime / pMeasured) * 100) : null;
+  if (pRate != null && pMeasured > 0) reasons.push(`Punctuality ${pRate}% (${pOnTime} of ${pMeasured} measured).`);
 
   const estimatedPickupMinutes = driver?._pickup_distance_km != null && Number.isFinite(Number(driver._pickup_distance_km))
     ? Math.max(1, Math.round((Number(driver._pickup_distance_km) / 25) * 60))
@@ -510,7 +524,8 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
   const final = Math.max(0, Math.round(score));
   return {
     score: final,
-    confidence: Math.min(1, final / 100),
+    rank_score: final,
+    confidence: null,
     reasons,
     is_designated: isDesignated,
     reason_type: isDesignated ? REASON_TYPE.DESIGNATED : REASON_TYPE.REPLACEMENT,
@@ -581,7 +596,8 @@ function applyWorkloadFairness(pairs) {
     pairs[i].is_lightest = false;
     const total = Math.min(100, Math.max(0, Math.round(pairs[i].score + fairness * FAIRNESS_WEIGHT)));
     pairs[i].score = total;
-    pairs[i].confidence = total / 100;
+    pairs[i].rank_score = total;
+    pairs[i].confidence = null;
   }
 
   // The least-loaded eligible driver is the one with the highest pool-relative
@@ -679,6 +695,10 @@ export function buildFleetPairRecommendations({
         vehicle_id: vehicle.vehicle_id,
         plate: vehicle.plate_number,
         reason: pairing.reason,
+        // Driver identity so the Copilot can answer "okay na ba si <name>?"
+        // against exclusions, not just formed pairs.
+        driver_id: pairing.designated?.driver_id ?? null,
+        driver_name: pairDriverName(pairing.designated),
       });
       continue;
     }
@@ -779,8 +799,8 @@ export function buildChecklist(pair, isTopRanked) {
     items.push({ text: ok ? "No maintenance due" : `Maintenance risk: ${risk}`, pass: ok });
   }
 
-  // Fleet score — top ranked.
-  if (isTopRanked) items.push({ text: `Highest fleet score (${pair?.score ?? "?"}/100)`, pass: true });
+  // Rank key — top ranked. Never a probability; never narrated as one.
+  if (isTopRanked) items.push({ text: "Highest-ranked eligible fit", pass: true });
 
   // AI Fair Workload Distribution — only reported when the pool actually has
   // workload history. The least-loaded eligible driver gets the headline claim.
