@@ -372,7 +372,7 @@ export function CopilotConversation({
   };
 
   const suggestions = hasPair
-    ? ["Why this pair?", "Any conflicts?", "Other options?"]
+    ? ["Why this option?", "Any conflicts?", "Other options?"]
     : ["Why no match?", "What needs fixing?", "Other options?"];
 
   // Keep the live review at its selection turn, never after subsequent Q&A.

@@ -190,7 +190,7 @@ export function ComparisonCard({ data, planStatus = null }) {
       </div>
       {hierarchy.length > 0 && (
         <div className="rounded-lg border border-border/60 px-2.5 py-1.5 text-[11px] text-foreground-secondary">
-          <p className="font-medium text-foreground">Server ranking order</p>
+          <p className="font-medium text-foreground">Current recommendation order</p>
           <p>{hierarchy.join(" → ")}</p>
         </div>
       )}

@@ -24,7 +24,7 @@ export function PairTemporalFacts({pair, now}) {
     {context && <p>{({FUTURE:'Future booking · Schedule fit',SAME_DAY:'Same-day planning',NEAR_DISPATCH:'Approaching pickup',LAST_MINUTE:'Pickup due soon',OVERDUE:'Pickup overdue',INACTIVE:'Not actionable'})[context.horizon]}</p>}
     {schedule?.releaseAt && <p>Previous {schedule.releaseSource === 'recorded completion' ? 'trip completed' : 'booking expected to finish'} at {new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(new Date(schedule.releaseAt))}</p>}
     {schedule?.gapMinutes != null && <p>{duration(schedule.gapMinutes)} gap after the preceding booking</p>}
-    {schedule?.usableSlackMinutes != null && <p>{duration(schedule.usableSlackMinutes)} preparation slack after travel and required buffer</p>}
+    {schedule?.usableSlackMinutes != null && <p>{duration(schedule.usableSlackMinutes)} preparation time after travel and required buffer</p>}
     {schedule?.uncertainty && <p>{schedule.uncertainty}</p>}
     {schedule?.nextSlackMinutes != null && <p>{duration(schedule.nextSlackMinutes)} slack before the next booking after transfer and buffer</p>}
     {live ? <p>Live ETA: {pair.proximity.etaMinutes} min{schedule?.pickupMarginMinutes != null && ` · ${duration(schedule.pickupMarginMinutes)} ${schedule.pickupMarginMinutes < 0 ? 'after' : 'before'} pickup`}</p>
@@ -49,18 +49,18 @@ export function SelectedPairSummary({pair, optionNumber, pending, now}) {
   return <div className="space-y-4">
     <div className="flex items-center gap-2 text-sm font-semibold">
       <Check className="size-4 shrink-0" aria-hidden="true"/>
-      <p>{optionNumber > 0 ? `Option ${optionNumber} selected` : 'Pair selected'}</p>
+      <p>{optionNumber > 0 ? `Option ${optionNumber} selected` : 'Option selected'}</p>
     </div>
     <dl className="space-y-2 border-b border-border pb-4">
       <div className="flex items-start gap-3"><CarFront className="mt-0.5 size-4 shrink-0 text-foreground-secondary" aria-hidden="true"/><div className="min-w-0"><dt className="text-xs text-foreground-secondary">Vehicle</dt><dd className="break-words text-base font-semibold">{pair.vehicle?.plate_number || `Vehicle #${pair.vehicle_id}`}</dd></div></div>
       <div className="flex items-start gap-3"><UserRound className="mt-0.5 size-4 shrink-0 text-foreground-secondary" aria-hidden="true"/><div className="min-w-0"><dt className="text-xs text-foreground-secondary">Driver</dt><dd className="break-words text-sm font-medium">{pair.driver?.driver_name || `Driver #${pair.driver_id}`}</dd></div></div>
     </dl>
-    {pending ? <p role="status" className="text-sm text-foreground-secondary">I am double-checking this option against the current schedule and queue.</p> : <>
+    {pending ? <p role="status" className="text-sm text-foreground-secondary">Rechecking current assignment evidence against the schedule and queue.</p> : <>
       <section aria-label="Schedule summary" className="space-y-3">
         <h3 className="text-sm font-semibold">Schedule &amp; workload</h3>
         {pair.temporalContext && <p className="text-xs text-foreground-secondary">{({FUTURE:'Future booking · Schedule fit',SAME_DAY:'Same-day planning',NEAR_DISPATCH:'Approaching pickup',LAST_MINUTE:'Pickup due soon',OVERDUE:'Pickup overdue',INACTIVE:'Not actionable'})[pair.temporalContext.horizon]}</p>}
         <dl className="space-y-3 text-sm">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"><dt className="text-foreground-secondary">Preparation slack</dt><dd className="font-semibold tabular-nums">{duration(schedule?.usableSlackMinutes)}</dd></div>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1"><dt className="text-foreground-secondary">Preparation time</dt><dd className="font-semibold tabular-nums">{duration(schedule?.usableSlackMinutes)}</dd></div>
           {schedule?.releaseAt && Number.isFinite(+new Date(schedule.releaseAt)) && <div><dt className="text-xs text-foreground-secondary">{schedule.releaseSource === 'recorded completion' ? 'Previous trip completed' : 'Previous booking expected to finish'}</dt><dd className="mt-1 font-medium">{new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(new Date(schedule.releaseAt))}</dd></div>}
         </dl>
         <p className="text-xs text-foreground-secondary">After transfer time and the required buffer.</p>
@@ -95,7 +95,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
     <CopilotBubble>
       <div className="space-y-1">
         <p className="text-sm font-semibold text-foreground">
-          {options.length ? `I found ${options.length} option${options.length === 1 ? '' : 's'} for this reservation.` : 'No eligible assignment is currently available.'}
+          {options.length ? `${options.length} eligible option${options.length === 1 ? '' : 's'} found for this reservation.` : 'No eligible option is currently available.'}
         </p>
         {!options.length && (
           <p className="text-xs text-foreground-secondary">
@@ -114,7 +114,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
         data-copilot-message="true"
         role="button"
         tabIndex={disabled ? -1 : 0}
-        aria-label={`Option ${index+1} — ${option.recommended ? 'Recommended' : 'Alternative'}`}
+        aria-label={`Option ${index+1} — ${option.recommended ? 'Recommended option' : 'Alternate option'}`}
         aria-disabled={disabled}
         onClick={() => { if (!disabled) onChoose(option); }}
         onKeyDown={(e) => {
@@ -145,7 +145,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
             )}
             <span className="text-base font-semibold">Option {index+1}</span>
             <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold',option.recommended ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200')}>
-              {option.recommended ? 'Recommended' : 'Alternative'}
+              {option.recommended ? 'Recommended option' : 'Alternate option'}
             </span>
           </span>
           <span className="shrink-0 text-right">
@@ -160,7 +160,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
             <span className="underline underline-offset-2">Schedule &amp; workload details</span>
           </summary>
           <div className="mt-2 border-t border-border pt-2">
-            <p className="mb-2 text-xs font-medium">{decision.canConfirm ? p.decisionEvidence?.label || 'Best schedule fit' : decision.label}</p>
+            <p className="mb-2 text-xs font-medium">{decision.canConfirm ? p.decisionEvidence?.label || 'Schedule fit' : decision.label}</p>
             <PairTemporalFacts pair={p} now={now}/>
             {checks.slice(3).map(c=><p key={c.id} className="mt-1 text-xs text-foreground-secondary">{c.label}: {c.message || c.status}</p>)}
           </div>
