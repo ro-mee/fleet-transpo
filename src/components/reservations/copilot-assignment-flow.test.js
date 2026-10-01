@@ -28,7 +28,7 @@ it('selects a typed option, waits for its recheck, then assigns on the first exp
   expect(render().onCommand('Assign it')).toContain('Choose an option first');
   expect(render().onCommand('Option 2')).toEqual({handled:true});
   expect(render().selectedPair).toEqual({vehicleId:2,driverId:2});
-  expect(render().onCommand('Assign it')).toContain('double-checking');
+  expect(render().onCommand('Assign it')).toContain('Rechecking current assignment evidence');
   expect(state.mutation.mutate).not.toHaveBeenCalled();
   resolve({isError:false});await Promise.resolve();await Promise.resolve();
   expect(render().onCommand('Assign it')).toEqual({handled:true});

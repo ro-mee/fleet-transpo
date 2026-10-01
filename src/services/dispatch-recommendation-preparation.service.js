@@ -144,12 +144,46 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
     ),
 
     query(
-      `SELECT d.driver_id,d.driver_status,d.license_expiry,d.years_of_experience,
+      `SELECT d.driver_id,d.driver_status,d.license_number,d.license_type,d.license_class,
+              d.license_expiry,d.license_verified_at,d.license_verified_by,d.license_verification_method,
+              d.years_of_experience,
               e.first_name,
               e.last_name,
-              ROUND(AVG(t.customer_rating)::numeric, 2)      AS avg_guest_rating,
-              ROUND(AVG(t.smooth_driving_score)::numeric, 2) AS avg_driving_score,
               COUNT(t.trip_id)::int                          AS total_completed_trips,
+              COALESCE((
+                SELECT COUNT(*)::int FROM trips pt
+                 LEFT JOIN dispatchschedules pds ON pds.dispatch_id = pt.dispatch_id
+                 LEFT JOIN transportation_requests ptr ON ptr.request_id = pds.request_id
+                 WHERE pt.driver_id = d.driver_id AND pt.trip_status = 'Completed'
+                   AND pt.deleted_at IS NULL AND pt.end_time >= NOW() - INTERVAL '90 days'
+                   AND pt.at_pickup_at IS NOT NULL
+                   AND COALESCE(pds.scheduled_departure, ptr.pickup_datetime) IS NOT NULL
+                   AND COALESCE(pt.at_pickup_override, FALSE) = FALSE
+              ), 0) AS punct_measured,
+              COALESCE((
+                SELECT COUNT(*)::int FROM trips pt
+                 LEFT JOIN dispatchschedules pds ON pds.dispatch_id = pt.dispatch_id
+                 LEFT JOIN transportation_requests ptr ON ptr.request_id = pds.request_id
+                 WHERE pt.driver_id = d.driver_id AND pt.trip_status = 'Completed'
+                   AND pt.deleted_at IS NULL AND pt.end_time >= NOW() - INTERVAL '90 days'
+                   AND pt.at_pickup_at IS NOT NULL
+                   AND COALESCE(pds.scheduled_departure, ptr.pickup_datetime) IS NOT NULL
+                   AND COALESCE(pt.at_pickup_override, FALSE) = FALSE
+                   AND pt.at_pickup_at <= COALESCE(pds.scheduled_departure, ptr.pickup_datetime)
+                       + ('5 minutes')::interval
+              ), 0) AS punct_on_time,
+              COALESCE((
+                SELECT COUNT(*)::int FROM trips pt
+                 LEFT JOIN dispatchschedules pds ON pds.dispatch_id = pt.dispatch_id
+                 LEFT JOIN transportation_requests ptr ON ptr.request_id = pds.request_id
+                 WHERE pt.driver_id = d.driver_id AND pt.trip_status = 'Completed'
+                   AND pt.deleted_at IS NULL AND pt.end_time >= NOW() - INTERVAL '90 days'
+                   AND pt.at_pickup_at IS NOT NULL
+                   AND COALESCE(pds.scheduled_departure, ptr.pickup_datetime) IS NOT NULL
+                   AND COALESCE(pt.at_pickup_override, FALSE) = FALSE
+                   AND pt.at_pickup_at > COALESCE(pds.scheduled_departure, ptr.pickup_datetime)
+                       + ('5 minutes')::interval
+              ), 0) AS punct_late,
               COUNT(t.trip_id) FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days')  AS trips_7d,
               COUNT(t.trip_id) FILTER (WHERE t.end_time >= NOW() - INTERVAL '30 days') AS trips_30d,
               COALESCE(SUM(t.distance) FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days'), 0)  AS km_7d,
@@ -180,6 +214,10 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
       r.rows.map((d) => {
         d._proximity_relevant = false;
         d._schedule_load = Number(d.schedule_load) || 0;
+        d.punct_measured = Number(d.punct_measured) || 0;
+        d.punct_on_time = Number(d.punct_on_time) || 0;
+        d.punct_late = Number(d.punct_late) || 0;
+        d.punct_rate = d.punct_measured > 0 ? Math.round((d.punct_on_time / d.punct_measured) * 100) : null;
         // Rolling workload signals (AI Fair Workload Distribution). Coerce pg's
         // numeric returns so the pure scorer sees plain numbers.
         d._workload_trips_7d = Number(d.trips_7d) || 0;

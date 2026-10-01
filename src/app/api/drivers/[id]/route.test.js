@@ -102,7 +102,7 @@ const isEmergencyPick = (value) =>
  * `driverUpdates` collects every `UPDATE drivers SET …` the route issues, which
  * is where "did this edit touch the address ids?" is answered.
  */
-function installDb({ failOn } = {}) {
+function installDb({ failOn, existing: existingOverride } = {}) {
   const driverUpdates = [];
   const employeeUpdates = [];
   const state = { committed: false, rolledBack: false };
@@ -112,6 +112,8 @@ function installDb({ failOn } = {}) {
     const text = String(sql);
     if (text.includes("ALTER TABLE drivers")) return { rows: [], rowCount: 0 };
     // The existing-driver lookup, before anything is written.
+    // An `existing` override stands in for a stored row that already holds
+    // values (cleared fields only read as changed against real stored data).
     if (text.includes("d.employee_id, e.email")) {
       return {
         rows: [{
@@ -143,6 +145,7 @@ function installDb({ failOn } = {}) {
           license_verified_at: "2026-09-27T10:00:00+08:00",
           license_verified_by: 9,
           license_verification_method: "physical_card",
+          ...existingOverride,
         }],
         rowCount: 1,
       };
@@ -275,7 +278,59 @@ describe("PUT /api/drivers/[id] — an edit that does not touch the address", ()
     expect(columns.address).toBe("12 Mabini St, Manila");
     expect(columns).not.toHaveProperty("address_id");
   });
+
+  it("clears optional fields when null or empty strings are passed in PUT", async () => {
+    // Merged 2026-10-01: the route now runs inside withTransaction and skips
+    // unchanged fields, so this uses installDb like its siblings. The existing
+    // override holds stored values — a clear only reads as changed against
+    // real stored data, not against absent columns.
+    const { driverUpdates, employeeUpdates } = installDb({
+      existing: {
+        emergency_contact_phone: "09171234567",
+        nationality: "FILIPINO",
+        sex: "M",
+        birthdate: "1990-05-20",
+        address: "Old address",
+        emergency_contact_name: "Old Name",
+        emergency_contact_address: "Old EC address",
+        employee_phone: "09171234567",
+      },
+    });
+
+    const res = await PUT(request({
+      first_name: "Juan",
+      last_name: "Dela Cruz",
+      license_number: "N04-19-013583",
+      license_expiry: "2031-09-20",
+      license_type: "Professional",
+      license_class: "B",
+      emergency_contact_phone: null,
+      nationality: null,
+      phone: null,
+      sex: null,
+      birthdate: null,
+      address: null,
+      emergency_contact_name: null,
+      emergency_contact_address: null,
+    }), context());
+
+    expect(res.status).toBe(200);
+    // Verify optional fields are set to null in the SQL params
+    const columns = lastDriverUpdate(driverUpdates);
+    expect(columns).not.toBeNull();
+    expect(columns.emergency_contact_phone).toBeNull();
+    expect(columns.nationality).toBeNull();
+    expect(columns.sex).toBeNull();
+    expect(columns.birthdate).toBeNull();
+    expect(columns.address).toBeNull();
+    expect(columns.emergency_contact_name).toBeNull();
+    expect(columns.emergency_contact_address).toBeNull();
+    expect(employeeUpdates.length).toBeGreaterThan(0);
+    expect(employeeUpdates[employeeUpdates.length - 1].sql).toContain("phone =");
+  });
 });
+
+
 
 describe("GET /api/drivers/[id] — full license access", () => {
   it("requires drivers.update when the editor requests the full license number", async () => {

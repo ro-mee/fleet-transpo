@@ -23,7 +23,7 @@ export function comparePairEvidence(a, b, policy = {}) {
     return { order:at-bt,code:'EFFICIENCY',label:'Less transfer time',explanation:'The recorded workload does not distinguish these options; the shorter supported transfer estimate breaks the tie.' };
   const standing = Number(a.reason_type !== 'designated') - Number(b.reason_type !== 'designated');
   return { order: standing || Number(a.vehicle_id) - Number(b.vehicle_id) || Number(a.driver_id) - Number(b.driver_id),
-    code: 'SCHEDULE_FIT', label: band(a) === 0 ? 'Best schedule fit' : 'Needs verification',
+    code: 'SCHEDULE_FIT', label: band(a) === 0 ? 'Schedule fit' : 'Needs verification',
     explanation: band(a) === 0
       ? standing
         ? 'Both options have workable timing; the designated driver pairing puts this option first.'

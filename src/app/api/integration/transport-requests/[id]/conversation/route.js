@@ -82,12 +82,12 @@ export async function POST(req,{params}) {
     if (body.displayedOptions != null && (!Array.isArray(body.displayedOptions) || body.displayedOptions.length>2 ||
       body.displayedOptions.some(p=>![p?.vehicleId,p?.driverId].every(id=>Number.isSafeInteger(id) && id>0))))
       throw new AuthError('Displayed options must contain up to two valid pairs.',400);
+    const {id}=await params;
     const scope = classifyCopilotScope(body.message, body.history ?? [], {
-      hasActiveContext: Boolean(body.selectedPair || body.displayedOptions?.length || body.planToken),
+      hasActiveContext: Boolean(id || body.selectedPair || body.displayedOptions?.length || body.planToken),
     });
     if (scope.kind === 'courtesy') return scopeOnlyResponse(copilotCourtesyReply());
     if (scope.kind === 'out-of-scope') return scopeOnlyResponse(FLEETMATE_SCOPE_REDIRECT);
-    const {id}=await params;
     const request=await loadRequest(id);
     if(!request)throw new AuthError('Reservation not found.',404);
     const prepared=await prepareDispatchRecommendation(request,{persistRoute:false});

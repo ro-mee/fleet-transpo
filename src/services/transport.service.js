@@ -18,7 +18,9 @@ export async function getTransportRequest(id) {
 // Commit a vehicle+driver pair to a request (Pending -> Scheduled -> Assigned).
 // Hard conflicts always return 409. Force records explicit manual review only
 // where the server permits it; a reason is required.
-export async function assignResources(id, { vehicleId, driverId, force = false, overrideReason = null, planToken = null } = {}) {
+// assignmentSource: 'queue' requires a plan token server-side; 'detail' is an
+// explicitly labelled single-request path that still gets pair revalidation.
+export async function assignResources(id, { vehicleId, driverId, force = false, overrideReason = null, planToken = null, assignmentSource = null } = {}) {
   const reason = typeof overrideReason === "string" ? overrideReason.trim().slice(0, 500) : "";
   return apiFetch(`/api/integration/transport-requests/${id}/assign`, {
     method: "PUT",
@@ -26,6 +28,7 @@ export async function assignResources(id, { vehicleId, driverId, force = false, 
       vehicle_id: vehicleId,
       driver_id: driverId,
       ...(planToken ? { plan_token: planToken } : {}),
+      ...(assignmentSource === 'queue' || assignmentSource === 'detail' ? { assignment_source: assignmentSource } : {}),
       ...(force ? { force: true } : {}),
       ...(force && reason ? { override_reason: reason } : {}),
     },

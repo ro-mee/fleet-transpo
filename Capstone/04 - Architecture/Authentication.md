@@ -497,8 +497,10 @@ because it demos without a phone, and accepted knowing what it costs.
   throttles. `handleSubmit` gained only
   `if (lockSeconds > 0 || (mfaRequired && !resend)) return;` — without the
   `!resend` half the open dialog would have swallowed the click — and
-  `if (resend && (resendSeconds > 0 || loading)) return;`. The button renders
-  after the status line, disabled until that countdown reaches zero. After a
+  `if (resend && (resendSeconds > 0 || loading)) return;`. On 2026-09-30, the
+  rendering was streamlined: while the cooldown runs, only *A new code can be requested in Ns.*
+  renders; once the countdown hits zero, that sentence disappears and is replaced
+  directly by the clickable *Resend code* button. After a
   burn it is unreachable anyway: `handBurnBackToForm` closes the dialog and
   drops the in-memory password first, so there is no button to press and no
   password to carry. The **mobile** OTP screen's Resend link stays removed, so

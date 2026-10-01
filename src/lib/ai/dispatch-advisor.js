@@ -1,5 +1,5 @@
 import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
-import { buildFleetPairRecommendations, vehicleOperationallyAvailable } from "@/lib/ai/pair-scoring";
+import { buildFleetPairRecommendations, vehicleOperationallyAvailable, daysUntil } from "@/lib/ai/pair-scoring";
 import { estimateFuel } from "@/lib/geo/distance";
 import { estimateForRequest } from "@/services/route-resolver.service";
 import { DRIVER_STATUS } from "@/lib/constants";
@@ -15,15 +15,8 @@ import { DRIVER_STATUS } from "@/lib/constants";
 // assignment — a human confirms via the assign endpoint. LLM narration, when
 // enabled, is a nullable presentation layer on top and never the decision.
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** Whole days from now until an ISO/date string; null when absent or unparseable. */
-function daysUntil(value) {
-  if (!value) return null;
-  const t = new Date(value).getTime();
-  if (!Number.isFinite(t)) return null;
-  return Math.round((t - Date.now()) / DAY_MS);
-}
+// daysUntil is shared from pair-scoring.js (single owner) — advisory risk text
+// here must never drift from the eligibility engine's date math.
 
 /** Driver display name from the joined employees row, with id fallback. */
 function driverName(driver) {
@@ -168,11 +161,16 @@ function toDriverCandidate(scored) {
     driver_name: driverName(driver),
     driver_status: driver.driver_status,
     years_of_experience: driver.years_of_experience,
-    avg_guest_rating: scored.avg_guest_rating ?? driver.avg_guest_rating ?? null,
-    avg_driving_score: scored.avg_driving_score ?? driver.avg_driving_score ?? null,
+    punct_measured: scored.punct_measured ?? driver.punct_measured ?? 0,
+    punct_on_time: scored.punct_on_time ?? driver.punct_on_time ?? 0,
+    punct_late: scored.punct_late ?? driver.punct_late ?? 0,
+    punct_rate: scored.punct_rate ?? driver.punct_rate ?? null,
     total_completed_trips: scored.total_completed_trips ?? driver.total_completed_trips ?? 0,
-    // legacy field kept for LLM rationale prompt compatibility
-    rating: scored.avg_guest_rating ?? driver.avg_guest_rating ?? null,
+    // legacy fields kept for old payload readers — always null now that
+    // customer_rating / smooth_driving_score are unused (no writer UI).
+    avg_guest_rating: null,
+    avg_driving_score: null,
+    rating: null,
     license_expiry: driver.license_expiry,
     score: scored.score,
     confidence: Number(scored.confidence),
@@ -199,7 +197,10 @@ function toDriverCandidate(scored) {
  * driver who is not `Available` really is out of action. A vehicle that is
  * `Reserved` is not — that label only records a booking somewhere in the day,
  * so the schedule load is what decides whether this window is free. Only the
- * statuses that ground the vehicle make it unavailable.
+ * statuses that ground the vehicle make it unavailable. Vehicle branch defers
+ * to `vehicleOperationallyAvailable` (pair-scoring.js, single owner); the
+ * driver branch here is advisory display only — the time-aware eligibility
+ * gate lives in the pair engine.
  */
 function availabilityLabel(status, scheduleLoad, kind = "driver") {
   const load = Number(scheduleLoad);
@@ -331,8 +332,13 @@ export function buildDispatchRecommendation({
     scheduleContext,
   });
 
-  // Legacy independent scores, retained ONLY for backward compatibility of the
-  // `vehicle`/`driver` payload shape. The recommended pair is the decision.
+  // DEPRECATED legacy independent ranking — quarantine, do not use for display
+  // or commit decisions. These halves are scored WITHOUT the custodial pairing
+  // rule, WITHOUT the schedule/duty gates and WITHOUT the evidence comparator,
+  // so they can name a vehicle/driver whose pair was withheld. The authoritative
+  // decision is `pair.recommended` / `pair.alternate` / `pair.eligibleCandidates`
+  // below. Retained only so old readers of the payload shape do not crash; new
+  // code must ignore `vehicle.recommended` / `driver.recommended`.
   //
   // Callers hand in the full driver roster, not just the free ones, so the pair
   // engine can recognise an absent custodian and say so precisely ("designated
@@ -378,21 +384,30 @@ export function buildDispatchRecommendation({
       recommended: recommended ? toPairCandidate(recommended, request, trip) : null,
       alternate: alternate ? toPairCandidate(alternate, request, trip) : null,
       candidates: candidatePairs,
+      // Explicit contract split (audit #6): every formed eligible pair, plus an
+      // (initially identical) eligible list and an empty blocked list. The radar
+      // stage re-splits these into eligible vs INFEASIBLE — see
+      // applyDispatchRadar — so future readers never have to guess which
+      // entries in `candidates` are actually assignable.
+      eligibleCandidates: candidatePairs,
+      blockedCandidates: [],
       considered: vehicles.length,
       // "Why no candidates" — distinct vehicle-level reasons the pairing engine
       // skipped when it could not form a pair, plus pre-filtered vehicles the
       // SQL candidate query removed before scoring (flagged, honestly brief).
       none_reasons: [
-        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason })),
+        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason, driver_id: s.driver_id ?? null, driver_name: s.driver_name ?? null })),
         ...prefilteredSkipped,
       ],
     },
     vehicle: {
+      _deprecated_legacy_ranking: true,
       recommended: vehicleCandidates[0] ?? null,
       alternate: vehicleCandidates[1] ?? null,
       considered: vehicles.length,
     },
     driver: {
+      _deprecated_legacy_ranking: true,
       recommended: driverCandidates[0] ?? null,
       alternate: driverCandidates[1] ?? null,
       considered: drivers.length,

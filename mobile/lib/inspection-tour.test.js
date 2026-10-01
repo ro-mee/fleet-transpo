@@ -58,8 +58,8 @@ describe("Quick Pass All statuses", () => {
   });
 
   it("fails the requested item when told which one", () => {
-    const custom = buildQuickPassStatuses(CHECKLIST, "brakes");
-    expect(custom.brakes).toBe(CHECKLIST_FAIL);
-    expect(custom.tires).toBe(CHECKLIST_PASS);
+    const custom = buildQuickPassStatuses(CHECKLIST, "brakes_tires");
+    expect(custom.brakes_tires).toBe(CHECKLIST_FAIL);
+    expect(custom.passenger_items).toBe(CHECKLIST_PASS);
   });
 });

@@ -24,6 +24,7 @@ export async function standbyState(driverId, db = { query }, excludeTripId = nul
       AND m.revoked_at IS NULL AND m.expires_at>NOW() AND e.deleted_at IS NULL AND e.status='Active') AS session_live,
     EXISTS (SELECT 1 FROM vehicleinspection i WHERE i.driver_id=d.driver_id
       AND i.inspection_type='Pre-Shift'
+      AND i.status='Passed'
       AND i.inspection_date=(NOW() AT TIME ZONE 'Asia/Manila')::date) AS preshift_baseline
     FROM drivers d WHERE d.driver_id=$1 AND d.deleted_at IS NULL`, [driverId, CURRENT_PRIVACY_POLICY_VERSION, LIVE_TRIP_STATUSES, excludeTripId]);
   return rows[0] ?? null;
@@ -44,10 +45,8 @@ export async function setDuty(driverId, active) {
       // Gate order is deliberate: the roster/leave check runs before the
       // transaction (see above) and consent before this, so a driver on rest day
       // or approved leave is told DUTY_UNAVAILABLE rather than being asked for an
-      // inspection for a shift they are not working. Existence, not a pass/fail
-      // verdict: a FAILED baseline records what the driver found, and refusing
-      // duty on it would strand them with no recourse at the start of the day.
-      // The failed items are surfaced to the office instead.
+      // inspection for a shift they are not working.
+      // Must exist AND be Passed: a FAILED baseline blocks operational duty activation.
       if (!state?.preshift_baseline) {
         throw new AuthError('Complete the pre-shift vehicle check before starting duty.', 409, 'PRESHIFT_REQUIRED');
       }

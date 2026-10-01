@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   evaluateDriverLicenseEligibility,
   formatLicenseClasses,
+  isValidLicenseExpiry,
   isValidLicenseNumber,
   licenseExpiryIsBefore,
   maskLicenseNumber,
   normalizeLicenseClasses,
+  validateLicenseDetails,
 } from "./license-eligibility";
 
 const DRIVER = {
@@ -139,5 +141,25 @@ describe("maskLicenseNumber", () => {
   it("retains only the final four characters", () => {
     expect(maskLicenseNumber("N04-19-013583")).toBe("********3583");
     expect(maskLicenseNumber(null)).toBeNull();
+  });
+});
+
+describe("staff verification gate (RS-7C7G)", () => {
+  it("accepts the Date objects node-postgres returns for DATE columns", () => {
+    // Live rows arrive with license_expiry as a Date (local midnight), not a
+    // YYYY-MM-DD string. The verify endpoint validates these same rows, so a
+    // string-only check made verification impossible for every driver.
+    const dbShaped = { ...DRIVER, license_expiry: new Date(2033, 5, 5) };
+    expect(isValidLicenseExpiry(dbShaped.license_expiry)).toBe(true);
+    expect(validateLicenseDetails(dbShaped, { requireAll: true })).toEqual({});
+    expect(evaluateDriverLicenseEligibility(dbShaped, VEHICLE, "2026-09-27").eligible).toBe(true);
+  });
+
+  it("still rejects missing and unparseable expiries", () => {
+    expect(isValidLicenseExpiry(null)).toBe(false);
+    expect(isValidLicenseExpiry("not-a-date")).toBe(false);
+    expect(isValidLicenseExpiry("2026-02-30")).toBe(false);
+    expect(validateLicenseDetails({ ...DRIVER, license_expiry: null }, { requireAll: true }).license_expiry).toBeTruthy();
+    expect(validateLicenseDetails({ ...DRIVER, license_expiry: "not-a-date" }, { requireAll: true }).license_expiry).toBeTruthy();
   });
 });

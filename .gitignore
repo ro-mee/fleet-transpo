@@ -62,9 +62,13 @@ scratch/
 *.bak
 *.log
 
-# Motion Reel generation & video artifacts
+# Motion Reel generation & video artifacts (main) + motion-film working notes (local-only)
 motion/
 fleetops-e2e.mp4
 fleetops-e2e-poster.jpg
 *.mp4
 
+# motion-film working notes — local only, absolute links + gitignored media refs
+/IMPLEMENTATION_NOTES.md
+/SCENE_NOTES.md
+/STORYBOARD.md

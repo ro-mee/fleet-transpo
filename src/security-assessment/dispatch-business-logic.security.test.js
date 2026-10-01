@@ -323,9 +323,18 @@ describe('SEC-DISP-002 — plan tokens are signed, scoped and revision-bound', (
     expect(readPlanRevision).toBeTruthy();
   });
 
-  it('OBSERVATION — plan_token is optional, so the plan-coverage step can be skipped by omission', async () => {
-    // The guard is `if (body.plan_token !== undefined)`. A caller that simply
-    // omits the field performs the same assignment with no plan evidence at all.
+  it('queue assignments require a plan token; detail assignments are explicitly labelled', async () => {
+    // Explicit queue origin without a token is refused: queue-coverage must be
+    // rechecked, never skipped by omission.
+    const queueRes = await assign({ vehicle_id: 7, driver_id: 4, assignment_source: 'queue' });
+    expect(queueRes.status).toBe(409);
+    expect((await queueRes.json()).code).toBe('PLAN_TOKEN_REQUIRED');
+    expect(advanceReservation).not.toHaveBeenCalled();
+  });
+
+  it('detail assignments without a token proceed with pair revalidation and provenance', async () => {
+    // No token and no queue claim means the explicitly labelled detail path:
+    // pair-level checks still run, and the provenance is recorded.
     const res = await assign({ vehicle_id: 7, driver_id: 4 });
     expect(res.status).toBe(200);
     expect(advanceReservation).toHaveBeenCalled();

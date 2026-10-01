@@ -468,7 +468,7 @@ export function AiRecommendationPanel({
     // choice, so the remembered selection is spent. The transcript records the
     // completion above.
     clearReservationSelection(requestId);
-    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'assistant',content:`Assignment completed. ${pair ? pairLabel(pair) : 'The selected resources'} assigned to this reservation.`,at:Date.now()}]);
+    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'assistant',content:`Assignment confirmed. ${pair ? pairLabel(pair) : 'The selected resources'} assigned to this reservation.`,at:Date.now()}]);
     setFailure(null);
     client.setQueryData(["dispatch-plan"], null);
     for (const key of [
@@ -492,6 +492,7 @@ export function AiRecommendationPanel({
         force: choice.force,
         overrideReason: choice.reason,
         planToken: choice.planToken,
+        assignmentSource: queueMode ? 'queue' : 'detail',
       }),
     onSuccess: complete,
     onSettled: () => { submitting.current = false; },
@@ -677,7 +678,7 @@ export function AiRecommendationPanel({
     }
     if (!pair) return 'Choose an option first so the assignment identifies a specific driver and vehicle.';
     if (!action.canSubmit) return action.message;
-    if (!reviewCurrent) return 'I am still double-checking this option. Wait for the confirmation reply before assigning.';
+    if (!reviewCurrent) return 'Rechecking current assignment evidence. Wait for the confirmation reply before assigning.';
     confirmSelection(message); return {handled:true};
   };
 
@@ -706,7 +707,7 @@ export function AiRecommendationPanel({
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-foreground">Dispatch Copilot Ready</h3>
           <p className="text-xs max-w-xs text-foreground-muted leading-relaxed">
-            Select a reservation row from the queue to inspect AI pair analysis, feasibility evidence, and confirm assignment.
+            Select a reservation row from the queue to review assignment options and supporting evidence, then confirm assignment.
           </p>
         </div>
       </section>
@@ -748,10 +749,10 @@ export function AiRecommendationPanel({
         <SelectedPairSummary pair={pair} optionNumber={options.findIndex(o=>pairKey(o.pair)===selected)+1} pending={selectionCheck?.pending} now={now}/>
         {!selectionCheck?.pending && <>
           {reasonSlot}
-          <p id="dispatch-confirmation-status" role="status" className="text-xs text-foreground-secondary">{reviewCurrent ? 'I have rechecked this pairing. Shall I assign it? Type "Assign it" or use the button below.' : action.message}</p>
+          <p id="dispatch-confirmation-status" role="status" className="text-xs text-foreground-secondary">{reviewCurrent ? 'This option passed a fresh check. Dispatcher confirmation is required. Confirm assignment? Type "Assign it" or use Confirm assignment below.' : action.message}</p>
           {recovery}
           <Button className="w-full" disabled={!reviewCurrent || busy} onClick={confirmSelection}>
-            {assignment.isPending ? 'Assigning...' : 'Assign ' + pairLabel(pair)}
+            {assignment.isPending ? 'Confirming assignment...' : 'Confirm assignment — ' + pairLabel(pair)}
           </Button>
         </>}
         <Button variant="ghost" size="sm" disabled={busy || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
@@ -874,10 +875,10 @@ export function AiRecommendationPanel({
           planStatus={{ isInvalid: !!planInvalidReason, invalidReason: planInvalidReason ?? null }}
           selectedReply={!isClosed && !assignment.isPending ? actionSlot : null}
           reply={<>
-            {query.isLoading && <CopilotBubble><p role="status">I am checking the eligible pairs and their schedules.</p></CopilotBubble>}
+            {query.isLoading && <CopilotBubble><p role="status">Checking the eligible options and their schedules.</p></CopilotBubble>}
             {query.isError && <CopilotBubble><p role="alert">I could not refresh the evidence. {query.error.message}</p>{recovery}</CopilotBubble>}
             {failure && <CopilotBubble><p role="alert">{failure.message}</p><ConflictBlock conflicts={failure.conflicts ?? []}/>{recovery}</CopilotBubble>}
-            {assignment.isPending && <CopilotBubble><p role="status">Assigning {pairLabel(pair)}. I am revalidating availability and conflicts before saving.</p></CopilotBubble>}
+            {assignment.isPending && <CopilotBubble><p role="status">Confirming assignment for {pairLabel(pair)}. Revalidating availability and conflicts before saving.</p></CopilotBubble>}
             {isClosed && (
               <CopilotTripDetailsBubble
                 requestId={requestId}

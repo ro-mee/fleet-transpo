@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState, Linking, Image } from 'react-native';
+import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState, Linking, Image, ActivityIndicator, RefreshControl } from 'react-native';
 import LottieView from "lottie-react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
 import { METEOCON_ASSETS } from "../../../components/WeatherChip";
@@ -16,7 +16,10 @@ import { getDynamicBottomOffset } from "../../../components/CurvedPillTabBar";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
 import { clayMaterials } from "../../../lib/clay";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useDuty } from "../../../lib/use-duty";
+import { useDriverProfile } from "../../../lib/driver-profile";
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
@@ -28,6 +31,7 @@ import {
   CoachMarkTarget,
 } from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
+import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -50,20 +54,11 @@ function getTripStatusStyle(status, colors) {
   return statusColors(colors, status);
 }
 
-// Statuses where the driver is still travelling to the pickup. Everything else
-// (Passenger Onboard / En Route / Drop-off / Arrived / In Progress) is the
-// second leg to the destination.
-const HEADING_TO_PICKUP_STATUSES = [
-  "Pending",
-  "Approved",
-  "Assigned",
-  "Vehicle Assigned",
-  "Driver Assigned",
-  "Dispatched",
-  "Driver Accepted",
-  "Trip Started",
-  "At Pickup",
-];
+// Leg assignment ("leg1" = driving to the pickup, "leg2" = to the destination)
+// is owned by legForStatus() in lib/background-tracking — the same function that
+// seeds the background task's context. A second copy of the status list here
+// was how the foreground and background legs could disagree about which bucket
+// a kilometre belonged to.
 
 // Pending assignments remain visible in the app, but GPS persistence starts
 // only once the driver accepts the trip.
@@ -82,19 +77,26 @@ function isGpsTrackedTrip(trip) {
   return trip?.trip_id != null && GPS_TRACKING_STATUSES.has(trip.trip_status);
 }
 
-// Distance in km between two lat/lng pairs (haversine).
-function haversineKm(latA, lonA, latB, lonB) {
-  const R = 6371;
-  const p1 = (latA * Math.PI) / 180;
-  const p2 = (latB * Math.PI) / 180;
-  const dp = ((latB - latA) * Math.PI) / 180;
-  const dl = ((lonB - lonA) * Math.PI) / 180;
-  const a =
-    Math.sin(dp / 2) * Math.sin(dp / 2) +
-    Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+// Poll churn guard: the 15 s refetch builds fresh objects every time, and a new
+// identity alone re-renders the whole screen plus every memo'd downstream prop
+// (radar markers, WebView origin/destination, intro layers). Keep the previous
+// reference when the payload is deep-equal so an unchanged poll is a render
+// no-op. Serialized comparison is drift-proof against new server fields; the
+// lists are a driver's own trips (a few KB), so the stringify is far cheaper
+// than the render it prevents.
+function samePayload(a, b) {
+  if (a === b) return true;
+  if (a == null || b == null) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
 }
+
+// Haversine and the segment acceptance rules live in lib/gps-odometer — the
+// same module the background task uses. Keeping a second copy here is exactly
+// how the foreground and background odometers drifted apart.
 
 function driverLocationFromFix(location) {
   const lat = Number(location?.coords?.latitude);
@@ -111,15 +113,10 @@ function driverLocationFromFix(location) {
   };
 }
 
-// Max km a single GPS segment (≤3s apart) can plausibly be before we treat it
-// as a jump/glitch and drop it. ~400m/3s ≈ 480 km/h, far above any vehicle.
-const MAX_SEGMENT_KM = 0.4;
-// Segments shorter than this while effectively stationary are GPS jitter and
-// would inflate km while parked; only counted when the vehicle is actually
-// moving (speed > 1 m/s).
-const MIN_MOVING_SEGMENT_KM = 0.02;
+// Max km a single GPS segment can plausibly be before we treat it as a
+// jump/glitch, and the minimum that counts as movement rather than parked
+// jitter, now live in lib/gps-odometer (shared with the background task).
 
-// Frozen at module load; interval below keeps it current without render-time reads.
 const NOW_AT_LOAD = Date.now();
 
 // Dedicated Light and Dark theme palettes for the Proximity & Coverage Radar
@@ -208,17 +205,40 @@ const RADAR_THEME = {
   }
 };
 
-// Generates real and anchored nearby dispatch nodes matching the reference design
+// Generates real and anchored nearby dispatch nodes matching the reference design.
+//
+// DATA PROVENANCE — read before changing anything here.
+//
+//   assignment markers → REAL server data (the driver's own pending trips from
+//     GET /api/mobile/driver/trips). Rendered in every build. A trip whose
+//     pickup coordinates are unresolved is SKIPPED, never placed at a guessed
+//     offset: a fabricated pin on a real dispatch is worse than no pin,
+//     because the driver taps it and gets a distance to a place that is not
+//     where the trip actually starts.
+//
+//   gas_station / driver markers → DEMO DATA. These are hard-coded brand
+//     strings at fixed offsets from the driver's live position. They are not
+//     from any API, they are not near any real station, and they are not near
+//     any real colleague. `DEMO_ENTITY_MODE` (below) is the ONLY thing allowed
+//     to switch them on, and it is off in production.
+const DEMO_ENTITY_MODE = __DEV__;
+
 function getOperationalRadarMarkers(userLocation, pendingTrips) {
   const list = [];
   if (!userLocation) return list;
   const { lat, lng } = userLocation;
 
-  // 1. Add any real pending trips assigned to the driver
+  // 1. Real pending trips assigned to this driver. Always rendered.
   if (Array.isArray(pendingTrips)) {
     pendingTrips.forEach((t) => {
-      const tLat = t.origin_latitude ? Number(t.origin_latitude) : lat + 0.008;
-      const tLng = t.origin_longitude ? Number(t.origin_longitude) : lng + 0.006;
+      // No coordinates = no marker. Previously this fell back to
+      // `lat + 0.008`, which put a real dispatch pin roughly 900 m from
+      // wherever the driver happened to be standing and reported a distance
+      // and ETA to it.
+      if (t.origin_latitude == null || t.origin_longitude == null) return;
+      const tLat = Number(t.origin_latitude);
+      const tLng = Number(t.origin_longitude);
+      if (!Number.isFinite(tLat) || !Number.isFinite(tLng)) return;
       const d = haversineKm(lat, lng, tLat, tLng);
       const isEmergency = t.special_requests?.toLowerCase().includes('emergency') || t.notes?.toLowerCase().includes('emergency');
       list.push({
@@ -230,7 +250,11 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
         lat: tLat,
         lng: tLng,
         distanceKm: Number(d.toFixed(1)),
+        // Client estimate (haversine km × 20 km/h), NOT a routed ETA. Labelled
+        // "Est. arrival" in the card, and deliberately absent in production
+        // where no assignment pin is shown without coordinates anyway.
         etaMinutes: Math.max(3, Math.round(d * 3.5)),
+        etaSource: 'client-estimate',
         status: t.trip_status,
         tripId: t.trip_id,
         rawData: t,
@@ -238,7 +262,10 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
     });
   }
 
+  // ─── DEMO DATA BELOW THIS LINE — not server-backed ────────────────────────
   // 2. Nearest partner and major gas stations (strictly aligned with fleet fuel documentation)
+  if (!DEMO_ENTITY_MODE) return list;
+
   const nearbyGasStations = [
     {
       id: 'gas-petron',
@@ -302,7 +329,7 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
     });
   });
 
-  // 3. Nearest active fleet vehicles / drivers
+  // 3. Nearest active fleet vehicles / drivers — DEMO, same gate as above.
   const nearbyDrivers = [
     {
       id: 'driver-hiace',
@@ -358,8 +385,71 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
   return list;
 }
 
+export const MAP_EMPTY_STATES = {
+  off_duty: {
+    key: "off_duty",
+    statusPill: "OFF DUTY",
+    title: "You’re Off Duty",
+    description: "Live trip tracking becomes available when you start your shift.",
+    iconType: "off_duty",
+  },
+  rest_day: {
+    key: "rest_day",
+    statusPill: "REST DAY",
+    title: "Today is Your Rest Day",
+    description: "No operational map or trip tracking is needed today.",
+    iconType: "rest_day",
+  },
+  on_leave: {
+    key: "on_leave",
+    statusPill: "ON LEAVE",
+    title: "You’re Currently on Leave",
+    description: "Live trip tracking will be available when you return to active duty.",
+    iconType: "on_leave",
+  },
+};
+
+export function resolveMapEmptyState({ duty, profile, user, paramStatus, activeTrip } = {}) {
+  // Direct override via route query parameters for tests & previews
+  if (paramStatus) {
+    const clean = String(paramStatus).toLowerCase().trim().replace(/[-_\s]+/g, "");
+    if (clean === "offduty") return "off_duty";
+    if (clean === "restday") return "rest_day";
+    if (clean === "onleave" || clean === "leave") return "on_leave";
+  }
+
+  // Active in-progress trip always displays operational map
+  if (activeTrip != null) return null;
+
+  // 1. Evaluate "Currently on Leave"
+  const isLeave =
+    profile?.driverStatus === "On Leave" ||
+    user?.driver_status === "On Leave" ||
+    user?.status === "On Leave" ||
+    (duty?.loaded && duty?.today?.blocked && duty?.today?.reason?.toLowerCase().includes("leave"));
+  if (isLeave) return "on_leave";
+
+  // 2. Evaluate "Rest Day"
+  const isRestDay =
+    profile?.driverStatus === "Rest Day" ||
+    (duty?.loaded && duty?.today?.blocked && duty?.today?.reason?.toLowerCase().includes("rest day"));
+  if (isRestDay) return "rest_day";
+
+  // 3. Evaluate "Off Duty"
+  const isOffDuty =
+    profile?.driverStatus === "Off Duty" ||
+    user?.driver_status === "Off Duty" ||
+    user?.status === "Off Duty" ||
+    (duty?.loaded && !duty.checkedIn);
+  if (isOffDuty) return "off_duty";
+
+  // Active operational state (on duty)
+  return null;
+}
+
 export default function MapTab() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { colors, scheme, type } = useTheme();
   const insets = useSafeAreaInsets();
   const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
@@ -371,6 +461,33 @@ export default function MapTab() {
   const { status: connectivity } = useConnectivity();
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
+  const duty = useDuty();
+  const { profile } = useDriverProfile();
+  const [activeTrip, setActiveTrip] = useState(null);
+
+  const emptyStateKey = useMemo(() => {
+    return resolveMapEmptyState({
+      duty,
+      profile,
+      user,
+      paramStatus: params?.status || params?.empty_state || params?.mode,
+      activeTrip,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- field-level identity prevents churn on fresh object references
+  }, [
+    duty?.loaded,
+    duty?.checkedIn,
+    duty?.today?.blocked,
+    duty?.today?.reason,
+    profile?.driverStatus,
+    user?.driver_status,
+    user?.status,
+    params?.status,
+    params?.empty_state,
+    params?.mode,
+    activeTrip,
+  ]);
+
   const { chip: rawWeatherChip, weather: weatherDetails } = useAmbientWeather(null, driverId);
   // Stable chip identity: the hook builds a fresh object per call, which
   // would re-render the standby card on every parent render (same memo
@@ -384,14 +501,36 @@ export default function MapTab() {
   // not Ionicons names) — hoisted so no new object is built inside the JSX.
   const weatherArt = weather ? METEOCON_ASSETS[weather.icon] : null;
   const standbyBottom = getDynamicBottomOffset(insets.bottom) + 64 + 16;
-  
-  const [activeTrip, setActiveTrip] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [permRetry, setPermRetry] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [routeData, setRouteData] = useState(null);
+  // True when the WebView reported ROUTE_UNAVAILABLE: the last routeData (if
+  // any) is retained for context but must NOT be presented as a live ETA.
+  const [routeStale, setRouteStale] = useState(false);
+  // Contract with TomTomMap.js WebView messages:
+  //   ROUTE_CALCULATED  → fresh traffic-aware live route
+  //   ROUTE_REFRESHING  → recalculation started (keep old numbers, not stale)
+  //   ROUTE_UNAVAILABLE → TomTom failed; stop presenting old numbers as live
+  const handleRouteMessage = useCallback((msg) => {
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === "ROUTE_CALCULATED") {
+      setRouteData({
+        travelTimeInSeconds: msg.travelTimeInSeconds,
+        lengthInMeters: msg.lengthInMeters,
+        trafficDelayInSeconds: msg.trafficDelayInSeconds,
+        noTrafficTravelTimeInSeconds: msg.noTrafficTravelTimeInSeconds ?? null,
+        calculatedAt: msg.calculatedAt || Date.now(),
+        source: "tomtom-live",
+        trafficAware: true,
+      });
+      setRouteStale(false);
+    } else if (msg.type === "ROUTE_UNAVAILABLE") {
+      setRouteStale(true);
+    }
+  }, []);
   // In-flight lock for the swipe transitions: SwipeButton honors `busy` so a
   // second swipe cannot fire a concurrent PUT while the first is pending.
   const [inFlight, setInFlight] = useState(false);
@@ -412,20 +551,22 @@ export default function MapTab() {
   });
 
   const toggleCoverage = useCallback((key) => {
-    setCoverageVisibility((prev) => {
-      const nextVal = !prev[key];
-      if (!nextVal && selectedMarker) {
-        if (key === 'gas_station' && selectedMarker.type === 'gas_station') {
-          setSelectedMarker(null);
-        } else if (key === 'driver' && (selectedMarker.type === 'driver' || selectedMarker.type === 'vehicle')) {
-          setSelectedMarker(null);
-        } else if (key === 'assignment' && selectedMarker.type === 'assignment') {
-          setSelectedMarker(null);
-        }
-      }
-      return { ...prev, [key]: nextVal };
-    });
-  }, [selectedMarker]);
+    setCoverageVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
+    // Clearing a selection owned by the layer being hidden must happen OUTSIDE
+    // the updater. Calling setState from inside another setState's updater is a
+    // side effect during React's render phase: StrictMode invokes updaters
+    // twice (so it fires twice) and concurrent rendering warns on it. The
+    // handler is bound to a render that already holds the current selection, so
+    // reading it here is correct and side-effect free. `coverageVisibility[key]`
+    // is the PRE-toggle value, so "hiding" means it is currently true.
+    if (coverageVisibility[key] && selectedMarker) {
+      const ownedByHiddenLayer =
+        (key === 'gas_station' && selectedMarker.type === 'gas_station') ||
+        (key === 'driver' && (selectedMarker.type === 'driver' || selectedMarker.type === 'vehicle')) ||
+        (key === 'assignment' && selectedMarker.type === 'assignment');
+      if (ownedByHiddenLayer) setSelectedMarker(null);
+    }
+  }, [coverageVisibility, selectedMarker]);
 
   const showAllCoverage = useCallback(() => {
     setCoverageVisibility({
@@ -439,6 +580,64 @@ export default function MapTab() {
   const rTheme = RADAR_THEME[scheme === 'dark' ? 'dark' : 'light'];
   // Home clay language for the map surfaces (same mats family as Home cards).
   const mats = clayMaterials(scheme === 'dark');
+  const isDark = scheme === 'dark';
+
+  const emptyTheme = useMemo(() => {
+    if (isDark) {
+      return {
+        bgColors: ['#06130E', '#030A07', '#020504'],
+        bgLocations: [0, 0.45, 1],
+        waveBorderColor: 'rgba(52, 211, 153, 0.12)',
+        wave1Colors: ['rgba(20, 83, 62, 0.35)', 'rgba(6, 40, 29, 0.10)', 'transparent'],
+        wave2Colors: ['rgba(16, 185, 129, 0.14)', 'rgba(5, 46, 32, 0.06)', 'transparent'],
+        wave3Colors: ['rgba(52, 211, 153, 0.12)', 'rgba(4, 28, 20, 0.04)', 'transparent'],
+        brandTitle: '#FFFFFF',
+        brandSubtitle: 'rgba(255, 255, 255, 0.55)',
+        bellBg: 'rgba(255, 255, 255, 0.06)',
+        bellBorder: 'rgba(255, 255, 255, 0.12)',
+        bellIcon: '#FFFFFF',
+        haloBg: 'rgba(16, 185, 129, 0.16)',
+        haloShadow: '#10B981',
+        cardColors: ['#103C2E', '#0A251C'],
+        cardBorder: 'rgba(52, 211, 153, 0.45)',
+        cardShadow: '#34D399',
+        iconColor: '#FFFFFF',
+        pillBg: 'rgba(16, 185, 129, 0.12)',
+        pillBorder: 'rgba(52, 211, 153, 0.28)',
+        pillDot: '#34D399',
+        pillText: '#E6FFFA',
+        title: '#FFFFFF',
+        description: '#94A3B8',
+        spinner: '#34D399',
+      };
+    }
+    return {
+      bgColors: ['#F0FDF4', '#F4F7F5', '#EAEFEA'],
+      bgLocations: [0, 0.5, 1],
+      waveBorderColor: 'rgba(40, 84, 72, 0.08)',
+      wave1Colors: ['rgba(40, 84, 72, 0.10)', 'rgba(40, 84, 72, 0.03)', 'transparent'],
+      wave2Colors: ['rgba(16, 185, 129, 0.08)', 'rgba(40, 84, 72, 0.02)', 'transparent'],
+      wave3Colors: ['rgba(52, 211, 153, 0.07)', 'rgba(40, 84, 72, 0.02)', 'transparent'],
+      brandTitle: '#17382F',
+      brandSubtitle: '#285448',
+      bellBg: '#FFFFFF',
+      bellBorder: 'rgba(40, 84, 72, 0.14)',
+      bellIcon: '#17382F',
+      haloBg: 'rgba(40, 84, 72, 0.08)',
+      haloShadow: '#285448',
+      cardColors: ['#FFFFFF', '#E8F5EE'],
+      cardBorder: 'rgba(40, 84, 72, 0.22)',
+      cardShadow: 'rgba(40, 84, 72, 0.18)',
+      iconColor: '#17382F',
+      pillBg: '#DCFCE7',
+      pillBorder: 'rgba(22, 101, 52, 0.20)',
+      pillDot: '#16A34A',
+      pillText: '#166534',
+      title: '#17382F',
+      description: '#53615A',
+      spinner: '#285448',
+    };
+  }, [isDark]);
 
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
@@ -513,7 +712,7 @@ export default function MapTab() {
   //   leg2 = km driven from pickup to the destination
   // Held in a ref so it survives re-renders and the watcher closure can read and
   // mutate it without the interval/callback being torn down.
-  const distRef = useRef({ leg1: 0, leg2: 0, prev: null, leg: null });
+  const distRef = useRef(createAccumulator());
 
   // Last compass heading applied to the marker. watchHeadingAsync fires at
   // very high frequency; without a threshold, parked-idle jitter re-renders
@@ -522,13 +721,16 @@ export default function MapTab() {
 
   useEffect(() => {
     activeTripRef.current = activeTrip;
-    // Reset route data only when it's a completely new trip
+    // Reset route data only when it's a completely new trip (leg changes are
+    // handled by the routeLegKey effect below, which also covers the
+    // pickup → destination switch inside one trip_id).
     if (activeTrip?.trip_id !== lastTripId.current) {
       setRouteData(null);
+      setRouteStale(false);
       lastTripId.current = activeTrip?.trip_id;
       // A new trip resets the accumulated leg distances so a previous trip's km
       // never bleeds into the next one.
-      distRef.current = { leg1: 0, leg2: 0, prev: null, leg: null };
+      distRef.current = createAccumulator();
     }
   }, [activeTrip]);
 
@@ -583,12 +785,26 @@ export default function MapTab() {
   const loadTrip = useCallback(async () => {
     try {
       const data = await api.get("/api/mobile/driver/trips");
-      
-      const active = data.find(t => !["Completed", "Cancelled"].includes(t.trip_status));
-      setActiveTrip(active || null);
 
-      const pending = (data || []).filter(t => ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(t.trip_status));
-      setNearbyTrips(pending);
+      // Pick the trip the map should be driving BEFORE anything else. The
+      // server returns rows ordered by `scheduled_departure ASC NULLS LAST`,
+      // so a plain "first non-terminal row" wins on a PENDING assignment that
+      // happens to sort ahead of the trip the driver is actually mid-way
+      // through — the map then rendered the wrong route, the wrong status
+      // header and the wrong swipe action, and the GPS leg accumulator was
+      // re-pointed at a trip the driver had not started. A GPS-tracked trip
+      // always wins; only when there is none do we fall back to pre-start.
+      const list = Array.isArray(data) ? data : [];
+      const active = list.find(isGpsTrackedTrip) || list.find((t) => !["Completed", "Cancelled"].includes(t.trip_status));
+      // Bail out on identical payloads (see samePayload): every poll mints new
+      // objects, and without this the screen re-renders every 15 s forever.
+      setActiveTrip((prev) => {
+        const next = active || null;
+        return samePayload(prev, next) ? prev : next;
+      });
+
+      const pending = list.filter((t) => ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(t.trip_status));
+      setNearbyTrips((prev) => (samePayload(prev, pending) ? prev : pending));
 
       // Check for new assignments to trigger notification
       const currentIds = new Set(pending.map(t => t.trip_id));
@@ -605,6 +821,22 @@ export default function MapTab() {
       setLoading(false);
     }
   }, []);
+
+  // `duty` is a fresh object every render (useDuty spreads state), so it must
+  // never appear in a dep array — only the stable `refresh` callback.
+  const dutyRefresh = duty?.refresh;
+  const [emptyRefreshing, setEmptyRefreshing] = useState(false);
+  const handleEmptyRefresh = useCallback(async () => {
+    setEmptyRefreshing(true);
+    try {
+      await Promise.allSettled([
+        dutyRefresh?.(),
+        loadTrip(),
+      ]);
+    } finally {
+      setEmptyRefreshing(false);
+    }
+  }, [dutyRefresh, loadTrip]);
 
   useEffect(() => {
     if (
@@ -674,31 +906,50 @@ export default function MapTab() {
 
   useFocusEffect(useCallback(() => {
     focusedRef.current = true;
-    // Re-seed the map from fixes collected while unfocused.
-    if (lastFixRef.current) setDriverLocation({ ...lastFixRef.current });
-    loadTrip();
+    // Re-seed the map from fixes collected while unfocused. Functional set
+    // with an equality bail-out so a re-run with an unchanged fix does not
+    // mint a new object and re-render for nothing.
+    if (lastFixRef.current) {
+      const seed = lastFixRef.current;
+      setDriverLocation((prev) => (
+        prev?.lat === seed.lat && prev?.lng === seed.lng && prev?.heading === seed.heading && prev?.speed === seed.speed
+          ? prev
+          : { ...seed }
+      ));
+    }
+    if (!emptyStateKey) {
+      loadTrip();
+    }
+    dutyRefresh?.();
     return () => { focusedRef.current = false; };
-  }, [loadTrip]));
+  }, [loadTrip, emptyStateKey, dutyRefresh]));
 
   // Auto-polling dispatch queue every 15 seconds — foreground AND focused
   // only. Tabs stay mounted when unfocused, so an ungated interval would
   // poll (and re-render) while the driver looks at another tab or
-  // backgrounds the app.
+  // backgrounds the app. Suppressed when in an empty state.
   useEffect(() => {
     const timer = setInterval(() => {
-      if (AppState.currentState !== 'active' || !focusedRef.current) return;
+      if (AppState.currentState !== 'active' || !focusedRef.current || emptyStateKey) return;
       loadTrip();
     }, 15000);
     return () => clearInterval(timer);
-  }, [loadTrip]);
+  }, [loadTrip, emptyStateKey]);
 
   // Radar markers rebuild on a ~11 m quantized grid, not on every GPS object
   // identity: heading-only fixes must not re-stringify + re-render markers
   // across the WebView bridge.
+  //
+  // The `__DEV__` gate that used to sit here returned [] for EVERY marker,
+  // including the driver's own real pending assignments — so a production
+  // build rendered an empty radar and the coverage legend described layers
+  // that could never appear. The dev-only concern (fabricated gas stations and
+  // fleet drivers) is now handled INSIDE getOperationalRadarMarkers by
+  // DEMO_ENTITY_MODE, so real data is not collaterally suppressed.
   const radarGridLat = driverLocation?.lat != null ? Number(driverLocation.lat).toFixed(4) : null;
   const radarGridLng = driverLocation?.lng != null ? Number(driverLocation.lng).toFixed(4) : null;
   const radarMarkers = useMemo(() => {
-    if (!driverLocation || !__DEV__) return [];
+    if (!driverLocation) return [];
     return getOperationalRadarMarkers(driverLocation, nearbyTrips);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- quantized grid only; identity churns per fix
   }, [radarGridLat, radarGridLng, nearbyTrips]);
@@ -735,6 +986,7 @@ export default function MapTab() {
   // fixes. Re-runs wholesale when permRetry changes so "Try Again" can recover
   // from a denial without remounting the screen.
   useEffect(() => {
+    if (emptyStateKey) return;
     let subscription = null;
     let headingSubscription = null;
     let cancelled = false;
@@ -828,25 +1080,22 @@ export default function MapTab() {
             d.leg = null;
             return;
           }
-          const leg = HEADING_TO_PICKUP_STATUSES.includes(activeTripRef.current?.trip_status) ? "leg1" : "leg2";
+          const leg = legForStatus(activeTripRef.current?.trip_status);
           const lat = newLoc.coords.latitude;
           const lng = newLoc.coords.longitude;
 
-          // When the leg changes (pickup reached, or drop-off done), drop the
-          // straddling fix so the transition gap is not counted twice.
-          if (d.leg && d.leg !== leg) d.prev = null;
-          d.leg = leg;
-
-          if (d.prev) {
-            const seg = haversineKm(d.prev.lat, d.prev.lng, lat, lng);
-            const speed = newLoc.coords.speed ?? 0;
-            // Only count plausible segments: not a >400m/3s jump (glitch) and
-            // not GPS jitter while parked (short segment with ~0 speed).
-            if (seg > 0 && seg <= MAX_SEGMENT_KM && (speed > 1 || seg > MIN_MOVING_SEGMENT_KM)) {
-              d[leg] += seg;
-            }
-          }
-          d.prev = { lat, lng };
+          // Shared rule set (lib/gps-odometer): drops >400 m jumps, anything
+          // implying more than 180 km/h, segments measured across a stale gap,
+          // and parked jitter. When the leg changes (pickup reached) the
+          // straddling fix is dropped so the transition gap is not counted
+          // twice.
+          accumulateFix(d, {
+            lat,
+            lng,
+            speedMs: newLoc.coords.speed ?? null,
+            atMs: newLoc.timestamp ?? null,
+            leg,
+          });
         }
       );
       // 2. Compass/Gyroscope Subscription for when the car is stopped
@@ -887,7 +1136,7 @@ export default function MapTab() {
       if (subscription) subscription.remove();
       if (headingSubscription) headingSubscription.remove();
     };
-  }, [permRetry]);
+  }, [permRetry, emptyStateKey]);
 
   // "Try Again" on the permission-denied state: clear the flag and re-run the
   // location effect via the retry counter.
@@ -967,16 +1216,20 @@ export default function MapTab() {
   
   const isHeadingToPickup = isPending || isDriverAccepted || isState1 || isState2;
 
-  // Countdown tick: re-renders every 30s while a pre-start trip is showing,
-  // so the departure-window gate flips when the window opens.
-  // Stable primitive dep: re-run only when the pre-start status itself changes.
-  const activeTripStatus = activeTrip?.trip_status;
-
+  // Countdown tick: re-renders every 30s so the departure-window gate flips
+  // when the window opens, AND so the standby header's freshness test
+  // (`now - poster.standbyObservedAt <= 90000`) can actually go stale.
+  //
+  // This used to run only while a PRE-START trip was showing. `now` therefore
+  // stayed frozen at module load for the whole idle/standby period, and
+  // `now - standbyObservedAt` was a large NEGATIVE number, so the "Live
+  // Tracking" chip kept claiming a live publication long after the poster had
+  // stopped or failed. A truthfulness bug, not a cosmetic one: the driver is
+  // told dispatch can see them when it cannot. Cheap fix — the tick is 30 s.
   useEffect(() => {
-    if (!activeTripStatus || !["Assigned", "Pending", "Approved", "Vehicle Assigned", "Driver Assigned", "Dispatched", "Driver Accepted"].includes(activeTripStatus)) return;
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
-  }, [activeTripStatus]);
+  }, []);
 
   // Fail-open for the map overlay: MAP_READY normally lifts it, but a dead
   // WebView (offline CDN, bad key, init exception) must never pin globe.json
@@ -1022,6 +1275,19 @@ export default function MapTab() {
   const destinationProp = useMemo(() => (
     isPending ? null : { lat: destLat, lng: destLng }
   ), [isPending, destLat, destLng]);
+  // Pickup → destination leg changes keep the same trip_id, so the trip-id
+  // reset above is not enough: an old "3 min to pickup" ETA would linger on
+  // the "EN ROUTE TO DESTINATION" header until TomTom answers (or forever if
+  // it fails). Clear live route numbers whenever the routing target changes.
+  const routeLegKey = `${activeTrip?.trip_id ?? "none"}|${isHeadingToPickup ? "pickup" : "dest"}|${destLat ?? ""}|${destLng ?? ""}`;
+  const lastRouteLegKey = useRef(routeLegKey);
+  useEffect(() => {
+    if (routeLegKey !== lastRouteLegKey.current) {
+      lastRouteLegKey.current = routeLegKey;
+      setRouteData(null);
+      setRouteStale(false);
+    }
+  }, [routeLegKey]);
   const handleMapReady = useCallback(() => setMapReady(true), []);
   const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
   const handleMapDragged = useCallback(() => {}, []);
@@ -1031,16 +1297,220 @@ export default function MapTab() {
   // marker; it is not a prerequisite for explaining the Map screen.
   const shouldRenderMapBeforeGps = activeMilestone === "map_intro" || mapIntroPending;
 
+  // Cold start resolution: while duty eligibility resolves on first mount, keep
+  // the dark companion shell stable without flashing the GPS map or location dialog.
+  // Cold start resolution: while duty eligibility resolves on first mount, keep
+  // the companion shell stable without flashing the GPS map or location dialog.
+  const isDutyResolving = !duty?.loaded && !profile && !activeTrip && !params?.status && !params?.empty_state && !params?.mode;
+  if (isDutyResolving) {
+    return (
+      <View style={[styles.emptyScreenContainer, { backgroundColor: emptyTheme.bgColors[0] }]}>
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <LinearGradient
+            colors={emptyTheme.bgColors}
+            locations={emptyTheme.bgLocations}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[styles.waveRibbon1, { borderColor: emptyTheme.waveBorderColor }]}>
+            <LinearGradient
+              colors={emptyTheme.wave1Colors}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+        </View>
+        <View style={[styles.emptyHeader, { paddingTop: Math.max(insets.top, 16) + 6 }]}>
+          <View style={styles.headerBrandRow}>
+            <View style={styles.headerLogoBadge}>
+              <Ionicons name="car" size={20} color="#042F24" />
+            </View>
+            <View style={styles.headerBrandTextCol}>
+              <Text style={[styles.headerBrandTitle, { color: emptyTheme.brandTitle }]}>FleetOps</Text>
+              <Text style={[styles.headerBrandSubtitle, { color: emptyTheme.brandSubtitle }]}>DRIVER COMPANION</Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => router.push('/notifications')}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.headerBellBtn,
+              { backgroundColor: emptyTheme.bellBg, borderColor: emptyTheme.bellBorder },
+              pressed && { opacity: 0.75, transform: [{ scale: 0.95 }] },
+            ]}
+          >
+            <Ionicons name="notifications-outline" size={20} color={emptyTheme.bellIcon} />
+          </Pressable>
+        </View>
+        <View style={[styles.center, { flex: 1 }]}>
+          <ActivityIndicator size="large" color={emptyTheme.spinner} />
+        </View>
+      </View>
+    );
+  }
+
+  // FleetOps Driver Companion — Map Tab Empty States
+  // When driver status is Off Duty, Rest Day, or On Leave, render the intentional empty state.
+  if (emptyStateKey && MAP_EMPTY_STATES[emptyStateKey]) {
+    const config = MAP_EMPTY_STATES[emptyStateKey];
+    return (
+      <View style={[styles.emptyScreenContainer, { backgroundColor: emptyTheme.bgColors[0] }]}>
+        {/* Subtle abstract curves/waves in background */}
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <LinearGradient
+            colors={emptyTheme.bgColors}
+            locations={emptyTheme.bgLocations}
+            style={StyleSheet.absoluteFill}
+          />
+          {/* Top-left sweeping wave ribbon */}
+          <View style={[styles.waveRibbon1, { borderColor: emptyTheme.waveBorderColor }]}>
+            <LinearGradient
+              colors={emptyTheme.wave1Colors}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+          {/* Mid-right sweeping wave ribbon */}
+          <View style={[styles.waveRibbon2, { borderColor: emptyTheme.waveBorderColor }]}>
+            <LinearGradient
+              colors={emptyTheme.wave2Colors}
+              start={{ x: 0.8, y: 0.2 }}
+              end={{ x: 0.1, y: 0.9 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+          {/* Bottom sweeping glow arc */}
+          <View style={[styles.waveRibbon3, { borderColor: emptyTheme.waveBorderColor }]}>
+            <LinearGradient
+              colors={emptyTheme.wave3Colors}
+              start={{ x: 0.2, y: 0.8 }}
+              end={{ x: 0.9, y: 0.1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+        </View>
+
+        {/* Top App Header */}
+        <View style={[styles.emptyHeader, { paddingTop: Math.max(insets.top, 16) + 6 }]}>
+          <View style={styles.headerBrandRow}>
+            <View style={styles.headerLogoBadge}>
+              <Ionicons name="car" size={20} color="#042F24" />
+            </View>
+            <View style={styles.headerBrandTextCol}>
+              <Text style={[styles.headerBrandTitle, { color: emptyTheme.brandTitle }]}>FleetOps</Text>
+              <Text style={[styles.headerBrandSubtitle, { color: emptyTheme.brandSubtitle }]}>DRIVER COMPANION</Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => router.push('/notifications')}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.headerBellBtn,
+              { backgroundColor: emptyTheme.bellBg, borderColor: emptyTheme.bellBorder },
+              pressed && { opacity: 0.75, transform: [{ scale: 0.95 }] },
+            ]}
+          >
+            <Ionicons name="notifications-outline" size={20} color={emptyTheme.bellIcon} />
+          </Pressable>
+        </View>
+
+        {/* Centered Empty-State Content */}
+        <ScrollView
+          contentContainerStyle={[
+            styles.emptyScrollContent,
+            { paddingBottom: insets.bottom + 90 },
+          ]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={emptyRefreshing}
+              onRefresh={handleEmptyRefresh}
+              tintColor={emptyTheme.spinner}
+              colors={[emptyTheme.spinner]}
+            />
+          }
+        >
+          <View style={styles.emptyCenterContent}>
+            {/* Glowing Icon Card */}
+            <View style={styles.iconGlowWrapper}>
+              <View style={[styles.iconAmbientHalo, { backgroundColor: emptyTheme.haloBg, shadowColor: emptyTheme.haloShadow }]} />
+              <LinearGradient
+                colors={emptyTheme.cardColors}
+                start={{ x: 0.1, y: 0.1 }}
+                end={{ x: 0.9, y: 0.9 }}
+                style={[styles.iconCardSurface, { borderColor: emptyTheme.cardBorder, shadowColor: emptyTheme.cardShadow }]}
+              >
+                {config.iconType === 'off_duty' && (
+                  <MaterialCommunityIcons name="map-marker-off" size={46} color={emptyTheme.iconColor} />
+                )}
+                {config.iconType === 'rest_day' && (
+                  <MaterialCommunityIcons name="calendar-minus" size={48} color={emptyTheme.iconColor} />
+                )}
+                {config.iconType === 'on_leave' && (
+                  <View style={styles.calendarSlashIconWrap}>
+                    <MaterialCommunityIcons name="calendar-blank-outline" size={48} color={emptyTheme.iconColor} />
+                    <View style={[styles.calendarSlashBar, { backgroundColor: emptyTheme.iconColor }]} />
+                  </View>
+                )}
+              </LinearGradient>
+            </View>
+
+            {/* Status Pill */}
+            <View style={[styles.emptyStatusPill, { backgroundColor: emptyTheme.pillBg, borderColor: emptyTheme.pillBorder }]}>
+              <View style={[styles.emptyStatusDot, { backgroundColor: emptyTheme.pillDot, shadowColor: emptyTheme.pillDot }]} />
+              <Text style={[styles.emptyStatusPillText, { color: emptyTheme.pillText }]}>{config.statusPill}</Text>
+            </View>
+
+            {/* Title */}
+            <Text style={[styles.emptyStateTitle, { color: emptyTheme.title }]}>{config.title}</Text>
+
+            {/* Short Supporting Description */}
+            <Text style={[styles.emptyStateDescription, { color: emptyTheme.description }]}>{config.description}</Text>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   // Permission denied — an honest dead-end with a way out, not a loader that
   // never resolves. Keep the tutorial shell available when Map was explicitly
   // opened for its first-time walkthrough.
   if (permissionDenied && !shouldRenderMapBeforeGps) {
     return (
-      <View style={[styles.center, { backgroundColor: colors.background }, styles.permState]}>
-        <View style={[styles.permIconWrap, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
-          <Ionicons name="location-outline" size={32} color={colors.onSurfaceVariant} />
+      <View
+        style={[
+          styles.center,
+          {
+            backgroundColor: colors.background,
+            paddingTop: Math.max(insets.top, 24) + 16,
+            paddingBottom: Math.max(insets.bottom, 24) + 20,
+          },
+          styles.permState,
+        ]}
+      >
+        <View style={styles.permIconWrap}>
+          <View
+            style={[
+              styles.permIconInner,
+              mats.clayTile,
+              {
+                backgroundColor: colors.surfaceContainerHigh,
+                borderColor: colors.outlineVariant,
+                shadowColor: colors.shadow,
+              },
+            ]}
+          >
+            <Ionicons name="location-outline" size={34} color={colors.primary} />
+          </View>
         </View>
-        <Text style={[type.titleLg, { color: colors.onSurface, textAlign: 'center' }]}>Location Permission Required</Text>
+        <Text style={[type.titleLg, { color: colors.onSurface, textAlign: 'center', marginTop: 4 }]}>
+          Location Permission Required
+        </Text>
         <Text style={[styles.permMessage, { color: colors.onSurfaceVariant }]}>
           Location permission is required to show your position and track trips.
         </Text>
@@ -1070,6 +1540,9 @@ export default function MapTab() {
           source={require("../../../assets/globe.json")}
           style={styles.mapLoader}
         />
+        <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, marginTop: 16, letterSpacing: 0.2 }]}>
+          Acquiring GPS position…
+        </Text>
       </View>
     );
   }
@@ -1088,6 +1561,7 @@ export default function MapTab() {
           radarRadiusKm={radarRadiusKm}
           radarMarkers={filteredRadarMarkers}
           showVehicleMarker={coverageVisibility.vehicle}
+          topInset={Math.max(insets.top, 20) + 10}
           onMarkerPress={handleMarkerPress}
           onMapDragged={handleMapDragged}
           onMapReady={handleMapReady}
@@ -1105,21 +1579,32 @@ export default function MapTab() {
 
         {/* Real-time Notification Banner */}
         {recentNotification && (
-          <View style={[styles.toastBanner, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.primary }]}>
+          <View style={[styles.toastBanner, { top: insets.top + 92, backgroundColor: rTheme.topBarBg, borderColor: rTheme.primary }]}>
             <View style={[styles.radarLiveDot, { backgroundColor: rTheme.primary }]} />
             <Text style={[styles.toastText, { color: rTheme.textPrimary }]}>{recentNotification}</Text>
           </View>
         )}
         
         <CoachMarkTarget targetId="map.standby_status" style={[styles.standbyHeader, { top: insets.top + 16 }]}>
-          <View pointerEvents="none">
+          <View
+            pointerEvents="none"
+            style={[
+              styles.standbyHeaderCard,
+              mats.compactShade,
+              {
+                backgroundColor: scheme === 'dark' ? rTheme.sheetBg : colors.surfaceContainerLow,
+                borderColor: scheme === 'dark' ? rTheme.sheetBorder : colors.outlineVariant,
+                shadowColor: colors.shadow,
+              },
+            ]}
+          >
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <View style={[styles.standbyLiveDot, { backgroundColor: poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error && connectivity === 'online' ? colors.primary : colors.outline }]} />
               <Text style={[type.titleLg, { color: colors.onSurface }]}>
                 {!driverLocation ? 'Locating vehicle' : connectivity !== 'online' ? 'Connection interrupted' : poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error ? 'Live Tracking' : 'Tracking paused'}
               </Text>
             </View>
-            <Text style={[type.caption, { color: colors.onSurfaceVariant, marginTop: 5 }]}>Waiting for assignment</Text>
+            <Text style={[type.caption, { color: colors.onSurfaceVariant, marginTop: 4 }]}>Waiting for assignment</Text>
           </View>
         </CoachMarkTarget>
 
@@ -1452,7 +1937,8 @@ export default function MapTab() {
         dropoffLabel={isHeadingToPickup ? `Pickup: ${destName || 'TBD'}` : `Drop-off: ${destName || 'TBD'}`}
         showCarIcon={true}
         autoSwoop={true}
-        onRouteData={setRouteData}
+        topInset={Math.max(insets.top, 20) + 10}
+        onRouteData={handleRouteMessage}
         onMapReady={handleMapReady}
       />
       {!mapReady && (
@@ -1546,7 +2032,7 @@ export default function MapTab() {
                     <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
                       {preDeparture && `NEXT TRIP · ${pickupAt || "TBD"}`}
                       {!preDeparture && isPending && "PICK UP LOCATION"}
-                      {(isDriverAccepted && !preDeparture) && "EN ROUTE TO PICKUP"}
+                      {(isDriverAccepted && !preDeparture) && "READY TO START"}
                       {isState1 && "EN ROUTE TO PICKUP"}
                       {isState2 && "ARRIVED AT PICKUP"}
                       {isState3 && "EN ROUTE TO DESTINATION"}
@@ -1561,33 +2047,68 @@ export default function MapTab() {
                 </CoachMarkTarget>
                 
                 {/* ETA & Distance or Contextual Info */}
+                {/* Live numbers come ONLY from TomTom ROUTE_CALCULATED. The
+                    server's estimated_duration/distance is the PLANNED whole
+                    trip (pickup → destination), not remaining live ETA, so it
+                    is never substituted into the live slot — it renders as a
+                    separate "Planned" line while the live route resolves. The
+                    main minutes already INCLUDE traffic; the badge names the
+                    traffic portion instead of implying an addition. */}
                 <CoachMarkTarget targetId="map.telemetry">
                   <View style={styles.headerStatsRight}>
                     {preDeparture ? null : (isPending || isDriverAccepted || isState1 || isState3) ? (
                       <>
-                        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                          <Text style={[type.headlineMd, { color: colors.primary }]}>
-                            {routeData 
-                              ? Math.ceil(routeData.travelTimeInSeconds / 60) 
-                              : (activeTrip.estimated_duration ? Math.ceil(activeTrip.estimated_duration) : "--")}
-                          </Text>
-                          <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.primary, marginBottom: 2 }}> min</Text>
-                        </View>
-                        
-                        {routeData?.trafficDelayInSeconds > 0 && (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: colors.error + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
-                            <Ionicons name="warning" size={10} color={colors.error} />
-                            <Text style={{ fontFamily: fonts.dataSemiBold, fontSize: 10, color: colors.error }}>
-                              +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
-                            </Text>
-                          </View>
-                        )}
+                        {(() => {
+                          const live = routeData && !routeStale;
+                          const liveMin = live ? Math.ceil(routeData.travelTimeInSeconds / 60) : null;
+                          const delayMin = live ? Math.ceil((routeData.trafficDelayInSeconds || 0) / 60) : 0;
+                          const liveKm = live ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" : null;
+                          const plannedMin = activeTrip.estimated_duration != null ? Math.ceil(activeTrip.estimated_duration) : null;
+                          const plannedKm = activeTrip.estimated_distance != null ? Number(activeTrip.estimated_distance).toFixed(1) + " km" : null;
+                          const showTraffic = live && delayMin >= 2;
+                          const heavyTraffic = live && delayMin >= 5;
+                          if (!live) {
+                            return (
+                              <>
+                                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                                  <Text style={[type.headlineMd, { color: colors.onSurfaceVariant }]}>--</Text>
+                                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.onSurfaceVariant, marginBottom: 2 }}> min</Text>
+                                </View>
+                                <Text style={{ fontFamily: fonts.body, fontSize: 10, color: colors.onSurfaceVariant, marginBottom: 4 }}>
+                                  {routeStale ? "Route temporarily unavailable" : "Calculating live route…"}
+                                </Text>
+                                {(plannedMin != null || plannedKm != null) && (
+                                  <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
+                                    Planned{plannedMin != null ? ` ~${plannedMin} min` : ""}{plannedKm != null ? ` · ${plannedKm}` : ""}
+                                  </Text>
+                                )}
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                                <Text style={[type.headlineMd, { color: colors.primary }]}>
+                                  {liveMin}
+                                </Text>
+                                <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.primary, marginBottom: 2 }}> min</Text>
+                              </View>
 
-                        <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
-                          {routeData 
-                            ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" 
-                            : (activeTrip.estimated_distance ? Number(activeTrip.estimated_distance).toFixed(1) + " km" : "-- km")}
-                        </Text>
+                              {showTraffic && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: (heavyTraffic ? colors.error : colors.warning) + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                                  <Ionicons name="warning" size={10} color={heavyTraffic ? colors.error : colors.warning} />
+                                  <Text style={{ fontFamily: fonts.dataSemiBold, fontSize: 10, color: heavyTraffic ? colors.error : colors.warning }}>
+                                    {heavyTraffic ? `Heavy traffic · incl. ~${delayMin} min` : `Incl. ~${delayMin} min traffic`}
+                                  </Text>
+                                </View>
+                              )}
+
+                              <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
+                                {liveKm}
+                              </Text>
+                            </>
+                          );
+                        })()}
                       </>
                     ) : (
                       <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
@@ -1688,13 +2209,17 @@ export default function MapTab() {
                   try {
                     if (isPending || isDriverAccepted) {
                       if (isPending) {
-                        // Optimistic: fire accept in the background so we don't
-                        // block the transition on a 1-2s network round-trip.
-                        api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true }).then((res) => {
-                          if (wasQueued(res)) announceSavedForSync();
-                        }).catch((e) => {
-                          AppAlert.alert("Error", e.message || "Could not accept trip");
-                        });
+                        // Accept MUST complete before START is attempted. The
+                        // server's state machine only allows
+                        // Assigned → Driver Accepted → Trip Started, one hop at
+                        // a time, so firing accept without awaiting it made
+                        // START race that write and 409 with "Cannot move a
+                        // trip from Assigned to Trip Started" on a cold
+                        // network — the driver saw a failure for an action that
+                        // is really two ordered steps. A genuine accept failure
+                        // still throws to the catch below and is reported once.
+                        const acceptRes = await api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true });
+                        if (wasQueued(acceptRes)) announceSavedForSync();
                       }
                       if (!preTripDone) {
                           router.push({ pathname: "/inspection", params: { tripId: String(activeTrip.trip_id) } });
@@ -1831,7 +2356,7 @@ export default function MapTab() {
                         let leg2 = distRef.current.leg2;
                         let totalKm = leg1 + leg2;
                         if (totalKm <= 0) {
-                          totalKm = Number(activeTrip.estimated_distance) || (routeData ? (routeData.lengthInMeters / 1000) : 0);
+                          totalKm = Number(activeTrip.estimated_distance) || ((routeData && !routeStale) ? (routeData.lengthInMeters / 1000) : 0);
                         }
 
                         // Re-fetch the LIVE vehicle mileage before computing the
@@ -1855,7 +2380,7 @@ export default function MapTab() {
                         const completeParams = {
                           pickup: activeTrip.origin,
                           destination: activeTrip.destination,
-                          duration: routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
+                          duration: (routeData && !routeStale) ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
                           distance: totalKm.toFixed(1) + " km",
                           leg1: leg1.toFixed(1),
                           leg2: leg2.toFixed(1),
@@ -1970,7 +2495,30 @@ export default function MapTab() {
                     <Text style={[styles.detailSub, { color: colors.outline }]}>{activeTrip.passenger_count || 1} Pax</Text>
                   </View>
                 </View>
-                <Pressable style={[styles.iconButton, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    mats.clayTile,
+                    {
+                      backgroundColor: colors.primaryContainer,
+                      shadowColor: colors.shadow,
+                      opacity: pressed ? 0.75 : 1,
+                      transform: [{ scale: pressed ? 0.95 : 1 }],
+                    },
+                  ]}
+                  onPress={() => {
+                    if (activeTrip.passenger_phone) {
+                      Linking.openURL(`tel:${activeTrip.passenger_phone}`).catch(() => {
+                        AppAlert.alert("Call Failed", "Unable to open phone dialer on this device.");
+                      });
+                    } else {
+                      AppAlert.alert("Contact Unavailable", "No contact phone number was listed for this passenger.");
+                    }
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Call passenger"
+                  hitSlop={8}
+                >
                   <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
                 </Pressable>
               </View>
@@ -2011,6 +2559,12 @@ export default function MapTab() {
 
 const styles = StyleSheet.create({
   standbyHeader: { position: 'absolute', left: 20, right: 20 },
+  standbyHeaderCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
   standbyLiveDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#FFFFFFB3' },
   standbyControls: { position: 'absolute', right: 16, gap: 10 },
   standbyControl: { width: 48, height: 48, borderRadius: 24, padding: 0, alignItems: 'center', justifyContent: 'center' },
@@ -2058,12 +2612,19 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   permIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 72,
+    height: 72,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
+  },
+  permIconInner: {
+    width: 68,
+    height: 68,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   permMessage: {
     fontFamily: fonts.body,
@@ -2092,7 +2653,6 @@ const styles = StyleSheet.create({
   },
   toastBanner: {
     position: 'absolute',
-    top: 104,
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
@@ -2458,5 +3018,203 @@ const styles = StyleSheet.create({
     fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
     fontSize: 11,
     letterSpacing: 0.5,
-  }
+  },
+  // Empty State Styles — matching reference media_1790700314264.jpg
+  emptyScreenContainer: {
+    flex: 1,
+    backgroundColor: '#040D0A',
+    overflow: 'hidden',
+  },
+  waveRibbon1: {
+    position: 'absolute',
+    top: -120,
+    left: -160,
+    width: 480,
+    height: 480,
+    borderRadius: 240,
+    borderWidth: 1.5,
+    borderColor: 'rgba(52, 211, 153, 0.12)',
+    transform: [{ scaleX: 1.4 }, { rotate: '-28deg' }],
+  },
+  waveRibbon2: {
+    position: 'absolute',
+    top: 180,
+    right: -140,
+    width: 520,
+    height: 520,
+    borderRadius: 260,
+    borderWidth: 1.5,
+    borderColor: 'rgba(52, 211, 153, 0.09)',
+    transform: [{ scaleX: 1.3 }, { rotate: '38deg' }],
+  },
+  waveRibbon3: {
+    position: 'absolute',
+    bottom: -100,
+    left: -120,
+    width: 460,
+    height: 460,
+    borderRadius: 230,
+    borderWidth: 1.5,
+    borderColor: 'rgba(16, 185, 129, 0.08)',
+    transform: [{ scaleX: 1.5 }, { rotate: '-18deg' }],
+  },
+  emptyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    zIndex: 10,
+  },
+  headerBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerLogoBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    backgroundColor: '#34D399',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#10B981',
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  headerBrandTextCol: {
+    marginLeft: 12,
+  },
+  headerBrandTitle: {
+    fontFamily: fonts.displayBold || 'System',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+  headerBrandSubtitle: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold || 'System',
+    fontSize: 9.5,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.55)',
+    letterSpacing: 1.4,
+    marginTop: 2,
+  },
+  headerBellBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  emptyCenterContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: 320,
+  },
+  iconGlowWrapper: {
+    width: 126,
+    height: 126,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  iconAmbientHalo: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 44,
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 28,
+    elevation: 10,
+  },
+  iconCardSurface: {
+    width: 110,
+    height: 110,
+    borderRadius: 32,
+    borderWidth: 1.5,
+    borderColor: 'rgba(52, 211, 153, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#34D399',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  calendarSlashIconWrap: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarSlashBar: {
+    position: 'absolute',
+    width: 54,
+    height: 3.5,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 2,
+    transform: [{ rotate: '45deg' }],
+  },
+  emptyStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 26,
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.28)',
+  },
+  emptyStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#34D399',
+    marginRight: 9,
+    shadowColor: '#34D399',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.85,
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  emptyStatusPillText: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold || 'System',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#E6FFFA',
+    letterSpacing: 1.4,
+  },
+  emptyStateTitle: {
+    fontFamily: fonts.displayBold || 'System',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: 0.2,
+    marginTop: 18,
+  },
+  emptyStateDescription: {
+    fontFamily: fonts.body || 'System',
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginTop: 10,
+    maxWidth: 290,
+  },
 });

@@ -78,12 +78,12 @@ export function ConflictChips({ conflicts = [], max = 3, className }) {
  * Readiness chip — what this request is waiting on, in priority order:
  *   Conflict Detected    — something blocking was found; the dispatcher must look.
  *   Check Assignment     — advisory findings only; worth a glance, not a stop.
- *   AI Ready             — an advisor recommendation is cached and still applicable.
+ *   Evidence Ready         — an eligibility-checked recommendation is cached and still applicable.
  *   Needs Assignment     — arrived and not yet crewed: Pending.
  *   Awaiting Assignment  — scheduled, no vehicle/driver yet.
  *   (nothing)            — assigned or terminal; the status badge already says it.
  *
- * Conflict wins over AI Ready deliberately: a cached recommendation that predates
+ * Conflict wins over Evidence Ready deliberately: a cached recommendation that predates
  * a newly-detected conflict must not read as "good to go".
  *
  * Severity matters here. This used to escalate on `conflicts.length` alone, which
@@ -120,7 +120,7 @@ export function ReadinessChip({ conflicts = [], hasRecommendation = false, statu
     return (
       <Badge variant="info" className="gap-1">
         <Sparkles className="w-3 h-3" aria-hidden="true" />
-        AI Ready
+        Evidence Ready
       </Badge>
     );
   }

@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, LayoutAnimation, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
 import { useSettings } from '../../lib/settings-context';
 import { homeTripAction } from '../../lib/home-trips';
@@ -207,7 +207,7 @@ const VARIANT = {
   upcoming: { label: 'UPCOMING', isCurrent: false },
 };
 
-export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true }) {
+export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true, emptyState = null }) {
   const { colors, type, scheme } = useTheme();
   const { width, fontScale } = useWindowDimensions();
   const { settings } = useSettings();
@@ -250,11 +250,41 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
     </View>
     {!trip ? <View style={[s.empty, { flexDirection: 'row', alignItems: 'center', gap: 12 }, isCurrent && { gap: 14, minHeight: 90 }]}>
       {isCurrent && confirmed && !offline ? (
-        <RadarPulse size={38} color={accent} icon="radio" />
+        emptyState && emptyState.key ? (
+          <View style={[s.emptyStatusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+            {emptyState.iconType === 'off_duty' && (
+              <MaterialCommunityIcons name="map-marker-off" size={26} color={accent} />
+            )}
+            {emptyState.iconType === 'rest_day' && (
+              <MaterialCommunityIcons name="calendar-minus" size={26} color={accent} />
+            )}
+            {emptyState.iconType === 'on_leave' && (
+              <View style={s.calendarSlashIconWrap}>
+                <MaterialCommunityIcons name="calendar-blank-outline" size={26} color={accent} />
+                <View style={[s.calendarSlashBar, { backgroundColor: accent }]} />
+              </View>
+            )}
+          </View>
+        ) : (
+          <RadarPulse size={38} color={accent} icon="radio" />
+        )
       ) : null}
       <View style={s.flex}>
-        <Text style={type.cardTitle}>{!confirmed ? offline ? 'No saved trips yet' : 'Assignments not confirmed' : isCurrent ? 'No active trip right now.' : 'No upcoming trip.'}</Text>
-        <Text style={type.supporting}>{!confirmed ? offline ? 'Connect once to save your assignments.' : 'Pull to refresh or try again.' : offline ? 'Based on your last synced assignments.' : isCurrent ? 'Your active assignment will appear here when the trip begins.' : 'You’re all caught up for now.'}</Text>
+        <Text style={type.cardTitle}>
+          {!confirmed
+            ? offline ? 'No saved trips yet' : 'Assignments not confirmed'
+            : isCurrent
+            ? (emptyState?.homeTitle || 'No active trip right now.')
+            : 'No upcoming trip.'}
+        </Text>
+        <Text style={type.supporting}>
+          {!confirmed
+            ? offline ? 'Connect once to save your assignments.' : 'Pull to refresh or try again.'
+            : offline ? 'Based on your last synced assignments.'
+            : isCurrent
+            ? (emptyState?.homeDescription || 'Your active assignment will appear here when the trip begins.')
+            : 'You’re all caught up for now.'}
+        </Text>
       </View>
       {/* Decorative 3D map scenery for the non-current empty states (Next /
           Upcoming) — flex row keeps it right-aligned and vertically centered
@@ -339,4 +369,24 @@ const s = StyleSheet.create({
   tripBody: { gap: 10 }, stop: { flexDirection: 'row', gap: 10 }, track: { width: 22, alignItems: 'center', paddingTop: 4 }, node: { width: 20, height: 20, borderRadius: 10, borderWidth: 2.5 }, line: { width: 2, flex: 1, marginBottom: -4 }, stopText: { flex: 1, minWidth: 0, paddingBottom: 12, gap: 2 },
   cta: { minHeight: 48, borderRadius: 18, padding: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 8 },
   empty: { minHeight: 84, gap: 8, justifyContent: 'center', paddingVertical: 8 }, mapArt: { width: 112, height: 90, transform: [{ translateY: -20 }] },
+  emptyStatusIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarSlashIconWrap: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarSlashBar: {
+    position: 'absolute',
+    width: 30,
+    height: 2,
+    borderRadius: 1,
+    transform: [{ rotate: '45deg' }],
+  },
 });

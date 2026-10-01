@@ -36,6 +36,30 @@ it('allows an ambiguous follow-up when an active recommendation is present', () 
   expect(inScope('Why?', [], { hasActiveContext: true })).toBe(true);
 });
 
+it.each([
+  'Okay na ba si Karlo?',
+  'Ok na ba si karlo?',
+  'Kamusta si Jack?',
+  'Is Karlo verified?',
+  'Eh si Jack?',
+  'Okay na ba?',
+  'Kamusta?',
+])('keeps named-driver status checks in scope with context: %s', message => {
+  const history = [{ role: 'user', content: 'Why is Driver 12 unavailable?' }];
+  expect(inScope(message, history)).toBe(true);
+  expect(inScope(message, [], { hasActiveContext: true })).toBe(true);
+});
+
+it('keeps a cold name without context out of scope, without destroying context', () => {
+  expect(classifyCopilotScope('Okay na ba si Karlo?').kind).toBe('out-of-scope');
+  expect(classifyCopilotScope('Kamusta?').kind).toBe('out-of-scope');
+  const history = [
+    { role: 'user', content: 'Why is Driver 12 unavailable?' },
+    { role: 'user', content: 'Okay na ba si Karlo?' },
+  ];
+  expect(inScope('Eh si Jack?', history)).toBe(true);
+});
+
 it('does not treat a bare route or generic weather question as FleetOps context', () => {
   expect(classifyCopilotScope('Why?').kind).toBe('out-of-scope');
   expect(classifyCopilotScope("What's the weather today?").kind).toBe('out-of-scope');

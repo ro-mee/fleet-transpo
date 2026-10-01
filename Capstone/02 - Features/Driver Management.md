@@ -514,6 +514,85 @@ guard on the trip-grain query), live `verify-reports.mjs` §6 (15 checks of
 the route against independent SQL, all passing), `db:contract` 0 violations,
 `verify:anon` 0 EXPOSED. Full suite 3288/3288.
 
+## Performance Profile unified on punctuality (2026-09-30)
+
+The Driver Info Overview "Performance Profile" card and its header KPI no
+longer read `AVG(smooth_driving_score)` from `driver_stats` (no writer UI
+exists for `customer_rating` / `smooth_driving_score`, so it almost always
+rendered "Not enough completed trips").
+
+- `GET /api/drivers/[id]` now also returns All-Time punctuality computed
+  with the same definition as the report (`punctuality_completed/measured/
+  on_time/late/override/unmeasured/rate`, grace 5 min, override excluded,
+  rate divides by measured only).
+- The card shows `punctuality_rate` + `on_time of measured`, with `— No
+  measured trips` as the empty state, plus a link to `/drivers/performance`.
+- `total_trips` / `total_distance` still come from `driver_stats` (the
+  performance report carries no distance).
+
+## Rule engine off dead rating signals (2026-09-30)
+
+`scoreDispatchDrivers` (`src/lib/ai/rule-engine.js`) no longer adds +25/+18/
++8 for `avg_guest_rating` or +15/+8 for `avg_driving_score`. It applies a
+punctuality tie-breaker over the last 90 days (±3 max: +3 at ≥95%, +1 at
+≥85%, −3 below 70%, minimum 5 measured trips) so feasibility and workload
+fairness still dominate. The prep query
+(`dispatch-recommendation-preparation.service.js`) supplies `punct_measured/
+on_time/late/rate` instead of the two AVG columns; `dispatch-advisor.js`
+exposes them on the candidate and keeps `avg_guest_rating` /
+`avg_driving_score` / `rating` as null legacy keys; `pair-scoring.js`
+evidence reads "Punctuality X% (Y of Z measured)" with zero ranking points
+(H8 unchanged).
+
+Verified: `rule-engine.test.js` 22/22 (tie-breaker cap + dead-signal
+invariance), `pair-scoring.test.js` 48/48, `dispatch-advisor.test.js` 3/3,
+driver API suites green.
+
+## Driver Information Edit and Cleared Field Handling (2026-09-30)
+
+When editing a driver via `/drivers/[id]/edit` (`src/app/(dashboard)/drivers/[id]/edit/page.js`):
+- Previously, falsy guards (`if (data.field?.trim()) payload.field = ...`) dropped cleared optional fields (`phone`, `address`, `sex`, `birthdate`, `nationality`, `emergency_contact_*`) from the request payload. Because `PUT /api/drivers/[id]` interprets omitted fields as "do not modify", cleared values were never removed in PostgreSQL.
+- The client form now normalizes cleared/empty optional values to `null` (e.g. `phone: data.phone?.trim() || null`), allowing the backend to explicitly update those database columns to `NULL`.
+- `driver_status` is now sent conditionally only when modified on the edit page. If unchanged, it is omitted (`undefined`) so that the backend's automatic compliance reinstatement check (`if (driver_status === undefined)`) can evaluate license expiry renewal and lift suspensions automatically.
+
+## Driver Detail Position Title and License Verification Badges (2026-09-30)
+
+The Driver Detail Page (`src/app/(dashboard)/drivers/[id]/page.js`) now renders:
+- An employee position badge (`emp.position || "Driver"`) alongside the driver's full name in the header identity block.
+- An explicit staff review status badge in the License & Credentials card header:
+  - If verified (`driver.license_verified_at`), displays an emerald check badge: `Verified ({driver.license_verification_method || "Staff Review"})`.
+  - If unverified, displays an amber clock badge: `Pending Staff Review`.
+
+## Driver Personal Details and Emergency Contact Exposure (2026-09-30)
+
+`GET /api/driver/me` (`src/app/api/driver/me/route.js`) now selects and exposes driver personal and emergency contact information from `employees` and `drivers`:
+- `position` (`employees.position`)
+- `address` (`drivers.address`)
+- `sex` (`drivers.sex`)
+- `birthdate` (`drivers.birthdate`)
+- `nationality` (`drivers.nationality`)
+- `emergencyContact`: `{ name, phone, address }` (`drivers.emergency_contact_name`, `drivers.emergency_contact_phone`, `drivers.emergency_contact_address`)
+- Backward-compatible top-level keys: `emergency_contact_name`, `emergency_contact_phone`, `emergency_contact_address`, and `data` sub-object.
+
+The web Driver Profile page (`src/app/(dashboard)/driver/profile/page.js`) now renders:
+- Position title badge alongside the driver's name in the header identity block.
+- "Personal Details" card displaying Residential Address, Birthdate, Sex, Nationality, and Position.
+- "Emergency Contact" card displaying Next of Kin Contact Name, Phone Number, and Address.
+
+Verified with unit tests (`src/app/api/driver/me/route.test.js` - 1/1 pass, driver API suite 7/7 files, 44/44 pass) and clean ESLint checks.
+
+## Mobile Driver Profile Information Exposure (2026-09-30)
+
+The mobile driver app's Personal Information screen (`mobile/app/(app)/profile/personal.js`) now renders:
+- Driver Position (`profile?.position || "Driver"`).
+- Birthdate (`profile?.birthdate || "—"`).
+- Formatted Sex (`profile?.sex === 'M' ? 'Male' : profile?.sex === 'F' ? 'Female' : (profile?.sex || "—")`).
+- Nationality (`profile?.nationality || 'Filipino'`).
+- Residential Address (`profile?.address || "—"`).
+- A dedicated Emergency Contact `ClayCard` section displaying Contact Name, Phone Number, and Address when emergency contact data is present on file.
+
+Verified with mobile test suite: 46 test files passed, 525 tests passed in `mobile/lib/`.
+
 ## Open questions
 
 - The old "Standard Morning Shift" card was replaced by the real schedule; the

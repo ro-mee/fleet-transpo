@@ -4,16 +4,22 @@ import { sendPush } from "@/services/push.service";
 import { setDuty } from "@/services/standby.service";
 import { writeAudit } from "@/lib/audit";
 import { notificationRolesFor } from "@/lib/notifications/recipients";
-import { INSPECTION_TYPES, CRITICAL_ITEM_IDS, validateChecklist, isChecklistType, CLIENT_SUBMISSION_ID_RE } from "@/lib/inspections/checklists";
+import {
+  INSPECTION_TYPES,
+  blockingItemIdsForType,
+  validateChecklist,
+  isChecklistType,
+  CLIENT_SUBMISSION_ID_RE,
+} from "@/lib/inspections/checklists";
 import { PRE_START_TRIP_STATUSES, DRIVER_ACTIVE_TRIP_STATUSES } from "@/lib/trips/status-groups";
 
 /**
  * POST /api/mobile/driver/inspections
  *
  * Two WRITABLE inspection types, one table (vehicleinspection):
- *  - "Pre-Trip"  — quick 4-item critical re-check; trip_id REQUIRED; only a
+ *  - "Pre-Trip"  — quick critical re-check; trip_id REQUIRED; only a
  *    Passed row for THIS trip unlocks POST /trips/:id/start.
- *  - "Pre-Shift" — full 7-point shift baseline; trip_id MUST be null; the
+ *  - "Pre-Shift" — shift baseline; trip_id MUST be null; the
  *    vehicle resolves from the driver's live trip or their current
  *    driver_vehicle_assignments row (never from the client).
  *
@@ -23,10 +29,10 @@ import { PRE_START_TRIP_STATUSES, DRIVER_ACTIVE_TRIP_STATUSES } from "@/lib/trip
  * cannot exist without the duty having ended. GET still filters on it: the app
  * reads today's row to know whether the report is already done.
  *
- * status: all PASS → "Passed"; any FAIL → "Failed".
- * severity: no FAIL → "None"; FAIL on a critical item → "High"; FAIL only on
- * non-critical (Pre-Shift cabin/aircon/fuel) → "Medium". Never touches
- * vehicle_status — grounding stays with the existing incident/maintenance flow.
+ * status: no blocking FAIL → "Passed"; any FAIL on a blocking item → "Failed".
+ * severity: no FAIL → "None"; blocking FAIL → "High"; FAIL only on
+ * non-blocking items → "Medium" with an Inspection Findings notice.
+ * Never touches vehicle_status — grounding stays with the existing incident/maintenance flow.
  */
 export async function POST(req) {
   try {
@@ -126,7 +132,6 @@ export async function POST(req) {
     const checklistResult = validateChecklist(inspectionType, items);
     if (!checklistResult.ok) return err(checklistResult.error, 400);
 
-    const allPass = items.every((i) => i.status === "PASS");
     const failures = items.filter((i) => i.status === "FAIL");
     const checklist = items.map((item) => ({
       item_id: item.item_id,
@@ -134,8 +139,11 @@ export async function POST(req) {
       status: item.status,
       remarks: item.remarks || "",
     }));
-    const hasCriticalFailure = failures.some((f) => CRITICAL_ITEM_IDS.includes(f.item_id));
-    const severity = failures.length ? (hasCriticalFailure ? "High" : "Medium") : "None";
+    const blockingItemIds = blockingItemIdsForType(inspectionType);
+    const blockingFailures = failures.filter((f) => blockingItemIds.includes(f.item_id));
+    const isBlockingFailure = blockingFailures.length > 0;
+    const inspectionStatus = isBlockingFailure ? "Failed" : "Passed";
+    const severity = isBlockingFailure ? "High" : failures.length ? "Medium" : "None";
 
     const { rows: insertedRows } = await query(
       `INSERT INTO vehicleinspection
@@ -153,7 +161,7 @@ export async function POST(req) {
         JSON.stringify(checklist),
         failures.length ? JSON.stringify(failures) : null,
         severity,
-        allPass ? "Passed" : "Failed",
+        inspectionStatus,
         clientSubmissionId,
       ]
     );
@@ -177,7 +185,7 @@ export async function POST(req) {
       }
     }
 
-    if (!allPass && inserted) {
+    if (failures.length > 0 && inserted) {
       try {
         const { rows: overseers } = await query(
           `SELECT e.employee_id FROM employees e
@@ -192,14 +200,16 @@ export async function POST(req) {
           .map((f) => String(f.remarks || "").trim())
           .filter(Boolean)
           .join("; ");
-        const title = inspectionType === "Pre-Shift"
-          ? "Failed Pre-Shift Inspection"
-          : "Failed Pre-Trip Inspection";
-        const where = inspectionType === "Pre-Shift"
-          ? "failed the pre-shift inspection"
-          : `failed the quick pre-trip safety check for Trip #${tripIdForInsert}`;
+        const title = isBlockingFailure
+          ? (inspectionType === "Pre-Shift" ? "Failed Pre-Shift Inspection" : "Failed Pre-Trip Inspection")
+          : `Inspection Findings (${inspectionType})`;
+        const where = isBlockingFailure
+          ? (inspectionType === "Pre-Shift"
+              ? "failed the pre-shift inspection"
+              : `failed the quick pre-trip safety check for Trip #${tripIdForInsert}`)
+          : `reported findings during ${inspectionType} check for Trip #${tripIdForInsert}`;
         const notificationMessage =
-          `${plateNumber || `Vehicle #${vehicleId}`} ${where}. Failed: ${failedLabels}.` +
+          `${plateNumber || `Vehicle #${vehicleId}`} ${where}. Findings: ${failedLabels}.` +
           `${remarksLine ? ` Remarks: ${remarksLine}.` : ""} Requires review.`;
         for (const overseer of overseers) {
           await query(
@@ -241,15 +251,23 @@ export async function POST(req) {
     // screen — rather than showing a dead error.
     let duty = null;
     if (inspectionType === "Pre-Shift") {
-      try {
-        await setDuty(session.user.driverId, true);
-        duty = { started: true, code: null, message: null };
-      } catch (dutyError) {
+      if (isBlockingFailure) {
         duty = {
           started: false,
-          code: dutyError?.code ?? null,
-          message: dutyError?.message ?? "Duty could not be started.",
+          code: "PRESHIFT_FAILED",
+          message: "Duty was not started because pre-shift vehicle safety check failed.",
         };
+      } else {
+        try {
+          await setDuty(session.user.driverId, true);
+          duty = { started: true, code: null, message: null };
+        } catch (dutyError) {
+          duty = {
+            started: false,
+            code: dutyError?.code ?? null,
+            message: dutyError?.message ?? "Duty could not be started.",
+          };
+        }
       }
     }
 

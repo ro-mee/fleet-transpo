@@ -45,7 +45,7 @@ it('speaks gating statuses in the thread and surfaces blocked evidence on the ca
   // First load speaks its own line; there is no pair yet to be confirming.
   state.query.isLoading=true;
   let html=render();
-  expect(html).toContain('I am checking the eligible pairs and their schedules.');
+  expect(html).toContain('Checking the eligible options and their schedules.');
   // Permission gating is spoken in the thread once there is evidence to act on.
   state.query.isLoading=false;
   html=render({canAssign:false});
@@ -114,9 +114,9 @@ it('keeps the recommendation query on the app-wide freshness policy',()=>{
 });
 it('shows the option flow inside the conversation thread by default',()=>{
   const html=render();
-  expect(html).toContain('I found 2 options for this reservation.');
-  expect(html).toContain('Option 1 — Recommended');
-  expect(html).toContain('Option 2 — Alternative');
+  expect(html).toContain('2 eligible options found for this reservation.');
+  expect(html).toContain('Option 1 — Recommended option');
+  expect(html).toContain('Option 2 — Alternate option');
   expect(html).toContain('role="button"');
   expect(html).toContain('Schedule &amp; workload details');
   expect(html).toContain('Choose Option 1');
@@ -133,7 +133,7 @@ it('shows the option flow inside the conversation thread by default',()=>{
 it('presents the queue proposal as Option 1 with both cards and a choose prompt',()=>{
   const plan={planToken:'signed',expiresAt:'2026-09-15T00:01:00Z'};
   const html=render({queueMode:true,plan,planProposal:{pair:b,outcome:'VERIFIED'},planToken:'signed',planExpiresAt:plan.expiresAt,planValidation:{isSuccess:true}});
-  expect(html).toContain('Option 1 — Recommended');
+  expect(html).toContain('Option 1 — Recommended option');
   expect(html).toContain('PAIR-B'); // proposal pair is Option 1
   expect(html).toContain('PAIR-A'); // engine candidate is Option 2
   expect(html).not.toContain('Read-only comparison');
@@ -142,7 +142,7 @@ it('keeps the reviewable pair compact before a choice',()=>{
   const r={...a,readiness:'REVIEWABLE',reviewable:true,feasibility:{verdict:'TIGHT',reasons:['Tight pickup buffer']}};
   state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:r,candidates:[r]}};
   const html=render();
-  expect(html).toContain('I found 1 option for this reservation.');
+  expect(html).toContain('1 eligible option found for this reservation.');
   expect(html).toContain('Review'); // state chip on the option card
   // The Assign action and the reason textarea only appear after choosing, inside the reply.
   expect(html).not.toMatch(/>Assign/);
@@ -156,7 +156,7 @@ it('preserves terminal and empty-selection views without confirmation controls',
 it('wraps unavailable assignment and exclusion reasons inside a CopilotBubble',()=>{
   state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:null,candidates:[],none_reasons:[{reason:'Vehicle status is Under Maintenance.'}]}};
   const html=render();
-  expect(html).toContain('No eligible assignment is currently available.');
+  expect(html).toContain('No eligible option is currently available.');
   expect(html).toContain('Vehicle status is Under Maintenance.');
   expect(html).toContain('data-copilot-message="true"');
 });
@@ -180,7 +180,7 @@ it('presents trip details in a CopilotBubble without recommendation options when
   expect(html).toContain('Juan Dela Cruz');
   expect(html).toContain('Hotel Lobby');
   expect(html).toContain('NAIA Terminal 3');
-  expect(html).not.toContain('I found 2 options for this reservation.');
+  expect(html).not.toContain('eligible option found for this reservation.');
   expect(html).not.toContain('Choose Option 1');
 
   const cancelledReq={
@@ -196,6 +196,6 @@ it('presents trip details in a CopilotBubble without recommendation options when
   expect(html).toContain('Cancelled');
   expect(html).toContain('Guest requested flight cancellation');
   expect(html).toContain('Pedro Penduko');
-  expect(html).not.toContain('I found 2 options for this reservation.');
+  expect(html).not.toContain('eligible option found for this reservation.');
   expect(html).not.toContain('Choose Option 1');
 });

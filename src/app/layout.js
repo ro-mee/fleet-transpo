@@ -4,6 +4,20 @@ import { Providers } from "@/components/providers";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import "./globals.css";
 
+// Both faces are declared in the root layout, so Next injects a
+// <link rel="preload" as="font"> for each of them on EVERY route. That is only
+// worth paying for when the route paints with the face:
+//   - Inter is the UI face itself (--font-sans and --font-data in globals.css),
+//     so every route renders with it on first paint — its preload stays on.
+//   - Geist Mono is a code/ID face (fuel and incident receipts, kbd hints, the
+//     confirm-dialog counter, license inputs on the driver surfaces). Routes
+//     that never render it — the driver edit form is one: it deliberately
+//     shows license data in Inter through font-data — were downloading the
+//     23 KB latin file they could not use, and Chrome reports exactly that as
+//     "preloaded using link preload but not used within a few seconds from the
+//     window's load event". preload: false keeps the face available (font-mono
+//     still resolves and font-display: swap still applies) and lets those
+//     surfaces fetch it on demand instead of every route preloading it.
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
@@ -13,6 +27,7 @@ const inter = Inter({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  preload: false,
 });
 
 export const metadata = {

@@ -2,19 +2,17 @@
 // type requires, and the only place the rule is enforced.
 //
 // Three types share the vehicleinspection table:
-//   "Pre-Shift"  — the full 7-point shift baseline, once a day, no trip.
-//   "Pre-Trip"   — the quick 4-item critical re-check, per trip.
+//   "Pre-Shift"  — the full 5-point vehicle safety baseline, once daily before duty.
+//   "Pre-Trip"   — trip-scoped readiness: brakes/tires safety, passenger check, and cabin acknowledgment.
 //   "Post-Shift" — the End Duty report: one question and free text, no items.
 //
-// The 4 quick items are a strict subset of the 7. That is load-bearing: a
-// driver who has just done the baseline still has to confirm the four that
-// decide whether the vehicle is safe to move right now (dashboard, brakes,
-// tires, exterior), while cabin/aircon/fuel do not change between trips.
+// Pre-Shift covers 5 roadworthiness checks (sounds, lights, dashboard, steering, brakes_tires);
+// any failure fails the baseline and blocks Start Duty.
 //
-// Post-Shift is the odd one out and is deliberately not forced into the
-// checklist shape: the driver is asked one question ("anything unusual?"), so
-// there is no item set to answer, and inventing one would record an answer the
-// driver never gave. It is validated by validatePostShift instead.
+// Pre-Trip confirms brakes/tires (hard gate blocking trip departure), passenger belongings check
+// (non-blocking finding), and cabin ready acknowledgment.
+//
+// Post-Shift is validated by validatePostShift.
 //
 // The mobile app mirrors this file at mobile/lib/inspection-checklist.js
 // (mobile cannot import from src/) — the item ids must stay in step, because
@@ -37,15 +35,31 @@ export function isChecklistType(type) {
 }
 
 export const PRE_SHIFT_ITEMS = [
-  "cabin", "aircon", "dashboard", "exterior", "brakes", "tires", "fuel",
+  "sounds", "lights", "dashboard", "steering", "brakes_tires",
 ];
 
-export const PRE_TRIP_ITEMS = ["dashboard", "brakes", "tires", "exterior"];
+export const PRE_TRIP_ITEMS = ["brakes_tires", "passenger_items", "cabin_ready"];
 
-// A FAIL on any of these is severity High; a FAIL only on the rest is Medium.
-// Kept as its own export rather than aliasing PRE_TRIP_ITEMS so that the two
-// can diverge deliberately if the critical set ever differs from the quick set.
-export const CRITICAL_ITEM_IDS = [...PRE_TRIP_ITEMS];
+export const PRE_SHIFT_BLOCKING_ITEMS = [
+  "sounds", "lights", "dashboard", "steering", "brakes_tires",
+];
+
+export const PRE_TRIP_BLOCKING_ITEMS = ["brakes_tires"];
+
+export const NON_BLOCKING_PRE_TRIP_ITEMS = ["passenger_items"];
+
+export const REQUIRED_PRE_TRIP_ACKNOWLEDGMENTS = ["cabin_ready"];
+
+// All blocking item IDs across inspections that represent severe safety issues.
+export const CRITICAL_ITEM_IDS = [
+  "sounds", "lights", "dashboard", "steering", "brakes_tires",
+];
+
+export function blockingItemIdsForType(type) {
+  if (type === "Pre-Shift") return PRE_SHIFT_BLOCKING_ITEMS;
+  if (type === "Pre-Trip") return PRE_TRIP_BLOCKING_ITEMS;
+  return [];
+}
 
 export function itemsForType(type) {
   if (type === "Pre-Shift") return PRE_SHIFT_ITEMS;
@@ -114,6 +128,9 @@ export function validateChecklist(type, items) {
   for (const item of items) {
     if (!validIds.has(item?.item_id) || seen.has(item.item_id) || !validStatuses.has(item?.status)) {
       return { ok: false, error: "each item needs item_id and a PASS|FAIL status" };
+    }
+    if (type === "Pre-Trip" && item.item_id === "cabin_ready" && item.status !== "PASS") {
+      return { ok: false, error: "cabin_ready must be acknowledged before completing Pre-Trip" };
     }
     if (typeof item.remarks !== "undefined" && String(item.remarks).length > 1000) {
       return { ok: false, error: "inspection remarks must be 1000 characters or fewer" };
