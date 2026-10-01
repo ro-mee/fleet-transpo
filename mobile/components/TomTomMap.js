@@ -23,6 +23,7 @@ const TomTomMap = forwardRef(({
   radarRadiusKm = 3,
   radarMarkers = [],
   showVehicleMarker = true,
+  topInset = 36,
   onMarkerPress,
   onMapDragged,
   onRouteData,
@@ -103,22 +104,43 @@ const TomTomMap = forwardRef(({
   }, [scheme]);
   const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "";
 
-  const safeOriginAddr = (originAddress || "").replace(/'/g, "\\'");
-  const safeDestAddr = (destAddress || "").replace(/'/g, "\\'");
-
-  // Popup labels are interpolated raw into single-quoted JS strings inside the
-  // WebView HTML. A destination like "Queen's Park" would break the whole
-  // <script> block so initMap() never runs and MAP_READY never fires — the
-  // native globe.json overlay then spins forever. Escape the same way as the
-  // addresses. This bites hardest on the Drop-off leg, when map.js injects
-  // `Drop-off: ${destination}` for the first time.
-  const escapeJsSingle = (s) =>
+  // Every dynamic value below is interpolated into a single <script> block in
+  // the WebView document. A value that closes the quote it sits in, that
+  // contains "</script", or that carries a line break, breaks the ENTIRE
+  // script — initMap() never runs, the map 'load' event never fires, MAP_READY
+  // is never posted, and the native globe.json overlay spins forever. Trip
+  // endpoints are free text from the booking system, so "Queen's Hotel" or
+  // "Driver's Entrance" is ordinary input, not an edge case.
+  //
+  // The addresses previously escaped ONLY the single quote, which left
+  // backslashes and newlines live — and a trailing backslash ("C:\\path\\")
+  // escapes the closing quote, reproducing exactly the whole-map failure the
+  // label fix was written for. U+2028/U+2029 are line terminators to a JS
+  // parser but not to a text editor, so those are neutralised too.
+  const escapeJsString = (s) =>
     String(s ?? "")
       .replace(/\\/g, "\\\\")
       .replace(/'/g, "\\'")
+      .replace(/\u2028/g, "\\u2028")
+      .replace(/\u2029/g, "\\u2029")
       .replace(/\r?\n/g, " ");
-  const safePickupLabel = escapeJsSingle(pickupLabel);
-  const safeDropoffLabel = escapeJsSingle(dropoffLabel);
+
+  const safeOriginAddr = escapeJsString(originAddress);
+  const safeDestAddr = escapeJsString(destAddress);
+
+
+  // Popup labels are ALSO interpolated into setHTML(...) as markup, so they
+  // need HTML escaping on top of the JS-string escape: a destination of
+  // "<img src=x onerror=...>" would otherwise inject markup into the popup.
+  const escapeHtml = (s) =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const pickupPopupHtml = `<h4 class="popup-title">${escapeHtml(pickupLabel)}</h4>`;
+  const dropoffPopupHtml = `<h4 class="popup-title">${escapeHtml(dropoffLabel)}</h4>`;
+
 
   const hasOriginFix = origin?.lat != null && origin?.lng != null;
   const htmlContent = useMemo(() => {
@@ -169,7 +191,7 @@ const TomTomMap = forwardRef(({
               .on-route-badge { background: ${colors.error}; color: ${colors.onError}; padding: 5px 9px; border-radius: 12px; font-size: 11px; font-weight: 800; font-family: system-ui, sans-serif; box-shadow: 0 4px 12px rgba(22,37,31,0.2); border: 2px solid ${colors.surface}; white-space: nowrap; pointer-events: none; }
               .on-route-badge.yellow { background: ${colors.secondary}; color: ${colors.onSecondary}; }
 
-              .nav-header { position: absolute; top: 36px; left: 16px; right: 16px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: system-ui, sans-serif; pointer-events: none; }
+              .nav-header { position: absolute; top: ${Number(topInset) || 36}px; left: 16px; right: 16px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: system-ui, sans-serif; pointer-events: none; }
               
               .nav-main-banner { 
                   background: ${colors.inverseSurface};
@@ -884,6 +906,9 @@ const TomTomMap = forwardRef(({
                   window.lastCalcCarLng = carLng;
                   window.lastCalcCarLat = carLat;
                   document.getElementById('navStreet').innerText = "Rerouting...";
+                  if (window.ReactNativeWebView) {
+                      try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_REFRESHING', calculatedAt: Date.now() })); } catch (e) {}
+                  }
 
                   tt.services.calculateRoute({
                       key: '${tomtomKey}',
@@ -898,6 +923,9 @@ const TomTomMap = forwardRef(({
                       const baseGeojson = response.toGeoJson();
                       if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) {
                           document.getElementById('navStreet').innerText = "Route unavailable";
+                          if (window.ReactNativeWebView) {
+                              try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
+                          }
                           return;
                       }
 
@@ -935,13 +963,20 @@ const TomTomMap = forwardRef(({
                       }
 
                       // Refresh the native bottom-sheet ETA/traffic numbers.
-                      const summary = mainFeature.properties && mainFeature.properties.summary;
+                      // travelTimeInSeconds ALREADY includes traffic;
+                      // trafficDelayInSeconds is the traffic portion of it.
+                      const summary = (response.routes && response.routes[0] && response.routes[0].summary) || (mainFeature.properties && mainFeature.properties.summary);
                       if (window.ReactNativeWebView && summary) {
+                          window.lastRouteAt = Date.now();
                           window.ReactNativeWebView.postMessage(JSON.stringify({
                               type: 'ROUTE_CALCULATED',
                               travelTimeInSeconds: summary.travelTimeInSeconds,
                               lengthInMeters: summary.lengthInMeters,
-                              trafficDelayInSeconds: summary.trafficDelayInSeconds
+                              trafficDelayInSeconds: summary.trafficDelayInSeconds,
+                              noTrafficTravelTimeInSeconds: summary.noTrafficTravelTimeInSeconds != null ? summary.noTrafficTravelTimeInSeconds : null,
+                              calculatedAt: window.lastRouteAt,
+                              trafficAware: true,
+                              source: 'tomtom'
                           }));
                       }
 
@@ -949,6 +984,9 @@ const TomTomMap = forwardRef(({
                   }).catch(() => {
                       window.isRecalculating = false;
                       document.getElementById('navStreet').innerText = "Route unavailable";
+                      if (window.ReactNativeWebView) {
+                          try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
+                      }
                   });
               };
 
@@ -1285,7 +1323,7 @@ const TomTomMap = forwardRef(({
                             originEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.primary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
                         }
 
-                        const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${safePickupLabel}</h4>');
+                        const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('${pickupPopupHtml}');
                         window.originMarker = new tt.Marker({ element: originEl, anchor: ${showCarIcon || radarMode ? "'center'" : "'bottom'"} })
                             .setLngLat([originLng, originLat])
                             ${!showCarIcon && !radarMode ? '.setPopup(originPopup)' : ''}
@@ -1311,7 +1349,7 @@ const TomTomMap = forwardRef(({
                       destEl.style.cursor = 'pointer';
                       destEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.secondary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
                       
-                      const destPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${safeDropoffLabel}</h4>');
+                      const destPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('${dropoffPopupHtml}');
                       window.destMarker = new tt.Marker({ element: destEl, anchor: 'bottom' })
                           .setLngLat([destLng, destLat])
                           .setPopup(destPopup)
@@ -1323,18 +1361,26 @@ const TomTomMap = forwardRef(({
                       initialBounds.extend([destLng, destLat]);
                       map.fitBounds(initialBounds, { padding: 40, duration: 400 });
 
-                      // Request traffic-sectioned routing
+                      // Request traffic-sectioned routing. Single active route only:
+                      // the driver follows the dispatch, so no selectable
+                      // alternative is offered (keeps the initial view and the
+                      // 2-minute refresh consistent).
                       tt.services.calculateRoute({
                           key: '${tomtomKey}',
                           traffic: ${autoSwoop},
                           computeTravelTimeFor: 'all',
-                          maxAlternatives: ${autoSwoop ? 1 : 0},
+                          maxAlternatives: 0,
                           sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
                           instructionsType: 'text',
                           locations: originLng + ',' + originLat + ':' + destLng + ',' + destLat
                       }).then(response => {
                           const baseGeojson = response.toGeoJson();
-                          if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) return;
+                          if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) {
+                              if (window.ReactNativeWebView) {
+                                  try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
+                              }
+                              return;
+                          }
                           
                           const mainFeature = baseGeojson.features[0];
                           const mainCoords = mainFeature.geometry.coordinates; // Array of [lng, lat]
@@ -1351,11 +1397,16 @@ const TomTomMap = forwardRef(({
                           }
                           
                           if (window.ReactNativeWebView && mainProps.summary) {
+                              window.lastRouteAt = Date.now();
                               window.ReactNativeWebView.postMessage(JSON.stringify({
                                   type: 'ROUTE_CALCULATED',
                                   travelTimeInSeconds: mainProps.summary.travelTimeInSeconds,
                                   lengthInMeters: mainProps.summary.lengthInMeters,
-                                  trafficDelayInSeconds: mainProps.summary.trafficDelayInSeconds
+                                  trafficDelayInSeconds: mainProps.summary.trafficDelayInSeconds,
+                                  noTrafficTravelTimeInSeconds: mainProps.summary.noTrafficTravelTimeInSeconds != null ? mainProps.summary.noTrafficTravelTimeInSeconds : null,
+                                  calculatedAt: window.lastRouteAt,
+                                  trafficAware: true,
+                                  source: 'tomtom'
                               }));
                           }
                           
@@ -1371,18 +1422,26 @@ const TomTomMap = forwardRef(({
                               const features = [];
 
                               if (${autoSwoop} && secs.length > 0) {
-                                  // Routing API v1 has no per-section delay field — only the
-                                  // route-level summary.trafficDelayInSeconds. Split that total
-                                  // across the traffic sections by segment length so the badge
-                                  // minutes add up to the real delay.
-                                  // ponytail: length-weighted estimate (degree deltas as
-                                  // relative weight); true per-section delay needs another API.
+                                  // Prefer the per-section delay when the SDK
+                                  // exposes it (delayInSeconds on the traffic
+                                  // section); otherwise fall back to splitting
+                                  // the route-level total by segment length so
+                                  // badges add up — clearly marked as estimates.
                                   const totalDelay = summary.trafficDelayInSeconds || 0;
                                   const trafficSecs = secs.filter(s => s.sectionType === 'TRAFFIC');
+                                  const havMeters = function(lat1, lon1, lat2, lon2) {
+                                      const R = 6371e3;
+                                      const p1 = lat1 * Math.PI / 180;
+                                      const p2 = lat2 * Math.PI / 180;
+                                      const dp = (lat2 - lat1) * Math.PI / 180;
+                                      const dl = (lon2 - lon1) * Math.PI / 180;
+                                      const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+                                      return 2 * R * Math.asin(Math.sqrt(a));
+                                  };
                                   const weights = trafficSecs.map(sec => {
                                       let w = 0;
                                       for (let i = sec.startPointIndex + 1; i <= sec.endPointIndex && i < coords.length; i++) {
-                                          w += Math.abs(coords[i][0] - coords[i-1][0]) + Math.abs(coords[i][1] - coords[i-1][1]);
+                                          w += havMeters(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
                                       }
                                       return w;
                                   });
@@ -1401,9 +1460,11 @@ const TomTomMap = forwardRef(({
 
                                           // magnitudeOfDelay: 0 unknown, 1 minor, 2 moderate,
                                           // 3 serious, 4 undefined (used for road closure).
+                                          // TomTom category is ROAD_CLOSURE (accept the
+                                          // legacy ROAD_CLOSED string defensively).
                                           let color = '${colors.secondary}';
                                           let badgeClass = 'on-route-badge yellow';
-                                          if ((sec.magnitudeOfDelay || 0) >= 3 || sec.simpleCategory === 'ROAD_CLOSED') {
+                                          if ((sec.magnitudeOfDelay || 0) >= 3 || sec.simpleCategory === 'ROAD_CLOSURE' || sec.simpleCategory === 'ROAD_CLOSED') {
                                               color = '${colors.error}';
                                               badgeClass = 'on-route-badge';
                                           }
@@ -1413,14 +1474,19 @@ const TomTomMap = forwardRef(({
                                               features.push({ type: 'Feature', properties: { color: color }, geometry: { type: 'LineString', coordinates: trafficSegment } });
                                           }
 
-                                          // Only put text badges on the main route, not the alternative
+                                          // Only put text badges on the main route, not the alternative.
+                                          // Exact per-section delay when present; "~" marks the
+                                          // length-weighted fallback estimate.
                                           if (!isAltRoute && totalDelay > 0 && trafficSegment.length >= 2) {
-                                              const delayMin = Math.ceil((totalDelay * (weights[t] || 0) / totalWeight) / 60);
-                                              if (delayMin >= 1) {
+                                              const secExact = Number(sec.delayInSeconds);
+                                              const hasExact = Number.isFinite(secExact) && secExact > 0;
+                                              const delaySec = hasExact ? secExact : (totalDelay * (weights[t] || 0) / totalWeight);
+                                              const delayMin = Math.ceil(delaySec / 60);
+                                              if (delayMin >= 2) {
                                                   const midIndex = Math.floor(trafficSegment.length / 2);
                                                   const badgeEl = document.createElement('div');
                                                   badgeEl.className = badgeClass;
-                                                  badgeEl.innerHTML = '🚗 +' + delayMin + ' min';
+                                                  badgeEl.innerHTML = hasExact ? ('🚗 +' + delayMin + ' min') : ('🚗 ~' + delayMin + ' min');
                                                   const badgeMarker = new tt.Marker({ element: badgeEl, anchor: 'center' }).setLngLat(trafficSegment[midIndex]).addTo(map);
                                                   // Tracked so a recalculation can remove stale badges.
                                                   (window.badgeMarkers = window.badgeMarkers || []).push(badgeMarker);
@@ -1497,6 +1563,9 @@ const TomTomMap = forwardRef(({
                       }).catch((e) => {
                           console.error("Routing error:", e);
                           document.getElementById('navStreet').innerText = "Route unavailable";
+                          if (window.ReactNativeWebView) {
+                              try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e2) {}
+                          }
                           const bounds = new tt.LngLatBounds();
                           bounds.extend([originLng, originLat]);
                           bounds.extend([destLng, destLat]);
@@ -1513,12 +1582,19 @@ const TomTomMap = forwardRef(({
 
                       // Periodic refresh: a route calculated once at load goes
                       // stale (traffic, ETA) over a long trip. Re-request it
-                      // every 2 minutes while the car is actually moving.
+                      // every 2 minutes while the car is actually moving — and
+                      // at least every ~4 minutes even when barely moving, so
+                      // sitting in congestion still refreshes the traffic ETA
+                      // (movement-only refresh would starve exactly when the
+                      // driver most needs a new estimate).
                       setInterval(function() {
                           if (!window.currentCarLng || !window.currentDestLng || window.isRecalculating) return;
+                          var routeAgeMs = window.lastRouteAt ? (Date.now() - window.lastRouteAt) : Infinity;
                           if (window.lastCalcCarLng != null) {
                               const moved = Math.abs(window.currentCarLng - window.lastCalcCarLng) + Math.abs(window.currentCarLat - window.lastCalcCarLat);
-                              if (moved < 0.0002) return; // ~20m: parked, nothing new to calculate
+                              // ~20m: parked, nothing new to calculate — unless
+                              // the last traffic route is getting old.
+                              if (moved < 0.0002 && routeAgeMs < 4 * 60 * 1000) return;
                           }
                           window.recalculateRoute(window.currentCarLng, window.currentCarLat);
                       }, 120000);
@@ -1531,8 +1607,7 @@ const TomTomMap = forwardRef(({
       </html>
     `;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colors, scheme, radarMode, hasOriginFix, destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, destination?.lat, destination?.lng]);
-
+  }, [colors, scheme, radarMode, hasOriginFix, destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, topInset, destination?.lat, destination?.lng]);
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
   // Last camera center: the marker + rotation update on every fix (cheap),
   // but the easeTo camera glide only re-fires after real movement (~16 m).
@@ -1627,7 +1702,7 @@ const TomTomMap = forwardRef(({
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === 'ROUTE_CALCULATED' && onRouteData) {
+            if ((data.type === 'ROUTE_CALCULATED' || data.type === 'ROUTE_UNAVAILABLE' || data.type === 'ROUTE_REFRESHING') && onRouteData) {
               onRouteData(data);
             }
             // MAP_READY must fire even when the caller passes no onRouteData
