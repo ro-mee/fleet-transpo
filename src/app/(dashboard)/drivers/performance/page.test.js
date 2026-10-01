@@ -25,7 +25,7 @@ vi.mock("@/services/report.service", () => ({
   getDriverPerformanceReport: vi.fn(),
 }));
 
-import DriverPerformancePage, { buildPunctualitySummary } from "./page";
+import DriverPerformancePage, { buildPunctualitySummary, resolvePresetRange } from "./page";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // A detail row shaped exactly like getDriverPerformanceReport() emits it
@@ -112,6 +112,35 @@ beforeEach(() => {
   state.query = { data: undefined, isLoading: true, isError: false, refetch: vi.fn(), isRefetching: false };
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe("resolvePresetRange — All Time contains every shorter window", () => {
+  // Reported symptom: "All Time shows 0 completed trips while shorter periods
+  // show 4". The window the page sends is the first thing that could cause it,
+  // and it must be strictly expanding or the label is a lie.
+  const ALL = resolvePresetRange("all");
+
+  it("spans the epoch to the far future", () => {
+    expect(ALL).toEqual({ from: "1970-01-01", to: "2100-01-01" });
+  });
+
+  it("contains every other preset's window", () => {
+    for (const preset of ["30d", "90d", "year"]) {
+      const r = resolvePresetRange(preset);
+      expect(ALL.from <= r.from, `${preset} starts before All Time`).toBe(true);
+      expect(ALL.to >= r.to, `${preset} ends after All Time`).toBe(true);
+    }
+  });
+
+  it("renders the server's completed total for All Time unchanged", () => {
+    // The API owns the window; the page renders what it returns and must not
+    // re-derive a total for the "all" preset. Four completed trips in a shorter
+    // window therefore still read as four here.
+    const data = payload([
+      driver({ completed_trips: 4, measured_trips: 0, on_time_trips: 0, late_trips: 0, punctuality_rate: null }),
+    ]);
+    expect(kpiValue(render(data), "Completed Trips")).toBe("4");
+  });
+});
 
 describe("buildPunctualitySummary", () => {
   it("weights the fleet rate by measured trips, not by averaging per-driver rates", () => {

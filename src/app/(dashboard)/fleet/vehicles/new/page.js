@@ -205,6 +205,20 @@ export default function VehicleFormPage({ params }) {
     }
   }, [vehicle, form]);
 
+  // ── "Never recorded" vs "failed to prefill" ─────────────────────────────
+  //
+  // Both controls used to render an empty placeholder whenever the value was
+  // falsy, which reads as a prefill bug. It is not: the GET selects
+  // `category_id` and `required_license_class` (both are stored NULL on most of
+  // the live fleet), and the reset above assigns exactly what the row holds. An
+  // empty control is the truthful rendering of a NULL column — but it has to SAY
+  // so, or the next reader reports the same "blank" symptom again. The state
+  // below distinguishes "the record has no value" from "still loading", and the
+  // controls name it.
+  const vehicleLoaded = Boolean(vehicle);
+  const storedCategoryMissing = vehicleLoaded && vehicle?.category_id == null;
+  const storedLicenseMissing = vehicleLoaded && !String(vehicle?.required_license_class || "").trim();
+
   const watchedPlate = form.watch("plate_number"); // eslint-disable-line react-hooks/incompatible-library -- RHF watch subscription is the documented pattern; compiler memo-skip is acceptable here
   const ltoSchedule = calculateLtoRenewalSchedule(watchedPlate || "");
 
@@ -424,7 +438,12 @@ export default function VehicleFormPage({ params }) {
                         icon={Tag}
                         value={field.value?.toString() || ""}
                         onValueChange={(val) => field.onChange(val ? Number(val) : "")}
-                        placeholder="Select category"
+                        placeholder={storedCategoryMissing ? "Not recorded — select a category" : "Select category"}
+                        hint={
+                          storedCategoryMissing
+                            ? "No category is stored on this vehicle — this control was never prefilled with one. Pick one and save to record it."
+                            : undefined
+                        }
                       >
                         {categories.map((cat) => (
                           <SelectItem key={cat.category_id} value={cat.category_id.toString()}>
@@ -445,7 +464,12 @@ export default function VehicleFormPage({ params }) {
                         required
                         value={field.value}
                         onValueChange={field.onChange}
-                        placeholder="Choose the code shown on the registration"
+                        placeholder={storedLicenseMissing ? "Not recorded — choose the code on the registration" : "Choose the code shown on the registration"}
+                        hint={
+                          storedLicenseMissing
+                            ? "No LTO code is stored on this vehicle, so it has to be chosen before this record can be saved."
+                            : undefined
+                        }
                         error={form.formState.errors.required_license_class?.message}
                       >
                         <SelectItem value="B">B — M1 passenger vehicle (up to 8 passenger seats; GVW ≤ 5,000 kg)</SelectItem>

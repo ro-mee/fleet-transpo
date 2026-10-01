@@ -6,29 +6,54 @@ export function cn(...inputs) {
 }
 
 export function formatDate(date, options = {}) {
+  const parsed = toDateOrNull(date);
+  if (!parsed) return "—";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     ...options,
-  }).format(new Date(date));
+  }).format(parsed);
+}
+
+/**
+ * Nullable timestamp → Date, or null.
+ *
+ * `new Date(null)` is the EPOCH, not "no value", and `Intl.format(new Date(NaN))`
+ * throws "Invalid time value". Every formatter below goes through this, so a
+ * nullable column (a cancelled trip that never started has NULL start_time and
+ * end_time — the live data has three) renders as "—" instead of "Jan 1, 1970,
+ * 8:00 AM", which is a plausible-looking timestamp for something that never
+ * happened. `0` is rejected too: it is the same epoch by another name.
+ */
+function toDateOrNull(value) {
+  // `0` is rejected alongside the nullish values: it is the epoch by another
+  // name, and no caller in this app has a legitimate timestamp of 0.
+  if (value === null || value === undefined || value === "" || value === 0) return null;
+  if (typeof value === "number" && !Number.isFinite(value)) return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 export function formatDateTime(date) {
+  const parsed = toDateOrNull(date);
+  if (!parsed) return "—";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(date));
+  }).format(parsed);
 }
 
 export function formatTime(date) {
+  const parsed = toDateOrNull(date);
+  if (!parsed) return "—";
   return new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(date));
+  }).format(parsed);
 }
 
 export function formatCurrency(amount, currency = "PHP") {
