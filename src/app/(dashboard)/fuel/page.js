@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
+import { fuelExportTarget } from "@/lib/fuel/export-targets";
 import { toast } from "@/components/ui/toast";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
@@ -133,6 +134,10 @@ export default function FuelPage() {
   const [editRecord, setEditRecord] = useState(null);
   const [approvingRecord, setApprovingRecord] = useState(null);
   const [exporting, setExporting] = useState(false);
+  // Which list the console is showing. Declared with the other view state
+  // because the export target below is derived from it — the export button has
+  // to export what is on screen.
+  const [overviewTab, setOverviewTab] = useState("registry"); // 'budget' | 'permits' | 'review' | 'registry'
   const [reviewRequest, setReviewRequest] = useState(null);
   const [approvedLiters, setApprovedLiters] = useState("");
   const [requestNotes, setRequestNotes] = useState("");
@@ -228,32 +233,41 @@ export default function FuelPage() {
     }
   };
 
-  // Export needs the whole (filtered) set, not just the current page.
+  // ── Export: the VISIBLE list, named for what it holds ───────────────────
+  //
+  // The header button used to always export fuel RECEIPT CLAIMS no matter which
+  // view was open — and it did it wrong: `getFuelRecords` answers with an
+  // envelope (`{ rows, total, counts }`), which was handed straight to
+  // `exportToCSV`; that tests `data?.length` (undefined on an object), so it
+  // wrote no file at all while toasting "Exported undefined records". With 45
+  // permits on screen you got an empty download and a count matching no list.
+  // Each view now exports its own dataset and reports the rows it wrote. See
+  // fuelExportTarget in @/lib/fuel/export-targets.
+  const activeExport = fuelExportTarget(overviewTab, {
+    getFuelRecords,
+    getFuelRequests,
+    getFuelAllocations,
+  }, { status: statusParam, search: search || undefined });
+
   const handleExport = async () => {
-    if (!total) {
-      toast.error("Nothing to export for the current filter.");
-      return;
-    }
     setExporting(true);
     try {
-      const all = await getFuelRecords({
-        status: statusParam,
-        search: search || undefined,
-        pageSize: total,
-      });
-      exportToCSV(all || [], "fuel-receipt-claims", [
-        { label: "Refuel Date", key: "fuel_date" },
-        { label: "Vehicle Plate", accessor: (r) => r.vehicles?.plate_number || "" },
-        { label: "Driver", accessor: (r) => (r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "") },
-        { label: "Station", key: "station_name" },
-        { label: "Fuel Type", key: "fuel_type" },
-        { label: "Liters", key: "liters" },
-        { label: "Total Amount", key: "amount" },
-        { label: "Status", key: "status" },
-      ]);
-      toast.success(`Exported ${(all || []).length} records`);
-    } catch {
-      toast.error("Export failed — please try again");
+      const rows = await activeExport.collect();
+      if (!rows.length) {
+        toast.warning(`Nothing to export on this view — no ${activeExport.entity} in the current filter.`);
+        return;
+      }
+      const result = exportToCSV(rows, activeExport.filename, activeExport.columns);
+      // `exportToCSV` refuses a non-array or an empty set and reports count 0,
+      // so a zero here means no file was written and must never read as success.
+      if (!result.count) {
+        toast.error(`Could not build the CSV for ${activeExport.entity}.`);
+        return;
+      }
+      // The browser cannot confirm a saved file — only that the download began.
+      toast.success(`Download started — ${result.filename} (${result.count} ${activeExport.entity})`);
+    } catch (e) {
+      toast.error(e.message || "Export failed — please try again");
     } finally {
       setExporting(false);
     }
@@ -368,8 +382,9 @@ export default function FuelPage() {
   // Overview cards switch the visible table (assignments-module pattern):
   // one section shown at a time, nothing hidden behind scroll. The pills stay
   // the registry's only status filter.
-  const [overviewTab, setOverviewTab] = useState("registry"); // 'budget' | 'permits' | 'review' | 'registry'
-
+  //
+  // Declared up with the other view state because the export target below is
+  // derived from it: the button must export the list that is on screen.
   // Stats come from the server-side counts (whole set, not the current page).
   const pendingCount = counts.pending;
   const approvedCount = counts.approved;
@@ -774,9 +789,11 @@ export default function FuelPage() {
             className={cn("h-10", heroButtonOutlineClass)}
             onClick={handleExport}
             disabled={exporting}
+            aria-label={`${activeExport.label} — downloads the ${activeExport.entity} currently listed`}
+            title={`Download the ${activeExport.entity} in this view as CSV`}
           >
             <Download className={cn("w-4 h-4 mr-2", exporting && "animate-pulse")} />
-            Export CSV
+            {exporting ? "Exporting…" : activeExport.label}
           </Button>
         }
       />

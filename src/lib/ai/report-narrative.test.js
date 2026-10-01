@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isDemoPayload,
   isValidReportPayload,
+  isNarrativeForRange,
   isNarrativeForReport,
   buildReportSnapshot,
   deterministicNarrative,
@@ -68,6 +69,31 @@ describe("report-narrative: per-tab identity guard", () => {
     expect(isNarrativeForReport(null, "drivers")).toBe(false);
     expect(isNarrativeForReport({ report: "drivers", narrative: "" }, "drivers")).toBe(false);
     expect(isNarrativeForReport({ report: "drivers", narrative: null }, "drivers")).toBe(false);
+  });
+});
+
+describe("report-narrative: window identity guard", () => {
+  const WINDOW = { from: "2026-09-01", to: "2026-10-01" };
+  const narrative = { report: "analytics", narrative: "Cost per km is PHP 4.2.", range: WINDOW };
+
+  it("accepts a narrative generated for the window on screen", () => {
+    expect(isNarrativeForRange(narrative, { ...WINDOW })).toBe(true);
+    // A different object with the same bounds is the same window.
+    expect(isNarrativeForRange(narrative, { from: "2026-09-01", to: "2026-10-01" })).toBe(true);
+  });
+
+  it("rejects a narrative from another window, in either direction", () => {
+    expect(isNarrativeForRange(narrative, { from: "2026-08-01", to: "2026-10-01" })).toBe(false);
+    expect(isNarrativeForRange(narrative, { from: "2026-09-01", to: "2026-09-30" })).toBe(false);
+    expect(isNarrativeForRange(narrative, { from: "1970-01-01", to: "2100-01-01" })).toBe(false);
+  });
+
+  it("distinguishes an absent window from a present one", () => {
+    // The server stores an absent range as NULL; "no window" must not be treated
+    // as matching every window.
+    expect(isNarrativeForRange({ report: "analytics", narrative: "x", range: null }, WINDOW)).toBe(false);
+    expect(isNarrativeForRange(narrative, null)).toBe(false);
+    expect(isNarrativeForRange(null, WINDOW)).toBe(false);
   });
 });
 
