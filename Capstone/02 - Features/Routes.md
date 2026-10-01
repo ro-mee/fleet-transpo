@@ -138,6 +138,46 @@ Migration `108_location_geofence_radii.sql` (applied via `db:up`, verified live,
 [[Dispatch]] · [[Trips]] · [[Reservations]] · [[Database Overview]] · [[Feature Index]] · [[ADR-015 Address Owns Administration, Location Owns The Point]]
 
 
+## Fully-dynamic hotel + airport locations — 2026-10-01 (implemented)
+
+Hotel and airport endpoints are now DB-driven; no brand or terminal is a code
+constant anymore:
+
+- **Hotel** — authority is `system_settings.hotel_location` (edited at
+  `/settings/general`, `PUT /api/settings/hotel`). The estimator's old
+  `/coco star|coco/` regex and `CoCo Star Hotel` label are gone:
+  `buildHotelEntry(hotel)` matches the configured hotel name plus generic
+  on-site words (`hotel|lobby|property|base|…`), and `resolveHotelBase(hotel)`
+  replaces the `HOTEL_BASE` constant (kept as a deprecated seed fallback).
+- **Airports** — authority is the `locations` registry (managed via
+  `/routes/locations`). `src/lib/naia-locations.js` is seed defaults only;
+  `POST /api/routes/seed-naia` accepts an optional `{ terminals: [{ name,
+  latitude, longitude }] }` payload (validated, unique names, max 50) and falls
+  back to the seeds when omitted. `buildAirportEntries()` uses supplied rows,
+  seeds otherwise.
+- **Resolution order** (new `src/lib/geo/dynamic-locations.js`,
+  `resolveCoordinatesWithDb(db, text)`, 30s cache): exact registry-name match
+  (`canonical`) → configured hotel name / on-site words (`hotel`) → static
+  gazetteer (`gazetteer`) → null (honest unknown, never guessed).
+  `estimateTripWithDb()` prefers live-registry haversine, else the legacy
+  estimator with the live hotel. All `db`-aware callers (trip-geofence,
+  route-feasibility-context, live-trip-monitor, mobile driver trips,
+  `resolveRequestEstimate`) resolve through it; pure offline callers keep the
+  seed-default `resolveCoordinates(text)` signature with optional overrides.
+- **Injector** (`/reservations/new`) defaults are derived from the live
+  registry (first airport-like location + configured hotel name), not string
+  literals; settings copy is brand-neutral ("Sync Airport Routes").
+
+Metro landmark overrides (Pasay/MOA, Makati/BGC, …) stay static by design —
+scope was "Hotel + NAIA only".
+
+Verified: new `src/lib/geo/dynamic-locations.test.js` (13 tests), updated
+`trip-geofence.test.js` (seed fallback label is now `Hotel Base`), affected
+suites 77 passed, ESLint clean on all touched files, production build clean.
+Full suite 3502 passed / 6 failed — the six are the pre-existing failures
+recorded for 2026-10-01 (auth-session, no-legacy-role, upload-storage,
+standby ×2, driver-assignments), untouched by this change.
+
 ## PR 4.5 ? Context-aware dispatch (2026-09-13, implemented)
 
 PR 4.5 uses strict routed deadhead/reposition evidence: canonical catalog coordinates, original cache computation time, 90-second immediate cache limit, four workers and a bounded provider budget. No haversine-speed fallback becomes verified pickup ETA. Passenger duration feeds the same service window used by assignment and dispatch creation. Both resources? next bookings are checked independently; unknown origins, duration or provider results remain review-required.

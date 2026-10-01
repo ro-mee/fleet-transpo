@@ -9,24 +9,39 @@ import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 //
 // STRICT LINEAR CHAIN (no parallel assignment branches):
 //   Pending → Scheduled → Assigned → In Progress → Completed
-// Plus one reverse hop for incident aborts: In Progress → Scheduled (requeue).
+// Plus two release hops back into Scheduled: In Progress → Scheduled (incident
+// abort requeue) and Assigned → Scheduled (dispatch stood down before the run).
 // Cancellation is allowed from any non-terminal state and is handled separately
 // so it doesn't have to be repeated in every entry.
 
 // Allowed forward transitions. The chain is linear: each state has exactly one
-// outward edge — with one deliberate reverse hop: In Progress → Scheduled,
-// used only when an in-progress run is aborted (incident grounding) and the
-// request must re-enter the queue for a replacement pair. Terminal states have
-// no outward edges.
+// outward edge — with two deliberate reverse hops into `Scheduled`, both of
+// which release a committed pair back into the queue rather than moving the
+// request forward:
+//
+//   In Progress → Scheduled   incident abort (ADR-014); the run is stood down
+//                             mid-flight and the guest still needs transport.
+//   Assigned    → Scheduled   dispatch stood down BEFORE the run started; the
+//                             pair returns to the pool and the request is
+//                             assignable again.
+//
+// Both are taken only by the teardown paths (setDispatchStatus → Cancelled and
+// the incident grounding), never by a forward workflow. Terminal states have no
+// outward edges.
 const NEXT = {
   [L.PENDING]: [L.SCHEDULED],
   [L.SCHEDULED]: [L.ASSIGNED],
-  [L.ASSIGNED]: [L.IN_PROGRESS],
+  [L.ASSIGNED]: [L.IN_PROGRESS, L.SCHEDULED],
   [L.IN_PROGRESS]: [L.COMPLETED, L.SCHEDULED],
   // Terminal states — no outgoing transitions.
   [L.COMPLETED]: [],
   [L.CANCELLED]: [],
 };
+
+// States whose edge into `Scheduled` is a RELEASE rather than a forward hop. It
+// is legal as a single, direct move and must never become an intermediate leg of
+// a longer invented path.
+const RELEASE_INTO_SCHEDULED = new Set([L.IN_PROGRESS, L.ASSIGNED]);
 
 const TERMINAL = new Set([L.COMPLETED, L.CANCELLED]);
 const ALL = new Set(Object.values(L));
@@ -112,10 +127,11 @@ export function transitionPath(from, to) {
     const current = path[path.length - 1];
     const neighbors = NEXT[current] || [];
     for (const next of neighbors) {
-      // The reverse requeue hop is legal only as a direct In Progress →
-      // Scheduled move (incident abort). BFS must not invent a multi-hop
-      // path like Assigned → In Progress → Scheduled.
-      if (current === L.IN_PROGRESS && next === L.SCHEDULED && path.length > 1) continue;
+      // A release hop into Scheduled is legal only as a DIRECT move (incident
+      // abort from In Progress, dispatch stand-down from Assigned). BFS must not
+      // invent a multi-hop path like Assigned → In Progress → Scheduled, or walk
+      // In Progress → Scheduled → Assigned as if it were a forward chain.
+      if (next === L.SCHEDULED && RELEASE_INTO_SCHEDULED.has(current) && path.length > 1) continue;
       if (next === to) return [...path, next];
       if (!visited.has(next)) {
         visited.add(next);

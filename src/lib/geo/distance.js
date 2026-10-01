@@ -1,10 +1,15 @@
 // Distance + duration estimation for transportation requests.
 //
 // Fleet maps pickup/dropoff arriving from Booking as free-text strings
-// ("NAIA Terminal 2 - Arrivals", "CoCo Star Hotel").
-// This module resolves known endpoint strings and hotel base routes. Canonical
-// NAIA arrivals/departures are kept in one shared list; an unspecified terminal
-// remains ad-hoc instead of silently choosing the wrong curbside point.
+// (e.g. an airport terminal name, a hotel name).
+// This module resolves known endpoint strings and hotel base routes.
+//
+// Fully-dynamic contract (2026-10-01): the hotel and the airport endpoints are
+// DB-driven. `system_settings.hotel_location` owns the hotel base and the
+// `locations` registry owns the airport terminals (managed via
+// /routes/locations). The static lists below are SEED DEFAULTS only — the
+// fallback when no DB override is supplied — never the authority. Pass
+// `{ hotel, airportLocations }` to resolve against live data instead.
 
 import { NAIA_CANONICAL_LOCATIONS } from "@/lib/naia-locations";
 
@@ -14,25 +19,63 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Known landmarks around CoCo Star Hotel's service area. Airport coordinates
-// come from the canonical location registry; route distances are calculated by
-// the resolver/TomTom when both endpoint IDs are available.
-const GAZETTEER = [
-  // CoCo Star Hotel Base Location
-  {
-    match: /coco star|coco|hotel|lobby|property|on.?site|premises/i,
-    lat: 14.5159034,
-    lng: 120.9953405,
-    label: "CoCo Star Hotel",
-    isHotel: true,
-  },
+function validCoord(lat, lng) {
+  const la = Number(lat);
+  const ln = Number(lng);
+  return Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180
+    ? { lat: la, lng: ln }
+    : null;
+}
 
-  ...NAIA_CANONICAL_LOCATIONS.map((location) => ({
+/**
+ * Build the hotel gazetteer entry from a DB hotel object.
+ * Returns null when the hotel carries no usable name + coordinates.
+ */
+export function buildHotelEntry(hotel) {
+  const name = String(hotel?.hotel_name ?? hotel?.name ?? "").trim();
+  const coords = hotel ? validCoord(hotel.latitude ?? hotel.lat, hotel.longitude ?? hotel.lng) : null;
+  if (!name || !coords) return null;
+  // Exact hotel-name match first, then generic on-site words (lobby, premises,
+  // property, base) which mean "the configured hotel", whichever it is.
+  // NOTE: no brand literal here — the previous `/coco star|coco/` match is
+  // deliberately gone. A rename must not leave a stale brand match behind.
+  return {
+    match: new RegExp(`${escapeRegExp(name)}|hotel|lobby|property|base|headquarters|on.?site|premises`, "i"),
+    lat: coords.lat,
+    lng: coords.lng,
+    label: name,
+    isHotel: true,
+  };
+}
+
+/**
+ * Build airport gazetteer entries from DB location rows.
+ * Falls back to the seed defaults when no usable rows are supplied.
+ */
+export function buildAirportEntries(airportLocations) {
+  const rows = Array.isArray(airportLocations) ? airportLocations : [];
+  const usable = rows
+    .map((loc) => {
+      const name = String(loc?.name ?? "").trim();
+      const coords = validCoord(loc?.latitude ?? loc?.lat, loc?.longitude ?? loc?.lng);
+      return name && coords ? { name, ...coords } : null;
+    })
+    .filter(Boolean);
+  const source = usable.length ? usable : NAIA_CANONICAL_LOCATIONS;
+  return source.map((location) => ({
     match: new RegExp(escapeRegExp(location.name), "i"),
-    lat: location.latitude,
-    lng: location.longitude,
+    lat: Number(location.latitude ?? location.lat),
+    lng: Number(location.longitude ?? location.lng),
     label: location.name,
-  })),
+  }));
+}
+
+// Metro landmarks around the service area. These are generic city estimates,
+// NOT hotel/airport identity — they stay static by design (see scope decision
+// 2026-10-01: "Hotel + NAIA only"). Airport coordinates come from the location
+// registry; route distances are calculated by the resolver/TomTom when both
+// endpoint IDs are available.
+const METRO_LANDMARKS = [
 
   // Metro Landmarks
   {
@@ -114,24 +157,60 @@ const ROAD_WINDING_FACTOR = 1.35;
 const AVG_SPEED_KMH = 25;
 const FIXED_OVERHEAD_MIN = 10;
 
-/** CoCo Star Hotel base coordinates, used as the fallback when a position is unknown. */
+/**
+ * @deprecated Seed fallback only. Read the hotel base from
+ * `system_settings.hotel_location` (see `src/lib/geo/dynamic-locations.js`
+ * `getHotelContext`) instead of importing this constant.
+ */
 export const HOTEL_BASE = { lat: 14.5159034, lng: 120.9953405 };
 
+/**
+ * Resolve the hotel base coordinates from a DB hotel object.
+ * Returns the hotel's own coordinates when valid, else the seed fallback.
+ */
+export function resolveHotelBase(hotel) {
+  const coords = hotel ? validCoord(hotel.latitude ?? hotel.lat, hotel.longitude ?? hotel.lng) : null;
+  return coords ?? HOTEL_BASE;
+}
+
+/**
+ * Assemble the gazetteer for one resolution. Hotel + airport entries are
+ * dynamic (DB overrides win); metro landmarks are static by design.
+ */
+function gazetteerFor(overrides) {
+  const hotelEntry = buildHotelEntry(overrides?.hotel);
+  const airportEntries = buildAirportEntries(overrides?.airportLocations);
+  if (hotelEntry) return [hotelEntry, ...airportEntries, ...METRO_LANDMARKS];
+  // No DB hotel supplied — seed hotel entry so legacy callers keep working.
+  // Brand literal removed; generic on-site words point at the seed coords.
+  return [
+    {
+      match: /hotel|lobby|property|base|headquarters|on.?site|premises/i,
+      lat: HOTEL_BASE.lat,
+      lng: HOTEL_BASE.lng,
+      label: "Hotel Base",
+      isHotel: true,
+    },
+    ...airportEntries,
+    ...METRO_LANDMARKS,
+  ];
+}
+
 /** Resolve a free-text location to gazetteer coordinates, or null. */
-export function resolveCoordinates(text) {
+export function resolveCoordinates(text, overrides) {
   if (!text) return null;
   const s = String(text);
-  for (const entry of GAZETTEER) {
+  for (const entry of gazetteerFor(overrides)) {
     if (entry.match.test(s)) return { lat: entry.lat, lng: entry.lng, label: entry.label };
   }
   return null;
 }
 
 /** Resolve a free-text location to the full gazetteer entry, or null. */
-function resolveLocation(text) {
+function resolveLocation(text, overrides) {
   if (!text) return null;
   const s = String(text);
-  for (const entry of GAZETTEER) {
+  for (const entry of gazetteerFor(overrides)) {
     if (entry.match.test(s)) return entry;
   }
   return null;
@@ -158,9 +237,9 @@ export function haversineKm(a, b) {
  * @param {string} dropoff  free-text dropoff location
  * @returns {{ distanceKm: number, durationMin: number, confidence: "high"|"low", basis: string }}
  */
-export function estimateTrip(pickup, dropoff) {
-  const from = resolveLocation(pickup);
-  const to = resolveLocation(dropoff);
+export function estimateTrip(pickup, dropoff, overrides) {
+  const from = resolveLocation(pickup, overrides);
+  const to = resolveLocation(dropoff, overrides);
 
   let distanceKm;
   let durationMin;

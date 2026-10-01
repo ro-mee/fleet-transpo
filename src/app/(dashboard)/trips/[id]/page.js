@@ -14,7 +14,7 @@ import { DetailSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getTrip, getTripLocations } from "@/services/trip.service";
 import { apiFetch } from "@/lib/api/client";
-import { formatDateTime, formatDuration } from "@/lib/utils";
+import { formatDateTime, formatDuration, cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -296,7 +296,7 @@ export default function TripDetailPage() {
             <div className="min-w-0">
               <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Duration</p>
               <p className="text-sm font-bold text-foreground">
-                {formatDuration(trip.actual_duration)}
+                {trip.actual_duration == null ? "—" : formatDuration(trip.actual_duration)}
               </p>
               <p className="text-[11px] text-foreground-muted">Actual Elapsed</p>
             </div>
@@ -341,8 +341,14 @@ export default function TripDetailPage() {
               </div>
               <div>
                 <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Start Time</p>
-                <p className="text-sm font-bold text-foreground font-data mt-0.5">
-                  {formatDateTime(trip.start_time)}
+                {/* A cancelled trip that never started stores NULL start_time —
+                    the record is right, only the display was wrong. It used to
+                    read "Jan 1, 1970, 8:00 AM" (`new Date(null)` is the epoch),
+                    which looks like a real timestamp for something that never
+                    happened. The column stays NULL in storage: no backfill, no
+                    invented times. */}
+                <p className={cn("text-sm font-bold font-data mt-0.5", trip.start_time ? "text-foreground" : "text-foreground-muted")}>
+                  {trip.start_time ? formatDateTime(trip.start_time) : "Not started"}
                 </p>
               </div>
             </div>
@@ -353,8 +359,8 @@ export default function TripDetailPage() {
               </div>
               <div>
                 <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">End Time</p>
-                <p className="text-sm font-bold text-foreground font-data mt-0.5">
-                  {formatDateTime(trip.end_time)}
+                <p className={cn("text-sm font-bold font-data mt-0.5", trip.end_time ? "text-foreground" : "text-foreground-muted")}>
+                  {trip.end_time ? formatDateTime(trip.end_time) : "Not ended"}
                 </p>
               </div>
             </div>

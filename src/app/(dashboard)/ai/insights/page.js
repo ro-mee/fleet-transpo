@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -61,10 +62,10 @@ export default function AiInsightsPage() {
   const dismissMutation = useMutation({
     mutationFn: dismissAiInsight,
     onSuccess: () => {
-      toast.success("Alert dismissed");
+      toast.success("Insight dismissed");
       queryClient.invalidateQueries({ queryKey: ["ai-insights"] });
     },
-    onError: (err) => toast.error(err.message || "Failed to dismiss alert"),
+    onError: (err) => toast.error(err.message || "Failed to dismiss insight"),
   });
 
   const handleForceSync = () => {
@@ -169,7 +170,7 @@ export default function AiInsightsPage() {
                       </div>
                     </div>
                     <p className="text-[13px] text-foreground-secondary leading-relaxed font-medium">
-                      Live telemetry is currently operating in <span className="font-bold text-foreground">Deterministic Mode</span>. Generative AI summaries are temporarily unavailable, but all core rule-based safety, compliance, and maintenance alerts remain fully active below.
+                      Live telemetry is currently operating in <span className="font-bold text-foreground">Deterministic Mode</span>. Generative AI summaries are temporarily unavailable, but the fleet-status, compliance and maintenance rules below are still running. Incident SLA and response state live in the <Link href="/incidents" className="font-bold text-foreground underline decoration-dotted underline-offset-2">Incidents registry</Link> — this feed does not read incidents.
                     </p>
                   </div>
                 )}
@@ -189,7 +190,7 @@ export default function AiInsightsPage() {
                 <span className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
                   <Activity className="w-3.5 h-3.5 text-primary" /> Severity Distribution
                 </span>
-                <span className="text-[11px] font-bold font-data text-foreground-muted">{total} Active Alerts</span>
+                <span className="text-[11px] font-bold font-data text-foreground-muted">{total} Active Insights</span>
               </div>
 
               <div className="space-y-2.5">
@@ -321,8 +322,8 @@ export default function AiInsightsPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 shrink-0 text-foreground-muted hover:text-danger hover:bg-danger/10 rounded-xl cursor-pointer"
-                      title="Dismiss alert"
-                      aria-label={`Dismiss alert: ${insight.title}`}
+                      title="Dismiss insight"
+                      aria-label={`Dismiss insight: ${insight.title}`}
                       onClick={() => dismissMutation.mutate(insight.insight_id)}
                     >
                       <X className="w-4 h-4" />

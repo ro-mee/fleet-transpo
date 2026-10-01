@@ -12,16 +12,23 @@ import { getDispatchPolicy } from "@/services/dispatch-settings.service";
  *
  * @param {object|object[]} requests one request row or many
  * @param {object} [policy] optional preloaded policy (avoids a lookup per call)
+ * @param {object} [db] optional connection ({ query }) — pass a transaction so
+ *   the priority write commits with the transition that caused it. Writing it on
+ *   the pooled connection while a transaction holds the same request row would
+ *   block on that row lock.
  * @returns {Promise<Map<number,string|null>>} request_id -> derived level
  */
-export async function recomputeDerivedPriority(requests, policy) {
+export async function recomputeDerivedPriority(requests, policy, db = { query }) {
   const list = Array.isArray(requests) ? requests : [requests];
   if (!list.length) return new Map();
 
   const active = list.filter((r) => r && r.request_id != null);
   if (!active.length) return new Map();
 
-  const cfg = policy || (await getDispatchPolicy());
+  // The policy read goes through the SAME connection: inside a transaction a
+  // pooled read would hold a second pool connection, and enough concurrent
+  // transactions would then wait on each other for a spare one.
+  const cfg = policy || (await getDispatchPolicy(db));
   const thresholds = {
     criticalMinutes: cfg.criticalMinutes,
     highMinutes: cfg.highMinutes,
@@ -48,7 +55,7 @@ export async function recomputeDerivedPriority(requests, policy) {
   // One batched UPSERT via unnest: arrays are passed as parameters, and the
   // terminal (null) levels are persisted too so stale stored priorities don't
   // linger after a request is completed/cancelled.
-  await query(
+  await db.query(
     `UPDATE transportation_requests tr
         SET derived_priority = u.level, updated_at = NOW()
        FROM (SELECT * FROM unnest(

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { smartFuelTab, smartQueueTab } from "@/lib/scheduling/smart-default-tab";
+import {
+  QUEUE_FALLBACK_TAB,
+  queueTabBadges,
+  resolveQueueTabView,
+  smartFuelTab,
+  smartQueueTab,
+} from "@/lib/scheduling/smart-default-tab";
 
 describe("smartFuelTab", () => {
   it("holds Pending while loading or on error", () => {
@@ -42,5 +48,68 @@ describe("smartQueueTab", () => {
 
   it("lands on Today when everything is clear", () => {
     expect(smartQueueTab({ today: 0, upcoming: 0 }, { ready: true })).toBe("today");
+  });
+});
+
+describe("resolveQueueTabView", () => {
+  it("highlights the FETCHED tab, never the tab it is about to steer to", () => {
+    // First load: the query fetches the fallback tab while counts already say
+    // the work is in Upcoming. Before this contract the *highlight* moved to
+    // Upcoming immediately, so the user read "Upcoming" over Today's rows for
+    // the length of a fetch.
+    const view = resolveQueueTabView({
+      counts: { today: 0, upcoming: 5 },
+      countsReady: true,
+    });
+    expect(view.fetchTab).toBe(QUEUE_FALLBACK_TAB);
+    expect(view.activeTab).toBe(QUEUE_FALLBACK_TAB);
+    expect(view.activeTab).not.toBe("upcoming");
+    // …and the steer is requested once, for the NEXT render.
+    expect(view.steerTo).toBe("upcoming");
+  });
+
+  it("highlights the steered tab once the override has landed", () => {
+    const view = resolveQueueTabView({
+      tabOverride: "upcoming",
+      counts: { today: 0, upcoming: 5 },
+      countsReady: true,
+    });
+    expect(view.fetchTab).toBe("upcoming");
+    expect(view.activeTab).toBe("upcoming");
+    // A manual pick is never steered again — polls must not yank it.
+    expect(view.steerTo).toBeNull();
+  });
+
+  it("never steers away from a manual pick, even when other tabs have work", () => {
+    for (const pick of ["today", "assigned", "completed", "cancelled"]) {
+      expect(
+        resolveQueueTabView({ tabOverride: pick, counts: { inProgress: 9 }, countsReady: true }).steerTo
+      ).toBeNull();
+    }
+  });
+
+  it("does not steer before counts are in, nor when the default is already fetched", () => {
+    expect(resolveQueueTabView({ counts: { upcoming: 5 }, countsReady: false }).steerTo).toBeNull();
+    expect(
+      resolveQueueTabView({ counts: { today: 3, upcoming: 5 }, countsReady: true }).steerTo
+    ).toBeNull();
+  });
+});
+
+describe("queueTabBadges", () => {
+  const TABS = ["today", "upcoming", "assigned", "inProgress", "completed", "cancelled"];
+
+  it("reports null — not 0 — for every tab before the first response", () => {
+    const badges = queueTabBadges(TABS, {}, false);
+    for (const id of TABS) expect(badges[id]).toBeNull();
+    // A 0 here would claim the queue is empty rather than not loaded.
+    expect(Object.values(badges)).not.toContain(0);
+  });
+
+  it("reports real counts once loaded, including a genuine 0", () => {
+    const badges = queueTabBadges(TABS, { today: 6, cancelled: 9 }, true);
+    expect(badges.today).toBe(6);
+    expect(badges.cancelled).toBe(9);
+    expect(badges.upcoming).toBe(0);
   });
 });

@@ -41,9 +41,12 @@ const PATCHABLE = new Set([
   "estimated_duration",
 ]);
 
-/** Load a request or throw a shaped error the routes can turn into a 404. */
-async function loadRequest(requestId) {
-  const { rows } = await query(
+/** Load a request or throw a shaped error the routes can turn into a 404.
+ *
+ * `db` lets a caller that already holds a transaction read on that same
+ * connection, so the row it validates is the row it is about to write. */
+async function loadRequest(requestId, db = { query }) {
+  const { rows } = await db.query(
     `SELECT * FROM transportation_requests WHERE request_id = $1 AND deleted_at IS NULL LIMIT 1`,
     [requestId]
   );
@@ -92,6 +95,11 @@ async function findRequestForDispatch(dispatchId) {
  * @param {object} [params.patch]             additional columns to set
  * @param {object} [params.outbound]          extra fields for emitTransportStatus
  * @param {boolean} [params.notifyBooking=true]
+ * @param {object} [params.db]                an open transaction, so the status
+ *   write, its timeline event and the priority recompute commit with the
+ *   caller's own writes. Outbound effects stay the caller's job in that case
+ *   (pass notifyBooking:false and emit after commit) so no HTTP call is made
+ *   while a connection is held.
  * @returns {Promise<{ ok: boolean, status?: number, error?: string, request?: object, hops?: string[] }>}
  */
 export async function advanceReservation({
@@ -105,8 +113,16 @@ export async function advanceReservation({
   outbound = {},
   notifyBooking = true,
   writeAssignment = null,
+  db = null,
 }) {
-  const before = await loadRequest(requestId);
+  // One connection for the whole transition. Without `db` this is the pooled
+  // `query`, which checks out per statement — fine on its own, wrong inside a
+  // caller's transaction (the write would land OUTSIDE it). `write` keeps the
+  // exact call shape either way, including the extra context object the
+  // `writeAssignment` hook consumes.
+  const runner = db || { query };
+  const write = db ? (sql, params, extra) => db.query(sql, params, extra) : query;
+  const before = await loadRequest(requestId, runner);
   if (!before) return { ok: false, status: 404, error: "Transportation request not found" };
 
   const from = before.fleet_status;
@@ -131,7 +147,7 @@ export async function advanceReservation({
       values.push(value !== null && typeof value === "object" ? JSON.stringify(value) : value);
     }
     values.push(requestId);
-    const { rows, eventRecorded } = await (writeAssignment || query)(
+    const { rows, eventRecorded } = await (writeAssignment || write)(
       `UPDATE transportation_requests SET ${columns.join(", ")} WHERE request_id = $${idx} RETURNING *`,
       values,
       { requestId,eventType,fromStatus:before.fleet_status,toStatus,session,description,metadata }
@@ -147,6 +163,7 @@ export async function advanceReservation({
         session,
         description: description || `Reassigned resources on ${toStatus} request.`,
         metadata,
+        db: runner,
       });
     }
     return { ok: true, request: rows[0], hops: [] };
@@ -188,7 +205,7 @@ export async function advanceReservation({
     }
 
     values.push(requestId);
-    const { rows, eventRecorded } = await (isFinal && writeAssignment ? writeAssignment : query)(
+    const { rows, eventRecorded } = await (isFinal && writeAssignment ? writeAssignment : write)(
       `UPDATE transportation_requests SET ${columns.join(", ")} WHERE request_id = $${idx} RETURNING *`,
       values,
       { requestId,eventType:isFinal && eventType ? eventType : eventForStatus(next),fromStatus:current.fleet_status,toStatus:next,session,description:isFinal?description:null,metadata:isFinal?metadata:null }
@@ -206,13 +223,16 @@ export async function advanceReservation({
       session,
       description: isFinal ? description : `Status moved to ${next}.`,
       metadata: isFinal ? metadata : null,
+      db: runner,
     });
   }
 
   // Keep derived_priority in sync with the new status + time (best-effort; a
-  // recompute failure must never roll back the transition itself).
+  // recompute failure must never roll back the transition itself). On the SAME
+  // connection as the transition: on another one this UPDATE would block on the
+  // row lock the transition holds and deadlock until statement_timeout.
   try {
-    await recomputeDerivedPriority([current]);
+    await recomputeDerivedPriority([current], null, runner);
   } catch (e) {
     console.warn("derived_priority recompute failed after transition:", e?.message || e);
   }
@@ -231,13 +251,19 @@ export async function advanceReservation({
     }
   }
 
+  let bookingNotify = null;
   if (notifyBooking) {
     // Best-effort: Booking is told the final state only. A delivery failure is
     // logged in integration_log and never unwinds the transition above.
-    await emitTransportStatus(current, outbound);
+    //
+    // The RESULT is returned rather than discarded. It used to be dropped on the
+    // floor, so every caller had to guess, and the cancellation toast promised
+    // "Booking will be notified" even when the gateway was the local mock and
+    // nothing left the process.
+    bookingNotify = await emitTransportStatus(current, outbound);
   }
 
-  return { ok: true, request: current, hops };
+  return { ok: true, request: current, hops, bookingNotify };
 }
 
 /**

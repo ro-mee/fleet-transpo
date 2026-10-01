@@ -8,7 +8,23 @@ async function getWorkbook(path, fallback) {
   }
   const disposition = response.headers.get("content-disposition") || "";
   const filename = disposition.match(/filename="([^"]+)"/)?.[1] || fallback;
-  return { blob: await response.blob(), filename };
+  const blob = await response.blob();
+
+  // A 200 is not a workbook. `downloadBlob` saves whatever it is handed, so an
+  // empty body or an HTML/JSON error page served with 200 would land in
+  // Downloads as a corrupt .xlsx while the page still reported success. Both
+  // are refused here, before any success feedback.
+  if (!blob || blob.size === 0) {
+    throw new Error(`The export came back empty — nothing was downloaded (${filename}).`);
+  }
+  const type = String(blob.type || response.headers.get("content-type") || "").toLowerCase();
+  if (type && !type.includes("spreadsheetml")) {
+    throw new Error(
+      `The export returned ${type.split(";")[0]} instead of a workbook — sign in again and retry.`
+    );
+  }
+
+  return { blob, filename };
 }
 
 export async function getFleetUtilizationReport(from, to) {

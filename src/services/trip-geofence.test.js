@@ -72,7 +72,9 @@ describe("getTripGeofenceTargets", () => {
       },
     };
     const out = await getTripGeofenceTargets(db, { trip_id: 55, dispatch_id: 9 });
-    expect(out.pickup).toMatchObject({ source: "gazetteer", label: "CoCo Star Hotel" });
+    // Dynamic: no hotel row in this mock db, so the generic on-site fallback
+    // labels the base without a brand literal.
+    expect(out.pickup).toMatchObject({ source: "gazetteer", label: "Hotel Base" });
     expect(out.destination).toMatchObject({ source: "gazetteer", label: "NAIA Terminal 3 - Arrivals (Bay 9)" });
     const deriveQuery = seen.find((sql) => sql.includes("FROM trips t"));
     expect(deriveQuery).toContain("transportation_requests");

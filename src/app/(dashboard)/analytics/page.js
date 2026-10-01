@@ -22,6 +22,7 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toCalendarDay } from "@/lib/dates";
+import { isNarrativeForRange, isNarrativeForReport } from "@/lib/ai/report-narrative";
 import { downloadBlob, exportToCSV } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
 import { CHART_COLORS as CHART_TOKENS } from "@/lib/chart-tokens";
@@ -423,21 +424,75 @@ export default function AnalyticsPage() {
 
   const [narrativeForce, setNarrativeForce] = useState(0);
 
+  // The snapshot above narrates FIVE feeds at once. This query used to fire on
+  // mount with no `enabled` gate and a key of
+  // ["report-narrative", "analytics", dateBounds, force] — so the analyst was
+  // asked to describe a page of default zeros before any report had loaded, and
+  // a response could narrate numbers that were no longer on screen (the metric
+  // snapshot was not part of the key). Gate on every source having SETTLED
+  // successfully, and fold the actual snapshot into the key, so a change in
+  // either the window or the numbers it describes is a new query rather than a
+  // stale answer.
+  const narrativeFeeds = [fleetQuery, fuelQuery, financialQuery, driversPerformanceQuery, predictionQuery];
+  const narrativeReady = narrativeFeeds.every((q) => q.isSuccess);
+  const narrativeBlocked = narrativeFeeds.some((q) => q.isError);
+  const narrativeFingerprint = narrativeReady ? JSON.stringify(narrativeData) : "pending";
+
   const { data: narrative, isLoading: narrativeLoading, isFetching: narrativeFetching } = useQuery({
-    queryKey: ["report-narrative", "analytics", dateBounds, narrativeForce],
+    queryKey: ["report-narrative", "analytics", dateBounds, narrativeFingerprint, narrativeForce],
     queryFn: () => getReportNarrative("analytics", narrativeData, dateBounds, narrativeForce > 0),
+    enabled: narrativeReady,
   });
 
+  // Identity guard, the same idea as the Reports page's per-report check plus
+  // the window the narrative was generated for: copy narrating a different
+  // period must never render under this period's KPI band. A failed feed stops
+  // the skeleton and shows the honest "Awaiting analysis" state instead of
+  // waiting forever for copy that will never arrive.
+  const narrativeForWindow =
+    narrative && isNarrativeForReport(narrative, "analytics") && isNarrativeForRange(narrative, dateBounds)
+      ? narrative
+      : null;
+  const analystLoading = (!narrativeReady && !narrativeBlocked) || narrativeLoading || narrativeFetching;
+
+  // ── Pickup volume: the window each view actually plots ──────────────────
+  //
+  // Two honesty problems lived here, and together they are why the Trend /
+  // Calendar toggle "looked reversed":
+  //
+  //  1. The Trend series was hard-coded to 7 or 14 days regardless of the
+  //     timeframe control, while its subtitle claimed "the selected period".
+  //     Selecting 30 Days or This Month changed nothing but the axis labels.
+  //  2. The Calendar is a month grid, so it can only ever show the CURRENT
+  //     calendar month — a scope the timeframe control cannot express.
+  //
+  // The toggle's click mapping was already correct (chart ⇄ Trend,
+  // calendar ⇄ Calendar) and is deliberately untouched. What is fixed is the
+  // SCOPE each view reports: the trend now plots the selected window, capped at
+  // one month because a per-day series from 1970 is not a chart, and both views
+  // say out loud that they count requests CREATED (booking intake) rather than
+  // completed trips.
+  const PICKUP_TREND_MAX_DAYS = 31;
+  const pickupTrendWindow = useMemo(() => {
+    const dayMs = 86_400_000;
+    const to = new Date(`${dateBounds.to}T00:00:00`);
+    let from = new Date(`${dateBounds.from}T00:00:00`);
+    let truncatedAllTime = false;
+    const span = Math.round((to - from) / dayMs) + 1;
+    if (!Number.isFinite(span) || span > PICKUP_TREND_MAX_DAYS) {
+      from = new Date(to.getTime() - (PICKUP_TREND_MAX_DAYS - 1) * dayMs);
+      truncatedAllTime = true;
+    }
+    return { from, to, truncatedAllTime };
+  }, [dateBounds]);
+
   const pickupDemandTrend = useMemo(() => {
-    const days = dateRange === "7d" ? 7 : 14;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { from, to } = pickupTrendWindow;
     const map = new Map();
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const key = toCalendarDay(d);
-      map.set(key, {
+    const dayCount = Math.round((to - from) / 86_400_000) + 1;
+    for (let i = 0; i < dayCount; i++) {
+      const d = new Date(from.getTime() + i * 86_400_000);
+      map.set(toCalendarDay(d), {
         date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
         requests: 0,
       });
@@ -447,9 +502,15 @@ export default function AnalyticsPage() {
       if (key && map.has(key)) map.get(key).requests += 1;
     });
 
-    const list = Array.from(map.values());
-    return list;
-  }, [reservations, dateRange]);
+    return Array.from(map.values());
+  }, [reservations, pickupTrendWindow]);
+
+  // The scope string both the panel subtitle and the chart's accessible label
+  // read from, so the picture and its description can never disagree.
+  const pickupTrendScope = pickupTrendWindow.truncatedAllTime
+    ? `Requests created per day, last ${PICKUP_TREND_MAX_DAYS} days (All Time is too long for a daily series)`
+    : `Requests created per day, ${dateBounds.from} → ${dateBounds.to}`;
+  const pickupTrendAriaLabel = `${pickupTrendScope}. ${pickupDemandTrend.reduce((sum, d) => sum + d.requests, 0)} requests in view.`;
 
   const fuelByCategory = useMemo(() => {
     return (fu.byCategory || []).map((c) => ({
@@ -674,12 +735,60 @@ export default function AnalyticsPage() {
     show: (i) => ({ opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE, delay: i * 0.06 } }),
   };
 
+  // ── Exports ──────────────────────────────────────────────────────────────
+  //
+  // The raw-CSV button used to discard `exportToCSV`'s result and say nothing,
+  // so a refused or empty write was indistinguishable from a download. It also
+  // rendered a summary of whatever the defaults happened to be: before the feeds
+  // settled that is a row of zeros, which an "analytics summary" must not claim.
+  const csvReady = fleetQuery.isSuccess && fuelQuery.isSuccess && financialQuery.isSuccess;
+
+  const ANALYTICS_CSV_COLUMNS = [
+    { label: "Utilization Rate", key: "utilization" },
+    { label: "Total Distance (km)", key: "total_distance_km" },
+    { label: "Total Trips", key: "total_trips" },
+    { label: "Fuel Consumed (L)", key: "fuel_liters" },
+    { label: "Fuel Expenses (₱)", key: "fuel_cost" },
+    { label: "Maintenance Expenses (₱)", key: "maintenance_cost" },
+    { label: "Total Operating Expenses (₱)", key: "total_cost" },
+    { label: "Average Cost Per Km (₱/km)", key: "cost_per_km" },
+  ];
+
+  function handleCsvExport() {
+    if (!csvReady) {
+      toast.warning("Nothing to export yet — the fleet, fuel, and financial feeds have not all loaded.");
+      return;
+    }
+    const result = exportToCSV(
+      [{
+        utilization: `${f.utilization}%`,
+        total_distance_km: f.totalDistance,
+        total_trips: f.totalTrips,
+        fuel_liters: fu.totalLiters,
+        fuel_cost: fu.totalCost,
+        maintenance_cost: fi.maintCost,
+        total_cost: fi.totalCost,
+        cost_per_km: fi.costPerKm,
+      }],
+      "fleet-analytics-summary",
+      ANALYTICS_CSV_COLUMNS
+    );
+    if (!result.count) {
+      toast.error("Could not build the analytics summary CSV.");
+      return;
+    }
+    // The browser cannot confirm a saved file — only that the download began.
+    toast.success(`Download started — ${result.filename}`);
+  }
+
   async function handleExcelExport() {
     setExporting(true);
     try {
+      // `getWorkbook` rejects a non-OK response, an empty body and anything that
+      // is not a workbook, so reaching here means a real file is in hand.
       const result = await getAnalyticsWorkbook(dateBounds.from, dateBounds.to);
       downloadBlob(result.blob, result.filename);
-      toast.success(`Exported customized workbook — ${result.filename}`);
+      toast.success(`Download started — ${result.filename}`);
     } catch (error) {
       // Keep the existing CSV action available even when the workbook route is unavailable.
       toast.error(error.message || "Analytics workbook export failed.");
@@ -722,30 +831,12 @@ export default function AnalyticsPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() =>
-                    exportToCSV(
-                      [{
-                        utilization: `${f.utilization}%`,
-                        total_distance_km: f.totalDistance,
-                        total_trips: f.totalTrips,
-                        fuel_liters: fu.totalLiters,
-                        fuel_cost: fu.totalCost,
-                        maintenance_cost: fi.maintCost,
-                        total_cost: fi.totalCost,
-                        cost_per_km: fi.costPerKm,
-                      }],
-                      "fleet-analytics-summary",
-                      [
-                        { label: "Utilization Rate", key: "utilization" },
-                        { label: "Total Distance (km)", key: "total_distance_km" },
-                        { label: "Total Trips", key: "total_trips" },
-                        { label: "Fuel Consumed (L)", key: "fuel_liters" },
-                        { label: "Fuel Expenses (₱)", key: "fuel_cost" },
-                        { label: "Maintenance Expenses (₱)", key: "maintenance_cost" },
-                        { label: "Total Operating Expenses (₱)", key: "total_cost" },
-                        { label: "Average Cost Per Km (₱/km)", key: "cost_per_km" },
-                      ]
-                    )
+                  onClick={handleCsvExport}
+                  disabled={exporting || !csvReady}
+                  title={
+                    csvReady
+                      ? `Download the analytics summary for ${dateBounds.from} → ${dateBounds.to} as CSV`
+                      : "Available once the fleet, fuel, and financial feeds have loaded"
                   }
                   className={cn("h-11 rounded-full px-4 text-sm font-semibold", heroButtonOutlineClass)}
                 >
@@ -792,8 +883,10 @@ export default function AnalyticsPage() {
           <AiAnalystCard
             title="AI Analyst · Executive Telemetry"
             reportLabel="Consolidated analysis of utilization, cost-per-km, and maintenance risk"
-            loading={narrativeLoading || narrativeFetching}
-            data={narrative}
+            report="analytics"
+            range={dateBounds}
+            loading={analystLoading}
+            data={narrativeForWindow}
             onRegenerate={() => setNarrativeForce((n) => n + 1)}
             isRegenerating={narrativeFetching}
           />
@@ -830,8 +923,8 @@ export default function AnalyticsPage() {
             className="lg:col-span-7"
             icon={Activity}
             iconTone="bg-info/10 text-info border-info/20"
-            title="Pickup Request & Booking Volume"
-            subtitle="Requests per day across the selected period"
+            title={volumeView === "chart" ? "Pickup Request & Booking Volume" : "Pickup Request & Booking Calendar"}
+            subtitle={volumeView === "chart" ? pickupTrendScope : `Requests created per day — ${calendarData.monthName}, independent of the timeframe above`}
             actions={
               <SegmentedToggle
                 value={volumeView}
@@ -854,7 +947,7 @@ export default function AnalyticsPage() {
                   transition={{ duration: 0.3, ease: EASE }}
                   className="chart-h-lg"
                   role="img"
-                  aria-label={`Pickup volume trend over the last ${dateRange === "7d" ? "7" : "14"} days, ${pickupDemandTrend.reduce((sum, d) => sum + d.requests, 0)} total requests.`}
+                  aria-label={pickupTrendAriaLabel}
                 >
                   <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
@@ -918,7 +1011,10 @@ export default function AnalyticsPage() {
                         {calendarData.monthName}
                       </span>
                       <span className="text-[11px] font-medium text-foreground-muted">
-                        • {calendarData.totalMonthlyRequests} total bookings
+                        • {calendarData.totalMonthlyRequests} requests created
+                      </span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted/70 rounded-full bg-muted/40 px-2 py-0.5">
+                        Calendar month
                       </span>
                     </div>
 
@@ -948,7 +1044,7 @@ export default function AnalyticsPage() {
                   <div
                     className="grid grid-cols-7 gap-1.5"
                     role="img"
-                    aria-label={`Pickup request calendar heatmap. Peak day ${calendarData.peakDayNum ?? "—"} with ${calendarData.maxCount ?? 0} requests, averaging ${calendarData.avgDaily ?? 0} per day.`}
+                    aria-label={`Pickup request calendar heatmap for ${calendarData.monthName}, the current calendar month only — it does not follow the timeframe control. Peak day ${calendarData.peakDayNum ?? "—"} with ${calendarData.maxCount ?? 0} requests, averaging ${calendarData.avgDaily ?? 0} per day.`}
                   >
                     {calendarData.days.map((d) => {
                       if (d.isPadding) {

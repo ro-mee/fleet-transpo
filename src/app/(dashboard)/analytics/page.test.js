@@ -11,6 +11,7 @@ vi.mock("@tanstack/react-query", () => ({
       state.queries[options.queryKey[0]] || {
         data: undefined,
         isLoading: false,
+        isSuccess: true,
         isError: false,
         isRefetching: false,
         refetch: vi.fn(),
@@ -65,6 +66,7 @@ vi.stubGlobal("React", React);
 const { default: AnalyticsPage } = await import("./page");
 const { TooltipProvider } = await import("@/components/ui/tooltip");
 const { getReportNarrative } = await import("@/services/ai.service");
+const { toCalendarDay } = await import("@/lib/dates");
 
 function driver(overrides = {}) {
   return {
@@ -111,7 +113,17 @@ function payload(details) {
 }
 
 function query(data) {
-  return { data, isLoading: false, isError: false, isRefetching: false, refetch: vi.fn() };
+  return { data, isLoading: false, isSuccess: true, isError: false, isRefetching: false, refetch: vi.fn() };
+}
+
+// The window the page sends for the default timeframe (30d). Mirrors
+// src/app/(dashboard)/analytics/page.js `dateBounds` exactly.
+function window30d() {
+  const now = new Date();
+  const to = toCalendarDay(now);
+  const fromDate = new Date(now);
+  fromDate.setDate(now.getDate() - 30);
+  return { from: toCalendarDay(fromDate), to };
 }
 
 // What a reader can actually see. Attributes are NOT value renders: this
@@ -246,5 +258,107 @@ describe("Analytics — driver leaderboard", () => {
     const snapshot = vi.mocked(getReportNarrative).mock.calls[0][1];
     expect(snapshot.driverPunctuality).toBe(88);
     expect(snapshot).not.toHaveProperty("avgScore");
+  });
+});
+
+describe("Analytics — the AI narrative is gated and window-keyed", () => {
+  it("does not ask for a narrative until every report feed has succeeded", () => {
+    // Hold one feed back. The snapshot would otherwise be a page of default
+    // zeros, and the analyst would describe them as fact.
+    state.queries["analytics-fuel"] = {
+      data: undefined,
+      isLoading: true,
+      isSuccess: false,
+      isError: false,
+      isRefetching: false,
+      refetch: vi.fn(),
+    };
+    render();
+    const option = state.options.find((o) => o.queryKey[0] === "report-narrative");
+    expect(option.enabled).toBe(false);
+    expect(option.queryKey[3]).toBe("pending");
+    // …and the card shows its loading state rather than "no analysis".
+    expect(render()).toContain("Generating analysis");
+  });
+
+  it("stops loading and shows the honest empty state when a feed fails", () => {
+    state.queries["analytics-financial"] = {
+      data: undefined,
+      isLoading: false,
+      isSuccess: false,
+      isError: true,
+      isRefetching: false,
+      refetch: vi.fn(),
+    };
+    const html = render();
+    expect(html).not.toContain("Generating analysis");
+    expect(html).toContain("No analysis available for this report in the selected period yet.");
+  });
+
+  it("keys the narrative on the numbers it narrates, not only the window", () => {
+    state.queries["analytics-drivers"] = query(payload([driver({ punctuality_rate: 88 })]));
+    render();
+    const first = state.options.find((o) => o.queryKey[0] === "report-narrative");
+    expect(first.enabled).toBe(true);
+    expect(first.queryKey[3]).toContain('"driverPunctuality":88');
+    expect(first.queryKey[3]).not.toBe("pending");
+
+    // A different metric snapshot in the SAME window must be a different query,
+    // otherwise the cached analysis describes numbers no longer on screen.
+    state.options = [];
+    state.queries["analytics-drivers"] = query(payload([driver({ on_time_trips: 2 })]));
+    render();
+    const second = state.options.find((o) => o.queryKey[0] === "report-narrative");
+    expect(second.queryKey[3]).toContain('"driverPunctuality":25');
+    expect(second.queryKey[3]).not.toBe(first.queryKey[3]);
+    expect(second.queryKey[2]).toEqual(first.queryKey[2]);
+  });
+
+  it("renders a narrative generated for the window on screen", () => {
+    const range = window30d();
+    state.queries["report-narrative"] = {
+      data: { report: "analytics", narrative: "Cost per km is PHP 4.2.", actions: [], flag: "success", range },
+      isLoading: false,
+      isFetching: false,
+      isSuccess: true,
+      isError: false,
+      refetch: vi.fn(),
+    };
+    const html = render();
+    expect(html).toContain("Cost per km is PHP 4.2.");
+  });
+
+  it("refuses a narrative generated for a different window", () => {
+    // The response arrived after the period changed: a stale claim must never
+    // render under the new period's figures.
+    state.queries["report-narrative"] = {
+      data: {
+        report: "analytics",
+        narrative: "STALE CLAIM FROM ANOTHER PERIOD",
+        actions: [],
+        flag: "success",
+        range: { from: "1999-01-01", to: "1999-01-31" },
+      },
+      isLoading: false,
+      isFetching: false,
+      isSuccess: true,
+      isError: false,
+      refetch: vi.fn(),
+    };
+    const html = render();
+    expect(html).not.toContain("STALE CLAIM FROM ANOTHER PERIOD");
+    expect(html).toContain("No analysis available for this report in the selected period yet.");
+  });
+
+  it("refuses a narrative that narrates a different report", () => {
+    state.queries["report-narrative"] = {
+      data: { report: "fleet", narrative: "WRONG REPORT NARRATIVE", actions: [], flag: "success", range: window30d() },
+      isLoading: false,
+      isFetching: false,
+      isSuccess: true,
+      isError: false,
+      refetch: vi.fn(),
+    };
+    expect(render()).not.toContain("WRONG REPORT NARRATIVE");
   });
 });

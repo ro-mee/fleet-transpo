@@ -16,7 +16,14 @@ last_verified: 2026-08-11
 
 [[Dispatch State Machine]] uses rank monotonicity, which is cheaper. Reservations don't fit that shape: the legal moves aren't a straight line, and some states are reachable from several places and not from others. Ranks encode *ordering*; an adjacency map encodes an arbitrary graph. (Note: [[Trip State Machine]] originally used ranks, but grew complex enough to be rewritten to an adjacency map like this one).
 
-**One deliberate reverse hop (2026-09-23):** `In Progress → Scheduled` is legal so an incident abort can requeue a run for a replacement pair instead of cancelling the guest's request. Every other backward hop stays forbidden. Event: `INCIDENT_REQUEUED`. See [[Incidents]] · [[ADR-014 Incident Abort Requeues Request]].
+**Two deliberate reverse hops (2026-10-01):** both are *release* moves that put a committed pair back in the pool and return the request to `Scheduled` — still the guest's transport — instead of cancelling it:
+
+- `In Progress → Scheduled` — an incident aborts a run mid-flight and requeues it for a replacement pair. Event: `INCIDENT_REQUEUED`. See [[Incidents]] · [[ADR-014 Incident Abort Requeues Request]].
+- `Assigned → Scheduled` — a dispatch is stood down **before** the run starts. Event: `dispatch_released`. See [[Dispatch]].
+
+`RELEASE_INTO_SCHEDULED` lists both, and `transitionPath`'s BFS refuses to use either as an intermediate leg (so `Assigned → In Progress → Scheduled` is not a path). Every other backward hop stays forbidden.
+
+> **Status-count drift in this note.** The headline "9 states" and the "collapse to 7" paragraph further down are stale: migration `037_remove_review_statuses.sql` removed the review cluster, so the machine carries **six** statuses (`Pending`, `Scheduled`, `Assigned`, `In Progress`, `Completed`, `Cancelled`) and the external map in `src/lib/integration/status-map.js` carries the surviving subset. Left in place rather than silently rewritten; `src/lib/scheduling/reservation-state.test.js` is the authority.
 
 ## `transitionPath` — the distinctive part
 

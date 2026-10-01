@@ -80,6 +80,14 @@ Driver names render as stored everywhere new (no lowercase+CSS-capitalize mangli
 
 So the left half (ingest → request) has 149 `integration_log` rows and 15 requests behind it. The right half is essentially unexercised. → [[Current State]]
 
+## Booking Status vs Fleet Status — manual follow-up 2026-10-01
+
+`transportation_requests.booking_status` is the last value Booking supplied at ingest (“what Booking believes”); `fleet_status` is Fleet's lifecycle. Cancelling locally moves only `fleet_status` and emits an outbound `CANCELLED` event — there is no local writer that overwrites `booking_status`, so `Cancelled` + Booking Status `Pending` after reload is expected for the current model.
+
+The recent synthetic request's integration history contains processed `SCHEDULED` and `CANCELLED` payloads, but the runtime uses `BOOKING_GATEWAY=mock` and has no Booking API URL. “Processed” therefore means the mock accepted the event; no external Booking system received it.
+
+**Fixed the same day — the message now reports the real hand-off.** `emitTransportStatus()` returns `{ delivered, gateway, reason? }` (gateway name resolved before the early return, so an un-booked request reports `no-external-booking-id` rather than a bare false); `advanceReservation()` returns `bookingNotify` instead of discarding the result; the cancel route returns `{ ...request, booking_notify }`; and the client-safe `describeBookingNotify()` (`src/lib/integration/booking-notify.js`) turns that into one sentence, checking **mock before delivered** so Fleet's own stub can never read as a notification. Both cancel dialogs now say the notice is *queued* and that whether it leaves Fleet depends on the gateway being connected; both toasts report the actual result. Real external proof still requires a connected HTTP gateway plus Booking-side correlation/audit. → [[Manual Functional Testing Follow-up Audit]]
+
 ## Related
 
 [[Data Flow]] · [[Reservations]] · [[Dispatch]] · [[Trips]] · [[System Boundaries]] · [[Feature Index]]

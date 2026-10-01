@@ -2,10 +2,20 @@ import { query, withTransaction } from "@/lib/db";
 import { AuthError } from "@/lib/api/utils";
 import { canTransitionTrip, isValidTripStatus } from "@/lib/scheduling/trip-state";
 import { canTransitionDispatch, isValidDispatchStatus } from "@/lib/scheduling/dispatch-state";
-import { TRIP_STATUS } from "@/lib/constants";
+import { isTerminalReservationStatus } from "@/lib/scheduling/reservation-state";
+import { TRIP_STATUS, DISPATCH_STATUS, RESERVATION_LIFECYCLE, RESERVATION_EVENT } from "@/lib/constants";
 import { checkPickupProximity, checkDestinationProximity } from "@/services/trip-geofence.service";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { writeAudit } from "@/lib/audit";
+import { advanceReservation } from "@/services/reservation-lifecycle.service";
+import { emitTransportStatus } from "@/services/outbound.service";
+
+const DISPATCH_CANCELLED = DISPATCH_STATUS.CANCELLED;
+// A stood-down dispatch RELEASES the request: the pair returns to the pool and
+// the request re-enters the queue at Scheduled, exactly as the cancel dialogs
+// promise. Cancelling the guest's request is a separate, explicit action.
+const RELEASE_TO_STATUS = RESERVATION_LIFECYCLE.SCHEDULED;
+const E = RESERVATION_EVENT;
 
 // Arrival gates — a driver cannot claim to be somewhere the server's own GPS
 // trail proves they are not. AT_PICKUP / PASSENGER_ONBOARD must sit inside the
@@ -172,9 +182,16 @@ export async function setDispatchStatus({ dispatchId, to, session, reason = null
   const check = canTransitionDispatch(before[0].status, to);
   if (!check.ok) throw new AuthError(check.reason, 409);
 
+  // Cancellation is a CHAIN — the dispatch stands down, its open trips stand
+  // down, and the originating request is released — so it takes the
+  // transactional path below. Everything else is a single flip.
+  if (to === "Cancelled") {
+    return cancelDispatch({ dispatchId, before: before[0], session, reason });
+  }
+
   const { rows } = await query(
     `UPDATE dispatchschedules SET status = $1, cancel_reason = $2, updated_at = NOW() WHERE dispatch_id = $3 RETURNING *`,
-    [to, to === "Cancelled" ? (reason?.trim() || null) : null, dispatchId]
+    [to, null, dispatchId]
   );
   if (!rows[0]) throw new AuthError("Dispatch not found", 404);
 
@@ -183,20 +200,6 @@ export async function setDispatchStatus({ dispatchId, to, session, reason = null
   if (rows[0]?.driver_id) p.push(syncDriverStatus(rows[0].driver_id).catch(() => {}));
   if (to === "Scheduled" || to === "In Progress") p.push(ensureTripForDispatch(dispatchId).catch(() => {}));
   await Promise.all(p);
-
-  // Cancelling a dispatch stands down its open trips and cancels the underlying
-  // transportation request. Best-effort — the dispatch flip is already committed.
-  if (to === "Cancelled") {
-    await query(
-      `UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW()
-        WHERE dispatch_id = $1 AND deleted_at IS NULL
-          AND trip_status NOT IN ('Completed', 'Cancelled')`,
-      [dispatchId]
-    ).catch(() => {});
-    await cancelRequestForDispatch(dispatchId, session, reason).catch((e) =>
-      console.warn("dispatch-cancel -> request Cancelled sync failed:", e?.message || e)
-    );
-  }
 
   await writeAudit(null, session, {
     action: "update",
@@ -209,27 +212,125 @@ export async function setDispatchStatus({ dispatchId, to, session, reason = null
   return rows[0];
 }
 
-/** Advance the transportation request behind a dispatch to Cancelled. */
-async function cancelRequestForDispatch(dispatchId, session, reason) {
-  const { rows } = await query(
-    `SELECT request_id FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
-    [dispatchId]
-  );
-  const requestId = rows[0]?.request_id;
-  if (!requestId) return;
-  const { advanceReservation } = await import("@/services/reservation-lifecycle.service");
-  const constants = await import("@/lib/constants");
-  const L = constants.RESERVATION_LIFECYCLE;
-  const E = constants.RESERVATION_EVENT;
-  await advanceReservation({
-    requestId,
-    toStatus: L.CANCELLED,
-    session,
-    eventType: E.CANCELLED,
-    description: reason || "Dispatch cancelled.",
-    metadata: { dispatch_id: dispatchId },
-    patch: { status_reason: reason },
+/**
+ * Stand a dispatch down.
+ *
+ * Business rule (the one both cancel dialogs already promise): the vehicle and
+ * driver return to the pool and the ORIGINATING REQUEST KEEPS ITS CLAIM ON THE
+ * GUEST — it is released back to Scheduled and stays re-assignable. Only an
+ * explicit request cancellation (PUT /api/integration/transport-requests/[id]/
+ * cancel) cancels the request.
+ *
+ * This used to call `advanceReservation(... Cancelled)` and do it all
+ * best-effort, so the dispatch flip could commit while the request transition
+ * silently failed, leaving a half-cancelled chain — and every cancellation
+ * cancelled a guest's transport whether or not anyone asked for that.
+ *
+ * Everything durable commits in ONE transaction: the dispatch flip (re-checked
+ * under FOR UPDATE, so a status change between the read and the write cannot be
+ * cancelled by mistake), the cancellation of its open trips, and the release of
+ * the request. A Completed trip is history and stays Completed. Derived
+ * resource statuses and the outbound notice to Booking happen AFTER the commit,
+ * where a failure can no longer unwind it.
+ */
+async function cancelDispatch({ dispatchId, before, session, reason }) {
+  const cleanReason = typeof reason === "string" && reason.trim() ? reason.trim() : null;
+
+  const { dispatch, request } = await withTransaction(async (tx) => {
+    const { rows: locked } = await tx.query(
+      `SELECT dispatch_id, dispatch_number, status, vehicle_id, driver_id, request_id
+         FROM dispatchschedules WHERE dispatch_id = $1 FOR UPDATE`,
+      [dispatchId]
+    );
+    if (!locked[0]) throw new AuthError("Dispatch not found", 404);
+    const recheck = canTransitionDispatch(locked[0].status, DISPATCH_CANCELLED);
+    if (!recheck.ok) throw new AuthError(recheck.reason, 409);
+
+    // Open trips stand down; Completed trips are untouched history.
+    await tx.query(
+      `UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW()
+        WHERE dispatch_id = $1 AND deleted_at IS NULL
+          AND trip_status NOT IN ('Completed', 'Cancelled')`,
+      [dispatchId]
+    );
+
+    const { rows } = await tx.query(
+      `UPDATE dispatchschedules SET status = $1, cancel_reason = $2, updated_at = NOW()
+        WHERE dispatch_id = $3 RETURNING *`,
+      [DISPATCH_CANCELLED, cleanReason, dispatchId]
+    );
+    if (!rows[0]) throw new AuthError("Dispatch not found", 404);
+
+    // Release the request. Read it under the transaction's own connection so the
+    // status validated here is the status written.
+    const requestId = rows[0].request_id;
+    let released = { ok: true, request: null };
+    if (requestId) {
+      const { rows: reqRows } = await tx.query(
+        `SELECT request_id, fleet_status FROM transportation_requests
+          WHERE request_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [requestId]
+      );
+      // A request that already reached a terminal state has nothing to release:
+      // its dispatch outlived the request, and the stand-down is still legal.
+      if (reqRows[0] && !isTerminalReservationStatus(reqRows[0].fleet_status)) {
+        released = await advanceReservation({
+          requestId,
+          toStatus: RELEASE_TO_STATUS,
+          session,
+          eventType: E.DISPATCH_RELEASED,
+          description: cleanReason
+            ? `Dispatch stood down: ${cleanReason}`
+            : "Dispatch stood down; the request is back in the queue for reassignment.",
+          metadata: {
+            dispatch_id: dispatchId,
+            dispatch_number: rows[0].dispatch_number ?? null,
+            cancelled_from: locked[0].status,
+            request_status_before: reqRows[0].fleet_status,
+            reason: cleanReason,
+          },
+          // The pair returns to the pool, so the request stops advertising it.
+          patch: { vehicle_id: null, driver_id: null, status_reason: cleanReason },
+          // Outbound runs after COMMIT, below — never while holding a connection.
+          notifyBooking: false,
+          db: tx,
+        });
+      }
+    }
+    if (!released.ok) {
+      // Aborts the transaction, so the dispatch flip and the trip stand-down
+      // roll back with it: no half-cancelled chain.
+      throw new AuthError(
+        released.error || "The originating request could not be released.",
+        released.status || 409
+      );
+    }
+
+    return { dispatch: rows[0], request: released.request };
   });
+
+  // Derived statuses are recomputed on demand and self-heal, so these stay
+  // best-effort — the cancellation is already committed.
+  const p = [];
+  if (dispatch?.vehicle_id) p.push(syncVehicleStatus(dispatch.vehicle_id).catch(() => {}));
+  if (dispatch?.driver_id) p.push(syncDriverStatus(dispatch.driver_id).catch(() => {}));
+  await Promise.all(p);
+
+  if (request) {
+    await emitTransportStatus(request, {}).catch((e) =>
+      console.warn("dispatch-cancel -> Booking notification failed:", e?.message || e)
+    );
+  }
+
+  await writeAudit(null, session, {
+    action: "update",
+    resource: "dispatchschedules",
+    resourceId: dispatchId,
+    oldValues: { status: before.status, reason: cleanReason },
+    newValues: { status: DISPATCH_CANCELLED, request_status: request?.fleet_status ?? null },
+  });
+
+  return dispatch;
 }
 
 /** Advance the transportation request behind a dispatch to In Progress. */
@@ -240,13 +341,9 @@ async function advanceRequest(dispatchId, session, tripId) {
   );
   const requestId = rows[0]?.request_id;
   if (!requestId) return;
-  const { advanceReservation } = await import("@/services/reservation-lifecycle.service");
-  const constants = await import("@/lib/constants");
-  const L = constants.RESERVATION_LIFECYCLE;
-  const E = constants.RESERVATION_EVENT;
   await advanceReservation({
     requestId,
-    toStatus: L.IN_PROGRESS,
+    toStatus: RESERVATION_LIFECYCLE.IN_PROGRESS,
     session,
     eventType: E.TRIP_STARTED,
     description: `Trip #${tripId} started.`,

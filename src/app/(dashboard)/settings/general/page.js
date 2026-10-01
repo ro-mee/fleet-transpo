@@ -315,7 +315,7 @@ export default function SettingsGeneralPage() {
   const seedNaiaMutation = useMutation({
     mutationFn: () => seedNaiaRoutes(),
     onSuccess: () => {
-      toast.success("NAIA T1–T3 arrival/departure routes synced successfully!");
+      toast.success("Airport routes synced successfully!");
       queryClient.invalidateQueries({ queryKey: ["routes"] });
     },
     onError: (err) => {
@@ -423,7 +423,7 @@ export default function SettingsGeneralPage() {
                       id="hotel_name"
                       value={form.hotel_name}
                       onChange={(e) => setForm((p) => ({ ...p, hotel_name: e.target.value }))}
-                      placeholder="e.g. CoCo Star Hotel"
+                      placeholder="e.g. Grand Bay Hotel"
                       className="h-10 rounded-xl border-border/80"
                     />
                   </div>
@@ -548,7 +548,7 @@ export default function SettingsGeneralPage() {
                     className="h-9 text-xs rounded-xl"
                   >
                     <Plane className="w-4 h-4 mr-1.5 text-info" />
-                    {seedNaiaMutation.isPending ? "Syncing Routes..." : "Sync NAIA T1–T3 Routes"}
+                    {seedNaiaMutation.isPending ? "Syncing Routes..." : "Sync Airport Routes"}
                   </Button>
 
                   <div className="flex flex-col items-end gap-1">
@@ -1006,8 +1006,8 @@ export default function SettingsGeneralPage() {
         open={naiaConfirmOpen}
         onOpenChange={setNaiaConfirmOpen}
         variant="warning"
-        title="Re-seed NAIA routes?"
-        message="This creates or updates the six canonical NAIA T1–T3 arrival/departure endpoints and their hotel routes. Retired terminal history is preserved; Terminal 4 is not active."
+        title="Re-seed airport routes?"
+        message="This creates or updates the airport terminal endpoints and their hotel routes from the seed defaults. Custom terminals stay managed via /routes/locations; retired terminal history is preserved."
         confirmLabel="Sync routes"
         loading={seedNaiaMutation.isPending}
         onConfirm={() => {

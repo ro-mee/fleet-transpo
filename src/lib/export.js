@@ -47,3 +47,45 @@ export function exportToJSON(data, filename) {
   downloadBlob(blob, stampedName);
   return { count: data.length, filename: stampedName };
 }
+
+/**
+ * Collect the WHOLE filtered set from a paginated list endpoint.
+ *
+ * Exists because "export the visible list" was implemented as a single call
+ * whose result was handed straight to `exportToCSV`. Paginated endpoints answer
+ * with an envelope — `{ rows, total, counts }` — not an array, and
+ * `exportToCSV` tests `data?.length`, which is `undefined` on an object: it
+ * returned `count: 0`, wrote no file, and the caller toasted a success anyway.
+ * Reading `rows` and walking the pages is the fix, and keeping it in one place
+ * means every export path inherits it.
+ *
+ * @param {(page: number, pageSize: number) => Promise<object|Array>} fetchPage
+ *   Resolves the endpoint's envelope (`{ rows, total }`) or, for endpoints that
+ *   do answer with a bare array, that array.
+ * @param {object} [options]
+ * @param {number} [options.pageSize] rows requested per page
+ * @param {number} [options.maxPages] hard stop, so a bad `total` cannot loop
+ * @returns {Promise<Array>} every row the endpoint reports for the filter
+ */
+export async function collectPagedRows(fetchPage, { pageSize = 100, maxPages = 100 } = {}) {
+  const first = await fetchPage(1, pageSize);
+  if (Array.isArray(first)) return first;
+
+  const rows = [...(first?.rows || [])];
+  const total = Number(first?.total) || rows.length;
+
+  for (let page = 2; rows.length < total && page <= maxPages; page += 1) {
+    const next = await fetchPage(page, pageSize);
+    if (Array.isArray(next)) {
+      if (!next.length) break;
+      rows.push(...next);
+      continue;
+    }
+    const batch = next?.rows || [];
+    // A short-but-nonempty page or an empty one both mean "there is no more".
+    if (!batch.length) break;
+    rows.push(...batch);
+  }
+
+  return rows;
+}

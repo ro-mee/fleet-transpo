@@ -126,13 +126,21 @@ export async function groundIncident({ incident, session, req = null }) {
         // Re-derive priority outside the pure engine path: the request is back
         // in ACTIVE_NOT_STARTED, so a past pickup becomes Overdue at the top
         // of the queue. Best-effort — a priority miss must not roll back the requeue.
+        //
+        // It runs on `tx`, not the pool. `recomputeDerivedPriority` writes
+        // `transportation_requests`, and this transaction already holds that
+        // row's lock (the UPDATE above) — on a second connection the write
+        // would wait on a lock only this transaction can release: a
+        // self-deadlock that the `catch` below would swallow, leaving the
+        // priority silently stale and the request stalled until the statement
+        // timeout.
         try {
           const { recomputeDerivedPriority } = await import("@/services/priority.service");
           const { rows: reqRows } = await tx.query(
             `SELECT request_id, pickup_datetime, fleet_status, is_vip, is_emergency FROM transportation_requests WHERE request_id = $1`,
             [dispatch.request_id]
           );
-          if (reqRows[0]) await recomputeDerivedPriority(reqRows);
+          if (reqRows[0]) await recomputeDerivedPriority(reqRows, null, tx);
         } catch (e) {
           console.warn("incident requeue priority recompute failed:", e?.message || e);
         }

@@ -376,3 +376,42 @@ Eight-item remediation from the Dispatch Copilot audit (deterministic ranking vs
 All assignment paths now share candidate context and route-feasibility revalidation, including independent next commitments for driver and vehicle. Hard conflicts cannot be forced; reviewable uncertainty requires an explicit reason where applicable. Future On Leave/Off Duty status can be superseded only by loaded, valid work-window and leave evidence. A short transaction rechecks an evidence hash before writing. Request assignment and its dispatch are committed together, and resolved service arrival is persisted. Current implementation serializes brief operational writes for the small fleet; provider calls stay outside the transaction.
 
 Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]]. Full suite: 1,140 passing tests; later focused checks: 37 passing tests; web build, Android export, route-auth audit and migration/query verification passed.
+
+## Dispatch stand-down vs request cancellation — 2026-10-01 (implemented)
+
+The cancel dialog on `/dispatch/[id]` promised *"the originating request keeps its own status — reassign or re-dispatch it from the queue"*, and the code did the opposite: `setDispatchStatus()` explicitly called `advanceReservation(... Cancelled)`. Live evidence on 2026-10-01: **4 requests were `Cancelled` solely because someone had stood a dispatch down**, and the two acts were indistinguishable afterwards.
+
+### The rule now enforced
+
+| Act | Endpoint | Dispatch | Open trips | The guest's request |
+|---|---|---|---|---|
+| **Request cancellation** | `PUT /api/integration/transport-requests/[id]/cancel` | Cancelled (incl. `Pending Reassignment`) | Cancelled | **Cancelled** — plus `vehicle_id`/`driver_id` cleared |
+| **Dispatch stand-down** | `PUT /api/dispatch/[id]/cancel` | Cancelled | Cancelled | **Released to `Scheduled`** — pair cleared, assignable again, guest still has transport |
+
+A `Completed` trip is history and stays `Completed` on either path. A request that already reached a terminal state is left alone, but its dispatch still stands down (that is the shape of the four live rows above).
+
+### One transaction, then the outbound notice
+
+`cancelDispatch()` in `src/services/transition.service.js` replaced the previous best-effort sequence, which could commit the dispatch flip and then silently fail the request transition — a half-cancelled chain:
+
+1. `SELECT … FROM dispatchschedules WHERE dispatch_id = $1 FOR UPDATE`, and `canTransitionDispatch` is re-checked **on the locked row**, closing a TOCTOU between the route's read and its write.
+2. Open trips stand down (`trip_status NOT IN ('Completed','Cancelled')`).
+3. The dispatch flips to `Cancelled` with `cancel_reason`.
+4. The request is read `FOR UPDATE`; if it is not terminal it is **released** through the single writer — `advanceReservation({ toStatus: "Scheduled", db: tx, notifyBooking: false, patch: { vehicle_id: null, driver_id: null, status_reason } })` — which writes the status, the timeline event and the derived-priority recompute **on the transaction's own connection**.
+5. A refused release throws, rolling the whole chain back.
+6. After `COMMIT`: derived vehicle/driver sync (best-effort, self-heals) and the Booking outbound notice. Nothing external runs while a pooled connection is held, and no failure there can unwind the cancellation.
+
+### Two pieces of plumbing this needed
+
+- **`advanceReservation({ db })`** (`src/services/reservation-lifecycle.service.js`): an optional open transaction, used for the `loadRequest` read and every `UPDATE`, so a caller's transaction really contains the status write. `recomputeDerivedPriority()` gained the same optional connection — on the *pooled* connection its `UPDATE transportation_requests` would block on the row lock the transition already holds and deadlock until `statement_timeout`.
+- **`Assigned → Scheduled`** in the reservation adjacency (see [[Reservation State Machine]]): the release hop for the pre-start case. Without it the release is impossible, which is *why* the old code cancelled the request instead.
+
+### Timeline vocabulary
+
+A new event type, `RESERVATION_EVENT.DISPATCH_RELEASED` (`"dispatch_released"`), from_status `Assigned`, to_status `Scheduled`. Deliberately distinct from `INCIDENT_REQUEUED` (an `In Progress` abort caused by an incident) and from `CANCELLED`. `reservation_events.event_type` is a free `varchar(50)` with no CHECK, so no migration was needed — confirmed against the live catalog, not the migration files. `src/components/reservations/reservation-timeline.jsx` renders it as *"Dispatch cancelled — request released"*.
+
+### Copy and verification
+
+The dialog now states the real outcome ("The guest's request is NOT cancelled — it is released back to Scheduled and stays in the queue so you can assign a replacement pair"), the Cancel button is still only offered for `Scheduled`/`In Progress` dispatches (the state machine refuses a terminal one), and the success toast says *"Dispatch stood down — the request is back in the queue for reassignment"*.
+
+`src/services/transition.service.test.js` (11 tests) drives the real `advanceReservation` against a fake transaction and pins: released-to-`Scheduled` (never `Cancelled`), pair cleared, dispatch flip and trip cancellation inside the same transaction, `Completed` trips untouched, terminal requests left alone but the dispatch still cancelled, a refused release aborting the chain (no audit, no outbound), Booking notified only after commit, and the audit carrying both statuses. `scripts/verify-cancel-cascade.mjs` was updated to the corrected rule for both directions (it needs a running dev server to execute).

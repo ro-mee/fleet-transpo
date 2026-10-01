@@ -17,6 +17,19 @@ related: ["[[Dispatch]]", "[[AI Architecture]]"]
 
 # Feature: AI Advisory
 
+## Manual follow-up: AI Insights scope is not dispatch readiness — 2026-10-01
+
+Read-only replay reproduced the reported split exactly: AI Insights said 20/21 vehicles were “ready for guest dispatch”, while the real Today Resource Availability endpoint returned 1 ready / 20 blocked. The numbers are from different scopes:
+
+- `generateFleetInsights()` counts only `vehicle_status = 'Available'` over all non-deleted vehicles (live: 20 Available + 1 Under Maintenance);
+- Resource Availability evaluates a vehicle–driver pair for a date/window, including operational status, pairing, shift/leave, overlap, insurance/registration, number coding and licence evidence.
+
+For the replayed Manila day the 20 blocks were 15 number-coding restrictions, 3 missing usable pairings, 1 expired insurance and 1 Under Maintenance. Therefore the numerical difference is expected, but **“ready for guest dispatch” is an overclaim**: the AI metric proves only “marked Available”.
+
+**Fixed the same day.** `generateFleetInsights()` now reads *“Fleet status is Available on 20 of 21 vehicles (95%). Dispatch readiness is a different question — it also needs a cleared driver, the requested window, compliance and number coding, so check Resource Availability.”* — verified against live data. The page's deterministic-mode paragraph names its real coverage (fleet status, compliance, maintenance) and links to the Incidents registry for incident SLA state, and the severity count reads **Active Insights** rather than “Active Alerts”, so this feed no longer presents itself as the incident/safety alert feed. Four `rule-engine.test.js` cases pin the wording, including that a status count must never be described as dispatch readiness.
+
+**Still open, deliberately:** AI Insights does **not** read incidents. Its deterministic cards cover fleet status, maintenance grounding, driver licence and LTO renewal, so incident #110 is correctly overdue in the Incidents registry and absent here. Teaching this feed to ingest incident SLA findings — or widening the escalation severity set — is a product decision that was not taken. Full evidence: [[Manual Functional Testing Follow-up Audit]].
+
 ## Background poll no longer looks like a reload — the three residual isFetching surfaces - 2026-09-24
 
 **The residue the 2026-09-19 correction deliberately left is now closed.** That entry fixed the Assign gate (keyed on `query.isLoading`, error/stale reordered above) and reported, without changing, three ambient `query.isFetching` surfaces in `ai-recommendation-panel.jsx`: the header chip still flipped to *Checking* on every 30-second background poll, and *Recheck reservation* both disabled and animated its spinner on one. Same defect class, same visual complaint — a refresh that looks like a reload — scoped out because they were not the gate and no test pinned them.

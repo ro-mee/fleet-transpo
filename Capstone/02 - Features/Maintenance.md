@@ -310,6 +310,14 @@ Inspection failures (Quick Pre-Trip / Pre-Shift) create severity-classified find
 
 Note for anyone rendering inspection severity: `vehicleinspection.severity` carries **three vocabularies at once** and has no CHECK to settle them — the mobile route writes `None|Medium|High`, the demo seed writes `Minor|Moderate`, and the column default is `Minor`. Render it through the shared severity grammar (`status-badge.jsx`, `entity="severity"`) rather than a local ladder; the driver-portal card had a hand-written `Critical|Major` mapping that matched none of them and sent every real row to a grey "info" chip.
 
+## Manual follow-up: “0 health records” not reproduced — 2026-10-01
+
+`GET /api/ai/predictive-maintenance` was replayed read-only against live and returned **21 predictions**: 21 low-risk rows, 19 with no schedule/basis and 2 genuinely scheduled/healthy. The default page computes Healthy as `low - unscheduled`, therefore 2; with All/default selected the list should be 21, not 0. A selected empty risk filter legitimately changes the heading count to 0 because the heading uses `filteredPredictions.length`.
+
+“Vehicle Telemetry Health Records” is misleading terminology: these rows are computed predictions, not persisted health records. They are generated even with no maintenance history. The vehicle grounded by incident #110 is present, but has risk `low`, score 50, no basis and a recommendation to add service date/mileage. That is not a contradiction: incident grounding is current operational state and an active repair; predictive risk is derived from next-service schedule/usage. The screens need clearer scope wording.
+
+**Fixed the same day.** The heading now reads **“Vehicle Health Predictions (N)”**, and a filtered view reads `(N of total)` so an empty filter cannot be mistaken for an empty fleet. Engine, KPI band and scoring are untouched, and the reported default-view zero was never reproduced (the endpoint returns 21 predictions: 19 unscheduled, 2 scheduled/healthy). Full evidence: [[Manual Functional Testing Follow-up Audit]].
+
 ## Database tables used
 
 `vehiclemaintenance` · `vehicles` (odometer) · `notifications`

@@ -73,3 +73,17 @@ Read `chk_dispatch_status` from `information_schema` and assert it matches `RANK
 ## Related
 
 [[Dispatch]] · [[State Machines]] · [[Trip State Machine]] · [[Reservation State Machine]] · [[dispatchschedules]] · [[BUG Pending Reassignment Not In State Machine]]
+
+## What cancelling a dispatch means — 2026-10-01 (implemented)
+
+The graph above answers "may this dispatch change status". It does not answer **what else moves**, and that is where the defect was: `setDispatchStatus(→ Cancelled)` also cancelled the originating transportation request, so standing a dispatch down silently cancelled a guest's transport. Live evidence: **4 requests were `Cancelled` for no reason other than a dispatch stand-down**.
+
+The dispatch machine's edges are unchanged. What changed is the chain the `Cancelled` edge runs, and it is now all-or-nothing:
+
+1. re-read the dispatch `FOR UPDATE` and re-validate the hop against the locked row (closes the TOCTOU between the route's read and its write);
+2. cancel the dispatch's **open** trips — a `Completed` trip is history and stays `Completed`;
+3. flip the dispatch to `Cancelled`;
+4. **release** (not cancel) the request to `Scheduled`, pair cleared, through the single writer — which is why the reservation adjacency needed the `Assigned → Scheduled` release hop;
+5. `COMMIT`, then sync the derived vehicle/driver statuses and notify Booking. Nothing external runs while a connection is held.
+
+Full rule table, plumbing and verification: [[Dispatch#Dispatch stand-down vs request cancellation — 2026-10-01 (implemented)]].

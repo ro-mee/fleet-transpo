@@ -35,6 +35,7 @@ import {
   rescheduleRequest,
 } from "@/services/transport.service";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
+import { describeBookingNotify } from "@/lib/integration/booking-notify";
 import { cn, formatDateTime, formatDistance, formatDuration } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -223,8 +224,10 @@ export default function ReservationDetailPage() {
     // The required reason arrives from ConfirmDialog's onConfirm — same contract
     // the queue's cancel dialog uses.
     mutationFn: (why) => cancelRequest(requestId, why || null),
-    onSuccess: () => {
-      toast.success("Request cancelled — Booking will be notified");
+    onSuccess: (res) => {
+      // Reports the actual hand-off (including a mock gateway) rather than
+      // promising Booking was notified — see describeBookingNotify.
+      toast.success(`Request cancelled. ${describeBookingNotify(res?.booking_notify)}`);
       setCancelling(false);
       setReason("");
       invalidate();
@@ -536,7 +539,7 @@ export default function ReservationDetailPage() {
         onOpenChange={setCancelling}
         variant="danger"
         title="Cancel Transport Request"
-        message="Cancelling this request also stands down any dispatch and trip already raised for it, and notifies the Booking system that the booking will not be fulfilled."
+        message="Cancelling this request also stands down any dispatch and trip already raised for it, and queues a notice telling Booking the booking will not be fulfilled. Whether that notice leaves Fleet depends on the Booking gateway being connected — the result is reported when the cancellation completes."
         confirmLabel="Cancel request"
         cancelLabel="Keep request"
         requireReason

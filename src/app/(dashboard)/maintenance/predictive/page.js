@@ -110,7 +110,14 @@ export default function PredictiveMaintenancePage() {
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
           <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-            <Wrench className="w-4 h-4 text-warning" /> Vehicle Telemetry Health Records ({filteredPredictions.length})
+            {/* "Health Records" was the wrong noun: these rows are one COMPUTED
+                prediction per vehicle, not persisted records, and they exist
+                even with no maintenance history. The count also follows the
+                active risk filter, so a filter with no matches legitimately
+                shows 0 — the "of N" makes that self-explaining rather than
+                reading as an empty fleet. */}
+            <Wrench className="w-4 h-4 text-warning" /> Vehicle Health Predictions ({filteredPredictions.length}
+            {riskFilter !== "all" ? ` of ${summary.total}` : ""})
           </CardTitle>
           {riskFilter !== "all" && (
             <button

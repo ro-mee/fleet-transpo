@@ -198,3 +198,65 @@ sections this change did not touch — not regressions.
 ## Related
 
 [[RBAC]] · [[Database Overview]] · [[Fuel]] · [[Current State]] · [[Feature Index]]
+
+## Manual functional testing remediation — 2026-10-01 (implemented)
+
+Three reported reporting/export symptoms. Everything here was diagnosed read-only first, and two of the three turned out to be **display** defects over correct API data.
+
+### The Fleet report was inventing a vehicle
+
+`fleetData` fell back to `[{ plate: "ABC-1234", trips: 1, distance: 0 }]` whenever `reportData.byVehicle` was empty — which includes the **entire loading phase** — and to a single roster vehicle with an invented trip when only the roster was present. The KPI band did the same at a smaller scale: `utilization` printed a hard-coded `4%` when the real value was `0`, `tripsDisplay` printed `1`, and "MOST DISPATCHED" printed `ABC-1234` / `1 trips`. (Coincidentally, `ABC-1234` *is* a real plate in this fleet, which is what made the fabrication look plausible.)
+
+All of it is gone. `fleetData` is activity-only; an empty window renders `NoData` ("No completed fleet activity in this period"); the KPIs print the report's own zeros; "MOST DISPATCHED" reads `No trips recorded` / `0 trips`; and the panel header reads `Loading…` / `Top N` / `No activity` instead of a permanent `Top 1`. The AI Analyst narrates `reportData` (always the real payload), so the *displayed* figures now agree with the *narrated* ones — the disagreement reported in testing.
+
+### "All Time shows 0 completed trips while shorter periods show 4" — not reproducible
+
+The plan's own gate was "identify the first layer where values diverge". A **read-only** probe against live on 2026-10-01 answered the API layer directly:
+
+| Probe | All Time (1970-01-01 → 2100-01-01) | Trailing 30 days |
+|---|---|---|
+| `getDriverPerformanceReport().totalCompletedTrips` | 4 | 4 |
+| Completed trips by `end_time` (no driver join) | 6 | 4 |
+| `getFleetUtilizationReport().totalTrips` (by `start_time`) | 6 | 4 |
+
+So All Time already **contains** every shorter window at the report layer; there is no zero. The remaining real inconsistency is adjacent and is worth naming: **the reports window on different date columns** — fleet utilisation filters on `start_time`, driver performance on `end_time`, maintenance on `maintenance_date`, fuel on its own event date — and the analytics request-volume charts count `created_at`. A trip that starts at 23:00 and ends at 01:00 lands in different buckets depending on which report asks.
+
+Rather than "fix" a formula that is not broken, the invariant is now pinned at both levels: `resolvePresetRange("all")` must contain `30d`/`90d`/`year` and the page must render the server's total unchanged (`drivers/performance/page.test.js`), and every `getDriverPerformanceReport` query must carry the same half-open `end_time >= $1::date AND < ($2::date + 1)` predicate so a wider `$1/$2` can only *add* rows (`lib/reports/driver-punctuality.test.js`). The three live probes are reproducible from `scratch/qa-remediation-baseline.mjs` and `scratch/qa-remediation-reports.mjs`.
+
+### The AI narrative fired before its numbers existed
+
+`/analytics` created its narrative query with **no `enabled` gate** and a key of `["report-narrative","analytics",dateBounds,force]`. So on mount the analyst was handed a page of default zeros and asked to describe them as fact, and because the metric snapshot was not part of the key, a response could narrate numbers that were no longer on screen.
+
+Now: `enabled` requires all five feeds (`fleet`, `fuel`, `financial`, `drivers`, `prediction`) to have **succeeded**; the key carries a fingerprint of the actual snapshot **and** the window; and rendering is guarded by report **and** range (`isNarrativeForRange()` in `src/lib/ai/report-narrative.js`, alongside the existing per-report guard) so a response from another period can never appear under this period's KPI band. A failed feed stops the skeleton and shows the honest "Awaiting analysis" state instead of waiting forever. The Reports page keeps its existing per-tab guard.
+
+The raw-CSV button in the header also discarded `exportToCSV`'s result and said nothing; it is now a handler that refuses to export a row of zeros before the feeds have loaded and reports the filename when a download starts.
+
+### Trend/Calendar "looks reversed" — the mapping was fine, the scopes were not
+
+Verified in code: the toggle maps `chart` → Trend and `calendar` → Calendar, `aria-pressed` follows the value, and the rendered branch matches the pressed pill. Nothing was reversed. What *was* wrong is that each view silently reported a different scope from the one the control implied:
+
+- the Trend series was hard-coded to **7 or 14 days** regardless of the timeframe control, while its subtitle claimed "Requests per day across the selected period" — selecting 30 Days or This Month changed nothing but the axis;
+- the Calendar is a month grid, so it can only ever show the **current calendar month**, a scope the control cannot express;
+- both count requests **created** (booking intake), while the rest of the dashboard counts trips and fuel events.
+
+The click mapping is untouched. The trend now plots the selected window, capped at 31 days because a per-day series from 1970 is not a chart — and when the cap bites ("All Time") the panel says so. A single `pickupTrendScope` string feeds both the subtitle and the chart's `aria-label`, so the picture and its description cannot disagree. The calendar header names its month and carries a "Calendar month" chip, and its `aria-label` states it does not follow the timeframe control. Both views now say "requests created".
+
+### Exports: the download has to actually start
+
+- **`getWorkbook()`** (`src/services/report.service.js`) rejected a non-OK response before, but accepted anything else. It now also rejects an **empty body** and a content type that is not `spreadsheetml`, because `downloadBlob` saves whatever it is handed — a 200 HTML "please sign in" page would otherwise land in Downloads as a corrupt `.xlsx` while the page reported success.
+- Every workbook/CSV toast in Reports and Analytics now says the download **started** and names the file, because the browser cannot confirm a saved file. The fuel console's export uses the same wording.
+
+`src/services/report.service.test.js` (5 tests) pins the filename fallback, the server's error message, the empty-body refusal and the HTML-instead-of-workbook refusal. `src/app/(dashboard)/reports/page.test.js` gained four Fleet-tab regressions (empty state, real zeros, no invention while loading, real activity rows) and `src/app/(dashboard)/analytics/page.test.js` gained six covering the gate, the fingerprint, the window guard and the report guard.
+
+### Downloaded files inspected — manual follow-up 2026-10-01
+
+The tester confirmed the browser download-start messages; the actual recent files in Downloads were then inspected with bundled `openpyxl`, Python CSV parsing and the shared Office package checker:
+
+- fuel permits CSV: **45 rows**, expected 11 columns, no width mismatch (21 Approved, 22 Fulfilled, 2 Rejected);
+- fuel receipt claims CSV: **1 row**, expected 8 columns, Pending;
+- analytics summary CSV: one aggregate row, 4 trips and 13.31 km for its selected period;
+- fleet activity workbook: valid XLSX; Summary/Analysis/Trends/Trip Details/Vehicle Roster; 6 trips, 39.85 km, 21 roster rows for the wider period;
+- same-day fleet workbooks: valid and honestly empty (0 trips / 0 distance);
+- analytics workbook: valid XLSX; Summary/Analysis/Trends/Vehicle Activity/Driver Leaderboard; 4 trips, 13.31 km; missing efficiency/punctuality shown as Insufficient data.
+
+This closes the file-content portion structurally and at aggregate-data level. It is not a pixel-level Excel/LibreOffice visual review. → [[Manual Functional Testing Follow-up Audit]]

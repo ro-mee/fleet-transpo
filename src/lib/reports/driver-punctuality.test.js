@@ -155,4 +155,46 @@ describe("getDriverPerformanceReport punctuality rewrite (Task 3)", () => {
     expect(tripSql).toContain("LEFT JOIN drivers d ON d.driver_id = t.driver_id");
     expect(tripSql).toContain("d.deleted_at IS NULL");
   });
+
+  // ── All Time must CONTAIN any shorter window ─────────────────────────────
+  //
+  // Reported symptom: "All Time shows 0 completed trips while shorter periods
+  // show 4". The API layer was the first place checked (the plan's gate): a
+  // read-only probe against live on 2026-10-01 returned totalCompletedTrips = 4
+  // for 1970-01-01→2100-01-01 AND for the trailing 30 days, and the fleet report
+  // returned 6 all-time against 4 for 30 days — i.e. the report layer is already
+  // a superset and the mismatch was not at DB/API level. These two tests pin
+  // that property so a future change to the window predicate cannot silently
+  // invert it.
+  it("sends the All Time window to every one of its queries", async () => {
+    mockReport();
+    await getDriverPerformanceReport("1970-01-01", "2100-01-01");
+    expect(vi.mocked(query).mock.calls).toHaveLength(3);
+    for (const call of vi.mocked(query).mock.calls) {
+      expect(call[1].slice(0, 2)).toEqual(["1970-01-01", "2100-01-01"]);
+    }
+  });
+
+  it("filters completed trips on the same half-open end_time window in every query", async () => {
+    mockReport();
+    await getDriverPerformanceReport("1970-01-01", "2100-01-01");
+    for (const call of vi.mocked(query).mock.calls) {
+      // `>= $1::date AND < ($2::date + 1)` is what makes the window half-open
+      // and therefore strictly expanding: a wider `$1/$2` can only ADD rows.
+      expect(call[0]).toContain("t.end_time >= $1::date AND t.end_time < ($2::date + 1)");
+      expect(call[0]).toContain("t.trip_status = 'Completed'");
+    }
+  });
+
+  it("returns the same total for All Time as for a window over the same rows", async () => {
+    // Same underlying rows ⇒ same headline total. This is the property the
+    // reported symptom violated (0 vs 4); the report must never re-filter in JS.
+    mockReport();
+    const all = await getDriverPerformanceReport("1970-01-01", "2100-01-01");
+    vi.clearAllMocks();
+    mockReport();
+    const month = await getDriverPerformanceReport("2026-09-01", "2026-09-30");
+    expect(all.totalCompletedTrips).toBe(month.totalCompletedTrips);
+    expect(all.totalCompletedTrips).toBe(15);
+  });
 });

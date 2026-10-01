@@ -210,3 +210,36 @@ the useful part:
 ## Related
 
 [[Request Lifecycle]] · [[Reservation State Machine]] · [[Dispatch]] · [[Feature Index]]
+
+## Manual functional testing remediation — 2026-10-01 (implemented)
+
+Four reported queue/request symptoms, all verified against the code and a read-only live probe before changing anything.
+
+### The request state machine gained a second release hop
+
+`Pending → Scheduled → Assigned → In Progress → Completed`, `Cancelled` from any non-terminal, **plus `Assigned → Scheduled`** — the pre-start counterpart of the existing `In Progress → Scheduled` incident requeue. Both are *release* hops: a committed pair goes back to the pool and the request re-enters the queue, still the guest's transport. `src/lib/scheduling/reservation-state.js` lists both in `RELEASE_INTO_SCHEDULED`, and `transitionPath`'s BFS refuses to use either as an intermediate leg of a longer invented path. Taken only by the teardown paths (`setDispatchStatus → Cancelled`, incident grounding), never by a forward workflow. → [[Dispatch]] · [[Reservation State Machine]]
+
+### "Today (6)" was not lying, the label was
+
+`QUEUE_TAB_PREDICATES.today` is `pickup_datetime <= today (Asia/Manila)` — today **or already past**. The vault already documented that as intentional dispatcher work grouping; the tab's bare word "Today" hid it, so a request dated the 15th under "Today (6)" read as a bug. The tab is now **Today & overdue**, with a tooltip and an `aria-label` that spell out the filter, and the empty state reads "Nothing today or overdue".
+
+The count badge and the highlight were two more honesty defects:
+
+- `counts[id] || 0` rendered `(0)` until the first response landed, which claims an empty queue. Badges now render `(…)` and announce "count loading" while `!countsReady`. `queueTabBadges()` in `src/lib/scheduling/smart-default-tab.js` returns `null` — not `0` — for "not loaded".
+- The highlighted tab was derived from `counts` (the tab the queue was about to steer *to*) while the query still fetched the fallback tab, so for the length of a fetch one tab was highlighted over another tab's rows. `resolveQueueTabView()` now returns `activeTab` = the **fetched** tab, and a `steerTo` decision that fires once, only when the user has not picked. A manual pick is still never yanked by a 30-second poll.
+
+Queue rows also stopped inventing: a null `pickup_datetime` printed a hard-coded "10:30 AM", and a request with no travel estimate printed a `request_id`-seeded "12 km · ~25 min" (the source comment said "so numbers look authentic"). Both now say what is true (`Time not set`, `Distance not estimated`).
+
+### The injector page read a contract the route never sent
+
+`/reservations/new` read `res.id` and `res.created`. `POST /api/integration/transport-requests` answers with the created (or already-on-file) request **row**: `request_id`, `reservation_number`, and `idempotent: true` on a replay. Every submission therefore toasted **"Created transport request #undefined"**. `describeIngestOutcome()` in the new `src/lib/integration/ingest-outcome.js` owns the reading — its own module, with no imports, because `ingest.js` pulls in `@/lib/db` and this is a client component. It prefers the reservation number, falls back to `#request_id`, never renders `undefined`, and reports a replay as "Already on file … returned unchanged".
+
+The mutation also invalidated only `["reservations"]`, which matches **no query in the app** — the queue and the register are keyed under `["transport-requests", …]`, so neither list refreshed after a submission. Both keys are invalidated now.
+
+### An explicit request cancel still cancels everything
+
+`PUT /api/integration/transport-requests/[id]/cancel` is unchanged except that its dispatch sweep now also covers a dispatch sitting at `Pending Reassignment` (an interrupted run whose pair the incident grounding had already released) — otherwise cancelling the request left a dispatch behind still holding the vehicle.
+
+### Verification
+
+`src/lib/scheduling/smart-default-tab.test.js` (+9), a new `src/app/(dashboard)/reservations/queue/page.test.js` (5), `src/lib/integration/ingest-outcome.test.js` (5), plus the touched-file ESLint and production build. Full suite 3484 passed / 6 failed, the six being the pre-existing failures already recorded for 2026-10-01.

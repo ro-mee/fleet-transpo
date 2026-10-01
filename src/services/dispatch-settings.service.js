@@ -3,9 +3,17 @@ import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
 
 const POLICY_KEY = "dispatch_policy";
 
-/** Read the stored dispatch policy (defaults when unset). */
-export async function getDispatchPolicy() {
-  const { rows } = await query(
+/**
+ * Read the stored dispatch policy (defaults when unset).
+ *
+ * @param {object} [db] optional connection ({ query }). Pass the transaction
+ *   when the read happens inside one: `query()` checks out a SECOND pool
+ *   connection, so a transaction that awaits it holds two — and with the whole
+ *   pool held by concurrent transactions, the wait for a spare connection can
+ *   only time out. See [[Connection Pooling vs Transactions]].
+ */
+export async function getDispatchPolicy(db = { query }) {
+  const { rows } = await db.query(
     `SELECT setting_value FROM system_settings WHERE setting_key = $1`,
     [POLICY_KEY]
   );

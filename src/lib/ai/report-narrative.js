@@ -77,6 +77,23 @@ export function isNarrativeForReport(narrative, report) {
 }
 
 /**
+ * Strict window guard: a narrative may only render for the date window it was
+ * generated for. The server echoes the `range` it narrated, so a response that
+ * arrives after the user changed the period — or a cached row keyed on a
+ * different window — is rejected rather than shown under the new window's
+ * figures.
+ *
+ * Both sides are compared as `from`/`to` strings with null for "no window"
+ * (the server stores an absent range as NULL, and `no-data` responses carry the
+ * requested range as-is).
+ */
+export function isNarrativeForRange(narrative, range) {
+  if (!narrative || !range) return false;
+  const narrated = typeof narrative.range === "object" && narrative.range !== null ? narrative.range : {};
+  return (narrated.from ?? null) === (range.from ?? null) && (narrated.to ?? null) === (range.to ?? null);
+}
+
+/**
  * Build a compact text snapshot of a report's headline numbers. This is what we
  * hand the LLM (kept small to avoid blowing the context window) AND roughly what
  * the deterministic fallback reasons over.

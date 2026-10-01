@@ -18,7 +18,8 @@ import {
   pullTransportRequests,
 } from "@/services/transport.service";
 import { QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
-import { smartQueueTab } from "@/lib/scheduling/smart-default-tab";
+import { QUEUE_FALLBACK_TAB, queueTabBadges, resolveQueueTabView } from "@/lib/scheduling/smart-default-tab";
+import { describeBookingNotify } from "@/lib/integration/booking-notify";
 import { cn } from "@/lib/utils";
 import {
   CalendarClock,
@@ -45,13 +46,53 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const REFETCH_MS = 30_000;
 
+// `label` is the visible tab name, `plainLabel` the same name in running text
+// (the empty state reads "Nothing <plainLabel>"), and `description` spells out
+// the filter for the tooltip and assistive technology.
+//
+// "Today" is deliberately "Today & overdue": the SQL predicate is
+// `pickup <= today (Asia/Manila)`, i.e. today **or already past**. The vault
+// documents that grouping as intentional dispatcher work ordering, but the bare
+// word "Today" hid it — a request dated the 15th appearing under "Today (6)" is
+// the label lying, not the query. See QUEUE_TAB_PREDICATES in
+// src/app/api/integration/transport-requests/route.js.
 const TAB_META = {
-  today: { label: "Today", icon: Inbox },
-  upcoming: { label: "Upcoming", icon: CalendarClock },
-  assigned: { label: "Assigned", icon: CarFront },
-  inProgress: { label: "In Progress", icon: PlayCircle },
-  completed: { label: "Completed", icon: CheckCircle2 },
-  cancelled: { label: "Cancelled", icon: XCircle },
+  today: {
+    label: "Today & overdue",
+    plainLabel: "today or overdue",
+    description: "Pickup today or already past — the dispatcher's now.",
+    icon: Inbox,
+  },
+  upcoming: {
+    label: "Upcoming",
+    plainLabel: "upcoming",
+    description: "Pickup on a later day.",
+    icon: CalendarClock,
+  },
+  assigned: {
+    label: "Assigned",
+    plainLabel: "assigned",
+    description: "Vehicle and driver committed; waiting on the driver to start.",
+    icon: CarFront,
+  },
+  inProgress: {
+    label: "In Progress",
+    plainLabel: "in progress",
+    description: "A trip is running now.",
+    icon: PlayCircle,
+  },
+  completed: {
+    label: "Completed",
+    plainLabel: "completed",
+    description: "Finished requests.",
+    icon: CheckCircle2,
+  },
+  cancelled: {
+    label: "Cancelled",
+    plainLabel: "cancelled",
+    description: "Stood-down requests.",
+    icon: XCircle,
+  },
 };
 
 const desktopQuery = "(min-width: 1280px)";
@@ -83,7 +124,11 @@ export default function UnifiedQueuePage() {
     setTabOverride(id);
     setPage(1);
   };
-  const fetchTab = tabOverride ?? "today";
+  // The tab this render fetches. `counts` only exist after this query resolves,
+  // so this one value is computed here and re-derived (with the steering
+  // decision) by resolveQueueTabView below. QUEUE_FALLBACK_TAB is the same
+  // constant that function uses, so the two can never disagree.
+  const fetchTab = tabOverride ?? QUEUE_FALLBACK_TAB;
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [busyId, setBusyId] = useState(null);
@@ -149,15 +194,17 @@ export default function UnifiedQueuePage() {
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const counts = data?.counts?.tabs || {};
   const countsReady = !isLoading && !isError;
-  const smartTab = smartQueueTab(counts, { ready: countsReady });
-  const tab = tabOverride ?? smartTab;
+  // One decision, made in one place: which tab may be highlighted (always the
+  // fetched one — never the tab we are steering to) and whether the deferred
+  // smart default still needs applying. See resolveQueueTabView.
+  const { activeTab: tab, steerTo } = resolveQueueTabView({ tabOverride, counts, countsReady });
+  const badges = queueTabBadges(QUEUE_TABS, counts, countsReady);
 
   useEffect(() => {
-    if (tabOverride || !countsReady) return;
-    if (smartTab === "today") return;
-    steerTimer.current = setTimeout(() => setTabOverride(smartTab), 0);
+    if (!steerTo) return;
+    steerTimer.current = setTimeout(() => setTabOverride(steerTo), 0);
     return () => clearTimeout(steerTimer.current);
-  }, [tabOverride, countsReady, smartTab]);
+  }, [steerTo]);
 
   // Selection handling:
   // When criteria change (tab, page, search), select the first visible row in the new result set.
@@ -225,8 +272,10 @@ export default function UnifiedQueuePage() {
   const cancelMutation = useMutation({
     mutationFn: (target) => cancelRequest(target.request_id, target.reason || null),
     onMutate: (target) => setBusyId(target.request_id),
-    onSuccess: () => {
-      toast.success("Request cancelled — Booking will be notified");
+    onSuccess: (res) => {
+      // Reports the actual hand-off (including a mock gateway) rather than
+      // promising Booking was notified — see describeBookingNotify.
+      toast.success(`Request cancelled. ${describeBookingNotify(res?.booking_notify)}`);
       setCancelTarget(null);
       invalidate();
     },
@@ -301,12 +350,22 @@ export default function UnifiedQueuePage() {
             const meta = TAB_META[id];
             const Icon = meta.icon;
             const active = tab === id;
+            // null = not loaded yet. It renders as a loading glyph and is
+            // announced as "count loading" — never as "0", which claims the
+            // queue is empty.
+            const badge = badges[id];
             return (
               <button
                 key={id}
                 type="button"
                 role="tab"
                 aria-selected={active}
+                aria-label={
+                  countsReady
+                    ? `${meta.label} — ${badge} request${badge === 1 ? "" : "s"}`
+                    : `${meta.label} — count loading`
+                }
+                title={meta.description}
                 onClick={() => pickTab(id)}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer",
@@ -317,7 +376,9 @@ export default function UnifiedQueuePage() {
               >
                 <Icon className="w-3.5 h-3.5" aria-hidden="true" />
                 {meta.label}
-                <span className="font-data text-[11px] opacity-80">({counts[id] || 0})</span>
+                <span className="font-data text-[11px] opacity-80" aria-hidden="true">
+                  {badge == null ? "(…)" : `(${badge})`}
+                </span>
               </button>
             );
           })}
@@ -406,7 +467,7 @@ export default function UnifiedQueuePage() {
                 title={
                   searching
                     ? "Nothing matches that search"
-                    : `Nothing ${TAB_META[tab]?.label.toLowerCase() || "here"}`
+                    : `Nothing ${TAB_META[tab]?.plainLabel || "here"}`
                 }
                 description={
                   searching
@@ -538,7 +599,7 @@ export default function UnifiedQueuePage() {
         onOpenChange={(open) => !open && setCancelTarget(null)}
         variant="danger"
         title="Cancel this request?"
-        message={`Cancelling "${cancelTarget?.guest_name || cancelTarget?.reservation_number || "this request"}" also cancels any dispatch and trip already raised for it, and notifies Booking. This can't be undone.`}
+        message={`Cancelling "${cancelTarget?.guest_name || cancelTarget?.reservation_number || "this request"}" also cancels any dispatch and trip already raised for it, and queues a cancellation notice for Booking. Whether that notice leaves Fleet depends on the Booking gateway being connected — the result is reported when the cancellation completes. This can't be undone.`}
         confirmLabel="Cancel request"
         cancelLabel="Keep request"
         requireReason

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,8 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { injectTransportRequest, pullTransportRequests } from "@/services/transport.service";
+import { describeIngestOutcome } from "@/lib/integration/ingest-outcome";
 import { getVehicleCategories } from "@/services/vehicle.service";
 import { getLocations } from "@/services/location.service";
+import { getHotelLocationSettings } from "@/services/settings.service";
 import {
   Loader2,
   FlaskConical,
@@ -70,13 +72,18 @@ export default function MockInjectorPage() {
     queryFn: () => getLocations(),
   });
 
+  const { data: hotelSettings } = useQuery({
+    queryKey: ["hotel-settings"],
+    queryFn: () => getHotelLocationSettings(),
+  });
+
   const [form, setForm] = useState({
     external_booking_id: "",
     source_system: "PMS",
     booking_reference: "",
     guest_name: "",
-    pickup_location: "NAIA Terminal 2 - Arrivals",
-    dropoff_location: "CoCo Star Hotel",
+    pickup_location: "",
+    dropoff_location: "",
     pickup_datetime: "",
     passenger_count: 1,
     special_requests: "",
@@ -84,18 +91,41 @@ export default function MockInjectorPage() {
     priority: "Normal",
   });
 
+  // Dynamic defaults from the live registry — never a brand literal. Derived
+  // during render (no setState-in-effect): the first airport-like location is
+  // the pickup, the configured hotel base the drop-off. Explicitly typed
+  // values always win over the derived defaults.
+  const defaultPickup = useMemo(() => {
+    const airport = (Array.isArray(locations) ? locations : []).find((loc) =>
+      /airport|terminal|arrivals|departures/i.test(String(loc?.name ?? ""))
+    );
+    return String(airport?.name ?? "");
+  }, [locations]);
+  const defaultDropoff = useMemo(
+    () => String(hotelSettings?.hotel_name ?? hotelSettings?.name ?? "").trim(),
+    [hotelSettings]
+  );
+
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
 
 
+  // The ingest POST answers with the created/found request row — `request_id`,
+  // `reservation_number`, and `idempotent: true` on a replay. It does NOT answer
+  // `{ id, created }`, which is what this read, so the toast said
+  // "Created transport request #undefined" for every submission.
   const injectMutation = useMutation({
     mutationFn: injectTransportRequest,
     onSuccess: (res) => {
-      toast.success(
-        res.created
-          ? `Created transport request #${res.id}`
-          : `Duplicate or updated request #${res.id}`
-      );
+      // The route answers with the created/found request ROW (request_id,
+      // reservation_number, idempotent?) — never `{ id, created }`, which is
+      // what this read and which produced "#undefined" on every submission.
+      const outcome = describeIngestOutcome(res);
+      toast.success(outcome.message);
+      // The queue and the register are keyed under ["transport-requests", ...];
+      // ["reservations"] matched no query in the app, so neither list ever
+      // refreshed after a submission.
+      queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
       router.push("/reservations");
     },
@@ -106,6 +136,7 @@ export default function MockInjectorPage() {
     mutationFn: () => pullTransportRequests(5),
     onSuccess: (res) => {
       toast.success(`Pulled ${res.total_received ?? 0} request(s) (${res.inserted_count ?? 0} created)`);
+      queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
     },
     onError: (err) => toast.error(err.message),
@@ -130,8 +161,8 @@ export default function MockInjectorPage() {
       source_system: ["PMS", "POS", "Web"][Math.floor(Math.random() * 3)],
       booking_reference: `REF-${r}`,
       guest_name: name,
-      pickup_location: form.pickup_location,
-      dropoff_location: form.dropoff_location,
+      pickup_location: form.pickup_location || defaultPickup,
+      dropoff_location: form.dropoff_location || defaultDropoff,
       pickup_datetime: dateStr,
       passenger_count: Math.floor(Math.random() * 4) + 1,
       special_requests: "Cold towels & bottled water requested.",
@@ -147,7 +178,11 @@ export default function MockInjectorPage() {
       toast.error("External Booking ID is required");
       return;
     }
-    injectMutation.mutate(form);
+    injectMutation.mutate({
+      ...form,
+      pickup_location: form.pickup_location || defaultPickup,
+      dropoff_location: form.dropoff_location || defaultDropoff,
+    });
   };
 
 
@@ -282,7 +317,7 @@ export default function MockInjectorPage() {
               label="Pickup Location"
               icon={MapPin}
               id="pickup_location"
-              value={form.pickup_location}
+              value={form.pickup_location || defaultPickup}
               onValueChange={(val) => set("pickup_location", val)}
               placeholder="Select Pickup Location"
             >
@@ -297,7 +332,7 @@ export default function MockInjectorPage() {
               label="Dropoff Location"
               icon={MapPin}
               id="dropoff_location"
-              value={form.dropoff_location}
+              value={form.dropoff_location || defaultDropoff}
               onValueChange={(val) => set("dropoff_location", val)}
               placeholder="Select Dropoff Location"
             >

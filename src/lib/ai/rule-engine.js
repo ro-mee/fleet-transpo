@@ -324,7 +324,14 @@ export function generateFleetInsights(vehicles = [], drivers = [], trips = []) {
       title: "Fleet Availability",
       category: "Fleet Utilization",
       severity: availPct >= 70 ? "low" : "medium",
-      summary: `Fleet operates at ${availPct}% active availability (${availableVehicles} of ${totalVehicles} vehicles ready for guest dispatch).`,
+      // The count is `vehicle_status = 'Available'` and NOTHING else. It used to
+      // read "N of M vehicles ready for guest dispatch", claiming a
+      // dispatchability this calculation never checks: no driver, no pairing, no
+      // window, no overlap, no compliance. Live, the Today pair endpoint returns
+      // 1 dispatchable pair against this card's 20 Available, and both numbers
+      // are correct for their own question. Name the question, and point at the
+      // surface that answers the other one.
+      summary: `Fleet status is Available on ${availableVehicles} of ${totalVehicles} vehicles (${availPct}%). Dispatch readiness is a different question — it also needs a cleared driver, the requested window, compliance and number coding, so check Resource Availability.`,
     }));
   }
 

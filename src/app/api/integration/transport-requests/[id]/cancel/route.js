@@ -22,9 +22,14 @@ export async function PUT(req, { params }) {
 
     const reason = (body?.reason || "").toString().slice(0, 1000) || null;
 
+    // Every open dispatch goes down with the request, including one sitting at
+    // Pending Reassignment (an interrupted run whose pair was already released
+    // by the incident grounding) — otherwise cancelling the request would leave
+    // a dispatch behind still holding the vehicle.
     const { rows: dispatches } = await query(
       `SELECT dispatch_id FROM dispatchschedules
-        WHERE deleted_at IS NULL AND status IN ('Scheduled', 'In Progress')
+        WHERE deleted_at IS NULL
+          AND status IN ('Scheduled', 'In Progress', 'Pending Reassignment')
           AND request_id = $1`,
       [id]
     );
@@ -56,6 +61,10 @@ export async function PUT(req, { params }) {
       newValues: { fleet_status: L.CANCELLED, reason },
     });
 
-    return ok(result.request);
+    // The row is the resource; `booking_notify` reports what the outbound leg
+    // actually did (gateway name, delivered flag). The UI needs it to state the
+    // real outcome instead of promising a notification the configured gateway
+    // may never make — see describeBookingNotify() on the client.
+    return ok({ ...result.request, booking_notify: result.bookingNotify ?? null });
   } catch (e) { return handleError(e); }
 }

@@ -3,7 +3,7 @@ import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
 import { computeDepartureWindow } from "@/lib/scheduling/departure-window";
 import { resolveEtaMinutes } from "@/lib/scheduling/start-window";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
-import { resolveCoordinates } from "@/lib/geo/distance";
+import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
 
 /**
  * GET /api/mobile/driver/trips
@@ -104,16 +104,18 @@ export async function GET(req) {
     // Routeless booking dispatches (trips whose dispatch carries a request but
     // no route) have no location rows to join, so their endpoint coordinates
     // come back null and the Home/Trip Details previews fall to "unavailable".
-    // Fill the gap with the shared gazetteer on the endpoint text — the same
-    // canonical → gazetteer → none chain getTripGeofenceTargets uses. Unmatched
-    // text stays null; coordinates are never guessed.
+    // Fill the gap from the live registry on the endpoint text — the same
+    // registry → hotel → gazetteer → none chain getTripGeofenceTargets uses
+    // (see src/lib/geo/dynamic-locations.js). Unmatched text stays null;
+    // coordinates are never guessed.
+    const db = { query };
     for (const t of rows) {
       if (t.origin_latitude == null && t.origin) {
-        const c = resolveCoordinates(t.origin);
+        const c = await resolveCoordinatesWithDb(db, t.origin);
         if (c) { t.origin_latitude = c.lat; t.origin_longitude = c.lng; }
       }
       if (t.destination_latitude == null && t.destination) {
-        const c = resolveCoordinates(t.destination);
+        const c = await resolveCoordinatesWithDb(db, t.destination);
         if (c) { t.destination_latitude = c.lat; t.destination_longitude = c.lng; }
       }
     }

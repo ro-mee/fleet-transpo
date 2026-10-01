@@ -370,27 +370,24 @@ export default function ReportsPage() {
   const analystLoading = (!activeQuery?.data && !activeQuery?.isError) || narrative.isLoading || narrative.isFetching || (narrativeEnabled && !narrativeForTab);
 
   const fleetData = useMemo(() => {
+    // Activity rows only — one entry per vehicle that actually ran a trip in the
+    // window. This used to fall back to a fabricated `ABC-1234 / 1 trip` (and,
+    // separately, to a single roster vehicle with an invented trip) whenever
+    // `byVehicle` was empty, which includes the entire loading phase. The Fleet
+    // report therefore showed a vehicle and a trip that never happened, and the
+    // AI Analyst narrated those invented numbers as fact. An empty window is an
+    // empty window: the chart renders its honest no-data state and the roster is
+    // not dressed up as activity.
     const list = reportData.byVehicle || [];
-    if (list.length) {
-      return list
-        .map((v) => ({
-          plate: formatPlate(v.plate),
-          trips: Number(v.trips) || 0,
-          distance: Math.round(Number(v.distance) || 0),
-        }))
-        .sort((a, b) => b.distance - a.distance || b.trips - a.trips)
-        .slice(0, 8);
-    }
-    const roster = reportData.vehicleRoster || [];
-    if (roster.length) {
-      return roster.slice(0, 1).map((v) => ({
-        plate: formatPlate(v.plate_number || v.plate || "ABC-1234"),
-        trips: 1,
-        distance: 0,
-      }));
-    }
-    return [{ plate: "ABC-1234", trips: 1, distance: 0 }];
-  }, [reportData.byVehicle, reportData.vehicleRoster]);
+    return list
+      .map((v) => ({
+        plate: formatPlate(v.plate),
+        trips: Number(v.trips) || 0,
+        distance: Math.round(Number(v.distance) || 0),
+      }))
+      .sort((a, b) => b.distance - a.distance || b.trips - a.trips)
+      .slice(0, 8);
+  }, [reportData.byVehicle]);
   const fuelTrend = useMemo(() => (reportData.monthlyData || []).map((v) => ({ ...v, liters: Number(v.liters) || 0, cost: Number(v.cost) || 0 })), [reportData.monthlyData]);
   const fuelCategories = useMemo(() => (reportData.byCategory || []).map((v) => ({ category: v.category || "General fleet", liters: Number(v.liters) || 0, cost: Number(v.cost) || 0 })).sort((a, b) => b.liters - a.liters), [reportData.byCategory]);
   const maintenanceData = useMemo(() => {
@@ -424,7 +421,8 @@ export default function ReportsPage() {
       toast.warning(`Nothing recorded in this period (${dateBounds.from} → ${dateBounds.to}) to export.`);
       return;
     }
-    toast.success(`Exported ${result.count} rows — ${result.filename}`);
+    // The browser cannot confirm a saved file — only that the download began.
+    toast.success(`Download started — ${result.filename} (${result.count} rows)`);
   }
 
   async function handleExport() {
@@ -434,9 +432,11 @@ export default function ReportsPage() {
     if (!loadWorkbook) return;
     setExporting(true);
     try {
+      // `getWorkbook` rejects a non-OK response, an empty body and anything that
+      // is not a workbook, so reaching here means a real file is in hand.
       const result = await loadWorkbook(dateBounds.from, dateBounds.to);
       downloadBlob(result.blob, result.filename);
-      toast.success(`Exported customized workbook — ${result.filename}`);
+      toast.success(`Download started — ${result.filename}`);
     } catch (error) {
       toast.error(error.message || "Workbook export failed.");
     } finally {
@@ -562,15 +562,17 @@ function FleetReport({ query, data }) {
   const mostTrips = data.reduce((best, item) => item.trips > (best?.trips || 0) ? item : best, null);
   const averageDistancePerTrip = Number(report.totalTrips) > 0 ? Number(report.totalDistance) / Number(report.totalTrips) : 0;
 
-  // KPI card display values matching reference
-  const utilizationDisplay = Number(report.utilization) > 0 ? `${Number(report.utilization)}%` : "4%";
-  const tripsDisplay = Number(report.totalTrips) > 0 ? Number(report.totalTrips) : (data.length ? data.reduce((s, v) => s + v.trips, 0) || 1 : 1);
+  // KPI values come from the report and nothing else. Every one of these used to
+  // substitute a plausible-looking constant (4%, 1 trip) when the real figure was
+  // zero or missing, which is indistinguishable from a real reading on screen.
+  const utilizationDisplay = `${Number(report.utilization) || 0}%`;
+  const tripsDisplay = Number(report.totalTrips) || 0;
   const distanceDisplay = Number(report.totalDistance) > 0 ? formatDistance(Number(report.totalDistance)) : "0 m";
 
-  // Summary strip metrics matching reference
+  // Summary strip metrics
   const highestDistDisplay = highestDistance?.distance ? formatDistance(highestDistance.distance) : "0 m";
-  const mostDispatchedPlate = mostTrips?.plate || data[0]?.plate || "ABC-1234";
-  const mostDispatchedTrips = mostTrips?.trips || data[0]?.trips || 1;
+  const mostDispatchedPlate = mostTrips?.plate || "No trips recorded";
+  const mostDispatchedTrips = Number(mostTrips?.trips) || 0;
   const avgTripDistanceDisplay = averageDistancePerTrip > 0 ? `${averageDistancePerTrip.toLocaleString(undefined, { maximumFractionDigits: 1 })} km` : "0 km";
 
   // Scale ticks: 0, 250, 500, 750, 1,000 km
@@ -625,7 +627,7 @@ function FleetReport({ query, data }) {
             </div>
           </div>
           <span className="text-xs text-slate-400 font-medium">
-            Top {Math.min(data.length, 1)}
+            {query.isLoading ? "Loading…" : data.length ? `Top ${data.length}` : "No activity"}
           </span>
         </div>
 
@@ -666,6 +668,11 @@ function FleetReport({ query, data }) {
         </div>
 
         {/* Ranked Horizontal Workload Chart */}
+        {query.isLoading ? (
+          <LoadingChart />
+        ) : data.length === 0 ? (
+          <NoData label="No completed fleet activity in this period" />
+        ) : (
         <div className="space-y-3">
           {/* Column Headers */}
           <div className="hidden sm:grid sm:grid-cols-[3.5rem_9.5rem_minmax(12rem,1fr)_4.5rem_6rem_10.5rem] items-center gap-4 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 border-b border-slate-100 dark:border-slate-800/80 pb-3">
@@ -810,6 +817,7 @@ function FleetReport({ query, data }) {
             );
           })}
         </div>
+        )}
       </Card>
     </>
   );

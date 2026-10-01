@@ -352,7 +352,7 @@ export function routeHasCoordinates(route) {
  * existing deterministic estimator as an explicitly labelled legacy fallback.
  * This keeps the pure recommendation scorer in lockstep with the request row.
  */
-export function estimateForRequest(request) {
+export function estimateForRequest(request, overrides) {
   const distance = positiveNumber(request?.estimated_distance);
   const duration = positiveNumber(request?.estimated_duration);
   if (distance !== null && duration !== null) {
@@ -367,7 +367,9 @@ export function estimateForRequest(request) {
       source,
     };
   }
-  const legacy = estimateTrip(request?.pickup_location, request?.dropoff_location);
+  // Dynamic hotel/airport overrides win when supplied (DB path); omitted
+  // keeps the seed-default behaviour for pure offline callers.
+  const legacy = estimateTrip(request?.pickup_location, request?.dropoff_location, overrides);
   return { ...legacy, source: "Legacy / Unknown" };
 }
 
@@ -407,7 +409,19 @@ export async function resolveRequestEstimate(request, db, { persistRoute = false
   }
 
   const resolved = await tomTomEstimate(endpoints, request?.pickup_datetime);
-  const fallback = resolved || estimateForRequest(request);
+  let dynamicOverrides;
+  if (!resolved && db) {
+    // Legacy fallback with the LIVE hotel + registry airports so a rename or
+    // move is never stale here either. Fail-open: falls back to seed defaults.
+    try {
+      const { getHotelContext, getActiveLocations } = await import("@/lib/geo/dynamic-locations");
+      const [hotel, airportLocations] = await Promise.all([getHotelContext(db), getActiveLocations(db)]);
+      dynamicOverrides = { hotel, airportLocations };
+    } catch {
+      dynamicOverrides = undefined;
+    }
+  }
+  const fallback = resolved || estimateForRequest(request, dynamicOverrides);
 
   // A valid, known endpoint pair is safe to register for reuse. Unknown text
   // never reaches this branch, so ad-hoc booking legs remain request-scoped.

@@ -54,7 +54,7 @@ import { evaluateOffRoute } from "@/lib/geo/off-route";
 import { fetchTomTomRoute } from "@/lib/tomtom";
 import { getCachedRoute, setCachedRoute } from "@/lib/routing/route-cache";
 import { etaFromDistanceKm, haversineKm } from "@/lib/scheduling/travel-buffer";
-import { resolveCoordinates } from "@/lib/geo/distance";
+import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
 import { cachedTargets } from "@/services/trip-geofence.service";
 import {
   findNextAssignedDispatch,
@@ -476,7 +476,7 @@ async function evaluateTripRow(db, trip, {
         pickupAt: toIso(next.scheduled_departure),
         pickupLocation: next.pickup_location ?? null,
       };
-      const nextCoords = next.pickup_location ? resolveCoordinates(next.pickup_location) : null;
+      const nextCoords = next.pickup_location ? await resolveCoordinatesWithDb(db, next.pickup_location) : null;
       const destCoords = targets.destination
         ? [targets.destination.lat, targets.destination.lng]
         : null;

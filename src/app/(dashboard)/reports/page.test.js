@@ -151,6 +151,70 @@ describe("buildDriverOverview", () => {
   });
 });
 
+describe("Reports — Fleet tab (no fabricated activity)", () => {
+  function renderFleet(queryResult) {
+    state.queries["report-fleet"] = queryResult;
+    vi.stubGlobal("window", {
+      location: { search: "?report=fleet", pathname: "/reports" },
+      history: { replaceState: vi.fn() },
+    });
+    return renderToStaticMarkup(React.createElement(TooltipProvider, null, React.createElement(ReportsPage)));
+  }
+
+  const EMPTY_FLEET = {
+    utilization: 0,
+    totalTrips: 0,
+    totalDistance: 0,
+    byVehicle: [],
+    // A roster exists, but a roster is not activity. It must not be dressed up
+    // as a dispatched vehicle with one invented trip.
+    vehicleRoster: [{ vehicle_id: 37, plate_number: "ABC-1234", vehicle_name: "SUV" }],
+  };
+
+  it("shows an honest empty state instead of a fabricated vehicle", () => {
+    const html = renderFleet(query(EMPTY_FLEET));
+    expect(html).not.toContain("ABC-1234");
+    expect(html).toContain("No completed fleet activity in this period");
+    expect(html).toContain("No activity");
+  });
+
+  it("reports the real zeros rather than 4% and one trip", () => {
+    const html = renderFleet(query(EMPTY_FLEET));
+    expect(html).toContain("0%");
+    expect(html).not.toContain("4%");
+    expect(html).not.toContain("1 trips");
+    expect(html).toContain("No trips recorded");
+  });
+
+  it("does not invent a vehicle while the report is still loading", () => {
+    const html = renderFleet({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      isRefetching: false,
+      refetch: vi.fn(),
+    });
+    expect(html).not.toContain("ABC-1234");
+    expect(html).not.toContain("4%");
+    expect(html).toContain("Loading…");
+  });
+
+  it("renders real activity rows when the window has trips", () => {
+    const html = renderFleet(query({
+      utilization: 12,
+      totalTrips: 6,
+      totalDistance: 39.85,
+      byVehicle: [
+        { plate: "XYZ 5678", trips: 2, distance: 26.54 },
+        { plate: "ABC-1234", trips: 4, distance: 13.31 },
+      ],
+    }));
+    expect(html).toContain("XYZ 5678");
+    expect(html).toContain("12%");
+    expect(html).toContain("Top 2");
+  });
+});
+
 describe("Reports — Drivers tab", () => {
   it("renders completed trips and fleet punctuality in place of the average score", () => {
     const html = render(payload([
