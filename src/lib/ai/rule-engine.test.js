@@ -11,6 +11,7 @@ import {
   scoreDispatchDrivers,
   workloadIndex,
   scoreWorkloadBalance,
+  generateFleetInsights,
 } from "@/lib/ai/rule-engine";
 
 const NOW = new Date(2026, 7, 4, 12, 0, 0);
@@ -227,5 +228,38 @@ describe("scoreDispatchDrivers", () => {
     const [b] = scoreDispatchDrivers([{ ...base, driver_id: 1, avg_guest_rating: 1, avg_driving_score: 10 }]);
     expect(a.score).toBe(b.score);
     expect(a.reasons.some((r) => /guest rating|driving score/i.test(r))).toBe(false);
+  });
+});
+
+describe("generateFleetInsights — the fleet-availability wording", () => {
+  // Live, this card said "20 of 21 vehicles ready for guest dispatch" while the
+  // real Today pair endpoint returned 1 dispatchable pair. Both numbers were
+  // right for their own question; the label was the lie. It must now name the
+  // status count it actually measures and point at the surface that answers
+  // dispatchability.
+  const fleet = (statuses) => statuses.map((vehicle_status, i) => ({ vehicle_id: i + 1, plate_number: `PLT ${i}`, vehicle_status }));
+
+  const availability = (statuses) =>
+    generateFleetInsights(fleet(statuses), [], []).find((i) => i.title === "Fleet Availability");
+
+  it("counts vehicle_status only, and says so", () => {
+    const insight = availability(["Available", "Available", "Under Maintenance"]);
+    expect(insight.summary).toContain("2 of 3");
+    expect(insight.summary).toContain("Available on");
+  });
+
+  it("never claims dispatch readiness from a status count", () => {
+    const insight = availability(["Available", "Available", "Under Maintenance"]);
+    expect(insight.summary).not.toMatch(/ready for guest dispatch/i);
+    expect(insight.summary).toMatch(/Resource Availability/);
+  });
+
+  it("still raises the separate maintenance-grounding card", () => {
+    const insights = generateFleetInsights(fleet(["Available", "Under Maintenance"]), [], []);
+    expect(insights.find((i) => i.title === "Maintenance Grounding Alert")?.summary).toContain("1 vehicle(s)");
+  });
+
+  it("emits no availability card for an empty fleet, and never divides by zero", () => {
+    expect(generateFleetInsights([], [], []).find((i) => i.title === "Fleet Availability")).toBeUndefined();
   });
 });
