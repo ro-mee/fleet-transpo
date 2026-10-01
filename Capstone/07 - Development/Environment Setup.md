@@ -6,6 +6,7 @@ source:
   - .env
   - package.json
   - mobile/package.json
+  - next.config.mjs
 last_verified: 2026-09-23
 ---
 
@@ -59,6 +60,15 @@ npm install
 npm run dev          # web, next dev
 cd mobile && npx expo start
 ```
+
+### Next.js development origin
+
+`next.config.mjs` allows `127.0.0.1` through `allowedDevOrigins` for
+development-only Next.js resources such as `/_next/webpack-hmr`. This covers
+the loopback host reported by the HMR request even when the app page is opened
+at `localhost:3000`. `localhost` and `127.0.0.1` are distinct browser origins.
+Restart `npm run dev` after changing this config. This does not change
+production origins or application access permissions.
 
 > **Expo Go + stale LAN IP (seen 2026-09-13, recurred 2026-09-16, recurred 2026-09-20).** `mobile/.env` holds a hardcoded
 > `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:3000`, but the PC's DHCP lease can

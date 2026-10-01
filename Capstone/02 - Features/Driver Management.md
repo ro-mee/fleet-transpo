@@ -361,12 +361,39 @@ UI: `WorkScheduleCard` on the driver detail page (schedule editor gated
 fleet_manager), `/drivers/leave` review board (fleet_manager approves),
 `/driver/schedule` self-service (view schedule, file/withdraw leave).
 
-> **Scope note (2026-08-23):** the Driver Leave Requests review board
-> (`/drivers/leave`) and Document Expiration (`/fleet/documents`) pages are
-> **hidden from navigation** (sidebar + command palette) as out-of-scope for
-> the capstone demo. The routes, APIs, and data are intact — direct URL
-> access still works for allowed roles (`permissions.js` unchanged). The
-> driver's own `/driver/schedule` entry stays visible.
+> **Scope note (2026-08-23; updated 2026-10-02):** the Driver Leave Requests
+> board (`/drivers/leave`) and Document Expiration (`/fleet/documents`) were
+> originally hidden from navigation for the capstone demo. The Leave
+> Management sidebar link has since been restored for `admin` and
+> `fleet_manager`; Document Expiration remains hidden. The routes, APIs, and
+> data remain intact, and the driver's own `/driver/schedule` entry stays
+> visible.
+
+> **Leave visibility restoration (2026-10-02):** The leave board and
+> weekly schedule controls remain implemented. `/drivers/leave` is permitted
+> for admin, super_admin, and fleet_manager, but ordinary admin has read-only
+> leave/schedule permissions; fleet_manager owns review and schedule writes,
+> with super_admin override. The Workforce exceptions card and Leave coverage
+> shortcut are in the Fleet Manager dashboard, not the Admin dashboard; the
+> admin dashboard does not fetch leave or substitute-schedule data. The
+> WorkScheduleCard remains on each driver's detail page, while
+> `/driver/schedule` is driver self-service. There is no separate staff roster
+> calendar.
+>
+> The `Leave Management` sidebar item now appears for `admin` and
+> `fleet_manager` only. Existing page and API permissions are unchanged:
+> admins can view requests, Fleet Managers can review them, and
+> `super_admin` keeps its existing direct-route permission without a sidebar
+> item in that workspace. Leave approval is consequential: it updates the
+> leave balance and sends overlapping dispatches to Pending Reassignment in
+> the same transaction. Schedule writes replace the driver's full weekly set
+> atomically; that path has no schedule-specific audit call. The current editor
+> applies common shift/break hours to all working days and the model cannot
+> express overnight shifts. A cross-driver schedule board is worth building
+> only if bulk or roster-wide planning is a confirmed need. One permission
+> comment says dispatchers can review leave, but the matrix, route guard, and
+> page-role list currently deny that action; clarify this if permissions are
+> revisited.
 
 ## The duty session — Start Duty / End Duty, and its three gates — 2026-09-23
 
