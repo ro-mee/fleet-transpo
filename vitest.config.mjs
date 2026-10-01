@@ -19,9 +19,9 @@ export default defineConfig({
   // every matched file; that is why `.ts`/`.tsx` are left out of `include`
   // instead of being re-parsed as JSX (the repo has no such files, and a JSX
   // loader cannot read TS syntax). The classic factory this produces resolves
-  // `React` from the global the component tests already stub.
+  // `React` from imports, which the mobile WebView component test mocks.
   esbuild: {
-    include: [/\.jsx$/, /[\\/]src[\\/].*\.js$/],
+    include: [/\.jsx$/, /[\\/]src[\\/].*\.js$/, /[\\/]mobile[\\/]components[\\/].*\.js$/],
     exclude: [],
     loader: "jsx",
   },

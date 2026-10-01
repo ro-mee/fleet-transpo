@@ -13,6 +13,9 @@ Open, verified defects. Each links to a full note with root cause and fix.
 
 ## Open
 
+- **Mobile Map WebView: residual script and marker-title injection paths.** **CODE FIXED 2026-10-02; native acceptance OPEN.** Runtime values now use script-safe serialization and context-specific text/CSS encoding; radar marker labels use `textContent`, and unused raw trip objects are omitted. Generated-document regression tests, lint, and Android Expo export pass. No ADB/device is available here, so Android/iOS WebView smoke checks remain open. See [[Mobile Map WebView and GPS Odometer Safety Implementation Plan]].
+- **Mobile GPS odometer: stale-gap freeze and foreground/background anchor mismatch.** **CODE FIXED 2026-10-02; native acceptance OPEN.** A stale-gap location is now confirmed by a second plausible fix before becoming the new anchor. Foreground and background persist the same anchor/candidate rule; trace and AsyncStorage tests, lint, and Android Expo export pass. Native background handoff remains unverified without a device. See [[Mobile Map WebView and GPS Odometer Safety Implementation Plan]].
+
 ### Severity 1 — active exposure
 
 - ~~**SEC-DB-003 — tables readable with the public anon key.**~~ **CLOSED

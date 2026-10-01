@@ -261,6 +261,29 @@ Tests: `mobile/lib/map-webview-escaping.test.js` (15) — apostrophes, `</script
 trailing backslash, newlines, U+2028/9, Unicode, and a mixed torture value, each
 **round-tripped through a real JS parser** rather than string-compared.
 
+### Mobile map safety follow-up — 2026-10-02
+
+The initial escaping implementation still left nested HTML/JavaScript contexts,
+raw script-element termination, and radar-title `innerHTML` paths. These were
+fixed with `mobile/lib/map-webview-data.js`: script values now use JSON literal
+serialization with `<` and line-separator escaping; popup labels are escaped
+for HTML and then serialized for JavaScript; CSS asset strings are escaped;
+coordinates/radius are range-checked; and radar payloads are reduced to fields
+needed by the map (no raw trip object). Radar text uses DOM `textContent`.
+
+The shared odometer now turns a fix after a gap over five minutes into a
+recovery candidate. A second time-ordered fix within the 400 m / 180 km/h
+plausibility limits confirms the baseline without adding mileage. The
+background task persists the same `prev` and `pending` state instead of
+overwriting its anchor after every fix. The foreground/background transition
+clears both anchors at the existing boundary, preserving the straddling-fix
+drop and exact-once distance merge. The unobserved gap remains uncounted.
+
+Verification on 2026-10-02: focused mobile tests passed (26/26), changed-file
+ESLint passed, and Android Expo export bundled 1,424 modules. Native Android/iOS
+WebView and background-location checks remain open because no ADB/device was
+available. See [[Mobile Map WebView and GPS Odometer Safety Implementation Plan]].
+
 ### 4. Fake map entities were also suppressing real ones (high)
 
 `getOperationalRadarMarkers` builds real assignment pins from the driver's own

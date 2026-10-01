@@ -153,6 +153,14 @@ narrow correction. Detail and reasoning → [[Tracking]], filed bugs → [[Bugs]
   unescaped trip value is a whole-map outage. Addresses previously escaped only
   the single quote (a trailing backslash reproduced the exact failure the label
   fix was written for); popups additionally needed HTML escaping.
+- **Mobile map safety follow-up (2026-10-02):** `map-webview-data.js` provides
+  context-safe serialization/normalization for inline script data, popup HTML,
+  CSS asset strings, coordinates, and radar fields. Marker labels render through
+  `textContent`. The odometer now confirms a candidate after a stale gap and
+  persists its shared anchor/candidate state in background tracking. Unit tests,
+  changed-file ESLint, and Android Expo export pass; native WebView and
+  background-location behavior remain unverified pending a development device.
+  Details and checks: [[Mobile Map WebView and GPS Odometer Safety Implementation Plan]].
 - **Fabricated map entities no longer suppress real ones.** The `__DEV__` gate
   covered the entire radar builder, so production rendered an empty radar and the
   coverage legend described layers that could not appear — the driver's own real

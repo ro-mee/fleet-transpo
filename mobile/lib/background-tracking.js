@@ -30,7 +30,8 @@ import { accumulateFix, createAccumulator } from "./gps-odometer";
 const TASK_NAME = "fleetops-background-location";
 
 const STORAGE_KEY = "fleetops_bg_tracking";
-// Shape: { tripId, leg: "leg1"|"leg2"|null, km1, km2, prev: {lat,lng,atMs}|null }
+// Shape: { tripId, leg, km1, km2, prev, pending }. Older records without
+// `pending` remain valid and receive its null default when loaded.
 
 // Statuses where the driver is travelling to the pickup; anything else is the
 // second leg to the destination. Mirrors map.js so both agree on leg assignment.
@@ -50,9 +51,9 @@ const HEADING_TO_PICKUP = new Set(HEADING_TO_PICKUP_STATUSES);
 
 // km between two lat/lng pairs and the segment acceptance rules now live in
 // ./gps-odometer so the foreground watcher and this task cannot drift apart
-// again. This module only owns the per-leg totals and the previous fix.
+// again. This module owns per-leg totals plus the shared anchor/recovery state.
 
-const DEFAULT_CONTEXT = { tripId: null, leg: null, km1: 0, km2: 0, prev: null };
+const DEFAULT_CONTEXT = { tripId: null, leg: null, km1: 0, km2: 0, prev: null, pending: null };
 // Foreground status/AppState events can arrive back-to-back. Serialize context
 // writes so a slower read from an older trip cannot overwrite the newer trip.
 let contextWrite = Promise.resolve();
@@ -125,6 +126,7 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
       acc.leg2 = Number(ctx.km2) || 0;
       acc.leg = ctx.leg;
       acc.prev = ctx.prev || null;
+      acc.pending = ctx.pending || null;
       accumulateFix(acc, {
         lat,
         lng,
@@ -134,10 +136,12 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
       });
       ctx.km1 = acc.leg1;
       ctx.km2 = acc.leg2;
+      ctx.prev = acc.prev;
+      ctx.pending = acc.pending;
+    } else {
+      ctx.prev = null;
+      ctx.pending = null;
     }
-    // Always re-anchor, dropped segment or not: the rejected fix is the driver's
-    // real position and the next segment must be measured from it.
-    ctx.prev = { lat, lng, atMs: loc.timestamp ?? null };
   }
 
   await saveContext(ctx);
@@ -185,8 +189,9 @@ export async function stopBackgroundTracking() {
 
 /**
  * Tell the background task which trip/leg is active. Called by the foreground on
- * every status change. `prev` is reset so a leg transition's straddling gap is
- * not counted. Existing km are preserved only for the same trip.
+ * every status change. The anchor and pending recovery fix are reset so a leg
+ * transition's straddling gap is not counted. Existing km are preserved only
+ * for the same trip.
  */
 export async function updateLegContext({ tripId, leg }) {
   const write = contextWrite.then(async () => {
@@ -201,6 +206,7 @@ export async function updateLegContext({ tripId, leg }) {
     ctx.tripId = nextTripId;
     ctx.leg = leg ?? null;
     ctx.prev = null;
+    ctx.pending = null;
     await saveContext(ctx);
   });
   contextWrite = write.catch(() => {});
@@ -210,7 +216,8 @@ export async function updateLegContext({ tripId, leg }) {
 /**
  * Fold background-accumulated km into the foreground accumulator (`distRef`).
  * Called when the app returns to the foreground. Adds km1/km2 to the matching
- * leg, then clears the stored totals so the next background cycle starts fresh.
+ * leg, then clears the stored totals and fixes so the next background cycle
+ * starts fresh.
  */
 export async function mergeStoredKm(distRef, expectedTripId = null) {
   await contextWrite;
@@ -223,6 +230,7 @@ export async function mergeStoredKm(distRef, expectedTripId = null) {
   ctx.km1 = 0;
   ctx.km2 = 0;
   ctx.prev = null;
+  ctx.pending = null;
   await saveContext(ctx);
 }
 

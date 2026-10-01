@@ -108,7 +108,7 @@ export function haversineKm(latA, lonA, latB, lonB) {
 
 /** A fresh accumulator. Distance belongs to exactly one trip. */
 export function createAccumulator() {
-  return { leg1: 0, leg2: 0, prev: null, leg: null };
+  return { leg1: 0, leg2: 0, prev: null, pending: null, leg: null };
 }
 
 /**
@@ -126,35 +126,84 @@ export function createAccumulator() {
  * the jitter radius from home, and a real trip keeps pushing that radius out
  * until it crosses the commit threshold and banks.
  *
- * @param {{leg1:number, leg2:number, prev:object|null, leg:string|null}} acc
+ * @param {{leg1:number, leg2:number, prev:object|null, pending:object|null, leg:string|null}} acc
  * @param {{lat:number, lng:number, speedMs?:number|null, atMs?:number|null, leg:string|null}} fix
  * @returns {{acc:object, addedKm:number, reason:string}}
  */
 export function accumulateFix(acc, { lat, lng, speedMs = null, atMs = null, leg = null } = {}) {
-  if (!acc || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+  if (
+    !acc ||
+    !Number.isFinite(lat) || lat < -90 || lat > 90 ||
+    !Number.isFinite(lng) || lng < -180 || lng > 180
+  ) {
     return { acc, addedKm: 0, reason: "invalid" };
+  }
+  if (atMs != null && !Number.isFinite(atMs)) {
+    return { acc, addedKm: 0, reason: "no-interval" };
   }
 
   // Leg change (pickup reached, or the trip id changed underneath us): drop
   // the anchor so the gap across the transition is never banked.
-  if (acc.leg && leg && acc.leg !== leg) acc.prev = null;
+  if (acc.leg && leg && acc.leg !== leg) {
+    acc.prev = null;
+    acc.pending = null;
+  }
   if (leg) acc.leg = leg;
 
+  const currentFix = { lat, lng, atMs };
+
+  // A stale-gap fix cannot be trusted immediately as the new anchor: it may
+  // itself be a multipath outlier. Require a second time-ordered, plausible
+  // observation at that location. This also works for a parked vehicle (zero
+  // displacement is valid confirmation) and prevents the old anchor from
+  // freezing the odometer indefinitely.
+  if (acc.pending) {
+    const candidateDtMs = acc.pending.atMs != null && atMs != null
+      ? atMs - acc.pending.atMs
+      : null;
+    if (candidateDtMs == null || candidateDtMs <= 0) {
+      return { acc, addedKm: 0, reason: "no-interval" };
+    }
+    if (candidateDtMs > MAX_SEGMENT_GAP_MS) {
+      acc.pending = currentFix;
+      return { acc, addedKm: 0, reason: "gap-recovery-candidate" };
+    }
+
+    const candidateDistanceKm = haversineKm(acc.pending.lat, acc.pending.lng, lat, lng);
+    const candidateSpeedKmh = candidateDistanceKm / (candidateDtMs / 3600000);
+    if (candidateDistanceKm <= MAX_SEGMENT_KM && candidateSpeedKmh <= MAX_SEGMENT_SPEED_KMH) {
+      acc.prev = currentFix;
+      acc.pending = null;
+      return { acc, addedKm: 0, reason: "gap-recovered" };
+    }
+
+    // The candidate was not corroborated (for example, a far-away glitch).
+    // Start confirmation from this newer fix without banking the displacement.
+    acc.pending = currentFix;
+    return { acc, addedKm: 0, reason: "gap-recovery-candidate" };
+  }
+
   if (!acc.prev) {
-    acc.prev = { lat, lng, atMs };
+    acc.prev = currentFix;
     return { acc, addedKm: 0, reason: "first-fix" };
   }
 
   const fromAnchor = haversineKm(acc.prev.lat, acc.prev.lng, lat, lng);
   const dtMs = acc.prev.atMs != null && atMs != null ? atMs - acc.prev.atMs : null;
+
+  // Check staleness before displacement. A vehicle may travel far while the
+  // app is suspended; that unobserved distance is dropped, then the next fixes
+  // establish a fresh baseline without fabricating mileage.
+  if (dtMs != null && dtMs > MAX_SEGMENT_GAP_MS) {
+    acc.prev = null;
+    acc.pending = currentFix;
+    return { acc, addedKm: 0, reason: "stale-gap" };
+  }
+
   const verdict = evaluateSegment({ segKm: fromAnchor, speedMs, dtMs });
 
-  // A rejected fix does NOT reset the anchor. That is the whole point: a
-  // teleport must not become the new baseline (otherwise the next real segment
-  // is measured from a position the vehicle was never at), and a jitter wobble
-  // must not reset the baseline either (otherwise it re-arms every cycle).
-  // The gap/implied-speed rejections are re-armed by time passing, because the
-  // anchor keeps its ORIGINAL atMs and so eventually exceeds the staleness gap.
+  // A rejected short-interval fix does NOT reset the anchor. A teleport must
+  // not become the baseline, and parked jitter must not re-arm on every cycle.
   if (!verdict.ok) return { acc, addedKm: 0, reason: verdict.reason };
 
   // No leg context = no trip context (idle, or a trip the driver has not
@@ -165,6 +214,6 @@ export function accumulateFix(acc, { lat, lng, speedMs = null, atMs = null, leg 
 
   const key = acc.leg === "leg1" ? "leg1" : "leg2";
   acc[key] += fromAnchor;
-  acc.prev = { lat, lng, atMs };
+  acc.prev = currentFix;
   return { acc, addedKm: fromAnchor, reason: verdict.reason };
 }

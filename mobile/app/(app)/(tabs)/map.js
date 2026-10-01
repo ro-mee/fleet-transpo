@@ -770,6 +770,7 @@ export default function MapTab() {
         // that fires before the merge resolves cannot double-count the gap
         // between the last foreground fix and the backgrounded stretch.
         distRef.current.prev = null;
+        distRef.current.pending = null;
         // Merge only after the native task has stopped; otherwise its final
         // AsyncStorage write can race this read and leave background km out.
         stopBackgroundTracking()
@@ -1077,6 +1078,7 @@ export default function MapTab() {
           const d = distRef.current;
           if (!isGpsTrackedTrip(activeTripRef.current)) {
             d.prev = null;
+            d.pending = null;
             d.leg = null;
             return;
           }
@@ -1085,10 +1087,9 @@ export default function MapTab() {
           const lng = newLoc.coords.longitude;
 
           // Shared rule set (lib/gps-odometer): drops >400 m jumps, anything
-          // implying more than 180 km/h, segments measured across a stale gap,
-          // and parked jitter. When the leg changes (pickup reached) the
-          // straddling fix is dropped so the transition gap is not counted
-          // twice.
+          // implying more than 180 km/h, stale-gap distance, and parked jitter.
+          // A long-gap fix becomes a candidate until a plausible next fix
+          // confirms it. When the leg changes, the straddling fix is dropped.
           accumulateFix(d, {
             lat,
             lng,
