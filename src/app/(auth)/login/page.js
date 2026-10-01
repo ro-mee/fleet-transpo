@@ -599,7 +599,7 @@ function MfaVerificationDialog({
                   <button
                     type="button"
                     onClick={onResend}
-                    disabled={loading}
+                    disabled={loading || resendSeconds > 0}
                     className="font-semibold text-[#3e73e7] underline underline-offset-2 transition-colors hover:text-[#2f5cc4] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Resend code
