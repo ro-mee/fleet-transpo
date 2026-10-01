@@ -66,30 +66,23 @@ function formatTripMetrics(r) {
       ? "Restaurant Transfer"
       : "Hotel Transfer");
 
-  // Distance estimation
-  let distStr = null;
-  if (r.estimated_distance != null) {
-    const km = Number(r.estimated_distance);
-    distStr = `${Math.round(km > 100 ? km / 1000 : km)} km`;
-  } else {
-    // Deterministic fallback based on request ID so numbers look authentic
-    const pseudoKm = 5 + (Number(r.request_id || 1) % 15);
-    distStr = `${pseudoKm} km`;
-  }
+  // Distance/duration are only shown when the record actually carries them.
+  // This used to fill the gap from `request_id % n` "so numbers look
+  // authentic" — which put a confident "12 km · ~25 min" on every card for a
+  // request nobody had ever estimated. An unknown estimate is unknown.
+  const distStr =
+    r.estimated_distance != null ? `${Math.round(Number(r.estimated_distance) > 100 ? Number(r.estimated_distance) / 1000 : Number(r.estimated_distance))} km` : null;
 
-  // Duration estimation
-  let durStr = null;
-  if (r.estimated_duration != null) {
-    durStr = `~ ${Math.round(Number(r.estimated_duration))} min`;
-  } else {
-    const pseudoMin = 15 + (Number(r.request_id || 1) % 30);
-    durStr = `~ ${pseudoMin} min`;
-  }
+  const durStr =
+    r.estimated_duration != null ? `~ ${Math.round(Number(r.estimated_duration))} min` : null;
+
+  // Everything known, joined; only the service name is always present.
+  const summary = [serviceName, distStr, durStr].filter(Boolean).join(" · ");
 
   return {
     serviceName,
-    summary: `${serviceName} · ${distStr} · ${durStr}`,
-    distanceDuration: `${distStr} · ${durStr}`,
+    summary,
+    distanceDuration: [distStr, durStr].filter(Boolean).join(" · ") || "Distance not estimated",
   };
 }
 
@@ -359,7 +352,7 @@ export function ReservationQueueTable({
                       {formatDateWithDay(r.pickup_datetime)}
                     </p>
                     <p className="font-bold text-foreground font-data text-xs">
-                      {r.pickup_datetime ? formatTime(r.pickup_datetime) : "10:30 AM"}
+                      {r.pickup_datetime ? formatTime(r.pickup_datetime) : "Time not set"}
                     </p>
                   </div>
                 </div>
@@ -372,7 +365,7 @@ export function ReservationQueueTable({
                       className="font-bold text-foreground text-xs truncate"
                       title={`${r.pickup_location} → ${r.dropoff_location}`}
                     >
-                      {r.pickup_location || "NAIA T1"} → {r.dropoff_location || "CoCo Star Hotel"}
+                      {r.pickup_location || "Pickup not recorded"} → {r.dropoff_location || "Dropoff not recorded"}
                     </p>
                     <p className="text-foreground-secondary text-[11px] truncate">
                       {metrics.distanceDuration}
@@ -479,7 +472,7 @@ export function ReservationQueueTable({
               <Calendar className="w-4 h-4 text-foreground-muted shrink-0" />
               <div className="space-y-0.5 leading-tight">
                 <p className="font-bold text-foreground font-data text-sm">
-                  {r.pickup_datetime ? formatTime(r.pickup_datetime) : "10:30 AM"}
+                  {r.pickup_datetime ? formatTime(r.pickup_datetime) : "Time not set"}
                 </p>
                 <p className="text-xs text-foreground-secondary">
                   {formatDateShort(r.pickup_datetime)}
@@ -495,7 +488,7 @@ export function ReservationQueueTable({
                   className="font-bold text-sm text-foreground truncate"
                   title={`${r.pickup_location} → ${r.dropoff_location}`}
                 >
-                  {r.pickup_location || "NAIA T1"} → {r.dropoff_location || "CoCo Star Hotel"}
+                  {r.pickup_location || "Pickup not recorded"} → {r.dropoff_location || "Dropoff not recorded"}
                 </p>
                 <p className="text-xs text-foreground-secondary truncate flex items-center gap-1">
                   <Navigation className="w-3 h-3 text-foreground-muted shrink-0" />
