@@ -1,5 +1,9 @@
-// Canonical NAIA curbside endpoints. Keep arrivals and departures separate so
-// route resolution does not collapse distinct pickup/drop-off points.
+// Seed defaults for the airport sync (`POST /api/routes/seed-naia`).
+// The authority is the `locations` registry (managed via /routes/locations),
+// NOT this file. The seed route accepts an optional `{ terminals }` payload,
+// so a new airport / new terminal needs no code change — omit the payload and
+// these defaults are used. Keep arrivals and departures separate so route
+// resolution does not collapse distinct pickup/drop-off points.
 export const NAIA_CANONICAL_LOCATIONS = [
   { name: "NAIA Terminal 1 - Arrivals", latitude: 14.50719, longitude: 121.00468 },
   { name: "NAIA Terminal 1 - Departures", latitude: 14.50688, longitude: 121.00474 },

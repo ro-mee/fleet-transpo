@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 import { NAIA_CANONICAL_LOCATIONS, NAIA_LEGACY_LOCATION_NAMES } from "@/lib/naia-locations";
 import { fetchTomTomEstimate } from "@/lib/tomtom";
@@ -9,9 +9,38 @@ function validCoordinate(value, min, max) {
   return Number.isFinite(number) && number >= min && number <= max;
 }
 
+function cleanTerminal(input) {
+  const name = String(input?.name ?? "").trim();
+  const latitude = Number(input?.latitude);
+  const longitude = Number(input?.longitude);
+  if (!name || name.length > 120) return null;
+  if (!validCoordinate(latitude, -90, 90) || !validCoordinate(longitude, -180, 180)) return null;
+  return { name, latitude, longitude };
+}
+
 export async function POST(req) {
   try {
     const session = await requirePermission(req, "routes", "seed");
+    const body = await parseBody(req).catch(() => ({}));
+    // Fully-dynamic: callers may supply their own airport endpoints
+    // (managed via /routes/locations). Omitted → seed defaults from
+    // `src/lib/naia-locations.js`. Empty array is rejected — syncing zero
+    // terminals would orphan every airport route silently.
+    let terminals = NAIA_CANONICAL_LOCATIONS;
+    if (body && typeof body.terminals !== "undefined") {
+      if (!Array.isArray(body.terminals) || body.terminals.length === 0 || body.terminals.length > 50) {
+        return err("terminals must be a non-empty array (max 50) of { name, latitude, longitude }.", 400);
+      }
+      const cleaned = body.terminals.map(cleanTerminal);
+      if (cleaned.some((t) => !t)) {
+        return err("Each terminal needs a name (≤120 chars) and valid latitude/longitude.", 400);
+      }
+      const seen = new Set(cleaned.map((t) => t.name.toLowerCase()));
+      if (seen.size !== cleaned.length) {
+        return err("Terminal names must be unique.", 400);
+      }
+      terminals = cleaned;
+    }
     const { rows: settingRows } = await query(
       `SELECT setting_value FROM system_settings WHERE setting_key = 'hotel_location' LIMIT 1`
     );
@@ -75,7 +104,7 @@ export async function POST(req) {
       }
 
       const locations = { [hotel.hotel_name.trim()]: Number(hotelRow.location_id) };
-      for (const terminal of NAIA_CANONICAL_LOCATIONS) {
+      for (const terminal of terminals) {
         const existing = (await tx.query(
           `SELECT location_id FROM locations
             WHERE is_active = true AND lower(regexp_replace(trim(name), '\\s+', ' ', 'g')) = lower(regexp_replace(trim($1), '\\s+', ' ', 'g'))
@@ -149,11 +178,11 @@ export async function POST(req) {
           }
         }
       }
-      return { hotelLocationId: Number(hotelRow.location_id), terminalCount: NAIA_CANONICAL_LOCATIONS.length, directionCount: NAIA_CANONICAL_LOCATIONS.length * 2 };
+      return { hotelLocationId: Number(hotelRow.location_id), terminalCount: terminals.length, directionCount: terminals.length * 2 };
     });
 
-    await writeAudit(req, session, { action: "update", resource: "routes", newValues: result });
-    return ok({ message: "NAIA T1–T3 arrival/departure routes synced successfully.", ...result });
+    await writeAudit(req, session, { action: "update", resource: "routes", newValues: { ...result, terminals } });
+    return ok({ message: "Airport routes synced successfully.", ...result });
   } catch (e) {
     if (e?.code === "23505") return err("A route already exists for one of these directions. Refresh the registry and retry.", 409);
     return handleError(e);

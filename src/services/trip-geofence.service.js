@@ -9,7 +9,7 @@
 // Radii are operational tuning, not identity: they ride the location row and
 // never trigger the coordinate-change versioning in PUT /api/locations/[id].
 
-import { resolveCoordinates } from "@/lib/geo/distance";
+import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
 import {
   DEFAULT_GEOFENCE_RADIUS_M,
   GEOFENCE_FIX_FRESH_MS,
@@ -113,26 +113,27 @@ export async function getTripGeofenceTargets(db, trip) {
       }
     }
 
-    // Gazetteer fallback per end — default radii, honestly labelled.
+    // Dynamic fallback per end — live registry first (hotel + locations),
+    // static gazetteer last. Honestly labelled; unknown stays null.
     if (!originLoc && row.origin) {
-      const c = resolveCoordinates(row.origin);
+      const c = await resolveCoordinatesWithDb(db, row.origin);
       if (c) {
         originLoc = {
           lat: c.lat, lng: c.lng,
           radiusM: DEFAULT_GEOFENCE_RADIUS_M,
           label: c.label,
-          source: "gazetteer",
+          source: c.source === "canonical" ? "canonical" : c.source === "hotel" ? "hotel" : "gazetteer",
         };
       }
     }
     if (!destLoc && row.destination) {
-      const c = resolveCoordinates(row.destination);
+      const c = await resolveCoordinatesWithDb(db, row.destination);
       if (c) {
         destLoc = {
           lat: c.lat, lng: c.lng,
           radiusM: DEFAULT_GEOFENCE_RADIUS_M,
           label: c.label,
-          source: "gazetteer",
+          source: c.source === "canonical" ? "canonical" : c.source === "hotel" ? "hotel" : "gazetteer",
         };
       }
     }

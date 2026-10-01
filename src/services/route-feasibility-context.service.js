@@ -22,7 +22,7 @@
 import { fetchTomTomRoute } from "@/lib/tomtom";
 import { getCachedRoute, setCachedRoute } from "@/lib/routing/route-cache";
 import { etaFromDistanceKm, haversineKm } from "@/lib/scheduling/travel-buffer";
-import { resolveCoordinates } from "@/lib/geo/distance";
+import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
 import { resolveRequestEstimate } from "@/services/route-resolver.service";
 import { evaluateRouteFeasibility } from "@/lib/scheduling/route-feasibility";
 import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
@@ -186,10 +186,10 @@ export async function buildFeasibilityContext(db, {
   });
   let reposition = { minutes: null, provenance: "unknown" };
   if (next) {
-    // Next-dispatch rows carry free-text pickup locations, so resolve them
-    // through the gazetteer first. Unresolvable text stays honestly unknown
-    // rather than guessed.
-    const nextCoords = resolveCoordinates(next.pickup_location);
+    // Next-dispatch rows carry free-text pickup locations — resolve against
+    // the live registry first, static gazetteer last. Unresolvable text
+    // stays honestly unknown rather than guessed.
+    const nextCoords = await resolveCoordinatesWithDb(db, next.pickup_location);
     if (nextCoords) {
       reposition = await resolveDeadheadMinutes(destinationCoords, nextCoords, {
         departAt: request?.pickup_datetime,
@@ -274,7 +274,7 @@ export async function buildPairFeasibility(db, {
     });
     let reposition = { minutes: null, provenance: "unknown" };
     if (next) {
-      const nextCoords = resolveCoordinates(next.pickup_location);
+      const nextCoords = await resolveCoordinatesWithDb(db, next.pickup_location);
       if (nextCoords) {
         reposition = await resolveDeadheadMinutes(destinationCoords, nextCoords, {
           departAt: request?.pickup_datetime,
@@ -351,8 +351,10 @@ export async function attachPairFeasibility(db, {
   if (!targets.length) return recommendation;
 
   const byDriverId = new Map((Array.isArray(drivers) ? drivers : []).map((d) => [d?.driver_id, d]));
-  const pickupCoords = resolveCoordinates(request?.pickup_location);
-  const destinationCoords = resolveCoordinates(request?.dropoff_location);
+  const [pickupCoords, destinationCoords] = await Promise.all([
+    resolveCoordinatesWithDb(db, request?.pickup_location),
+    resolveCoordinatesWithDb(db, request?.dropoff_location),
+  ]);
   const passengerMinutes = estimate?.durationMin != null ? Math.round(Number(estimate.durationMin)) : null;
   const passengerProvenance = provenanceOfEstimate(estimate);
 

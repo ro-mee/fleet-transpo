@@ -11,9 +11,10 @@ export async function updateHotelLocationSettings(payload) {
   });
 }
 
-export async function seedNaiaRoutes() {
+export async function seedNaiaRoutes(terminals) {
   return apiFetch("/api/routes/seed-naia", {
     method: "POST",
+    body: JSON.stringify(terminals ? { terminals } : {}),
   });
 }
 
