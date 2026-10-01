@@ -1,5 +1,15 @@
 {
   "css.customData": [
     ".vscode/tailwind.css-data.json"
-  ]
+  ],
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/.worktrees/**": true,
+    "**/.next/**": true,
+    "**/motion/stills/**": true,
+    "**/motion/out/**": true,
+    "**/motion/audio/**": true
+  }
 }

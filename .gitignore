@@ -61,3 +61,8 @@ Capstone/.obsidian/
 scratch/
 *.bak
 *.log
+
+# motion explainer video source and generated media artifacts
+/motion/
+fleetops-e2e.mp4
+fleetops-e2e-poster.jpg
