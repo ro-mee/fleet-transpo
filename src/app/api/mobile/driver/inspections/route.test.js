@@ -159,7 +159,7 @@ describe("POST /api/mobile/driver/inspections — Pre-Trip", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("trip_id is required for a Pre-Trip inspection");
   });
-  it("accepts 4 quick items all PASS and inserts type Pre-Trip", async () => {
+  it("accepts 3 items all PASS and inserts type Pre-Trip", async () => {
     parseBody.mockResolvedValue(baseBody());
     const res = await post();
     expect(res.status).toBe(201);
@@ -171,32 +171,45 @@ describe("POST /api/mobile/driver/inspections — Pre-Trip", () => {
     expect(params.severity).toBe("None");
     expect(sendPush).not.toHaveBeenCalled();
   });
-  it("rejects the legacy 7-item payload for Pre-Trip", async () => {
+  it("rejects wrong-count payload for Pre-Trip", async () => {
     parseBody.mockResolvedValue(baseBody({ items: build(FULL_IDS) }));
     const res = await post();
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe("exactly 4 inspection items are required for Pre-Trip");
+    expect((await res.json()).error).toBe("exactly 3 inspection items are required for Pre-Trip");
   });
   it("requires remarks on FAIL", async () => {
     parseBody.mockResolvedValue(baseBody({
-      items: build(QUICK_IDS, { brakes: { status: "FAIL", remarks: "" } }),
+      items: build(QUICK_IDS, { brakes_tires: { status: "FAIL", remarks: "" } }),
     }));
     expect((await post()).status).toBe(400);
   });
-  it("FAIL inserts Failed + High severity and notifies dispatch", async () => {
+  it("FAIL on brakes_tires inserts Failed + High severity and notifies dispatch", async () => {
     parseBody.mockResolvedValue(baseBody({
-      items: build(QUICK_IDS, { brakes: { status: "FAIL", remarks: "pedal soft" } }),
+      items: build(QUICK_IDS, { brakes_tires: { status: "FAIL", remarks: "pedal soft" } }),
     }));
     const res = await post();
     expect(res.status).toBe(201);
     const params = getInsertParams(insertCall());
     expect(params.status).toBe("Failed");
     expect(params.severity).toBe("High");
-    expect(params.findings).toContain("brakes");
+    expect(params.findings).toContain("brakes_tires");
     expect(notifCall()[1][1]).toBe("Failed Pre-Trip Inspection");
     expect(notifCall()[1][2]).toMatch(/ABC-1234 failed the quick pre-trip safety check for Trip #7/);
-    expect(notifCall()[1][2]).toMatch(/brakes/);
+    expect(notifCall()[1][2]).toMatch(/brakes_tires/);
     expect(sendPush).toHaveBeenCalledWith(expect.objectContaining({ title: "Failed Pre-Trip Inspection" }));
+  });
+  it("passenger_items = ITEMS FOUND stores findings but passes Pre-Trip", async () => {
+    parseBody.mockResolvedValue(baseBody({
+      items: build(QUICK_IDS, { passenger_items: { status: "FAIL", remarks: "Found an umbrella" } }),
+    }));
+    const res = await post();
+    expect(res.status).toBe(201);
+    const params = getInsertParams(insertCall());
+    expect(params.status).toBe("Passed");
+    expect(params.severity).toBe("Medium");
+    expect(params.findings).toContain("passenger_items");
+    expect(notifCall()[1][1]).toBe("Inspection Findings (Pre-Trip)");
+    expect(notifCall()[1][2]).toMatch(/reported findings during Pre-Trip check/);
   });
   it("404s a trip the driver does not own", async () => {
     query.mockImplementation(async (sql) =>
@@ -283,9 +296,11 @@ describe("POST — Pre-Shift", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("Pre-Shift inspections must not include trip_id");
   });
-  it("rejects the 4-item quick list for Pre-Shift", async () => {
+  it("rejects the 3-item quick list for Pre-Shift", async () => {
     parseBody.mockResolvedValue(shiftBody({ items: build(QUICK_IDS) }));
-    expect((await post()).status).toBe(400);
+    const res = await post();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("exactly 5 inspection items are required for Pre-Shift");
   });
   it("400s when the driver has no live trip and no assignment", async () => {
     query.mockImplementation(async (sql) =>
@@ -296,23 +311,29 @@ describe("POST — Pre-Shift", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/No vehicle is assigned/);
   });
-  it("non-critical FAIL → severity Medium + Failed Pre-Shift Inspection notification", async () => {
+  it("FAIL on Pre-Shift item → severity High + Failed Pre-Shift Inspection notification + blocks duty", async () => {
     parseBody.mockResolvedValue(shiftBody({
-      items: build(FULL_IDS, { cabin: { status: "FAIL", remarks: "spill needs cleaning" } }),
+      items: build(FULL_IDS, { sounds: { status: "FAIL", remarks: "rattling sound in engine" } }),
     }));
     const res = await post();
     expect(res.status).toBe(201);
+    const body = await res.json();
     const params = getInsertParams(insertCall());
     expect(params.status).toBe("Failed");
-    expect(params.severity).toBe("Medium");
+    expect(params.severity).toBe("High");
+    expect(body.duty).toEqual({
+      started: false,
+      code: "PRESHIFT_FAILED",
+      message: "Duty was not started because pre-shift vehicle safety check failed.",
+    });
     expect(notifCall()[1][1]).toBe("Failed Pre-Shift Inspection");
     expect(notifCall()[1][2]).toMatch(/failed the pre-shift inspection/);
-    expect(notifCall()[1][2]).toMatch(/cabin/);
+    expect(notifCall()[1][2]).toMatch(/sounds/);
     expect(sendPush).toHaveBeenCalledWith(expect.objectContaining({ title: "Failed Pre-Shift Inspection" }));
   });
-  it("critical FAIL on Pre-Shift → severity High", async () => {
+  it("critical FAIL on brakes_tires Pre-Shift → severity High", async () => {
     parseBody.mockResolvedValue(shiftBody({
-      items: build(FULL_IDS, { brakes: { status: "FAIL", remarks: "grinding" } }),
+      items: build(FULL_IDS, { brakes_tires: { status: "FAIL", remarks: "spongy brake pedal" } }),
     }));
     await post();
     expect(getInsertParams(insertCall()).severity).toBe("High");

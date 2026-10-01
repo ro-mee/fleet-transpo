@@ -68,7 +68,11 @@ export function normalizeLicenseType(value) {
 }
 
 export function isValidLicenseExpiry(value) {
-  return isValidDateOnly(value);
+  // Accept anything licenseCalendarDay can read — including the Date objects
+  // node-postgres hands back for DATE columns. Requiring a YYYY-MM-DD string
+  // here made staff verification impossible for every driver whose expiry was
+  // read from the database rather than typed into a form.
+  return licenseCalendarDay(value) !== null;
 }
 
 export function validateLicenseDetails(details, { requireAll = false } = {}) {
@@ -92,8 +96,8 @@ export function validateLicenseDetails(details, { requireAll = false } = {}) {
   }
 
   if (requireAll || present("license_expiry")) {
-    if (!details?.license_expiry || !String(details.license_expiry).trim()) errors.license_expiry = "License expiration date is required.";
-    else if (!isValidLicenseExpiry(String(details.license_expiry))) errors.license_expiry = "License expiration date must be a valid date in YYYY-MM-DD format.";
+    if (details?.license_expiry == null || (typeof details.license_expiry === "string" && !details.license_expiry.trim())) errors.license_expiry = "License expiration date is required.";
+    else if (!isValidLicenseExpiry(details.license_expiry)) errors.license_expiry = "License expiration date must be a valid date.";
   }
 
   return errors;

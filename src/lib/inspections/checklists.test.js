@@ -12,11 +12,10 @@ describe("checklists", () => {
   it("exposes exactly the three spec types", () => {
     expect(INSPECTION_TYPES).toEqual(["Pre-Shift", "Pre-Trip", "Post-Shift"]);
   });
-  it("Pre-Shift is the full 7-point set; Pre-Trip is the 4 critical items", () => {
-    expect(PRE_SHIFT_ITEMS).toEqual(["cabin", "aircon", "dashboard", "exterior", "brakes", "tires", "fuel"]);
-    expect(PRE_TRIP_ITEMS).toEqual(["dashboard", "brakes", "tires", "exterior"]);
-    expect(CRITICAL_ITEM_IDS).toEqual(PRE_TRIP_ITEMS);
-    expect(PRE_TRIP_ITEMS.every((id) => PRE_SHIFT_ITEMS.includes(id))).toBe(true);
+  it("Pre-Shift is the 5-point baseline; Pre-Trip is 3 items", () => {
+    expect(PRE_SHIFT_ITEMS).toEqual(["sounds", "lights", "dashboard", "steering", "brakes_tires"]);
+    expect(PRE_TRIP_ITEMS).toEqual(["brakes_tires", "passenger_items", "cabin_ready"]);
+    expect(CRITICAL_ITEM_IDS).toEqual(PRE_SHIFT_ITEMS);
   });
   it("itemsForType returns null for unknown types and for Post-Shift", () => {
     expect(itemsForType("Pre-Shift")).toEqual(PRE_SHIFT_ITEMS);
@@ -48,28 +47,53 @@ describe("checklists", () => {
   it("rejects empty and wrong-count item lists per type", () => {
     expect(validateChecklist("Pre-Trip", []).ok).toBe(false);
     expect(validateChecklist("Pre-Trip", items(PRE_SHIFT_ITEMS)).error)
-      .toBe("exactly 4 inspection items are required for Pre-Trip");
+      .toBe("exactly 3 inspection items are required for Pre-Trip");
     expect(validateChecklist("Pre-Shift", items(PRE_TRIP_ITEMS)).error)
-      .toBe("exactly 7 inspection items are required for Pre-Shift");
+      .toBe("exactly 5 inspection items are required for Pre-Shift");
   });
   it("rejects ids outside the type set, duplicates, and missing ids", () => {
-    const withCabin = [...PRE_TRIP_ITEMS.slice(0, 3), "cabin"];
-    expect(validateChecklist("Pre-Trip", items(withCabin)).ok).toBe(false);
-    const dup = [...PRE_TRIP_ITEMS.slice(0, 3), PRE_TRIP_ITEMS[0]];
+    const withWrong = ["brakes_tires", "passenger_items", "random_item"];
+    expect(validateChecklist("Pre-Trip", items(withWrong)).ok).toBe(false);
+    const dup = ["brakes_tires", "passenger_items", "brakes_tires"];
     expect(validateChecklist("Pre-Trip", items(dup)).ok).toBe(false);
-    const missingTires = PRE_TRIP_ITEMS.filter((id) => id !== "tires").concat("cabin");
-    expect(validateChecklist("Pre-Trip", items(missingTires)).ok).toBe(false);
+    const missing = ["brakes_tires", "cabin_ready"];
+    expect(validateChecklist("Pre-Trip", items(missing)).ok).toBe(false);
+  });
+  it("requires cabin_ready acknowledgment in Pre-Trip", () => {
+    const unacknowledged = [
+      { item_id: "brakes_tires", label: "Brakes & Tires", status: "PASS", remarks: "" },
+      { item_id: "passenger_items", label: "Passenger Check", status: "PASS", remarks: "" },
+      { item_id: "cabin_ready", label: "Cabin Ready", status: "FAIL", remarks: "" },
+    ];
+    expect(validateChecklist("Pre-Trip", unacknowledged)).toEqual({
+      ok: false, error: "cabin_ready must be acknowledged before completing Pre-Trip",
+    });
   });
   it("requires FAIL remarks, caps length, accepts all-PASS", () => {
-    const failNoRemarks = PRE_TRIP_ITEMS.map((item_id) =>
-      ({ item_id, status: item_id === "brakes" ? "FAIL" : "PASS", remarks: "  " }));
+    const failNoRemarks = [
+      { item_id: "brakes_tires", label: "Brakes & Tires", status: "FAIL", remarks: "  " },
+      { item_id: "passenger_items", label: "Passenger Check", status: "PASS", remarks: "" },
+      { item_id: "cabin_ready", label: "Cabin Ready", status: "PASS", remarks: "" },
+    ];
     expect(validateChecklist("Pre-Trip", failNoRemarks)).toEqual({
-      ok: false, error: "remarks are required for failed item 'brakes'",
+      ok: false, error: "remarks are required for failed item 'brakes_tires'",
+    });
+    const failPassengerNoRemarks = [
+      { item_id: "brakes_tires", label: "Brakes & Tires", status: "PASS", remarks: "" },
+      { item_id: "passenger_items", label: "Passenger Check", status: "FAIL", remarks: "  " },
+      { item_id: "cabin_ready", label: "Cabin Ready", status: "PASS", remarks: "" },
+    ];
+    expect(validateChecklist("Pre-Trip", failPassengerNoRemarks)).toEqual({
+      ok: false, error: "remarks are required for failed item 'passenger_items'",
     });
     const long = items(PRE_SHIFT_ITEMS, "PASS").map((i) => ({ ...i, remarks: "x".repeat(1001) }));
     expect(validateChecklist("Pre-Shift", long).error).toBe("inspection remarks must be 1000 characters or fewer");
     expect(validateChecklist("Pre-Shift", items(PRE_SHIFT_ITEMS))).toEqual({ ok: true });
-    expect(validateChecklist("Pre-Trip", items(PRE_TRIP_ITEMS, "FAIL", "noise"))).toEqual({ ok: true });
+    expect(validateChecklist("Pre-Trip", [
+      { item_id: "brakes_tires", label: "Brakes & Tires", status: "FAIL", remarks: "low tire" },
+      { item_id: "passenger_items", label: "Passenger Check", status: "FAIL", remarks: "found umbrella" },
+      { item_id: "cabin_ready", label: "Cabin Ready", status: "PASS", remarks: "" },
+    ])).toEqual({ ok: true });
   });
   it("rejects invalid statuses and non-array input", () => {
     expect(validateChecklist("Pre-Trip", items(PRE_TRIP_ITEMS).map((i, idx) =>
