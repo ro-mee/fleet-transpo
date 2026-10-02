@@ -14,16 +14,22 @@ import {
   localDayOfWeek,
 } from "@/lib/scheduling/driver-schedule";
 
+function manilaDayString(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
 function startOfDay(value) {
-  const d = value instanceof Date ? new Date(value) : new Date(value);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  const day = manilaDayString(value);
+  if (!day) return value instanceof Date ? new Date(value) : new Date(value);
+  return new Date(`${day}T00:00:00+08:00`);
 }
 
 function endOfDay(value) {
-  const d = value instanceof Date ? new Date(value) : new Date(value);
-  d.setHours(23, 59, 59, 999);
-  return d;
+  const day = manilaDayString(value);
+  if (!day) return value instanceof Date ? new Date(value) : new Date(value);
+  return new Date(`${day}T23:59:59.999+08:00`);
 }
 
 /**

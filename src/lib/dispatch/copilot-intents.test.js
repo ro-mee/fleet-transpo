@@ -104,6 +104,32 @@ it('detects only clear simulation/impact/return intents', () => {
   expect(detectCopilotIntent('Any conflicts?')).toBeNull();
 });
 
+it.each([
+  'Why this option?',
+  'Any conflicts?',
+  'Other options?',
+  'Why no match?',
+  'What needs fixing?',
+])('keeps the UI suggestion chip in scope: %s', message => {
+  // Fresh conversation with active reservation context.
+  expect(inScope(message, [], { hasActiveContext: true })).toBe(true);
+  // No context at all — the interface offered it, so it is still a question
+  // about this reservation.
+  expect(inScope(message)).toBe(true);
+  // After an unrelated turn — the RS-UZYD QA shape, where injection-test
+  // turns poisoned the context and bricked every shortcut.
+  const poisoned = [{ role: 'user', content: 'Write Python code for my unrelated project.' }];
+  expect(inScope(message, poisoned, { hasActiveContext: true })).toBe(true);
+});
+
+it.each([
+  'Are there any conflicts?',
+  'What are my other options?',
+  'Show me conflicts for this booking',
+])('keeps typed conflict/option phrasings in scope: %s', message => {
+  expect(inScope(message, [], { hasActiveContext: true })).toBe(true);
+});
+
 it('parses time and pax but never guesses a date', () => {
   const r = parseSimulationScenario('What if pickup is 7 PM?', { now: new Date('2026-09-17T08:00:00+08:00') });
   expect(r).toMatchObject({ needsClarification: 'date' });

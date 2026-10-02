@@ -27,6 +27,24 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 const ACTIVE_DISPATCH_STATUSES = ["Scheduled", "In Progress"];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// User-facing times are always Philippine wall-clock. Raw ISO strings are UTC
+// (e.g. 07:09Z reads as 7:09 AM while the Manila wall-clock is 3:09 PM), so
+// embedding toISOString() in a message lets the Copilot repeat the UTC hour
+// while the UI shows the Manila hour — with a correct minute-gap alongside.
+// RS-UZYD 2026-10-02 caught exactly that 8-hour split. ISO stays in `detail`
+// for machine use; prose uses this.
+function formatManila(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(+d)) return String(value ?? "unknown time");
+  return (
+    new Intl.DateTimeFormat("en-PH", {
+      timeZone: "Asia/Manila",
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(d) + " (Philippine time)"
+  );
+}
+
 // Active custodial pairings (migration 017), enriched with the plate and driver
 // name the warning message needs. `assigned_until IS NULL` is exactly the
 // predicate on uq_dva_active_driver / uq_dva_active_vehicle, so this reads the
@@ -177,7 +195,7 @@ function travelBufferFindings(request, resource, kind, cfg) {
       {
         type: CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED,
         severity: SEVERITY.WARNING,
-        message: `${label} has a previous commitment ending ${new Date(resource._previous_busy_end).toISOString()}, but the travel time to this pickup could not be determined — the safety buffer was not checked. Confirm the gap manually before dispatching.`,
+        message: `${label} has a previous commitment ending ${formatManila(resource._previous_busy_end)}, but the travel time to this pickup could not be determined — the safety buffer was not checked. Confirm the gap manually before dispatching.`,
         detail: {
           [idKey]: resource[idKey],
           previous_scheduled_end: resource._previous_busy_end,
@@ -200,7 +218,7 @@ function travelBufferFindings(request, resource, kind, cfg) {
     {
       type: CONFLICT_TYPE.TRAVEL_BUFFER,
       severity: SEVERITY.BLOCKING,
-      message: `${label} is only available at ${r.earliest.toISOString()} — the pickup is too soon after the previous trip (${resource._eta_to_pickup_min} min travel + ${cfg.safetyBufferMinutes} min buffer).`,
+      message: `${label} is only available at ${formatManila(r.earliest)} — the pickup is too soon after the previous trip (${resource._eta_to_pickup_min} min travel + ${cfg.safetyBufferMinutes} min buffer).`,
       detail: {
         [idKey]: resource[idKey],
         earliest_next_available: r.earliest.toISOString(),

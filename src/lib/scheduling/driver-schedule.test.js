@@ -8,10 +8,15 @@ import {
   driverBlockReason,
 } from "@/lib/scheduling/driver-schedule";
 
-// Local-time Date helpers. The helper reads the wall clock off the Date with
-// local getters, so these constructors are what the codebase actually receives
-// (pg timestamptz -> JS Date, rendered in the server's zone).
-const at = (y, m, d, hh = 0, mm = 0) => new Date(y, m - 1, d, hh, mm);
+// Manila wall-clock Date helpers: at(2026,8,17,9,5) is the instant whose
+// Asia/Manila wall-clock reads 09:05, regardless of the runner's TZ. The
+// helpers read the instant in Manila terms, so tests must construct Manila
+// instants explicitly — a server-local `new Date(y,m-1,d,hh,mm)` is a
+// different instant on a UTC runner and would assert the wrong wall-clock.
+const at = (y, m, d, hh = 0, mm = 0) => {
+  const p = (n) => String(n).padStart(2, "0");
+  return new Date(`${y}-${p(m)}-${p(d)}T${p(hh)}:${p(mm)}:00+08:00`);
+};
 
 describe("localDayOfWeek / localTimeOfDay", () => {
   it("reads local day-of-week (0=Sunday)", () => {
@@ -21,6 +26,15 @@ describe("localDayOfWeek / localTimeOfDay", () => {
   });
   it("reads local wall-clock time as HH:MM:SS", () => {
     expect(localTimeOfDay(at(2026, 8, 17, 9, 5))).toBe("09:05:00");
+  });
+  it("reads Manila wall-clock from a UTC instant, not the server zone (RS-UZYD)", () => {
+    // 3:09 PM Manila = 07:09Z. A UTC runner must still read 15:09 and Friday
+    // (2026-10-02 is a Friday), not 07:09 / the UTC day.
+    expect(localTimeOfDay(new Date("2026-10-02T07:09:00.000Z"))).toBe("15:09:00");
+    expect(localDayOfWeek(new Date("2026-10-02T07:09:00.000Z"))).toBe(5);
+    // 1 AM Manila is the previous UTC day — the weekday must still be Manila's.
+    expect(localDayOfWeek(new Date("2026-10-01T17:30:00.000Z"))).toBe(5);
+    expect(localTimeOfDay(new Date("2026-10-01T17:30:00.000Z"))).toBe("01:30:00");
   });
 });
 

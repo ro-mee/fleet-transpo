@@ -23,21 +23,36 @@ export const DAY_NAMES = [
   "Saturday",
 ];
 
-/** Local day-of-week (0=Sunday..6=Saturday) of a Date or parseable value. */
+/** Manila wall-clock day-of-week (0=Sunday..6=Saturday) of a Date or parseable value.
+ *
+ * Schedules store Manila wall-clock spans ("06:00:00"–"22:00:00", break
+ * "12:00:00"–"13:00:00"), so the pickup instant must be read in Manila terms,
+ * not the server's zone. Dev machines sit in GMT+8 so local getters happen to
+ * agree; a UTC production runner reads 5 PM Manila as 9 AM and the noon break
+ * as 4 AM — the 8-hour split RS-UZYD caught in Copilot prose. Asia/Manila has
+ * no DST, but this still goes through Intl rather than a fixed offset so the
+ * zone stays explicit at the call site.
+ */
 export function localDayOfWeek(value) {
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  return d.getDay();
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", weekday: "short" }).format(d);
+  return { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }[weekday] ?? null;
 }
 
-/** Local wall-clock "HH:MM:SS" of a Date or parseable value. */
+/** Manila wall-clock "HH:MM:SS" of a Date or parseable value (see above). */
 export function localTimeOfDay(value) {
   const d = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(d.getTime())) return null;
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Manila",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${get("hour")}:${get("minute")}:${get("second")}`;
 }
 
 /** "08:00:00" -> "8:00 AM" for a human-readable reason string. */
@@ -51,13 +66,24 @@ function fmtTime(value) {
   return `${hh}:${m[2]} ${ampm}`;
 }
 
+/** Manila "YYYY-MM-DD" of an instant. toCalendarDay reads a Date's server-local
+ * components, which is correct for pg `date` columns (local midnight) but
+ * shifts a timestamptz pickup by the server offset in the 00:00–07:59 Manila
+ * window. Leave coverage is a Manila business-day question, so derive it here.
+ */
+function manilaDay(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (!d || Number.isNaN(d.getTime())) return toCalendarDay(value);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
 /**
- * Whether any approved-leave row covers `date` (its calendar day, local).
+ * Whether any approved-leave row covers `date` (its Manila calendar day).
  * leaveRows entries may carry either snake_case (pg `date` -> local Date or
  * "YYYY-MM-DD" string) or camelCase column names.
  */
 export function hasLeaveConflict(leaveRows, pickup, returnAt, targetStatus = 'Approved') {
-  const day = toCalendarDay(pickup);
+  const day = manilaDay(pickup);
   if (day === null) return false;
 
   const pTime = pickup ? localTimeOfDay(pickup) : null;
@@ -84,7 +110,7 @@ export function hasLeaveConflict(leaveRows, pickup, returnAt, targetStatus = 'Ap
  *
  * @param {object} params
  * @param {object|null} params.schedule the schedule row for the pickup day, or null
- * @param {Date|string} [params.pickup] pickup instant (local getters read the wall clock)
+ * @param {Date|string} [params.pickup] pickup instant (read as Manila wall-clock)
  * @param {Date|string} [params.returnAt] return instant; defaults to pickup when absent
  * @returns {{ blocked: true, reason: string } | null} null = not blocked
  */

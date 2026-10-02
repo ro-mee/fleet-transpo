@@ -16,7 +16,26 @@ const FLEETMATE_COURTESY_REPLY = 'Hi. How can I help with this reservation or fl
 const HISTORY_PAIR_PREFIX = /^\[asked about vehicle #[^/]+ \/ driver #[^\]]+\]\s*/i;
 const COURTESY = /^(?:hi|hello|hey|good morning|good afternoon|good evening|thanks?|thank you|salamat|ok(?:ay)?|got it|noted|understood|great)[.!?, ]*$/i;
 const CONTEXTUAL_FOLLOW_UP = /^(?:why(?: not)?(?: this (?:pair|option|match))?|what changed|what(?:'s| is) different|compare(?: them| these| those| the options)?|how about (?:the other (?:one|option)|option\s*[12ab])?|what about (?:tomorrow|today|that day|the other one|traffic|weather|gps|eta)|tomorrow|today|bukas|ngayon|can you explain(?: that)?|explain(?: that)?|the other (?:one|option)|is anyone free(?: that day)?|summarize(?: the situation)?(?: in (?:one|two) sentences)?|what (?:do i need to do|i need to do|do i do(?: next)?|should i do(?: next)?)|what(?:'s| is) (?:my )?next step|what next|ano (?:ang )?(?:kailangan kong gawin|kailangan ko gawin|gagawin ko|dapat kong gawin|susunod kong gawin)|anong (?:kailangan kong gawin|kailangan ko gawin|gagawin ko)|what should i check next|sign(?: it)?)[.!?, ]*$/i;
-const FLEET_SIGNAL = /\b(?:fleetops?|fleetmate|reservation|bookings?|dispatch|assignment|assign(?:ed|ment)?|drivers?|vehicle|van|car|bus|passenger|pax|seat(?:s|ing)?|capacity|pickup|drop[- ]?off|trip|route|eta|arrival|gps|location|maintenance|incident|compliance|licen[cs]e|verif\w*|registration|insurance|leave|attendance|schedule|availability|available|unavailable|ready|readiness|workload|reassign|replacement|substitute|fairness|option\s*[12ab]|pair|match|recommend(?:ation)?|conflict|overlap|blocked|queue)\b/i;
+const FLEET_SIGNAL = /\b(?:fleetops?|fleetmate|reservation|bookings?|dispatch|assignment|assign(?:ed|ment)?|drivers?|vehicle|van|car|bus|passenger|pax|seat(?:s|ing)?|capacity|pickup|drop[- ]?off|trip|route|eta|arrival|gps|location|maintenance|incident|compliance|licen[cs]e|verif\w*|registration|insurance|leave|attendance|schedule|availability|available|unavailable|ready|readiness|workload|reassign|replacement|substitute|fairness|options?(?:\s*[12ab])?|pair|match|recommend(?:ation)?|conflicts?|overlap|blocked|queue)\b/i;
+// The exact suggestion chips the UI renders (copilot-conversation.jsx
+// suggestions). The interface offers these, so each is always a question about
+// this reservation — never general knowledge — regardless of history. RS-UZYD
+// QA 2026-10-02: three of the five chips redirected on a fresh conversation
+// ("conflicts" missed the singular-only signal, bare "options" and "fixing"
+// matched nothing), and after an injection-test turn even "Why this option?"
+// bricked because context gating blocks every follow-up after unrelated input.
+// Exact-match only, so no general question can ride it; unrelated-task routing
+// above still runs first.
+const SUGGESTION_CHIPS = new Set([
+  'why this option',
+  'any conflicts',
+  'other options',
+  'why no match',
+  'what needs fixing',
+]);
+function isSuggestionChip(value) {
+  return SUGGESTION_CHIPS.has(normalizeScopeText(value).toLowerCase().replace(/[.?!]+$/, '').trim());
+}
 // A named person the dispatcher is asking about ("okay na ba si karlo?",
 // "kamusta si Jack?", "is Karlo verified?"). The classifier cannot resolve
 // the name — that happens against server evidence later — but a person
@@ -97,6 +116,7 @@ export function classifyCopilotScope(message = '', history = [], { hasActiveCont
   const text = normalizeScopeText(message);
   if (isCourtesy(text)) return { kind: 'courtesy' };
   if (isUnrelatedTask(text)) return { kind: 'out-of-scope' };
+  if (isSuggestionChip(text)) return { kind: 'in-scope' };
   if (isFleetQuestion(text)) return { kind: 'in-scope' };
 
   const priorContext = hasFleetConversationContext(history);
