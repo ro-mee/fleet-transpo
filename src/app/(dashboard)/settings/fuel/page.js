@@ -359,12 +359,6 @@ function FuelPolicyForm({ policy, queryClient }) {
               onChange={(v) => setForm((f) => ({ ...f, autoApprovalMaxLiters: v }))}
             />
 
-            <ToggleRow
-              label="Mandatory Gauge Photo Evidence"
-              description="Requires driver to submit a fresh in-app dashboard gauge camera photo before submitting a refill request."
-              checked={form.requireGaugePhoto}
-              onChange={(v) => setForm((f) => ({ ...f, requireGaugePhoto: v }))}
-            />
 
           </CardContent>
         </Card>

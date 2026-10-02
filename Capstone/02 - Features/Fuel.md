@@ -301,7 +301,6 @@ Refueling planning, pilferage detection, and auto-authorization previously relie
 | `enableVarianceAlerts` | `true` | boolean | Toggles pilferage & consumption variance detection |
 | `autoApprovalEnabled` | `true` | boolean | Toggles instant auto-authorization engine |
 | `autoApprovalMaxLiters` | `60` | 10 – 200 L | Liter ceiling above which requests require Fleet Manager review |
-| `requireGaugePhoto` | `true` | boolean | Enforces fresh in-app dashboard gauge camera photo on request |
 | `budgetEnforcementMode` | `"warning"` | `"warning"` \| `"strict"` | Warning permits manager override with reason; Strict hard blocks |
 | `maxPricePerLiter` | `120` | ₱40 – ₱200 / L | Receipts exceeding this ceiling trigger anomaly warning |
 | `strictFuelTypeMatching` | `false` | boolean | Strictly block claims where receipt fuel type conflicts with engine |
@@ -313,7 +312,7 @@ Refueling planning, pilferage detection, and auto-authorization previously relie
 - **REST Endpoints:** `GET` / `PUT /api/settings/fuel` (`src/app/api/settings/fuel/route.js`) with RBAC guard (`requirePermission(req, "fuel_settings", ...)`), parameter allowlist, and audit logging (`writeAudit`).
 - **Core Decision Logic:** `src/lib/fuel/request-policy.js` accepts optional `policy` in `calculateFuelRecommendation()`, `assessFuelVariance()`, and `evaluateFuelPolicy()`.
 - **Request Creation Integration:** `src/app/api/fuel/requests/route.js` fetches the active policy and injects it into all calculations and auto-authorization evaluations.
-- **Approval and receipt integration:** Strict budget mode blocks manager over-budget approvals even with an override reason. Mobile receipt submission uses the configured price ceiling for anomaly flags and blocks a known fuel-type mismatch when strict matching is enabled. Receipt photos remain mandatory in the mobile flow and are not exposed as a configurable toggle.
+- **Approval and receipt integration:** Strict budget mode blocks manager over-budget approvals even with an override reason. Mobile receipt submission uses the configured price ceiling for anomaly flags and blocks a known fuel-type mismatch when strict matching is enabled. Gauge photos on requests and receipt photos on claims remain mandatory in the mobile flow; neither is exposed as a configurable toggle.
 - **UI Management Console:** `src/app/(dashboard)/settings/fuel/page.js` provides a modern settings console with HeroHeader, 5 KPI stat cards, an interactive Three-Value Tank Visualizer, Refueling & Planning Thresholds, Pilferage & Variance Detection, Auto-Authorization Engine, Cost & Budget Governance, and action buttons.
 - **Navigation & Access:** Added to `NAV_ROLES["/settings/fuel"]` and `MATRIX.fuel_settings` for `admin`, `super_admin`, and `fleet_manager` (`src/lib/auth/permissions.js`), workspace sidebars (`src/lib/workspaces.js`), and Command Palette (`src/components/ui/command-palette.jsx`).
 

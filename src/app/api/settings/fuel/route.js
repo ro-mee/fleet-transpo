@@ -11,7 +11,6 @@ const ALLOWED_KEYS = new Set([
   "enableVarianceAlerts",
   "autoApprovalEnabled",
   "autoApprovalMaxLiters",
-  "requireGaugePhoto",
   "budgetEnforcementMode",
   "maxPricePerLiter",
   "strictFuelTypeMatching",

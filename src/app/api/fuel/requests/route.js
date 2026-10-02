@@ -115,20 +115,16 @@ export async function POST(req) {
     if (tripId !== null && (!Number.isInteger(tripId) || tripId <= 0)) return err("Invalid trip_id", 400);
     if (!Number.isFinite(fuelLevel) || fuelLevel < 0 || fuelLevel > 100) return err("current_fuel_level_percent must be between 0 and 100", 400);
     if (body.purpose && String(body.purpose).length > 500) return err("purpose is too long", 400);
-    if (fuelPolicy.requireGaugePhoto || body.gauge_photo_url) {
-      if (typeof body.gauge_photo_url !== "string" || !body.gauge_photo_url.trim()) {
-        return err("A fuel gauge photo is required for every request", 400);
-      }
-      if (!isOwnedFuelImageUrl(body.gauge_photo_url, session.user.driverId, "gauge")) {
-        return err("The gauge photo is not a valid upload for this driver", 400);
-      }
-      // `gauge_photo_url` holds an object key, not a URL (SEC-UPLOAD-003). The
-      // driver is handed a short-lived URL at upload and echoes it back here, so
-      // reduce it to the key on the way in; fail closed if it does not resolve.
-      body.gauge_photo_url = toStoredReceiptRef(body.gauge_photo_url);
-      if (!body.gauge_photo_url) {
-        return err("The gauge photo is not a valid upload for this driver", 400);
-      }
+    if (typeof body.gauge_photo_url !== "string" || !body.gauge_photo_url.trim()) {
+      return err("A fuel gauge photo is required for every request", 400);
+    }
+    if (!isOwnedFuelImageUrl(body.gauge_photo_url, session.user.driverId, "gauge")) {
+      return err("The gauge photo is not a valid upload for this driver", 400);
+    }
+    // Store the owned object key, never an expiring upload URL.
+    body.gauge_photo_url = toStoredReceiptRef(body.gauge_photo_url);
+    if (!body.gauge_photo_url) {
+      return err("The gauge photo is not a valid upload for this driver", 400);
     }
     const gaugeScanEstimate = Number(body.gauge_scan_estimate);
     const gaugeScan = Number.isFinite(gaugeScanEstimate) && gaugeScanEstimate >= 0 && gaugeScanEstimate <= 100

@@ -20,7 +20,6 @@ export const DEFAULT_FUEL_POLICY = Object.freeze({
   // Auto-authorization engine
   autoApprovalEnabled: true,
   autoApprovalMaxLiters: 60,
-  requireGaugePhoto: true,
 
   // Budget & cost controls
   budgetEnforcementMode: "warning", // "warning" (manager override allowed) | "strict" (hard block)
@@ -70,7 +69,6 @@ export function mergeFuelPolicy(stored) {
 
   base.enableVarianceAlerts = s.enableVarianceAlerts === undefined ? DEFAULT_FUEL_POLICY.enableVarianceAlerts : s.enableVarianceAlerts === true;
   base.autoApprovalEnabled = s.autoApprovalEnabled === undefined ? DEFAULT_FUEL_POLICY.autoApprovalEnabled : s.autoApprovalEnabled === true;
-  base.requireGaugePhoto = s.requireGaugePhoto === undefined ? DEFAULT_FUEL_POLICY.requireGaugePhoto : s.requireGaugePhoto === true;
   base.strictFuelTypeMatching = s.strictFuelTypeMatching === undefined ? DEFAULT_FUEL_POLICY.strictFuelTypeMatching : s.strictFuelTypeMatching === true;
   base.budgetEnforcementMode = s.budgetEnforcementMode === "strict" ? "strict" : "warning";
 
@@ -108,7 +106,7 @@ export function validateFuelPolicy(policy) {
   if (policy.budgetEnforcementMode !== undefined && !["warning", "strict"].includes(policy.budgetEnforcementMode)) {
     return { ok: false, error: "budgetEnforcementMode must be either 'warning' or 'strict'" };
   }
-  for (const key of ["enableVarianceAlerts", "autoApprovalEnabled", "requireGaugePhoto", "strictFuelTypeMatching"]) {
+  for (const key of ["enableVarianceAlerts", "autoApprovalEnabled", "strictFuelTypeMatching"]) {
     if (policy[key] !== undefined && typeof policy[key] !== "boolean") {
       return { ok: false, error: `${key} must be a boolean` };
     }
