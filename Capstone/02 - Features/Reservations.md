@@ -14,6 +14,10 @@ related: ["[[Dispatch]]", "[[System Boundaries]]"]
 
 # Feature: Reservations
 
+## Queue tab label — 2026-10-02
+
+Per the requested shorter copy, the reservation queue tab now displays **Today** and its empty state says **Nothing today**. The underlying Manila-date predicate remains `pickup_datetime <= today`, so overdue requests remain in this work group; the tab tooltip still says "Pickup today or already past." The loading/count accessible names follow the shorter tab label. Verification: all 5 focused queue page tests passed and scoped ESLint passed.
+
 ## Manual Analyze controls removed - 2026-09-15
 
 Removed the remaining Copilot Analyze buttons from its header, empty state and recovery flow. Selecting an option still automatically generates and validates the required queue plan. Recheck reservation now repeats the chosen-pair check when a pair is selected, so stale or failed queue evidence has a recovery path without a separate Analyze action. Seven focused panel/assignment tests and touched-source ESLint passed.
@@ -222,6 +226,8 @@ Four reported queue/request symptoms, all verified against the code and a read-o
 ### "Today (6)" was not lying, the label was
 
 `QUEUE_TAB_PREDICATES.today` is `pickup_datetime <= today (Asia/Manila)` — today **or already past**. The vault already documented that as intentional dispatcher work grouping; the tab's bare word "Today" hid it, so a request dated the 15th under "Today (6)" read as a bug. The tab is now **Today & overdue**, with a tooltip and an `aria-label` that spell out the filter, and the empty state reads "Nothing today or overdue".
+
+The 2026-10-02 label request supersedes the visible wording described in the paragraph above; the predicate and tooltip remain as described. See "Queue tab label" above.
 
 The count badge and the highlight were two more honesty defects:
 
