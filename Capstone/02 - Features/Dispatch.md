@@ -9,11 +9,22 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-10-02
+last_verified: 2026-10-03
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
 # Feature: Dispatch
+
+## Calendar 500 root-cause fix — 2026-10-03
+
+The dispatcher calendar's required vehicle-roster query selected `vehicles.make`,
+but the schema defines `vehicles.manufacturer` and has no `make` column. That
+column error rejects the route's `Promise.all`, returning the page's generic
+calendar 500. The query now selects `manufacturer AS make`, preserving the
+calendar's existing client-side field contract. Source/schema evidence strongly
+matches the reported failure; a live error-log query was blocked by the local
+sandbox's database network restriction, so authenticated deployed replay remains
+pending. Scoped ESLint passed; tests were not run.
 
 ## Admin calendar count follow-up — 2026-10-02
 
@@ -425,3 +436,14 @@ A new event type, `RESERVATION_EVENT.DISPATCH_RELEASED` (`"dispatch_released"`),
 The dialog now states the real outcome ("The guest's request is NOT cancelled — it is released back to Scheduled and stays in the queue so you can assign a replacement pair"), the Cancel button is still only offered for `Scheduled`/`In Progress` dispatches (the state machine refuses a terminal one), and the success toast says *"Dispatch stood down — the request is back in the queue for reassignment"*.
 
 `src/services/transition.service.test.js` (11 tests) drives the real `advanceReservation` against a fake transaction and pins: released-to-`Scheduled` (never `Cancelled`), pair cleared, dispatch flip and trip cancellation inside the same transaction, `Completed` trips untouched, terminal requests left alone but the dispatch still cancelled, a refused release aborting the chain (no audit, no outbound), Booking notified only after commit, and the audit carrying both statuses. `scripts/verify-cancel-cascade.mjs` was updated to the corrected rule for both directions (it needs a running dev server to execute).
+
+## Dispatch settings & operating hours policy — 2026-10-03 (implemented)
+
+`/settings/dispatch` provides system-level configuration for dispatchers and fleet operations:
+1. **Operating Hours & Driver Shift Policy** (`system_settings.work_shift_policy`):
+   - Configurable organizational shift window (`shiftStart`, `shiftEnd`), standard lunch break (`breakStart`, `breakEnd`), and default working/rest days (`workingDays` array). Defaults to 06:00–22:00 with 12:00–13:00 lunch (Mon–Sat active, Sun rest).
+   - **Stagger Lunch Breaks (`staggerBreaks`):** Rotates active drivers across 4 lunchtime slots (`11:30–12:30`, `12:00–13:00`, `12:30–13:30`, `13:00–14:00`) so vehicles are always available during peak lunch hours to catch incoming booking assignments.
+   - **Stagger Rest Days (`staggerRestDays`):** Rotates days off across all 7 days of the week (`driverIndex % 7`, Sun–Sat) so no day is left without driver coverage, ensuring 7-day continuous fleet readiness.
+   - **Apply Routine to All Drivers:** Batch upserts `driver_work_schedules` atomically across all active drivers (`POST /api/settings/work-shift/apply`), preserving existing schedule IDs. The button requires the edited policy to be saved first; a failed policy read blocks the editor. An explicitly empty `driver_ids` selection is rejected instead of applying to everyone. Break slots outside a shortened shift are skipped.
+2. **Queue Priority Bands** (`system_settings.dispatch_policy`): Configurable minute horizons for Critical, High, and Medium priority classification in the transportation queue, alongside VIP and Emergency elevation toggles.
+3. **Unassigned Departure Warnings**: Configurable minute thresholds before scheduled departure to alert dispatchers of unassigned or pending dispatches.

@@ -21,11 +21,11 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 
 # Feature: Driver Management
 
-**Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old active driver profiles were cleaned or retired, and ten new intended defense drivers were seeded. The live active driver roster contains exactly those ten new profiles; five old profiles linked to preserved privacy consents remain soft-deleted. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
+**Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old operational data was cleaned, and ten new intended defense drivers were seeded. The live driver roster contains exactly those ten profiles and ten active driver-role accounts; the 23 old driver employees and six retired driver profiles were later hard-deleted by exact FK-checked cleanup. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
 
 ## What it does
 
-Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. 23 drivers.
+Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. The current defense roster contains 10 drivers (D01–D10).
 
 ## Driver license eligibility — 2026-09-27
 
@@ -357,6 +357,32 @@ Rules:
   break 12:00–13:00, no rest days) so live enforcement could be verified without
   inventing a rest-day policy.
 
+### Staggered lunch breaks & staggered rest days — IMPLEMENTED 2026-10-03
+
+To prevent fleet unavailability during lunch hours and avoid dead days where all drivers are off on Sunday, organizational shift policies and individual schedule tooling support automated staggering:
+
+1. **Staggered lunch breaks across drivers (`staggerBreaks`):**
+   - Rotating slots (`src/lib/work-shift-policy.js` `DEFAULT_BREAK_SLOTS`):
+     - Slot 1: `11:30–12:30` (Early Lunch)
+     - Slot 2: `12:00–13:00` (Standard Lunch)
+     - Slot 3: `12:30–13:30` (Mid Lunch)
+     - Slot 4: `13:00–14:00` (Late Lunch)
+   - When active, batch application (`applyWorkShiftPolicyToDrivers`) assigns drivers round-robin across the 4 slots (`driverIndex % 4`). If one driver is taking lunch between 12:00 PM and 1:00 PM, other drivers on slots 1, 3, or 4 remain available to catch bookings.
+2. **Staggered rest days across drivers (`staggerRestDays`):**
+   - Rotates days off across all 7 weekdays (`driverIndex % 7`):
+     - Driver 0 rests on Sunday (day 0)
+     - Driver 1 rests on Monday (day 1)
+     - Driver 2 rests on Tuesday (day 2)
+     - Driver 3 rests on Wednesday (day 3)
+     - Driver 4 rests on Thursday (day 4)
+     - Driver 5 rests on Friday (day 5)
+     - Driver 6 rests on Saturday (day 6)
+   - Guarantees continuous 7-day vehicle readiness and coverage across the entire operating week.
+3. **Driver schedule editor enhancements (`src/components/drivers/work-schedule-card.jsx`):**
+   - **Quick lunch presets:** 4 preset buttons in the right panel set `break_start` and `break_end` for all working days in one click.
+   - **1-Click single rest day assigner:** 7-day button grid (`Sun` through `Sat`) instantly designates that day as the rest day and activates all other 6 days as working days with the driver's current shift hours.
+   - **System default prefill:** "Use System Default Routine" queries `/api/settings/work-shift` and pre-populates operating hours.
+
 Enforcement surfaces: `GET /api/drivers` (windowed), `GET /api/vehicles/available`
 (windowed, effective driver from `ctx.pairings`), `pair-scoring.js`
 (`isDriverUnavailableFor` + `resolveVehiclePairing` + `buildFleetPairRecommendations`),
@@ -365,8 +391,9 @@ the transport-request recommendation route, `conflicts.js` (DRIVER_UNAVAILABLE),
 `trips/[id]/start` gate, and the dispatch calendar probe.
 
 UI: `WorkScheduleCard` on the driver detail page (schedule editor gated
-fleet_manager), `/drivers/leave` review board (admin and fleet_manager approve),
-`/driver/schedule` self-service (view schedule, file/withdraw leave).
+fleet_manager, with "Use System Default Routine" prefill action), `/drivers/leave` review board (admin and fleet_manager approve),
+`/driver/schedule` self-service (view schedule, file/withdraw leave), and the
+"Operating Hours & Driver Shift Policy" card on `/settings/dispatch` (configure fleet shift baseline and batch-apply to all active drivers).
 
 > **Scope note (2026-08-23; updated 2026-10-02):** the Driver Leave Requests
 > board (`/drivers/leave`) and Document Expiration (`/fleet/documents`) were
@@ -657,3 +684,7 @@ Reported as *"All Time shows 0 completed trips while shorter periods show 4"*. I
 Completed trips by `end_time` without the driver join: 6 all-time vs 4 for 30 days. So All Time already contains every shorter window, and `resolvePresetRange("all")` spans the epoch to `2100-01-01` at both ends.
 
 What *was* worth pinning is the invariant, now covered by tests: `resolvePresetRange("all")` must contain `30d`/`90d`/`year`; the page must render the server's `totalCompletedTrips` unchanged (it must never re-derive a total for the `all` preset); and every `getDriverPerformanceReport` query must keep the same half-open `end_time >= $1::date AND < ($2::date + 1)` predicate so widening `$1/$2` can only add rows. The genuine cross-report inconsistency — different reports windowing on different date columns (`start_time` for fleet utilisation, `end_time` here, `maintenance_date` for maintenance, `created_at` for request volume) — is named in [[Reports]] rather than papered over.
+
+## Defense account roster cleanup — 2026-10-03
+
+The live defense roster now has exactly ten active driver accounts (D01–D10). The guarded old-account cleanup removed 54 already-deleted no-role harness accounts, then the exact hard-delete workflow removed all 23 retired pre-defense driver employees and six linked retired driver profiles. Audit rows were preserved with detached nullable actor links; no unrelated staff, role, or defense rows were deleted. The ten defense logins use the approved name-based Gmail mapping; password hashes were preserved and account versions were bumped during rotation. Their schedules use distributed rest days and staggered lunch windows within 06:00–22:00. See [[Defense Demo Data Implementation Plan]] for the digests and recovery snapshots.

@@ -54,3 +54,32 @@ export async function updateSecurityPolicy(policy) {
     body: policy,
   });
 }
+
+export async function getWorkShiftPolicy() {
+  return apiFetch("/api/settings/work-shift");
+}
+
+export async function updateWorkShiftPolicy(policy) {
+  return apiFetch("/api/settings/work-shift", {
+    method: "PUT",
+    body: policy,
+  });
+}
+
+export async function applyWorkShiftPolicy(payload = {}) {
+  return apiFetch("/api/settings/work-shift/apply", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function getFuelPolicy() {
+  return apiFetch("/api/settings/fuel");
+}
+
+export async function updateFuelPolicy(policy) {
+  return apiFetch("/api/settings/fuel", {
+    method: "PUT",
+    body: policy,
+  });
+}
