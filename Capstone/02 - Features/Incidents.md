@@ -99,6 +99,12 @@ disconnected duplicate report.
 
 Pure decision logic lives in `src/lib/incidents/resolution.js`, `src/lib/driver/grounding.js`, and `src/lib/incidents/responder-tracking.js` (24, 11, and 10 unit tests) so the routes stay thin — same pattern as [[grounding]]. Field resolution's shared transactional core is `src/lib/incidents/field-resolution.js` (called by both driver endpoints). The DB dedup pattern mirrors fuel/inspection idempotency (migrations 059/060); migrations 083–086 carry it for incident maintenance.
 
+## Incident map location eligibility — 2026-10-03
+
+An incident remains valid and visible in the registry when the driver's report-time GPS fix is unavailable. Both the typed report form and SOS attempt a foreground location read and continue submitting when permission is denied or the read fails. The API stores absent `latitude`/`longitude` as SQL `NULL` and does not substitute the driver's latest tracked position.
+
+The web resolver accepts a complete stored coordinate pair or coordinate text it can parse (decimal pair, Google Maps URL, or DMS); it does not geocode a human-readable place name. The incident registry therefore keeps the active report while the map omits its marker and reports it in the missing-GPS count. This is the expected state when the map says an active incident has no GPS fix. The typed form currently still says exact coordinates are automatically tagged even if capture fails, which can obscure this outcome to the driver. Do not derive an incident pin from a later driver fix or an unverified address.
+
 ## Known limits
 
 - No free-form two-way comment thread — the driver receives the acknowledge note and resolution read-only; their only replies are the structured confirm/dispute actions of step 5 and the field resolution of step 6 (deliberately out of the 2026-09-04 scope).
