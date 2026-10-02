@@ -5,6 +5,13 @@ import * as FileSystem from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../lib/theme-context';
 import { palettes } from '../lib/theme';
+import {
+  escapeHtmlText,
+  finiteNumberInRange,
+  normalizeRadarMarkers,
+  serializeCssString,
+  serializeInlineScriptValue,
+} from '../lib/map-webview-data';
 
 let cachedCarImage = '';
 
@@ -54,7 +61,7 @@ const TomTomMap = forwardRef(({
         }
         if (active && cachedCarImage) {
           setCarImage(cachedCarImage);
-          webViewRef.current?.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${JSON.stringify(cachedCarImage)}); true;`);
+          webViewRef.current?.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${serializeInlineScriptValue(cachedCarImage)}); true;`);
         }
       } catch (error) {
         console.warn('Map car image could not load', error);
@@ -66,83 +73,68 @@ const TomTomMap = forwardRef(({
 
   useEffect(() => {
     if (carImage && webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${JSON.stringify(carImage)}); true;`);
+      webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${serializeInlineScriptValue(carImage)}); true;`);
     }
   }, [carImage]);
   const { colors, scheme } = useTheme();
+  const safeRadarMode = radarMode === true;
+  const safeAutoSwoop = autoSwoop === true;
+  const safeShowCarIcon = showCarIcon === true;
+  const safeShowVehicleMarker = showVehicleMarker !== false;
+  const safeScrollEnabled = scrollEnabled !== false;
+  const safeRadarRadiusKm = finiteNumberInRange(radarRadiusKm, 0.25, 50) ?? 3;
+  const safeRadarMarkers = normalizeRadarMarkers(radarMarkers);
+  const radarMarkersJs = serializeInlineScriptValue(safeRadarMarkers);
+  const radarRadiusJs = serializeInlineScriptValue(safeRadarRadiusKm);
 
   useImperativeHandle(ref, () => ({
-    recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterRadar && ${radarMode}) window.recenterRadar(); else if(window.recenterMap) window.recenterMap(); true;`),
+    recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterRadar && ${serializeInlineScriptValue(safeRadarMode)}) window.recenterRadar(); else if(window.recenterMap) window.recenterMap(); true;`),
     overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`),
-    setRadarRadius: (km) => webViewRef.current?.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${km}); true;`),
-    setRadarMarkers: (markers) => webViewRef.current?.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${JSON.stringify(markers)}, ${radarRadiusKm}); true;`),
-    setVehicleVisible: (visible) => webViewRef.current?.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${visible}); true;`),
+    setRadarRadius: (km) => webViewRef.current?.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${serializeInlineScriptValue(finiteNumberInRange(km, 0.25, 50) ?? 3)}); true;`),
+    setRadarMarkers: (markers) => webViewRef.current?.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${serializeInlineScriptValue(normalizeRadarMarkers(markers))}, ${radarRadiusJs}); true;`),
+    setVehicleVisible: (visible) => webViewRef.current?.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${serializeInlineScriptValue(visible === true)}); true;`),
   }));
 
   useEffect(() => {
-    if (radarMode && webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${radarRadiusKm}); true;`);
+    if (safeRadarMode && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${radarRadiusJs}); true;`);
     }
-  }, [radarMode, radarRadiusKm]);
+  }, [safeRadarMode, radarRadiusJs]);
 
   useEffect(() => {
-    if (radarMode && webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${JSON.stringify(radarMarkers)}, ${radarRadiusKm}); true;`);
+    if (safeRadarMode && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${radarMarkersJs}, ${radarRadiusJs}); true;`);
     }
-  }, [radarMode, radarMarkers, radarRadiusKm]);
-
-  useEffect(() => {
-    if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${showVehicleMarker}); true;`);
-    }
-  }, [showVehicleMarker]);
+  }, [safeRadarMode, radarMarkersJs, radarRadiusJs]);
 
   useEffect(() => {
     if (webViewRef.current) {
-      webViewRef.current.injectJavaScript(`if(window.applyFleetMapTheme) window.applyFleetMapTheme(${scheme === 'dark'}); true;`);
+      webViewRef.current.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${serializeInlineScriptValue(safeShowVehicleMarker)}); true;`);
+    }
+  }, [safeShowVehicleMarker]);
+
+  useEffect(() => {
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.applyFleetMapTheme) window.applyFleetMapTheme(${serializeInlineScriptValue(scheme === 'dark')}); true;`);
     }
   }, [scheme]);
   const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "";
-
-  // Every dynamic value below is interpolated into a single <script> block in
-  // the WebView document. A value that closes the quote it sits in, that
-  // contains "</script", or that carries a line break, breaks the ENTIRE
-  // script — initMap() never runs, the map 'load' event never fires, MAP_READY
-  // is never posted, and the native globe.json overlay spins forever. Trip
-  // endpoints are free text from the booking system, so "Queen's Hotel" or
-  // "Driver's Entrance" is ordinary input, not an edge case.
-  //
-  // The addresses previously escaped ONLY the single quote, which left
-  // backslashes and newlines live — and a trailing backslash ("C:\\path\\")
-  // escapes the closing quote, reproducing exactly the whole-map failure the
-  // label fix was written for. U+2028/U+2029 are line terminators to a JS
-  // parser but not to a text editor, so those are neutralised too.
-  const escapeJsString = (s) =>
-    String(s ?? "")
-      .replace(/\\/g, "\\\\")
-      .replace(/'/g, "\\'")
-      .replace(/\u2028/g, "\\u2028")
-      .replace(/\u2029/g, "\\u2029")
-      .replace(/\r?\n/g, " ");
-
-  const safeOriginAddr = escapeJsString(originAddress);
-  const safeDestAddr = escapeJsString(destAddress);
-
-
-  // Popup labels are ALSO interpolated into setHTML(...) as markup, so they
-  // need HTML escaping on top of the JS-string escape: a destination of
-  // "<img src=x onerror=...>" would otherwise inject markup into the popup.
-  const escapeHtml = (s) =>
-    String(s ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  const pickupPopupHtml = `<h4 class="popup-title">${escapeHtml(pickupLabel)}</h4>`;
-  const dropoffPopupHtml = `<h4 class="popup-title">${escapeHtml(dropoffLabel)}</h4>`;
-
-
-  const hasOriginFix = origin?.lat != null && origin?.lng != null;
+  const safeOriginLat = finiteNumberInRange(origin?.lat, -90, 90);
+  const safeOriginLng = finiteNumberInRange(origin?.lng, -180, 180);
+  const safeOriginHeading = finiteNumberInRange(origin?.heading, 0, 360);
+  const safeDestinationLat = finiteNumberInRange(destination?.lat, -90, 90);
+  const safeDestinationLng = finiteNumberInRange(destination?.lng, -180, 180);
+  const safeTopInset = finiteNumberInRange(topInset, 0, 300) ?? 36;
+  const hasOriginFix = safeOriginLat != null && safeOriginLng != null;
+  const originAddressJs = serializeInlineScriptValue(typeof originAddress === "string" ? originAddress : "");
+  const destinationAddressJs = serializeInlineScriptValue(typeof destAddress === "string" ? destAddress : "");
+  const tomtomKeyJs = serializeInlineScriptValue(tomtomKey);
+  const pickupPopupJs = serializeInlineScriptValue(`<h4 class="popup-title">${escapeHtmlText(typeof pickupLabel === "string" ? pickupLabel : "Pickup")}</h4>`);
+  const dropoffPopupJs = serializeInlineScriptValue(`<h4 class="popup-title">${escapeHtmlText(typeof dropoffLabel === "string" ? dropoffLabel : "Destination")}</h4>`);
+  const primaryColorJs = serializeInlineScriptValue(colors.primary);
+  const secondaryColorJs = serializeInlineScriptValue(colors.secondary);
+  const surfaceColorJs = serializeInlineScriptValue(colors.surface);
+  const errorColorJs = serializeInlineScriptValue(colors.error);
   const htmlContent = useMemo(() => {
     return `
       <!DOCTYPE html>
@@ -164,7 +156,7 @@ const TomTomMap = forwardRef(({
               
               .origin-marker-car {
                   width: 60px; height: 60px; flex-shrink: 0;
-                  background-image: ${(cachedCarImage || carImage) ? `url('${cachedCarImage || carImage}')` : 'radial-gradient(circle, #70B991 0 6px, transparent 7px)'};
+                  background-image: ${(cachedCarImage || carImage) ? `url(${serializeCssString(cachedCarImage || carImage)})` : 'radial-gradient(circle, #70B991 0 6px, transparent 7px)'};
                   background-size: contain; background-repeat: no-repeat; background-position: center;
                   position: relative; z-index: 1;
                   filter: drop-shadow(0 3px 5px rgba(18, 38, 28, 0.28));
@@ -191,7 +183,7 @@ const TomTomMap = forwardRef(({
               .on-route-badge { background: ${colors.error}; color: ${colors.onError}; padding: 5px 9px; border-radius: 12px; font-size: 11px; font-weight: 800; font-family: system-ui, sans-serif; box-shadow: 0 4px 12px rgba(22,37,31,0.2); border: 2px solid ${colors.surface}; white-space: nowrap; pointer-events: none; }
               .on-route-badge.yellow { background: ${colors.secondary}; color: ${colors.onSecondary}; }
 
-              .nav-header { position: absolute; top: ${Number(topInset) || 36}px; left: 16px; right: 16px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: system-ui, sans-serif; pointer-events: none; }
+              .nav-header { position: absolute; top: ${safeTopInset}px; left: 16px; right: 16px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: system-ui, sans-serif; pointer-events: none; }
               
               .nav-main-banner { 
                   background: ${colors.inverseSurface};
@@ -507,8 +499,8 @@ const TomTomMap = forwardRef(({
                   };
               };
 
-              window.currentRadarKm = ${radarRadiusKm};
-              window.currentRadarZoom = ${radarRadiusKm <= 1 ? 15.5 : radarRadiusKm <= 3 ? 14.2 : radarRadiusKm <= 5 ? 13.0 : 11.8};
+              window.currentRadarKm = ${radarRadiusJs};
+              window.currentRadarZoom = ${safeRadarRadiusKm <= 1 ? 15.5 : safeRadarRadiusKm <= 3 ? 14.2 : safeRadarRadiusKm <= 5 ? 13.0 : 11.8};
               window.radarMarkerInstances = [];
               window.currentMarkersData = [];
 
@@ -555,12 +547,23 @@ const TomTomMap = forwardRef(({
                   }
               };
 
-              window.carMarkerImageUrl = ${JSON.stringify(cachedCarImage || carImage || '')};
+              window.carMarkerImageUrl = ${serializeInlineScriptValue(cachedCarImage || carImage || '')};
+              window.cssUrl = function(value) {
+                  const quote = String.fromCharCode(34);
+                  const slash = String.fromCharCode(92);
+                  const escaped = Array.from(String(value || '')).map(function(character) {
+                      const code = character.codePointAt(0);
+                      return code <= 32 || code === 127 || character === quote || character === slash || character === '<' || character === '>'
+                          ? slash + code.toString(16) + ' '
+                          : character;
+                  }).join('');
+                  return 'url(' + quote + escaped + quote + ')';
+              };
               window.setCarMarkerImage = function(imgUrl) {
                   window.carMarkerImageUrl = imgUrl || '';
                   const el = document.getElementById('carInnerIcon');
                   if (el && imgUrl) {
-                      el.style.backgroundImage = 'url("' + imgUrl + '")';
+                      el.style.backgroundImage = window.cssUrl(imgUrl);
                   }
               };
 
@@ -689,8 +692,16 @@ const TomTomMap = forwardRef(({
 
                           const labelEl = document.createElement('div');
                           labelEl.className = 'radar-marker-label';
-                          labelEl.innerHTML = '<span class="radar-marker-name">' + (m.title || 'Assignment') + '</span>' +
-                              (m.distanceKm ? '<span class="radar-marker-dist">' + m.distanceKm + ' km</span>' : '');
+                          const nameEl = document.createElement('span');
+                          nameEl.className = 'radar-marker-name';
+                          nameEl.textContent = m.title || 'Assignment';
+                          labelEl.appendChild(nameEl);
+                          if (m.distanceKm != null) {
+                              const distanceEl = document.createElement('span');
+                              distanceEl.className = 'radar-marker-dist';
+                              distanceEl.textContent = m.distanceKm + ' km';
+                              labelEl.appendChild(distanceEl);
+                          }
                           markerEl.appendChild(labelEl);
 
                           markerEl.onclick = function(e) {
@@ -911,11 +922,11 @@ const TomTomMap = forwardRef(({
                   }
 
                   tt.services.calculateRoute({
-                      key: '${tomtomKey}',
-                      traffic: ${autoSwoop},
+                      key: ${tomtomKeyJs},
+                      traffic: ${safeAutoSwoop},
                       computeTravelTimeFor: 'all',
                       maxAlternatives: 0,
-                      sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
+                      sectionType: ${safeAutoSwoop ? "'traffic'" : "undefined"},
                       instructionsType: 'text',
                       locations: carLng + ',' + carLat + ':' + window.currentDestLng + ',' + window.currentDestLat
                   }).then(response => {
@@ -948,7 +959,7 @@ const TomTomMap = forwardRef(({
                       }
 
                       // Redraw the route line instantly without a full map reload!
-                      const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, response.routes[0], false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
+                      const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, response.routes[0], false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: ${primaryColorJs} }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
 
                       if (window.ttMap.getLayer('route')) {
                           window.ttMap.getSource('route').setData(mainGeojson);
@@ -1108,17 +1119,17 @@ const TomTomMap = forwardRef(({
               };
 
               async function initMap() {
-                  let originLat = ${origin?.lat ?? 'null'};
-                  let originLng = ${origin?.lng ?? 'null'};
-                  let destLat = ${destination?.lat ?? 'null'};
-                  let destLng = ${destination?.lng ?? 'null'};
+                  let originLat = ${serializeInlineScriptValue(safeOriginLat)};
+                  let originLng = ${serializeInlineScriptValue(safeOriginLng)};
+                  let destLat = ${serializeInlineScriptValue(safeDestinationLat)};
+                  let destLng = ${serializeInlineScriptValue(safeDestinationLng)};
                   
-                  const originAddr = '${safeOriginAddr}';
-                  const destAddr = '${safeDestAddr}';
+                  const originAddr = ${originAddressJs};
+                  const destAddr = ${destinationAddressJs};
 
                   if (originLat === null && originAddr) {
                       try {
-                          const res = await tt.services.fuzzySearch({ key: '${tomtomKey}', query: originAddr, countrySet: 'PH' });
+                          const res = await tt.services.fuzzySearch({ key: ${tomtomKeyJs}, query: originAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
                               originLng = res.results[0].position.lng;
                               originLat = res.results[0].position.lat;
@@ -1128,7 +1139,7 @@ const TomTomMap = forwardRef(({
 
                   if (destLat === null && destAddr) {
                       try {
-                          const res = await tt.services.fuzzySearch({ key: '${tomtomKey}', query: destAddr, countrySet: 'PH' });
+                          const res = await tt.services.fuzzySearch({ key: ${tomtomKeyJs}, query: destAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
                               destLng = res.results[0].position.lng;
                               destLat = res.results[0].position.lat;
@@ -1161,13 +1172,13 @@ const TomTomMap = forwardRef(({
                   window.currentDestLng = hasDestination ? Number(destLng) : null;
 
                   const map = tt.map({
-                      key: '${tomtomKey}',
+                      key: ${tomtomKeyJs},
                       container: 'map',
                       center: [centerLng, centerLat],
-                      zoom: ${radarMode ? (radarRadiusKm <= 1 ? 15.5 : radarRadiusKm <= 3 ? 14.2 : 13.2) : 12}, // Zoom level adapted for radar or full route
+                      zoom: ${safeRadarMode ? (safeRadarRadiusKm <= 1 ? 15.5 : safeRadarRadiusKm <= 3 ? 14.2 : 13.2) : 12}, // Zoom level adapted for radar or full route
                       pitch: 0, // Start flat for the full route overview
-                      dragPan: ${scrollEnabled},
-                      scrollZoom: ${scrollEnabled},
+                      dragPan: ${safeScrollEnabled},
+                      scrollZoom: ${safeScrollEnabled},
                       stylesVisibility: {
                           trafficIncidents: false,
                           trafficFlow: false
@@ -1178,11 +1189,11 @@ const TomTomMap = forwardRef(({
                         const isDark = forceDark !== undefined ? forceDark : ${scheme === 'dark'};
                         document.body.className = isDark ? 'scheme-dark' : 'scheme-light';
                         const bgCol = isDark ? '${palettes.dark.background}' : '${palettes.light.background}';
-                        const waterCol = isDark ? '${palettes.dark.surfaceVariant}' : ${radarMode} ? '#CBE4EA' : '${palettes.light.surfaceVariant}';
-                        const parkCol = isDark ? '${palettes.dark.surfaceContainerLow}' : ${radarMode} ? '#DFEADF' : '${palettes.light.surfaceContainerLow}';
+                        const waterCol = isDark ? '${palettes.dark.surfaceVariant}' : ${safeRadarMode} ? '#CBE4EA' : '${palettes.light.surfaceVariant}';
+                        const parkCol = isDark ? '${palettes.dark.surfaceContainerLow}' : ${safeRadarMode} ? '#DFEADF' : '${palettes.light.surfaceContainerLow}';
                         const bldgCol = isDark ? '${palettes.dark.surfaceContainerHigh}' : '${palettes.light.surfaceContainerHigh}';
                         const roadCol = isDark ? '${palettes.dark.surfaceBright}' : '${palettes.light.surfaceBright}';
-                        const textCol = isDark ? '${palettes.dark.onSurface}' : ${radarMode} ? '#788982' : '${palettes.light.onSurface}';
+                        const textCol = isDark ? '${palettes.dark.onSurface}' : ${safeRadarMode} ? '#788982' : '${palettes.light.onSurface}';
                         const haloCol = isDark ? '${palettes.dark.surface}' : '${palettes.light.surface}';
 
                         const layers = map.getStyle().layers || [];
@@ -1205,7 +1216,7 @@ const TomTomMap = forwardRef(({
                                         map.setPaintProperty(layer.id, 'line-color', roadCol);
                                     }
                                 } else if (layer.type === 'symbol') {
-                                    if (${radarMode} && /poi|transit|shield/.test(id)) map.setLayoutProperty(layer.id, 'visibility', 'none');
+                                    if (${safeRadarMode} && /poi|transit|shield/.test(id)) map.setLayoutProperty(layer.id, 'visibility', 'none');
                                     map.setPaintProperty(layer.id, 'text-color', textCol);
                                     map.setPaintProperty(layer.id, 'text-halo-color', haloCol);
                                     map.setPaintProperty(layer.id, 'text-halo-width', 1.25);
@@ -1221,7 +1232,7 @@ const TomTomMap = forwardRef(({
                         if (window.ReactNativeWebView) {
                             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_DRAGGED' }));
                         }
-                        if (${showCarIcon} && !${radarMode}) {
+                        if (${safeShowCarIcon} && !${safeRadarMode}) {
                             document.getElementById('recenterBtn').style.display = 'flex';
                         }
                     });
@@ -1247,15 +1258,15 @@ const TomTomMap = forwardRef(({
                         }
                     });
 
-                    if (${showCarIcon}) {
-                        map.setBearing(${origin?.heading ?? 0});
+                    if (${safeShowCarIcon}) {
+                        map.setBearing(${safeOriginHeading ?? 0});
                         if (destLat !== null && destLng !== null && originLat !== null && originLng !== null) {
                             document.getElementById('navHeader').style.display = 'flex';
                             document.getElementById('navStreet').innerText = "Calculating route...";
                         } else {
                             document.getElementById('navHeader').style.display = 'none';
                         }
-                        document.getElementById('overviewBtn').style.display = ${radarMode} ? 'none' : 'flex';
+                        document.getElementById('overviewBtn').style.display = ${safeRadarMode} ? 'none' : 'flex';
                     }
 
                     map.on('load', () => {
@@ -1268,8 +1279,8 @@ const TomTomMap = forwardRef(({
                             window.applyFleetMapTheme();
                         } catch (e) {}
 
-                        if (${radarMode} && hasOrigin) {
-                            window.renderRadarMarkers(${JSON.stringify(radarMarkers)}, ${radarRadiusKm});
+                        if (${safeRadarMode} && hasOrigin) {
+                            window.renderRadarMarkers(${radarMarkersJs}, ${radarRadiusJs});
                         }
 
                         // Do not invent a driver marker when the trip has no
@@ -1278,8 +1289,8 @@ const TomTomMap = forwardRef(({
 
                         // Origin Marker (carlive.png: 60x60 canvas, ~51px visible car, centered GPS anchor)
                         const originEl = document.createElement('div');
-                        if (${showCarIcon} || ${radarMode}) {
-                            originEl.className = 'origin-marker-container' + (${radarMode} ? ' radar-origin-mode' : '');
+                        if (${safeShowCarIcon} || ${safeRadarMode}) {
+                            originEl.className = 'origin-marker-container' + (${safeRadarMode} ? ' radar-origin-mode' : '');
                             originEl.style.width = '60px';
                             originEl.style.height = '60px';
                             originEl.style.display = 'flex';
@@ -1288,7 +1299,7 @@ const TomTomMap = forwardRef(({
                             originEl.style.pointerEvents = 'none';
                             originEl.style.position = 'relative';
 
-                            if (${radarMode}) {
+                            if (${safeRadarMode}) {
                                 const bloomWrap = document.createElement('div');
                                 bloomWrap.className = 'radar-pulse-container';
                                 bloomWrap.id = 'radarBloomContainer';
@@ -1304,11 +1315,11 @@ const TomTomMap = forwardRef(({
                             carInner.className = 'origin-marker-car';
                             carInner.id = 'carInnerIcon';
                             if (window.carMarkerImageUrl) {
-                                carInner.style.backgroundImage = 'url("' + window.carMarkerImageUrl + '")';
+                                carInner.style.backgroundImage = window.cssUrl(window.carMarkerImageUrl);
                             }
                             originEl.appendChild(carInner);
 
-                            const initHeading = ${origin?.heading ?? 0};
+                            const initHeading = ${safeOriginHeading ?? 0};
                             if (initHeading) {
                                 carInner.style.transform = 'rotate(' + initHeading + 'deg)';
                             }
@@ -1320,18 +1331,18 @@ const TomTomMap = forwardRef(({
                             originEl.style.alignItems = 'center';
                             originEl.style.justifyContent = 'center';
                             originEl.style.cursor = 'pointer';
-                            originEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.primary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
+                            originEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill=' + ${primaryColorJs} + '/><circle cx="12" cy="11" r="4.5" fill=' + ${surfaceColorJs} + '/></svg>';
                         }
 
-                        const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('${pickupPopupHtml}');
-                        window.originMarker = new tt.Marker({ element: originEl, anchor: ${showCarIcon || radarMode ? "'center'" : "'bottom'"} })
+                        const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML(${pickupPopupJs});
+                        window.originMarker = new tt.Marker({ element: originEl, anchor: ${safeShowCarIcon || safeRadarMode ? "'center'" : "'bottom'"} })
                             .setLngLat([originLng, originLat])
-                            ${!showCarIcon && !radarMode ? '.setPopup(originPopup)' : ''}
+                            ${!safeShowCarIcon && !safeRadarMode ? '.setPopup(originPopup)' : ''}
                             .addTo(map);
 
-                        if (${radarMode}) window.recenterRadar();
+                        if (${safeRadarMode}) window.recenterRadar();
 
-                        if (!${showVehicleMarker}) {
+                        if (!${safeShowVehicleMarker}) {
                             originEl.style.display = 'none';
                         }
 
@@ -1347,9 +1358,9 @@ const TomTomMap = forwardRef(({
                       destEl.style.alignItems = 'center';
                       destEl.style.justifyContent = 'center';
                       destEl.style.cursor = 'pointer';
-                      destEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.secondary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
+                      destEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill=' + ${secondaryColorJs} + '/><circle cx="12" cy="11" r="4.5" fill=' + ${surfaceColorJs} + '/></svg>';
                       
-                      const destPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('${dropoffPopupHtml}');
+                      const destPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML(${dropoffPopupJs});
                       window.destMarker = new tt.Marker({ element: destEl, anchor: 'bottom' })
                           .setLngLat([destLng, destLat])
                           .setPopup(destPopup)
@@ -1366,11 +1377,11 @@ const TomTomMap = forwardRef(({
                       // alternative is offered (keeps the initial view and the
                       // 2-minute refresh consistent).
                       tt.services.calculateRoute({
-                          key: '${tomtomKey}',
-                          traffic: ${autoSwoop},
+                          key: ${tomtomKeyJs},
+                      traffic: ${safeAutoSwoop},
                           computeTravelTimeFor: 'all',
                           maxAlternatives: 0,
-                          sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
+                      sectionType: ${safeAutoSwoop ? "'traffic'" : "undefined"},
                           instructionsType: 'text',
                           locations: originLng + ',' + originLat + ':' + destLng + ',' + destLat
                       }).then(response => {
@@ -1392,7 +1403,7 @@ const TomTomMap = forwardRef(({
                           window.lastCalcCarLng = originLng;
                           window.lastCalcCarLat = originLat;
                           
-                          if (${showCarIcon}) {
+                          if (${safeShowCarIcon}) {
                               window.updateNavigationBanner(originLng, originLat);
                           }
                           
@@ -1421,7 +1432,7 @@ const TomTomMap = forwardRef(({
                               const summary = (route && route.summary) || props.summary || {};
                               const features = [];
 
-                              if (${autoSwoop} && secs.length > 0) {
+                              if (${safeAutoSwoop} && secs.length > 0) {
                                   // Prefer the per-section delay when the SDK
                                   // exposes it (delayInSeconds on the traffic
                                   // section); otherwise fall back to splitting
@@ -1454,7 +1465,7 @@ const TomTomMap = forwardRef(({
                                           if (sec.startPointIndex > lastIndex) {
                                               const normalSegment = coords.slice(lastIndex, sec.startPointIndex + 1);
                                               if (normalSegment.length >= 2) {
-                                                  features.push({ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: normalSegment } });
+                                                  features.push({ type: 'Feature', properties: { color: ${primaryColorJs} }, geometry: { type: 'LineString', coordinates: normalSegment } });
                                               }
                                           }
 
@@ -1462,10 +1473,10 @@ const TomTomMap = forwardRef(({
                                           // 3 serious, 4 undefined (used for road closure).
                                           // TomTom category is ROAD_CLOSURE (accept the
                                           // legacy ROAD_CLOSED string defensively).
-                                          let color = '${colors.secondary}';
+                                          let color = ${secondaryColorJs};
                                           let badgeClass = 'on-route-badge yellow';
                                           if ((sec.magnitudeOfDelay || 0) >= 3 || sec.simpleCategory === 'ROAD_CLOSURE' || sec.simpleCategory === 'ROAD_CLOSED') {
-                                              color = '${colors.error}';
+                                              color = ${errorColorJs};
                                               badgeClass = 'on-route-badge';
                                           }
 
@@ -1498,17 +1509,17 @@ const TomTomMap = forwardRef(({
                                   });
                                   if (lastIndex < coords.length - 1) {
                                       const rem = coords.slice(lastIndex, coords.length);
-                                      if (rem.length >= 2) features.push({ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: rem } });
+                                      if (rem.length >= 2) features.push({ type: 'Feature', properties: { color: ${primaryColorJs} }, geometry: { type: 'LineString', coordinates: rem } });
                                   }
                               } else {
-                                  features.push({ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: coords } });
+                                  features.push({ type: 'Feature', properties: { color: ${primaryColorJs} }, geometry: { type: 'LineString', coordinates: coords } });
                               }
                               return { type: 'FeatureCollection', features: features };
                           };
 
                           try {
                               // 1. Draw Alternative Route First (so it sits underneath)
-                              if (${autoSwoop} && baseGeojson.features.length > 1) {
+                              if (${safeAutoSwoop} && baseGeojson.features.length > 1) {
                                   const altGeojson = window.buildTrafficSegments(baseGeojson.features[1], response.routes[1], true);
                                   map.addLayer({
                                       'id': 'alt-route',
@@ -1540,7 +1551,7 @@ const TomTomMap = forwardRef(({
                                   'id': 'route',
                                   'type': 'line',
                                   'source': { 'type': 'geojson', 'data': { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: mainCoords } } },
-                                  'paint': { 'line-color': '${colors.primary}', 'line-width': 6 }
+                                  'paint': { 'line-color': ${primaryColorJs}, 'line-width': 6 }
                               });
                           }
 
@@ -1552,7 +1563,7 @@ const TomTomMap = forwardRef(({
                           // Smoothly fit the entire route on screen
                           map.fitBounds(bounds, { padding: 50, duration: 1200 });
                           
-                          if (${autoSwoop}) {
+                          if (${safeAutoSwoop}) {
                               // Let the user look at the full route for 5 seconds before swooping in
                               window.swoopTimeout = setTimeout(() => {
                                   if (window.isFollowing) {
@@ -1571,7 +1582,7 @@ const TomTomMap = forwardRef(({
                           bounds.extend([destLng, destLat]);
                           map.fitBounds(bounds, { padding: 50, duration: 1200 });
                           
-                          if (${autoSwoop}) {
+                          if (${safeAutoSwoop}) {
                               window.swoopTimeout = setTimeout(() => {
                                   if (window.isFollowing) {
                                       map.flyTo({ center: [originLng, originLat], zoom: 18.5, pitch: 0, speed: 0.8 });
@@ -1607,7 +1618,29 @@ const TomTomMap = forwardRef(({
       </html>
     `;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colors, scheme, radarMode, hasOriginFix, destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, topInset, destination?.lat, destination?.lng]);
+  }, [
+    colors,
+    scheme,
+    safeRadarMode,
+    hasOriginFix,
+    safeOriginLat,
+    safeOriginLng,
+    safeOriginHeading,
+    safeDestinationLat,
+    safeDestinationLng,
+    originAddressJs,
+    destinationAddressJs,
+    tomtomKeyJs,
+    radarMarkersJs,
+    radarRadiusJs,
+    dropoffLabel,
+    pickupLabel,
+    safeScrollEnabled,
+    safeShowCarIcon,
+    safeAutoSwoop,
+    safeTopInset,
+    carImage,
+  ]);
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
   // Last camera center: the marker + rotation update on every fix (cheap),
   // but the easeTo camera glide only re-fires after real movement (~16 m).
@@ -1616,24 +1649,21 @@ const TomTomMap = forwardRef(({
   const lastCamRef = useRef(null);
   useEffect(() => {
     // Only track movement if it's the live map (showCarIcon = true)
-    if (showCarIcon && origin?.lat != null && origin?.lng != null && webViewRef.current) {
+    if (safeShowCarIcon && safeOriginLat != null && safeOriginLng != null && webViewRef.current) {
       const lastCam = lastCamRef.current;
       const camMoved = lastCam == null ||
-        (Math.abs(origin.lat - lastCam.lat) + Math.abs(origin.lng - lastCam.lng)) > 0.00015;
-      if (camMoved) lastCamRef.current = { lat: origin.lat, lng: origin.lng };
-      const bearingScript = origin.heading !== undefined && origin.heading !== null && origin.heading >= 0 
-          ? `, bearing: ${origin.heading}` 
-          : '';
+        (Math.abs(safeOriginLat - lastCam.lat) + Math.abs(safeOriginLng - lastCam.lng)) > 0.00015;
+      if (camMoved) lastCamRef.current = { lat: safeOriginLat, lng: safeOriginLng };
           
       const script = `
         if (window.originMarker) {
-          let finalLng = ${origin.lng};
-          let finalLat = ${origin.lat};
+          let finalLng = ${serializeInlineScriptValue(safeOriginLng)};
+          let finalLat = ${serializeInlineScriptValue(safeOriginLat)};
           
           if (window.carMarkerImageUrl) {
               const carEl = document.getElementById('carInnerIcon');
               if (carEl && !carEl.style.backgroundImage) {
-                  carEl.style.backgroundImage = 'url("' + window.carMarkerImageUrl + '")';
+                  carEl.style.backgroundImage = window.cssUrl(window.carMarkerImageUrl);
               }
           }
           
@@ -1642,21 +1672,21 @@ const TomTomMap = forwardRef(({
               finalLng = snap.lng;
               finalLat = snap.lat;
               
-              if (${showCarIcon} && window.updateNavigationBanner) {
+              if (${safeShowCarIcon} && window.updateNavigationBanner) {
                   window.updateNavigationBanner(finalLng, finalLat, snap);
               }
-          } else if (${showCarIcon} && window.updateNavigationBanner) {
+          } else if (${safeShowCarIcon} && window.updateNavigationBanner) {
               window.updateNavigationBanner(finalLng, finalLat);
           }
 
           window.originMarker.setLngLat([finalLng, finalLat]);
           window.currentCarLng = finalLng;
           window.currentCarLat = finalLat;
-          window.lastHeading = ${origin.heading !== undefined && origin.heading !== null && origin.heading >= 0 ? origin.heading : 'window.lastHeading'};
+          window.lastHeading = ${safeOriginHeading != null ? serializeInlineScriptValue(safeOriginHeading) : 'window.lastHeading'};
           
           if (window.updateCarRotation) window.updateCarRotation();
 
-          if (${radarMode} && window.updateRadarCirclePositions) {
+          if (${safeRadarMode} && window.updateRadarCirclePositions) {
               window.updateRadarCirclePositions(finalLng, finalLat);
           }
           
@@ -1664,7 +1694,7 @@ const TomTomMap = forwardRef(({
               const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
               // In radar mode, keep zoom comfortable and orientation north-up.
               // In navigation mode, zoom into street level and track route bearing.
-              const isRadar = ${radarMode};
+              const isRadar = ${safeRadarMode};
               const targetZoom = isRadar ? (window.currentRadarZoom || 14.2) : 18.5;
               const targetBearing = isRadar ? 0 : routeBearing;
               window.ttMap.easeTo({
@@ -1681,7 +1711,7 @@ const TomTomMap = forwardRef(({
       `;
       webViewRef.current.injectJavaScript(script);
     }
-  }, [origin?.lat, origin?.lng, origin?.heading, showCarIcon, radarMode]);
+  }, [safeOriginLat, safeOriginLng, safeOriginHeading, safeShowCarIcon, safeRadarMode]);
 
   return (
     <View style={[styles.container, style]}>
@@ -1710,7 +1740,7 @@ const TomTomMap = forwardRef(({
             if (data.type === 'MAP_READY') {
               const activeCar = cachedCarImage || carImage;
               if (activeCar && webViewRef.current) {
-                webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${JSON.stringify(activeCar)}); true;`);
+                webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${serializeInlineScriptValue(activeCar)}); true;`);
               }
               if (onMapReady) onMapReady();
             }

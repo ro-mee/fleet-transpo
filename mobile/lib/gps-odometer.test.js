@@ -108,17 +108,63 @@ describe("accumulateFix — leg handling", () => {
     expect(acc.leg2).toBe(0);
   });
 
-  it("re-anchors after a rejected segment so the next one is measured from the real fix", () => {
+  it("keeps its stable anchor after a short-interval teleport", () => {
     const acc = createAccumulator();
     accumulateFix(acc, { lat: 14.6, lng: 121.0, speedMs: 12, atMs: 1000, leg: "leg1" });
-    // A glitch that is dropped must still become the new baseline; otherwise
-    // every subsequent segment is measured from a position the vehicle was
-    // never at and stays inflated for the rest of the trip.
     accumulateFix(acc, { lat: 14.9, lng: 121.4, speedMs: 12, atMs: 4000, leg: "leg1" });
     expect(acc.leg1).toBe(0);
+    expect(acc.prev).toEqual({ lat: 14.6, lng: 121.0, atMs: 1000 });
     const r = accumulateFix(acc, { lat: 14.6002, lng: 121.0, speedMs: 12, atMs: 7000, leg: "leg1" });
     expect(r.addedKm).toBeGreaterThan(0);
     expect(acc.leg1).toBeGreaterThan(0);
+  });
+
+  it("confirms a fresh anchor after a long gap, then resumes counting", () => {
+    const acc = createAccumulator();
+    accumulateFix(acc, { lat: 14.6, lng: 121.0, speedMs: 12, atMs: 1000, leg: "leg1" });
+
+    const recovery = accumulateFix(acc, {
+      lat: 14.61,
+      lng: 121.0,
+      speedMs: 12,
+      atMs: 1000 + MAX_SEGMENT_GAP_MS + 1,
+      leg: "leg1",
+    });
+    expect(recovery.reason).toBe("stale-gap");
+    expect(recovery.addedKm).toBe(0);
+    expect(acc.leg1).toBe(0);
+    expect(acc.prev).toBeNull();
+    expect(acc.pending).toEqual({ lat: 14.61, lng: 121.0, atMs: 1000 + MAX_SEGMENT_GAP_MS + 1 });
+
+    const confirmationAt = 1000 + MAX_SEGMENT_GAP_MS + 3001;
+    const confirmed = accumulateFix(acc, { lat: 14.61, lng: 121.0, speedMs: 0, atMs: confirmationAt, leg: "leg1" });
+    expect(confirmed.reason).toBe("gap-recovered");
+    expect(confirmed.addedKm).toBe(0);
+    expect(acc.prev).toEqual({ lat: 14.61, lng: 121.0, atMs: confirmationAt });
+    expect(acc.pending).toBeNull();
+
+    const next = accumulateFix(acc, { lat: 14.6105, lng: 121.0, speedMs: 12, atMs: confirmationAt + 3000, leg: "leg1" });
+    expect(next.addedKm).toBeGreaterThan(0);
+    expect(acc.leg1).toBeCloseTo(next.addedKm, 8);
+  });
+
+  it("replaces a far stale-gap outlier before confirming the real location", () => {
+    const acc = createAccumulator();
+    accumulateFix(acc, { lat: 14.6, lng: 121.0, speedMs: 12, atMs: 1000, leg: "leg1" });
+    const staleAt = 1000 + MAX_SEGMENT_GAP_MS + 1;
+    accumulateFix(acc, { lat: 14.9, lng: 121.4, speedMs: 12, atMs: staleAt, leg: "leg1" });
+
+    const returned = accumulateFix(acc, { lat: 14.6001, lng: 121.0, speedMs: 12, atMs: staleAt + 3000, leg: "leg1" });
+    expect(returned.reason).toBe("gap-recovery-candidate");
+    expect(acc.leg1).toBe(0);
+    expect(acc.pending).toEqual({ lat: 14.6001, lng: 121.0, atMs: staleAt + 3000 });
+
+    const confirmedAt = staleAt + 6000;
+    expect(accumulateFix(acc, { lat: 14.6001, lng: 121.0, speedMs: 0, atMs: confirmedAt, leg: "leg1" }).reason)
+      .toBe("gap-recovered");
+    const next = accumulateFix(acc, { lat: 14.6006, lng: 121.0, speedMs: 12, atMs: confirmedAt + 3000, leg: "leg1" });
+    expect(next.addedKm).toBeGreaterThan(0);
+    expect(acc.prev.lat).toBe(14.6006);
   });
 
   it("does not accumulate anything without a leg context", () => {
@@ -133,6 +179,21 @@ describe("accumulateFix — leg handling", () => {
     const acc = createAccumulator();
     const r = accumulateFix(acc, { lat: NaN, lng: 121.0, speedMs: 12, leg: "leg1" });
     expect(r.reason).toBe("invalid");
+    expect(acc.leg1).toBe(0);
+  });
+
+  it("rejects out-of-range coordinates and invalid timestamps without moving the anchor", () => {
+    const acc = createAccumulator();
+    accumulateFix(acc, { lat: 14.6, lng: 121.0, speedMs: 12, atMs: 1000, leg: "leg1" });
+    const original = { ...acc.prev };
+
+    expect(accumulateFix(acc, { lat: 91, lng: 121.0, speedMs: 12, atMs: 2000, leg: "leg1" }).reason)
+      .toBe("invalid");
+    expect(accumulateFix(acc, { lat: 14.6, lng: 121.0, speedMs: 12, atMs: NaN, leg: "leg1" }).reason)
+      .toBe("no-interval");
+    expect(accumulateFix(acc, { lat: 14.6005, lng: 121.0, speedMs: 12, atMs: 900, leg: "leg1" }).reason)
+      .toBe("no-interval");
+    expect(acc.prev).toEqual(original);
     expect(acc.leg1).toBe(0);
   });
 });

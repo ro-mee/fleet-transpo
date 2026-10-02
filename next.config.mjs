@@ -92,6 +92,7 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  allowedDevOrigins: ["127.0.0.1"],
   poweredByHeader: false,
   // Minimal self-contained server for container deploys (HostForge own-Dockerfile
   // mode): `next build` emits .next/standalone/server.js plus only the traced
