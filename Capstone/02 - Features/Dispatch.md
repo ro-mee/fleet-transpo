@@ -9,11 +9,17 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-09-27
+last_verified: 2026-10-02
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
 # Feature: Dispatch
+
+## Admin calendar count follow-up — 2026-10-02
+
+The dashboard's Scheduled dispatches metric covers **all dates** and now says so; its link opens the all-date dispatch board. The calendar's Total trips metric covers only its selected date window. Read-only live SQL found scheduled dispatch 622 at 2026-10-02 15:00 Manila and 10 available drivers, so the QA report's October 2 calendar zeros were not explained by date scope alone. The same selected window matched two dispatch rows in SQL. The deployed browser response was not captured, so the exact failure in that session remains unproven.
+
+`GET /api/dispatch/calendar` no longer converts failed dispatch, vehicle or driver queries into empty arrays. These core failures now reach the page's existing retry panel. Optional overlays remain independently tolerant. Calendar KPI cards show a loading/unavailable state during initial fetch, error or placeholder data rather than claiming zero trips or drivers. Route tests pin both failure paths and a successful core payload; focused tests, ESLint and production build passed. Authenticated deployed replay remains pending.
 
 ## Duty clock is Manila-explicit, not server-local — 2026-10-02
 

@@ -11,9 +11,9 @@ import { requirePermission, ok, handleError } from "@/lib/api/utils";
 // Rosters are returned in full rather than only the resources that happen to be
 // busy: an empty lane is information — it is where the next trip can go.
 //
-// Each probe is independently failure-tolerant. A calendar missing its leave
-// overlay is degraded but useful; a calendar that 500s because one table
-// hiccuped is not.
+// Optional overlays may be missing on a degraded calendar. Dispatches and the
+// resource rosters are essential: their query failures must reach the page's
+// retry state instead of masquerading as zero trips or zero available drivers.
 export async function GET(req) {
   try {
     await requirePermission(req, "dispatch", "read_all");
@@ -58,7 +58,7 @@ export async function GET(req) {
                 > $1::timestamptz
           ORDER BY ds.scheduled_departure ASC`,
         [from, to]
-      ).then((r) => r.rows).catch(() => []),
+      ).then((r) => r.rows),
 
       // DATE columns, so the range comparison is calendar-day. An open record
       // with no completed_date covers its own day only — same rule as
@@ -107,7 +107,7 @@ export async function GET(req) {
            FROM vehicles
           WHERE deleted_at IS NULL AND vehicle_status <> 'Decommissioned'
           ORDER BY plate_number ASC`
-      ).then((r) => r.rows).catch(() => []),
+      ).then((r) => r.rows),
 
       query(
         `SELECT d.driver_id, d.driver_status, (d.license_number IS NOT NULL) AS has_license,
@@ -116,7 +116,7 @@ export async function GET(req) {
            LEFT JOIN employees e ON d.employee_id = e.employee_id
           WHERE d.deleted_at IS NULL
           ORDER BY e.first_name ASC, e.last_name ASC`
-      ).then((r) => r.rows).catch(() => []),
+      ).then((r) => r.rows),
     ]);
 
     return ok({ dispatches, maintenance, leave, work_schedules: workSchedules, vehicles, drivers });
