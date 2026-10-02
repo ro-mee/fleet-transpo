@@ -27,6 +27,6 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.js", "mobile/lib/**/*.test.js"],
+    include: ["src/**/*.test.js", "mobile/lib/**/*.test.js", "scripts/defense-seed/**/*.test.mjs"],
   },
 });
