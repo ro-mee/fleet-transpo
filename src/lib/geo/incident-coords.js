@@ -100,6 +100,13 @@ function valid(latitude, longitude) {
   );
 }
 
+function numericCoordinate(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 /**
  * Best-effort decimal coordinates for an incident row.
  *
@@ -110,9 +117,9 @@ function valid(latitude, longitude) {
 export function resolveIncidentCoords(incident) {
   if (!incident) return null;
 
-  const lat = Number(incident.latitude);
-  const lng = Number(incident.longitude);
-  if (Number.isFinite(lat) && Number.isFinite(lng) && valid(lat, lng)) {
+  const lat = numericCoordinate(incident.latitude);
+  const lng = numericCoordinate(incident.longitude);
+  if (lat != null && lng != null && valid(lat, lng)) {
     return { latitude: lat, longitude: lng };
   }
 

@@ -51,6 +51,23 @@ describe("resolveIncidentCoords", () => {
     expect(r.longitude).toBeLessThan(0);
   });
 
+  it("does not coerce null, blank, or partial stored coordinates to zero", () => {
+    expect(resolveIncidentCoords({ latitude: null, longitude: null })).toBeNull();
+    expect(resolveIncidentCoords({ latitude: "", longitude: " " })).toBeNull();
+    expect(resolveIncidentCoords({ latitude: 14.7519, longitude: null })).toBeNull();
+  });
+
+  it("preserves numeric strings and an explicitly reported zero coordinate pair", () => {
+    expect(resolveIncidentCoords({ latitude: "14.7518971", longitude: "121.0573913" })).toEqual({
+      latitude: 14.7518971,
+      longitude: 121.0573913,
+    });
+    expect(resolveIncidentCoords({ latitude: 0, longitude: 0 })).toEqual({
+      latitude: 0,
+      longitude: 0,
+    });
+  });
+
   it("returns null for text-only or missing locations", () => {
     expect(resolveIncidentCoords({ location: "bagumbong dulo" })).toBeNull();
     expect(resolveIncidentCoords({ location: "haha" })).toBeNull();
