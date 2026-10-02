@@ -17,6 +17,32 @@ related: ["[[Dispatch]]", "[[AI Architecture]]"]
 
 # Feature: AI Advisory
 
+## RS-UZYD policy gaps: shift/break answers, single GPS story, service due date — 2026-10-02
+
+QA retest on unassigned RS-UZYD (5 PM, inside 6 AM–10 PM, outside lunch) confirmed capacity/bags correct and quick actions specific, and named three gaps — all fixed the same day:
+
+1. **Shift/break unanswerable.** Enforcement existed but a passing check leaves no trace of which window was enforced. The radar now attaches the driver's Manila duty row (`dutyWindow`: weekday, shift, break) to `scheduleEvidence`, projected through `conversationEvidence`. New deterministic branch answers policy questions ("The Friday window ... is 6:00 AM to 10:00 PM with a 12:00 PM to 1:00 PM break, and this pickup at 5:00 PM sits inside it") and hypothetical times ("A 12:30 PM pickup would be blocked by the break rule...") with the honest disclosure `Other checks were not run for that time, so this covers the shift and break rule only.` No window projected → `I can't verify that yet`, never the 6–10 default.
+2. **GPS self-contradiction.** "No usable GPS fix" (model) + "absence is deliberate" (guard) stacked because `gpsNotApplicable` fired on the question regardless of the answer. It now respects the same qualified-answer escape hatch as its volunteered twin; the prompt mandates one framing for SCHEDULED/FUTURE ("live tracking does not apply to an advance booking..."), and the deterministic ETA branch names the mode.
+3. **No next service date.** `vehicle._maintenance.next_service_date` is now projected as `maintenanceDue`; maintenance questions cite the recorded date (or explicit not-recorded) plus the no-block verdict, and conflict answers to maintenance-flavored questions carry the due line.
+
+Verification: dispatch + scheduling + radar + SEC-AI suites 475/475, touched-file ESLint clean, production rebuild + fresh `next start` serving (unauthenticated recommendation 401s, not 404). Commits: duty-window threading, shift/break answers, GPS single-story, maintenance due date. Browser retest of the six QA questions on RS-UZYD is the remaining step.
+
+## RS-UZYD QA follow-up: UTC hour in Copilot prose + generic shortcut answers — 2026-10-02
+
+QA on reservation RS-UZYD (Oct 2, 5:00 PM pickup; one eligible pair Karlo Rafael Sunga Torres + ABC-1234, left unassigned) confirmed prompt-injection refusal and a useful typed alternatives answer (other pair blocked by missing insurance + unverified license class), and caught three Copilot defects:
+
+1. **8-hour time split (fixed).** Schedule evidence showed the previous trip ending 3:09 PM, Copilot said 7:09 AM, with a correct 111-minute gap beside it. Root cause is shared, not a model hallucination: conflict messages embedded `toISOString()` (UTC) in prose while the UI formats the same instant in Asia/Manila, and the conversation evidence handed the model the raw ISO with no Manila string — so the model repeated the UTC hour. `travelBufferFindings` now formats prose in Philippine time (ISO stays in `detail`), `conversationEvidence` projects `releaseLocal` per pair, and the system prompt names `releaseLocal` as the time to quote verbatim.
+2. **"Any conflicts?" never matched (fixed).** The detector read `\bconflict\b` (singular), so the plural button text fell through to the generic pair summary. It now matches `conflicts?`, and the conflicts answer carries the previous-booking end (`releaseLocal`), preparation gap, and downstream-trip impact instead of a bare all-clear.
+3. **"Other options?" had no handler (fixed).** The button text matched no topic branch, so it returned the same generic summary as any unrecognized question. It now lists the eligible pair(s) plus up to two recorded exclusions with reasons — the RS-UZYD shape (insurance + license blocks) is the pinned test.
+
+Verification: `conversation.test.js` 17/17 (2 new RS-UZYD cases), `fleetmate-adversarial.test.js` FM-ADV-001 byte-identical verdicts unchanged, dispatch + scheduling scope 409/409, touched-file ESLint clean, and the duty/schedule suites re-run under `TZ=UTC` to prove the Manila readings no longer depend on the runner's zone. No live assignment; no schema change. Typed-question quality and the 12–1 break / 6 AM–10 PM boundary checks still need live browser confirmation (see below).
+
+**Still open from the same QA:** the noon reservation carried no driver or substitute, so the 12–1 break rule was not exercised, and the exact 6 AM/10 PM shift edges could not be confirmed from live schedules. The duty-clock fix below makes those checks meaningful on any runner; the test setup (a noon-window reservation with a scheduled driver, and boundary pickups at exactly 6:00 AM / 10:00 PM) is still to run.
+
+## Same-day follow-up: the scope gate redirected the UI's own chips — 2026-10-02
+
+An hour after the fix above, QA showed "Why this option?" and "Any conflicts?" both answered with the out-of-scope redirect. Reproduced locally: three of the five suggestion chips the UI renders redirected on a fresh conversation, and after an injection-test turn even "Why this option?" bricked. Three compounding causes in `copilot-intents.js`: the fleet signal matched singular `conflict` only (same plural miss as the fallback detector), bare "option(s)" matched nothing (only `option 1/2`), and "fixing" matched nothing — while any unrelated history turn blocks every context-gated follow-up by design. Fixed: an exact-match chip allowlist for the five UI strings (checked after unrelated-task routing, so injection text can never ride it), plus `conflicts?` and bare `options?` signals for typed variants. "What needs fixing?" also gained a deterministic branch (blockers with next steps first; all-clear state plus exclusions when nothing blocks). Verification: `copilot-intents.test.js` 44/44 (chips pinned in-scope fresh, contextless, and after poisoned history; typed plural variants; unrelated + post-unrelated blocking unchanged), `conversation.test.js` 18/18, SEC-AI prompt-injection suite 36/36, dispatch + scheduling scope 418/418, ESLint clean. If this resurfaces, check history for an unrelated turn first — that half is intentional gating, and "Clear memory" in the Copilot header resets it.
+
 ## Manual follow-up: AI Insights scope is not dispatch readiness — 2026-10-01
 
 Read-only replay reproduced the reported split exactly: AI Insights said 20/21 vehicles were “ready for guest dispatch”, while the real Today Resource Availability endpoint returned 1 ready / 20 blocked. The numbers are from different scopes:

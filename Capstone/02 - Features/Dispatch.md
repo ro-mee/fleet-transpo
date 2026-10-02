@@ -15,6 +15,10 @@ related: ["[[Reservations]]", "[[Trips]]"]
 
 # Feature: Dispatch
 
+## Duty clock is Manila-explicit, not server-local — 2026-10-02
+
+`localDayOfWeek` / `localTimeOfDay` (`src/lib/scheduling/driver-schedule.js`) read the pickup instant with the server's local getters. Dev machines sit in GMT+8 so nothing looked wrong; a UTC runner reads a 5 PM Manila pickup as 9 AM and the noon break as 4 AM, silently moving shift containment, break overlap, weekday lookup and leave-day derivation by up to 8 hours. Both helpers now read Asia/Manila through Intl, `hasLeaveConflict` derives the pickup's Manila calendar day explicitly, and `day-eligibility.js` builds its day bounds as Manila-midnight instants. `driver-schedule.test.js` constructs Manila instants (`+08:00`) instead of server-local Dates and pins the RS-UZYD instant (07:09Z reads 15:09 Friday). Verified under both the local zone and `TZ=UTC`. `toCalendarDay` is deliberately untouched: pg `date` columns arrive as local-midnight Dates and its local-component read is correct for them. Residual: the noon break and 6 AM/10 PM edges still need the live test setup described in [[AI Advisory]].
+
 ## Temporal recommendation start revalidation - 2026-09-15
 
 The reservation-backed trip-start route revalidates the committed driver/vehicle against current schedule, leave, maintenance, capacity, pairing and route/readiness evidence after the existing ownership, inspection and start-window gates. Its own dispatch/trip is excluded from conflicts. Fresh, accurate GPS must belong to that trip and pair; the start commit locks and rechecks the source revision and expiry before a compare-and-set status update. Changes require dispatcher review; no automatic reassignment occurs. Core tests and read-only live SQL passed; live operational/browser acceptance remains pending. See [[Temporal Dispatch Recommendation Implementation Plan]].
