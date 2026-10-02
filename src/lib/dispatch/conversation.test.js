@@ -134,3 +134,50 @@ it('projects each supplied health label verbatim',()=>{
     expect(evidence.pairs[0].gpsHealth).toBe(label);
   }
 });
+it('projects releaseLocal in Philippine time so narration never converts UTC (RS-UZYD)',()=>{
+  // Previous trip ends 3:09 PM Manila = 07:09Z. Raw ISO reads 7:09 AM; the
+  // projected local string must read the Manila hour.
+  const p={vehicle_id:1,driver_id:2,vehicle:{plate_number:'ABC-1234'},driver:{driver_name:'Karlo Rafael Sunga Torres'},
+    checks:[{status:'verified'}],feasibility:{verdict:'SAFE',reasons:[]},
+    scheduleEvidence:{releaseAt:'2026-10-02T07:09:00.000Z',releaseSource:'scheduled',gapMinutes:111,usableSlackMinutes:90}};
+  const evidence=conversationEvidence({request_id:1},{pair:{candidates:[p],recommended:p}});
+  expect(evidence.pairs[0].scheduleEvidence.releaseLocal).toContain('Philippine time');
+  expect(evidence.pairs[0].scheduleEvidence.releaseLocal).not.toContain('7:09');
+  expect(evidenceSummary(evidence,'Any conflicts?')).toContain('Previous booking ends');
+  expect(evidenceSummary(evidence,'Any conflicts?')).toContain('Philippine time');
+});
+it('projects the Manila duty window alongside schedule evidence', () => {
+  const p = { vehicle_id: 1, driver_id: 2, vehicle: { plate_number: 'ABC-1234' }, driver: { driver_name: 'Karlo Rafael Sunga Torres' },
+    checks: [{ status: 'verified' }], feasibility: { verdict: 'UNKNOWN', reasons: [] },
+    scheduleEvidence: { releaseAt: '2026-10-02T07:09:00.000Z',
+      dutyWindow: { dayOfWeek: 5, shiftStart: '06:00:00', shiftEnd: '22:00:00', breakStart: '12:00:00', breakEnd: '13:00:00' } } };
+  const evidence = conversationEvidence({ request_id: 513 }, { pair: { candidates: [p], recommended: p } });
+  expect(evidence.pairs[0].scheduleEvidence.dutyWindow.shiftStart).toBe('06:00:00');
+});
+it('answers What needs fixing with blockers and next steps',()=>{
+  const blocked={vehicle_id:2,driver_id:5,driver:{driver_name:'Blocked Driver'},vehicle:{plate_number:'XYZ 5678'},
+    checks:[{id:'maintenance',label:'Service-window maintenance',status:'blocking',message:'Scheduled service overlaps.'}],
+    readiness:'BLOCKED',feasibility:{verdict:'INFEASIBLE',reasons:['Scheduled service overlaps.']}};
+  const evidence=conversationEvidence({request_id:3},{pair:{candidates:[blocked]}});
+  const answer=evidenceSummary(evidence,'What needs fixing?');
+  expect(answer).toContain('Blocked Driver with XYZ 5678');
+  expect(answer).toContain('Check maintenance record');
+  const ok={vehicle_id:1,driver_id:2,driver:{driver_name:'Karlo Rafael Sunga Torres'},vehicle:{plate_number:'ABC-1234'},
+    checks:[{status:'verified'}],readiness:'VERIFIED',feasibility:{verdict:'SAFE',reasons:[]}};
+  const clear=conversationEvidence({request_id:1},{pair:{candidates:[ok],recommended:ok}});
+  expect(evidenceSummary(clear,'What needs fixing?')).toContain('Nothing in the current evidence needs fixing');
+});
+it('answers Other options with eligible pair plus recorded exclusions (RS-UZYD)',()=>{
+  const ok={vehicle_id:1,driver_id:2,driver:{driver_name:'Karlo Rafael Sunga Torres'},vehicle:{plate_number:'ABC-1234'},
+    checks:[{status:'verified'}],readiness:'VERIFIED',feasibility:{verdict:'SAFE',reasons:[]}};
+  const evidence=conversationEvidence({request_id:1},{pair:{candidates:[ok],recommended:ok,
+    none_reasons:[
+      {vehicle_id:2,plate:'XYZ 5678',reason:'Vehicle XYZ 5678 insurance 2026-08-24 is not valid for this trip.'},
+      {vehicle_id:3,plate:'DEF-9999',reason:'License details have not been verified by authorized staff.',driver_id:19,driver_name:'Other Driver'}]}});
+  const answer=evidenceSummary(evidence,'Other options?');
+  expect(answer).toContain('Karlo Rafael Sunga Torres with ABC-1234');
+  expect(answer).toContain('XYZ 5678');
+  expect(answer).toContain('not valid for this trip');
+  const solo=conversationEvidence({request_id:2},{pair:{candidates:[ok],recommended:ok}});
+  expect(evidenceSummary(solo,'Other options?')).toContain('only evaluated option');
+});

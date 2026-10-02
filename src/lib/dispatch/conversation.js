@@ -51,7 +51,7 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
     checks:(p.checks ?? []).map(c=>({id:c.id ?? null,label:c.label,status:c.status,message:c.message})),
     recoveryActions,
     rankingReasons:p.reasons, routeVerdict:p.feasibility?.verdict,
-    temporalContext:p.temporalContext, scheduleEvidence:p.scheduleEvidence,
+    temporalContext:p.temporalContext, scheduleEvidence:projectScheduleEvidence(p.scheduleEvidence),
     workloadEvidence:p.workloadEvidence, decisionEvidence:p.decisionEvidence,
     livePickupEta:live, predictedTransfer:p.expectedRoute ?? null,
     // GPS health label only, when the server supplies it (IMMEDIATE branch).
@@ -87,6 +87,31 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
     exclusions:projectedExclusions,
     recoveryActions:sortRecoveryActions(projectedExclusions.slice(0,3).map(e=>e.recovery).filter(Boolean)),
     recommended:recommendation.pair?.recommended ? {vehicleId:recommendation.pair.recommended.vehicle_id,driverId:recommendation.pair.recommended.driver_id}:null};
+}
+
+// Philippine wall-clock for a schedule instant. The raw evidence carries ISO
+// UTC (07:09Z) while the UI renders Manila (3:09 PM); handing the model only
+// the ISO invites it to repeat the UTC hour with a correct minute-gap beside
+// it (RS-UZYD 2026-10-02). Project the Manila string alongside so narration
+// never has to convert.
+function formatReleaseLocal(value) {
+  const d = new Date(value);
+  if (!Number.isFinite(+d)) return null;
+  return (
+    new Intl.DateTimeFormat('en-PH', {
+      timeZone: 'Asia/Manila',
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(d) + ' (Philippine time)'
+  );
+}
+
+function projectScheduleEvidence(evidence) {
+  if (!evidence || typeof evidence !== 'object') return evidence;
+  const releaseAt = evidence.releaseAt ?? null;
+  const releaseLocal = releaseAt ? formatReleaseLocal(releaseAt) : null;
+  if (!releaseLocal || evidence.releaseLocal === releaseLocal) return evidence;
+  return { ...evidence, releaseLocal };
 }
 
 const FRIENDLY_PAIR_STATES = {
@@ -277,6 +302,62 @@ function workloadLine(pair = {}) {
   return `${pairLabel(pair)}: ${workload.completedTrips ?? 'unknown'} completed, ${workload.activeTrips ?? 'unknown'} active, and ${workload.scheduledTrips ?? 'unknown'} scheduled on ${workload.serviceDate}.`;
 }
 
+function scheduleGapNote(pair = {}) {
+  const releaseLocal = pair.scheduleEvidence?.releaseLocal ?? null;
+  const gap = pair.scheduleEvidence?.usableSlackMinutes ?? pair.scheduleEvidence?.gapMinutes ?? null;
+  if (releaseLocal == null && gap == null) return null;
+  if (releaseLocal != null && gap != null) return `Previous booking ends ${releaseLocal} with ${gap} minutes of preparation time.`;
+  if (releaseLocal != null) return `Previous booking ends ${releaseLocal}.`;
+  return `${gap} minutes of preparation time after the previous booking.`;
+}
+
+function nextTripNote(pair = {}) {
+  const trips = pair.nextTrips ?? [];
+  if (!trips.length) return null;
+  const blocked = trips.filter(t => String(t.verdict).toUpperCase() === 'INFEASIBLE' || String(t.verdict).toUpperCase() === 'BLOCKED');
+  if (blocked.length) {
+    const first = blocked[0];
+    const reason = (first.reasons ?? [])[0] ? ` ${(first.reasons ?? [])[0]}` : '';
+    return `Downstream dispatch #${first.dispatchId} is affected.${reason}`;
+  }
+  return `${trips.length} downstream trip${trips.length > 1 ? 's were' : ' was'} checked with no blocking conflict.`;
+}
+
+function conflictAnswer(pair = {}) {
+  const name = pairLabel(pair);
+  if (pair.state === 'BLOCKED') return pairLine(pair);
+  const base = pair.state === 'ALL_CLEAR'
+    ? `No hard conflict found for ${name}. This option is ready for review.`
+    : `No hard conflict found for ${name}. It still needs verification because ${pendingReason(pair)}.`;
+  const extras = [scheduleGapNote(pair), nextTripNote(pair)].filter(Boolean);
+  return extras.length ? `${base} ${extras.join(' ')}` : base;
+}
+
+function fixingAnswer(evidence, pairs) {
+  const troubled = pairs.filter(p => p.state === 'BLOCKED' || p.state === 'REVIEW_REQUIRED' || p.state === 'INSUFFICIENT_DATA');
+  if (!troubled.length) {
+    const exclusions = evidence.exclusions ?? [];
+    const base = pairs.slice(0, 2).map(pairLine).join('\n');
+    return exclusions.length
+      ? `${base}\nNothing in the checked options blocks assignment. Other evaluated vehicles were excluded:\n${exclusions.slice(0, 2).map(exclusionLine).join('\n')}`
+      : `${base} Nothing in the current evidence needs fixing.`;
+  }
+  return troubled.slice(0, 2).map(pairLine).join('\n');
+}
+
+function otherOptionsAnswer(evidence, pairs) {
+  const exclusions = evidence.exclusions ?? [];
+  if (!pairs.length) return null;
+  const eligible = pairs.slice(0, 2).map(pairLine).join('\n');
+  if (!exclusions.length) {
+    return pairs.length === 1
+      ? `${eligible} This is the only evaluated option, so there is nothing else to compare it against.`
+      : eligible;
+  }
+  const blocked = exclusions.slice(0, 2).map(exclusionLine).join('\n');
+  return `${eligible}\nOther evaluated vehicles were excluded:\n${blocked}`;
+}
+
 export function evidenceSummary(evidence, question = '') {
   if (evidence.selection?.status === 'missing') {
     return `The selected vehicle #${evidence.selection.vehicleId} / driver #${evidence.selection.driverId} is no longer in the current candidate evidence. Recheck this reservation before relying on that pair.`;
@@ -297,13 +378,10 @@ export function evidenceSummary(evidence, question = '') {
   // Bounded evidence-only topics; other questions retain the honest general summary.
   const comparison = /\b(why|better|compare|recommend|workload|fair|buffer)\b|bakit|mas maganda/i.test(question);
   const eta = /\b(eta|arrival|arrive|distance|traffic)\b/i.test(question);
-  const conflicts = /\b(conflict|blocked|overlap|maintenance|leave)\b/i.test(question);
+  const conflicts = /\b(conflicts?|blocked|overlap|maintenance|leave)\b/i.test(question);
   if (pairs.length && (comparison || eta || conflicts)) {
     if (conflicts) {
-      return pairs.slice(0,2).map(p => p.state === 'BLOCKED'
-        ? pairLine(p)
-        : `No hard conflict found for ${name(p)}. ${p.state === 'ALL_CLEAR' ? 'This option is ready for review.' : `It still needs verification because ${pendingReason(p)}.`}`
-      ).join('\n');
+      return pairs.slice(0,2).map(conflictAnswer).join('\n');
     }
     if (eta) {
       return pairs.slice(0,2).map(p => p.livePickupEta
@@ -335,6 +413,22 @@ export function evidenceSummary(evidence, question = '') {
       return `You have not selected an option yet. Option ${preferredOption} is currently the stronger fit. ${reason}${alternative ? ` Option ${alternativeOption} remains ${pairStatus(alternative).toLowerCase()}.` : ''}`;
     }
     return pairLine(pairs[0]);
+  }
+  // The "What needs fixing?" shortcut: lead with whatever blocks or holds each
+  // option (pairLine already carries the reason plus one next step), not the
+  // generic ranking summary. Placed with the other shortcut branches so the
+  // eight FM-ADV-001 phrasings (none of which ask about fixing) keep their
+  // byte-identical verdict.
+  if (pairs.length && /\bwhat needs fixing\b|\bwhat (?:should|do) (?:i|we) fix\b|\bneeds? (?:to be )?fix(?:ed|ing)?\b/i.test(question)) {
+    return fixingAnswer(evidence, pairs) + coverageDisclosure(evidence.coverage);
+  }
+  // The "Other options?" shortcut: name the eligible pair(s) plus the recorded
+  // exclusion reasons, so a single-option evaluation still answers why the
+  // rest of the fleet is not offered (RS-UZYD: insurance + license blocks).
+  // Placed after the topic branches so the eight FM-ADV-001 phrasings (none of
+  // which ask about other options) keep their byte-identical verdict.
+  if (pairs.length && /\bother options?\b|\balternatives?\b|\bwhat else\b|\banyone else\b|\bwho else\b/i.test(question)) {
+    return otherOptionsAnswer(evidence, pairs) + coverageDisclosure(evidence.coverage);
   }
   const summary = pairs.length
     ? pairs.slice(0,2).map(pairLine).join('\n')

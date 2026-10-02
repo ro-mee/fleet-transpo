@@ -4,11 +4,12 @@ vi.mock('@/services/standby.service',()=>({standbyState:vi.fn()}));
 vi.mock('@/services/dispatch-settings.service',async()=>({getDispatchPolicy:vi.fn(async()=> (await import('@/lib/dispatch-policy')).DEFAULT_DISPATCH_POLICY)}));
 vi.mock('@/lib/scheduling/conflicts',()=>({detectRequestConflicts:vi.fn()}));
 vi.mock('@/services/driver-schedule.service',()=>({loadDriverScheduleContext:vi.fn(async()=>({}))}));
-vi.mock('@/lib/scheduling/driver-schedule',()=>({driverBlockReason:vi.fn(()=>null)}));
+vi.mock('@/lib/scheduling/driver-schedule', async (importOriginal) => ({ ...(await importOriginal()), driverBlockReason: vi.fn(() => null) }));
 vi.mock('@/services/route-resolver.service',()=>({resolveRouteEndpoints:vi.fn(async()=>({originLocation:{latitude:14.5,longitude:121},destinationLocation:{latitude:14.6,longitude:121}}))}));
 vi.mock('@/services/route-feasibility-context.service',()=>({resolveDeadheadMinutes:vi.fn(),provenanceOfEstimate:()=> 'snapshot'}));
 import { query } from '@/lib/db';
 import { driverBlockReason } from '@/lib/scheduling/driver-schedule';
+import { loadDriverScheduleContext } from '@/services/driver-schedule.service';
 import { standbyState } from '@/services/standby.service';
 import { detectRequestConflicts } from '@/lib/scheduling/conflicts';
 import { resolveDeadheadMinutes } from '@/services/route-feasibility-context.service';
@@ -22,6 +23,15 @@ beforeEach(()=>{
   resolveDeadheadMinutes.mockResolvedValue({minutes:5,distanceKm:6,provenance:'live',computedAt:now.toISOString()});
 });
 const evaluate = (extra={})=>evaluateDispatchCandidate({request,vehicleId:1,driverId:1,estimate:{durationMin:30,source:"TomTom"},now,...extra});
+it('attaches the Manila duty window behind the shift verdict, null without a row',async()=>{
+  const friday = new Date('2026-10-02T09:00:00.000Z'); // 5 PM Manila Friday
+  loadDriverScheduleContext.mockResolvedValue({ schedules: new Map([[1, new Map([[5, {
+    shift_start: '06:00:00', shift_end: '22:00:00', break_start: '12:00:00', break_end: '13:00:00', is_rest_day: false }]])]]), leave: new Map() });
+  const withRow = await evaluate({ request: { ...request, pickup_datetime: friday.toISOString() },
+    dutyCtx: await loadDriverScheduleContext([1]) });
+  expect(withRow.scheduleEvidence.dutyWindow).toEqual({ dayOfWeek: 5, shiftStart: '06:00:00', shiftEnd: '22:00:00', breakStart: '12:00:00', breakEnd: '13:00:00' });
+  expect((await evaluate()).scheduleEvidence.dutyWindow).toBeNull();
+});
 it('uses only fresh owned-trip GPS at start after standby tracking has stopped',async()=>{
   request={...request,fleet_status:'Assigned'};
   standbyState.mockResolvedValue({checked_in:true,consented:true,busy:false,session_live:false,standby_tracking_enabled:false});

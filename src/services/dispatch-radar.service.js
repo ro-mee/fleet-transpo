@@ -7,7 +7,7 @@ import { resolveDeadheadMinutes } from '@/services/route-feasibility-context.ser
 import { evaluateRouteFeasibility } from '@/lib/scheduling/route-feasibility';
 import { detectRequestConflicts } from '@/lib/scheduling/conflicts';
 import { loadDriverScheduleContext } from '@/services/driver-schedule.service';
-import { driverBlockReason } from '@/lib/scheduling/driver-schedule';
+import { driverBlockReason, localDayOfWeek } from '@/lib/scheduling/driver-schedule';
 import { buildRouteCacheKey } from '@/lib/routing/route-cache';
 import { toCalendarDay } from '@/lib/dates';
 import { dispatchDecision } from '@/lib/dispatch/decision';
@@ -16,6 +16,21 @@ import { rankDispatchPairs } from '@/lib/dispatch/recommendation-ranking';
 
 const unknown = reason => ({ verdict: 'UNKNOWN', reasons: [reason] });
 const minutes = value => value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) <= 0 ? null : Number(value);
+// The driver's Manila duty row for the pickup weekday, projected as plain
+// facts for Copilot policy answers. Null unless a real non-rest row exists.
+function dutyWindowForPair(dutyCtx, driverId, pickupMs) {
+  const day = localDayOfWeek(new Date(pickupMs));
+  const row = day == null ? null : dutyCtx?.schedules?.get(Number(driverId))?.get(day) ?? null;
+  if (!row || row.is_rest_day) return null;
+  if (row.shift_start == null || row.shift_end == null) return null;
+  return {
+    dayOfWeek: day,
+    shiftStart: String(row.shift_start),
+    shiftEnd: String(row.shift_end),
+    breakStart: row.break_start ? String(row.break_start) : null,
+    breakEnd: row.break_end ? String(row.break_end) : null,
+  };
+}
 async function knownLeg(origin,destination) {
   const endpoints = await resolveRouteEndpoints({ query },{ origin,destination });
   const point = row => isValidCoordinate(row?.latitude,row?.longitude) ? { lat:Number(row.latitude),lng:Number(row.longitude) } : null;
@@ -31,7 +46,7 @@ export function serviceEnd(request, estimate) {
 }
 
 // Evaluate one already-paired candidate. The same operation is used at assignment.
-export async function evaluateDispatchCandidate({ request, vehicleId, driverId, estimate, now = new Date(), includePosition = false, deadline = Date.now()+25_000, routeMemo = new Map(), tentativeCommitments = [], policy: suppliedPolicy, excludeTripId = null }) {
+export async function evaluateDispatchCandidate({ request, vehicleId, driverId, estimate, now = new Date(), includePosition = false, deadline = Date.now()+25_000, routeMemo = new Map(), tentativeCommitments = [], policy: suppliedPolicy, excludeTripId = null, dutyCtx = null }) {
   const policy = suppliedPolicy ?? await getDispatchPolicy();
   const preparationMinutes = Math.max(policy.safetyBufferMinutes,policy.bufferFloorMinutes);
   // Only the owned-trip start route supplies excludeTripId, after its start-window gate.
@@ -114,6 +129,11 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
     gapMinutes:release == null ? null : Math.round((pickup-release)/60_000),
     transferMinutes:null, preparationMinutes, usableSlackMinutes:null,
     uncertainty:preceding ? (preceding.origin ? null : 'Preceding release or resource positioning is unverified.') : previous.length ? 'Previous trip completed; departure positioning needs verification.' : 'No preceding booking recorded; departure arrangements need verification.',
+    // The Manila duty window behind the shift/break verdict, so Copilot can
+    // cite which hours were enforced even when the check passes (a passing
+    // check leaves no message). Null on rest days, missing rows, or missing
+    // context — never a default shift.
+    dutyWindow: dutyWindowForPair(dutyCtx, driverId, pickup),
   }, dispatchContext, checks, evaluated:true, readiness: 'REVIEW_REQUIRED', feasibility: unknown('Route evidence needs review.'), hardConflicts: blocking,
     advisories:conflicts.filter(c => c.severity !== 'blocking'), reviewable:false };
   if (blocking.length) {
@@ -207,6 +227,10 @@ export async function applyDispatchRadar({ request, estimate, recommendation, no
   const candidates = recommendation.pair?.candidates ?? [];
   const deadline = Date.now()+25_000;
   const routeMemo = new Map();
+  // One schedule context for every candidate driver: the duty-window fact in
+  // Task 1 rides the same rows conflict detection already reads. Fail-open to
+  // null (no window projected) rather than failing the whole evaluation.
+  const dutyCtx = await loadDriverScheduleContext(candidates.map(p => p.driver_id)).catch(() => null);
   let index = 0;
   // ponytail: small fleet; four workers route every eligible pair, no distance shortlist.
   await Promise.all(Array.from({ length:Math.min(4,candidates.length) },async () => {
@@ -218,7 +242,7 @@ export async function applyDispatchRadar({ request, estimate, recommendation, no
       pair.evaluated = Date.now() < deadline;
       try {
         if (!pair.evaluated) throw new Error('Evaluation deadline reached');
-        Object.assign(pair,await evaluateDispatchCandidate({ request,estimate,vehicleId:pair.vehicle_id,driverId:pair.driver_id,now,includePosition,deadline,routeMemo,policy }));
+        Object.assign(pair,await evaluateDispatchCandidate({ request,estimate,vehicleId:pair.vehicle_id,driverId:pair.driver_id,now,includePosition,deadline,routeMemo,policy,dutyCtx }));
       }
       catch { Object.assign(pair,{ evaluated:false,dispatchContext:resolveLocationRelevance({ request,now }),readiness:'REVIEW_REQUIRED',feasibility:unknown('Current schedule or location evidence could not be verified.') }); }
     }
