@@ -48,6 +48,7 @@ import {
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
 import { fuelExportTarget } from "@/lib/fuel/export-targets";
+import { getPermitReceiptState } from "@/lib/fuel/permit-receipt-state";
 import { toast } from "@/components/ui/toast";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
@@ -708,6 +709,19 @@ export default function FuelPage() {
       },
     }),
     columnHelper.display({
+      id: "receipt_state",
+      header: "Receipt / Analytics",
+      cell: (info) => {
+        const state = getPermitReceiptState(info.row.original);
+        return (
+          <div className="min-w-36 text-xs">
+            <p className="font-semibold text-foreground">{state.label}</p>
+            <p className="mt-0.5 text-foreground-muted">{state.detail}</p>
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
       id: "action",
       header: () => <div className="text-right">Action</div>,
       cell: (info) => {
@@ -851,7 +865,7 @@ export default function FuelPage() {
         <StatGrid cols={4}>
           <StatCard icon={Clock} label="Pending" value={requestsLoading ? "—" : requestData.counts?.pending || 0} trend="Requests awaiting review" tone="warning" />
           <StatCard icon={CheckCircle2} label="Approved" value={requestsLoading ? "—" : requestData.counts?.approved || 0} trend="Authorized, awaiting logging" tone="info" />
-          <StatCard icon={Fuel} label="Fulfilled" value={requestsLoading ? "—" : requestData.counts?.fulfilled || 0} trend="Logged against the permit" tone="success" />
+          <StatCard icon={Fuel} label="Fulfilled" value={requestsLoading ? "—" : requestData.counts?.fulfilled || 0} trend="Analytics includes approved active receipts only" tone="success" />
           <StatCard icon={XCircle} label="Rejected" value={requestsLoading ? "—" : requestData.counts?.rejected || 0} trend="Declined requests" tone="neutral" />
         </StatGrid>
       )}
@@ -891,7 +905,7 @@ export default function FuelPage() {
         data={fuelRequests}
         isLoading={requestsLoading}
         title="Fuel Requests (Permits)"
-        description="Permits authorize fuel before the pump — recommendations cover the next 24 hours toward a safe level."
+        description="Permits authorize fuel; row-level receipt state shows whether a record is active and eligible for analytics."
         icon={ClipboardList}
         searchable={false}
         pageSize={5}

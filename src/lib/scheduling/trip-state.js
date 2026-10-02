@@ -64,6 +64,22 @@ const NEXT = {
 
 const TERMINAL = new Set([TRIP_STATUS.COMPLETED, TRIP_STATUS.CANCELLED]);
 
+// Statuses the mobile client can accept and start once the shared departure
+// window opens. Keep timer-driven dispatcher alerts aligned with this list.
+export const PRE_START_TRIP_STATUSES = Object.freeze([
+  TRIP_STATUS.PENDING,
+  TRIP_STATUS.APPROVED,
+  TRIP_STATUS.VEHICLE_ASSIGNED,
+  TRIP_STATUS.DRIVER_ASSIGNED,
+  TRIP_STATUS.DISPATCHED,
+  TRIP_STATUS.ASSIGNED,
+  TRIP_STATUS.DRIVER_ACCEPTED,
+]);
+
+export function isPreStartTripStatus(status) {
+  return PRE_START_TRIP_STATUSES.includes(status);
+}
+
 export function isValidTripStatus(status) {
   return TRIP_STATES.has(status);
 }

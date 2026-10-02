@@ -4,16 +4,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 // The queue's own render path is exercised with the query result as the only
 // state it reads, matching the other dashboard page tests.
-const state = vi.hoisted(() => ({ query: {} }));
+const state = vi.hoisted(() => ({ query: {}, search: "", queryOptions: null }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => state.query,
+  useQuery: (options) => { state.queryOptions = options; return state.query; },
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(""),
+  useSearchParams: () => new URLSearchParams(state.search),
 }));
 // HeroHeader reads the theme; the provider lives in the dashboard layout.
 vi.mock("@/hooks/use-theme", () => ({
@@ -76,6 +76,8 @@ function renderTree() {
 
 beforeEach(() => {
   vi.stubGlobal("React", React);
+  state.search = "";
+  state.queryOptions = null;
   state.query = {
     data: undefined,
     isLoading: true,
@@ -106,6 +108,30 @@ describe("Unified queue — first load", () => {
 });
 
 describe("Unified queue — loaded", () => {
+  it("keeps the dashboard pickup filter on Today and requests the exact filtered set", async () => {
+    state.search = "filter=departing-soon";
+    state.query = {
+      data: {
+        rows: [ROW],
+        total: 2,
+        counts: { tabs: { today: 6, upcoming: 0, assigned: 1, inProgress: 0, completed: 6, cancelled: 9 } },
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
+    const html = renderTree();
+    expect(html).toContain("Unassigned pickups · next 30 min (2)");
+    expect(tabs(html).find((tab) => tab.selected)?.label).toBe("Today — 6 requests");
+
+    await state.queryOptions.queryFn();
+    const { getTransportRequests } = await import("@/services/transport.service");
+    expect(getTransportRequests).toHaveBeenCalledWith(expect.objectContaining({
+      tab: "today",
+      filter: "departing-soon",
+    }));
+  });
+
   it("shows the short Today label while explaining its scope in the tooltip", () => {
     // QUEUE_TAB_PREDICATES.today is `pickup <= today (Asia/Manila)`, so the tab
     // still holds overdue work even with the short label.

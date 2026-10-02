@@ -10,6 +10,7 @@ import {
   vehicleCanTravel,
 } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
+import { numberCodingBlockReason } from "@/lib/uvvrp/availability-reason";
 
 // Pair-coupled availability for the Resource Availability board.
 //
@@ -336,8 +337,7 @@ function travelBlockReason(v, ctx, date) {
     const which = expired(v.registration_expiry) ? "Registration expired" : "Insurance expired";
     return `${which} — cannot travel on this date.`;
   }
-  if (ctx?.policy?.enabled && v.plate_number && !ctx.exemptVehicleIds?.has?.(v.vehicle_id)) {
-    return "Number-coding restriction on this date.";
-  }
+  const codingReason = numberCodingBlockReason(v, ctx, day);
+  if (codingReason) return codingReason;
   return "Paired driver cannot travel on this date (license / duty status).";
 }

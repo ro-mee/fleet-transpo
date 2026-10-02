@@ -688,3 +688,11 @@ What *was* worth pinning is the invariant, now covered by tests: `resolvePresetR
 ## Defense account roster cleanup — 2026-10-03
 
 The live defense roster now has exactly ten active driver accounts (D01–D10). The guarded old-account cleanup removed 54 already-deleted no-role harness accounts, then the exact hard-delete workflow removed all 23 retired pre-defense driver employees and six linked retired driver profiles. Audit rows were preserved with detached nullable actor links; no unrelated staff, role, or defense rows were deleted. The ten defense logins use the approved name-based Gmail mapping; password hashes were preserved and account versions were bumped during rotation. Their schedules use distributed rest days and staggered lunch windows within 06:00–22:00. See [[Defense Demo Data Implementation Plan]] for the digests and recovery snapshots.
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+The directory search now builds searchable name and contact values from nested employee data, including phone numbers. The API applies the same partial, case-insensitive name/contact search to linked drivers and incomplete driver accounts; status or license filters keep incomplete accounts out when those fields do not exist for them. A failed directory request has a visible retry state and is not presented as a confirmed zero-match result.
+
+Summary cards and the Drivers report explicitly count **linked driver profiles**. The directory may also include incomplete driver-role accounts. An earlier read-only snapshot found 22 active driver profiles and one unlinked active driver-role employee, so the directory population was 23 while the profile summary was 22. This snapshot predates the defense account cleanup described above; the later controlled roster has ten active defense drivers.
+
+The driver detail lookup intentionally returns the same not-found response for archived and nonexistent IDs. Its unavailable state now explains that the profile may have been archived, deleted, or the link may be out of date. The reported driver #58 is archived and still has one assignment and two fuel-request references. No row was restored or changed. The message helper's focused regression tests pass.

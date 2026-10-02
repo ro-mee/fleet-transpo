@@ -30,8 +30,22 @@ const currentAllocationMonth = () => `${toCalendarDay(new Date()).slice(0, 7)}-0
 const SELECT_REQUESTS = `
   SELECT r.*, t.trip_status,
          v.plate_number, v.vehicle_name, v.tank_capacity_l, v.fuel_efficiency_kmpl,
-         e.first_name, e.last_name, e.avatar_url, d.face_image_url
+         e.first_name, e.last_name, e.avatar_url, d.face_image_url,
+         receipt_summary.active_receipt_count,
+         receipt_summary.archived_receipt_count,
+         receipt_summary.active_receipt_statuses
     FROM fuelrequests r
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*) FILTER (WHERE f.deleted_at IS NULL)::int AS active_receipt_count,
+        COUNT(*) FILTER (WHERE f.deleted_at IS NOT NULL)::int AS archived_receipt_count,
+        COALESCE(
+          ARRAY_AGG(DISTINCT f.status ORDER BY f.status) FILTER (WHERE f.deleted_at IS NULL),
+          ARRAY[]::varchar[]
+        ) AS active_receipt_statuses
+      FROM fuelrecords f
+      WHERE f.fuel_request_id = r.fuel_request_id
+    ) receipt_summary ON TRUE
     LEFT JOIN trips t ON t.trip_id = r.trip_id
     JOIN vehicles v ON v.vehicle_id = r.vehicle_id
     JOIN drivers d ON d.driver_id = r.driver_id

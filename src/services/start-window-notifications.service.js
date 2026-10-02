@@ -3,10 +3,8 @@
 // a minute target; the endpoint is not a scheduler — an external caller with
 // CRON_SECRET must be configured in production).
 //
-// For every Driver Accepted trip (strict lifecycle Assigned → Driver
-// Accepted → Trip Started — a driver who hasn't accepted cannot start, so a
-// start-window notification for them is noise), resolve the departure
-// window with the SAME shared ladder the start gate and the driver trips
+// For every assigned pre-start trip, resolve the departure window with the
+// SAME shared ladder the start gate and the driver trips
 // feed use (src/lib/scheduling/start-window.js), then notify at each
 // threshold:
 //
@@ -42,6 +40,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
 import { resolveStartWindow, crossedStartWindowThreshold } from "@/lib/scheduling/start-window";
+import { PRE_START_TRIP_STATUSES } from "@/lib/scheduling/trip-state";
 import { notificationRolesFor, employeeIdsForRoles, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 import { loadPreferenceRows, channelEnabled } from "@/lib/notifications/preferences";
 import { flushOutbox, CHANNEL } from "@/services/push.service";
@@ -96,8 +95,8 @@ export const THRESHOLD_EVENTS = {
 };
 
 /**
- * Driver Accepted trips awaiting a start, with everything the window needs.
- * Driver Accepted ONLY — see the module header.
+ * Assigned pre-start trips awaiting a start, with everything the window needs.
+ * The explicit status list matches the mobile accept-and-start flow.
  */
 export async function loadEligibleTrips() {
   const { rows } = await query(
@@ -116,8 +115,9 @@ export async function loadEligibleTrips() {
        LEFT JOIN routes r ON r.route_id = t.route_id
        LEFT JOIN locations ol ON ol.location_id = r.origin_location_id
        LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
-      WHERE t.trip_status = 'Driver Accepted'
-        AND t.deleted_at IS NULL`
+      WHERE t.trip_status = ANY($1::text[])
+        AND t.deleted_at IS NULL`,
+    [PRE_START_TRIP_STATUSES]
   );
   return rows;
 }
@@ -230,7 +230,7 @@ export async function processTrip({ trip, policy, preferenceRows, dispatcherIds,
 }
 
 /**
- * Scan every Driver Accepted trip and notify crossed start-window
+ * Scan every assigned pre-start trip and notify crossed start-window
  * thresholds. Best-effort per trip; never throws (a producer failure must
  * not fail the cron sync).
  *

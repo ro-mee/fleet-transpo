@@ -249,3 +249,7 @@ The mutation also invalidated only `["reservations"]`, which matches **no query 
 ### Verification
 
 `src/lib/scheduling/smart-default-tab.test.js` (+9), a new `src/app/(dashboard)/reservations/queue/page.test.js` (5), `src/lib/integration/ingest-outcome.test.js` (5), plus the touched-file ESLint and production build. Full suite 3484 passed / 6 failed, the six being the pre-existing failures already recorded for 2026-10-01.
+
+## Dispatcher next-30-minute pickup filter - 2026-10-03
+
+The queue accepts `filter=departing-soon` alongside its Today tab. The API applies the open-request, missing-vehicle-or-driver, and exact `[NOW(), NOW() + 30 minutes]` pickup predicate before both the row query and total count. The dashboard deep-link therefore opens a paginated view whose rows and count come from the same SQL set. This filter is separate from Today, which still intentionally includes overdue requests in Asia/Manila.

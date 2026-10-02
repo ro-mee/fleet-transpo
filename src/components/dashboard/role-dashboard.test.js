@@ -30,6 +30,7 @@ vi.mock("framer-motion", () => ({
 
 vi.stubGlobal("React", React);
 const { RoleDashboard } = await import("@/components/dashboard/role-dashboard");
+const { manilaDateKey } = await import("@/lib/dates");
 
 function driver(overrides = {}) {
   return {
@@ -134,5 +135,49 @@ describe("Admin dashboard scheduled dispatch scope", () => {
     };
     const html = renderToStaticMarkup(React.createElement(RoleDashboard, { role: "admin" }));
     expect(html).toContain("Scheduled dispatches (all dates)");
+  });
+});
+
+describe("Fleet Manager dashboard current summaries", () => {
+  it("keeps past scheduled trips off the upcoming list and scopes leave and maintenance to today", () => {
+    const today = manilaDateKey();
+    const yesterday = manilaDateKey(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    state.queries.vehicles = { data: [], isLoading: false, isError: false };
+    state.queries.drivers = { data: [], isLoading: false, isError: false };
+    state.queries["driver-assignments"] = { data: { assignments: [] }, isLoading: false, isError: false };
+    state.queries["driver-leave-requests"] = {
+      data: [
+        { leave_request_id: 10, driver_id: 7, status: "Approved", start_date: today, end_date: today },
+        { leave_request_id: 11, driver_id: 8, status: "Approved", start_date: yesterday, end_date: yesterday },
+      ],
+      isLoading: false,
+      isError: false,
+    };
+    state.queries["maintenance-records"] = {
+      data: [{ maintenance_id: 17, status: "Scheduled", maintenance_date: yesterday }],
+      isLoading: false,
+      isError: false,
+    };
+    state.queries["dispatches-by-status"] = {
+      data: {
+        pendingReassignment: [],
+        scheduled: [
+          { dispatch_id: 20, scheduled_departure: new Date(Date.now() - 60_000).toISOString(), transportation_requests: { guest_name: "Past scheduled trip" } },
+          { dispatch_id: 21, scheduled_departure: new Date(Date.now() + 60_000).toISOString(), transportation_requests: { guest_name: "Future scheduled trip" } },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    };
+
+    const html = render();
+    const scheduleStart = html.indexOf("Upcoming fleet schedule");
+    const scheduleEnd = html.indexOf("Document compliance", scheduleStart);
+    const upcomingText = html.slice(scheduleStart, scheduleEnd).replace(/<[^>]+>/g, " ");
+
+    expect(html).toContain("1 on approved leave");
+    expect(html).toContain("1 past-due scheduled");
+    expect(upcomingText).toContain("Future scheduled trip");
+    expect(upcomingText).not.toContain("Unassigned vehicle · Past scheduled trip");
   });
 });

@@ -1,8 +1,8 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
-import { writeAudit } from "@/lib/audit";
+import { writeAudit, writeAuditRequired } from "@/lib/audit";
 import {
   toStoredReceiptRef,
   signFuelReceipt,
@@ -164,15 +164,42 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requirePermission(req, "fuel", "delete");
+    const session = await requirePermission(req, "fuel", "delete");
     const { id } = await params;
 
-    const { rows } = await query(
-      `UPDATE fuelrecords SET deleted_at = NOW() WHERE fuel_record_id = $1 RETURNING *`,
-      [id]
-    );
+    const archived = await withTransaction(async (tx) => {
+      const { rows: current } = await tx.query(
+        `SELECT fuel_record_id, status, fuel_request_id
+           FROM fuelrecords
+          WHERE fuel_record_id = $1 AND deleted_at IS NULL
+          FOR UPDATE`,
+        [id]
+      );
+      if (!current[0]) return false;
 
-    if (!rows.length) return err("Fuel record not found", 404);
+      const { rows } = await tx.query(
+        `UPDATE fuelrecords
+            SET deleted_at = NOW()
+          WHERE fuel_record_id = $1 AND deleted_at IS NULL
+          RETURNING fuel_record_id`,
+        [id]
+      );
+      if (!rows[0]) return false;
+
+      await writeAuditRequired(tx, req, session, {
+        action: "delete",
+        resource: "fuelrecords",
+        resourceId: rows[0].fuel_record_id,
+        oldValues: {
+          status: current[0].status,
+          fuel_request_id: current[0].fuel_request_id,
+        },
+        newValues: { deleted_at: true, outcome: "archived" },
+      });
+      return true;
+    });
+
+    if (!archived) return err("Fuel record not found", 404);
     return ok({ message: "Fuel record archived successfully" });
   } catch (e) { return handleError(e); }
 }

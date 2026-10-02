@@ -13,6 +13,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import { DISPATCH_STATUS } from "@/lib/constants";
+import { isPickupDueWithoutStart, isWithinUpcomingWindow } from "@/lib/scheduling/dispatcher-urgency";
 
 // Phase 16 & Scheduling Board — the calendar's pure operational core.
 //
@@ -176,9 +177,9 @@ export function dispatchToEvent(d, lookups = {}) {
   const unassignedVehicle = !d.vehicle_id;
   const unassigned = unassignedDriver || unassignedVehicle;
 
-  const now = Date.now();
-  const timeToStart = start.getTime() - now;
-  const isStartingSoon = d.status === "Scheduled" && timeToStart > 0 && timeToStart <= 30 * MINUTE_MS;
+  const now = new Date();
+  const isStartingSoon = d.status === "Scheduled" && isWithinUpcomingWindow(start, now);
+  const noStartRecorded = isPickupDueWithoutStart(d, now);
 
   return {
     id: `dispatch-${d.dispatch_id}`,
@@ -213,6 +214,7 @@ export function dispatchToEvent(d, lookups = {}) {
     unassignedVehicle,
     unassigned,
     isStartingSoon,
+    noStartRecorded,
     href: `/dispatch/${d.dispatch_id}`,
     raw: d,
   };

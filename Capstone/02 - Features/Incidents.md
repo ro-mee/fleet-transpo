@@ -38,7 +38,7 @@ source:
   - supabase/migrations/086_incident_maintenance_grounding_backfill.sql
   - supabase/migrations/101_incident_response_tracking.sql
   - supabase/migrations/102_incident_responder_tracking.sql
-last_verified: 2026-09-04
+last_verified: 2026-10-03
 ---
 
 # Feature: Incidents
@@ -306,3 +306,44 @@ The same threading was added to `advanceReservation({ db })` for the dispatch st
 Read-only live verification confirmed incident #110 is `Open`, `Moderate`, unacknowledged and past `due_at`; grounding is Complete, vehicle 76 is `Under Maintenance`, and the linked Emergency Repair is `In Progress`. The incident registry is correct to mark it overdue regardless of severity.
 
 It has no `Incident SLA Breached — Unacknowledged` notification because that notifier intentionally selects only Critical/Major rows. Existing linked notifications are eight `Vehicle Taken Out of Service` Alerts plus one `Incident Report Under Review` Info. It also has no dedicated AI Insights card because `/api/ai/insights` never queries `driverincidents`; that omission is documented in [[Manual Functional Testing Follow-up Audit]].
+
+## Responder candidate GPS age - 2026-10-03
+
+The incident responder picker now returns the candidate's `last_location_update`, age in minutes, and freshness using the same five-minute threshold as responder automation. The picker shows a live/stale/missing/future-timestamp state. Stale or invalid fixes remain visible for context, but the API omits distance and ETA so old coordinates cannot look like a current travel estimate. The responder selector and assignment workflow are otherwise unchanged.
+
+## Active incident map missing-GPS handling — 2026-10-03 (code fix; live accepted)
+
+Live QA confirmed the /incidents basemap loads, but the active incident appears
+at 0°,0° and its exact-location link resolves to q=0,0, despite a reported
+location of “CoCo Star Hotel / Metro Manila”. Reloading reproduced the same
+state. The map tiles themselves are not the cause.
+
+The source path explains the misplaced point when a row has no stored GPS fix:
+GET /api/incidents returns nullable latitude/longitude; the report endpoint
+stores absent coordinates as SQL NULL; resolveIncidentCoords converts both
+fields with Number() before checking for absence, so Number(null) becomes zero
+and passes the range check. The web page then counts the resulting pair as GPS
+and IncidentMap uses it for the marker and fitBounds. `resolveIncidentCoords`
+now rejects null, blank, non-string/non-number, and partial pairs before using
+them. The incident registry and detail view label records without a complete
+GPS pair; the map summary reports active incidents omitted for missing GPS.
+Exact-location links remain hidden when coordinates are absent, and the map
+uses its existing Manila-area default center when no incident points remain.
+
+An explicit numeric 0,0 pair is still accepted as a valid coordinate pair. The
+live row’s raw database fields and provenance were not inspected, so the
+confirmed q=0,0 link could represent either a stored placeholder or a test made
+before the code fix was loaded. Do not rewrite it or infer replacement
+coordinates from the location text. If q=0,0 remains after this fix is loaded,
+investigate the row’s source and correct it only when placeholder provenance is
+confirmed.
+
+Live retest passed after the updated page loaded: the basemap showed Metro Manila
+labels rather than the 0°,0° ocean area; the summary showed zero active
+incidents plotted and one active incident without GPS; DMM-4210 showed “GPS fix
+unavailable”; and it had no marker or exact-location link. All of these results
+persisted after one reload. The user made no incident changes. Regression
+coverage confirms null, blank, and partial pairs are omitted while numeric
+strings and explicit 0,0 remain valid. The focused resolver suite passes 10/10
+and touched-file ESLint passes. Raw database fields were not inspected; no data
+repair was needed for the live acceptance result.

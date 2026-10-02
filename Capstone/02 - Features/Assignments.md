@@ -75,3 +75,7 @@ Focused eligibility and assignment-route tests passed 18/18; changed-source ESLi
 ## Related
 
 [[Driver Management]] · [[Fleet And Vehicles]] · [[Dispatch]] · [[Feature Index]]
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+Fleet custody coverage counts distinct vehicles with an open-ended assignment, intersected with the non-deleted, non-decommissioned fleet used as the denominator. The card shows the assigned/total count and percentage; zero active vehicles displays an em dash. Decommissioned and deleted vehicles are excluded from the matching unassigned-vehicle count. Substitute schedule date checks use the Asia/Manila calendar day. This changes presentation only and does not modify pairing rows.

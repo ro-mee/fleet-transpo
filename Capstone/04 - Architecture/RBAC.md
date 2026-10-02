@@ -246,6 +246,10 @@ retained suite runs with Vitest's `--configLoader runner` workaround at 474/474 
 The integration-ingest fixture allows the route-resolver lookup and still
 verifies that `integration_log` errors remain best-effort.
 
+## Dispatcher pairing workflow presentation - 2026-10-03
+
+Dispatchers retain read access to pairing and substitute information where it explains dispatch availability. In the Fleet Assignments page, the Matchmaking Assistant (including pair-staging controls) is only rendered when `driver_assignments:create` is allowed. Availability uses “View pairing” / “View substitute schedule” labels for read-only users. An isolated route-level authorization test now invokes all five pairing/substitute write handlers using the actual permission helper: Dispatcher receives 403 before database or audit calls, and Fleet Manager is permitted by the matrix for each action. This verifies the code boundary; it does not replace an HTTP replay using a live Dispatcher cookie.
+
 ## Related
 
 [[Authentication]] · [[employees]] · [[Why RLS Is Not A Boundary]] · [[Anti Enumeration 404 vs 403]] · [[Fail Closed By Default]] · [[Architecture]]

@@ -5,6 +5,7 @@ import { getSystemInstructions, getReportInstructions } from "@/lib/ai/prompt-lo
 import {
   REPORT_TYPES,
   isDemoPayload,
+  hasNoFleetTripActivity,
   buildReportSnapshot,
   deterministicNarrative,
   buildNarrativePrompt,
@@ -91,6 +92,19 @@ export async function POST(req) {
     // Never synthesize a story from demo/empty data — do not waste budget.
     if (isDemoPayload(data)) {
       return ok({ ok: true, report, range, mode: "no-data", narrative: null, actions: [], flag: "success" });
+    }
+
+    // An empty fleet-activity window is not evidence of an outage. Bypass both
+    // the LLM and the 24-hour cache so an older unsupported narrative cannot
+    // reappear for this same report window.
+    if (hasNoFleetTripActivity(report, data)) {
+      return ok({
+        ok: true,
+        report,
+        range,
+        mode: "deterministic",
+        ...deterministicNarrative(report, data),
+      });
     }
 
     const existing = await loadNarrative(report, range);

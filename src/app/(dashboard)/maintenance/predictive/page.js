@@ -50,7 +50,7 @@ function PredictionErrorPanel({ onRetry, busy }) {
       </div>
       <p className="text-sm font-medium text-foreground">Couldn&apos;t load predictive maintenance data</p>
       <p className="text-sm text-foreground-secondary mt-1 max-w-sm leading-relaxed">
-        Health summaries and predictions are unavailable because the request failed — not because your fleet is fully healthy.
+        Service outlooks are unavailable because the request failed — not because no vehicles are due for service.
       </p>
       <Button variant="outline" size="sm" className="mt-4 cursor-pointer" onClick={onRetry} disabled={busy}>
         <RefreshCw className={cn("mr-2 h-3.5 w-3.5", busy && "animate-spin")} />
@@ -81,16 +81,16 @@ export default function PredictiveMaintenancePage() {
     return predictions;
   }, [predictions, riskFilter]);
 
-  const healthyCount = Math.max(0, summary.low - summary.unscheduled);
+  const lowRiskCount = Math.max(0, summary.low - summary.unscheduled);
 
   return (
     <div className="space-y-6 pb-12 w-full">
       {/* ── TOP HERO HEADER BAR ── */}
       <HeroHeader
         icon={Sparkles}
-        title="AI Predictive Maintenance"
-        badge="Fleet Health Telemetry"
-        description="AI-powered vehicle health telemetry, wear pattern predictions, and preventive service interval monitoring."
+        title="Vehicle Service Outlook"
+        badge="Predictive Maintenance"
+        description="Scores reflect service due-date urgency and recorded corrective-maintenance history. A 90-day trip sample supports mileage estimates; scores do not measure physical vehicle condition."
       />
 
       {/* ── KPI STAT FILTER CARDS ── */}
@@ -98,7 +98,7 @@ export default function PredictiveMaintenancePage() {
         <PredictionErrorPanel onRetry={() => refetch()} busy={isRefetching} />
       ) : isLoading ? (
         <div className="space-y-4" role="status" aria-live="polite">
-          <p className="text-sm text-foreground-secondary">Loading vehicle predictions…</p>
+          <p className="text-sm text-foreground-secondary">Loading service outlook…</p>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             {[1, 2, 3, 4, 5].map((n) => <Skeleton key={n} className="h-28 rounded-2xl" />)}
           </div>
@@ -110,7 +110,7 @@ export default function PredictiveMaintenancePage() {
         <StatCard icon={AlertTriangle} label="Overdue" value={summary.overdue} trend="Service window passed" tone="danger" active={riskFilter === "overdue"} onClick={() => setRiskFilter((r) => (r === "overdue" ? "all" : "overdue"))} />
         <StatCard icon={CalendarDays} label="Critical (7d)" value={summary.critical} trend="Due within a week" tone="danger" active={riskFilter === "critical"} onClick={() => setRiskFilter((r) => (r === "critical" ? "all" : "critical"))} />
         <StatCard icon={Activity} label="High (30d)" value={summary.high} trend="Due within 30 days" tone="warning" active={riskFilter === "high"} onClick={() => setRiskFilter((r) => (r === "high" ? "all" : "high"))} />
-        <StatCard icon={CheckCircle2} label="Healthy" value={healthyCount} trend="More than 90 days out" tone="success" active={riskFilter === "low"} onClick={() => setRiskFilter((r) => (r === "low" ? "all" : "low"))} />
+        <StatCard icon={CheckCircle2} label="Low Risk" value={lowRiskCount} trend="More than 90 days out" tone="success" active={riskFilter === "low"} onClick={() => setRiskFilter((r) => (r === "low" ? "all" : "low"))} />
         <StatCard icon={HelpCircle} label="No Schedule" value={summary.unscheduled} trend="Needs date/mileage" tone="neutral" active={riskFilter === "unscheduled"} onClick={() => setRiskFilter((r) => (r === "unscheduled" ? "all" : "unscheduled"))} />
       </StatGrid>
 
@@ -118,13 +118,13 @@ export default function PredictiveMaintenancePage() {
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
           <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-            {/* "Health Records" was the wrong noun: these rows are one COMPUTED
+            {/* These rows are one COMPUTED
                 prediction per vehicle, not persisted records, and they exist
                 even with no maintenance history. The count also follows the
                 active risk filter, so a filter with no matches legitimately
                 shows 0 — the "of N" makes that self-explaining rather than
                 reading as an empty fleet. */}
-            <Wrench className="w-4 h-4 text-warning" /> Vehicle Health Predictions ({filteredPredictions.length}
+            <Wrench className="w-4 h-4 text-warning" /> Service Schedule Outlook ({filteredPredictions.length}
             {riskFilter !== "all" ? ` of ${summary.total}` : ""})
           </CardTitle>
           {riskFilter !== "all" && (
@@ -215,6 +215,11 @@ export default function PredictiveMaintenancePage() {
                             <AlertTriangle className="w-3.5 h-3.5" /> Calendar only — limited trip telemetry
                           </span>
                         )}
+                        {p.confidence === "high" && (
+                          <span className="flex items-center gap-1.5">
+                            <Activity className="w-3.5 h-3.5 text-primary" /> 90-day trip sample supports mileage estimates
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -222,13 +227,13 @@ export default function PredictiveMaintenancePage() {
                       {unscheduled ? (
                         <div className="text-right">
                           <span className="font-data text-sm font-bold text-foreground-muted">—</span>
-                          <p className="text-[11px] text-foreground-muted font-medium">No health score</p>
+                          <p className="text-[11px] text-foreground-muted font-medium">No schedule score</p>
                         </div>
                       ) : (
                         <div>
                           <div className="flex items-baseline justify-between mb-1">
                             <span className="font-data text-xs font-black text-foreground">{p.score}/100</span>
-                            <span className="text-[10px] font-bold text-foreground-muted">Health Rating</span>
+                            <span className="text-[10px] font-bold text-foreground-muted">Schedule score</span>
                           </div>
                           <ProgressBar value={p.score} tone={tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "info" ? "info" : "success"} />
                         </div>
