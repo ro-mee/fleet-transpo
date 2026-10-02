@@ -156,6 +156,21 @@ it('projects the Manila duty window alongside schedule evidence', () => {
   const evidence = conversationEvidence({ request_id: 513 }, { pair: { candidates: [p], recommended: p } });
   expect(evidence.pairs[0].scheduleEvidence.dutyWindow.shiftStart).toBe('06:00:00');
 });
+it('answers maintenance questions with the recorded next service date', () => {
+  const mk = (vehicle) => conversationEvidence({ request_id: 513 }, { pair: { candidates: [{
+    vehicle_id: 1, driver_id: 2, driver: { driver_name: 'Karlo Rafael Sunga Torres' }, vehicle,
+    checks: [{ id: 'maintenance', label: 'Service-window maintenance', status: 'verified' }],
+    readiness: 'VERIFIED', feasibility: { verdict: 'SAFE', reasons: [] },
+    scheduleEvidence: { releaseAt: '2026-10-02T07:09:00.000Z' } }],
+    recommended: { vehicle_id: 1, driver_id: 2 } } });
+  const dated = mk({ plate_number: 'ABC-1234', _maintenance: { next_service_date: '2026-11-20', risk: 'low' } });
+  expect(dated.pairs[0].maintenanceDue.nextServiceDate).toBe('2026-11-20');
+  const answer = evidenceSummary(dated, 'When is the next service due?');
+  expect(answer).toContain('Nov 20, 2026');
+  expect(evidenceSummary(dated, 'Does maintenance block this?')).toContain('no block');
+  const unrecorded = mk({ plate_number: 'ABC-1234', _maintenance: { next_service_date: null, risk: 'low' } });
+  expect(evidenceSummary(unrecorded, 'When is the next service due?')).toContain('No next service date is recorded');
+});
 it('cites the enforced shift window and break for policy questions', () => {
   const mk = (dutyWindow) => conversationEvidence({ request_id: 513 }, { pair: { candidates: [{
     vehicle_id: 1, driver_id: 2, driver: { driver_name: 'Karlo Rafael Sunga Torres' }, vehicle: { plate_number: 'ABC-1234' },

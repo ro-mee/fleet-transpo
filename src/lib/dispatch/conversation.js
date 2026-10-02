@@ -1,5 +1,6 @@
 import { dispatchDecision, recoveryActionForCheck, recoveryActionForExclusion, sortRecoveryActions } from './decision';
 import { DAY_NAMES } from '@/lib/scheduling/driver-schedule';
+import { toCalendarDay } from '@/lib/dates';
 
 // Prompt blocks live in copilot-prompt.js (single owner per rule). These
 // re-exports preserve the existing import surface.
@@ -53,6 +54,7 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
     recoveryActions,
     rankingReasons:p.reasons, routeVerdict:p.feasibility?.verdict,
     temporalContext:p.temporalContext, scheduleEvidence:projectScheduleEvidence(p.scheduleEvidence),
+    maintenanceDue:projectMaintenanceDue(p.vehicle),
     workloadEvidence:p.workloadEvidence, decisionEvidence:p.decisionEvidence,
     livePickupEta:live, predictedTransfer:p.expectedRoute ?? null,
     // GPS health label only, when the server supplies it (IMMEDIATE branch).
@@ -113,6 +115,25 @@ function projectScheduleEvidence(evidence) {
   const releaseLocal = releaseAt ? formatReleaseLocal(releaseAt) : null;
   if (!releaseLocal || evidence.releaseLocal === releaseLocal) return evidence;
   return { ...evidence, releaseLocal };
+}
+
+// Next service due, from the predictive-maintenance enrichment the preparation
+// step already attaches (vehicle._maintenance) with the raw vehicle column as
+// fallback. A calendar day only — never mileage math or risk narration. Null
+// when unrecorded, never a guess.
+function projectMaintenanceDue(vehicle = {}) {
+  const raw = vehicle?._maintenance?.next_service_date ?? vehicle?.next_service_date ?? null;
+  if (raw == null || String(raw).trim() === '') return { nextServiceDate: null };
+  return { nextServiceDate: toCalendarDay(raw) };
+}
+
+function formatManilaDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return null;
+  const [y, m, d] = String(value).split('-').map(Number);
+  // UTC noon is 8 PM Manila the same day: safely mid-day in both zones, so
+  // the printed date can never slip a day either way.
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric' })
+    .format(new Date(Date.UTC(y, m - 1, d, 12)));
 }
 
 const FRIENDLY_PAIR_STATES = {
@@ -324,13 +345,28 @@ function nextTripNote(pair = {}) {
   return `${trips.length} downstream trip${trips.length > 1 ? 's were' : ' was'} checked with no blocking conflict.`;
 }
 
-function conflictAnswer(pair = {}) {
+function maintenanceDueLine(pair = {}) {
+  const check = (pair.checks ?? []).find(c => c.id === 'maintenance');
+  if (!check || check.status !== 'verified') return null;
+  const due = pair.maintenanceDue?.nextServiceDate ? formatManilaDate(pair.maintenanceDue.nextServiceDate) : null;
+  return due
+    ? `The verified maintenance check shows no block for this option. Next service is due ${due}.`
+    : `The verified maintenance check shows no block for this option. No next service date is recorded.`;
+}
+
+function conflictAnswer(pair = {}, question = '') {
   const name = pairLabel(pair);
   if (pair.state === 'BLOCKED') return pairLine(pair);
   const base = pair.state === 'ALL_CLEAR'
     ? `No hard conflict found for ${name}. This option is ready for review.`
     : `No hard conflict found for ${name}. It still needs verification because ${pendingReason(pair)}.`;
   const extras = [scheduleGapNote(pair), nextTripNote(pair)].filter(Boolean);
+  // A maintenance-flavored conflict question gets the due date alongside the
+  // verdict, so "does maintenance block this" never comes back dateless.
+  if (/\bmaintenance\b|\bservice\b/i.test(question)) {
+    const due = maintenanceDueLine(pair);
+    if (due) extras.push(due);
+  }
   return extras.length ? `${base} ${extras.join(' ')}` : base;
 }
 
@@ -414,6 +450,21 @@ function shiftBreakAnswer(evidence, pairs, question) {
   }).join('\n');
 }
 
+function maintenanceAnswer(evidence, pairs) {
+  const pick = pairs.slice(0, 2);
+  const pickupT = evidence.pickupAt && Number.isFinite(+new Date(evidence.pickupAt))
+    ? new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit' }).format(new Date(evidence.pickupAt))
+    : 'this reservation';
+  return pick.map(p => {
+    if (p.state === 'BLOCKED' && /maintenance|service/i.test((p.reasons ?? []).join(' '))) return pairLine(p);
+    const due = p.maintenanceDue?.nextServiceDate ? formatManilaDate(p.maintenanceDue.nextServiceDate) : null;
+    const when = pickupT === 'this reservation' ? 'for this reservation' : `for the ${pickupT} reservation`;
+    return due
+      ? `Next service for ${pairLabel(p)} is due ${due}, and the verified maintenance check shows no block ${when}.`
+      : `No next service date is recorded for ${pairLabel(p)}. The verified maintenance check shows no block ${when}.`;
+  }).join('\n');
+}
+
 function otherOptionsAnswer(evidence, pairs) {
   const exclusions = evidence.exclusions ?? [];
   if (!pairs.length) return null;
@@ -461,7 +512,7 @@ export function evidenceSummary(evidence, question = '') {
   const conflicts = /\b(conflicts?|blocked|overlap|maintenance|leave)\b/i.test(question);
   if (pairs.length && (comparison || eta || conflicts)) {
     if (conflicts) {
-      return pairs.slice(0,2).map(conflictAnswer).join('\n');
+      return pairs.slice(0,2).map(p => conflictAnswer(p, question)).join('\n');
     }
     if (eta) {
       return pairs.slice(0,2).map(p => p.livePickupEta
@@ -493,6 +544,14 @@ export function evidenceSummary(evidence, question = '') {
       return `You have not selected an option yet. Option ${preferredOption} is currently the stronger fit. ${reason}${alternative ? ` Option ${alternativeOption} remains ${pairStatus(alternative).toLowerCase()}.` : ''}`;
     }
     return pairLine(pairs[0]);
+  }
+  // The "next service" shortcut: questions that name service timing without
+  // matching a topic branch above. Maintenance-worded block questions are
+  // already answered by the conflicts branch (with the due line); this covers
+  // the rest. Placed with the other shortcut branches so the eight FM-ADV-001
+  // phrasings keep their byte-identical verdict.
+  if (pairs.length && /\bnext service\b|\bservice due\b|\bservice date\b|\bservicing\b/i.test(question)) {
+    return maintenanceAnswer(evidence, pairs) + coverageDisclosure(evidence.coverage);
   }
   // The "What needs fixing?" shortcut: lead with whatever blocks or holds each
   // option (pairLine already carries the reason plus one next step), not the
