@@ -19,12 +19,10 @@ import {
   CarFront,
   Bell,
 } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserDropdown } from "@/components/ui/user-dropdown";
 import { NotificationDropdown } from "@/components/ui/notification-dropdown";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { SessionCountdown } from "@/components/auth/session-countdown";
-import { getInitials } from "@/lib/utils";
 import { useSidebar } from "@/hooks/use-sidebar";
 
 const accentChip = {
@@ -126,25 +124,32 @@ function badgeAriaLabel(item, badge) {
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { employee, signOut, loading } = useAuth();
+  const { employee } = useAuth();
   const { filterNav, userRole } = useRoleAccess();
   const { collapsed, peek, toggle } = useSidebar();
   const workspace = getWorkspace(userRole);
   const visibleGroups = filterNav(workspace.nav || []);
   const homeHref = workspace.home;
   const chip = accentChip[workspace.accent] || accentChip.neutral;
-  const requestQueueVisible = visibleGroups.some((group) =>
-    (group.items || []).some((item) => item.href === "/reservations/queue")
-  );
-  const incidentVisible = visibleGroups.some((group) =>
-    (group.items || []).some((item) => item.href === "/incidents")
-  );
-  const dispatchVisible = visibleGroups.some((group) =>
-    (group.items || []).some((item) => item.href === "/dispatch/calendar")
-  );
-  const fuelVisible = visibleGroups.some((group) =>
-    (group.items || []).some((item) => item.href === "/fuel")
-  );
+  const allHrefs = useMemo(() => {
+    const hrefs = [];
+    visibleGroups.forEach((group) => {
+      (group.items || []).forEach((item) => {
+        if (item.href) hrefs.push(item.href);
+        if (item.children) {
+          item.children.forEach((child) => {
+            if (child.href) hrefs.push(child.href);
+          });
+        }
+      });
+    });
+    return hrefs;
+  }, [visibleGroups]);
+
+  const requestQueueVisible = allHrefs.includes("/reservations/queue");
+  const incidentVisible = allHrefs.includes("/incidents");
+  const dispatchVisible = allHrefs.includes("/dispatch/calendar");
+  const fuelVisible = allHrefs.includes("/fuel");
 
   const { data: incidentSummary } = useQuery({
     queryKey: ["pending-incidents"],
@@ -197,21 +202,6 @@ export function Sidebar() {
     "/fuel": { count: pendingFuelCount, tone: "warning", noun: "fuel request", suffix: " awaiting review" },
     "/dispatch/calendar": { count: pendingReassignmentCount, tone: "danger", noun: "dispatch", suffix: " pending reassignment" },
   };
-
-  const allHrefs = useMemo(() => {
-    const hrefs = [];
-    visibleGroups.forEach((group) => {
-      (group.items || []).forEach((item) => {
-        if (item.href) hrefs.push(item.href);
-        if (item.children) {
-          item.children.forEach((child) => {
-            if (child.href) hrefs.push(child.href);
-          });
-        }
-      });
-    });
-    return hrefs;
-  }, [visibleGroups]);
 
   return (
     <aside
@@ -327,61 +317,54 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
-
-      {/* ── ORIGINAL USER FOOTER CARD ── */}
-      {!loading && (
-        <div className={cn(
-          "border-t border-sidebar-border py-3 transition-all duration-300",
-          collapsed ? "flex justify-center px-2 group-hover:justify-start group-hover:px-3" : "px-3"
-        )}>
-          <UserDropdown
-            employee={employee}
-            signOut={signOut}
-            side="top"
-            align="start"
-            chevron="up"
-            triggerClassName={cn(
-              "rounded-md py-1.5 hover:bg-hover transition-colors duration-150 cursor-pointer overflow-hidden flex items-center",
-              collapsed ? "gap-0 w-9 px-1 justify-center group-hover:gap-2.5 group-hover:w-full group-hover:px-2 group-hover:justify-start" : "gap-2.5 w-full px-2 justify-start"
-            )}
-          >
-            <Avatar className="h-7 w-7 shrink-0">
-              {employee?.face_image_url || employee?.avatar_url || employee?.image ? (
-                <AvatarImage
-                  src={employee.face_image_url || employee.avatar_url || employee.image}
-                  alt={employee ? `${employee.first_name} ${employee.last_name}` : "User"}
-                  className="object-cover"
-                />
-              ) : null}
-              <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
-                {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
-              </AvatarFallback>
-            </Avatar>
-            <div className={cn(
-              "flex-1 min-w-0 text-left transition-all duration-300",
-              collapsed ? "w-0 opacity-0 group-hover:w-auto group-hover:opacity-100" : "w-auto opacity-100"
-            )}>
-              <p className="text-sm font-medium text-foreground truncate leading-tight">
-                {employee ? employee.first_name + " " + employee.last_name : "User"}
-              </p>
-              <p className="text-[11px] text-foreground-muted truncate">
-                {employee?.roles?.role_name ?? ""}
-              </p>
-            </div>
-          </UserDropdown>
-        </div>
-      )}
     </aside>
   );
 }
 
 function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, navBadges }) {
-  const [expanded, setExpanded] = useState(
-    pathname.startsWith(item.href) && item.href !== "/dashboard"
-  );
+  const visibleChildren = useMemo(() => item.children || [], [item.children]);
+  const isChildRouteActive = (child) =>
+    child.href === item.href
+      ? pathname === child.href
+      : isActive(pathname, child.href, allHrefs);
+
+  const hasActiveChild = visibleChildren.some(isChildRouteActive);
+  const isRouteActive =
+    hasActiveChild || (item.href && pathname.startsWith(item.href) && item.href !== "/dashboard");
+
+  const [userToggled, setUserToggled] = useState(null);
+  const [prevPathname, setPrevPathname] = useState(pathname);
+
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setUserToggled(null);
+  }
+
+  const expanded = userToggled !== null ? userToggled : isRouteActive;
   const active = isActive(pathname, item.href, allHrefs);
-  const visibleChildren = item.children || [];
-  const badge = navBadges[item.href];
+
+  // Compute aggregate badge for collapsed rail or collapsed dropdown state
+  const aggregateBadge = useMemo(() => {
+    if (navBadges[item.href]) return navBadges[item.href];
+    let totalCount = 0;
+    let highestTone = null;
+    visibleChildren.forEach((child) => {
+      const b = navBadges[child.href];
+      const count = Number(b?.count);
+      if (count > 0) {
+        totalCount += count;
+        if (b.tone === "danger" || !highestTone) {
+          highestTone = b.tone || "warning";
+        }
+      }
+    });
+    if (totalCount > 0) {
+      return { count: totalCount, tone: highestTone || "warning", noun: "operational item", suffix: " needing attention" };
+    }
+    return null;
+  }, [navBadges, item.href, visibleChildren]);
+
+  const badge = navBadges[item.href] || ((!expanded || collapsed) ? aggregateBadge : null);
 
   if (visibleChildren.length === 0) return null;
 
@@ -389,31 +372,24 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, navBadges
     <div className="group/navitem relative">
       <button
         onClick={() => {
-          // If completely collapsed and not hovered, clicking redirects to first child.
-          // Otherwise, it toggles the accordion.
-          if (collapsed && !expanded) {
-            // we let hover open it visually, clicking toggles expansion
-            setExpanded(!expanded);
-          } else {
-            setExpanded(!expanded);
-          }
+          setUserToggled(!expanded);
         }}
         className={cn(
           "flex w-full items-center rounded-md py-2 text-sm transition-all duration-300 relative cursor-pointer hover:translate-x-0.5",
           collapsed ? "gap-0 px-1 justify-center group-hover:gap-3 group-hover:justify-start group-hover:px-2" : "gap-3 px-2",
-          active
+          (active || (collapsed && hasActiveChild))
             ? "bg-hover text-foreground font-medium"
             : "text-foreground-secondary hover:text-foreground hover:bg-hover"
         )}
         aria-label={badgeAriaLabel(item, badge)}
       >
-        {active && (
+        {(active || (collapsed && hasActiveChild)) && (
           <span className={cn(
             "absolute left-0 top-1.5 bottom-1.5 w-[2.5px] bg-foreground rounded-r-full pointer-events-none transition-all duration-300",
             collapsed ? "opacity-0 group-hover:opacity-100" : "opacity-100"
           )} />
         )}
-        {active && (
+        {(active || (collapsed && hasActiveChild)) && (
           <span className={cn(
             "absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none transition-all duration-300",
             collapsed ? "opacity-100 group-hover:opacity-0" : "opacity-0"
@@ -438,7 +414,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, navBadges
       </button>
       <div className={cn(
         "overflow-hidden transition-all duration-300",
-        expanded ? "mt-0.5 max-h-[500px]" : "max-h-0",
+        expanded ? "mt-0.5 max-h-[1000px]" : "max-h-0",
         collapsed ? "opacity-0 group-hover:opacity-100" : "opacity-100"
       )}>
         <div className="ml-3 space-y-0.5">
@@ -528,9 +504,22 @@ export function TopNav() {
             it later otherwise moves every ml-auto action, including the theme
             toggle, after the first paint. */}
         {loading ? (
-          <span aria-hidden="true" className="h-7 w-[50px] shrink-0" />
+          <div aria-hidden="true" className="flex items-center gap-2.5 px-2 py-1 -mr-1 shrink-0 animate-pulse">
+            <div className="h-8 w-8 rounded-full bg-hover" />
+            <div className="flex flex-col gap-1.5">
+              <div className="h-3 w-20 rounded bg-hover" />
+              <div className="h-2.5 w-14 rounded bg-hover" />
+            </div>
+          </div>
         ) : (
-          <UserDropdown employee={employee} signOut={signOut} side="bottom" align="end" chevron="down" />
+          <UserDropdown
+            employee={employee}
+            signOut={signOut}
+            side="bottom"
+            align="end"
+            chevron="down"
+            showDetails
+          />
         )}
       </div>
     </header>

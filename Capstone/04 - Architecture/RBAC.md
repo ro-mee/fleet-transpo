@@ -96,6 +96,10 @@ reappears anywhere under `src/` or `scripts/`.
   Driver Attendance and User Management respectively), so no import cleanup was
   needed. Verified: `npx eslint src/lib/workspaces.js` clean and
   `system-errors-access.test.js` 5/5 (it reads this nav).
+- Workspace: Super Admin Operations Navigation Reorganization & AI Insights Nav Removal (2026-10-03, nav organization only, no RBAC or permission changes).
+  Reorganized `WORKS.super_admin.nav` so that **Operations** is the single collapsible dropdown navigation item, grouping all 17 fleet and operational modules in one place (`/fleet/vehicles`, `/drivers`, `/drivers/leave`, `/fleet/assignments`, `/drivers/performance`, `/reservations`, `/reservations/queue`, `/dispatch/calendar`, `/trips`, `/routes`, `/incidents`, `/fuel`, `/maintenance`, `/tracking/live-map`, `/uvvrp`, `/reports`, `/analytics`). Removed **AI Insights** (`/ai/insights`) from navigation across all role workspaces (`super_admin`, `admin`, `management`). User Management (`/settings/users`) flattened into a standalone item (no dropdowns outside Operations). Redundant Oversight group removed. Route permissions and authorization matrices remain completely unchanged (`NAV_ROLES` and API route guards for `/ai/insights` still active for direct/command-palette navigation; `NAV_ROLES["/operations"] = ["super_admin"]` registered for strict route-contract parity).
+  Verified: `super-admin-nav.test.js` (7/7), `system-errors-access.test.js` (5/5), scoped ESLint 0 errors 0 warnings.
+- Workspace follow-up (2026-10-03, sidebar only): removed **API & Integrations** (`/settings/api`) from the Super Admin Platform group. Route permissions are unchanged; the page remains available through direct URL and the command palette.
 - Historical note: journal entries predating 2026-09-22 that say `system_admin`
   refer to role_id 1, now `super_admin`. Old migration files unchanged.
 - Display-name leftovers fixed 2026-09-23 (hygiene pass): `ROLE_COLORS` in
