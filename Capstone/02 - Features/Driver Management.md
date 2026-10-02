@@ -15,7 +15,7 @@ source:
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-09-30
+last_verified: 2026-10-02
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -26,6 +26,8 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. 23 drivers.
 
 ## Driver license eligibility — 2026-09-27
+
+**Redacted roster evidence (2026-10-02):** The driver list and assignment/substitute APIs deliberately omit `license_number`. They now include separate presence and syntax-validity booleans so the client-side assignment warnings do not call a stored number "missing." The full number remains unavailable on these list responses; server-side assignment checks continue to read the stored number. A present number may still be malformed or fail the separate type, class, expiry, staff-review, and vehicle-class checks. See [[Assignments]].
 
 Driver create/edit requires a syntactically valid license number, a separate exact expiry
 date, an explicit type, and a supported LTO class. Student Permits are rejected for fleet

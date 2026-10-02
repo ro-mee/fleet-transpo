@@ -10,7 +10,7 @@ import { ROLE_IDS } from "@/lib/constants";
 import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
-import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, isValidLicenseNumber } from "@/lib/drivers/license-eligibility";
+import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, licenseNumberEvidence } from "@/lib/drivers/license-eligibility";
 import { writeAuditRequired } from "@/lib/audit";
 
 const EMPLOYEE_FIELDS = `json_build_object(
@@ -196,7 +196,7 @@ export async function GET(req) {
     if (!data || !data.length) return ok([]);
     const rowsWithLicenseFormat = data.map((driver) => {
       const { license_number: _licenseNumber, ...safeDriver } = driver;
-      return { ...safeDriver, license_number_valid: isValidLicenseNumber(driver.license_number) };
+      return { ...safeDriver, ...licenseNumberEvidence(driver.license_number) };
     });
 
     // Travel-date, pair-coupled availability: when a pickup_at is given, hide a

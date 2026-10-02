@@ -1,7 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
-import { evaluateDriverLicenseEligibility, isValidLicenseNumber } from "@/lib/drivers/license-eligibility";
+import { evaluateDriverLicenseEligibility, licenseNumberEvidence } from "@/lib/drivers/license-eligibility";
 
 // Custodial driver ↔ vehicle pairings (migration 017).
 //
@@ -62,7 +62,7 @@ export async function GET(req) {
 
     return ok({ assignments: rows.map((row) => ({
       ...(({ license_number: _licenseNumber, ...safeRow }) => safeRow)(row),
-      license_number_valid: isValidLicenseNumber(row.license_number),
+      ...licenseNumberEvidence(row.license_number),
     })) });
   } catch (e) {
     return handleError(e);
