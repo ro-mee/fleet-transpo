@@ -19,7 +19,6 @@ import { useFormValidation } from "@/lib/validation/useFormValidation";
 const categorySchema = {
   category_name: { required: true, maxLength: 100, label: "Category name" },
   description: { maxLength: 500, label: "Description" },
-  seating_capacity: { type: "seating", label: "Default seating capacity" },
 };
 
 export default function CategoriesPage() {
@@ -27,7 +26,7 @@ export default function CategoriesPage() {
   const queryClient = useQueryClient();
   const [editingCategory, setEditingCategory] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ category_name: "", description: "", seating_capacity: "" });
+  const [formData, setFormData] = useState({ category_name: "", description: "" });
   const [formError, setFormError] = useState(null);
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(categorySchema);
 
@@ -69,7 +68,7 @@ export default function CategoriesPage() {
 
   function openNewDialog() {
     setEditingCategory(null);
-    setFormData({ category_name: "", description: "", seating_capacity: "" });
+    setFormData({ category_name: "", description: "" });
     setFormError(null);
     resetValidation();
     setDialogOpen(true);
@@ -80,7 +79,6 @@ export default function CategoriesPage() {
     setFormData({
       category_name: cat.category_name || "",
       description: cat.description || "",
-      seating_capacity: cat.seating_capacity ?? "",
     });
     setFormError(null);
     resetValidation();
@@ -102,7 +100,6 @@ export default function CategoriesPage() {
         const payload = {
           category_name: formData.category_name.trim(),
           description: formData.description.trim() || null,
-          seating_capacity: formData.seating_capacity ? Number(formData.seating_capacity) : null,
         };
         if (editingCategory) {
           updateMutation.mutate({ id: editingCategory.category_id, data: payload });
@@ -183,28 +180,6 @@ export default function CategoriesPage() {
                     {fieldError("description").error && <p className="text-xs text-danger">{fieldError("description").error}</p>}
                   </div>
 
-                  <div className="space-y-1.5">
-                    <Label htmlFor="seating_capacity" className="text-xs font-semibold text-foreground">
-                      Default Passenger Capacity
-                    </Label>
-                    <div className="relative">
-                      <Input
-                        id="seating_capacity"
-                        type="number"
-                        min="1"
-                        value={formData.seating_capacity}
-                        onChange={(e) => setFormData({ ...formData, seating_capacity: e.target.value })}
-                        ref={registerField("seating_capacity")}
-                        invalid={fieldError("seating_capacity").invalid}
-                        placeholder="e.g. 7"
-                        className="text-sm font-data font-semibold pr-14 h-10"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-foreground-muted pointer-events-none">
-                        seats
-                      </span>
-                    </div>
-                    {fieldError("seating_capacity").error && <p className="text-xs text-danger">{fieldError("seating_capacity").error}</p>}
-                  </div>
                 </div>
               </div>
 
@@ -237,12 +212,6 @@ export default function CategoriesPage() {
                 </div>
                 {cat.description && (
                   <p className="text-xs text-foreground-secondary leading-relaxed">{cat.description}</p>
-                )}
-                {cat.seating_capacity && (
-                  <div className="pt-2">
-                    <span className="text-xs text-foreground-muted">Default Capacity: </span>
-                    <span className="text-xs font-semibold text-foreground">{cat.seating_capacity} seats</span>
-                  </div>
                 )}
               </div>
 
