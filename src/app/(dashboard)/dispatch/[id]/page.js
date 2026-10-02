@@ -374,7 +374,7 @@ export default function DispatchDetailPage() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field
           icon={CarFront}
-          label="Vehicle"
+          label="Assigned Vehicle"
           value={vehicle ? [vehicle.plate_number, vehicle.model].filter(Boolean).join(" · ") : "Unassigned"}
         />
         <Field icon={UserCheck} label="Driver">
@@ -494,7 +494,12 @@ export default function DispatchDetailPage() {
                 <Field
                   icon={CarFront}
                   label="Service"
-                  value={request.service_name || request.requested_vehicle_type}
+                  value={request.service_name || "Transfer"}
+                />
+                <Field
+                  icon={CarFront}
+                  label="Requested Vehicle Category"
+                  value={request.requested_vehicle_type || "Any Category"}
                 />
                 {request.special_requests && (
                   <Field

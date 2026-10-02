@@ -89,6 +89,10 @@ flowchart TD
 
 Encoding a real-world regulation as data (`weekdayRestrictions` map) rather than logic (`if (day === 'Mon' && ...)`) means the rule can change without touching code. The pure function reads the data; the data lives in the DB.
 
+## Availability block explanation - 2026-10-03
+
+`src/lib/uvvrp/availability-reason.js` now names number coding only when the shared `isRestricted(plate, policy, date)` predicate is true and the vehicle is not in the context's exemption set. The reason includes the evaluated plate digit, weekday, and restricted digits. If the vehicle is blocked for expired documents or its paired driver, Availability reports that separate cause. The assignment-time guard is unchanged.
+
 ## Related
 
 [[Dispatch]] · [[Fleet And Vehicles]] · [[Pure Core Imperative Shell]] · [[Feature Index]]

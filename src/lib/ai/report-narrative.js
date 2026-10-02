@@ -29,6 +29,15 @@ export function isDemoPayload(data) {
   return Object.keys(data).length === 0;
 }
 
+export function hasNoFleetTripActivity(report, data) {
+  if (report !== "fleet" || !data || typeof data !== "object" || !Object.hasOwn(data, "totalTrips")) {
+    return false;
+  }
+  if (data.totalTrips === null || data.totalTrips === undefined || data.totalTrips === "") return false;
+  const totalTrips = Number(data.totalTrips);
+  return Number.isFinite(totalTrips) && totalTrips === 0;
+}
+
 /** Normalize to a number, defaulting to 0 for missing/NaN values. */
 const num = (v) => {
   const n = Number(v);
@@ -190,6 +199,13 @@ export function deterministicNarrative(report, data) {
       const utilization = pct(data?.utilization);
       const trips = Math.round(num(data?.totalTrips));
       const km = Math.round(num(data?.totalDistance));
+      if (hasNoFleetTripActivity(report, data)) {
+        return {
+          narrative: "No trip records appear in the selected report window. The available figures do not establish why activity is absent.",
+          actions: ["Check the selected date range and trip records if activity was expected."],
+          flag: FLAG.WATCH,
+        };
+      }
       const busy = Math.max(...(data?.byVehicle || []).map((v) => num(v?.trips)), 0);
       const idle = (data?.byVehicle || []).filter((v) => num(v?.trips) === 0).length;
       const risk = utilization < 60 || idle > 0;
@@ -337,6 +353,7 @@ CRITICAL RULE: Output ONLY valid JSON — no markdown, no prose outside the obje
 }
 flag meanings: success = healthy, watch = needs monitoring, risk = immediate attention.
 Base every claim strictly on the numbers. Do NOT invent figures.
+An empty trip count is only an observation about this report window; do not infer an outage or fleet inactivity.
 
 Report type: ${report}
 ${rangeLine}

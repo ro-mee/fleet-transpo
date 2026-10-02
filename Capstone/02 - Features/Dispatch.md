@@ -9,7 +9,7 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-10-02
+last_verified: 2026-10-03
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
@@ -20,6 +20,16 @@ related: ["[[Reservations]]", "[[Trips]]"]
 The dashboard's Scheduled dispatches metric covers **all dates** and now says so; its link opens the all-date dispatch board. The calendar's Total trips metric covers only its selected date window. Read-only live SQL found scheduled dispatch 622 at 2026-10-02 15:00 Manila and 10 available drivers, so the QA report's October 2 calendar zeros were not explained by date scope alone. The same selected window matched two dispatch rows in SQL. The deployed browser response was not captured, so the exact failure in that session remains unproven.
 
 `GET /api/dispatch/calendar` no longer converts failed dispatch, vehicle or driver queries into empty arrays. These core failures now reach the page's existing retry panel. Optional overlays remain independently tolerant. Calendar KPI cards show a loading/unavailable state during initial fetch, error or placeholder data rather than claiming zero trips or drivers. Route tests pin both failure paths and a successful core payload; focused tests, ESLint and production build passed. Authenticated deployed replay remains pending.
+
+## Calendar vehicle roster column mapping — 2026-10-03
+
+An authenticated local Dispatcher calendar request returned 500. The vehicle roster SQL selected `vehicles.make`, but the connected PostgreSQL schema contains `vehicles.manufacturer`; a direct read-only catalog check confirmed the missing column (`42703`). The route now selects `manufacturer AS make`, preserving the API field consumed by `calendar.js` and `calendar-lanes.jsx`. No migration or operational data change was made. The user later confirmed the calendar works and shared a screenshot showing the summary and resource lanes populated; a separate HTTP status/body was not captured.
+
+## Dispatcher live-use acceptance follow-up — 2026-10-03
+
+On the authenticated local Dispatcher session, direct GET `/api/integration/transport-requests/508/timeline` rendered five recorded events; the reported Not Found did not reproduce. Reservation 508 shows requested category **Guest Transportation** and assigned model **Hiace**. Linked Trip 488 remains **Assigned** and displays the due-pickup/no-start warning without changing its lifecycle status. Its vehicle card says **Model: Hiace · Unit: SUV**; vehicle 37 stores `model=Hiace`, `vehicle_name=SUV`, and category Guest Transportation. The labels now expose those separate columns, but the master-data owner should confirm the intended unit description before any row is changed.
+
+Pairing/substitute write authorization now has isolated handler coverage: all five Dispatcher mutations return 403 before DB or audit side effects, and the actual matrix guard allows Fleet Manager for those same actions. `npm run verify:auth` passes 294/294 API methods. With user approval, one authenticated GET for recommendation request 499 returned HTTP 200 and `narration: null`; it returned zero eligible candidates because the request was overdue and no pair met the service-date eligibility checks. No POST or assignment was made. The Recheck button itself was not clicked, so the rendered empty-candidate explanation remains a browser acceptance item. See [[Dispatcher Live Use-Case Remediation Plan]] for details.
 
 ## Duty clock is Manila-explicit, not server-local — 2026-10-02
 
@@ -425,3 +435,13 @@ A new event type, `RESERVATION_EVENT.DISPATCH_RELEASED` (`"dispatch_released"`),
 The dialog now states the real outcome ("The guest's request is NOT cancelled — it is released back to Scheduled and stays in the queue so you can assign a replacement pair"), the Cancel button is still only offered for `Scheduled`/`In Progress` dispatches (the state machine refuses a terminal one), and the success toast says *"Dispatch stood down — the request is back in the queue for reassignment"*.
 
 `src/services/transition.service.test.js` (11 tests) drives the real `advanceReservation` against a fake transaction and pins: released-to-`Scheduled` (never `Cancelled`), pair cleared, dispatch flip and trip cancellation inside the same transaction, `Completed` trips untouched, terminal requests left alone but the dispatch still cancelled, a refused release aborting the chain (no audit, no outbound), Booking notified only after commit, and the audit carrying both statuses. `scripts/verify-cancel-cascade.mjs` was updated to the corrected rule for both directions (it needs a running dev server to execute).
+
+## Fleet Manager dashboard upcoming schedule - 2026-10-03
+
+The Fleet Manager dashboard's Upcoming fleet schedule now includes only scheduled departures strictly after the current instant, plus pending-reassignment exceptions. Past scheduled records remain available on the dispatch calendar for review. This is a read-only presentation rule; it does not advance or cancel dispatches. Availability's exact-window readiness remains a separate scope.
+
+## Dispatcher urgency readout - 2026-10-03
+
+The Dispatcher dashboard separates unassigned pickups due in the next 30 minutes, assigned departures due in that window, and assigned dispatches at/past pickup without a recorded start. `isWithinUpcomingWindow()` uses exact timestamps, so overdue pickups cannot inflate a future-departure count. Each urgency link opens its matching Calendar or Queue filter; the Queue's `departing-soon` predicate is evaluated in SQL and applies to both page rows and total count.
+
+`isPickupDueWithoutStart()` derives the no-start signal from a `Scheduled` dispatch, assigned vehicle/driver, the scheduled pickup threshold, and the absence of start evidence. Calendar and Trip detail show the same warning. `start-window-notifications.service.js` now scans the mobile-supported `PRE_START_TRIP_STATUSES` instead of Driver Accepted alone. Status remains a separate lifecycle decision: timers only surface work and never advance dispatch, trip, reservation, or driver state.

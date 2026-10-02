@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getDriver, getDriverLicenseMasks, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
 import { licenseExpired } from "@/lib/drivers/compliance";
+import { getDriverDetailUnavailableMessage } from "@/lib/drivers/detail-unavailable-message";
 import { licenseCalendarDay } from "@/lib/drivers/license-eligibility";
 import { formatCalendarDate } from "@/lib/dates";
 import { DetailSkeleton } from "@/components/ui/skeleton";
@@ -155,7 +156,7 @@ export default function DriverDetailPage() {
               <AlertCircle className="w-10 h-10 text-danger" />
             </div>
             <p className="text-xl font-bold text-foreground">Driver Record Not Found</p>
-            <p className="text-sm text-foreground-secondary max-w-md">{error?.message || "This driver profile may have been archived or deleted."}</p>
+            <p className="text-sm text-foreground-secondary max-w-md">{getDriverDetailUnavailableMessage(error?.message)}</p>
             <Button className="mt-6 rounded-xl shadow-sm px-6 h-11" onClick={() => router.push("/drivers")}>Back to Drivers List</Button>
           </CardContent>
         </Card>

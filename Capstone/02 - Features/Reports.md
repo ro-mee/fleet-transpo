@@ -266,3 +266,9 @@ The tester confirmed the browser download-start messages; the actual recent file
 - analytics workbook: valid XLSX; Summary/Analysis/Trends/Vehicle Activity/Driver Leaderboard; 4 trips, 13.31 km; missing efficiency/punctuality shown as Insufficient data.
 
 This closes the file-content portion structurally and at aggregate-data level. It is not a pixel-level Excel/LibreOffice visual review. → [[Manual Functional Testing Follow-up Audit]]
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+An explicitly zero-trip Fleet report window now gets a deterministic, descriptive narrative and skips both the language model and the 24-hour narrative cache. The wording reports only that no trip records appear in the selected window and does not infer an outage or cause. Non-empty report behavior is unchanged. The Drivers report count now says **linked driver profiles**, matching its source population; the directory can additionally show incomplete driver accounts.
+
+The maintenance report query was left unchanged pending a trace of QA-0001 against the correct database and report range. Focused narrative and report-route regressions pass; the deployed browser flow and the reported production rows remain unverified. See [[Fleet Manager Live Use-Case Remediation Plan]].

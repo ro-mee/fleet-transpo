@@ -14,6 +14,7 @@ import {
   Brain,
   CalendarClock,
   CheckCircle2,
+  Clock,
   ClipboardCheck,
   FileWarning,
   Fuel,
@@ -54,6 +55,7 @@ import {
 } from "@/lib/ai/pair-scoring";
 import { compareByPriority, groupQueue } from "@/lib/scheduling/queue-grouping";
 import { tripProgress } from "@/lib/scheduling/trip-progress";
+import { isPickupDueWithoutStart, isWithinUpcomingWindow } from "@/lib/scheduling/dispatcher-urgency";
 import { isValidCoordinate } from "@/lib/gps";
 import { cn } from "@/lib/utils";
 import { CHART_COLORS } from "@/lib/chart-tokens";
@@ -66,6 +68,12 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { CardSkeleton, StatsGridSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getDashboardConfig } from "@/components/dashboard/dashboard-configs";
+import {
+  countApprovedLeaveForDay,
+  countOverdueScheduledMaintenance,
+  getDashboardDispatchRows,
+} from "@/lib/fleet-manager-dashboard";
+import { manilaDateKey } from "@/lib/dates";
 import {
   RequestPipelineCard,
   DocumentComplianceCard,
@@ -91,7 +99,7 @@ const linkClass =
   "inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2";
 
 function localDateKey(date = new Date()) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return manilaDateKey(date) || "";
 }
 
 function isToday(value) {
@@ -727,8 +735,9 @@ function FleetManagerDashboard({ queries }) {
   });
   const readyPairs = pairRows.filter((row) => row.coverage === "Current pair" || row.coverage === "Substitute covering").length;
   const activeMaintenance = maintenance.filter((item) => ["Scheduled", "In Progress"].includes(item.status));
-  const approvedLeave = leave.filter((item) => item.status === "Approved").length;
+  const approvedLeave = countApprovedLeaveForDay(leave, today);
   const readyVehicles = vehicles.filter((vehicle) => !blockedVehicles.has(vehicle?.vehicle_status)).length;
+  const overdueMaintenance = countOverdueScheduledMaintenance(maintenance, today);
   const readinessGaps = (vehicles.length - readyVehicles) + (pairRows.length - readyPairs);
   const utilizationRows = [...((queries.utilization.data || {}).byVehicle || [])]
     .sort((a, b) => (Number(a.trips) || 0) - (Number(b.trips) || 0))
@@ -738,7 +747,7 @@ function FleetManagerDashboard({ queries }) {
   const workloadRows = [...((queries.driverPerformance.data || {}).details || [])]
     .sort((a, b) => (Number(b.completed_trips) || 0) - (Number(a.completed_trips) || 0))
     .slice(0, 4);
-  const nextDispatches = [...(dispatches.pendingReassignment || []), ...(dispatches.scheduled || [])].slice(0, 5);
+  const nextDispatches = getDashboardDispatchRows(dispatches);
 
   if (queries.vehicles.isLoading || queries.drivers.isLoading || queries.assignments.isLoading) return <LoadingDashboard />;
 
@@ -758,7 +767,7 @@ function FleetManagerDashboard({ queries }) {
       <StatGrid cols={4}>
         <StatCard icon={Truck} label="Vehicles in fleet" value={queries.vehicles.isError ? "—" : vehicles.length} trend="All active vehicle records" tone="primary" />
         <StatCard icon={ClipboardCheck} label="Covered pairings today" value={queries.assignments.isError || queries.drivers.isError || queries.vehicles.isError ? "—" : readyPairs} valueNote={queries.assignments.isError ? undefined : `of ${pairRows.length}`} trend="Current-status coverage only; dispatch validates each requested window" tone="success" />
-        <StatCard icon={Wrench} label="Maintenance attention" value={queries.maintenance.isLoading || queries.maintenance.isError ? "—" : activeMaintenance.length} trend="Scheduled or in-progress work" tone="warning" />
+        <StatCard icon={Wrench} label="Maintenance attention" value={queries.maintenance.isLoading || queries.maintenance.isError ? "—" : activeMaintenance.length} valueNote={queries.maintenance.isError ? "—" : `${overdueMaintenance} past-due scheduled`} trend="Scheduled or in-progress work" tone="warning" />
         <StatCard icon={FileWarning} label="Compliance due ≤30d" value={queries.documents.isLoading || queries.documents.isError ? "—" : Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0)} trend="Expired and near-expiry documents" tone="danger" />
       </StatGrid>
 
@@ -837,14 +846,14 @@ function FleetManagerDashboard({ queries }) {
         <Panel title="Maintenance pressure" description="Active work ordered by the API’s current maintenance date." action={<Link href="/maintenance" className={linkClass}>Maintenance register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
           <FeedState queries={queries.maintenance} errorTitle="Maintenance pressure is unavailable">{activeMaintenance.length ? <div className="divide-y divide-border/70">{activeMaintenance.slice(0, 6).map((item) => <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || "No work description recorded"} meta={formatDateTime(item.maintenance_date)} status={item.status} entity="maintenance" />)}</div> : <InlineEmpty icon={Wrench} title="No active maintenance work" description="New work orders will appear here once maintenance is scheduled." variant="waiting" />}</FeedState>
         </Panel>
-        <Panel title="Upcoming fleet schedule" description="Nearest scheduled departures and reassignment exceptions." action={<Link href="/dispatch/calendar" className={linkClass}>Dispatch calendar <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <Panel title="Upcoming fleet schedule" description="Future departures and reassignment exceptions. Past scheduled trips remain on the dispatch calendar for review." action={<Link href="/dispatch/calendar" className={linkClass}>Dispatch calendar <ArrowRight className="h-3.5 w-3.5" /></Link>}>
           <FeedState queries={queries.dispatches} errorTitle="The fleet schedule is unavailable">{nextDispatches.length ? <div className="divide-y divide-border/70">{nextDispatches.map((item) => <Row key={item.dispatch_id} icon={CalendarClock} title={`${item.vehicles?.plate_number || "Unassigned vehicle"} · ${item.transportation_requests?.guest_name || item.routes?.route_name || "Scheduled service"}`} detail={`${item.transportation_requests?.pickup_location || item.origin_location?.location_name || "Pickup unrecorded"} → ${item.transportation_requests?.dropoff_location || item.destination_location?.location_name || "Destination unrecorded"}`} meta={formatDateTime(item.scheduled_departure)} status={item.status} entity="dispatch" href={`/dispatch/${item.dispatch_id}`} />)}</div> : <InlineEmpty icon={CalendarClock} title="No upcoming dispatches" description="Scheduled departures will appear here once requests are assigned." variant="waiting" />}</FeedState>
         </Panel>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
         <Panel title="Document compliance" description="All expired and near-expiry records." action={<Link href="/fleet/documents" className={linkClass}>Compliance register <ArrowRight className="h-3.5 w-3.5" /></Link>}><FeedState queries={queries.documents} errorTitle="Document compliance is unavailable"><DonutMeter totalLabel="flagged" items={[{ label: "Expired", value: documents.totals?.expired || 0, fill: CHART_COLORS.danger }, { label: "Due in 30 days", value: documents.totals?.expiring30 || 0, fill: CHART_COLORS.warning }, { label: "Due in 31–90 days", value: documents.totals?.expiring90 || 0, fill: CHART_COLORS.info }]} /></FeedState></Panel>
-        <Panel title="Workforce exceptions" description="Approved leave and substitute coverage today." action={<Link href="/drivers/leave" className={linkClass}>Leave coverage <ArrowRight className="h-3.5 w-3.5" /></Link>}><FeedState queries={[queries.leave, queries.substitutes]} errorTitle="Workforce exceptions are unavailable"><DonutMeter totalLabel="cases" items={[{ label: "Approved leave", value: approvedLeave, fill: CHART_COLORS.warning }, { label: "Substitute schedules", value: substitutes.length, fill: CHART_COLORS.info }, { label: "Uncovered pairings", value: pairRows.length - readyPairs, fill: CHART_COLORS.danger }]} /></FeedState></Panel>
+        <Panel title="Workforce exceptions" description="Approved leave and substitute coverage today." action={<Link href="/drivers/leave" className={linkClass}>Leave coverage <ArrowRight className="h-3.5 w-3.5" /></Link>}><FeedState queries={[queries.leave, queries.substitutes]} errorTitle="Workforce exceptions are unavailable"><DonutMeter totalLabel="items" items={[{ label: "Approved leave", value: approvedLeave, fill: CHART_COLORS.warning }, { label: "Substitute schedules", value: substitutes.length, fill: CHART_COLORS.info }, { label: "Uncovered pairings", value: pairRows.length - readyPairs, fill: CHART_COLORS.danger }]} /></FeedState></Panel>
         <Panel title="Fuel request status" description="Current request workflow volume." action={<Link href="/fuel" className={linkClass}>Fuel operations <ArrowRight className="h-3.5 w-3.5" /></Link>}><FeedState queries={queries.fuelRequests} errorTitle="Fuel request status is unavailable"><DonutMeter totalLabel="requests" items={[{ label: "Pending", value: fuel.counts?.pending || 0, fill: CHART_COLORS.warning }, { label: "Approved", value: fuel.counts?.approved || 0, fill: CHART_COLORS.info }, { label: "Fulfilled", value: fuel.counts?.fulfilled || 0, fill: CHART_COLORS.success }]} /></FeedState></Panel>
       </div>
 
@@ -904,19 +913,21 @@ function DispatcherDashboard({ queries, queueGroups }) {
   const unassignedQueue = queuePool.filter((request) => !request.vehicles || !request.drivers);
   const scheduledList = dispatches.scheduled || [];
   const departingRequests = unassignedQueue.filter((request) => {
-    const mins = minsUntil(request.pickup_datetime);
-    return mins != null && mins <= 30;
+    return isWithinUpcomingWindow(request.pickup_datetime, new Date(nowMs));
   });
   const departingDispatches = scheduledList.filter((dispatch) => {
-    const mins = minsUntil(dispatch.scheduled_departure);
-    return mins != null && mins <= 30;
+    return isWithinUpcomingWindow(dispatch.scheduled_departure, new Date(nowMs));
   });
+  const pickupDueWithoutStart = scheduledList.filter((dispatch) =>
+    isPickupDueWithoutStart(dispatch, new Date(nowMs))
+  );
   const delayedTrips = activeTrips.filter((dispatch) => tripProgress(dispatch).overdue === true);
   const dispatchAttention = [
     { label: "Need assignment", value: unassignedQueue.length, href: "/reservations/queue", icon: Inbox },
-    { label: "Unassigned · departing ≤30 min", value: departingRequests.length, href: "/reservations/queue", icon: CalendarClock },
+    { label: "Unassigned pickups · next 30 min", value: departingRequests.length, href: "/reservations/queue?filter=departing-soon", icon: CalendarClock },
     { label: "Need reassignment", value: pendingReassignment.length, href: "/reservations/queue?filter=reassignment", icon: Navigation },
     { label: "Delayed trips", value: delayedTrips.length, href: "/trips", icon: AlertTriangle },
+    { label: "Pickup due · no start", value: pickupDueWithoutStart.length, href: "/dispatch/calendar?filter=not-started", icon: Clock },
   ];
   const dispatchTone = dispatchAttention.some((item) => item.value > 0) ? "danger" : "success";
   const nextDepartures = [
@@ -959,7 +970,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
       )}
 
       <Panel title="Needs attention now" description={dispatchTone === "success" ? "Nothing needs action. New unassigned, overdue, or delayed work lands here first." : "Actionable right now — everything else on this page can wait."} className={dispatchTone === "success" ? "border-success/25" : undefined}>
-        <div className="grid grid-cols-2 divide-x divide-border/70 lg:grid-cols-4">
+        <div className="grid grid-cols-2 divide-x divide-border/70 lg:grid-cols-5">
           {dispatchAttention.map((item) => {
             const hasIssues = item.value > 0;
             return (
@@ -994,7 +1005,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
         <StatCard icon={Inbox} label="Needs dispatch review" value={queries.reservations.isError ? "—" : reviewCount} trend="Today and overdue, priority-sorted" tone="warning" />
         <StatCard icon={CalendarClock} label="Assigned next" value={queries.reservations.isError ? "—" : queueGroups.assigned.length} trend="Committed requests waiting to start" tone="info" />
         <StatCard icon={Navigation} label="Trips in progress" value={queries.dispatches.isError ? "—" : activeTrips.length} trend="Active dispatches" tone="primary" />
-        <StatCard icon={CheckCircle2} label="Departing ≤30 min" value={queries.dispatches.isError || queries.reservations.isError ? "—" : departingDispatches.length + departingRequests.length} trend="Runs and pickups leaving within the half hour" tone="info" href="/dispatch/calendar" />
+        <StatCard icon={CheckCircle2} label="Scheduled departures ≤30 min" value={queries.dispatches.isError ? "—" : departingDispatches.length} trend="Assigned runs leaving in the next half hour" tone="info" href="/dispatch/calendar?filter=soon" />
       </StatGrid>
 
       <Panel title="Next departures" description="Assigned runs and unassigned requests in time order — countdowns, assignment state, and Smart-match availability." action={<Link href="/reservations/queue" className={linkClass}>Open queue <ArrowRight className="h-3.5 w-3.5" /></Link>}>

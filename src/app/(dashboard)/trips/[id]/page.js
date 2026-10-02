@@ -7,6 +7,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { PhaseRail } from "@/components/ui/phase-rail";
 import { TRIP_STATUS as T } from "@/lib/constants";
+import { isPreStartTripStatus } from "@/lib/scheduling/trip-state";
+import { isPickupDueWithoutStart } from "@/lib/scheduling/dispatcher-urgency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -183,6 +185,15 @@ export default function TripDetailPage() {
   // labelled by reservation number.
   const dispatchNumber = trip.dispatchschedules?.dispatch_number;
   const linkedRequest = trip.transportation_requests || null;
+  const hasPastPickupWithoutStart =
+    Boolean(trip.dispatch_id) &&
+    isPreStartTripStatus(trip.trip_status) &&
+    isPickupDueWithoutStart({
+      ...trip.dispatchschedules,
+      vehicle_id: trip.vehicle_id,
+      driver_id: trip.driver_id,
+      latest_trip: { trip_status: trip.trip_status, start_time: trip.start_time },
+    });
 
   const hasPerformanceMetrics = [
     trip.on_time_completion,
@@ -207,6 +218,13 @@ export default function TripDetailPage() {
           </div>
         }
       />
+
+      {hasPastPickupWithoutStart && (
+        <div className="flex items-center gap-3 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-700 dark:text-rose-300">
+          <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span>Pickup time is due and no trip start is recorded. The trip status has not been changed.</span>
+        </div>
+      )}
 
       {/* Chain Links + Progress Rail */}
       <Card className="border-0 shadow-xs rounded-3xl bg-surface">
@@ -251,7 +269,10 @@ export default function TripDetailPage() {
             <div className="min-w-0">
               <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Assigned Vehicle</p>
               <p className="text-sm font-bold text-foreground font-data truncate">{vehiclePlate}</p>
-              <p className="text-[11px] text-foreground-muted truncate">{trip.vehicles?.vehicle_name || "Vehicle Unit"}</p>
+              <p className="text-[11px] text-foreground-muted truncate">
+                {trip.vehicles?.model ? `Model: ${trip.vehicles.model}` : "Model not recorded"}
+                {trip.vehicles?.vehicle_name ? ` · Unit: ${trip.vehicles.vehicle_name}` : ""}
+              </p>
             </div>
           </CardContent>
         </Card>

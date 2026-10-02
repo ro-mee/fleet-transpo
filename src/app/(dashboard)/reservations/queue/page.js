@@ -107,12 +107,14 @@ export default function UnifiedQueuePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const reassignmentFilter = searchParams.get("filter") === "reassignment";
+  const departingSoonFilter = searchParams.get("filter") === "departing-soon";
+  const queueFilter = departingSoonFilter ? "departing-soon" : reassignmentFilter ? "reassignment" : null;
   const { can } = useRoleAccess();
   const isDesktop = useIsDesktop();
   const [lockedRequest,setLockedRequest] = useState(null);
   const [completedRequest,setCompletedRequest] = useState(null);
 
-  const [tabOverride, setTabOverride] = useState(null);
+  const [tabOverride, setTabOverride] = useState(() => departingSoonFilter ? "today" : null);
   const [page, setPage] = useState(1);
   const steerTimer = useRef(null);
   const pickTab = (id) => {
@@ -120,12 +122,13 @@ export default function UnifiedQueuePage() {
     clearTimeout(steerTimer.current);
     setTabOverride(id);
     setPage(1);
+    if (departingSoonFilter) router.replace("/reservations/queue");
   };
   // The tab this render fetches. `counts` only exist after this query resolves,
   // so this one value is computed here and re-derived (with the steering
   // decision) by resolveQueueTabView below. QUEUE_FALLBACK_TAB is the same
   // constant that function uses, so the two can never disagree.
-  const fetchTab = tabOverride ?? QUEUE_FALLBACK_TAB;
+  const fetchTab = departingSoonFilter ? "today" : tabOverride ?? QUEUE_FALLBACK_TAB;
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [busyId, setBusyId] = useState(null);
@@ -173,7 +176,7 @@ export default function UnifiedQueuePage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch, reassignmentFilter],
+    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch, queueFilter],
     queryFn: () =>
       getTransportRequests({
         tab: fetchTab,
@@ -181,7 +184,7 @@ export default function UnifiedQueuePage() {
         pageSize: PAGE_SIZE,
         search: debouncedSearch || undefined,
         with_conflicts: "true",
-        filter: reassignmentFilter ? "reassignment" : undefined,
+        filter: queueFilter || undefined,
       }),
     refetchInterval: REFETCH_MS,
   });
@@ -194,7 +197,11 @@ export default function UnifiedQueuePage() {
   // One decision, made in one place: which tab may be highlighted (always the
   // fetched one — never the tab we are steering to) and whether the deferred
   // smart default still needs applying. See resolveQueueTabView.
-  const { activeTab: tab, steerTo } = resolveQueueTabView({ tabOverride, counts, countsReady });
+  const { activeTab: tab, steerTo } = resolveQueueTabView({
+    tabOverride: departingSoonFilter ? "today" : tabOverride,
+    counts,
+    countsReady,
+  });
   const badges = queueTabBadges(QUEUE_TABS, counts, countsReady);
 
   useEffect(() => {
@@ -206,7 +213,7 @@ export default function UnifiedQueuePage() {
   // Selection handling:
   // When criteria change (tab, page, search), select the first visible row in the new result set.
   // When background polling refreshes data, preserve existing user selection.
-  const queryCriteriaKey = `${fetchTab}-${page}-${debouncedSearch}`;
+  const queryCriteriaKey = `${fetchTab}-${page}-${debouncedSearch}-${queueFilter || ""}`;
   const [lastCriteria,setLastCriteria] = useState(queryCriteriaKey);
   if (!lockedRequest && lastCriteria !== queryCriteriaKey) {
     setLastCriteria(queryCriteriaKey);
@@ -343,6 +350,18 @@ export default function UnifiedQueuePage() {
               <XCircle className="w-3.5 h-3.5 opacity-70" aria-hidden="true" />
             </button>
           )}
+          {departingSoonFilter && (
+            <button
+              type="button"
+              onClick={() => router.replace("/reservations/queue")}
+              className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-100/90 px-3 text-xs font-bold text-amber-950 transition-colors hover:bg-amber-200/90 dark:bg-amber-950/60 dark:text-amber-200 dark:hover:bg-amber-900/60"
+              title="Clear the next-30-minute pickup filter"
+            >
+              <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
+              Unassigned pickups · next 30 min ({total})
+              <XCircle className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+            </button>
+          )}
           {QUEUE_TABS.map((id) => {
             const meta = TAB_META[id];
             const Icon = meta.icon;
@@ -462,20 +481,28 @@ export default function UnifiedQueuePage() {
               <EmptyState
                 icon={searching ? Search : Inbox}
                 title={
-                  searching
+                  departingSoonFilter && !searching
+                    ? "No unassigned pickups within 30 minutes"
+                    : searching
                     ? "Nothing matches that search"
                     : `Nothing ${TAB_META[tab]?.plainLabel || "here"}`
                 }
                 description={
-                  searching
+                  departingSoonFilter && !searching
+                    ? "No open request is missing a vehicle or driver with pickup due from now through the next 30 minutes."
+                    : searching
                     ? "Try a different term or clear the search."
                     : "Requests from Booking and active dispatches appear here. Use “Pull from Booking” to fetch new ones."
                 }
-                variant={searching ? "filtered" : "waiting"}
+                variant={searching || departingSoonFilter ? "filtered" : "waiting"}
                 action={
-                  searching ? (
-                    <Button variant="outline" size="sm" onClick={() => setSearch("")}>
-                      Clear search
+                  searching || departingSoonFilter ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => departingSoonFilter ? router.replace("/reservations/queue") : setSearch("")}
+                    >
+                      {departingSoonFilter ? "Clear pickup filter" : "Clear search"}
                     </Button>
                   ) : (
                     <Button size="sm" onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>

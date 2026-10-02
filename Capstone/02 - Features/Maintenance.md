@@ -329,3 +329,9 @@ Note for anyone rendering inspection severity: `vehicleinspection.severity` carr
 ## Related
 
 [[Fleet And Vehicles]] · [[AI Advisory]] · [[Notifications]] · [[Feature Index]]
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+Maintenance rows now derive `is_overdue` when their stored status is `Scheduled` and `maintenance_date` is before the current Asia/Manila date. The register shows an additional Overdue badge while preserving the stored Scheduled status; the API also returns a global overdue count, and the dashboards surface that count. In-progress and completed work are excluded. No maintenance record or lifecycle state is changed by the clock.
+
+Predictive maintenance is presented as a **Vehicle Service Outlook**. Its description states that scores use service-date urgency and corrective-maintenance history and do not measure physical condition. Rows retain their calendar-only warning and now identify when a 90-day trip sample supports mileage estimates. Focused route and UI regressions pass; the reported QA-0001 row was not checked against live data.

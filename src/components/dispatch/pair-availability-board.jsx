@@ -28,6 +28,8 @@ import {
   User,
 } from "lucide-react";
 import { DriverAvatar } from "@/components/drivers/driver-avatar";
+import { useAuth } from "@/hooks/use-auth";
+import { can } from "@/lib/auth/role-guard";
 
 function toInputValue(value) {
   const d = value instanceof Date ? value : new Date(value);
@@ -66,6 +68,10 @@ export function PairAvailabilityBoard({
   onWindowChange,
   onResetWindow,
 }) {
+  const { employee } = useAuth();
+  const canManagePairings = can(employee, "driver_assignments", "create");
+  const canManageSubstitutes = can(employee, "substitute_driver_schedules", "create");
+
   // The mode MUST travel explicitly: the endpoint defaults to exact (strict),
   // so a missing mode would silently never enter dayScope. It also splits the
   // React Query cache between today and exact data via qs.
@@ -248,14 +254,14 @@ export function PairAvailabilityBoard({
                   <span className="font-data text-xs font-bold text-foreground-secondary">({clearToday.length})</span>
                 </h2>
                 <p className="mb-3 text-xs font-medium text-foreground-secondary">
-                  No scheduled trips today. Select an exact pickup window to verify assignment readiness.
+                  Pairs with no scheduled trips today. Select an exact pickup window to confirm assignment readiness.
                 </p>
                 {clearToday.length === 0 ? (
                   <div className="rounded-3xl border border-border/60 bg-surface">
                     <EmptyState
                       icon={CalendarClock}
-                      title="Every pair has trips today"
-                      description="Check the sections below before assigning more."
+                      title="No schedule-clear pairs today"
+                      description="Every currently eligible pair already has scheduled trip activity today. Review the busy pairs below."
                       variant="waiting"
                       size="compact"
                     />
@@ -285,7 +291,7 @@ export function PairAvailabilityBoard({
                     <span className="font-data text-xs font-bold text-foreground-secondary">({tripsToday.length})</span>
                   </h2>
                   <p className="mb-3 text-xs font-medium text-foreground-secondary">
-                    Cleared driver, but already running trips today — check times before assigning more.
+                    Currently eligible pairs with scheduled trip activity today — check their times before assigning another run.
                   </p>
                   <ul className="grid gap-3 md:grid-cols-2">
                     {pagedTrips.map((p) => (
@@ -384,7 +390,7 @@ export function PairAvailabilityBoard({
                       )
                     }
                     reason={b.block_reason}
-                    action={b.action}
+                    action={presentPairAction(b.action, canManagePairings, canManageSubstitutes)}
                     clashes={b.clashes || []}
                   />
                 ))}
@@ -412,7 +418,7 @@ export function PairAvailabilityBoard({
                 href="/fleet/assignments"
                 className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-border/60 bg-surface px-3.5 text-xs font-bold text-foreground transition-colors hover:border-primary/40"
               >
-                Manage pairings <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                {canManagePairings ? "Manage pairings" : "View pairings"} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
               </Link>
               <Link
                 href="/dispatch/calendar"
@@ -547,6 +553,17 @@ function PairCard({ entry, badge, children }) {
       {children}
     </li>
   );
+}
+
+function presentPairAction(action, canManagePairings, canManageSubstitutes) {
+  if (!action) return null;
+  if (!canManageSubstitutes && action.label === "Assign Substitute") {
+    return { ...action, label: "View substitute schedule" };
+  }
+  if (!canManagePairings && /Manage Pairing/i.test(action.label)) {
+    return { ...action, label: "View pairing" };
+  }
+  return action;
 }
 
 /** Per-trip rows: number + time range + dispatch link. */

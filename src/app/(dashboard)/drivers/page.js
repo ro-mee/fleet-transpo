@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
@@ -80,19 +80,29 @@ export default function DriversPage() {
   const {
     data: drivers = [],
     isLoading,
+    isError,
+    isRefetching,
+    refetch,
   } = useQuery({
-    queryKey: ["drivers", statusFilter, licenseClassFilter, search],
+    queryKey: ["drivers", statusFilter, licenseClassFilter],
     queryFn: () =>
       getDrivers({
         includeUnlinked: 1,
         status: statusFilter !== "all" ? statusFilter : undefined,
         license_class: licenseClassFilter !== "all" ? licenseClassFilter : undefined,
-        search: search ? search : undefined,
       }),
     placeholderData: (prev) => prev,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
+  const searchableDrivers = useMemo(() => drivers.map((driver) => {
+    const employee = driver.employees || {};
+    return {
+      ...driver,
+      name: [employee.first_name, employee.last_name].filter(Boolean).join(" "),
+      email: [employee.email, employee.phone].filter(Boolean).join(" "),
+    };
+  }), [drivers]);
 
   const { data: visibleLicenseMasks = [] } = useQuery({
     queryKey: ["driver-license-masks", visibleDriverIds],
@@ -159,7 +169,7 @@ export default function DriversPage() {
   };
 
   const statCards = [
-    { label: "Total Drivers", value: s.total, icon: Users, tone: "primary", status: "all" },
+    { label: "Linked Profiles", value: s.total, icon: Users, tone: "primary", status: "all" },
     { label: "Available", value: s.available, icon: UserCheck, tone: "success", status: "Available" },
     { label: "On Trip", value: s.onTrip, icon: Truck, tone: "warning", status: "On Trip" },
     { label: "Off Duty", value: s.offDuty, icon: Clock, tone: "secondary", status: "Off Duty" },
@@ -352,7 +362,7 @@ export default function DriversPage() {
         icon={Users}
         title="Fleet Drivers Directory"
         badge="Operations"
-        description="Manage operational drivers, license compliance, and performance metrics."
+        description="Summary cards count linked driver profiles. The directory also includes incomplete driver accounts that still need a profile."
         actions={
           <>
             <Button
@@ -410,18 +420,36 @@ export default function DriversPage() {
         </div>
       )}
 
+      {isError && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-danger/20 bg-danger-bg/40 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" role="alert">
+          <div>
+            <p className="text-sm font-semibold text-foreground">The driver directory could not be refreshed.</p>
+            <p className="mt-0.5 text-xs text-foreground-secondary">
+              {drivers.length ? "The visible rows are from the last successful directory request." : "No result can be confirmed until the directory request succeeds."}
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching}>
+            {isRefetching ? "Retrying…" : "Try again"}
+          </Button>
+        </div>
+      )}
+
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="p-0">
           <DataTable
             columns={columns}
-            data={drivers}
+            data={searchableDrivers}
             pageSize={10}
+            searchValue={search}
+            onSearchChange={setSearch}
             onVisibleRowsChange={onVisibleRowsChange}
             title="Drivers Directory"
-            description="Manage operational drivers and licensing."
+            description="Linked profiles and incomplete driver accounts. Summary cards count linked profiles only."
             icon={Users}
             context={statusFilter === "all" ? "All Drivers" : statusFilter}
-            searchPlaceholder="Search drivers by name or email..."
+            searchPlaceholder="Search drivers by name, email, or phone..."
+            emptyTitle={isError && !drivers.length ? "Driver directory unavailable" : search ? "No matching drivers" : "No driver records"}
+            emptyDescription={isError && !drivers.length ? "Try again above when the directory request is available." : "Try adjusting your search or filters."}
             onRowClick={(row) => {
               // Requires-completion rows are employee shells without a driver
               // record yet — there is no detail page to open for them.

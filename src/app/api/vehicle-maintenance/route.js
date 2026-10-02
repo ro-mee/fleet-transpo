@@ -45,6 +45,7 @@ const MT_LIST_SELECT = `
   vm.completed_date, vm.status, vm.priority, vm.cost, vm.service_provider,
   vm.service_center, vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
   vm.source_incident_id,
+  (vm.status = 'Scheduled' AND vm.maintenance_date < (NOW() AT TIME ZONE 'Asia/Manila')::date) AS is_overdue,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
   END AS vehicles
@@ -72,6 +73,10 @@ const MT_COUNTS_SQL = `
   SELECT
     count(*) AS total,
     count(*) FILTER (WHERE vm.status = 'Scheduled') AS scheduled,
+    count(*) FILTER (
+      WHERE vm.status = 'Scheduled'
+        AND vm.maintenance_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+    ) AS overdue,
     count(*) FILTER (WHERE vm.status IN ('In Progress', 'Pending Inspection')) AS "inProgress",
     COALESCE(SUM(vm.cost), 0) AS total_cost
   FROM vehiclemaintenance vm WHERE vm.deleted_at IS NULL
@@ -169,6 +174,7 @@ export async function GET(req) {
         counts: {
           total: Number(c.total) || 0,
           scheduled: Number(c.scheduled) || 0,
+          overdue: Number(c.overdue) || 0,
           inProgress: Number(c.inProgress) || 0,
           totalCost: Number(c.total_cost) || 0,
         },

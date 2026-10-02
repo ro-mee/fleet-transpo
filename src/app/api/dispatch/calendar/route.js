@@ -102,7 +102,7 @@ export async function GET(req) {
       ).then((r) => r.rows).catch(() => []),
 
       query(
-        `SELECT vehicle_id, plate_number, model, make, vehicle_status,
+        `SELECT vehicle_id, plate_number, model, manufacturer AS make, vehicle_status,
                 seating_capacity, registration_expiry
            FROM vehicles
           WHERE deleted_at IS NULL AND vehicle_status <> 'Decommissioned'

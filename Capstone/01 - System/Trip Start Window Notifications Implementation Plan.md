@@ -10,6 +10,10 @@ related: ["[[Notifications]]", "[[Trips]]", "[[Dispatch]]"]
 
 # Plan: Trip Start-Window Notifications
 
+## Current behavior update - 2026-10-03
+
+The original Driver-Accepted-only scan described below has been superseded. `src/lib/scheduling/trip-state.js` now exports `PRE_START_TRIP_STATUSES` for the mobile-supported Pending, Approved, Vehicle Assigned, Driver Assigned, Dispatched, Assigned, and Driver Accepted states, and `loadEligibleTrips()` uses that whitelist. A driver assigned before accepting can therefore receive the same start-window notices; dispatcher fan-out still occurs only when `latest_start` (scheduled pickup) is reached. Started, completed, and cancelled statuses remain outside the scan. Dashboard, Calendar, and Trip detail use the same pickup threshold to show a derived no-start warning. No timer changes stored lifecycle state, and no grace period or database setting was added.
+
 The gap: nothing time-driven tells a driver their trip start window opened. Real
 push delivery exists end-to-end (notifications + push_outbox → flushOutbox →
 Expo → FCM → OS, verified 2026-08-19), but every producer today is

@@ -306,3 +306,7 @@ The same threading was added to `advanceReservation({ db })` for the dispatch st
 Read-only live verification confirmed incident #110 is `Open`, `Moderate`, unacknowledged and past `due_at`; grounding is Complete, vehicle 76 is `Under Maintenance`, and the linked Emergency Repair is `In Progress`. The incident registry is correct to mark it overdue regardless of severity.
 
 It has no `Incident SLA Breached — Unacknowledged` notification because that notifier intentionally selects only Critical/Major rows. Existing linked notifications are eight `Vehicle Taken Out of Service` Alerts plus one `Incident Report Under Review` Info. It also has no dedicated AI Insights card because `/api/ai/insights` never queries `driverincidents`; that omission is documented in [[Manual Functional Testing Follow-up Audit]].
+
+## Responder candidate GPS age - 2026-10-03
+
+The incident responder picker now returns the candidate's `last_location_update`, age in minutes, and freshness using the same five-minute threshold as responder automation. The picker shows a live/stale/missing/future-timestamp state. Stale or invalid fixes remain visible for context, but the API omits distance and ETA so old coordinates cannot look like a current travel estimate. The responder selector and assignment workflow are otherwise unchanged.

@@ -1129,16 +1129,24 @@ export default function IncidentsPage() {
                                                     <Clock className="h-2.5 w-2.5" /> ~{d.eta_minutes}m ETA
                                                   </span>
                                                 )}
-                                                {d.distance_km != null ? (
-                                                  d.position_fresh ? (
-                                                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                                                      Live GPS
-                                                    </span>
-                                                  ) : (
-                                                    <span className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded">
-                                                      Stale fix
-                                                    </span>
-                                                  )
+                                                {d.position_fresh ? (
+                                                  <span
+                                                    title={d.last_location_update ? `Last fix: ${new Date(d.last_location_update).toLocaleString()}` : undefined}
+                                                    className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded"
+                                                  >
+                                                    Live GPS · {d.location_age_minutes === 0 ? "under 1m" : `${d.location_age_minutes}m ago`}
+                                                  </span>
+                                                ) : d.has_location ? (
+                                                  <span
+                                                    title={d.last_location_update ? `Last fix: ${new Date(d.last_location_update).toLocaleString()}` : undefined}
+                                                    className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded"
+                                                  >
+                                                    {d.location_time_ahead
+                                                      ? "GPS timestamp in future"
+                                                      : d.location_age_minutes != null
+                                                        ? `Stale GPS · ${d.location_age_minutes}m ago`
+                                                        : "GPS time unknown"}
+                                                  </span>
                                                 ) : (
                                                   <span className="text-[10px] text-foreground-muted/60 bg-muted/40 px-1.5 py-0.5 rounded">
                                                     No GPS

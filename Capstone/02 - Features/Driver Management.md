@@ -650,3 +650,11 @@ Reported as *"All Time shows 0 completed trips while shorter periods show 4"*. I
 Completed trips by `end_time` without the driver join: 6 all-time vs 4 for 30 days. So All Time already contains every shorter window, and `resolvePresetRange("all")` spans the epoch to `2100-01-01` at both ends.
 
 What *was* worth pinning is the invariant, now covered by tests: `resolvePresetRange("all")` must contain `30d`/`90d`/`year`; the page must render the server's `totalCompletedTrips` unchanged (it must never re-derive a total for the `all` preset); and every `getDriverPerformanceReport` query must keep the same half-open `end_time >= $1::date AND < ($2::date + 1)` predicate so widening `$1/$2` can only add rows. The genuine cross-report inconsistency — different reports windowing on different date columns (`start_time` for fleet utilisation, `end_time` here, `maintenance_date` for maintenance, `created_at` for request volume) — is named in [[Reports]] rather than papered over.
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+The directory search now builds searchable name and contact values from nested employee data, including phone numbers. The API applies the same partial, case-insensitive name/contact search to linked drivers and incomplete driver accounts; status or license filters keep incomplete accounts out when those fields do not exist for them. A failed directory request has a visible retry state and is not presented as a confirmed zero-match result.
+
+Summary cards and the Drivers report explicitly count **linked driver profiles**. The directory may also include incomplete driver-role accounts. A read-only snapshot of the documented project found 22 active driver profiles and one unlinked active driver-role employee, so the directory population is 23 while the profile summary is 22.
+
+The driver detail lookup intentionally returns the same not-found response for archived and nonexistent IDs. Its unavailable state now explains that the profile may have been archived, deleted, or the link may be out of date. The reported driver #58 is archived and still has one assignment and two fuel-request references. No row was restored or changed. The message helper's focused regression tests pass.

@@ -74,6 +74,7 @@ const TYPE_FILTERS = [
   { id: "conflicts", label: "Conflicts" },
   { id: "vip", label: "VIP" },
   { id: "soon", label: "Starting soon" },
+  { id: "not-started", label: "No start recorded" },
   { id: "dispatches", label: "Bookings" },
   { id: "maintenance", label: "Maintenance" },
   { id: "leave", label: "Leave & Rest" },
@@ -441,7 +442,7 @@ export default function DispatchCalendarPage() {
       if (typeFilter === "attention") {
         const exception =
           e.kind === EVENT_KIND.DISPATCH &&
-          (e.unassigned || isPendingReassignment(e) || e.isStartingSoon);
+          (e.unassigned || isPendingReassignment(e) || e.isStartingSoon || e.noStartRecorded);
         if (!exception && !conflicts.has(e.id)) return false;
       }
       if (typeFilter === "dispatches" && e.kind !== EVENT_KIND.DISPATCH) return false;
@@ -450,6 +451,7 @@ export default function DispatchCalendarPage() {
       if (typeFilter === "conflicts" && !conflicts.has(e.id)) return false;
       if (typeFilter === "vip" && (!e.vip || e.kind !== EVENT_KIND.DISPATCH)) return false;
       if (typeFilter === "soon" && (!e.isStartingSoon || e.kind !== EVENT_KIND.DISPATCH)) return false;
+      if (typeFilter === "not-started" && (!e.noStartRecorded || e.kind !== EVENT_KIND.DISPATCH)) return false;
       if (typeFilter === "maintenance" && e.kind !== EVENT_KIND.MAINTENANCE) return false;
       if (
         typeFilter === "leave" &&
