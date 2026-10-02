@@ -124,3 +124,15 @@ describe("Fleet Manager dashboard — driver workload panel", () => {
     expect(panel).not.toContain("0%");
   });
 });
+
+describe("Admin dashboard scheduled dispatch scope", () => {
+  it("says its scheduled total covers all dates", () => {
+    state.queries["transport-requests"] = { data: [], isLoading: false, isError: false };
+    state.queries["dispatches-by-status"] = {
+      data: { scheduled: [{ dispatch_id: 622, scheduled_departure: "2026-10-02T07:00:00Z" }] },
+      isLoading: false, isError: false,
+    };
+    const html = renderToStaticMarkup(React.createElement(RoleDashboard, { role: "admin" }));
+    expect(html).toContain("Scheduled dispatches (all dates)");
+  });
+});

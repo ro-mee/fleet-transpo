@@ -666,7 +666,7 @@ function AdminDashboard({ queries }) {
 
       <StatGrid cols={4}>
         <StatCard icon={Inbox} label="Open requests" value={queries.reservations.isError ? "—" : openRequests.length} trend="Not completed or cancelled" tone="warning" href="/reservations/queue" />
-        <StatCard icon={CalendarClock} label="Scheduled dispatches" value={queries.dispatches.isError ? "—" : (dispatches.scheduled || []).length} trend="Committed and waiting to depart" tone="info" href="/dispatch/calendar" />
+        <StatCard icon={CalendarClock} label="Scheduled dispatches (all dates)" value={queries.dispatches.isError ? "—" : (dispatches.scheduled || []).length} trend="All committed departures" tone="info" href="/dispatch" />
         <StatCard icon={Navigation} label="Trips in progress" value={queries.dispatches.isError ? "—" : (dispatches.inProgress || []).length} trend="Currently underway" tone="primary" href="/trips" />
         <StatCard icon={CheckCircle2} label="Completed today" value={queries.dispatches.isError ? "—" : completedToday} trend="Dispatches finished today" tone="success" href="/trips" />
       </StatGrid>
