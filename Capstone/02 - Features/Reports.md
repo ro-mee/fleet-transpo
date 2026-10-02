@@ -11,6 +11,16 @@ last_verified: 2026-10-02
 
 # Feature: Reports
 
+## Defense dataset reconciliation — 2026-10-03
+
+The old business rows were removed or retired before the corrected defense reseed. `npm run seed:defense:verify:contamination` compares all 26 monitored operational tables with the defense ownership ledger and calls the live Fleet, Financial, Maintenance, Fuel Consumption, Fleet Cost, and Driver Performance report handlers over 2026-09-03 through 2026-10-02. Independent SQL agrees on 30 completed trips, 362.90 km, 372 L, PHP 23,808 fuel, and PHP 20,400 maintenance, with no active business rows outside the seed. System/security/reference rows and unrelated unprovenanced Storage files remain preserved and are not counted in those reports. See `[[Defense Demo Data Implementation Plan]]`.
+
+The AI analyst cache required a separate pass: 103 pre-reseed narratives and one post-reseed Analytics narrative that falsely claimed zero activity were removed by exact ID. `seed:defense:cache:plan` is read-only and `seed:defense:cache:cleanup` is digest-guarded. The final contamination check rejects narratives predating the corrected seed and Analytics zero-activity copy that contradicts completed trips in its range. Provider settings, templates, and logs remain intact.
+
+Seed-owned row snapshots were reconciled after routine system updates to vehicle timestamps, request timestamps/Future priority, and the expired-license driver's suspension. The review was restricted to those exact fields and had no outside FK references; live seed status returned `complete` afterward.
+
+Old notification and failed push evidence was also reviewed by typed reference to removed or retired business entities. The exact-ID cleanup removed only those matching rows; current defense notices, security/UVVRP notices, and audit/auth/session evidence were preserved. A second read-only evidence plan found no stale typed links.
+
 ## Admin QA follow-up — 2026-10-02
 
 The AI analyst on `/reports` no longer keeps “Generating analysis” after a settled error or an empty/unmatched narrative. The narrative fetch has a 30-second client timeout and no automatic retry; the card shows an error and a manual retry without consuming the regenerate budget. If the report query itself fails, the card and export area say why exports are unavailable. Export enablement still follows the report data query alone, so an AI failure does not disable a valid report export. A genuinely empty narrative shows the neutral no-analysis state.

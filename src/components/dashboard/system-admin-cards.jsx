@@ -480,7 +480,7 @@ export function SystemHealthCard({
 export function AccountPostureCard({
   roles = [],
   totalAccounts = 0,
-  disabledRoles = [],
+  disabledAccounts = [],
   disabledExtra = 0,
 }) {
   return (
@@ -551,19 +551,19 @@ export function AccountPostureCard({
           </div>
         </div>
 
-        {/* Divider & Disabled Roles */}
+        {/* Divider & Disabled Accounts */}
         <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3">
           <p className="text-[11px] font-bold text-slate-400 dark:text-slate-400 uppercase tracking-wider mb-2">
-            Disabled roles
+            Disabled accounts
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
-            {disabledRoles.map((role) => (
+            {disabledAccounts.map((account) => (
               <Link
-                key={role}
+                key={account.employeeId}
                 href="/settings/users"
                 className="rounded-full bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/60 dark:border-amber-900/40 px-2.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
               >
-                {role}
+                {account.name}
               </Link>
             ))}
             {disabledExtra > 0 && (

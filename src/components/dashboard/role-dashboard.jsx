@@ -393,11 +393,14 @@ function SystemAdminDashboard({ queries }) {
   const userList = users || [];
   const activeUsers = userList.filter((user) => !user.deleted_at && user.status !== "Inactive");
   const disabledUsers = userList.length - activeUsers.length;
-  const disabledRows = userList
+  const disabledAccounts = userList
     .filter((user) => user.deleted_at || user.status === "Inactive")
     .slice(0, 3)
-    .map((user) => [user.first_name, user.last_name].filter(Boolean).join(" ") || user.role_name || user.email || `Account #${user.employee_id}`);
-  const disabledExtra = Math.max(0, disabledUsers - disabledRows.length);
+    .map((user) => ({
+      employeeId: user.employee_id,
+      name: [user.first_name, user.last_name].filter(Boolean).join(" ") || user.role_name || user.email || `Account #${user.employee_id}`,
+    }));
+  const disabledExtra = Math.max(0, disabledUsers - disabledAccounts.length);
 
   const roleList = useMemo(() => {
     if (!users?.length) return [];
@@ -562,7 +565,7 @@ function SystemAdminDashboard({ queries }) {
         <AccountPostureCard
           roles={roleList}
           totalAccounts={userList.length}
-          disabledRoles={disabledRows}
+          disabledAccounts={disabledAccounts}
           disabledExtra={disabledExtra}
         />
       </div>
