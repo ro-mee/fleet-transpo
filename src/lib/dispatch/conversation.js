@@ -1,4 +1,5 @@
 import { dispatchDecision, recoveryActionForCheck, recoveryActionForExclusion, sortRecoveryActions } from './decision';
+import { DAY_NAMES } from '@/lib/scheduling/driver-schedule';
 
 // Prompt blocks live in copilot-prompt.js (single owner per rule). These
 // re-exports preserve the existing import surface.
@@ -345,6 +346,74 @@ function fixingAnswer(evidence, pairs) {
   return troubled.slice(0, 2).map(pairLine).join('\n');
 }
 
+// "06:00:00" -> "6:00 AM". Duty rows store Manila wall-clock, so this is
+// display formatting only, never a timezone conversion. ASCII by construction
+// (group M answers must stay in printable ASCII).
+function fmtClock(value) {
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(String(value ?? '').trim());
+  if (!m) return String(value ?? '');
+  const h = Number(m[1]) % 12 || 12;
+  return `${h}:${m[2]} ${Number(m[1]) >= 12 ? 'PM' : 'AM'}`;
+}
+
+function clockMinutes(value) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(String(value ?? ''));
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+function hypoMinutes(match) {
+  let h = Number(match[1]) % 12;
+  if (String(match[3]).toUpperCase() === 'PM') h += 12;
+  return h * 60 + Number(match[2] ?? '00');
+}
+
+function dutySpan(w) {
+  const span = `${fmtClock(w.shiftStart)} to ${fmtClock(w.shiftEnd)}`;
+  return w.breakStart && w.breakEnd
+    ? `${span} with a ${fmtClock(w.breakStart)} to ${fmtClock(w.breakEnd)} break`
+    : `${span} with no recorded break`;
+}
+
+// Shift/break policy answers, read off the projected duty windows (Task 1).
+// A hypothetical time is tested against the window with the same comparisons
+// as scheduleBlockReason (inclusive shift edges, half-open break overlap) —
+// and the answer says so, because overlap, leave and the other checks were
+// never run for that time.
+function shiftBreakAnswer(evidence, pairs, question) {
+  const withWindow = pairs.filter(p => p.scheduleEvidence?.dutyWindow);
+  if (!withWindow.length) {
+    return `I can't verify that yet - no shift record was projected for this evaluation. Recheck this reservation.`;
+  }
+  const figured = withWindow.slice(0, 2);
+  const windows = figured.map(p => ({ pair: p, w: p.scheduleEvidence.dutyWindow }));
+  const hypo = /(\d{1,2})(?::(\d{2}))?\s?(AM|PM)/i.exec(question);
+  if (hypo) {
+    const t = hypoMinutes(hypo);
+    const label = `${Number(hypo[1])}:${hypo[2] ?? '00'} ${hypo[3].toUpperCase()}`;
+    const lines = windows.map(({ pair, w }) => {
+      const day = DAY_NAMES[Number(w.dayOfWeek)] ?? 'that day';
+      const s = clockMinutes(w.shiftStart);
+      const e = clockMinutes(w.shiftEnd);
+      const bs = w.breakStart ? clockMinutes(w.breakStart) : null;
+      const be = w.breakEnd ? clockMinutes(w.breakEnd) : null;
+      const name = pairLabel(pair);
+      if (s == null || e == null) return `I can't verify that yet for ${name} - the shift record is incomplete.`;
+      if (t < s || t > e) return `A ${label} pickup would be blocked by the shift rule for ${name}: the ${day} window is ${fmtClock(w.shiftStart)} to ${fmtClock(w.shiftEnd)}.`;
+      if (bs != null && be != null && bs <= t && t < be) return `A ${label} pickup would be blocked by the break rule for ${name}: break is ${fmtClock(w.breakStart)} to ${fmtClock(w.breakEnd)}.`;
+      return `A ${label} pickup fits the shift and break rule for ${name}: the ${day} window is ${dutySpan(w)}.`;
+    });
+    return `${lines.join('\n')}\nOther checks were not run for that time, so this covers the shift and break rule only.`;
+  }
+  const pickupT = evidence.pickupAt && Number.isFinite(+new Date(evidence.pickupAt))
+    ? new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit' }).format(new Date(evidence.pickupAt))
+    : null;
+  return figured.map(p => {
+    const w = p.scheduleEvidence.dutyWindow;
+    const day = DAY_NAMES[Number(w.dayOfWeek)] ?? 'that day';
+    return `Yes. The ${day} window for ${pairLabel(p)} is ${dutySpan(w)}${pickupT ? `, and this pickup at ${pickupT} sits inside it` : ''}.`;
+  }).join('\n');
+}
+
 function otherOptionsAnswer(evidence, pairs) {
   const exclusions = evidence.exclusions ?? [];
   if (!pairs.length) return null;
@@ -376,6 +445,17 @@ export function evidenceSummary(evidence, question = '') {
   const named = namedDriverStatus(evidence, question);
   if (named) return named + coverageDisclosure(evidence.coverage);
   // Bounded evidence-only topics; other questions retain the honest general summary.
+  // Shift/break policy goes first: a hypothetical like "Would a 12:30 PM
+  // pickup be blocked?" also contains "blocked", which would otherwise route
+  // it to the generic conflicts answer. None of the eight FM-ADV-001
+  // phrasings names a shift, break, lunch, duty hours, or clock time, so
+  // their byte-identical verdict is unaffected.
+  const hypoClock = /(\d{1,2})(?::(\d{2}))?\s?(AM|PM)/i.exec(question);
+  const shiftTopic = /\bshift\b|\bbreak\b|\bduty hours\b|\blunch\b/i.test(question)
+    || (hypoClock != null && /\bblock|enforce|allow|fit\b/i.test(question));
+  if (pairs.length && shiftTopic) {
+    return shiftBreakAnswer(evidence, pairs, question) + coverageDisclosure(evidence.coverage);
+  }
   const comparison = /\b(why|better|compare|recommend|workload|fair|buffer)\b|bakit|mas maganda/i.test(question);
   const eta = /\b(eta|arrival|arrive|distance|traffic)\b/i.test(question);
   const conflicts = /\b(conflicts?|blocked|overlap|maintenance|leave)\b/i.test(question);

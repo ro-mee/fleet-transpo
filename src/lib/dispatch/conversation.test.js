@@ -154,6 +154,26 @@ it('projects the Manila duty window alongside schedule evidence', () => {
   const evidence = conversationEvidence({ request_id: 513 }, { pair: { candidates: [p], recommended: p } });
   expect(evidence.pairs[0].scheduleEvidence.dutyWindow.shiftStart).toBe('06:00:00');
 });
+it('cites the enforced shift window and break for policy questions', () => {
+  const mk = (dutyWindow) => conversationEvidence({ request_id: 513 }, { pair: { candidates: [{
+    vehicle_id: 1, driver_id: 2, driver: { driver_name: 'Karlo Rafael Sunga Torres' }, vehicle: { plate_number: 'ABC-1234' },
+    checks: [{ status: 'verified' }], readiness: 'VERIFIED', feasibility: { verdict: 'SAFE', reasons: [] },
+    scheduleEvidence: { releaseAt: '2026-10-02T07:09:00.000Z', releaseLocal: 'Oct 2, 2026, 3:09 PM (Philippine time)', dutyWindow } }],
+    recommended: { vehicle_id: 1, driver_id: 2 } } });
+  const window = { dayOfWeek: 5, shiftStart: '06:00:00', shiftEnd: '22:00:00', breakStart: '12:00:00', breakEnd: '13:00:00' };
+  const answer = evidenceSummary(mk(window), 'Is the 6 AM to 10 PM shift enforced?');
+  expect(answer).toContain('6:00 AM');
+  expect(answer).toContain('10:00 PM');
+  expect(answer).toContain('12:00 PM');
+  const hypo = evidenceSummary(mk(window), 'Would a 12:30 PM pickup be blocked?');
+  expect(hypo).toContain('12:30 PM');
+  expect(hypo).toContain('break');
+  expect(hypo).toContain('shift and break rule only');
+  const inside = evidenceSummary(mk(window), 'Would a 3 PM pickup be blocked?');
+  expect(inside).toContain('fits the shift and break rule');
+  const unprojected = evidenceSummary(mk(null), 'Is the shift enforced?');
+  expect(unprojected).toContain("I can't verify that yet");
+});
 it('answers What needs fixing with blockers and next steps',()=>{
   const blocked={vehicle_id:2,driver_id:5,driver:{driver_name:'Blocked Driver'},vehicle:{plate_number:'XYZ 5678'},
     checks:[{id:'maintenance',label:'Service-window maintenance',status:'blocking',message:'Scheduled service overlaps.'}],
