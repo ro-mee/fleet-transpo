@@ -10,6 +10,7 @@ import { ACTIVE_FUEL_TRIP_STATUSES, fuelFulfillmentError, fuelTankCapacityError,
 import { computeFuelFlags, detectDuplicateReceipt } from "@/lib/fuel/transaction-integrity";
 import { authorizeCompanyCardForDriver } from "@/lib/auth/company-cards";
 import { writeAudit } from "@/lib/audit";
+import { getFuelPolicy } from "@/services/fuel-settings.service";
 
 /**
  * POST /api/mobile/fuel
@@ -43,6 +44,7 @@ export async function POST(req) {
   try {
     const session = await requireDriver(req);
     const body = await parseBody(req);
+    const fuelPolicy = await getFuelPolicy();
 
     if (body.liters === undefined) return err("liters is required", 400);
     if (body.amount === undefined) return err("amount is required", 400);
@@ -154,6 +156,9 @@ export async function POST(req) {
     ) {
       return err("Fuel can only be reported for your assigned vehicle", 403);
     }
+    if (fuelPolicy.strictFuelTypeMatching && fuelTypeMismatch(trip.fuel_type, receiptFuelType)) {
+      return err("Receipt fuel type does not match the assigned vehicle", 409);
+    }
 
     // --- Receipt scan history: preserve original AI extraction for audit ---
     const receiptScanData = body.receipt_scan_data != null && typeof body.receipt_scan_data === "object"
@@ -176,6 +181,7 @@ export async function POST(req) {
       fuelLevel: trip.fuel_level,
       receiptScanData,
       submittedValues: { liters, amount, station_name: body.station_name },
+      maxPricePerLiter: fuelPolicy.maxPricePerLiter,
     });
 
     const columns = [];

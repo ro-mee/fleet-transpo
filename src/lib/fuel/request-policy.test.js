@@ -189,3 +189,62 @@ describe("assessFuelVariance", () => {
     expect(assessFuelVariance({ ...base, lastReportedPercent: 50, distanceSinceLastReportKm: 10, reportedPercent: null }).expected_liters).toBeNull();
   });
 });
+
+describe("fuel policy overrides integration", () => {
+  it("honors custom reserve and target fill thresholds", () => {
+    const result = calculateFuelRecommendation({
+      tankCapacityL: 100,
+      currentFuelLevelPercent: 20,
+      fuelEfficiencyKmpl: 10,
+      oneWayDistanceKm: 50,
+      policy: {
+        reserveBufferPercent: 15,
+        preferredTargetPercent: 80,
+      },
+    });
+    // current: 20 L, consumption: 100km / 10 = 10 L
+    // reserve: 15 L. Needs refuel: 20 - 10 = 10 < 15 -> true
+    // target: max(80 L, 10 + 15) = 80 L
+    // recommended: 80 - 20 = 60 L
+    expect(result.reserve_liters).toBe(15);
+    expect(result.target_liters).toBe(80);
+    expect(result.recommended_liters).toBe(60);
+  });
+
+  it("respects variance alerts disabled policy", () => {
+    const result = assessFuelVariance({
+      tankCapacityL: 60,
+      efficiencyKmpl: 8,
+      lastReportedPercent: 80,
+      distanceSinceLastReportKm: 0,
+      reportedPercent: 20, // 60% gap -> 36L variance
+      policy: {
+        enableVarianceAlerts: false,
+      },
+    });
+    expect(result.variance_liters).toBe(36);
+    expect(result.variance_detected).toBe(false);
+  });
+
+  it("blocks auto-approval when policy disables autoApprovalEnabled or recommendation exceeds cap", () => {
+    const healthy = {
+      calculation: { recommended_liters: 50, minimum_safe_liters: 10, range_warning: false },
+      variance: { variance_detected: false },
+      monthlyRemainingLiters: 100,
+    };
+
+    const disabledPolicy = evaluateFuelPolicy({
+      ...healthy,
+      policy: { autoApprovalEnabled: false },
+    });
+    expect(disabledPolicy.within_policy).toBe(false);
+    expect(disabledPolicy.policy_reasons).toContain("Automatic fuel request approval is disabled by fleet policy");
+
+    const cappedPolicy = evaluateFuelPolicy({
+      ...healthy,
+      policy: { autoApprovalMaxLiters: 40 },
+    });
+    expect(cappedPolicy.within_policy).toBe(false);
+    expect(cappedPolicy.policy_reasons[0]).toMatch(/exceeds the policy auto-approval limit/i);
+  });
+});

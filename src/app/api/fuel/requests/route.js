@@ -24,6 +24,7 @@ import {
   signFuelReceipt,
   signFuelReceiptList,
 } from "@/lib/fuel/receipt-storage";
+import { getFuelPolicy } from "@/services/fuel-settings.service";
 
 const currentAllocationMonth = () => `${toCalendarDay(new Date()).slice(0, 7)}-01`;
 const SELECT_REQUESTS = `
@@ -108,23 +109,26 @@ export async function POST(req) {
   try {
     const session = await requireDriver(req);
     const body = await parseBody(req);
+    const fuelPolicy = await getFuelPolicy();
     const tripId = body.trip_id == null ? null : Number(body.trip_id);
     const fuelLevel = Number(body.current_fuel_level_percent);
     if (tripId !== null && (!Number.isInteger(tripId) || tripId <= 0)) return err("Invalid trip_id", 400);
     if (!Number.isFinite(fuelLevel) || fuelLevel < 0 || fuelLevel > 100) return err("current_fuel_level_percent must be between 0 and 100", 400);
     if (body.purpose && String(body.purpose).length > 500) return err("purpose is too long", 400);
-    if (typeof body.gauge_photo_url !== "string" || !body.gauge_photo_url.trim()) {
-      return err("A fuel gauge photo is required for every request", 400);
-    }
-    if (!isOwnedFuelImageUrl(body.gauge_photo_url, session.user.driverId, "gauge")) {
-      return err("The gauge photo is not a valid upload for this driver", 400);
-    }
-    // `gauge_photo_url` holds an object key, not a URL (SEC-UPLOAD-003). The
-    // driver is handed a short-lived URL at upload and echoes it back here, so
-    // reduce it to the key on the way in; fail closed if it does not resolve.
-    body.gauge_photo_url = toStoredReceiptRef(body.gauge_photo_url);
-    if (!body.gauge_photo_url) {
-      return err("The gauge photo is not a valid upload for this driver", 400);
+    if (fuelPolicy.requireGaugePhoto || body.gauge_photo_url) {
+      if (typeof body.gauge_photo_url !== "string" || !body.gauge_photo_url.trim()) {
+        return err("A fuel gauge photo is required for every request", 400);
+      }
+      if (!isOwnedFuelImageUrl(body.gauge_photo_url, session.user.driverId, "gauge")) {
+        return err("The gauge photo is not a valid upload for this driver", 400);
+      }
+      // `gauge_photo_url` holds an object key, not a URL (SEC-UPLOAD-003). The
+      // driver is handed a short-lived URL at upload and echoes it back here, so
+      // reduce it to the key on the way in; fail closed if it does not resolve.
+      body.gauge_photo_url = toStoredReceiptRef(body.gauge_photo_url);
+      if (!body.gauge_photo_url) {
+        return err("The gauge photo is not a valid upload for this driver", 400);
+      }
     }
     const gaugeScanEstimate = Number(body.gauge_scan_estimate);
     const gaugeScan = Number.isFinite(gaugeScanEstimate) && gaugeScanEstimate >= 0 && gaugeScanEstimate <= 100
@@ -185,6 +189,7 @@ export async function POST(req) {
       currentFuelLevelPercent: fuelLevel,
       fuelEfficiencyKmpl: vehicle.fuel_efficiency_kmpl,
       oneWayDistanceKm: forecastRows[0].one_way_distance_km,
+      policy: fuelPolicy,
     });
     if (!calculation.needs_refuel || calculation.recommended_liters <= 0) {
       return err("Fuel is sufficient for the next 24 hours and the required reserve", 409);
@@ -218,6 +223,7 @@ export async function POST(req) {
         distanceSinceLastReportKm: distanceRows[0].distance_km,
         efficiencyKmpl: vehicle.fuel_efficiency_kmpl,
         reportedPercent: fuelLevel,
+        policy: fuelPolicy,
       });
     }
 
@@ -235,6 +241,7 @@ export async function POST(req) {
       calculation,
       variance,
       monthlyRemainingLiters: usage.remaining_liters,
+      policy: fuelPolicy,
     });
     const autoAuthorized = policy.within_policy;
     if (autoAuthorized) {
@@ -290,6 +297,7 @@ export async function PUT(req) {
   try {
     const session = await requirePermission(req, "fuel_requests", "review");
     const body = await parseBody(req);
+    const fuelPolicy = await getFuelPolicy();
     const requestId = Number(body.fuel_request_id);
     if (!Number.isInteger(requestId) || requestId <= 0) return err("fuel_request_id is required", 400);
     if (!["Approved", "Rejected"].includes(body.status)) return err("status must be Approved or Rejected", 400);
@@ -340,6 +348,9 @@ export async function PUT(req) {
             `This approval exceeds the vehicle's monthly fuel budget by ${overrun.toFixed(2)} L. Provide an override reason to approve it anyway.`,
             400
           );
+        }
+        if (approvedLiters > usage.remaining_liters && fuelPolicy.budgetEnforcementMode === "strict") {
+          throw new AuthError("The strict fuel budget policy does not allow an over-budget approval", 409);
         }
       }
 
