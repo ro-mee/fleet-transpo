@@ -15,11 +15,13 @@ source:
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-10-02
+last_verified: 2026-10-03
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
 # Feature: Driver Management
+
+**Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old active driver profiles were cleaned or retired, and ten new intended defense drivers were seeded. The live active driver roster contains exactly those ten new profiles; five old profiles linked to preserved privacy consents remain soft-deleted. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
 
 ## What it does
 
@@ -343,9 +345,12 @@ Rules:
   (`!(pickup >= shift_start && returnAt <= shift_end)`) → block; half-open break
   overlap (`break_start < returnAt && break_end > pickup`) → block.
 - **Leave lifecycle**: driver files via `POST /api/driver/leave` (self, Pending);
-  fleet manager approves/declines via `PATCH /api/driver-leave-requests/[id]`
+  admin or fleet manager approves/declines via
+  `PATCH /api/driver-leave-requests/[id]`
   (409 if an overlapping request is already Approved). Driver withdraws Pending
   via `DELETE /api/driver/leave`. Only **Approved** leave blocks assignment.
+  *(Admin gained `update` on 2026-10-03 — previously review was fleet_manager
+  only, so leave stalled whenever the fleet manager was unavailable.)*
 - **Server TZ is Asia/Manila.** `localDayOfWeek`/`localTimeOfDay` use Date local
   getters, consistent with the `toCalendarDay` convention.
 - Backfilled **49 rows** (drivers 1, 2, 19, 20, 21, 22, 26 × 7 days, 06:00–22:00,
@@ -360,7 +365,7 @@ the transport-request recommendation route, `conflicts.js` (DRIVER_UNAVAILABLE),
 `trips/[id]/start` gate, and the dispatch calendar probe.
 
 UI: `WorkScheduleCard` on the driver detail page (schedule editor gated
-fleet_manager), `/drivers/leave` review board (fleet_manager approves),
+fleet_manager), `/drivers/leave` review board (admin and fleet_manager approve),
 `/driver/schedule` self-service (view schedule, file/withdraw leave).
 
 > **Scope note (2026-08-23; updated 2026-10-02):** the Driver Leave Requests
@@ -371,11 +376,12 @@ fleet_manager), `/drivers/leave` review board (fleet_manager approves),
 > data remain intact, and the driver's own `/driver/schedule` entry stays
 > visible.
 
-> **Leave visibility restoration (2026-10-02):** The leave board and
+> **Leave visibility restoration (2026-10-02; leave review broadened 2026-10-03):** The leave board and
 > weekly schedule controls remain implemented. `/drivers/leave` is permitted
-> for admin, super_admin, and fleet_manager, but ordinary admin has read-only
-> leave/schedule permissions; fleet_manager owns review and schedule writes,
-> with super_admin override. The Workforce exceptions card and Leave coverage
+> for admin, super_admin, and fleet_manager. **Since 2026-10-03 admin reviews
+> leave too** (`driver_leave_requests.update`), alongside fleet_manager and the
+> super_admin override; admin's weekly-schedule access stays read-only and
+> remains fleet_manager-owned. The Workforce exceptions card and Leave coverage
 > shortcut are in the Fleet Manager dashboard, not the Admin dashboard; the
 > admin dashboard does not fetch leave or substitute-schedule data. The
 > WorkScheduleCard remains on each driver's detail page, while
@@ -383,8 +389,9 @@ fleet_manager), `/drivers/leave` review board (fleet_manager approves),
 > calendar.
 >
 > The `Leave Management` sidebar item now appears for `admin` and
-> `fleet_manager` only. Existing page and API permissions are unchanged:
-> admins can view requests, Fleet Managers can review them, and
+> `fleet_manager` only. Existing page and API permissions are unchanged apart
+> from the 2026-10-03 review grant: admins and Fleet Managers can both approve
+> or decline, and
 > `super_admin` keeps its existing direct-route permission without a sidebar
 > item in that workspace. Leave approval is consequential: it updates the
 > leave balance and sends overlapping dispatches to Pending Reassignment in

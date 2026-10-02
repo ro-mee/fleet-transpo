@@ -131,10 +131,12 @@ const MATRIX = {
     // Day-scoped substitute driver coverage (migration 032) follows the same
     // fleet-management authority as the custodial pairing it complements.
     substitute_driver_schedules: { create: true, read: true, update: true, delete: true },
-    // Weekly work schedules + leave (migration 049): admin observes, the fleet
-    // manager sets them (see fleet_manager). Same split as driver_assignments.
+    // Weekly work schedules + leave (migration 049): the fleet manager sets the
+    // schedule, but BOTH admin and fleet_manager review leave — an admin must be
+    // able to approve/decline when the fleet manager is unavailable. Schedules
+    // stay read-only here (see fleet_manager).
     driver_work_schedules: { read: true },
-    driver_leave_requests: { read: true, read_all: true },
+    driver_leave_requests: { read: true, read_all: true, update: true },
     reservations: {
       create: true, read: true, update: true, delete: true,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true, recommend: true, manage_flags: true,
@@ -228,7 +230,8 @@ const MATRIX = {
     driver_assignments: { read: true },
     substitute_driver_schedules: { read: true },
     // Schedules are visible so the dispatch screen can explain why a
-    // driver is not offered for a window. Dispatchers can now also review (update) leave requests.
+    // driver is not offered for a window. Leave review is NOT theirs — see
+    // admin and fleet_manager above.
     driver_work_schedules: { read: true },
     driver_leave_requests: { read: true, read_all: true },
     reservations: {
