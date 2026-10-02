@@ -27,6 +27,10 @@ const eslintConfig = defineConfig([
     ".github/skills/**",
     ".claude/skills/**",
     ".agents/skills/**",
+    // Managed checkout copies have their own dependencies and lint config.
+    // Linting them from this workspace duplicates errors and hides source failures.
+    ".kilo/worktrees/**",
+    ".worktrees/**",
   ]),
 
   // `no-undef` is off for plain .js under eslint-config-next, which is how

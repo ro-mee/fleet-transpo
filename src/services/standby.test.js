@@ -23,6 +23,7 @@ beforeEach(()=>{
    // the database stays the clock.
    if(sql.includes('SELECT date FROM driverattendance'))return {rows:[{date:'2026-09-23'}]};
    if(sql.includes('AS yes'))return {rows:[{yes:true}]};
+   if(sql.includes('INSERT INTO driverattendance'))return {rows:[{attendance_id:17}],rowCount:1};
    return {rows:[]};
  });
 });
@@ -65,7 +66,7 @@ it('orders the start-duty gates: roster, then consent, then the pre-shift baseli
 });
 
 it('starts duty once the baseline exists and the roster allows it',async()=>{
- expect(await setDuty(7,true)).toEqual({checkedIn:true});
+ expect(await setDuty(7,true)).toEqual({checkedIn:true,changed:true});
  expect(query.mock.calls.some(([sql])=>sql.includes('INSERT INTO driverattendance'))).toBe(true);
 });
 
@@ -301,7 +302,7 @@ it('fires the fixed point when the NoVehicle row is the SECOND of two',async()=>
   const result=await endDutyWithReport({driverId:7,vehicleId:2,report:{nothing_unusual:true},clientSubmissionId:submission('q')});
   const wroteAnUpdate=query.mock.calls.some(([sql])=>sql.includes('UPDATE driverattendance'));
   expect({result,wroteAnUpdate}).toEqual({
-    result:{checkedIn:false,inspectionId:null,reported:false,recorded:false,late:true},
+    result:{checkedIn:false,inspectionId:null,reported:false,recorded:false,changed:false,late:true},
     wroteAnUpdate:false,
   });
 });

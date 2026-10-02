@@ -16,7 +16,7 @@ vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
 
 import { GET } from "@/app/api/audit/route";
 
-const session = { user: { employeeId: 7, role: "system_admin" } };
+const session = { user: { employeeId: 7, role: "super_admin" } };
 
 function request(search = "") {
   return new Request(`http://localhost/api/audit${search}`);

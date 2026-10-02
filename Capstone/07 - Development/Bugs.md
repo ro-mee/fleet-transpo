@@ -9,6 +9,10 @@ last_verified: 2026-09-30
 
 # Bugs
 
+## Test contract drift corrected — 2026-10-03
+
+The repository-wide run exposed five stale assertions across four files. Audit route fixtures still used the retired `system_admin` role; the throttle security assertion expected a one-hit SQL counter after the implementation gained a bounded hit cost; the upload security assertion expected an old driver-create return shape; and two standby tests omitted the `changed` result or mocked an insert without `rowCount`. The tests now assert the current role, capped cost-aware SQL, signed and redacted driver result, and realistic attendance write count. Focused verification passed 164/164; the full suite passed 3,605/3,605 across 313 files. No runtime security or standby behavior was changed by these test corrections.
+
 Open, verified defects. Each links to a full note with root cause and fix.
 
 ## Open
