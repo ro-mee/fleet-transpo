@@ -466,7 +466,7 @@ export function evidenceSummary(evidence, question = '') {
     if (eta) {
       return pairs.slice(0,2).map(p => p.livePickupEta
         ? `${name(p)}: live pickup ETA is ${p.livePickupEta.etaMinutes} minutes.`
-        : `${name(p)}: live pickup ETA is unavailable.${p.predictedTransfer?.etaMinutes != null ? ` Predicted transfer takes ${p.predictedTransfer.etaMinutes} minutes; this is not a live ETA.` : ''}`
+        : `${name(p)}: live pickup ETA is unavailable.${p.dispatchMode === 'SCHEDULED' ? ' Live tracking does not apply to this advance booking.' : ''}${p.predictedTransfer?.etaMinutes != null ? ` Predicted transfer takes ${p.predictedTransfer.etaMinutes} minutes; this is not a live ETA.` : ''}`
       ).join('\n');
     }
     if (/workload|fair|buffer/i.test(question)) {

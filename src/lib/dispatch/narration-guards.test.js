@@ -110,6 +110,21 @@ describe('O. Narration guards own the four residual live cases', () => {
     expect(guardsFor(GPS_QUESTION, project([])).gpsNotApplicable).toBeNull();
   });
 
+  it('does not stack the deliberate-absence clause on an answer that already explains it (RS-UZYD)', () => {
+    // FUTURE/SCHEDULED pair, GPS question, but the model already framed the
+    // absence as inapplicable to an advance booking. Appending the guard
+    // sentence on top produced the "no fix, yet deliberate" contradiction.
+    const planned = project([makePair()]);
+    const guards = answered(GPS_QUESTION, planned,
+      'Live tracking is not applicable to this advance booking, so no live ETA exists yet.');
+    expect(guards.gpsNotApplicable).toBeNull();
+    expect(guardDisclosure(guards)).toBe('');
+    // An unqualified "no fix" answer still gets the clause.
+    const bare = answered(GPS_QUESTION, planned, 'There is no usable GPS fix for this vehicle.');
+    expect(bare.gpsNotApplicable).toMatchObject({ vehicleIds: [1] });
+    expect(guardDisclosure(bare)).toContain('deliberate');
+  });
+
   it('FM-GUARD-003 case 9: a rate or punctuality question is refused by the server, whatever the model said', () => {
     const evidence = project([liveMaintenance()]);
     const guards = guardsFor(RATE_QUESTION, evidence);

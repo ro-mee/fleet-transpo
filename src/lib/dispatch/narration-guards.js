@@ -211,7 +211,14 @@ export function narrationGuards({ question, evidence, answer } = {}) {
     .filter(p => !p.gpsHealth && liveLocationInapplicable({ horizon: p.temporalContext?.horizon, mode: p.dispatchMode }));
 
   const probabilitySought = RATE_BAIT.test(asked);
-  const gpsNotApplicable = GPS_TOPIC.test(asked) && gpsAbsent.length
+  // The question alone is not enough: when the model's own answer already
+  // explains the exclusion (the PROSE_LOCATION_QUALIFIED escape hatch),
+  // appending the deliberate-absence clause on top reads as a contradiction
+  // ("no fix" beside "deliberate") — the RS-UZYD advance-booking shape. This
+  // mirrors the volunteered twin below, which already respects the hatch.
+  // Callers without an answer (deterministic path) pass nothing and behave
+  // exactly as before.
+  const gpsNotApplicable = GPS_TOPIC.test(asked) && gpsAbsent.length && !PROSE_LOCATION_QUALIFIED.test(String(answer ?? ''))
     ? { reason: gpsReason(gpsAbsent), vehicleIds: gpsAbsent.map(p => p.vehicleId) }
     : null;
 

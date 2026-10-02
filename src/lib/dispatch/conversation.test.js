@@ -85,8 +85,10 @@ it('answers timing/workload questions with supported values and labels future ET
  const evidence=conversationEvidence({}, {pair:{candidates:[p],recommended:p}});
  expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('85 minutes of preparation time');
  expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('0 completed, 0 active, and 2 scheduled on 2026-09-18');
- expect(evidenceSummary(evidence,'What is the ETA?')).toContain('this is not a live ETA');
- expect(evidenceSummary(evidence,'What is the ETA?')).not.toContain('85 minutes');
+  expect(evidenceSummary(evidence,'What is the ETA?')).toContain('this is not a live ETA');
+  expect(evidenceSummary(evidence,'What is the ETA?')).not.toContain('85 minutes');
+  const scheduled = conversationEvidence({}, { pair: { candidates: [{ ...p, dispatchContext: { mode: 'SCHEDULED' } }], recommended: p } });
+  expect(evidenceSummary(scheduled, 'Can you give an ETA?')).toContain('Live tracking does not apply to this advance booking');
   const blocked={...evidence,pairs:[{...evidence.pairs[0],state:'BLOCKED',reasons:['Overlapping reservation.']}]};
   expect(evidenceSummary(blocked,'Why this option?')).toContain('Juan with ABC - Blocked. Overlapping reservation.');
 });
