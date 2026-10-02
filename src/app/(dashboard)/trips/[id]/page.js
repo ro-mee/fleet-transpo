@@ -271,7 +271,7 @@ export default function TripDetailPage() {
               <p className="text-sm font-bold text-foreground font-data truncate">{vehiclePlate}</p>
               <p className="text-[11px] text-foreground-muted truncate">
                 {trip.vehicles?.model ? `Model: ${trip.vehicles.model}` : "Model not recorded"}
-                {trip.vehicles?.vehicle_name ? ` · Unit: ${trip.vehicles.vehicle_name}` : ""}
+                {trip.vehicles?.vehicle_name ? ` · Vehicle type/name: ${trip.vehicles.vehicle_name}` : ""}
               </p>
             </div>
           </CardContent>

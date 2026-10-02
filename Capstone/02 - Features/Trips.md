@@ -18,6 +18,10 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Dispatcher vehicle field labels — 2026-10-03
+
+Trip detail labels `vehicles.model` as **Model** and `vehicles.vehicle_name` as **Vehicle type/name**, matching the Fleet vehicle form's “Vehicle Type / Name” field. This avoids implying that `vehicle_name` is an individual unit identifier. It does not change vehicle data; any disputed master value still requires confirmation from its owner. The dispatcher live-use follow-up uses vehicle 37 (`model=Hiace`, `vehicle_name=SUV`) as the example. See [[Dispatcher Live Use-Case Remediation Plan]].
+
 ## What it does
 
 Records what actually happened: start odometer, GPS positions, arrival, completion odometer.
