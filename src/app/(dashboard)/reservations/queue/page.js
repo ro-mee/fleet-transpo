@@ -50,16 +50,13 @@ const REFETCH_MS = 30_000;
 // (the empty state reads "Nothing <plainLabel>"), and `description` spells out
 // the filter for the tooltip and assistive technology.
 //
-// "Today" is deliberately "Today & overdue": the SQL predicate is
-// `pickup <= today (Asia/Manila)`, i.e. today **or already past**. The vault
-// documents that grouping as intentional dispatcher work ordering, but the bare
-// word "Today" hid it — a request dated the 15th appearing under "Today (6)" is
-// the label lying, not the query. See QUEUE_TAB_PREDICATES in
-// src/app/api/integration/transport-requests/route.js.
+// The Today tab also includes overdue pickups (`pickup <= today` in Manila).
+// Keep the short tab label requested for the queue; the tooltip explains its
+// full scope. See QUEUE_TAB_PREDICATES in the transport-requests route.
 const TAB_META = {
   today: {
-    label: "Today & overdue",
-    plainLabel: "today or overdue",
+    label: "Today",
+    plainLabel: "today",
     description: "Pickup today or already past — the dispatcher's now.",
     icon: Inbox,
   },
