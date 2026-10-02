@@ -69,7 +69,6 @@ export const WORKS = {
               { href: "/settings/users/new", label: "Add User" },
             ],
           },
-          { href: "/settings/security-center", label: "Security Center", icon: Fingerprint },
           { href: "/system/audit", label: "Audit Logs", icon: ShieldCheck },
         ],
       },
@@ -101,12 +100,6 @@ export const WORKS = {
         items: [
           { href: "/uvvrp", label: "Coding Board", icon: MapPin },
           { href: "/reports", label: "Reports & Analytics", icon: BarChart3 },
-        ],
-      },
-      {
-        label: "Account",
-        items: [
-          { href: "/settings/profile", label: "Profile", icon: UserCog },
         ],
       },
     ],

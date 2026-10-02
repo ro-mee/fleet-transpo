@@ -84,6 +84,18 @@ reappears anywhere under `src/` or `scripts/`.
   `workspaces.js` as unused. Verified: `lint:ci` clean, `test:run` 242 files /
   3167 tests green (`system-errors-access.test.js` reads this nav;
   `privilege.test.js` pins `NAV_ROLES`).
+- Workspace: System Console sidebar trimmed again (2026-10-03, nav only,
+  nothing deleted). `WORKS.super_admin.nav` no longer lists **Profile**
+  (`/settings/profile` — its Account group is removed entirely, as Profile was
+  its only item) or **Security Center** (`/settings/security-center`, Security
+  & Access). User Management and Audit Logs stay in Security & Access, so the
+  trim does not touch the super_admin tooling. `NAV_ROLES` is unchanged, so
+  both routes remain reachable by URL and direct navigation — the same
+  sidebar-only pattern as the 2026-09-28 trim above and `/tracking/history` /
+  `/fleet/documents`. `Fingerprint` and `UserCog` are still imported (used by
+  Driver Attendance and User Management respectively), so no import cleanup was
+  needed. Verified: `npx eslint src/lib/workspaces.js` clean and
+  `system-errors-access.test.js` 5/5 (it reads this nav).
 - Historical note: journal entries predating 2026-09-22 that say `system_admin`
   refer to role_id 1, now `super_admin`. Old migration files unchanged.
 - Display-name leftovers fixed 2026-09-23 (hygiene pass): `ROLE_COLORS` in
