@@ -96,6 +96,14 @@ export default function PredictiveMaintenancePage() {
       {/* ── KPI STAT FILTER CARDS ── */}
       {isError ? (
         <PredictionErrorPanel onRetry={() => refetch()} busy={isRefetching} />
+      ) : isLoading ? (
+        <div className="space-y-4" role="status" aria-live="polite">
+          <p className="text-sm text-foreground-secondary">Loading vehicle predictions…</p>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            {[1, 2, 3, 4, 5].map((n) => <Skeleton key={n} className="h-28 rounded-2xl" />)}
+          </div>
+          <Skeleton className="h-48 rounded-3xl" />
+        </div>
       ) : (
       <>
       <StatGrid cols={5} className="gap-3">
@@ -145,10 +153,10 @@ export default function PredictiveMaintenancePage() {
           ) : filteredPredictions.length === 0 ? (
             <EmptyState
               icon={Wrench}
-              title="No maintenance predictions match filter"
+              title={riskFilter === "all" ? "No eligible vehicles to assess" : "No maintenance predictions match filter"}
               description={
                 riskFilter === "all"
-                  ? "Add vehicles and set service intervals to generate predictive telemetry."
+                  ? "This view assesses active vehicles for future service. Maintenance work orders are counted separately."
                   : "No fleet vehicles match the selected risk category."
               }
               variant={riskFilter === "all" ? "first-run" : "filtered"}

@@ -8,10 +8,14 @@ source:
   - src/app/(dashboard)/maintenance/page.js
   - src/app/api/vehicle-maintenance/[id]/route.js
   - supabase/migrations/114_maintenance_repairer_identity.sql
-last_verified: 2026-09-16
+last_verified: 2026-10-02
 ---
 
 # Feature: Maintenance
+
+## Predictive view zero-state follow-up — 2026-10-02
+
+Read-only live SQL found 37 non-deleted work orders and 22 non-deleted, non-decommissioned vehicles. These are different populations: the predictive endpoint returns one computed assessment per eligible vehicle, while the maintenance register counts work orders. The prediction page previously rendered five zero KPI cards before its query resolved. It now shows a loading skeleton, then the real counters; a successful empty eligible fleet gets an explicit explanation that work orders are counted separately. The existing request-error retry panel remains. The scoring engine and database are unchanged. Component tests, ESLint and production build passed; the deployed default view still needs an authenticated replay.
 
 ## What it does
 
