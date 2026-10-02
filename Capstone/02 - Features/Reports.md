@@ -6,10 +6,16 @@ source:
   - src/app/api/reports
   - src/app/(dashboard)/reports
   - src/app/(dashboard)/analytics
-last_verified: 2026-08-31
+last_verified: 2026-10-02
 ---
 
 # Feature: Reports
+
+## Admin QA follow-up — 2026-10-02
+
+The AI analyst on `/reports` no longer keeps “Generating analysis” after a settled error or an empty/unmatched narrative. The narrative fetch has a 30-second client timeout and no automatic retry; the card shows an error and a manual retry without consuming the regenerate budget. If the report query itself fails, the card and export area say why exports are unavailable. Export enablement still follows the report data query alone, so an AI failure does not disable a valid report export. A genuinely empty narrative shows the neutral no-analysis state.
+
+Read-only live checks returned a valid Fleet report payload for October 1–2 (22 roster vehicles, zero trips in that window) and a cached Fleet narrative row for that same range with nonempty text. These checks do not reproduce the tester's browser request sequence; authenticated deployed acceptance remains pending. Focused tests, changed-file ESLint and the production build passed.
 
 ## What it does
 

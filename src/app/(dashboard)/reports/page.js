@@ -362,12 +362,18 @@ export default function ReportsPage() {
   // switch (same selectedReport + dateBounds), so without this the query
   // would keep the stale "no-data" result forever and never refetch.
   const narrativeFingerprint = narrativeData ? JSON.stringify(narrativeData) : "none";
-  const narrative = useQuery({ queryKey: ["report-narrative", selectedReport, dateBounds, narrativeFingerprint, narrativeForce], queryFn: () => getReportNarrative(selectedReport, narrativeData, dateBounds, narrativeForce > 0), enabled: narrativeEnabled });
+  const narrative = useQuery({ queryKey: ["report-narrative", selectedReport, dateBounds, narrativeFingerprint, narrativeForce], queryFn: () => getReportNarrative(selectedReport, narrativeData, dateBounds, narrativeForce > 0), enabled: narrativeEnabled, retry: false });
   // Strict per-tab identity: a narrative fetched for another report must
-  // never render under this tab's title. While the active tab has no
-  // matching narrative yet, force the loading skeleton — never stale copy.
+  // never render under this tab's title. A settled empty/failed response must
+  // leave the loading state so operators can retry without losing report data.
   const narrativeForTab = isNarrativeForReport(narrative.data, selectedReport) ? narrative.data : null;
-  const analystLoading = (!activeQuery?.data && !activeQuery?.isError) || narrative.isLoading || narrative.isFetching || (narrativeEnabled && !narrativeForTab);
+  const analystLoading = (!activeQuery?.data && !activeQuery?.isError)
+    || (narrativeEnabled && (narrative.isLoading || narrative.isFetching));
+  const analystError = activeQuery?.isError
+    ? "Report data could not be loaded. Use the report retry button below."
+    : narrative.isError
+      ? "The analysis request failed. The report data and exports remain available."
+      : null;
 
   const fleetData = useMemo(() => {
     // Activity rows only — one entry per vehicle that actually ran a trip in the
@@ -456,28 +462,31 @@ export default function ReportsPage() {
           badge="Reports Engine"
           description="A focused view of fleet capacity, fuel, maintenance, driver performance, and operating cost."
           actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                onClick={handleExport}
-                disabled={!activeQuery?.data || customIncomplete || exporting}
-                className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-sm font-semibold", heroButtonPrimaryClass)}
-              >
-                <FileSpreadsheet className="mr-2 h-4 w-4" strokeWidth={1.75} />
-                {exporting ? "Building workbook…" : `Export ${selectedMeta?.short || "Report"} Excel`}
-                <span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/10 text-slate-950 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white">
-                  <Zap className="h-4 w-4" strokeWidth={1.75} />
-                </span>
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleCsvExport}
-                disabled={!activeQuery?.data || customIncomplete || exporting}
-                className={cn("h-11 rounded-full px-4 text-sm font-semibold", heroButtonOutlineClass)}
-              >
-                <ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />
-                Export raw CSV
-              </Button>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  onClick={handleExport}
+                  disabled={!activeQuery?.data || customIncomplete || exporting}
+                  className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-sm font-semibold", heroButtonPrimaryClass)}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" strokeWidth={1.75} />
+                  {exporting ? "Building workbook…" : `Export ${selectedMeta?.short || "Report"} Excel`}
+                  <span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/10 text-slate-950 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white">
+                    <Zap className="h-4 w-4" strokeWidth={1.75} />
+                  </span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCsvExport}
+                  disabled={!activeQuery?.data || customIncomplete || exporting}
+                  className={cn("h-11 rounded-full px-4 text-sm font-semibold", heroButtonOutlineClass)}
+                >
+                  <ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />
+                  Export raw CSV
+                </Button>
+              </div>
+              {activeQuery?.isError && <p className="text-xs font-medium text-danger" role="status">Export unavailable while the report cannot load. Try again in the report panel.</p>}
             </div>
           }
         >
@@ -510,7 +519,9 @@ export default function ReportsPage() {
             range={dateBounds}
             data={narrativeForTab}
             loading={analystLoading}
-            onRegenerate={() => setNarrativeForce((v) => v + 1)}
+            error={analystError}
+            onRegenerate={analystError ? undefined : () => setNarrativeForce((v) => v + 1)}
+            onRetry={narrative.isError ? () => narrative.refetch() : undefined}
             isRegenerating={narrative.isFetching}
           />
         </motion.div>
