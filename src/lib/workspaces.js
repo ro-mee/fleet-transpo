@@ -27,12 +27,15 @@ import {
   UserCog,
   KeyRound,
   ClipboardList,
+  ClipboardCheck,
+  ChartColumnIncreasing,
   Gauge,
   Database,
   Navigation,
   AlertTriangle,
   Fingerprint,
   Activity,
+  ListTodo,
 } from "lucide-react";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 
@@ -121,7 +124,7 @@ export const WORKS = {
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
           { href: "/drivers/leave", label: "Leave Management", icon: CalendarCheck },
-          { href: "/fleet/assignments", label: "Driver Assignments", icon: UsersRound },
+          { href: "/fleet/assignments", label: "Driver Assignments", icon: ClipboardCheck },
           { href: "/drivers/performance", label: "Driver Performance & Feedback", icon: Gauge },
         ],
       },
@@ -202,10 +205,10 @@ export const WORKS = {
         label: "Operations",
         items: [
           { href: "/maintenance", label: "Maintenance", icon: Wrench },
-          { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Wrench },
-          { href: "/maintenance/problems", label: "Problem Queue", icon: Wrench },
+          { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Activity },
+          { href: "/maintenance/problems", label: "Problem Queue", icon: ListTodo },
           { href: "/fuel", label: "Fuel Monitoring", icon: Fuel },
-          { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
+          { href: "/fuel/analytics", label: "Fuel Analytics", icon: ChartColumnIncreasing },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
