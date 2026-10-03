@@ -881,3 +881,11 @@ still resolve, Caloocan has 193 barangays, and the eight SGA clusters retain 63 
 0 exposed and 18 explicit refusals; 49 HTTP-empty responses were inconclusive from the probe
 and are resolved by the live contract as RLS-enabled with no anon policy. Focused geography
 tests: 30/30; touched-file ESLint clean. `npm run db:status`: 136 applied, 0 pending, 0 changed.
+
+## 2026-10-03 — `141_driverincident_severity_assessment.sql`
+
+Before implementation, `npm run db:status` reported 140 applied, 0 pending, and 0 changed; version 141 was available. Migration 141 adds nullable `driverincidents.severity_assessment jsonb` and a CHECK constraint for its version, source, supported severity values, coded answer shape, confirmation flags, and override reason codes. Existing severity-only clients remain compatible because the field is nullable and no default or backfill was added. No table, view, policy, or grant was introduced.
+
+`npm run db:up` applied the migration; `npm run db:dump` refreshed the generated schema artifact, which now contains the column and CHECK constraint. Final `npm run db:status`: 141 applied, 0 pending, 0 changed. `npm run db:check` passed. `npm run db:contract` found 67 classified relations and 0 violations. The new column inherits the existing `driverincidents` table grant/RLS posture; the contract confirmed the live schema remains RLS-enabled with no anon policy.
+
+During final verification, `db:dump` also picked up the live `system_health_snapshots` table. This was concurrent and unrelated to migration 141. The live contract classifies it as private and confirms RLS enabled with no anon policy; `verify:anon` received an explicit HTTP 401 / SQLSTATE 42501 refusal. Migration `142_system_health_telemetry.sql` is now present on disk and matches the applied ledger checksum; `db:status` reports 141 applied, 0 pending, and 0 changed. The dump reflects the live table structure. Current `db:contract`: 68 live relations, 0 violations.
