@@ -611,6 +611,39 @@ The leaked database password was **rotated on
     equally silent. Recording that, because the entry's precision is what would have
     made a partial fix look complete.
 
+- **Driver inspection "Trip not found" on Pre-Shift — STALE PRODUCTION BUILD, redeploy
+  pending (diagnosed 2026-10-03).** Driver 87 (Mateo Reyes) answered the 5-point
+  Pre-Shift and tapped START YOUR SHIFT; the app answered *"Unable to Submit
+  Inspection: Trip not found (HTTP 404)"*. The client is doing the right thing —
+  Pre-Shift posts `trip_id: null`. The phone targets `https://fleet-transpo.vercel.app`
+  (`mobile/.env`), and unauthenticated route probes bracket that deployment at
+  **2026-09-24 → 09-26**: `/api/geo/provinces` (added 09-24) answers 401, while
+  `/api/address/lookup`, `/api/address/geocode`, `/api/vehicle-inspections/problems`
+  (all 09-27) and `/api/settings/security-policy` (09-29) answer Next's HTML 404 —
+  never registered in that build. `f01e9f8e` (09-27) is the commit that gave the
+  server a Pre-Shift branch; before it the handler is `const tripId =
+  Number(body.trip_id ?? null)` → `null` becomes **0**, `Number.isInteger(0)` slips
+  past the 400 guard, `WHERE trip_id = 0` matches nothing → `throw new
+  AuthError("Trip not found", 404)` — the reported error verbatim, produced by a
+  correct request. The same stale route hardcodes `inspection_type = "Pre-Trip"` and
+  `items.length === 7`, so the current app's 3-item Pre-Trip would 400 instead:
+  **no mobile inspection can land against that deployment at all** — corroborated by
+  **0 of 88** `vehicleinspection` rows carrying a `client_submission_id`, which both
+  generations of the mobile route insert.
+  Client-side changes written earlier that day for this thread (route-param
+  normalisation, `mode === "preshift"` wins, `trip_id: null`, dead-trip guard, 404
+  mapping, explicit `mode: "pretrip"` pushes in `trip/[id].js` and `map.js`) were
+  **reverted — those files match HEAD again**; no client change can teach an old
+  server what Pre-Shift is, and the working tree was returned to baseline on request.
+  **Fix: redeploy Vercel from `origin/main` (`488fefde`).** Verify afterwards:
+  `GET /api/vehicle-inspections/problems` flips from HTML 404 to **401**, and the
+  driver's next Pre-Shift writes a `vehicleinspection` row whose
+  `client_submission_id` is non-null. Local `vercel` CLI is authenticated
+  (`ry4nl3369-lab`) but the project is not linked (no `.vercel/`), so the deploy is
+  dashboard- or linked-CLI-triggered. Unrelated live-data change from the same
+  thread: Trip 558 was soft-deleted 2026-10-03, so a Pre-Trip filed against it 404s
+  correctly.
+
 ### Not yet filed as individual notes
 
 - **Mobile live-trip coach mark can disappear before telemetry (2026-09-20):** A fresh driver install correctly shows `welcome` on Home, but `map.js` can trigger `live_trip` while the first trip is `Driver Accepted` and still before `earliest_start`. In that state `preDeparture` renders an empty `map.telemetry` target, so `CoachMarkTarget` rejects its zero height and the overlay disappears after the first `Next`. The focused coach-mark suite is green (44/44); this scheduling-state case is not covered. No fix applied during the check.
@@ -4312,4 +4345,6 @@ But `recoveryActionForCheck` mapped every license check to "Renew driver license
 The Assignments page called `evaluateDriverLicenseEligibility` on rows from three redacted list APIs. Those APIs intentionally removed `license_number` and returned only `license_number_valid`, so the evaluator saw an empty number and emitted "License number is missing" even for a stored valid number. This affected custodial pairings, substitute coverage, and the driver picker in the pairing/scheduling dialogs. The server write gates continued to read full stored rows.
 
 The redacted responses now add `license_number_present`, and the evaluator uses presence plus the existing validity flag when no number is supplied. It still reports genuinely absent versus malformed numbers separately and keeps the full number out of list responses. Focused tests passed 18/18; changed-source ESLint and diff check passed. The configured live database returned no rows for assignment IDs #33, #32, #31, #30, #29, #26, #21, #20, #19, and #4 in a read-only query, so that environment could not confirm those screenshot records. Other warnings require individual stored-field review; the fix does not assert those fields are complete.
+
+**System Health telemetry truth and SQL review (2026-10-03):** The new health-history code inserted 53 random backdated snapshots when the table was sparse, substituted invented availability/latency values and trend deltas, and displayed an API error rate with a guessed request denominator. Two live PostgreSQL queries also referred to `$2` while callers supplied only one parameter, silently yielding empty latency and push aggregates through catch fallbacks. Removed synthetic seeding and dead dashboard mock arrays, corrected both placeholders, and made missing measurements explicit. History now excludes rows with empty `subsystems` JSON; read-only live inspection found 52 such legacy rows among 58 total. All four telemetry SELECT queries succeeded in a read-only transaction after the fix. Focused tests and touched-file ESLint passed; `db:status` showed migration 142 applied and unchanged, `db:contract` had 0 violations, and the anon probe explicitly refused the snapshot table. No live data was changed by this review. See [[System Health and Reliability]].
 
