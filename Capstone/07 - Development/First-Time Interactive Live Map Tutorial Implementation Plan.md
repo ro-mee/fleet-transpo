@@ -237,3 +237,14 @@ coach marks and the real-trip guide retain their existing behavior.
 
 Verification: focused coach-mark/Map-intro tests passed **60/60** and touched
 source ESLint passed. No rebuild or EAS command was run.
+
+### Follow-up: Off-duty Map tutorial preview (2026-10-03)
+
+The status-aware Map empty-state branch returns before the Map-intro target
+wrappers and local practice sandbox mount. The resulting tooltip has no
+interactive target for a first-install driver who is Off Duty. A proposed
+follow-up plan adds a temporary, clearly labeled Map preview only while
+`map_intro` is pending or active, while preserving the existing duty, trip
+loading, and GPS guards; Finish or Skip then restores the ordinary empty state.
+Implementation plan: [[Map Tutorial Off-Duty Preview Implementation Plan]].
+This follow-up is planned only; application behavior has not changed.
