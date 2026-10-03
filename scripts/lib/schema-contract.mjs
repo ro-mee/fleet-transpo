@@ -428,6 +428,11 @@ export const TABLES = Object.freeze({
     rlsNote:
       "Found readable with the public anon key on 2026-09-18 (SEC-DB-003); RLS added by migration 115. CONFIRMED from the database side by `db:contract`: RLS enabled, no anon policy. Regression-guarded by `npm run verify:anon`.",
   },
+  system_health_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Historical system health and reliability telemetry snapshots. RLS enabled with anon/authenticated privileges revoked.",
+  },
   schema_migrations: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Migration ledger — the name and checksum of every migration.",

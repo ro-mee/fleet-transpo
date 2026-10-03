@@ -53,6 +53,8 @@ Verification: Scoped ESLint passed with 0 errors and 0 warnings; Vitest passed 1
 
 **Error Monitoring Occurrences Pagination (standardized 2026-10-03):** On `/system/errors` (`src/app/(dashboard)/system/errors/page.js`), the "Occurrences by fingerprint" list now includes full pagination controls and a selectable per-page size selector (10, 25, 50; default 10). Includes standard entries counter (`Showing X–Y of Z error groups`), full page navigation (First, Prev, numbered buttons with ellipsis, Next, Last), and automatic page-index reset on filter application.
 
+**System Health & Reliability Command Center (modernized 2026-10-03):** Overhauled `/system/health` (`src/app/(dashboard)/system/health/page.js`) from a debug accordion into an IT command center. (1) The KPI strip reports sampled health-check availability, actual app-error count, measured DB response (current and P95), push outbox send rate, and active incident count. Missing measurements show as unavailable. The sampled availability is not a continuous uptime SLA; an API error rate is omitted because total requests are not measured. (2) Recharts shows measured availability/latency and a time-bucketed Application, Integration, Push, AI, and Auth failure breakdown. (3) Active incidents carry diagnostic and remediation links. (4) The registry covers nine isolated technical probes, including File Storage and Maps & Routing. (5) Unused synthetic fallback arrays were removed from `system-admin-cards.jsx`.
+
 
 **Add / Create page pattern (standardized 2026-08-17):** every record-creation page
 uses the shared `HeroHeader` (`src/components/ui/hero-header.jsx`) as its top bar —
