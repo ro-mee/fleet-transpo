@@ -192,8 +192,10 @@ always sent `sound: "default"`).
 **Scheduler status (2026-09-24):** `.github/workflows/cron-sync.yml` landed —
 `*/5 * * * *` schedule with a 5×60s in-job loop (effective ~1/min) calling
 `POST /api/cron/sync` with `Bearer $CRON_SECRET`, plus one
-`/api/cron/reconcile` per tick. `vercel.json` mirrors both paths for a
-possible Vercel return. **Not yet firing:** needs merge to `main`, repository
+`/api/cron/reconcile` per tick. `vercel.json`'s mirror of both paths was
+**removed 2026-10-03** — Vercel Hobby caps cron at one run/day, so the
+schedules failed deployment; the workflow is the sole caller. **Not yet
+firing:** needs merge to `main`, repository
 secrets (`APP_BASE_URL`, `CRON_SECRET`), and `CRON_SECRET` in HostForge —
 `cron_sync_last_ok` was still **2026-09-06T04:30:43Z** at the 2026-09-24
 re-probe. Operator steps and pass criteria:

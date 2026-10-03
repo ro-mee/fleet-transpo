@@ -813,7 +813,9 @@ because it is what made "all crons" true):
   1/min). Pending three operator steps before it fires (merge to `main`,
   repo secrets, HostForge `CRON_SECRET`).
 - `vercel.json` — same two paths for a possible Vercel return; inert on
-  HostForge. Pinned by `src/vercel.crons.test.js`.
+  HostForge. Pinned by `src/vercel.crons.test.js`. **Removed 2026-10-03:**
+  Vercel Hobby caps cron at one run/day, so the schedules failed deployment;
+  the test now asserts *no* vercel.json crons remain.
 - `scripts/unschedule-test-cron.mjs` — removed the leftover `test` pg_cron
   job (`SELECT 1` every minute). Live `cron.job` now holds exactly four
   jobs: `incident-sla-breach-check` (099), `duty-autoclose-sweep` (126),

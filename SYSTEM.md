@@ -1042,7 +1042,8 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
   notification scan (added 2026-09-09, ~once-per-minute target cadence)
   runs. **Caller landed 2026-09-24:** `.github/workflows/cron-sync.yml`
   (`*/5` schedule + 5×60s in-job loop ≈ 1/min, plus `/api/cron/reconcile`
-  once per tick) and `vercel.json` (inert on HostForge, ready for Vercel).
+  once per tick). `vercel.json`'s mirrored crons were **removed 2026-10-03**
+  (Vercel Hobby caps cron at one run/day; the schedules failed deployment).
   **Not firing yet** — needs merge to `main`, repo secrets `APP_BASE_URL` +
   `CRON_SECRET`, and HostForge `CRON_SECRET` + restart; heartbeat
   `cron_sync_last_ok` was still 2026-09-06T04:30:43Z at the 2026-09-24
@@ -2093,7 +2094,7 @@ is the only reservation concept, and `integration/` is its only door.
 - `device-tokens/` (POST upsert / DELETE deactivate — any role incl. driver) — registers this install's Expo push token against the session employee.
 - Server side: `push.service.js` tiers every notification (`deliveryFor`: Alert/Emergency + Critical/Major/incident → loud push; Warning/Moderate → heads-up; else silent in-app only), sends via Expo Push to active tokens, deactivates `DeviceNotRegistered` tokens, and drains `push_outbox` (`flushOutbox()` after dispatch create + autocreate sync).
 - **Producers driven by `/api/cron/sync` (service-token, isolated best-effort step each):** the trip start-window scan, the upcoming-assignment scan, and — **since 2026-09-26** — `syncEndDutyReminders()` (`src/services/end-duty-reminder.service.js`). The End Duty producer climbs a **two-stage ladder** off the roster out-time: silent `heads-up` push **shift end + 30 min** (`End Duty Reminder`, `Warning`), loud `default` push **+ 2 h** (`End Duty Still Not Reported`, `Alert`), most-advanced-wins per run. Both stages share the single event key **`end_duty_reminder`** (`src/lib/constants.js`, defaults `{ in_app: true, email: false, push: true }`) so the mobile Push toggle cannot silence stage 2 while keeping stage 1; the per-day half of the dedupe lives in `reference_id = YYYYMMDD`, and the dedupe check itself reads `notifications UNION ALL push_outbox` rather than `notifications` alone (fixed 2026-09-26: with `in_app` off no notifications row is ever written, so a notifications-only check re-enqueued a push on every tick). Out-time is read through `loadDriverScheduleContext` + `driverDayEligibility`, never re-derived. Counters: `end_duty_reminders_created` / `end_duty_pushes_attempted` / `end_duty_skipped`; deep-links `reference_type='duty'` → mobile `/end-duty`, web `/driver` (driver-only).
-- **Scheduler status — corrected 2026-09-26:** `/api/cron/sync` is an endpoint, **not** a scheduler, and for months had no caller configured — `cron_sync_last_ok` was stale from 2026-09-06 — so the time-driven producers above were correct code that never executed. The caller now exists (`.github/workflows/cron-sync.yml`: `*/5 * * * *` plus a 5×60s in-job loop ≈ 1/min, one `/api/cron/reconcile` per tick; `vercel.json` mirrors both paths) and unblocks the start-window producer too. It is **still not firing** as of 2026-09-26: merge to `main`, repository secrets `APP_BASE_URL` + `CRON_SECRET`, and `CRON_SECRET` in the deployment environment remain outstanding. Limits: GitHub's schedule is queued rather than punctual, runs only on the default branch, and is disabled after 60 days without repository activity. The route's own `DEPLOY CHECK` header comment is the canonical statement of this.
+- **Scheduler status — corrected 2026-09-26:** `/api/cron/sync` is an endpoint, **not** a scheduler, and for months had no caller configured — `cron_sync_last_ok` was stale from 2026-09-06 — so the time-driven producers above were correct code that never executed. The caller now exists (`.github/workflows/cron-sync.yml`: `*/5 * * * *` plus a 5×60s in-job loop ≈ 1/min, one `/api/cron/reconcile` per tick; `vercel.json`'s mirrored crons removed 2026-10-03 because Vercel Hobby caps cron at one run/day and the schedules failed deployment) and unblocks the start-window producer too. It is **still not firing** as of 2026-09-26: merge to `main`, repository secrets `APP_BASE_URL` + `CRON_SECRET`, and `CRON_SECRET` in the deployment environment remain outstanding. Limits: GitHub's schedule is queued rather than punctual, runs only on the default branch, and is disabled after 60 days without repository activity. The route's own `DEPLOY CHECK` header comment is the canonical statement of this.
 
 ### Reports, AI, notifications, system, mobile
 - `reports/{maintenance,fuel-consumption,fleet-utilization,financial,driver-performance,fleet-cost}` (GET) + `reports/{analytics,driver-performance,financial,fleet-cost,fleet-utilization,fuel-consumption,incidents,maintenance,trip-performance}/excel` (GET) ★ — multi-tab native Excel workbooks with embedded OpenXML charts (bar, line, doughnut) powered by `src/lib/reports/{native-charts,operational-reports,fuel-workbook,remaining-workbooks}.js` and `exceljs`.
@@ -2404,8 +2405,9 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
   not an error; NULL positions aren't counted). Operational acceptance
   (external scheduler, CRON_SECRET in production, live device tests) is
   **partially met as of 2026-09-24**: the caller code landed
-  (`.github/workflows/cron-sync.yml` + `vercel.json` + structural test
-  `src/vercel.crons.test.js`) but three operator steps remain (merge to
+  (`.github/workflows/cron-sync.yml` + structural test
+  `src/vercel.crons.test.js`; `vercel.json` crons removed 2026-10-03 for the
+  Vercel Hobby daily cap) but three operator steps remain (merge to
   `main`, set repo secrets `APP_BASE_URL`/`CRON_SECRET`, set HostForge
   `CRON_SECRET` + restart); `cron_sync_last_ok` was still stale from
   2026-09-06 at the 2026-09-24 re-probe. Checklist:

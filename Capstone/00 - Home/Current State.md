@@ -113,7 +113,7 @@ last_verified: 2026-10-01
 
 The local server environment now has Gemini configured for receipt scanning **and, since 2026-08-25, all document scanning** (licences front/back, OR/CR, insurance — `tesseract.js` removed); the key remains ignored and server-only. **Still missing or intentionally unset:** `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, and a live `BOOKING_GATEWAY` configuration.
 
-Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (fail-closed). Scheduled compliance sync never runs **until the three cron operator steps land** (merge `.github/workflows/cron-sync.yml` to `main`, set repo secrets `APP_BASE_URL` + `CRON_SECRET`, set HostForge `CRON_SECRET` + restart) — the workflow and `vercel.json` were written 2026-09-24 but are not firing yet; heartbeat still 2026-09-06. See [[Environment Setup]] · [[Trip Start Window Notifications Implementation Plan]].
+Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (fail-closed). Scheduled compliance sync never runs **until the three cron operator steps land** (merge `.github/workflows/cron-sync.yml` to `main`, set repo secrets `APP_BASE_URL` + `CRON_SECRET`, set HostForge `CRON_SECRET` + restart) — the workflow was written 2026-09-24 but is not firing yet; heartbeat still 2026-09-06. `vercel.json`'s mirrored crons were **removed 2026-10-03**: Vercel Hobby only allows one cron run per day, so the `* * * * *` / `*/5 * * * *` schedules failed deployment; the GitHub workflow is the sole caller. See [[Environment Setup]] · [[Trip Start Window Notifications Implementation Plan]].
 
 ## Suggested next priorities
 

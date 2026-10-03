@@ -18,7 +18,7 @@ last_verified: 2026-09-19
 
 # Deployment Knowledge
 
-> **Mostly UNKNOWN.** There is no Dockerfile or deploy script; HostForge builds automatically from the repo. **Since 2026-09-24** the repo has `vercel.json` (cron paths, inert on HostForge) and `.github/workflows/cron-sync.yml` (external caller, pending operator steps). Mobile EAS configuration is committed; cloud account access remains deployment-specific.
+> **Mostly UNKNOWN.** There is no Dockerfile or deploy script; HostForge builds automatically from the repo. **Since 2026-09-24** the repo has `.github/workflows/cron-sync.yml` (external caller, pending operator steps); the `vercel.json` cron paths added the same day were **removed 2026-10-03** (Vercel Hobby caps cron at one run/day — the schedules failed deployment). Mobile EAS configuration is committed; cloud account access remains deployment-specific.
 
 ## HostForge deployment assessment — 2026-09-19
 
@@ -39,8 +39,9 @@ last_verified: 2026-09-19
 - **Cron stays external.** `/api/cron/sync` and `/api/cron/reconcile` need an
   outside scheduler calling the public URL with `CRON_SECRET`. **Wiring landed
   2026-09-24 (uncommitted):** `.github/workflows/cron-sync.yml` (`*/5 * * * *`
-  + 5×60s in-job loop ≈ 1/min, reconcile once per tick) and `vercel.json`
-  (same paths, inert on HostForge). **Not firing yet** — needs merge to
+  + 5×60s in-job loop ≈ 1/min, reconcile once per tick). The `vercel.json`
+  mirror added the same day was **removed 2026-10-03** (Vercel Hobby caps cron
+  at one run/day — the schedules failed deployment). **Not firing yet** — needs merge to
   `main`, repo secrets `APP_BASE_URL` + `CRON_SECRET`, and `CRON_SECRET` in
   HostForge env + restart. Heartbeat `cron_sync_last_ok` was still
   2026-09-06T04:30:43Z at the 2026-09-24 re-probe.
@@ -68,7 +69,7 @@ last_verified: 2026-09-19
 - Final recipe that fit the 2400s limit: own-Dockerfile mode (`Dockerfile`, Node 24, standalone ~150MB), probe `/api/health`, Database None (Supabase stays external), 18 env vars with `NEXT_PUBLIC_APP_URL` = `NEXTAUTH_URL` = the platform address.
 - Total failed attempts before green: 4 (missing build env → 2× timeout on the generated pipeline → 1828-error jsconfig build failure on the first own-Dockerfile attempt).
 - **Custom domain live (2026-09-20): `https://fleetopss.horecaos.net`** — verified + Secured in HostForge, `/` → FleetOps path-connected, `/api/health` answers `{"ok":true}` on the domain. Canonical URL switch: `NEXT_PUBLIC_APP_URL` = `NEXTAUTH_URL` = the custom domain, then rebuild (`NEXT_PUBLIC_*` are build-time). After the switch the platform address stops working properly in browsers (CORS allowlist = custom domain), so the custom domain must be used exclusively.
-- Still open after green: browser smoke test (health JSON → login → dashboard), **external cron for `/api/cron/sync` — workflow + vercel.json landed 2026-09-24 but the three operator steps (merge to main, set repo secrets, set HostForge `CRON_SECRET` + restart) are still required before it fires** (see Cron stays external above), secret rotation (several keys entered chat history during setup), mobile APK still points at the old Vercel backend URL (needs a rebuild against the HostForge URL if mobile moves over).
+- Still open after green: browser smoke test (health JSON → login → dashboard), **external cron for `/api/cron/sync` — workflow landed 2026-09-24 (`vercel.json` mirror removed 2026-10-03, Hobby cron cap) but the three operator steps (merge to main, set repo secrets, set HostForge `CRON_SECRET` + restart) are still required before it fires** (see Cron stays external above), secret rotation (several keys entered chat history during setup), mobile APK still points at the old Vercel backend URL (needs a rebuild against the HostForge URL if mobile moves over).
 
 ## What's UNKNOWN
 
