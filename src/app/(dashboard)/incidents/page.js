@@ -29,6 +29,7 @@ import { incidentTypeLabel, sortCandidateResponders } from "@/lib/incidents/reso
 import { ImageViewer } from "@/components/ui/image-viewer";
 import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { INCIDENT_SEVERITY_REASON_LABELS } from "../../../../shared/incidents/severity.js";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
   loading: () => (
@@ -43,6 +44,11 @@ const SEVERITY_VARIANT = {
   Moderate: "warning",
   Major: "warning",
   Critical: "danger",
+};
+const OVERRIDE_REASON_LABELS = {
+  situation_changed: "The situation changed",
+  answers_missed_context: "The driver missed context in the answers",
+  driver_judgment: "Driver judgment",
 };
 
 // Attribution for a resolved incident: a staff resolve carries a dashboard
@@ -720,6 +726,30 @@ export default function IncidentsPage() {
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Status</span><StatusBadge status={detailIncident.status || "Open"} entity="incident" /></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</span><span className="font-semibold text-foreground">{detailIncident.plate_number || (detailIncident.vehicle_id ? `#${detailIncident.vehicle_id}` : "Not attached")}</span></div>
                 </div>
+                {detailIncident.severity_assessment && (
+                  <div className="space-y-1 rounded-xl border border-border/70 bg-muted/20 px-3 py-2 text-xs">
+                    {detailIncident.severity_assessment.source === "sos" ? (
+                      <p className="font-semibold text-foreground">Direct SOS report · Critical</p>
+                    ) : (
+                      <>
+                        <p className="font-semibold text-foreground">
+                          Recommended: {detailIncident.severity_assessment.recommendedSeverity}
+                        </p>
+                        <p className="text-foreground-secondary">
+                          {INCIDENT_SEVERITY_REASON_LABELS[detailIncident.severity_assessment.reasonCode] || "Recommendation based on the driver's safety answers."}
+                        </p>
+                        {detailIncident.severity_assessment.source === "override" && (
+                          <p className="text-foreground-secondary">
+                            Driver selected {detailIncident.severity_assessment.finalSeverity}
+                            {detailIncident.severity_assessment.overrideReasonCode
+                              ? " · " + (OVERRIDE_REASON_LABELS[detailIncident.severity_assessment.overrideReasonCode] || "Driver override")
+                              : ""}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="grid gap-2 rounded-2xl border border-border/80 bg-surface p-3 text-xs sm:grid-cols-2">
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Reported</span><span className="font-medium text-foreground">{detailIncident.incident_date ? new Date(detailIncident.incident_date).toLocaleString("en-PH") : "—"}</span></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Received</span><span className="font-medium text-foreground">{detailIncident.created_at ? new Date(detailIncident.created_at).toLocaleString("en-PH") : "—"}</span></div>

@@ -21,7 +21,7 @@ import { useCoachMarkActions } from "../../../components/coachmarks";
 const FAQS = [
   {
     question: "What do I do in an emergency?",
-    answer: "Prioritize your safety first. If driving, pull over to a safe location. Use the 'Report Incident' button on the home screen, select 'Critical' severity, and optionally request Police or Medical assistance. This immediately notifies dispatch."
+    answer: "Prioritize your safety first. If driving, pull over to a safe location. Use SOS for an immediate emergency; it sends a direct Critical report. For other incidents, use Report Incident and answer the safety questions to get a severity recommendation. You can change the recommendation and give a reason. If someone needs emergency help now, call emergency services."
   },
   {
     question: "How do I report a vehicle issue?",

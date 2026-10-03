@@ -29,6 +29,11 @@ source:
   - src/app/api/driver/responder/location/route.js
   - src/app/api/driver/responder/arrived/route.js
   - src/lib/incidents/responder-tracking.js
+  - shared/incidents/severity.js
+  - src/lib/incidents/severity.test.js
+  - src/app/api/driver/incidents/route.test.js
+  - mobile/metro.config.js
+  - supabase/migrations/141_driverincident_severity_assessment.sql
   - mobile/lib/tracking.js
   - src/components/maps/incident-map.jsx
   - supabase/migrations/062_driverincidents_resolution_integrity.sql
@@ -42,6 +47,16 @@ last_verified: 2026-10-03
 ---
 
 # Feature: Incidents
+
+## Guided driver severity recommendation — implemented locally 2026-10-03
+
+The typed mobile report asks four coded safety/impact questions and shows a versioned recommendation with its reason. Drivers can select any of the four existing severity values; a changed value requires a short reason, and choosing below a Critical recommendation requires an explicit recheck of immediate danger. A typed Critical report opens a native confirmation dialog. The separate SOS sender still submits direct Critical and records SOS provenance.
+
+shared/incidents/severity.js is the single deterministic rule source for Expo and Next.js. An affirmative immediate-danger answer recommends Critical. An unsure immediate-danger answer, unsafe/uncertain vehicle, or yes/unsure road hazard recommends Major. A stopped or delayed trip without a stronger safety signal recommends Moderate. Otherwise it recommends Minor. Category, assistance chips, and free-text descriptions do not classify severity.
+
+The API recomputes recommendations, validates answer and reason codes, and stores the coded assessment in nullable driverincidents.severity_assessment (migration 141). Existing severity-only requests remain accepted with NULL provenance; no prior records were backfilled. Staff list/detail APIs expose the assessment, and the detail view shows recommendation basis and any driver override. Offline replay retains the complete assessment and existing submission ID. The old immediate-notification banner was replaced with accurate dispatch/SOS guidance; the driver help and tutorial copy were updated.
+
+Verification on 2026-10-03: shared classifier and route tests, plus offline replay tests passed; touched-source ESLint passed; Expo Android export passed; migration 141 applied, db:status reports 141 on-disk migrations applied / 0 pending / 0 changed, db:dump refreshed schema.sql, and db:contract reports 0 violations across 68 live relations. During final verification, the live database also exposed `system_health_snapshots`; its RLS is enabled with no anon policy, and `verify:anon` received an explicit refusal. `db:status` lists its ledger migration, `142_system_health_telemetry.sql`, as missing from disk; this unrelated source gap remains to be reconciled. Android/iOS screen-reader and device acceptance have not been performed. This implementation remains local application code; no app deployment occurred. See [[Incident Severity Guidance Implementation Plan]] for the exact rule table and acceptance boundary.
 
 ## What it does
 
@@ -103,7 +118,7 @@ Pure decision logic lives in `src/lib/incidents/resolution.js`, `src/lib/driver/
 
 An incident remains valid and visible in the registry when the driver's report-time GPS fix is unavailable. Both the typed report form and SOS attempt a foreground location read and continue submitting when permission is denied or the read fails. The API stores absent `latitude`/`longitude` as SQL `NULL` and does not substitute the driver's latest tracked position.
 
-The web resolver accepts a complete stored coordinate pair or coordinate text it can parse (decimal pair, Google Maps URL, or DMS); it does not geocode a human-readable place name. The incident registry therefore keeps the active report while the map omits its marker and reports it in the missing-GPS count. This is the expected state when the map says an active incident has no GPS fix. The typed form currently still says exact coordinates are automatically tagged even if capture fails, which can obscure this outcome to the driver. Do not derive an incident pin from a later driver fix or an unverified address.
+The web resolver accepts a complete stored coordinate pair or coordinate text it can parse (decimal pair, Google Maps URL, or DMS); it does not geocode a human-readable place name. The incident registry therefore keeps the active report while the map omits its marker and reports it in the missing-GPS count. This is the expected state when the map says an active incident has no GPS fix. The typed form now explains that coordinates are included only when location permission and a GPS fix are available. Do not derive an incident pin from a later driver fix or an unverified address.
 
 ## Known limits
 

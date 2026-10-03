@@ -301,6 +301,10 @@ export const TABLES = Object.freeze({
   },
 
   // --- tracking & monitoring ----------------------------------------------
+  system_health_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Application health snapshots containing subsystem status and operational counts.",
+  },
   gpstracking: {
     classification: CLASSIFICATION.PRIVATE,
     reason:

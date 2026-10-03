@@ -15,6 +15,7 @@ import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import { ensureIncidentMaintenance, notifyMaintenanceTeam } from "@/lib/incidents/maintenance";
 import { evaluateResponder } from "@/lib/incidents/responder-tracking";
 import { writeAudit } from "@/lib/audit";
+import { validateIncidentSeverityAssessment } from "../../../../../shared/incidents/severity.js";
 
 async function resolveDriver(employeeId) {
   const { rows } = await query(
@@ -130,7 +131,7 @@ export async function GET(req) {
 
     const { rows } = await query(
       `SELECT i.incident_id, i.vehicle_id, i.trip_id, i.incident_type, i.incident_date,
-              i.description, i.location, i.latitude, i.longitude, i.severity, i.status,
+              i.description, i.location, i.latitude, i.longitude, i.severity, i.severity_assessment, i.status,
               i.actions_taken, i.acknowledged_at, i.resolved_at, i.grounding_status,
               i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,
               i.created_at, v.plate_number,
@@ -206,7 +207,22 @@ export async function POST(req) {
 
     const incidentType = normalizeIncidentType(body.incident_type);
     if (!incidentType) return errValidation({ incident_type: "Incident type is required" });
+    if (
+      (body.severity_assessment != null || body.severity_source != null) &&
+      !INCIDENT_SEVERITIES.includes(body.severity)
+    ) {
+      return errValidation({ severity: "Choose a valid severity level" });
+    }
     const severity = INCIDENT_SEVERITIES.includes(body.severity) ? body.severity : "Minor";
+    const severityAssessmentResult = validateIncidentSeverityAssessment({
+      severity,
+      assessment: body.severity_assessment,
+      severitySource: body.severity_source,
+    });
+    if (!severityAssessmentResult.ok) {
+      return errValidation({ severity_assessment: severityAssessmentResult.error });
+    }
+    const severityAssessment = severityAssessmentResult.value;
 
     const assistanceNeeded = body.assistance_needed == null ? null : body.assistance_needed;
     if (
@@ -242,7 +258,7 @@ export async function POST(req) {
 
       const { rows: duplicate } = await query(
         `SELECT incident_id, incident_type, incident_date, description, location,
-                latitude, longitude, severity, status, created_at, vehicle_id,
+                latitude, longitude, severity, severity_assessment, status, created_at, vehicle_id,
                 assistance_needed, expense_amount, photo_urls, grounding_status,
                 requires_vehicle_maintenance, maintenance_id, maintenance_error
            FROM driverincidents
@@ -279,19 +295,19 @@ export async function POST(req) {
          (driver_id, vehicle_id, trip_id, incident_type, incident_date,
           description, location, latitude, longitude, severity, assistance_needed,
           medical_assistance_required, expense_amount, client_submission_id, photo_urls,
-          grounding_status, requires_vehicle_maintenance, due_at)
+          grounding_status, requires_vehicle_maintenance, due_at, severity_assessment)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
           CASE $10::varchar
             WHEN 'Critical' THEN NOW() + interval '2 hours'
             WHEN 'Major' THEN NOW() + interval '24 hours'
             WHEN 'Moderate' THEN NOW() + interval '72 hours'
             ELSE NOW() + interval '7 days'
-          END)
+          END, $18)
        ON CONFLICT (driver_id, client_submission_id)
          WHERE deleted_at IS NULL AND client_submission_id IS NOT NULL
        DO NOTHING
        RETURNING incident_id, incident_type, incident_date, description, location,
-                 latitude, longitude, severity, status, created_at, vehicle_id,
+                 latitude, longitude, severity, severity_assessment, status, created_at, vehicle_id,
                  assistance_needed, medical_assistance_required, expense_amount,
                  photo_urls, grounding_status, requires_vehicle_maintenance`,
       [
@@ -314,13 +330,14 @@ export async function POST(req) {
         photoRefs,
         groundingStatus,
         maintenanceRequired,
+        severityAssessment,
       ]
     );
 
     if (!rows[0] && clientSubmissionId) {
       const { rows: existing } = await query(
         `SELECT incident_id, incident_type, incident_date, description, location,
-                latitude, longitude, severity, status, created_at, vehicle_id,
+                latitude, longitude, severity, severity_assessment, status, created_at, vehicle_id,
                 assistance_needed, expense_amount, photo_urls, grounding_status,
                 requires_vehicle_maintenance, maintenance_id, maintenance_error
            FROM driverincidents
@@ -340,6 +357,7 @@ export async function POST(req) {
       newValues: {
         status: incident.status,
         severity: incident.severity,
+        severity_assessment: incident.severity_assessment,
         vehicle_id: incident.vehicle_id,
         trip_id: incident.trip_id,
       },

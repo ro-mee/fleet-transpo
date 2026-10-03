@@ -392,9 +392,17 @@ CREATE TABLE driverincidents (
   reopened_at timestamptz,
   responder_driver_id integer,
   responder_assigned_at timestamptz,
+  severity_assessment jsonb,
   CONSTRAINT chk_driverincidents_grounding_status CHECK (((grounding_status)::text = ANY ((ARRAY['Not Required'::character varying, 'Pending'::character varying, 'Complete'::character varying, 'Failed'::character varying])::text[]))),
   CONSTRAINT chk_driverincidents_response_status CHECK (((response_status IS NULL) OR ((response_status)::text = ANY ((ARRAY['Dispatched'::character varying, 'En Route'::character varying, 'Arrived'::character varying])::text[])))),
   CONSTRAINT chk_driverincidents_severity CHECK (((severity)::text = ANY ((ARRAY['Minor'::character varying, 'Moderate'::character varying, 'Major'::character varying, 'Critical'::character varying])::text[]))),
+  CONSTRAINT chk_driverincidents_severity_assessment CHECK (((severity_assessment IS NULL) OR ((jsonb_typeof(severity_assessment) = 'object'::text) AND ((severity_assessment ->> 'version'::text) = '1'::text) AND ((severity_assessment ->> 'finalSeverity'::text) = (severity)::text) AND ((severity_assessment ->> 'recommendedSeverity'::text) = ANY (ARRAY['Minor'::text, 'Moderate'::text, 'Major'::text, 'Critical'::text])) AND ((severity_assessment ->> 'finalSeverity'::text) = ANY (ARRAY['Minor'::text, 'Moderate'::text, 'Major'::text, 'Critical'::text])) AND ((severity_assessment ->> 'source'::text) = ANY (ARRAY['guided'::text, 'override'::text, 'sos'::text])) AND ((severity_assessment ->> 'reasonCode'::text) IS NOT NULL) AND ((severity_assessment ->> 'criticalConfirmed'::text) = ANY (ARRAY['true'::text, 'false'::text])) AND ((severity_assessment ->> 'lowerSeverityConfirmed'::text) = ANY (ARRAY['true'::text, 'false'::text])) AND (((severity_assessment ->> 'finalSeverity'::text) = 'Critical'::text) = ((severity_assessment ->> 'criticalConfirmed'::text) = 'true'::text)) AND ((((severity_assessment ->> 'recommendedSeverity'::text) = 'Critical'::text) AND ((severity_assessment ->> 'finalSeverity'::text) <> 'Critical'::text)) = ((severity_assessment ->> 'lowerSeverityConfirmed'::text) = 'true'::text)) AND
+CASE (severity_assessment ->> 'source'::text)
+    WHEN 'sos'::text THEN (((severity_assessment -> 'answers'::text) = 'null'::jsonb) AND ((severity_assessment ->> 'recommendedSeverity'::text) = 'Critical'::text) AND ((severity_assessment ->> 'finalSeverity'::text) = 'Critical'::text) AND ((severity_assessment ->> 'reasonCode'::text) = 'direct_sos'::text) AND ((severity_assessment -> 'overrideReasonCode'::text) = 'null'::jsonb))
+    WHEN 'guided'::text THEN ((jsonb_typeof((severity_assessment -> 'answers'::text)) = 'object'::text) AND ((severity_assessment -> 'answers'::text) ?& ARRAY['immediateDanger'::text, 'vehicleSafety'::text, 'tripImpact'::text, 'hazardToOthers'::text]) AND (((severity_assessment -> 'answers'::text) - ARRAY['immediateDanger'::text, 'vehicleSafety'::text, 'tripImpact'::text, 'hazardToOthers'::text]) = '{}'::jsonb) AND (((severity_assessment -> 'answers'::text) ->> 'immediateDanger'::text) = ANY (ARRAY['yes'::text, 'no'::text, 'unsure'::text])) AND (((severity_assessment -> 'answers'::text) ->> 'vehicleSafety'::text) = ANY (ARRAY['safe'::text, 'unsafe'::text, 'unsure'::text, 'not_applicable'::text])) AND (((severity_assessment -> 'answers'::text) ->> 'tripImpact'::text) = ANY (ARRAY['none'::text, 'delayed'::text, 'stopped'::text])) AND (((severity_assessment -> 'answers'::text) ->> 'hazardToOthers'::text) = ANY (ARRAY['yes'::text, 'no'::text, 'unsure'::text, 'not_applicable'::text])) AND ((severity_assessment ->> 'finalSeverity'::text) = (severity_assessment ->> 'recommendedSeverity'::text)) AND ((severity_assessment -> 'overrideReasonCode'::text) = 'null'::jsonb))
+    WHEN 'override'::text THEN ((jsonb_typeof((severity_assessment -> 'answers'::text)) = 'object'::text) AND ((severity_assessment -> 'answers'::text) ?& ARRAY['immediateDanger'::text, 'vehicleSafety'::text, 'tripImpact'::text, 'hazardToOthers'::text]) AND (((severity_assessment -> 'answers'::text) - ARRAY['immediateDanger'::text, 'vehicleSafety'::text, 'tripImpact'::text, 'hazardToOthers'::text]) = '{}'::jsonb) AND (((severity_assessment -> 'answers'::text) ->> 'immediateDanger'::text) = ANY (ARRAY['yes'::text, 'no'::text, 'unsure'::text])) AND (((severity_assessment -> 'answers'::text) ->> 'vehicleSafety'::text) = ANY (ARRAY['safe'::text, 'unsafe'::text, 'unsure'::text, 'not_applicable'::text])) AND (((severity_assessment -> 'answers'::text) ->> 'tripImpact'::text) = ANY (ARRAY['none'::text, 'delayed'::text, 'stopped'::text])) AND (((severity_assessment -> 'answers'::text) ->> 'hazardToOthers'::text) = ANY (ARRAY['yes'::text, 'no'::text, 'unsure'::text, 'not_applicable'::text])) AND ((severity_assessment ->> 'finalSeverity'::text) <> (severity_assessment ->> 'recommendedSeverity'::text)) AND ((severity_assessment ->> 'overrideReasonCode'::text) = ANY (ARRAY['situation_changed'::text, 'answers_missed_context'::text, 'driver_judgment'::text])))
+    ELSE NULL::boolean
+END))),
   CONSTRAINT chk_driverincidents_status CHECK (((status)::text = ANY ((ARRAY['Open'::character varying, 'Resolved'::character varying])::text[]))),
   CONSTRAINT driverincidents_pkey PRIMARY KEY (incident_id)
 );
@@ -925,6 +933,20 @@ CREATE TABLE substitute_vehicle_schedules (
   updated_by integer,
   CONSTRAINT chk_sub_interval CHECK (((effective_until IS NULL) OR (effective_until >= effective_from))),
   CONSTRAINT substitute_vehicle_schedules_pkey PRIMARY KEY (substitute_id)
+);
+
+CREATE TABLE system_health_snapshots (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  recorded_at timestamptz DEFAULT now() NOT NULL,
+  overall_status text NOT NULL,
+  availability_pct numeric(5,2) DEFAULT 100.00 NOT NULL,
+  db_latency_ms integer DEFAULT 0 NOT NULL,
+  app_errors_count integer DEFAULT 0 NOT NULL,
+  active_incidents_count integer DEFAULT 0 NOT NULL,
+  subsystems jsonb DEFAULT '{}'::jsonb NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT system_health_snapshots_overall_status_check CHECK ((overall_status = ANY (ARRAY['operational'::text, 'attention'::text, 'degraded'::text, 'unknown'::text]))),
+  CONSTRAINT system_health_snapshots_pkey PRIMARY KEY (id)
 );
 
 CREATE TABLE system_settings (
@@ -1479,6 +1501,7 @@ CREATE INDEX idx_routes_origin_loc ON public.routes USING btree (origin_location
 CREATE INDEX idx_sub_driver ON public.substitute_vehicle_schedules USING btree (substitute_driver_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_history ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_range ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from, effective_until);
+CREATE INDEX idx_system_health_snapshots_recorded_at ON public.system_health_snapshots USING btree (recorded_at DESC);
 CREATE INDEX idx_tracking_time ON public.gpstracking USING btree (recorded_at);
 CREATE INDEX idx_tracking_trip ON public.gpstracking USING btree (trip_id);
 CREATE INDEX idx_tracking_vehicle ON public.gpstracking USING btree (vehicle_id);
