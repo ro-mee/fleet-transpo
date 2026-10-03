@@ -512,8 +512,9 @@ comment, which this does not duplicate); no scheduler was configured, and
 producer was therefore correct code that never executed — the trip start-window
 producer included, dead in the same silent way since 2026-09-09.
 `.github/workflows/cron-sync.yml` is now that caller (`*/5 * * * *` with a 5×60s
-in-job loop for an effective ~1/min, one `/api/cron/reconcile` per tick;
-`vercel.json` mirrors both paths), and it unblocks the start-window producer
+in-job loop for an effective ~1/min, one `/api/cron/reconcile` per tick; its
+`vercel.json` mirror was removed 2026-10-03 — Vercel Hobby caps cron at one
+run/day, so the schedules failed deployment), and it unblocks the start-window producer
 too. Honest limits, all accepted for a capstone: GitHub's schedule is **queued,
 not punctual** and can be skipped on a busy minute; it runs **only on the default
 branch**; and GitHub **disables scheduled workflows after 60 days without
