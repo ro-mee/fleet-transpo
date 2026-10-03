@@ -113,7 +113,7 @@ export async function writeDefenseSeed(db, plan, assets) {
       insurance_expiry: v.insuranceExpiry, registration_expiry: v.registrationExpiry,
       vehicle_status: v.key === "V10" ? "Under Maintenance" : "Available",
       tank_capacity_l: v.tankLiters, fuel_efficiency_kmpl: v.kmPerLiter,
-      required_license_class: v.seats >= 6 ? "B1" : "B", service_interval_km: 10000,
+      required_license_class: v.seats > 8 ? "B1" : "B", service_interval_km: 10000,
       next_service_mileage: v.initialOdometer + (v.key === "V06" ? 300 : 3000),
       next_service_date: v.key === "V06" ? "2026-10-25" : "2027-03-01",
       image_url: publicMediaUrl(asset(`${v.key}_PHOTO`)),
