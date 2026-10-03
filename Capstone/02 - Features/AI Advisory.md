@@ -11,11 +11,17 @@ source:
   - src/lib/dispatch/narration-guards.js
   - src/lib/dispatch/clause-polarity.js
   - resources/ai/instructions.md
-last_verified: 2026-09-24
+last_verified: 2026-10-03
 related: ["[[Dispatch]]", "[[AI Architecture]]"]
 ---
 
 # Feature: AI Advisory
+
+## Copilot license / substitute exclusion — 2026-10-03 (source diagnosis)
+
+The message `License class does not cover this vehicle (requires B1). No substitute driver is assigned to this vehicle for 2026-10-03.` is composed by `resolveVehiclePairing()` in `src/lib/ai/pair-scoring.js`; it is deterministic server evidence, not model narration. The active designated driver fails `evaluateDriverLicenseEligibility()` for the vehicle's recorded required class, so the shared pairing rule treats that driver as unavailable. If `substitute_vehicle_schedules` has no row covering this vehicle and pickup date, the vehicle is withheld and the exclusion includes both reasons. Dispatch Copilot deliberately does not choose an unrelated free driver: the replacement must already be explicitly scheduled for that vehicle and date.
+
+This source trace explains what the message means but does not confirm the live vehicle or driver records for the user's case; no request ID was supplied and no database rows were read. To check whether a result is stale after a record change, reanalyze the request and inspect the vehicle's required license class, its active designated pairing, and substitute schedule coverage for the pickup date. No application behavior changed and no tests were run.
 
 ## RS-UZYD policy gaps: shift/break answers, single GPS story, service due date — 2026-10-02
 
