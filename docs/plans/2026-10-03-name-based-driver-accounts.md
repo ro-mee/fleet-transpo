@@ -97,3 +97,7 @@ This plan does not change the database, employee emails, passwords, sessions, or
 ## Applied result (2026-10-03)
 
 The user approved the mapping. The guarded plan returned digest `30ba8fdd6a3e1e60`; apply changed only employee IDs 123–132, preserved all password hashes, bumped `auth_version`, revoked only those accounts' sessions/devices, and saved `scratch/defense-name-accounts-backup.json` (gitignored). `seed:defense:accounts:name:verify` reports `state=applied`, matching digest, zero pending targets, and no errors. The live defense status and contamination checks pass with exactly 10 active driver accounts and zero active old driver or unassigned accounts. The original approval-boundary text above describes the pre-apply state; this section is the post-apply record.
+
+## Direct-address follow-up (2026-10-03, planned)
+
+The user subsequently requested removing the plus-alias prefixes for D04–D10, with `nico.bautista@gmail.com` for D04. The read-only `seed:defense:accounts:direct:plan` resolves all seven live names to standalone Gmail addresses and reports no database collision (digest `f47056ee98204aaf`). A separate guarded workflow was prepared in `scripts/defense-seed/direct-driver-emails.mjs`. It is not applied: none of the seven proposed inboxes is recorded in local `OTP_FIX_*` ownership configuration, and direct addresses can receive login OTPs independently of the three supplied inboxes. The existing aliases remain the current live logins until all seven inboxes are confirmed as controlled.

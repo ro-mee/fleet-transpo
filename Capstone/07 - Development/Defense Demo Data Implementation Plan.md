@@ -104,7 +104,6 @@ At the user's request, `npm run seed:defense:storage:plan` enumerated exact live
 
 Read-only post-cleanup plan returned zero old Storage objects, zero old image references, and all 86 defense assets. During final verification, a separate newly created `QA-CODEX` request 605 and events 899/900 caused the contamination check to fail. A live FK review found only those two events; the previously authorized test-data cleanup removed the exact QA request and events in one guarded transaction. Final `seed:defense:status` returned `complete` with no issues, `seed:defense:verify:contamination` passed with zero outside business rows across all 26 monitored tables, and reports again reflected exactly 45 requests and 30 completed historical trips. The Storage backup is sensitive and remains local, outside Git.
 
-\r\n
 
 ## 2026-10-03 name-based driver login plan
 
@@ -121,5 +120,9 @@ The guarded account rotation applied digest `30ba8fdd6a3e1e60` to employee IDs 1
 ## 2026-10-03 staggered defense schedules applied
 
 The live D01–D10 schedules now use the shared work-shift policy generator. Digest `d2c2720ca4433521` updated 54 existing schedule rows in place, preserving schedule IDs and refreshing the defense ledger snapshots. Rest days rotate across Sunday–Saturday by driver index; lunch windows rotate across 11:30–12:30, 12:00–13:00, 12:30–13:30, and 13:00–14:00. All working days remain 06:00–22:00. `seed:defense:status`, `seed:defense:verify`, and `seed:defense:verify:contamination` passed after the update.
-\r\n
-\r\n
+
+## 2026-10-03 direct Gmail remap requested for D04–D10
+
+The user requested standalone name-based Gmail addresses, beginning with D04 `nico.bautista@gmail.com`, instead of the current plus aliases. `npm run seed:defense:accounts:direct:plan` is read-only and returned digest `f47056ee98204aaf` with seven exact defense-owned employee rows and no database email collisions. The planned addresses are `nico.bautista`, `rafael.mendoza`, `gabriel.navarro`, `luis.villanueva`, `carlos.garcia`, `joaquin.ramos`, and `emilio.torres`, each at `gmail.com`. D01–D03 are outside this second rotation.
+
+The guarded apply requires the current digest and explicit confirmation that all seven standalone inboxes are controlled, because login OTP goes to each address. None of the seven appears in the local `OTP_FIX_*` ownership record. The live emails have **not** been changed. The new command snapshots the exact rows, revokes only affected sessions/devices, preserves password hashes, writes required audit events, updates defense ledger snapshots in the same transaction, and provides read-only verify plus guarded rollback.
