@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { bagSummary, queuePresentation } from "@/lib/dispatch/queue-presentation";
 import { formatTime, cn } from "@/lib/utils";
 import {
   Calendar,
@@ -133,92 +135,6 @@ export function getDerivedTags(r) {
   return tags;
 }
 
-function getStatusPill(r, bucket) {
-  // Interrupted commitment (incident/leave) outranks Copilot's proposal bucket:
-  // the dispatcher must re-pick a pair before anything else matters.
-  if (r.dispatch_status === "Pending Reassignment") {
-    return {
-      label: "Needs reassignment",
-      className:
-        "bg-red-100/90 dark:bg-red-950/60 text-red-900 dark:text-red-200 border border-red-500/30",
-    };
-  }
-  // If Copilot has evaluated a proposal, prioritize that assessment
-  if (bucket === "Ready for confirmation") {
-    return {
-      label: "Ready",
-      className:
-        "bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-    };
-  }
-  if (bucket === "Review required") {
-    return {
-      label: "Needs review",
-      className:
-        "bg-amber-100/90 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-500/20",
-    };
-  }
-  if (bucket === "Blocked") {
-    return {
-      label: "Blocked",
-      className:
-        "bg-red-100/90 dark:bg-red-950/60 text-red-900 dark:text-red-200 border border-red-500/20",
-    };
-  }
-  if (bucket === "Needs verification") {
-    return {
-      label: "Needs review",
-      className:
-        "bg-amber-100/90 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-500/20",
-    };
-  }
-  if (bucket === "Waiting for preceding request") {
-    return {
-      label: "Waiting",
-      className:
-        "bg-purple-100/90 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 border border-purple-500/20",
-    };
-  }
-
-  // Fallback to lifecycle state
-  const status = r.fleet_status;
-  if (status === "Assigned") {
-    return {
-      label: "Assigned",
-      className:
-        "bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-    };
-  }
-  if (status === "Completed") {
-    return {
-      label: "Completed",
-      className:
-        "bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-    };
-  }
-  if (status === "In Progress") {
-    return {
-      label: "In Progress",
-      className:
-        "bg-blue-100/90 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 border border-blue-500/20",
-    };
-  }
-  if (status === "Cancelled") {
-    return {
-      label: "Cancelled",
-      className:
-        "bg-muted/70 dark:bg-muted/40 text-foreground-secondary border border-border/40",
-    };
-  }
-
-  // Pending / Scheduled (Unassigned)
-  return {
-    label: "Unassigned",
-    className:
-      "bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-  };
-}
-
 function PillTag({ tag }) {
   if (tag.type === "vip") {
     return (
@@ -280,12 +196,12 @@ export function ReservationQueueTable({
           const isSelected = Number(selectedId) === Number(r.request_id);
           const proposal = getProposal ? getProposal(r.request_id) : null;
           const bucket = proposal && bucketProposal ? bucketProposal(proposal) : null;
-          const statusPill = getStatusPill(r, bucket);
+          const { label, status, entity } = queuePresentation(r, bucket);
           const metrics = formatTripMetrics(r);
           const tags = getDerivedTags(r);
           const category = getCategoryInfo(r);
           const pax = Number(r.passenger_count) || 1;
-          const bags = r.luggage_count != null ? r.luggage_count : pax;
+          const bags = bagSummary(r);
 
           return (
             <div
@@ -303,7 +219,7 @@ export function ReservationQueueTable({
               className={cn(
                 "group p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs",
                 isSelected
-                  ? "border-emerald-600/50 bg-emerald-500/5 dark:bg-emerald-950/20 ring-1 ring-emerald-600/30 shadow-xs"
+                  ? "border-primary/50 bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30 shadow-xs"
                   : "border-border/80 hover:border-border hover:shadow-xs"
               )}
             >
@@ -319,14 +235,12 @@ export function ReservationQueueTable({
                     </span>
                   )}
                 </div>
-                <span
-                  className={cn(
-                    "px-3 py-0.5 rounded-full text-xs font-semibold select-none shrink-0",
-                    statusPill.className
-                  )}
-                >
-                  {statusPill.label}
-                </span>
+                <StatusBadge
+                  status={status}
+                  entity={entity}
+                  label={label}
+                  className="shrink-0 select-none"
+                />
               </div>
 
               {/* Guest Details */}
@@ -338,7 +252,7 @@ export function ReservationQueueTable({
                   </span>
                 </div>
                 <p className="text-xs text-foreground-secondary pl-5">
-                  {pax} {pax === 1 ? "guest" : "guests"} · {bags} {bags === 1 ? "bag" : "bags"}
+                  {pax} {pax === 1 ? "guest" : "guests"} · {bags}
                 </p>
               </div>
 
@@ -399,12 +313,12 @@ export function ReservationQueueTable({
         const isSelected = Number(selectedId) === Number(r.request_id);
         const proposal = getProposal ? getProposal(r.request_id) : null;
         const bucket = proposal && bucketProposal ? bucketProposal(proposal) : null;
-        const statusPill = getStatusPill(r, bucket);
+        const { label, status, entity } = queuePresentation(r, bucket);
         const metrics = formatTripMetrics(r);
         const tags = getDerivedTags(r);
         const category = getCategoryInfo(r);
         const pax = Number(r.passenger_count) || 1;
-        const bags = r.luggage_count != null ? r.luggage_count : pax;
+        const bags = bagSummary(r);
 
         return (
           <div
@@ -422,7 +336,7 @@ export function ReservationQueueTable({
             className={cn(
               "group p-3.5 sm:p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs relative",
               isSelected
-                ? "border-emerald-600/50 bg-emerald-500/5 dark:bg-emerald-950/20 ring-1 ring-emerald-600/30 shadow-xs"
+                ? "border-primary/50 bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30 shadow-xs"
                 : "border-border/80 hover:border-border hover:shadow-xs"
             )}
           >
@@ -433,7 +347,7 @@ export function ReservationQueueTable({
                 className={cn(
                   "w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all",
                   isSelected
-                    ? "bg-emerald-800 dark:bg-emerald-700 text-white"
+                    ? "bg-primary text-surface"
                     : "border-2 border-border/90 bg-surface group-hover:border-primary/50"
                 )}
                 aria-hidden="true"
@@ -462,7 +376,7 @@ export function ReservationQueueTable({
                 <div className="flex items-center gap-1 text-xs text-foreground-secondary pl-5">
                   <span>{pax} {pax === 1 ? "guest" : "guests"}</span>
                   <span className="text-foreground-muted">|</span>
-                  <span>{bags} {bags === 1 ? "bag" : "bags"}</span>
+                  <span>{bags}</span>
                 </div>
               </div>
             </div>
@@ -507,14 +421,12 @@ export function ReservationQueueTable({
               </div>
 
               {/* Status Pill */}
-              <span
-                className={cn(
-                  "px-3 py-1 rounded-full text-xs font-semibold select-none",
-                  statusPill.className
-                )}
-              >
-                {statusPill.label}
-              </span>
+              <StatusBadge
+                status={status}
+                entity={entity}
+                label={label}
+                className="shrink-0 select-none"
+              />
 
               {/* Chevron */}
               <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" />

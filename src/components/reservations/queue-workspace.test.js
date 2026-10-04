@@ -268,3 +268,23 @@ describe("CopilotConversation per-reservation isolated session memory", () => {
     expect(getReservationMessages(500)).toHaveLength(0);
   });
 });
+
+import { queuePresentation } from "@/lib/dispatch/queue-presentation";
+import { statusVariant } from "@/components/ui/status-badge";
+
+describe("queue presentation StatusBadge tones", () => {
+  it("keeps unevaluated requests neutral instead of showing healthy green", () => {
+    const badge = queuePresentation({ fleet_status: "Scheduled" }, "Not evaluated");
+    expect(statusVariant(badge.status, badge.entity)).toBe("secondary");
+  });
+
+  it("keeps verified ready and missing evidence visibly distinct", () => {
+    const ready = queuePresentation({ fleet_status: "Scheduled" }, "Ready for confirmation");
+    const verification = queuePresentation({ fleet_status: "Scheduled" }, "Needs verification");
+
+    expect(ready.label).toBe("Ready");
+    expect(statusVariant(ready.status, ready.entity)).toBe("success");
+    expect(verification.label).toBe("Needs verification");
+    expect(statusVariant(verification.status, verification.entity)).toBe("warning");
+  });
+});
