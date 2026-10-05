@@ -12,7 +12,7 @@ import { rolesFor, can, AUTHENTICATED_ROLES, NAV_ROLES, getRequiredRolesForPath 
 import { assertTripOwnership, assertDispatchOwnership, resolveDriverScope } from '@/lib/api/ownership';
 import { ROLES } from '@/lib/constants';
 
-const ALL_ROLES = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.FLEET_MANAGER, ROLES.DISPATCHER, ROLES.DRIVER, ROLES.MANAGEMENT];
+const ALL_ROLES = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.FLEET_MANAGER, ROLES.DISPATCHER, ROLES.DRIVER, ROLES.MANAGEMENT, ROLES.MECHANIC];
 
 const sessionFor = (role, driverId = null) => ({ user: { role, driverId, employeeId: 1 } });
 

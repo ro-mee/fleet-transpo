@@ -39,8 +39,9 @@ A hotel receives guest transportation requests. Someone must decide *which vehic
 | `driver` | 4 | `/driver` | Own trips only; primary user of the mobile app |
 | `management` | 7 | `/dashboard` | Read + analytics; explicitly denied lifecycle verbs |
 | `admin` | 9 | `/dashboard` | Admin operations |
+| `mechanic` | 10 | `/mechanic` | Assigned repairs, findings and handover (registered in code 2026-10-06; live `roles` row from Task 1) |
 
-Six roles. See [[RBAC]] — and note [[DOC rbac-model Says 9 Roles]], because the "authoritative" doc disagrees.
+Seven roles. See [[RBAC]] — and note [[DOC rbac-model Says 9 Roles]], because the "authoritative" doc disagrees.
 
 ## Major business processes — CONFIRMED
 
@@ -62,7 +63,7 @@ See [[Driver Management]], [[Dispatch]] and [[Trips]].
 
 | Client | Stack | Auth | Users |
 |---|---|---|---|
-| Web dashboard | Next.js 16.2.11 App Router, React 19.2.4 | NextAuth v4 cookie/JWT | 5 staff roles |
+| Web dashboard | Next.js 16.2.11 App Router, React 19.2.4 | NextAuth v4 cookie/JWT | 6 staff roles |
 | Mobile | Expo SDK ~54, expo-router ~6 | Separate bearer JWT; no local biometric app lock | drivers only |
 
 Two independent auth systems by design. See [[Authentication]]. The mobile client restores its locally stored session and relies on its driver-session guard plus server-side session validation; the optional local biometric app lock was removed on 2026-09-27. This reduces protection on unattended signed-in devices. Driver face-photo and attendance verification are separate and unchanged.

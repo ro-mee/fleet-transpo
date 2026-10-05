@@ -20,6 +20,7 @@ const KNOWN_ROLES = [
   ROLES.DISPATCHER,
   ROLES.DRIVER,
   ROLES.MANAGEMENT,
+  ROLES.MECHANIC,
 ];
 
 export const AUTHENTICATED_ROLES = [...KNOWN_ROLES];
@@ -89,6 +90,10 @@ export const NAV_ROLES = {
   "/settings/profile": AUTHENTICATED_ROLES,
   "/settings/security": AUTHENTICATED_ROLES,
   "/settings/security-center": ["super_admin"],
+  "/mechanic": ["mechanic"],
+  "/mechanic/work-orders": ["mechanic"],
+  "/mechanic/problems": ["mechanic"],
+  "/mechanic/history": ["mechanic"],
 };
 
 export function hasRole(employee, roleOrRoles) {
@@ -321,6 +326,17 @@ const MATRIX = {
     fuelallocations: { read: true },
     scheduled_reports: { read: true },
     employees: { read: false },
+    system: { read: false, update: false },
+  },
+  mechanic: {
+    vehicles: { read: true },
+    incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },
+    maintenance: { read: true, update: true },
+    predictive_maintenance: { read: true },
+    notifications: { read: true, update: true, delete: true },
+    device_tokens: { create: true, delete: true },
+    search: { read: true },
+    employees: { read: true },
     system: { read: false, update: false },
   },
 };

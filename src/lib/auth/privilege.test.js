@@ -62,6 +62,12 @@ describe("SA-RBAC provisioning hierarchy", () => {
     expect(canAssignRole("super_admin", ROLE_IDS.driver)).toBe(false);
     expect(canAssignRole("admin", ROLE_IDS.driver)).toBe(false);
   });
+
+  it("super_admin and admin can create mechanic; fleet_manager assigns nothing", () => {
+    expect(canAssignRole("super_admin", ROLE_IDS.mechanic)).toBe(true);
+    expect(canAssignRole("admin", ROLE_IDS.mechanic)).toBe(true);
+    expect(canAssignRole("fleet_manager", ROLE_IDS.mechanic)).toBe(false);
+  });
 });
 
 describe("SA-RBAC target protection", () => {

@@ -52,7 +52,7 @@ describe("security boundaries", () => {
       "super_admin", "admin", "fleet_manager", "dispatcher", "management",
     ]);
     expect(rolesFor("notifications", "read")).toEqual([
-      "super_admin", "admin", "fleet_manager", "dispatcher", "driver", "management",
+      "super_admin", "admin", "fleet_manager", "dispatcher", "driver", "management", "mechanic",
     ]);
   });
 

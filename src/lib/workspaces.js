@@ -311,9 +311,29 @@ export const WORKS = {
       },
     ],
   },
+  mechanic: {
+    name: "Mechanic Workshop",
+    tagline: "Assigned repairs, findings and handover.",
+    accent: "warning",
+    home: "/mechanic",
+    nav: [
+      ...overview("/mechanic", "My Line", LayoutDashboard),
+      { label: "Maintenance", items: [
+        { href: "/mechanic/work-orders", label: "My Work Orders", icon: Wrench },
+        { href: "/mechanic/problems", label: "Problem Queue", icon: AlertTriangle },
+        { href: "/mechanic/history", label: "History", icon: ClipboardList },
+      ]},
+      { label: "Account", items: [
+        { href: "/settings/profile", label: "Profile", icon: UserCog },
+      ]},
+    ],
+  },
 };
 
 export function getWorkspace(role) {
   const normalized = normalizeRoleName(role);
-  return WORKS[normalized] || WORKS.admin;
+  if (WORKS[normalized]) return WORKS[normalized];
+  return { name: "No Access", tagline: "Contact your administrator.", accent: "neutral",
+    home: "/settings/profile",
+    nav: [{ label: "Account", items: [{ href: "/settings/profile", label: "Profile", icon: UserCog }] }] };
 }

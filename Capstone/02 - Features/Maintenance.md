@@ -318,6 +318,18 @@ Note for anyone rendering inspection severity: `vehicleinspection.severity` carr
 
 **Fixed the same day.** The heading now reads **“Vehicle Health Predictions (N)”**, and a filtered view reads `(N of total)` so an empty filter cannot be mistaken for an empty fleet. Engine, KPI band and scoring are untouched, and the reported default-view zero was never reproduced (the endpoint returns 21 predictions: 19 unscheduled, 2 scheduled/healthy). Full evidence: [[Manual Functional Testing Follow-up Audit]].
 
+## Mechanic role — auth registry (Task 2, 2026-10-06)
+
+The seventh role (`mechanic`, id 10 — live `roles` row from Task 1) is now registered across the six places that must move together. Fail-closed: explicit grants only, every other resource denies by omission.
+
+- `src/lib/constants.js` — `ROLES.MECHANIC`, `ROLE_IDS.mechanic = 10`, `REGISTRATION_ROLES` entry, `MAINTENANCE_STATUS.PENDING_INSPECTION` (the string the route and UI already used), and seven `work_*` notification events (push on / email off; `work_approved` in_app-only).
+- `src/lib/auth/privilege.js` — id→name map, `SUPER_ADMIN_ASSIGNABLE` + `ADMIN_ASSIGNABLE` gain `mechanic` (fleet_manager assigns nothing), `KNOWN_ROLES` gains `mechanic`.
+- `src/lib/auth/permissions.js` — `MATRIX.mechanic` (vehicles/read, incidents/read-only with explicit `acknowledge/resolve/route_to_maintenance: false`, maintenance read+update, predictive_maintenance/read, notifications read/update/delete, device_tokens create/delete, search/read, employees/read, system deny) and four `/mechanic/*` NAV_ROLES keys.
+- `src/lib/workspaces.js` — `WORKS.mechanic` ("Mechanic Workshop", home `/mechanic`); `getWorkspace` fallback changed from fail-open (`WORKS.admin`) to least-privilege "No Access" → `/settings/profile`.
+- Dashboard — `mechanic` config (`layout: shift-strip/up-next/queue/side-rail`, `queries: [mechanicSummary]`, consumed by Task 6) and `/dashboard` → `/mechanic` redirect.
+
+**Verified.** TDD: new `privilege.test.js` case failed RED (`ROLE_IDS.mechanic` undefined) then GREEN. Full targeted run **6 files / 75 tests green**; `npm run verify:auth` 294/294, `npm run db:check` PASS. Two pre-existing 6-role pins updated to the new contract (`security-boundaries.test.js` notifications/read list, `rbac-idor.security.test.js` ALL_ROLES). `no-legacy-role.security.test.js` still fails on two audit test files' `system_admin` strings — proven pre-existing on clean HEAD, untouched by this task.
+
 ## Database tables used
 
 `vehiclemaintenance` · `vehicles` (odometer) · `notifications`

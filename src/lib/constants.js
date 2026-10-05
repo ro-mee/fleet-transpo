@@ -8,6 +8,7 @@ export const ROLES = {
   DRIVER: "driver",
   MANAGEMENT: "management",
   SUPER_ADMIN: "super_admin",
+  MECHANIC: "mechanic",
 };
 
 export const ROLE_IDS = {
@@ -17,6 +18,7 @@ export const ROLE_IDS = {
   driver: 4,
   management: 7,
   admin: 9,
+  mechanic: 10,
 };
 
 export const REGISTRATION_ROLES = [
@@ -26,6 +28,7 @@ export const REGISTRATION_ROLES = [
   { id: 4, name: "Driver", value: "driver" },
   { id: 7, name: "Management", value: "management" },
   { id: 9, name: "FleetOps Admin", value: "admin" },
+  { id: 10, name: "Mechanic", value: "mechanic" },
 ];
 
 export const VEHICLE_STATUS = {
@@ -192,6 +195,7 @@ export const MAINTENANCE_TYPE = {
 export const MAINTENANCE_STATUS = {
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In Progress",
+  PENDING_INSPECTION: "Pending Inspection",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
@@ -281,6 +285,37 @@ export const NOTIFICATION_EVENTS = {
   new_sign_in: {
     label: "New Sign-In",
     defaults: { in_app: true, email: true, push: true },
+  },
+  // Mechanic work-order lifecycle events (mechanic workspace). Channel
+  // defaults follow the trip_start_window precedent — push on, email off —
+  // except work_approved, which is in_app-only like trip_completed.
+  work_assigned: {
+    label: "Work Assigned",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  work_reassigned: {
+    label: "Work Reassigned",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  work_urgent: {
+    label: "Urgent Work",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  work_returned: {
+    label: "Work Returned",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  work_updated: {
+    label: "Work Updated",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  work_ready: {
+    label: "Work Ready",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  work_approved: {
+    label: "Work Approved",
+    defaults: { in_app: true, email: false, push: false },
   },
 };
 
