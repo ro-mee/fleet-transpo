@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { PUT } from "./route";
+import { PUT, GET } from "./route";
 import * as db from "@/lib/db";
 import { AuthError } from "@/lib/api/utils";
 import * as utils from "@/lib/api/utils";
@@ -586,5 +586,133 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect((await res.json()).error).toContain("Completed maintenance records are read-only.");
 
     expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"))).toBeUndefined();
+  });
+});
+
+// Task 4b — scoped single-record GET with timeline/evidence columns. The detail
+// page needs these; the summary shape never carried them, so it rendered
+// "Not recorded". Mechanic reads own rows only (fail closed); staff keep a
+// read-only superset.
+describe("GET /api/vehicle-maintenance/[id] scoped single-record read (Task 4b)", () => {
+  const EVIDENCE_ROW = (over = {}) => ({
+    maintenance_id: 11,
+    vehicle_id: 1,
+    maintenance_type: "Brake Repair",
+    maintenance_date: "2026-10-01",
+    completed_date: "2026-10-04",
+    status: "Pending Inspection",
+    priority: "High",
+    cost: "1500",
+    service_provider: "Shop",
+    service_center: "Center",
+    mileage_at_service: "10000",
+    description: "worn pads",
+    remarks: "r1",
+    created_at: "2026-10-01T00:00:00.000Z",
+    source_incident_id: null,
+    source_inspection_id: 42,
+    assigned_mechanic_id: 77,
+    assigned_at: "2026-10-01T08:00:00.000Z",
+    repair_started_at: "2026-10-02T08:00:00.000Z",
+    repair_completed_at: "2026-10-03T08:00:00.000Z",
+    repair_completed_by: 77,
+    diagnosis: "worn pads, scored rotor",
+    parts_replaced: ["pad set", "rotor"],
+    labor_hours: "2.5",
+    rejection_reason: null,
+    manager_approved_by: null,
+    manager_approved_at: null,
+    completed_by: null,
+    completed_at: null,
+    vehicles: { plate_number: "ABC 1", vehicle_name: "Van 1" },
+    ...over,
+  });
+
+  function mockGetRequest(role = "mechanic", employeeId = 77) {
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({
+      user: { role, employeeId },
+    });
+    return {};
+  }
+
+  function stubGetRow(rowOrNull) {
+    vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("FROM vehiclemaintenance")) {
+        return { rows: rowOrNull ? [rowOrNull] : [] };
+      }
+      return { rows: [] };
+    });
+  }
+
+  const EVIDENCE_KEYS = [
+    "assigned_at",
+    "repair_started_at",
+    "repair_completed_at",
+    "repair_completed_by",
+    "diagnosis",
+    "parts_replaced",
+    "labor_hours",
+    "rejection_reason",
+    "completed_date",
+  ];
+
+  it("mechanic 77 GET own assigned WO → 200 with the 9 evidence keys, lean vehicle", async () => {
+    stubGetRow(EVIDENCE_ROW());
+    const res = await GET(mockGetRequest("mechanic", 77), {
+      params: Promise.resolve({ id: "11" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    for (const key of EVIDENCE_KEYS) {
+      expect(body, `missing evidence key ${key}`).toHaveProperty(key);
+    }
+    expect(Array.isArray(body.parts_replaced)).toBe(true);
+    expect(body.vehicles).toEqual({ plate_number: "ABC 1", vehicle_name: "Van 1" });
+    expect(JSON.stringify(body)).not.toContain("purchase_price");
+    expect(JSON.stringify(body)).not.toContain("image_url");
+  });
+
+  it("mechanic 77 GET another mechanic's WO (assigned 78) → 403", async () => {
+    stubGetRow(EVIDENCE_ROW({ assigned_mechanic_id: 78 }));
+    const res = await GET(mockGetRequest("mechanic", 77), {
+      params: Promise.resolve({ id: "12" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("mechanic 77 GET unassigned WO → 403", async () => {
+    stubGetRow(EVIDENCE_ROW({ assigned_mechanic_id: null }));
+    const res = await GET(mockGetRequest("mechanic", 77), {
+      params: Promise.resolve({ id: "13" }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("mechanic 77 GET missing WO → 404", async () => {
+    stubGetRow(null);
+    const res = await GET(mockGetRequest("mechanic", 77), {
+      params: Promise.resolve({ id: "9999" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("staff (fleet_manager) GET any WO → 200 with the same evidence keys", async () => {
+    stubGetRow(EVIDENCE_ROW({ assigned_mechanic_id: 78 }));
+    const res = await GET(mockGetRequest("fleet_manager", 888), {
+      params: Promise.resolve({ id: "12" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    for (const key of EVIDENCE_KEYS) {
+      expect(body, `missing evidence key ${key}`).toHaveProperty(key);
+    }
+  });
+
+  it("GET with a non-positive id → 400", async () => {
+    stubGetRow(EVIDENCE_ROW());
+    const res = await GET(mockGetRequest("fleet_manager", 888), {
+      params: Promise.resolve({ id: "abc" }),
+    });
+    expect(res.status).toBe(400);
   });
 });

@@ -29,9 +29,15 @@ const LINE_ORDER = `ORDER BY
      CASE vm.priority WHEN 'Emergency' THEN 0 WHEN 'High' THEN 1 ELSE 2 END,
      vm.maintenance_date ASC`;
 
+// Task 4b: queue/upNext rows carry the same 9 timeline/evidence keys as the
+// register lean projection (plus source_inspection_id so Task 6 links problems
+// both ways). Read-only superset; no new mutation surface.
 const SUMMARY_ROW_SELECT = `
   vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
-  vm.status, vm.priority, vm.diagnosis,
+  vm.completed_date, vm.status, vm.priority, vm.diagnosis,
+  vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
+  vm.assigned_at, vm.repair_started_at, vm.repair_completed_at, vm.repair_completed_by,
+  vm.source_inspection_id,
   ROUND(EXTRACT(EPOCH FROM (NOW() - COALESCE(vm.repair_started_at, vm.assigned_at, vm.created_at))) / 60)::int AS "ageMinutes",
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
@@ -68,9 +74,18 @@ function shapeWorkOrder(r) {
     vehicle_id: r.vehicle_id,
     maintenance_type: r.maintenance_type,
     maintenance_date: r.maintenance_date,
+    completed_date: r.completed_date ?? null,
     status: r.status,
     priority: r.priority,
     diagnosis: r.diagnosis ?? null,
+    parts_replaced: r.parts_replaced ?? null,
+    labor_hours: r.labor_hours ?? null,
+    rejection_reason: r.rejection_reason ?? null,
+    assigned_at: r.assigned_at ?? null,
+    repair_started_at: r.repair_started_at ?? null,
+    repair_completed_at: r.repair_completed_at ?? null,
+    repair_completed_by: r.repair_completed_by ?? null,
+    source_inspection_id: r.source_inspection_id ?? null,
     ageMinutes: r.ageMinutes != null ? Number(r.ageMinutes) : null,
     vehicle: r.vehicle ?? null,
   };

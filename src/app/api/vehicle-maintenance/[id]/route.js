@@ -85,6 +85,44 @@ const MECHANIC_WRITABLE = new Set(["status", "description", "remarks", "mileage_
   "service_provider", "service_center", "technician_name", "service_center_name", "notes",
   "diagnosis", "parts_replaced", "labor_hours"]);
 
+// Task 4b — scoped single-record read for the Task 6 detail page. Mechanic
+// reads own rows only (fail closed: unassigned NULL rows match nobody); staff
+// keep a read-only superset. Cost IS included: staff need it, and a mechanic
+// seeing cost on their own work order is acceptable — the PUT whitelist (not
+// reads) is what prevents mechanic cost edits. Lean by construction: only the
+// columns below, never vm.* / row_to_json(v.*), and the vehicle object carries
+// plate_number + vehicle_name only (never purchase_price / image_url).
+export async function GET(req, { params }) {
+  try {
+    const session = await requirePermission(req, "maintenance", "read");
+    const id = (await params).id;
+    const numericId = Number.parseInt(id, 10);
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      return err("Maintenance id must be a positive integer", 400);
+    }
+    const { rows } = await query(
+      `SELECT vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
+         vm.completed_date, vm.status, vm.priority, vm.cost, vm.service_provider,
+         vm.service_center, vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
+         vm.source_incident_id, vm.source_inspection_id,
+         vm.assigned_mechanic_id, vm.assigned_at, vm.repair_started_at,
+         vm.repair_completed_at, vm.repair_completed_by, vm.diagnosis,
+         vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
+         vm.manager_approved_by, vm.manager_approved_at, vm.completed_by, vm.completed_at,
+         CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
+           json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
+         END AS vehicles
+       FROM vehiclemaintenance vm LEFT JOIN vehicles v ON vm.vehicle_id = v.vehicle_id
+       WHERE vm.maintenance_id = $1 AND vm.deleted_at IS NULL`,
+      [numericId]
+    );
+    if (!rows[0]) return err("Maintenance record not found", 404);
+    if (normalizeRoleName(session.user.role) === "mechanic" &&
+      Number(rows[0].assigned_mechanic_id) !== Number(session.user.employeeId)) return err("Forbidden", 403);
+    return ok(rows[0]);
+  } catch (e) { return handleError(e); }
+}
+
 export async function PUT(req, { params }) {
   try {
     const session = await requirePermission(req, "maintenance", "update");

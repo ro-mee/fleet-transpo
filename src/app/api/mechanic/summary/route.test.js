@@ -12,14 +12,35 @@ import { GET } from "./route";
 
 const req = (url = "http://test/api/mechanic/summary") => new Request(url);
 
+const EVIDENCE_KEYS = [
+  "assigned_at",
+  "repair_started_at",
+  "repair_completed_at",
+  "repair_completed_by",
+  "diagnosis",
+  "parts_replaced",
+  "labor_hours",
+  "rejection_reason",
+  "completed_date",
+];
+
 const WO = (over = {}) => ({
   maintenance_id: 5,
   vehicle_id: 1,
   maintenance_type: "Brake Repair",
   maintenance_date: "2026-10-03",
+  completed_date: null,
   status: "In Progress",
   priority: "High",
   diagnosis: "worn pads",
+  parts_replaced: ["pad set"],
+  labor_hours: "1.5",
+  rejection_reason: null,
+  assigned_at: "2026-10-03T08:00:00.000Z",
+  repair_started_at: "2026-10-03T09:00:00.000Z",
+  repair_completed_at: null,
+  repair_completed_by: null,
+  source_inspection_id: 42,
   ageMinutes: 90,
   vehicle: { plate_number: "ABC 1234", vehicle_name: "HiAce" },
   ...over,
@@ -78,10 +99,28 @@ describe("GET /api/mechanic/summary (Task 4)", () => {
     expect(body.upNext).toEqual(body.queue[0]);
     for (const row of [body.upNext, ...body.queue]) {
       expect(Object.keys(row).sort()).toEqual([
-        "ageMinutes", "diagnosis", "maintenance_date", "maintenance_id",
-        "maintenance_type", "priority", "status", "vehicle", "vehicle_id",
+        "ageMinutes", "assigned_at", "completed_date", "diagnosis",
+        "labor_hours", "maintenance_date", "maintenance_id",
+        "maintenance_type", "parts_replaced", "priority",
+        "rejection_reason", "repair_completed_at", "repair_completed_by",
+        "repair_started_at", "source_inspection_id",
+        "status", "vehicle", "vehicle_id",
       ]);
+      for (const key of EVIDENCE_KEYS) {
+        expect(row, `summary row missing ${key}`).toHaveProperty(key);
+      }
+      expect(Array.isArray(row.parts_replaced)).toBe(true);
       expect(Object.keys(row.vehicle).sort()).toEqual(["plate_number", "vehicle_name"]);
+    }
+    // Task 4b: the queue SQL carries the evidence columns so the rows above
+    // are real projections, not JS defaults. (Counts SQL also reads
+    // vehiclemaintenance but projects aggregates only — excluded here.)
+    for (const [sql] of query.mock.calls) {
+      if (!String(sql).includes("maintenance_id")) continue;
+      for (const key of EVIDENCE_KEYS) {
+        expect(String(sql)).toContain(key);
+      }
+      expect(String(sql)).toContain("source_inspection_id");
     }
     expect(body.upNext).toMatchObject({
       maintenance_id: 5,

@@ -154,12 +154,24 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
     vi.clearAllMocks();
   });
 
+  const EVIDENCE_KEYS = [
+    "assigned_at",
+    "repair_started_at",
+    "repair_completed_at",
+    "repair_completed_by",
+    "diagnosis",
+    "parts_replaced",
+    "labor_hours",
+    "rejection_reason",
+    "completed_date",
+  ];
+
   const WO_ROW = (over = {}) => ({
     maintenance_id: 11,
     vehicle_id: 1,
     maintenance_type: "Brake Repair",
     maintenance_date: "2026-10-01",
-    completed_date: null,
+    completed_date: "2026-10-04",
     status: "Scheduled",
     priority: "High",
     cost: "1500",
@@ -170,7 +182,16 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
     remarks: "r1",
     created_at: "2026-10-01T00:00:00.000Z",
     source_incident_id: null,
+    source_inspection_id: 42,
     assigned_mechanic_id: 77,
+    assigned_at: "2026-10-01T08:00:00.000Z",
+    repair_started_at: "2026-10-02T08:00:00.000Z",
+    repair_completed_at: null,
+    repair_completed_by: null,
+    diagnosis: "worn pads",
+    parts_replaced: ["pad set"],
+    labor_hours: "1.5",
+    rejection_reason: null,
     purchase_price: "500000",
     image_url: "http://img/1.jpg",
     vehicles: { plate_number: "ABC 1", vehicle_name: "Van 1", purchase_price: "500000", image_url: "http://img/1.jpg" },
@@ -204,6 +225,10 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
           for (const [k, v] of Object.entries(r)) {
             if (k === "purchase_price" || k === "image_url") continue;
             if (k === "assigned_mechanic_id" && !selectsAssignment) continue;
+            // Task 4b: evidence columns only reach the row when the lean
+            // projection selects them — exactly as Postgres would.
+            if (EVIDENCE_KEYS.includes(k) && !sql.includes(`vm.${k}`)) continue;
+            if (k === "source_inspection_id" && !sql.includes("vm.source_inspection_id")) continue;
             if (k === "vehicles") {
               out.vehicles = { plate_number: v.plate_number, vehicle_name: v.vehicle_name };
               continue;
@@ -287,5 +312,46 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
     }
     const countsCall = mechQuerySpy.mock.calls.find((c) => c[0].includes("total_cost"));
     expect(countsCall[1]).toBeUndefined();
+  });
+
+  it("Task 4b: mechanic lean rows carry the 9 evidence keys + source_inspection_id", async () => {
+    stubMaintenanceGet();
+    const res = await GET(getReq("http://test/api/vehicle-maintenance?page=1&pageSize=10"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rows.length).toBeGreaterThan(0);
+    for (const row of body.rows) {
+      for (const key of EVIDENCE_KEYS) {
+        expect(row, `mechanic row missing ${key}`).toHaveProperty(key);
+      }
+      expect(row).toHaveProperty("source_inspection_id");
+      expect(Array.isArray(row.parts_replaced)).toBe(true);
+    }
+    for (const sql of listSqls()) {
+      for (const key of EVIDENCE_KEYS) {
+        expect(sql).toContain(`vm.${key}`);
+      }
+      expect(sql).toContain("vm.source_inspection_id");
+    }
+  });
+
+  it("Task 4b: staff lean rows carry the same evidence superset (still no assigned_mechanic_id)", async () => {
+    stubMaintenanceGet();
+    const res = await GET(getReq("http://test/api/vehicle-maintenance?page=1&pageSize=10", "fleet_manager", 888));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rows).toHaveLength(3);
+    for (const row of body.rows) {
+      for (const key of EVIDENCE_KEYS) {
+        expect(row, `staff row missing ${key}`).toHaveProperty(key);
+      }
+      expect(row).toHaveProperty("source_inspection_id");
+    }
+    for (const sql of listSqls()) {
+      expect(sql).not.toContain("assigned_mechanic_id");
+      for (const key of EVIDENCE_KEYS) {
+        expect(sql).toContain(`vm.${key}`);
+      }
+    }
   });
 });

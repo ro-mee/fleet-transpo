@@ -41,11 +41,19 @@ const FIELD_TO_COLUMN = {
 
 // Lean projection for the paginated register. Only the columns the maintenance
 // page renders + the detail dialog needs, instead of `vm.*` + `row_to_json(v.*)`.
+// Task 4b adds the 9 timeline/evidence keys (assigned_at, repair_started_at,
+// repair_completed_at, repair_completed_by, diagnosis, parts_replaced,
+// labor_hours, rejection_reason, completed_date — completed_date was already
+// here) plus source_inspection_id, so the Task 6 detail page renders real
+// timeline/dots instead of "Not recorded". Mechanic AND staff rows carry the
+// same superset (read-only; no new mutation surface).
 const MT_LIST_SELECT = `
   vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
   vm.completed_date, vm.status, vm.priority, vm.cost, vm.service_provider,
   vm.service_center, vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
-  vm.source_incident_id,
+  vm.source_incident_id, vm.source_inspection_id,
+  vm.assigned_at, vm.repair_started_at, vm.repair_completed_at, vm.repair_completed_by,
+  vm.diagnosis, vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
   END AS vehicles
