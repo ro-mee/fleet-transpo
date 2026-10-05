@@ -432,6 +432,13 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Migration ledger — the name and checksum of every migration.",
   },
+  system_health_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "System health telemetry snapshots (availability, latency, error/incident counts). Operational internals with no per-user audience.",
+    rlsNote:
+      "Surfaced 2026-10-06 when the mechanic-workspace dump closed artifact lag (table created live by ledger-missing 142, never dumped or classified). Measured live: RLS enabled, zero policies, grants to postgres + service_role only — no anon/authenticated grants. `npm run verify:anon` returns an explicit 401.",
+  },
 });
 
 /**
