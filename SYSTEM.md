@@ -583,12 +583,16 @@ It is a **single-organization** system (branch/multi-tenant concepts were remove
 
 | App | Location | Tech | Audience |
 |---|---|---|---|
-| Web dashboard | `src/` | Next.js 16 (App Router) + React 19 | Admin, fleet managers, dispatchers, drivers, management |
+| Web dashboard | `src/` | Next.js 16 (App Router) + React 19 | Admin, fleet managers, dispatchers, drivers, management, mechanics |
 | Mobile app | `mobile/` | Expo SDK 54 / React Native 0.81 (Expo Router) | Drivers |
 
 **Scope:** FleetOps is strictly **fleet & transportation**. The three hospitality
 roles (`reception_staff`, `restaurant_staff`, `concierge`) were **removed**
-(migration `022_remove_front_desk_roles.sql`). Six roles remain. Each role is a
+(migration `022_remove_front_desk_roles.sql`), and a seventh role,
+`mechanic` (id 10, migration 143, 2026-10-06), was added for the
+**Mechanic Workshop** — an assignee-scoped web-only workspace (`/mechanic`)
+serving Today's Line queue, work-order evidence, and handover; mechanics
+cannot approve completion. Seven roles remain. Each role is a
 distinct **workspace** (identity, tagline, accent, home, role-specific nav)
 driven by `src/lib/workspaces.js` (`WORKS[role]`, `getWorkspace(role)`); role
 dashboards render through `src/components/dashboard/role-dashboard.jsx` +

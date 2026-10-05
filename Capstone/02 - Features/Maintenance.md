@@ -348,64 +348,88 @@ Note for anyone rendering inspection severity: `vehicleinspection.severity` carr
 
 **Fixed the same day.** The heading now reads **“Vehicle Health Predictions (N)”**, and a filtered view reads `(N of total)` so an empty filter cannot be mistaken for an empty fleet. Engine, KPI band and scoring are untouched, and the reported default-view zero was never reproduced (the endpoint returns 21 predictions: 19 unscheduled, 2 scheduled/healthy). Full evidence: [[Manual Functional Testing Follow-up Audit]].
 
-## Mechanic role — auth registry (Task 2, 2026-10-06)
+## Mechanic workshop — shipped 2026-10-06 (Tasks 1–7)
 
-The seventh role (`mechanic`, id 10 — live `roles` row from Task 1) is now registered across the six places that must move together. Fail-closed: explicit grants only, every other resource denies by omission.
+The seventh role (`mechanic`, id 10) works an assignee-scoped web-only queue.
+Registry detail lives in [[RBAC]]; PUT-guard detail under "State Machine &
+Completion Audit" above; the seven notification titles in [[Notifications]].
 
-- `src/lib/constants.js` — `ROLES.MECHANIC`, `ROLE_IDS.mechanic = 10`, `REGISTRATION_ROLES` entry, `MAINTENANCE_STATUS.PENDING_INSPECTION` (the string the route and UI already used), and seven `work_*` notification events (push on / email off; `work_approved` in_app-only).
-- `src/lib/auth/privilege.js` — id→name map, `SUPER_ADMIN_ASSIGNABLE` + `ADMIN_ASSIGNABLE` gain `mechanic` (fleet_manager assigns nothing), `KNOWN_ROLES` gains `mechanic`.
-- `src/lib/auth/permissions.js` — `MATRIX.mechanic` (vehicles/read, incidents/read-only with explicit `acknowledge/resolve/route_to_maintenance: false`, maintenance read+update, predictive_maintenance/read, notifications read/update/delete, device_tokens create/delete, search/read, employees/read, system deny) and four `/mechanic/*` NAV_ROLES keys.
-- `src/lib/workspaces.js` — `WORKS.mechanic` ("Mechanic Workshop", home `/mechanic`); `getWorkspace` fallback changed from fail-open (`WORKS.admin`) to least-privilege "No Access" → `/settings/profile`.
-- Dashboard — `mechanic` config (`layout: shift-strip/up-next/queue/side-rail`, `queries: [mechanicSummary]`, consumed by Task 6) and `/dashboard` → `/mechanic` redirect.
+- **Role row + assignment columns (Task 1, migration 143).**
+  `roles (10, 'mechanic')` plus 7 columns on `vehiclemaintenance`:
+  `assigned_mechanic_id INT REFERENCES employees(employee_id)`,
+  `assigned_at`, `repair_started_at`, `diagnosis TEXT`,
+  `parts_replaced JSONB DEFAULT '[]'`, `labor_hours NUMERIC(8,2)`,
+  `rejection_reason TEXT`, with partial index `idx_vm_assigned_mechanic`
+  (`WHERE deleted_at IS NULL`). No new table, so no RLS/grant change
+  (`db:contract` clean for `vehiclemaintenance`).
+- **Registry (Task 2).** `ROLE_IDS.mechanic = 10`, `WORKS.mechanic`
+  ("Mechanic Workshop", home `/mechanic`), `MATRIX.mechanic` (explicit grants
+  only — vehicles/read, maintenance read+update, incidents read-only,
+  notifications read/update/delete, device_tokens, search, employees/read,
+  system deny), four `/mechanic/*` NAV keys, `/dashboard` → `/mechanic`
+  redirect, `MAINTENANCE_STATUS.PENDING_INSPECTION`, seven `work_*`
+  notification events. super_admin and admin assign mechanic; fleet_manager
+  assigns nothing; driver accounts stay in the Drivers Directory.
+  Unknown-role fallback is least-privilege "No Access", not the old admin
+  workspace.
+- **Per-role transition maps (Task 3 + human rulings C1–C3).** Mechanic:
+  `Scheduled → In Progress → Pending Inspection` only (no completion, no
+  skips). Staff: `Scheduled → In Progress/Cancelled/Completed`,
+  `In Progress → Pending Inspection/Completed`,
+  `Pending Inspection → Completed/In Progress`; `Completed`/`Cancelled` carry
+  empty edge lists. Rulings: staff keep the direct `Scheduled → Completed`
+  edge for externally-completed work (Test 7 pins it); `Completed` and
+  `Cancelled` rows are full-row frozen — any PUT without `deleted_at` 409s
+  and only a staff archive passes (amended Test 6 + Test 23 pin it, including
+  the `""` bypass); `Cancelled` is terminal like `Completed`.
+- **Return-for-rework loop.** `Pending Inspection → In Progress` is a
+  rejection and requires a non-empty `rejection_reason` (400 otherwise); the
+  assignee is paged ("Maintenance Returned for Rework").
+- **Stamps.** Staff assigning `assigned_mechanic_id` get `assigned_at = NOW()`
+  (client values stripped); `Scheduled → In Progress` sets `repair_started_at`
+  once (never overwritten); entering `Pending Inspection` stamps
+  `repair_completed_by/at` — the four-eyes key (the completer cannot approve
+  their own work: 403).
+- **Scoped reads (Task 4).** Mechanic list/counts carry
+  `AND vm.assigned_mechanic_id = $n` (paginated and non-paginated, lean
+  projection + own id; staff SQL byte-identical); the problem queue gains an
+  `EXISTS` on the linked live WO (a problem with no live linked order is
+  invisible to a mechanic); `GET /api/mechanic/summary` serves counts +
+  ordered queue (`upNext` = `queue[0]`, actionable Scheduled/In Progress only)
+  + latest 8 notifications + `upcoming: []`. Non-mechanic → 403.
+- **Single-record GET (Task 4b).** `GET /api/vehicle-maintenance/[id]`
+  (mechanic 403 unless assignee; staff read-only superset; lean columns incl.
+  cost + `source_inspection_id`; vehicle = plate + name only). List and
+  summary projections carry the same evidence keys, so queue, up-next and
+  detail agree.
+- **Workshop UI (Task 6, web-only).** `/mechanic` (Today's Line),
+  `/mechanic/work-orders`, `/mechanic/work-orders/[id]`,
+  `/mechanic/problems` (read-only, no raise button — `maintenance:create` is
+  FM-only), `/mechanic/history` (Completed/Cancelled, cost display-only).
+  Hero shows Start / Mark Ready only — Approve/Complete have no
+  representation; mutating actions disable below 1024px with the desktop
+  reason. Task 7 polish: queue rows drop `shadow-xs`, problem chips reuse
+  `StatusBadge` tones, the parts dot never falls back to `labor_hours`.
+- **Demo seed (Task 7).** `scripts/seed-mechanic-demo.mjs`
+  (`seed:mechanic:plan/up/down`, ledger `seed:mechanic-demo` — the same
+  ledger-in-`system_settings` mechanism as `seed-demo.mjs`, under a separate
+  key because the phase4 ledger is already planted live): employee 134
+  (`mechanic.demo@fleetops.test`, role 10) + WOs 80 (Scheduled), 81
+  (In Progress, started, diagnosed), 82 (Pending Inspection,
+  `repair_completed_by` = 134 with parts + labor — the four-eyes demo path),
+  on vehicles 130/131/132 (DMM-4201/2/3).
 
-**Verified.** TDD: new `privilege.test.js` case failed RED (`ROLE_IDS.mechanic` undefined) then GREEN. Full targeted run **6 files / 75 tests green**; `npm run verify:auth` 294/294, `npm run db:check` PASS. Two pre-existing 6-role pins updated to the new contract (`security-boundaries.test.js` notifications/read list, `rbac-idor.security.test.js` ALL_ROLES). `no-legacy-role.security.test.js` still fails on two audit test files' `system_admin` strings — proven pre-existing on clean HEAD, untouched by this task.
-
-## Mechanic scoped reads + Today's Line summary (Task 4, 2026-10-06)
-
-Reads are assignee-scoped: a mechanic sees only their own rows through lean projections, and `GET /api/mechanic/summary` serves the Today's Line payload Task 6 renders verbatim. No notify code (Task 5) and no validator changes (reads don't validate).
-
-- `GET /api/vehicle-maintenance` — the mechanic branch appends `AND vm.assigned_mechanic_id = $n` (fail closed; unassigned `NULL` rows match nobody) and always takes the lean branch (`MT_LIST_SELECT` + `vm.assigned_mechanic_id`, via the `mtLeanListSQL` helper shared by both branches — never `vm.*` + `row_to_json(v.*)`, which leaks `purchase_price`, `image_url` and the full vehicle row). Paginated mechanic counts are scoped with the same WHERE; staff list/count SQL is byte-identical.
-- Problem queue — `listVehicleProblems({ limit, offset, assignedMechanicId })` / `countProblemCounts({ assignedMechanicId })`; when set, both statements gain `AND EXISTS (SELECT 1 FROM vehiclemaintenance vm WHERE vm.source_inspection_id = i.inspection_id AND vm.assigned_mechanic_id = $n AND vm.deleted_at IS NULL)`. The base WHEREs were parenthesised (no semantic change) so the AND binds the whole bucket predicate rather than parsing as `A OR (B AND EXISTS)`. The problems route passes the key for mechanics only; staff calls are unchanged. A problem with no live linked order is invisible to a mechanic.
-- `GET /api/mechanic/summary` (mechanic-only; non-mechanic → 403) — one scoped counts query (`assigned`; `inProgress`; `waitingApproval` = Pending Inspection finished by me; `urgent` = High/Emergency × Scheduled/In Progress; `overdue` = Scheduled/In Progress with `maintenance_date < CURRENT_DATE`), the action queue (Scheduled/In Progress, Emergency/High first then oldest, max 10; `upNext` is `queue[0]`, `null` when empty), the latest 8 notifications, and `upcoming: []` (no clean server-side predictive getter exists — the only reader is the client fetch wrapper `getPredictiveMaintenance` — so no predictor was built). Row shape: `{ maintenance_id, vehicle_id, maintenance_type, maintenance_date, status, priority, diagnosis, ageMinutes, vehicle: { plate_number, vehicle_name } }`, `ageMinutes` from `COALESCE(repair_started_at, assigned_at, created_at)`.
-- **Decision for Task 6 to confirm:** the brief fixes the upNext ordering but not its candidate set, so upNext draws from the same actionable set as the queue (Scheduled/In Progress) — a Pending Inspection row awaits the manager and Completed/Cancelled are terminal, so neither is "up next" on a Today's Line.
-
-**Verified.** TDD RED (2 maintenance scoping + 2 problems scoping failures, summary suite unloads: route missing; 11 pre-existing green) then GREEN (**4 files / 37 tests**, adjacent `[id]` suite 29/29 unbroken). Full run **3548 passed / 7 failed**, and the same 7 fail on clean HEAD (proven via `git stash`: auth-session throttle, no-legacy-role, schema-contract, upload-storage, standby ×2, driver-assignments) — unrelated to this task. `npm run verify:auth` **295/295** (was 294). No migration touched.
-
-## Mechanic notification fan-out (Task 5, 2026-10-06)
-
-Post-commit, best-effort fan-out on every PUT lifecycle event in `src/app/api/vehicle-maintenance/[id]/route.js`. Guards from Task 3 untouched (only the before-row SELECT gained `priority, vehicle_id, maintenance_date` and the transaction return gained the before-values the triggers compare against).
-
-- `src/lib/notifications/copy.js` — 7 functions with the brief's exact titles (`Maintenance Work Assigned`, `Maintenance Reassignment` — distinct title is load-bearing against the `(employee, title, reference)` dedupe — `Urgent Maintenance Assigned`, `Maintenance Returned for Rework`, `Assigned Maintenance Updated`, `Maintenance Ready for Inspection`, `Maintenance Work Approved`).
-- `src/lib/notifications/target.js` — `MECHANIC_ROUTES` + mechanic branch (`mechanic_maintenance` → `/mechanic/work-orders/:id`, consumed by Task 6); mechanic rows are written as `mechanic_maintenance` so staff taps keep resolving to `/fleet/vehicles/:id`. `presentation.js` HAS a per-type map, so `mechanic_maintenance` got the same Maintenance chip.
-- Fan-out table: newly assigned → Assigned (assignee); X→Y → Reassigned to **both**; priority → High/Emergency on assigned WO → Urgent split (assignee = `mechanic_maintenance`, `route_to_maintenance` staff = `maintenance`, both `Alert`); → Pending Inspection **by mechanic actor only** → Ready (staff, `maintenance`); Pending Inspection → In Progress → Returned (assignee); → Completed → Approved (assignee) + existing `vehicleRepaired` to the reporter; vehicle/date change or archive on assigned WO → Updated (assignee).
-- Inspection-sourced reporter lookup: `vehicleinspection.driver_id → drivers → employees`, same join shape as the incident path; row points at the WO (`maintenance`, WO id — no client route addresses an inspection row, so the driver tap falls back to mark-read). Neither source resolving → silent skip. Failures go to `writeAppError` (replacing the old `console.warn`); the PUT never fails on notify.
-
-**Verified.** TDD RED (29 `fn is not a function`) then GREEN (`copy.test.js` **184/184**; adjacent vehicle-maintenance + notifications suites **230/230**, Task 3 guard tests unbroken; notification-adjacent sweep **135/135**). `npm run verify:auth` **295/295**. No migration touched.
-
-## Mechanic Workshop UI — Today's Line + work-order detail (Task 6, 2026-10-06)
-
-Web-only Workshop, UI files only (`src/app/(dashboard)/mechanic/*`, `src/components/mechanic/*`). No API/contract/migration changes; `STAFF_ROUTES.maintenance` untouched. Shell needed no wiring: root `layout.js` wraps everything in `DashboardLayout`, `WORKS.mechanic` + four `/mechanic/*` NAV_ROLES keys already existed, and `getRequiredRolesForPath` prefix-matches `/mechanic/work-orders/[id]` to mechanic-only.
-
-- Pages: `/mechanic` (single `GET /api/mechanic/summary` fetch, sections in config order shift-strip → up-next → queue → side-rail), `/mechanic/work-orders` (paginated scoped list + status chips), `/mechanic/work-orders/[id]` (row resolved from the scoped list — `[id]/route.js` is PUT-only, so ownership stays server-enforced and foreign ids render not-found), `/mechanic/problems` (read-only, WO chips, no raise button — `maintenance:create` is FM-only), `/mechanic/history` (Completed/Cancelled, cost read-only display).
-- Components: `shift-strip`, `hero-job-card` (Start / Mark Ready only — Approve/Complete have no representation), `job-queue`, `side-rail` (lean fields only, attention deep-links via `getNotificationHref(..., "mechanic")`, whisper read-only), `work-order-detail` (timeline, evidence form, sticky action bar). `mechanic-actions.js` pins the whitelist/transitions/2000-char cap in code; `use-is-desktop.js` disables mutating actions below 1024px with the desktop reason instead of hiding them.
-- App copy is EN, so the clear-line EmptyState reads "The line is clear" (not the brief's TL suggestion — the brief defers to the maintenance page's language).
-- **Known gap (follow-up, not a workaround):** the lean projection carries no `assigned_at` / `repair_started_at` / `repair_completed_at` stamps and no current `diagnosis` / `parts_replaced` / `labor_hours`, and there is no scoped single-record GET. The timeline therefore shows "Not recorded" where a stamp is absent (never a guessed timestamp), the evidence form opens blank for entry, and history parts cells read "Not recorded". A scoped single-record read (or projection extension) is the follow-up; Task 7 seeds against these pages as-is.
-
-**Verified.** TDD RED (4 files, modules missing) then GREEN (`src/components/mechanic` **16/16**). `npm run verify:auth` **295/295** (no new API methods). ESLint clean on both new dirs. Full suite **3592 passed / 7 failed**, same 7 fail on clean HEAD (proven via `git stash -u`: auth-session, no-legacy-role, schema-contract, upload-storage, standby ×2, driver-assignments).
-
-## Mechanic scoped single-record read + evidence columns (Task 4b, 2026-10-06)
-
-Plan-gap follow-up: Task 4 scoped the list reads but the Task 6 detail page (`work-order-detail.jsx` timeline + evidence form, history parts cells) needs a single-record read with timeline/evidence columns, which no endpoint served — the UI honestly renders "Not recorded" today. Step 1 finding: **no GET existed on `[id]`** (only `PUT`), so one was added; PUT is byte-untouched.
-
-- `GET /api/vehicle-maintenance/[id]` — `requirePermission(req, "maintenance", "read")`, positive-int id → 400 otherwise, single-row lean SELECT (the brief's exact column list incl. `cost` + `source_inspection_id`, `vehicles` = plate_number + vehicle_name only), 404 when missing/deleted, mechanic 403 unless `assigned_mechanic_id` equals own employee id (fail closed, `NULL` matches nobody), staff read-only superset. Cost is included deliberately (staff need it; the PUT whitelist, not reads, blocks mechanic cost edits — stated in a code comment).
-- `MT_LIST_SELECT` (shared by `MT_MECHANIC_SELECT`) gains the 8 missing evidence keys + `source_inspection_id` (`completed_date` was already there); staff rows carry the same superset, still without `assigned_mechanic_id`. `SUMMARY_ROW_SELECT` + `shapeWorkOrder` gain the same 9 keys + `source_inspection_id` so `queue`/`upNext` agree with the detail page.
-- Lean discipline kept: no `vm.*`, no `row_to_json(v.*)`, no `purchase_price` / `image_url` anywhere on the mechanic path.
-
-**Verified.** TDD RED (3 files / 9 failed: 6× `GET is not a function`, 2× list evidence absent, 1× summary shape) then GREEN (**3 files / 41 passed**). `npm run verify:auth` **295 → 296 PASS** (+1 method, guarded). No guard, transition, whitelist, migration, or UI file touched.
+**Verified.** Mechanic suites: `[id]` PUT 21/21, scoped reads 37/37,
+single-record GET 41/41, copy/target 187/187, workshop UI 16/16.
+`verify:auth` 296/296 (294 pre-branch: + scoped summary GET, + record GET).
+Full suite: only the 7 pre-existing baseline failures (proven via `git stash`
+on the clean tree each time — rate-limit LEAST regex, secrets timeout,
+no-legacy-role allowlist, upload-storage regex, standby ×2,
+driver-assignments 500).
 
 ## Database tables used
 
-`vehiclemaintenance` · `vehicles` (odometer) · `notifications`
+`vehiclemaintenance` · `vehicles` (odometer) · `notifications` · `employees` (assignee link, recipients) · `system_settings` (seed ledgers only)
 
 ## Related
 

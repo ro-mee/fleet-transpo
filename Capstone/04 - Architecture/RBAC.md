@@ -11,9 +11,10 @@ last_verified: 2026-09-23
 
 # RBAC
 
-Role-based access control, **entirely in application code**. Six roles.
+Role-based access control, **entirely in application code**. Seven roles
+(the six below plus `mechanic`, registered 2026-10-06).
 
-## The six roles — CONFIRMED (live `roles` table, 2026-09-01; canonical rename P1 2026-09-22)
+## The seven roles — CONFIRMED (live `roles` table, 2026-09-01; canonical rename P1 2026-09-22; `mechanic` row id 10 added by migration 143, 2026-10-06)
 
 | id | name | Landing | Scope |
 |---|---|---|---|
@@ -23,6 +24,7 @@ Role-based access control, **entirely in application code**. Six roles.
 | 4 | `driver` | `/driver` | Own trips only |
 | 7 | `management` | `/dashboard` | Read + analytics; **explicitly denied lifecycle verbs** |
 | 9 | `admin` | `/dashboard` | Admin operations |
+| 10 | `mechanic` | `/mechanic` | Assigned repairs only — own queue, evidence, handover; cannot approve completion |
 
 P1 compat window (2026-09-22, uncommitted): code canonical is `super_admin`
 (`src/lib/auth/role-names.js` `normalizeRoleName()` maps legacy `system_admin`
@@ -42,10 +44,21 @@ fail closed in `canMutateAccount()`, and `SEC-RBAC-004`
 (`no-legacy-role.security.test.js`) fails the suite if the retired name
 reappears anywhere under `src/` or `scripts/`.
 - Privilege hierarchy (`src/lib/auth/privilege.js`): super_admin assigns
-  super_admin/admin/fleet_manager/dispatcher/management; admin assigns only
-  fleet_manager/dispatcher/management; driver via Drivers Directory only.
-  Target protection covers enable/disable AND credential reset: admin targets
+  super_admin/admin/fleet_manager/dispatcher/management/mechanic; admin assigns
+  fleet_manager/dispatcher/management/mechanic; fleet_manager assigns nothing;
+  driver accounts stay in the Drivers Directory (never created from the staff
+  account screens); mechanic accounts are staff-created like the other staff
+  roles. Target protection covers enable/disable AND credential reset: admin targets
   are Super Admin-only (no Admin→Admin disable/reset).
+- Mechanic matrix row (`MATRIX.mechanic`, 2026-10-06): vehicles/read,
+  incidents read-only (`acknowledge`/`resolve`/`route_to_maintenance` explicitly
+  false), maintenance read+update, predictive_maintenance/read, notifications
+  read/update/delete, device_tokens create/delete, search/read, employees/read,
+  system read/update explicitly false. Nav keys: `/mechanic`,
+  `/mechanic/work-orders`, `/mechanic/problems`, `/mechanic/history`
+  (mechanic-only; `/mechanic/work-orders/[id]` inherits by prefix match).
+  Unknown-role fallback is least-privilege "No Access" (`/settings/profile`),
+  not the old fail-open admin workspace.
 - Sensitive split: `ai_settings` and `system` matrix entries are super_admin-only;
   `/settings/api`, `/settings/ai`, `/settings/ai/logs`, `/system/*` nav are
   super_admin-only; `/api/settings/connectors` moved to `system.read`;
@@ -96,7 +109,7 @@ reappears anywhere under `src/` or `scripts/`.
 
 The gaps at 5, 6, 8 are the three hospitality roles removed by `028_remove_front_desk_roles.sql`.
 
-The live table contains these six roles and 15 active accounts: 1 system admin, 1 admin, 3 fleet managers, 2 dispatchers, 7 drivers, and 1 management account. `docs/rbac-model.md` describes the same role set and now cites the actual removed-role migration filename `028`.
+The live table contains these seven roles and 15 active staff accounts (2026-09-01 census: 1 system admin, 1 admin, 3 fleet managers, 2 dispatchers, 7 drivers, and 1 management account) plus the Task 7 demo mechanic (`mechanic.demo@fleetops.test`, planted by `scripts/seed-mechanic-demo.mjs`). `docs/rbac-model.md` describes the same role set and now cites the actual removed-role migration filename `028`.
 
 `scripts/verify-rbac.mjs` currently passes **72 checks**, but only exercises seven reservation/dispatch lifecycle routes. It does not prove the whole API matrix.
 

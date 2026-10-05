@@ -776,6 +776,51 @@ Redesigned the web notification card presentation (`src/components/notifications
 - ESLint clean with 0 errors and 0 warnings across all touched web files.
 - Full responsive test across desktop, tablet, and mobile viewports.
 
+## Mechanic work-order fan-out — 2026-10-06
+
+Post-commit, best-effort fan-out on every PUT lifecycle event in
+`src/app/api/vehicle-maintenance/[id]/route.js` (Task 3 guards untouched).
+One shared `fanout()` helper does the dedupe-guarded
+`INSERT … SELECT … WHERE NOT EXISTS` (with the `::varchar` casts
+`maintenance.js` requires), and pushes only to genuinely new recipients.
+Recipients come from `notificationRolesFor("incidents",
+"route_to_maintenance")` + `resolveNotificationRecipients`, sanitized with
+`dedupeEmployeeIds`. The PUT never fails on notify failure (`writeAppError`,
+never `console.warn`).
+
+| Trigger | Audience | Title | `reference_type` |
+|---|---|---|---|
+| Newly assigned (null → Y) | assignee Y | Maintenance Work Assigned | `mechanic_maintenance` |
+| Reassigned (X → Y) | **both** Y and X | Maintenance Reassignment | `mechanic_maintenance` |
+| Escalated to High/Emergency (edge only, assigned) | assignee + `route_to_maintenance` staff | Urgent Maintenance Assigned (`Alert`) | assignee `mechanic_maintenance`, staff `maintenance` |
+| → Pending Inspection **by a mechanic actor** | `route_to_maintenance` staff | Maintenance Ready for Inspection | `maintenance` |
+| Pending Inspection → In Progress (rework, reason guaranteed by the guard) | assignee | Maintenance Returned for Rework | `mechanic_maintenance` |
+| → Completed | assignee (+ existing `vehicleRepaired` to the reporter) | Maintenance Work Approved | `mechanic_maintenance` |
+| Assigned WO's vehicle/date changed, or WO archived | assignee | Assigned Maintenance Updated | `mechanic_maintenance` |
+
+**Reference split.** Mechanic-audience rows are `mechanic_maintenance` so taps
+resolve to `/mechanic/work-orders/:id` (`MECHANIC_ROUTES`, mechanic branch in
+`target.js`); staff rows stay `maintenance` so their taps keep resolving to
+the staff surface. Same Maintenance chip in `presentation.js` — the type
+differs only to route the tap. The summary `attention` query has no
+`reference_type` filter, so both land on Today's Line.
+
+**Why reassignment gets its own title.** The dedupe key is
+`(employee, title, reference)`. Reusing Assigned for a reassignment would
+collapse the new row into the old one for a re-notified employee — or read as
+a duplicate. A distinct Reassignment title keeps X's and Y's rows apart and
+guarantees "Reassigned to both, never Assigned twice". Ready-for-inspection
+fires only on the mechanic actor's edge: staff moving a WO to Pending
+Inspection themselves already know, so paging them would be self-notification
+noise. Urgent fires only on the escalation edge, not on every PUT to an
+already-urgent WO.
+
+**Verified.** TDD RED (29 `fn is not a function`) then GREEN (`copy.test.js`
+184/184; vehicle-maintenance + notifications suites 230/230; Task 3 guard
+tests unbroken; notification-adjacent sweep 135/135). `verify:auth` 295/295
+(pre-4b). No migration touched (`reference_type` is unconstrained
+`varchar(100)`).
+
 ## Open questions
 
 - Why triggers rather than service-layer calls? Undocumented. → [[ADR-005 Notifications In Database Triggers]]
