@@ -99,6 +99,7 @@ export async function PUT(req, { params }) {
       deleted_at: { type: "date", label: "Archived at" },
       assigned_mechanic_id: { type: "id", label: "Assigned mechanic" },
       rejection_reason: { maxLength: 1000, label: "Rejection reason" },
+      // Task 6 contract: parts_replaced must be a JSON array, diagnosis ≤ 2000 chars.
       diagnosis: { maxLength: 2000, label: "Diagnosis" },
       parts_replaced: { label: "Parts replaced", validate: (v) => (v == null || Array.isArray(v) ? null : "Parts replaced must be a list.") },
       labor_hours: { type: "positiveNumber", label: "Labor hours" },
@@ -211,7 +212,7 @@ export async function PUT(req, { params }) {
       // rows accept no PUT except a staff archive via deleted_at. Mechanics
       // never reach the archive path: deleted_at was stripped by Rule 2, so
       // the freeze always fires for them on terminal rows.
-      if ((beforeStatus === "Completed" || beforeStatus === "Cancelled") && body.deleted_at == null) {
+      if ((beforeStatus === "Completed" || beforeStatus === "Cancelled") && !body.deleted_at) {
         return { error: err(`${beforeStatus} maintenance records are read-only.`, 409) };
       }
 

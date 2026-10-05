@@ -565,4 +565,26 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(updateCalls()[2][0]).toContain("assigned_at = CURRENT_TIMESTAMP");
     expect(updateCalls()[2][1]).not.toContain("2020-01-01");
   });
+
+  it("Test 23 (fix round 1): empty-string deleted_at does not bypass the Completed freeze", async () => {
+    // Regression: the freeze used `body.deleted_at == null`, which treats ""
+    // as an archive marker, while the SET builder maps "" → null — so
+    // PUT { cost, deleted_at: "" } skipped the 409 and wrote cost.
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Completed", repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [mockRecord] };
+      return { rows: [] };
+    });
+
+    const res = await PUT(
+      mockRequest({ cost: 1, deleted_at: "" }, "fleet_manager", 888),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("Completed maintenance records are read-only.");
+
+    expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"))).toBeUndefined();
+  });
 });

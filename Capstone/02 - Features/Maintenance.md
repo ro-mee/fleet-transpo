@@ -36,7 +36,7 @@ A maintenance record transitions from `Scheduled` → `In Progress` → `Complet
 The intermediate state `Pending Inspection` is available and reachable from the
 maintenance page, but is **optional** — a record may go straight from
 `In Progress` to `Completed`.
-* **Immutability:** Once a record reaches `Completed`, its status becomes terminal and cannot be reverted to an earlier state by any user.
+* **Immutability:** Once a record reaches `Completed` (or `Cancelled`), the full row is frozen — any PUT without `deleted_at` returns 409; only a staff archive passes.
 * **Audit Trail:** When a record is completed (via `PUT /api/vehicle-maintenance/[id]`), the system securely injects the authenticated user's ID (`completed_by`) and the precise database timestamp (`completed_at`). The `POST` creation endpoint forces all new records to `Scheduled` to prevent audit bypass.
 
 ### Mechanic work-order lifecycle — ADDED 2026-10-06 (PUT hardening, Task 3)
