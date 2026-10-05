@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { POST } from "./route";
+import { POST, GET } from "./route";
 import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
 
@@ -134,5 +134,158 @@ describe("POST /api/vehicle-maintenance", () => {
     expect(params.status).toBe("Scheduled");
     expect(params.completed_by).toBeUndefined();
     expect(params.completed_at).toBeUndefined();
+  });
+});
+
+// Task 4 — mechanic scoped reads. The query mock below plays the database:
+// it honors an `assigned_mechanic_id = $n` predicate when the route's SQL
+// carries one, and it projects columns the way Postgres would — full rows
+// (with purchase_price / image_url) only when the SQL asks for `vm.*` or
+// `row_to_json`, lean rows otherwise. So a route that forgets the filter
+// leaks other mechanics' rows, and a route that selects the fat projection
+// leaks purchase_price / image_url, exactly as production would.
+describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
+  let mechQuerySpy;
+  beforeEach(() => {
+    mechQuerySpy = vi.spyOn(db, "query");
+    stubMaintenanceGet();
+  });
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const WO_ROW = (over = {}) => ({
+    maintenance_id: 11,
+    vehicle_id: 1,
+    maintenance_type: "Brake Repair",
+    maintenance_date: "2026-10-01",
+    completed_date: null,
+    status: "Scheduled",
+    priority: "High",
+    cost: "1500",
+    service_provider: "Shop",
+    service_center: "Center",
+    mileage_at_service: "10000",
+    description: "worn pads",
+    remarks: "r1",
+    created_at: "2026-10-01T00:00:00.000Z",
+    source_incident_id: null,
+    assigned_mechanic_id: 77,
+    purchase_price: "500000",
+    image_url: "http://img/1.jpg",
+    vehicles: { plate_number: "ABC 1", vehicle_name: "Van 1", purchase_price: "500000", image_url: "http://img/1.jpg" },
+    ...over,
+  });
+
+  const MIXED = [
+    WO_ROW(),
+    WO_ROW({ maintenance_id: 12, assigned_mechanic_id: 78 }),
+    WO_ROW({ maintenance_id: 13, assigned_mechanic_id: null }),
+  ];
+
+  function stubMaintenanceGet() {
+    mechQuerySpy.mockImplementation(async (sql, params = []) => {
+      if (sql.includes("total_cost")) {
+        return { rows: [{ total: "1", scheduled: "1", inProgress: "0", total_cost: "1500" }] };
+      }
+      if (sql.includes("count(*) AS total")) {
+        return { rows: [{ total: "1" }] };
+      }
+      const scoped = /vm\.assigned_mechanic_id = \$(\d+)/.exec(sql);
+      let rows = scoped
+        ? MIXED.filter((r) => r.assigned_mechanic_id === params[Number(scoped[1]) - 1])
+        : [...MIXED];
+      const lean = !sql.includes("vm.*") && !sql.includes("row_to_json")
+        && !sql.includes("purchase_price") && !sql.includes("image_url");
+      if (lean) {
+        const selectsAssignment = sql.includes("assigned_mechanic_id");
+        rows = rows.map((r) => {
+          const out = {};
+          for (const [k, v] of Object.entries(r)) {
+            if (k === "purchase_price" || k === "image_url") continue;
+            if (k === "assigned_mechanic_id" && !selectsAssignment) continue;
+            if (k === "vehicles") {
+              out.vehicles = { plate_number: v.plate_number, vehicle_name: v.vehicle_name };
+              continue;
+            }
+            out[k] = v;
+          }
+          return out;
+        });
+      }
+      return { rows };
+    });
+  }
+
+  function getReq(url, role = "mechanic", employeeId = 77) {
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role, employeeId } });
+    return { url };
+  }
+
+  function listSqls() {
+    return mechQuerySpy.mock.calls
+      .map((c) => c[0])
+      .filter((sql) => !sql.includes("count(*)") && !sql.includes("total_cost"));
+  }
+
+  it("paginated: a mechanic sees only their own rows through the lean projection", async () => {
+    stubMaintenanceGet();
+    const res = await GET(getReq("http://test/api/vehicle-maintenance?page=1&pageSize=10"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.rows.length).toBeGreaterThan(0);
+    for (const row of body.rows) {
+      expect(row.assigned_mechanic_id).toBe(77);
+    }
+    expect(JSON.stringify(body)).not.toContain("purchase_price");
+    expect(JSON.stringify(body)).not.toContain("image_url");
+
+    // Every statement the branch issued is scoped to the caller.
+    for (const [sql, params] of mechQuerySpy.mock.calls) {
+      expect(sql).toContain("vm.assigned_mechanic_id = $");
+      expect(params).toContain(77);
+    }
+    for (const sql of listSqls()) {
+      expect(sql).not.toContain("vm.*");
+      expect(sql).not.toContain("row_to_json");
+      expect(sql).not.toContain("purchase_price");
+      expect(sql).not.toContain("image_url");
+    }
+  });
+
+  it("non-paginated: a mechanic still gets only their own rows, still lean", async () => {
+    stubMaintenanceGet();
+    const res = await GET(getReq("http://test/api/vehicle-maintenance"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+    for (const row of body) {
+      expect(row.assigned_mechanic_id).toBe(77);
+    }
+    expect(JSON.stringify(body)).not.toContain("purchase_price");
+    expect(JSON.stringify(body)).not.toContain("image_url");
+    for (const sql of listSqls()) {
+      expect(sql).toContain("vm.assigned_mechanic_id = $");
+      expect(sql).not.toContain("vm.*");
+      expect(sql).not.toContain("row_to_json");
+    }
+  });
+
+  it("staff register behavior is unchanged: no assignee filter, unscoped counts", async () => {
+    stubMaintenanceGet();
+    const res = await GET(getReq("http://test/api/vehicle-maintenance?page=1&pageSize=10", "fleet_manager", 888));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // All three rows, including other mechanics' and unassigned.
+    expect(body.rows).toHaveLength(3);
+    for (const [sql] of mechQuerySpy.mock.calls) {
+      expect(sql).not.toContain("assigned_mechanic_id");
+    }
+    const countsCall = mechQuerySpy.mock.calls.find((c) => c[0].includes("total_cost"));
+    expect(countsCall[1]).toBeUndefined();
   });
 });
