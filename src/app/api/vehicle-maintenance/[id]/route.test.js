@@ -142,10 +142,14 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(updateCall).toBeUndefined(); // Ensure UPDATE was never executed
   });
 
-  it("Test 6: Completed → Completed (TERMINAL)", async () => {
-    mockRecord.status = "Completed"; 
+  it("Test 6: Completed → Completed (TERMINAL — amended 2026-10-06 ruling C1: full-row freeze)", async () => {
+    // Amendment 2026-10-06 ruling C1: Completed rows are fully frozen. ANY PUT
+    // without deleted_at returns 409 "Completed maintenance records are
+    // read-only." — including same-status field updates like this one, which
+    // previously returned 200.
+    mockRecord.status = "Completed";
     mockRecord.completed_by = 123;
-    
+
     const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "Completed" }] };
       if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [mockRecord] };
@@ -154,11 +158,11 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
 
     const req = mockRequest({ status: "Completed", cost: 500 }, "fleet_manager", 888);
     const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
-    expect(res.status).toBe(200);
-    
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("Completed maintenance records are read-only.");
+
     const updateCall = updateSpy.mock.calls.find(c => c[0].includes("UPDATE vehiclemaintenance"));
-    // Ensure it didn't inject completed_by
-    expect(updateCall[0]).not.toContain("completed_by = $");
+    expect(updateCall).toBeUndefined(); // Frozen: UPDATE never runs
   });
 
   it("Test 7: Client Spoofing", async () => {
@@ -356,5 +360,209 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(updateCall[0]).not.toContain("inspection_completed_at");
     expect(updateCall[0]).not.toContain("inspection_notes");
     expect(updateCall[0]).not.toContain("inspected_by");
+  });
+
+  it("Test 15 (A): mechanic cannot complete directly (completion role guard 403)", async () => {
+    // Row owned by mechanic 77. The staff completion role guard runs before the
+    // per-role transition map, so this refusal is its 403 — not a 409.
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Scheduled", assigned_mechanic_id: 77, repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Completed" }] };
+      return { rows: [] };
+    });
+
+    const req = mockRequest({ status: "Completed" }, "mechanic", 77);
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toContain("Only a Fleet Manager or Admin");
+
+    expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"))).toBeUndefined();
+  });
+
+  it("Test 16 (B): mechanic cannot skip Scheduled → Pending Inspection (409)", async () => {
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Scheduled", assigned_mechanic_id: 77, repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [{ ...mockRecord, status: "Pending Inspection" }] };
+      return { rows: [] };
+    });
+
+    const req = mockRequest({ status: "Pending Inspection" }, "mechanic", 77);
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain("Scheduled");
+    expect(json.error).toContain("Pending Inspection");
+
+    expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"))).toBeUndefined();
+  });
+
+  it("Test 17 (C): mechanic field strip keeps only whitelisted fields", async () => {
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Scheduled", assigned_mechanic_id: 77, repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE vehiclemaintenance")) {
+        return { rows: [{ ...mockRecord, vehicle_id: 1, cost: 100, status: "Scheduled", remarks: "pads done" }] };
+      }
+      return { rows: [] };
+    });
+
+    const req = mockRequest({ cost: 9999, vehicle_id: 3, remarks: "pads done" }, "mechanic", 77);
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.remarks).toBe("pads done");
+    expect(json.cost).toBe(100);
+    expect(json.vehicle_id).toBe(1);
+
+    const updateCall = updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"));
+    expect(updateCall[0]).toContain("remarks = $");
+    expect(updateCall[0]).not.toContain("cost");
+    expect(updateCall[0]).not.toContain("vehicle_id");
+  });
+
+  it("Test 18 (D): mechanic cannot archive — deleted_at stripped → 400", async () => {
+    // Refusal choice: the whitelist strip removes deleted_at, leaving no
+    // writable fields, so the existing 400 fires. No extra branch needed.
+    vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Scheduled", assigned_mechanic_id: 77, repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [mockRecord] };
+      return { rows: [] };
+    });
+
+    const req = mockRequest({ deleted_at: new Date().toISOString() }, "mechanic", 77);
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("No writable fields");
+  });
+
+  it("Test 19 (E): mechanic cannot touch another mechanic's row (403, incl. unassigned)", async () => {
+    let selectRow = { status: "Scheduled", assigned_mechanic_id: 78, repair_completed_by: null };
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) return { rows: [selectRow] };
+      if (sql.includes("UPDATE vehiclemaintenance")) return { rows: [mockRecord] };
+      return { rows: [] };
+    });
+
+    let res = await PUT(
+      mockRequest({ remarks: "hi" }, "mechanic", 77),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toContain("not assigned");
+
+    // Unassigned rows (NULL) never equal an employee id → also 403.
+    selectRow = { status: "Scheduled", assigned_mechanic_id: null, repair_completed_by: null };
+    res = await PUT(
+      mockRequest({ remarks: "hi" }, "mechanic", 77),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(403);
+
+    expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE vehiclemaintenance"))).toBeUndefined();
+  });
+
+  it("Test 20 (F): Completed freeze — FM field edit 409, archive still allowed", async () => {
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Completed", repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE vehiclemaintenance")) {
+        return { rows: [{ ...mockRecord, status: "Completed", deleted_at: new Date().toISOString() }] };
+      }
+      return { rows: [] };
+    });
+    const updateCalls = () => updateSpy.mock.calls.filter((c) => c[0].includes("UPDATE vehiclemaintenance"));
+
+    let res = await PUT(
+      mockRequest({ cost: 1 }, "fleet_manager", 888),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("Completed maintenance records are read-only.");
+    expect(updateCalls()).toHaveLength(0);
+
+    // Archive via deleted_at on a Completed row stays allowed for staff.
+    res = await PUT(
+      mockRequest({ deleted_at: new Date().toISOString() }, "fleet_manager", 888),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(200);
+    expect(updateCalls()).toHaveLength(1);
+  });
+
+  it("Test 21 (G): return to In Progress requires rejection_reason", async () => {
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Pending Inspection", repair_completed_by: 42 }] };
+      }
+      if (sql.includes("UPDATE vehiclemaintenance")) {
+        return { rows: [{ ...mockRecord, status: "In Progress", rejection_reason: "pads not seated" }] };
+      }
+      return { rows: [] };
+    });
+    const updateCalls = () => updateSpy.mock.calls.filter((c) => c[0].includes("UPDATE vehiclemaintenance"));
+
+    let res = await PUT(
+      mockRequest({ status: "In Progress" }, "fleet_manager", 888),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("rejection reason");
+    expect(updateCalls()).toHaveLength(0);
+
+    res = await PUT(
+      mockRequest({ status: "In Progress", rejection_reason: "pads not seated" }, "fleet_manager", 888),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(200);
+    expect(updateCalls()).toHaveLength(1);
+    expect(updateCalls()[0][0]).toContain("rejection_reason");
+  });
+
+  it("Test 22 (H): lifecycle stamps — repair_started_at once, assigned_at server-stamped", async () => {
+    let selectRow = { status: "Scheduled", assigned_mechanic_id: 77, repair_started_at: null, repair_completed_by: null };
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) return { rows: [selectRow] };
+      if (sql.includes("UPDATE vehiclemaintenance")) {
+        return { rows: [{ ...mockRecord, ...selectRow, status: "In Progress" }] };
+      }
+      return { rows: [] };
+    });
+    const updateCalls = () => updateSpy.mock.calls.filter((c) => c[0].includes("UPDATE vehiclemaintenance"));
+
+    // (i) Mechanic Scheduled → In Progress stamps repair_started_at when NULL.
+    let res = await PUT(
+      mockRequest({ status: "In Progress" }, "mechanic", 77),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(200);
+    expect(updateCalls()[0][0]).toContain("repair_started_at = CURRENT_TIMESTAMP");
+
+    // (ii) A later PUT on the started row does not overwrite the stamp.
+    selectRow = { status: "In Progress", assigned_mechanic_id: 77, repair_started_at: "2026-10-05T08:00:00Z", repair_completed_by: null };
+    res = await PUT(
+      mockRequest({ status: "In Progress" }, "mechanic", 77),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(200);
+    expect(updateCalls()[1][0]).not.toContain("repair_started_at");
+
+    // (iii) FM assigning a mechanic stamps assigned_at; client assigned_at stripped.
+    selectRow = { status: "Scheduled", assigned_mechanic_id: null, repair_started_at: null, repair_completed_by: null };
+    res = await PUT(
+      mockRequest({ status: "In Progress", assigned_mechanic_id: 77, assigned_at: "2020-01-01T00:00:00Z" }, "fleet_manager", 888),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(res.status).toBe(200);
+    expect(updateCalls()[2][0]).toContain("assigned_mechanic_id = $");
+    expect(updateCalls()[2][0]).toContain("assigned_at = CURRENT_TIMESTAMP");
+    expect(updateCalls()[2][1]).not.toContain("2020-01-01");
   });
 });

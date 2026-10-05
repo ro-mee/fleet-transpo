@@ -39,6 +39,36 @@ maintenance page, but is **optional** — a record may go straight from
 * **Immutability:** Once a record reaches `Completed`, its status becomes terminal and cannot be reverted to an earlier state by any user.
 * **Audit Trail:** When a record is completed (via `PUT /api/vehicle-maintenance/[id]`), the system securely injects the authenticated user's ID (`completed_by`) and the precise database timestamp (`completed_at`). The `POST` creation endpoint forces all new records to `Scheduled` to prevent audit bypass.
 
+### Mechanic work-order lifecycle — ADDED 2026-10-06 (PUT hardening, Task 3)
+
+The `mechanic` role (id 10, migration 143) works its own queue under five PUT
+guards in `src/app/api/vehicle-maintenance/[id]/route.js`, verified by Tests
+15–22 in `route.test.js` (amended Test 6 pins the freeze):
+
+1. **Ownership.** A mechanic session may touch only rows where
+   `assigned_mechanic_id` equals their own employee id (403 otherwise;
+   unassigned `NULL` rows match nobody).
+2. **Field whitelist.** Mechanic bodies are stripped to `MECHANIC_WRITABLE`
+   (`status`, notes/diagnosis/evidence fields); `cost`, `vehicle_id`,
+   `priority`, `deleted_at`, assignment and stamp columns never reach the SET
+   list. Archive-by-mechanic therefore dies as 400 "No writable fields".
+3. **Per-role transitions.** Mechanic: `Scheduled → In Progress → Pending
+   Inspection` only (no direct completion, no skips). Staff keep the direct
+   `Scheduled → Completed` edge for externally-completed work, plus
+   `Cancelled`; illegal edges 409 naming both states. The completion role
+   guard still runs first, so a mechanic attempting `Completed` gets its 403.
+4. **Terminal freeze.** `Completed` and `Cancelled` rows reject every PUT
+   without `deleted_at` (409 "… maintenance records are read-only."). Only a
+   staff archive passes a frozen row.
+5. **Server stamps.** `Scheduled → In Progress` sets `repair_started_at` once
+   (never overwritten); staff assigning `assigned_mechanic_id` get
+   `assigned_at = NOW()` (any client value stripped); returning
+   `Pending Inspection → In Progress` is a rejection and requires a non-empty
+   `rejection_reason` (400 otherwise).
+
+Task 5 (notifications) builds its fan-out on these transitions; the route
+preserves the `beforeStatus` return and `isTransitioningTo*` flags for it.
+
 ### Separation of duties — CONFIRMED 2026-09-16
 
 Two guards run on the `Completed` transition, in this order:

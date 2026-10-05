@@ -3,6 +3,7 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 import { vehicleRepaired } from "@/lib/notifications/copy";
 import { writeAuditRequired } from "@/lib/audit";
 
@@ -36,7 +37,38 @@ const FIELD_TO_COLUMN = {
   service_center: "service_center",
   remarks: "remarks",
   deleted_at: "deleted_at",
+  // Task-1 work-order columns. assigned_at / repair_started_at are
+  // server-stamped only and deliberately absent here so a client value can
+  // never reach the SET list; assigned_mechanic_id is staff-writable.
+  assigned_mechanic_id: "assigned_mechanic_id",
+  rejection_reason: "rejection_reason",
+  diagnosis: "diagnosis",
+  parts_replaced: "parts_replaced",
+  labor_hours: "labor_hours",
 };
+
+// Per-role state machines for the PUT guards below.
+// - Mechanics move work forward only: Scheduled → In Progress → Pending Inspection.
+// - Staff (fleet_manager/admin/super_admin) retain the direct Scheduled →
+//   Completed edge for externally-completed work (ruling C2, 2026-10-06). A
+//   direct staff completion leaves repair_completed_by NULL and is therefore
+//   intentionally outside the four-eyes gate — same as every pre-113 row.
+// - Completed and Cancelled are terminal (rulings C1/C3, 2026-10-06): the
+//   empty edge lists backstop the full-row freeze, which owns the refusal.
+const MECHANIC_TRANSITIONS = { "Scheduled": ["In Progress"], "In Progress": ["Pending Inspection"] };
+const STAFF_TRANSITIONS = {
+  "Scheduled": ["In Progress", "Cancelled", "Completed"],
+  "In Progress": ["Pending Inspection", "Completed"],
+  "Pending Inspection": ["Completed", "In Progress"],
+  "Completed": [],
+  "Cancelled": [],
+};
+// Mechanic field whitelist (raw API field names, applied to the body BEFORE the
+// FIELD_TO_COLUMN mapping). Everything else — cost, vehicle_id, priority,
+// deleted_at, next_schedule_*, assigned_mechanic_id, assigned_at — is stripped.
+const MECHANIC_WRITABLE = new Set(["status", "description", "remarks", "mileage_at_service",
+  "service_provider", "service_center", "technician_name", "service_center_name", "notes",
+  "diagnosis", "parts_replaced", "labor_hours"]);
 
 export async function PUT(req, { params }) {
   try {
@@ -65,6 +97,11 @@ export async function PUT(req, { params }) {
       service_center: { maxLength: 255, label: "Service center" },
       remarks: { maxLength: 1000, label: "Notes" },
       deleted_at: { type: "date", label: "Archived at" },
+      assigned_mechanic_id: { type: "id", label: "Assigned mechanic" },
+      rejection_reason: { maxLength: 1000, label: "Rejection reason" },
+      diagnosis: { maxLength: 2000, label: "Diagnosis" },
+      parts_replaced: { label: "Parts replaced", validate: (v) => (v == null || Array.isArray(v) ? null : "Parts replaced must be a list.") },
+      labor_hours: { type: "positiveNumber", label: "Labor hours" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
@@ -74,10 +111,27 @@ export async function PUT(req, { params }) {
       // Lock the active row so concurrent reviews cannot both pass the state
       // guards and commit conflicting maintenance transitions.
       const beforeRow = (await tx.query(
-        `SELECT status, created_by, repair_completed_by FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        `SELECT status, created_by, repair_completed_by, assigned_mechanic_id, repair_started_at FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
       if (!beforeRow) return { error: err("Maintenance record not found", 404) };
+
+      const isMechanic = normalizeRoleName(session.user.role) === "mechanic";
+
+      // Rule 1 — ownership: a mechanic may touch only rows assigned to them.
+      // assigned_mechanic_id NULL (unassigned) never equals an employee id.
+      if (isMechanic && Number(beforeRow.assigned_mechanic_id) !== Number(session.user.employeeId)) {
+        return { error: err("You are not assigned to this maintenance record.", 403) };
+      }
+
+      // Rule 2 — mechanic field whitelist, plus server-stamped columns that are
+      // never client-writable for any role (assigned_at is stamped below).
+      delete body.assigned_at;
+      if (isMechanic) {
+        for (const key of Object.keys(body)) {
+          if (!MECHANIC_WRITABLE.has(key)) delete body[key];
+        }
+      }
 
       const sets = [];
       const values = [];
@@ -141,6 +195,44 @@ export async function PUT(req, { params }) {
         values.push(session.user.employeeId);
       
         sets.push(`completed_at = CURRENT_TIMESTAMP`);
+      }
+
+      // Rule 3 — per-role transition map (status-changing PUTs only). It runs
+      // after the completion role guard above, so a mechanic attempting
+      // Completed still gets that guard's 403 rather than this 409.
+      if (body.status && body.status !== beforeStatus) {
+        const allowed = (isMechanic ? MECHANIC_TRANSITIONS : STAFF_TRANSITIONS)[beforeStatus] || [];
+        if (!allowed.includes(body.status)) {
+          return { error: err(`Cannot transition from ${beforeStatus} to ${body.status}.`, 409) };
+        }
+      }
+
+      // Rules C1/C3 (2026-10-06) — terminal freeze: Completed and Cancelled
+      // rows accept no PUT except a staff archive via deleted_at. Mechanics
+      // never reach the archive path: deleted_at was stripped by Rule 2, so
+      // the freeze always fires for them on terminal rows.
+      if ((beforeStatus === "Completed" || beforeStatus === "Cancelled") && body.deleted_at == null) {
+        return { error: err(`${beforeStatus} maintenance records are read-only.`, 409) };
+      }
+
+      // Rule 5 — server stamps.
+      // Scheduled → In Progress starts the repair clock, once: never overwrite.
+      if (body.status === "In Progress" && beforeStatus === "Scheduled" && beforeRow.repair_started_at == null) {
+        sets.push(`repair_started_at = CURRENT_TIMESTAMP`);
+      }
+
+      // Assigning a mechanic stamps the assignment moment. Only staff reach
+      // here with assigned_mechanic_id (mechanics have it stripped by Rule 2).
+      if (!isMechanic && body.assigned_mechanic_id !== undefined && body.assigned_mechanic_id !== null && body.assigned_mechanic_id !== "") {
+        sets.push(`assigned_at = CURRENT_TIMESTAMP`);
+      }
+
+      // Returning a record to In Progress is a rejection: it requires a reason.
+      if (beforeStatus === "Pending Inspection" && body.status === "In Progress") {
+        const reason = typeof body.rejection_reason === "string" ? body.rejection_reason.trim() : body.rejection_reason;
+        if (!reason) {
+          return { error: err("A rejection reason is required to return a record to In Progress.", 400) };
+        }
       }
 
       values.push(id);
