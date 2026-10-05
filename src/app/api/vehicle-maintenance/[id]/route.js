@@ -4,7 +4,22 @@ import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } 
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 import { normalizeRoleName } from "@/lib/auth/role-names";
-import { vehicleRepaired } from "@/lib/notifications/copy";
+import {
+  vehicleRepaired,
+  maintenanceAssigned,
+  maintenanceReassigned,
+  maintenanceUrgent,
+  maintenanceReturned,
+  maintenanceUpdated,
+  maintenanceReady,
+  maintenanceApproved,
+} from "@/lib/notifications/copy";
+import {
+  notificationRolesFor,
+  resolveNotificationRecipients,
+  dedupeEmployeeIds,
+} from "@/lib/notifications/recipients";
+import { writeAppError } from "@/lib/app-errors";
 import { writeAuditRequired } from "@/lib/audit";
 
 // Repeated rather than shared with the POST route: the two accept different
@@ -112,7 +127,7 @@ export async function PUT(req, { params }) {
       // Lock the active row so concurrent reviews cannot both pass the state
       // guards and commit conflicting maintenance transitions.
       const beforeRow = (await tx.query(
-        `SELECT status, created_by, repair_completed_by, assigned_mechanic_id, repair_started_at FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        `SELECT status, created_by, repair_completed_by, assigned_mechanic_id, repair_started_at, priority, vehicle_id, maintenance_date FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       )).rows[0];
       if (!beforeRow) return { error: err("Maintenance record not found", 404) };
@@ -257,10 +272,10 @@ export async function PUT(req, { params }) {
         oldValues: { status: beforeStatus },
         newValues: { changed_fields: [...seen], status: rows[0].status, source_incident_id: rows[0].source_incident_id },
       });
-      return { row: rows[0], beforeStatus };
+      return { row: rows[0], beforeStatus, beforeAssignee: beforeRow.assigned_mechanic_id ?? null, beforePriority: beforeRow.priority ?? null, beforeVehicleId: beforeRow.vehicle_id, beforeMaintenanceDate: beforeRow.maintenance_date };
     });
     if (updateResult.error) return updateResult.error;
-    const beforeStatus = updateResult.beforeStatus;
+    const { beforeStatus, beforeAssignee, beforePriority, beforeVehicleId, beforeMaintenanceDate } = updateResult;
     const rows = [updateResult.row];
     if (rows[0]?.vehicle_id) {
       const { syncVehicleStatus } = await import("@/services/status.service");
@@ -273,45 +288,152 @@ export async function PUT(req, { params }) {
         await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0]);
       }
     }
-    // Close the loop on incident-sourced repairs (source_incident_id, migration
-    // 063): when the work an incident triggered finishes, tell the driver who
-    // reported it that the vehicle is back. Best-effort — never fails the PUT.
-    if (
-      rows[0]?.source_incident_id &&
-      rows[0]?.status === "Completed" &&
-      beforeStatus !== "Completed"
-    ) {
+    // Task 5 — post-commit fan-out for the mechanic work-order lifecycle.
+    // Best-effort only: every INSERT is dedupe-guarded on
+    // (employee_id, title, reference_type, reference_id) and the whole block is
+    // wrapped so a notify failure lands in app_errors and never fails the PUT.
+    // Guard behavior above is untouched — this only reads the committed row.
+    // Mechanic-audience rows use reference_type "mechanic_maintenance" so
+    // mechanic taps resolve to /mechanic/work-orders/:id (Task 6) while staff
+    // taps on the same WO keep resolving to /fleet/vehicles/:id.
+    const after = rows[0];
+    const afterStatus = after?.status;
+    const afterAssignee = after?.assigned_mechanic_id ?? null;
+    const afterPriority = after?.priority ?? null;
+    const woId = after?.maintenance_id;
+    const isMechanicActor = normalizeRoleName(session?.user?.role) === "mechanic";
+    const URGENT_PRIORITIES = new Set(["High", "Emergency"]);
+
+    const newlyAssigned = afterAssignee != null && beforeAssignee == null;
+    const reassigned = afterAssignee != null && beforeAssignee != null && Number(afterAssignee) !== Number(beforeAssignee);
+    const escalatedToUrgent = URGENT_PRIORITIES.has(afterPriority) && !URGENT_PRIORITIES.has(beforePriority) && afterAssignee != null;
+    const readyForInspection = afterStatus === "Pending Inspection" && beforeStatus !== "Pending Inspection" && isMechanicActor;
+    const returnedForRework = beforeStatus === "Pending Inspection" && afterStatus === "In Progress" && afterAssignee != null;
+    const approvedCompletion = afterStatus === "Completed" && beforeStatus !== "Completed" && afterAssignee != null;
+    const dateKey = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v));
+    const coreFieldsChanged =
+      Number(beforeVehicleId) !== Number(after?.vehicle_id) ||
+      dateKey(beforeMaintenanceDate) !== dateKey(after?.maintenance_date);
+    const archivedThisPut = after?.deleted_at != null;
+    const assignedOrderEdited = afterAssignee != null && (coreFieldsChanged || archivedThisPut);
+    const completingSourced = afterStatus === "Completed" && beforeStatus !== "Completed" && (after?.source_incident_id || after?.source_inspection_id);
+
+    if (newlyAssigned || reassigned || escalatedToUrgent || readyForInspection || returnedForRework || approvedCompletion || assignedOrderEdited || completingSourced) {
       try {
         const { sendPush } = await import("@/services/push.service");
-        const { rows: reporter } = await query(
-          `SELECT e.employee_id
-             FROM driverincidents i
-             JOIN drivers d ON d.driver_id = i.driver_id
-             JOIN employees e ON e.employee_id = d.employee_id
-            WHERE i.incident_id = $1`,
-          [rows[0].source_incident_id]
-        );
-        const reporterEmployeeId = reporter[0]?.employee_id;
-        if (reporterEmployeeId) {
-          const plate = (await query(
-            `SELECT plate_number FROM vehicles WHERE vehicle_id = $1`,
-            [rows[0].vehicle_id]
-          )).rows[0]?.plate_number;
-          const copy = vehicleRepaired({ plate: plate || null });
-          await query(
-            `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
-            [reporterEmployeeId, copy.title, copy.message, "Info", "incident", rows[0].source_incident_id]
-          );
-          await sendPush({
-            employeeIds: [reporterEmployeeId],
-            title: copy.title,
-            body: copy.pushBody,
-            data: { reference_type: "incident", reference_id: rows[0].source_incident_id },
-          });
+        const plate = (await query(
+          `SELECT plate_number FROM vehicles WHERE vehicle_id = $1`,
+          [after.vehicle_id]
+        )).rows[0]?.plate_number ?? null;
+
+        // One row per (employee, title, reference); re-fires are no-ops and
+        // only genuinely new recipients get a push. $2/$5 carry explicit
+        // ::varchar casts: Postgres deduces SELECT-list parameters as text but
+        // the NOT EXISTS comparison as varchar, and the 42P08 conflict fails
+        // the whole statement at parse time (see maintenance.js notifiers).
+        const fanout = async ({ employeeIds, copy, referenceType, referenceId, type = "Info" }) => {
+          const targets = dedupeEmployeeIds(employeeIds);
+          if (!targets.length) return;
+          const pushed = [];
+          for (const employeeId of targets) {
+            const { rows: done } = await query(
+              `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+               SELECT $1, $2::varchar, $3, $4, $5::varchar, $6
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM notifications
+                   WHERE employee_id = $1 AND title = $2::varchar
+                     AND reference_type = $5::varchar AND reference_id = $6
+                )
+               RETURNING employee_id`,
+              [employeeId, copy.title, copy.message, type, referenceType, referenceId]
+            );
+            if (done[0]) pushed.push(employeeId);
+          }
+          if (pushed.length) {
+            await sendPush({
+              employeeIds: pushed,
+              title: copy.title,
+              body: copy.pushBody,
+              data: { reference_type: referenceType, reference_id: referenceId },
+            });
+          }
+        };
+
+        if (newlyAssigned) {
+          await fanout({ employeeIds: [afterAssignee], copy: maintenanceAssigned({ plate }), referenceType: "mechanic_maintenance", referenceId: woId });
+        }
+        if (reassigned) {
+          // Reassigned (not Assigned) to both sides, never Assigned twice: the
+          // distinct title is what keeps the dedupe key from swallowing this.
+          await fanout({ employeeIds: [afterAssignee, beforeAssignee], copy: maintenanceReassigned({ plate }), referenceType: "mechanic_maintenance", referenceId: woId });
+        }
+        if (escalatedToUrgent) {
+          const staffIds = (await resolveNotificationRecipients({ roles: notificationRolesFor("incidents", "route_to_maintenance") }))
+            .filter((id) => Number(id) !== Number(afterAssignee));
+          await fanout({ employeeIds: [afterAssignee], copy: maintenanceUrgent({ plate }), referenceType: "mechanic_maintenance", referenceId: woId, type: "Alert" });
+          await fanout({ employeeIds: staffIds, copy: maintenanceUrgent({ plate }), referenceType: "maintenance", referenceId: woId, type: "Alert" });
+        }
+        if (readyForInspection) {
+          const staffIds = await resolveNotificationRecipients({ roles: notificationRolesFor("incidents", "route_to_maintenance") });
+          await fanout({ employeeIds: staffIds, copy: maintenanceReady({ plate }), referenceType: "maintenance", referenceId: woId });
+        }
+        if (returnedForRework) {
+          await fanout({ employeeIds: [afterAssignee], copy: maintenanceReturned({ plate }), referenceType: "mechanic_maintenance", referenceId: woId });
+        }
+        if (approvedCompletion) {
+          await fanout({ employeeIds: [afterAssignee], copy: maintenanceApproved({ plate }), referenceType: "mechanic_maintenance", referenceId: woId });
+        }
+        if (assignedOrderEdited) {
+          await fanout({ employeeIds: [afterAssignee], copy: maintenanceUpdated({ plate }), referenceType: "mechanic_maintenance", referenceId: woId });
+        }
+        if (completingSourced) {
+          // Close the loop on sourced repairs: tell the driver who reported it
+          // that the vehicle is back. Incident-sourced rows resolve through the
+          // incident's driver; inspection-sourced rows (End Duty reports)
+          // through the inspection's driver. If neither source resolves, skip
+          // silently (no error).
+          let reporterEmployeeId = null;
+          let reporterRefType = "incident";
+          let reporterRefId = after.source_incident_id;
+          if (after.source_incident_id) {
+            const { rows: reporter } = await query(
+              `SELECT e.employee_id
+                 FROM driverincidents i
+                 JOIN drivers d ON d.driver_id = i.driver_id
+                 JOIN employees e ON e.employee_id = d.employee_id
+                WHERE i.incident_id = $1`,
+              [after.source_incident_id]
+            );
+            reporterEmployeeId = reporter[0]?.employee_id ?? null;
+          } else if (after.source_inspection_id) {
+            const { rows: reporter } = await query(
+              `SELECT e.employee_id
+                 FROM vehicleinspection i
+                 JOIN drivers d ON d.driver_id = i.driver_id
+                 JOIN employees e ON e.employee_id = d.employee_id
+                WHERE i.inspection_id = $1`,
+              [after.source_inspection_id]
+            );
+            reporterEmployeeId = reporter[0]?.employee_id ?? null;
+            // No client route addresses an inspection row, so the row points at
+            // the work order itself (existing "Maintenance" chip); the driver
+            // tap falls back to mark-read.
+            reporterRefType = "maintenance";
+            reporterRefId = woId;
+          }
+          if (reporterEmployeeId) {
+            await fanout({ employeeIds: [reporterEmployeeId], copy: vehicleRepaired({ plate }), referenceType: reporterRefType, referenceId: reporterRefId });
+          }
         }
       } catch (e) {
-        console.warn("maintenance completion notification failed:", e?.message || e);
+        await writeAppError({
+          source: "server",
+          route: "PUT /api/vehicle-maintenance/[id]",
+          message: `Maintenance fan-out failed for work order #${rows[0]?.maintenance_id}: ${e?.message || e}`,
+          stack: e?.stack ?? null,
+          statusCode: 500,
+          employeeId: session?.user?.employeeId ?? null,
+        });
       }
     }
     return ok(rows[0]);

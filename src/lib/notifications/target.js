@@ -39,6 +39,13 @@ const DRIVER_ROUTES = {
   duty: () => `/driver`,
 };
 
+const MECHANIC_ROUTES = {
+  maintenance: (id) => `/mechanic/work-orders/${id}`,
+  mechanic_maintenance: (id) => `/mechanic/work-orders/${id}`,
+  incident: () => `/mechanic/problems`,
+  vehicle: (id) => `/mechanic/vehicles/${id}`,
+};
+
 /** @param {object} notification notification row (reference_type, reference_id, link) */
 export function getNotificationHref(notification = {}, role) {
   const { reference_type: type, reference_id: id, link } = notification;
@@ -50,6 +57,11 @@ export function getNotificationHref(notification = {}, role) {
   if (role === "driver") {
     return DRIVER_ROUTES[type] ? DRIVER_ROUTES[type]() : null;
   }
+
+  // Mechanic-audience rows MUST be written with reference_type
+  // "mechanic_maintenance" so staff taps on the same WO keep resolving to
+  // /fleet/vehicles/:id.
+  if (role === "mechanic") return MECHANIC_ROUTES[type] ? MECHANIC_ROUTES[type](id) : null;
 
   const build = STAFF_ROUTES[type];
   if (!build) return null;

@@ -328,3 +328,70 @@ export function endDutyStillNotReported({ shiftEnd }) {
     pushBody: "Today's report is still missing — end duty in the app tonight.",
   };
 }
+
+// ---- Mechanic work-order lifecycle (Task 5 fan-out) --------------------------
+// Mechanic-audience rows are written with reference_type "mechanic_maintenance"
+// (staff taps on the same WO keep resolving to /fleet/vehicles/:id), and the
+// mechanic deep-link map lives in target.js MECHANIC_ROUTES (Task 6 consumes).
+// Follow the vehicleRepaired shape: { title, message, pushBody }. Title rules:
+// stable, ≤200 chars, no IDs/dates — the dedupe key is
+// (employee_id, title, reference_type, reference_id).
+
+export function maintenanceAssigned({ plate }) {
+  return {
+    title: "Maintenance Work Assigned",
+    message: `A repair work order for vehicle ${plate || "your assigned vehicle"} was assigned to you. Review the findings and start the repair.`,
+    pushBody: `New repair assigned${plate ? `: ${plate}` : ""}.`,
+  };
+}
+
+// Distinct title is load-bearing: the same WO reassigned would otherwise be
+// swallowed by the (employee, title, reference) dedupe, and the new assignee
+// would never be told.
+export function maintenanceReassigned({ plate }) {
+  return {
+    title: "Maintenance Reassignment",
+    message: `Repair work for vehicle ${plate || "your assigned vehicle"} was reassigned to you. Review the current state before starting.`,
+    pushBody: `Repair reassigned${plate ? `: ${plate}` : ""}.`,
+  };
+}
+
+export function maintenanceUrgent({ plate }) {
+  return {
+    title: "Urgent Maintenance Assigned",
+    message: `A high-priority repair for vehicle ${plate || "your assigned vehicle"} needs immediate attention.`,
+    pushBody: `Urgent repair${plate ? `: ${plate}` : ""}.`,
+  };
+}
+
+export function maintenanceReturned({ plate }) {
+  return {
+    title: "Maintenance Returned for Rework",
+    message: `Repair work for vehicle ${plate || "the assigned vehicle"} was returned for rework. Read the rejection reason and resume the repair.`,
+    pushBody: "Repair returned for rework.",
+  };
+}
+
+export function maintenanceUpdated({ plate }) {
+  return {
+    title: "Assigned Maintenance Updated",
+    message: `Your assigned repair for vehicle ${plate || "the assigned vehicle"} was changed. Review the work order before continuing.`,
+    pushBody: "Assigned repair updated.",
+  };
+}
+
+export function maintenanceReady({ plate }) {
+  return {
+    title: "Maintenance Ready for Inspection",
+    message: `A repair for vehicle ${plate || "a vehicle"} is ready for inspection. Review and approve its completion.`,
+    pushBody: `Repair ready${plate ? `: ${plate}` : ""}.`,
+  };
+}
+
+export function maintenanceApproved({ plate }) {
+  return {
+    title: "Maintenance Work Approved",
+    message: `Your repair for vehicle ${plate || "the vehicle"} was approved and the vehicle is back in service.`,
+    pushBody: `Repair approved${plate ? `: ${plate}` : ""}.`,
+  };
+}
