@@ -382,6 +382,17 @@ Post-commit, best-effort fan-out on every PUT lifecycle event in `src/app/api/ve
 
 **Verified.** TDD RED (29 `fn is not a function`) then GREEN (`copy.test.js` **184/184**; adjacent vehicle-maintenance + notifications suites **230/230**, Task 3 guard tests unbroken; notification-adjacent sweep **135/135**). `npm run verify:auth` **295/295**. No migration touched.
 
+## Mechanic Workshop UI — Today's Line + work-order detail (Task 6, 2026-10-06)
+
+Web-only Workshop, UI files only (`src/app/(dashboard)/mechanic/*`, `src/components/mechanic/*`). No API/contract/migration changes; `STAFF_ROUTES.maintenance` untouched. Shell needed no wiring: root `layout.js` wraps everything in `DashboardLayout`, `WORKS.mechanic` + four `/mechanic/*` NAV_ROLES keys already existed, and `getRequiredRolesForPath` prefix-matches `/mechanic/work-orders/[id]` to mechanic-only.
+
+- Pages: `/mechanic` (single `GET /api/mechanic/summary` fetch, sections in config order shift-strip → up-next → queue → side-rail), `/mechanic/work-orders` (paginated scoped list + status chips), `/mechanic/work-orders/[id]` (row resolved from the scoped list — `[id]/route.js` is PUT-only, so ownership stays server-enforced and foreign ids render not-found), `/mechanic/problems` (read-only, WO chips, no raise button — `maintenance:create` is FM-only), `/mechanic/history` (Completed/Cancelled, cost read-only display).
+- Components: `shift-strip`, `hero-job-card` (Start / Mark Ready only — Approve/Complete have no representation), `job-queue`, `side-rail` (lean fields only, attention deep-links via `getNotificationHref(..., "mechanic")`, whisper read-only), `work-order-detail` (timeline, evidence form, sticky action bar). `mechanic-actions.js` pins the whitelist/transitions/2000-char cap in code; `use-is-desktop.js` disables mutating actions below 1024px with the desktop reason instead of hiding them.
+- App copy is EN, so the clear-line EmptyState reads "The line is clear" (not the brief's TL suggestion — the brief defers to the maintenance page's language).
+- **Known gap (follow-up, not a workaround):** the lean projection carries no `assigned_at` / `repair_started_at` / `repair_completed_at` stamps and no current `diagnosis` / `parts_replaced` / `labor_hours`, and there is no scoped single-record GET. The timeline therefore shows "Not recorded" where a stamp is absent (never a guessed timestamp), the evidence form opens blank for entry, and history parts cells read "Not recorded". A scoped single-record read (or projection extension) is the follow-up; Task 7 seeds against these pages as-is.
+
+**Verified.** TDD RED (4 files, modules missing) then GREEN (`src/components/mechanic` **16/16**). `npm run verify:auth` **295/295** (no new API methods). ESLint clean on both new dirs. Full suite **3592 passed / 7 failed**, same 7 fail on clean HEAD (proven via `git stash -u`: auth-session, no-legacy-role, schema-contract, upload-storage, standby ×2, driver-assignments).
+
 ## Database tables used
 
 `vehiclemaintenance` · `vehicles` (odometer) · `notifications`
