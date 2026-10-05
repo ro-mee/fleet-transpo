@@ -46,6 +46,19 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const REFETCH_MS = 30_000;
 
+export function resolveCommittedRequest({ selectedRequest, committedSuccessForId, freshSelectedRequest }) {
+  if (!committedSuccessForId) return selectedRequest;
+  if (!freshSelectedRequest) return committedSuccessForId;
+
+  if (Number(freshSelectedRequest.request_id) !== Number(committedSuccessForId.request_id)) {
+    return committedSuccessForId;
+  }
+  const freshStateMatches = ['Assigned', 'In Progress', 'Completed', 'Cancelled']
+    .includes(freshSelectedRequest.fleet_status);
+
+  return freshStateMatches ? freshSelectedRequest : committedSuccessForId;
+}
+
 // `label` is the visible tab name, `plainLabel` the same name in running text
 // (the empty state reads "Nothing <plainLabel>"), and `description` spells out
 // the filter for the tooltip and assistive technology.
@@ -218,16 +231,27 @@ export default function UnifiedQueuePage() {
     setSelectedRequestId(requests[0].request_id);
   }
 
+  const freshSelectedRequest = useMemo(() => {
+    if (!selectedRequestId) return requests[0] || null;
+    return requests.find((r) => Number(r.request_id) === Number(selectedRequestId)) || null;
+  }, [requests, selectedRequestId]);
+
   const selectedRequest = useMemo(() => {
     if (lockedRequest) return lockedRequest;
-    if (!selectedRequestId) return requests[0] || null;
-    return (
-      requests.find((r) => Number(r.request_id) === Number(selectedRequestId)) ||
-      (Number(completedRequest?.request_id) === Number(selectedRequestId) ? completedRequest : null)
-    );
-  }, [requests, selectedRequestId, lockedRequest, completedRequest]);
+    return freshSelectedRequest ||
+      (Number(completedRequest?.request_id) === Number(selectedRequestId) ? completedRequest : null);
+  }, [freshSelectedRequest, selectedRequestId, lockedRequest, completedRequest]);
 
-  const handleCopilotBusy=useCallback(busy=>setLockedRequest(busy ? selectedRequest : null),[selectedRequest]);
+  const committedSuccessForId = Number(completedRequest?.request_id) === Number(selectedRequestId)
+    ? completedRequest
+    : null;
+  const displayedRequest = resolveCommittedRequest({
+    selectedRequest,
+    committedSuccessForId,
+    freshSelectedRequest,
+  });
+
+  const handleCopilotBusy=useCallback(busy=>setLockedRequest(busy ? displayedRequest : null),[displayedRequest]);
 
   const handleSelectRow = (r) => {
     if (lockedRequest) return;
@@ -577,11 +601,11 @@ export default function UnifiedQueuePage() {
         {/* RIGHT COLUMN: Persistent Aside (Desktop) or Drawer (Mobile/Tablet) */}
         {permissions.recommend && (
           <DispatchPlanPanel
-            selectedRequest={selectedRequest}
+            selectedRequest={displayedRequest}
             onBusyChange={handleCopilotBusy}
             canAssign={permissions.assign}
             onAssigned={(result) => {
-              setCompletedRequest({...selectedRequest,...result,fleet_status:"Assigned"});
+              setCompletedRequest({...displayedRequest,...result,fleet_status:"Assigned"});
               invalidate();
               planHook.setStale(true);
             }}

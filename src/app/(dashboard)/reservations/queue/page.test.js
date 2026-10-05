@@ -44,7 +44,7 @@ vi.mock("@/services/transport.service", () => ({
 // Classic-runtime JSX reaches for a global React at import time (the toast
 // module builds an icon map at module scope), so the global goes in first.
 vi.stubGlobal("React", React);
-const { default: UnifiedQueuePage } = await import("./page");
+const { default: UnifiedQueuePage, resolveCommittedRequest } = await import("./page");
 const { TooltipProvider } = await import("@/components/ui/tooltip");
 
 const ROW = {
@@ -106,6 +106,32 @@ describe("Unified queue — first load", () => {
 });
 
 describe("Unified queue — loaded", () => {
+  it("holds the successful assignment over stale list and locked copies until matching server state arrives", () => {
+    expect(resolveCommittedRequest).toBeTypeOf("function");
+    if (typeof resolveCommittedRequest !== "function") return;
+    const committed = { ...ROW, fleet_status: "Assigned", vehicle_id: 11, driver_id: 12 };
+    const staleLocked = { ...ROW, fleet_status: "Scheduled", vehicle_id: null, driver_id: null };
+    expect(resolveCommittedRequest({
+      selectedRequest: staleLocked,
+      committedSuccessForId: committed,
+      freshSelectedRequest: staleLocked,
+    })).toBe(committed);
+
+    const matchingFresh = { ...ROW, fleet_status: "Assigned", vehicle_id: 11, driver_id: 12 };
+    expect(resolveCommittedRequest({
+      selectedRequest: staleLocked,
+      committedSuccessForId: committed,
+      freshSelectedRequest: matchingFresh,
+    })).toBe(matchingFresh);
+
+    const anotherLockedRow = { ...ROW, request_id: 502, fleet_status: "Pending" };
+    expect(resolveCommittedRequest({
+      selectedRequest: anotherLockedRow,
+      committedSuccessForId: null,
+      freshSelectedRequest: anotherLockedRow,
+    })).toBe(anotherLockedRow);
+  });
+
   it("names the today tab for what its predicate actually selects", () => {
     // QUEUE_TAB_PREDICATES.today is `pickup <= today (Asia/Manila)`, so the tab
     // holds overdue work as well. The label has to say so.

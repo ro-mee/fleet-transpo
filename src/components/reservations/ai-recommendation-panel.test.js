@@ -2,7 +2,7 @@ import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-const state = vi.hoisted(() => ({ query: {}, mutation: {}, chat: null, keys: [], queries: [], buttons: [], messages: vi.fn(), selection: null, persisted: [], cleared: [] }));
+const state = vi.hoisted(() => ({ query: {}, mutation: {}, chat: null, keys: [], queries: [], buttons: [], messages: vi.fn(), selection: null, persisted: [], cleared: [], canRecommend: true }));
 vi.mock('@tanstack/react-query', () => ({
   useQuery: (options) => { state.keys.push(options.queryKey); state.queries.push(options); return state.query; },
   useMutation: () => state.mutation,
@@ -18,7 +18,7 @@ vi.mock('@/components/ui/button', async importOriginal => {
     },
   };
 });
-vi.mock('@/hooks/use-role-access', () => ({useRoleAccess:()=>({can:()=>true})}));
+vi.mock('@/hooks/use-role-access', () => ({useRoleAccess:()=>({can:(_resource,permission)=>permission==='recommend'?state.canRecommend:true})}));
 vi.mock('@/components/reservations/trip-summary', () => ({useNow:()=>Date.parse('2026-09-15T00:00:00Z')}));
 vi.mock('./copilot-conversation', () => ({
   setReservationMessages: state.messages,
@@ -27,7 +27,7 @@ vi.mock('./copilot-conversation', () => ({
   clearReservationSelection: (requestId) => { state.cleared.push(requestId); },
   CopilotConversation:({children,reply,selectedReply,...props})=>{state.chat={...props,children,reply,selectedReply};return React.createElement(React.Fragment,null,children,selectedReply,reply);},
 }));
-import { AiRecommendationPanel } from './ai-recommendation-panel';
+import { AiRecommendationPanel, CopilotTripDetailsBubble } from './ai-recommendation-panel';
 import {
   canRestoreRememberedSelection,
   canStartSelectionCheck,
@@ -49,6 +49,7 @@ beforeEach(()=>{
   state.selection=null;
   state.persisted=[];
   state.cleared=[];
+  state.canRecommend=true;
   state.query={data:{evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:a,candidates:[a,b]}},refetch:vi.fn()};
   state.mutation={isPending:false,mutate:vi.fn()};
 });
@@ -203,6 +204,41 @@ it('keeps the reviewable pair compact before a choice',()=>{
 it('preserves terminal and empty-selection views without confirmation controls',()=>{
   expect(render({alreadyAssigned:true})).not.toContain('dispatch-confirmation-status');
   expect(render({requestId:null})).not.toContain('dispatch-confirmation-status');
+});
+it.each(['Assigned','In Progress'])('keeps %s trips read-only while permitting scoped chat without assignment context',status=>{
+  const selectedRequest={
+    request_id:1,reservation_number:'RS-1',fleet_status:status,vehicle_id:1,driver_id:2,
+    vehicles:{plate_number:'PAIR-A'},drivers:{first_name:'Driver',last_name:'A'},
+  };
+  const html=render({selectedRequest,queueMode:true,planToken:'client-plan',planProposal:{pair:a,outcome:'VERIFIED'}});
+  const recommendationQuery=state.queries.at(-1);
+  expect(recommendationQuery.enabled).toBe(false);
+  expect(recommendationQuery.refetchInterval).toBe(false);
+  expect(state.chat?.completed).toBe(false);
+  expect(state.chat?.readOnlyCommitted).toBe(true);
+  expect(state.chat?.disabled).toBe(false);
+  expect(state.chat?.hasPair).toBe(false);
+  expect(state.chat?.selectedPair).toBeNull();
+  expect(state.chat?.displayedOptions).toEqual([]);
+  expect(state.chat?.planToken).toBeNull();
+  expect(state.chat?.onCommand('Assign it')).toContain('authorized dispatch detail flow');
+  expect(state.mutation.mutate).not.toHaveBeenCalled();
+  expect(html).not.toContain('Confirm assignment');
+  expect(html).not.toContain('Choose Option 1');
+  expect(html).not.toContain('Recheck reservation');
+});
+it('does not enable active-trip discussion without recommendation permission',()=>{
+  state.canRecommend=false;
+  const html=render({selectedRequest:{request_id:1,fleet_status:'Assigned',vehicle_id:1,driver_id:2}});
+  expect(state.chat?.readOnlyCommitted).toBe(true);
+  expect(state.chat?.completed).toBe(false);
+  expect(state.chat?.disabled).toBe(true);
+  expect(html).not.toContain('Confirm assignment');
+});
+it.each(['Completed','Cancelled'])('removes the composer for %s trips',status=>{
+  render({selectedRequest:{request_id:1,fleet_status:status,vehicle_id:1,driver_id:2}});
+  expect(state.chat?.completed).toBe(true);
+  expect(state.chat?.readOnlyCommitted).toBe(false);
 });
 it('limits a completed no-match result to the current evaluation',()=>{
   state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:null,candidates:[],none_reasons:[{reason:'Vehicle status is Under Maintenance.'}]}};
@@ -426,6 +462,18 @@ it('does not invent a verification requirement when the evaluation has no exclus
      onReanalyze:vi.fn(),
    });
    expect(html.match(/Change selection/g)).toHaveLength(1);
+  });
+  it('shows committed Assigned status over a stale Scheduled request on the first post-success render',()=>{
+    const html=renderToStaticMarkup(React.createElement(CopilotTripDetailsBubble,{
+      requestId:1,
+      selectedRequest:{request_id:1,reservation_number:'RS-1',fleet_status:'Scheduled'},
+      committedPair:a,
+      alreadyAssigned:true,
+    }));
+    expect(html).toContain('>Assigned</span>');
+    expect(html).not.toContain('>Scheduled</span>');
+    expect(html).toContain('PAIR-A');
+    expect(html).toContain('Driver A');
   });
   it('presents trip details in a CopilotBubble without recommendation options when completed or cancelled',()=>{
   const completedReq={

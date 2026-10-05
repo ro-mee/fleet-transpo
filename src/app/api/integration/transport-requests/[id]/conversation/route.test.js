@@ -1,16 +1,26 @@
 import {beforeEach,it,expect,vi} from 'vitest';
 vi.mock('@/lib/api/utils',()=>({requirePermission:vi.fn(),parseBody:req=>req.json(),AuthError:class extends Error{constructor(message,status){super(message);this.status=status;}},handleError:e=>Response.json({error:e.message},{status:e.status??500})}));
 vi.mock('@/lib/rate-limit',()=>({rateLimit:vi.fn(async()=>({allowed:true}))}));
-vi.mock('@/services/reservation-lifecycle.service',()=>({loadRequest:vi.fn(async()=>({request_id:1,passenger_count:4}))}));
+vi.mock('@/services/reservation-lifecycle.service',()=>({loadRequest:vi.fn(async()=>({request_id:1,fleet_status:'Pending',passenger_count:4}))}));
 vi.mock('@/services/dispatch-recommendation-preparation.service',()=>({prepareDispatchRecommendation:vi.fn(async()=>({request:{request_id:1},recommendation:{evaluatedAt:'2026-09-15',pair:{candidates:[],none_reasons:[{reason:'No designated driver'}]}}}))}));
 vi.mock('@/services/dispatch-radar.service',()=>({applyDispatchRadar:vi.fn(async()=>{})}));
-vi.mock('@/services/dispatch-plan-evidence.service',()=>({verifyPlanToken:vi.fn()}));
+vi.mock('@/services/dispatch-plan-evidence.service',()=>({verifyPlanToken:vi.fn(),readPlanRevision:vi.fn()}));
+vi.mock('@/lib/dispatch/evidence-contract',()=>({attachEvidenceProofs:vi.fn(),attachClearanceProofs:vi.fn(),signEvidenceRef:vi.fn(()=>'test-ref'),EVIDENCE_TYPES:{COMPARISON:'comparison'}}));
+vi.mock('@/services/dispatch-simulate.service',()=>({runReservationSimulation:vi.fn()}));
+vi.mock('@/services/dispatch-plan.service',()=>({buildDispatchPlan:vi.fn()}));
+vi.mock('@/lib/dispatch/queue-impact',()=>({compareQueueImpact:vi.fn()}));
+vi.mock('@/services/dispatch-return.service',()=>({findReturnMatches:vi.fn()}));
 vi.mock('@/lib/ai/llm-adapter',()=>({executeLlmCompletion:vi.fn(async()=>({success:false}))}));
 import {requirePermission} from '@/lib/api/utils';
 import {loadRequest} from '@/services/reservation-lifecycle.service';
 import {prepareDispatchRecommendation} from '@/services/dispatch-recommendation-preparation.service';
 import {executeLlmCompletion} from '@/lib/ai/llm-adapter';
 import {verifyPlanToken} from '@/services/dispatch-plan-evidence.service';
+import {applyDispatchRadar} from '@/services/dispatch-radar.service';
+import {attachEvidenceProofs,attachClearanceProofs} from '@/lib/dispatch/evidence-contract';
+import {runReservationSimulation} from '@/services/dispatch-simulate.service';
+import {buildDispatchPlan} from '@/services/dispatch-plan.service';
+import {findReturnMatches} from '@/services/dispatch-return.service';
 import {POST} from './route';
 process.env.NEXTAUTH_SECRET ??= 'test-secret-for-conversation';
 const call=body=>POST(new Request('http://localhost/conversation',{method:'POST',body:JSON.stringify(body)}),{params:Promise.resolve({id:'1'})});
@@ -28,6 +38,60 @@ it.each([
   expect(loadRequest).not.toHaveBeenCalled();
   expect(prepareDispatchRecommendation).not.toHaveBeenCalled();
   expect(executeLlmCompletion).not.toHaveBeenCalled();
+});
+it.each(['Assigned','In Progress','Completed','Cancelled'])('answers %s request questions only from the loaded lifecycle record',async status=>{
+  loadRequest.mockResolvedValueOnce({request_id:1,fleet_status:status,
+    vehicle_id:status==='In Progress'?'51':51,driver_id:status==='In Progress'?'62':62,passenger_count:4});
+  const response=await call({
+    message:'What is the current trip status?',
+    selectedPair:{vehicleId:900,driverId:901},
+    displayedOptions:[{vehicleId:900,driverId:901}],
+    planToken:'client-plan',
+  });
+  const data=await response.json();
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  expect(data).toMatchObject({
+    answer:expect.stringContaining(status),
+    mode:'scope-only',choiceOptions:[],evaluatedAt:null,selection:null,coverage:null,
+    recoveryActions:[],pairRecovery:[],comparisonProof:null,snapshot:null,
+    baselineStatus:'none',changes:{changed:false,fingerprint:null,changes:[]},intent:null,
+  });
+  expect(data.answer).toContain('vehicle #51');
+  expect(data.answer).toContain('driver #62');
+  expect(JSON.stringify(data)).not.toMatch(/900|901|client-plan/);
+  expect(loadRequest).toHaveBeenCalledWith('1');
+  expect(prepareDispatchRecommendation).not.toHaveBeenCalled();
+  expect(applyDispatchRadar).not.toHaveBeenCalled();
+  expect(attachEvidenceProofs).not.toHaveBeenCalled();
+  expect(attachClearanceProofs).not.toHaveBeenCalled();
+  expect(runReservationSimulation).not.toHaveBeenCalled();
+  expect(buildDispatchPlan).not.toHaveBeenCalled();
+  expect(findReturnMatches).not.toHaveBeenCalled();
+  expect(verifyPlanToken).not.toHaveBeenCalled();
+  expect(executeLlmCompletion).not.toHaveBeenCalled();
+});
+it('does not substitute body pair IDs when the loaded committed pair is incomplete',async()=>{
+  loadRequest.mockResolvedValueOnce({request_id:1,fleet_status:'Assigned',vehicle_id:null,driver_id:62});
+  const response=await call({message:'What is the current trip status?',selectedPair:{vehicleId:900,driverId:901}});
+  const data=await response.json();
+  expect(response.status).toBe(200);
+  expect(data.choiceOptions).toEqual([]);
+  expect(data.answer).toContain('vehicle ID is unavailable');
+  expect(data.answer).toContain('driver #62');
+  expect(data.answer).not.toContain('900');
+  expect(data.answer).not.toContain('901');
+  expect(prepareDispatchRecommendation).not.toHaveBeenCalled();
+  expect(executeLlmCompletion).not.toHaveBeenCalled();
+});
+it('validates and authorizes before loading a committed request',async()=>{
+  const invalid=await call({message:'What is the current trip status?',selectedPair:{vehicleId:0,driverId:1}});
+  expect(invalid.status).toBe(400);
+  expect(loadRequest).not.toHaveBeenCalled();
+  requirePermission.mockRejectedValueOnce(Object.assign(new Error('Forbidden'),{status:403}));
+  const unauthorized=await call({message:'What is the current trip status?'});
+  expect(unauthorized.status).toBe(403);
+  expect(loadRequest).not.toHaveBeenCalled();
 });
 it('keeps a FleetOps follow-up in the normal evidence path',async()=>{
   await call({message:'Why?',history:[{role:'user',content:'Why is Driver 12 unavailable?'}]});

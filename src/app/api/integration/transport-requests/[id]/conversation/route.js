@@ -90,6 +90,19 @@ export async function POST(req,{params}) {
     if (scope.kind === 'out-of-scope') return scopeOnlyResponse(FLEETMATE_SCOPE_REDIRECT);
     const request=await loadRequest(id);
     if(!request)throw new AuthError('Reservation not found.',404);
+    const committedStatus=request.fleet_status;
+    if(['Assigned','In Progress','Completed','Cancelled'].includes(committedStatus)) {
+      const vehicleId=Number(request.vehicle_id);
+      const driverId=Number(request.driver_id);
+      const vehicle=Number.isSafeInteger(vehicleId) && vehicleId>0
+        ? `vehicle #${vehicleId}` : 'vehicle ID is unavailable';
+      const driver=Number.isSafeInteger(driverId) && driverId>0
+        ? `driver #${driverId}` : 'driver ID is unavailable';
+      const lifecycleNote=['Completed','Cancelled'].includes(committedStatus)
+        ? 'This reservation is closed; no replacement options are available.'
+        : 'This trip is already committed. I can answer read-only questions, but no replacement options are generated here.';
+      return scopeOnlyResponse(`The reservation is ${committedStatus}; the server record reports ${vehicle} and ${driver}. ${lifecycleNote}`);
+    }
     const prepared=await prepareDispatchRecommendation(request,{persistRoute:false});
     await applyDispatchRadar({...prepared,includePosition:false});
     const evidence=conversationEvidence(request,prepared.recommendation,body.selectedPair);

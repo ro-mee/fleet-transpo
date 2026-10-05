@@ -1,6 +1,7 @@
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {beforeEach,it,expect,vi} from 'vitest';
-const state=vi.hoisted(()=>({cells:[],cursor:0,query:null,mutation:null,handlers:null,persisted:vi.fn(),cleared:vi.fn()}));
+const state=vi.hoisted(()=>({cells:[],cursor:0,query:null,mutation:null,handlers:null,chat:null,persisted:vi.fn(),cleared:vi.fn()}));
 // Exercise the panel's event handlers and subsequent renders without a DOM dependency.
 vi.mock('react',async original=>({...await original(),
   useState:initial=>{const i=state.cursor++;if(!(i in state.cells))state.cells[i]=typeof initial==='function'?initial():initial;return [state.cells[i],value=>{state.cells[i]=typeof value==='function'?value(state.cells[i]):value;}];},
@@ -9,11 +10,12 @@ vi.mock('react',async original=>({...await original(),
 vi.mock('@tanstack/react-query',()=>({useQuery:()=>state.query,useMutation:handlers=>{state.handlers=handlers;return state.mutation;},useQueryClient:()=>({setQueryData:vi.fn(),invalidateQueries:vi.fn()})}));
 vi.mock('@/hooks/use-role-access',()=>({useRoleAccess:()=>({can:()=>true})}));
 vi.mock('@/components/reservations/trip-summary',()=>({useNow:()=>Date.parse('2026-09-15T00:00:00Z')}));
-vi.mock('./copilot-conversation',()=>({CopilotConversation:()=>null,setReservationMessages:vi.fn(),getReservationSelection:()=>null,setReservationSelection:(...args)=>state.persisted(...args),clearReservationSelection:(...args)=>state.cleared(...args)}));
+vi.mock('./copilot-conversation',()=>({CopilotConversation:props=>{state.chat=props;return React.createElement(React.Fragment,null,props.children,props.selectedReply,props.reply);},setReservationMessages:vi.fn(),getReservationSelection:()=>null,setReservationSelection:(...args)=>state.persisted(...args),clearReservationSelection:(...args)=>state.cleared(...args)}));
 import {AiRecommendationPanel} from './ai-recommendation-panel';
 import {CopilotConversation} from './copilot-conversation';
 const find=(node,type)=>node?.type===type?node:React.Children.toArray(node?.props?.children).map(child=>find(child,type)).find(Boolean);
 const render=(props={})=>{state.cursor=0;return find(AiRecommendationPanel({requestId:1,canAssign:true,...props}),CopilotConversation).props;};
+const renderHtml=(props={})=>{state.cursor=0;return renderToStaticMarkup(AiRecommendationPanel({requestId:1,canAssign:true,...props}));};
 beforeEach(()=>{
   vi.stubGlobal('React',React);state.cells=[];state.cursor=0;
   state.persisted.mockClear();state.cleared.mockClear();
@@ -34,6 +36,20 @@ it('selects a typed option, waits for its recheck, then assigns on the first exp
   expect(render().onCommand('Assign it')).toEqual({handled:true});
   expect(state.mutation.mutate).toHaveBeenCalledWith(expect.objectContaining({vehicle_id:2,driver_id:2,force:false}));
   render().onCommand('Assign it');expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
+});
+it('shows the committed Assigned pair on the first render despite a stale Scheduled row',async()=>{
+  const selectedRequest={request_id:1,reservation_number:'RS-1',fleet_status:'Scheduled'};
+  render({selectedRequest}).onCommand('Option 1');
+  await Promise.resolve();await Promise.resolve();
+  const reviewed=render({selectedRequest});
+  expect(reviewed.selectedPair).toEqual({vehicleId:1,driverId:1});
+  reviewed.onCommand('Assign it');
+  state.handlers.onSuccess({request_id:1,fleet_status:'Assigned',vehicle_id:1,driver_id:1});
+  const html=renderHtml({selectedRequest});
+  expect(html).toContain('>Assigned</span>');
+  expect(html).not.toContain('>Scheduled</span>');
+  expect(html).toContain('PAIR-1');
+  expect(html).toContain('Driver 1');
 });
 it('keeps a failed check unassignable and questions do not select a pair',async()=>{
   expect(render().onCommand('Why Option 2?')).toBeNull();expect(render().selectedPair).toBeNull();
@@ -57,7 +73,7 @@ it('remembers the chosen pair and the exact option list it was chosen from',asyn
 it('forgets the chosen pair when the dispatcher changes selection',async()=>{
   state.query.refetch=vi.fn(async()=>({isError:false}));
   render().onCommand('Option 2');await Promise.resolve();await Promise.resolve();
-  expect(render().onCommand('change selection')).toBe('Choose a current option below.');
+  expect(render().onCommand('change selection')).toBe('Selection cleared. Choose a current option below.');
   expect(state.cleared).toHaveBeenCalledWith(1);
   expect(render().selectedPair).toBeNull();
 });

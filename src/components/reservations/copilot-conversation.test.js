@@ -65,6 +65,41 @@ it('keeps scope-only replies conversational without replacing options or selecte
   expect(html).toContain('Choose Option 2');
 });
 
+it('keeps committed-trip chat read-only and sends no client assignment evidence',async()=>{
+  const pair={vehicleId:900,driverId:901};
+  setReservationMessages(15,[{
+    role:'assistant',content:'Historic option recommendation',at:1,evaluatedAt:'2026-09-15T00:00:00Z',
+    recoveryActions:[{code:'OLD',label:'Review Evidence',proof:{type:'capacity',ref:'proof-old'}}],
+    pairRecovery:[{vehicleId:900,driverId:901,clearance:[{checkId:'capacity',label:'Capacity',status:'verified'}],meta:{horizon:'SCHEDULED'}}],
+    comparisonProof:{type:'comparison',ref:'comparison-old'},
+  }]);
+  const props={requestId:15,readOnlyCommitted:true,disabled:false,hasPair:true,
+    selectedPair:pair,selectedPairLabel:'Forged pair',displayedOptions:[pair],
+    displayedEvaluatedAt:'2026-09-15T00:00:00Z',planToken:'forged-plan'};
+  const html=renderToStaticMarkup(React.createElement(CopilotConversation,props));
+  expect(html).toContain('Historic option recommendation');
+  expect(html).toContain('Earlier conversation is history');
+  expect(html).not.toContain('Choose Option 1');
+  expect(html).not.toContain('Which would you like to choose');
+  expect(html).not.toContain('Review eligibility');
+  expect(html).not.toContain('Compare options');
+  expect(html).not.toContain('Review Evidence');
+  expect(html).toContain('What is the current trip status?');
+  expect(html).not.toContain('Why this option?');
+  expect(html).not.toContain('Any conflicts?');
+  expect(html).not.toContain('Other options?');
+  expect(html).toContain('Message Copilot');
+  expect(html.match(/<textarea[^>]*id="copilot-question"[^>]*>/)?.[0]).not.toMatch(/\sdisabled(?:\s|=|>)/);
+
+  await state.handlers.mutationFn({requestId:15,message:'Where is the current trip?',history:[],
+    planToken:'forged-plan',selectedPair:pair,displayedEvaluatedAt:props.displayedEvaluatedAt,displayedOptions:[pair]});
+  const body=apiFetch.mock.calls.at(-1)[1].body;
+  expect(body).not.toHaveProperty('planToken');
+  expect(body).not.toHaveProperty('selectedPair');
+  expect(body).not.toHaveProperty('displayedEvaluatedAt');
+  expect(body).not.toHaveProperty('displayedOptions');
+  expect(body).not.toHaveProperty('baseline');
+});
 it('keeps the selected review before later questions and answers, including after memory pruning',()=>{
  const selectedPair={vehicleId:3,driverId:4};
  const messages=[

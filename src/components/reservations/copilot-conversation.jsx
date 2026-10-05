@@ -243,6 +243,7 @@ export function CopilotConversation({
   displayedOptions = [],
   disabled = false,
   completed = false,
+  readOnlyCommitted = false,
   children,
   reply,
   selectedReply,
@@ -257,8 +258,9 @@ export function CopilotConversation({
   const log = useRef(null);
   const follow = useRef(true);
   const sending = useRef(false);
-  const currentSelection = useRef(selectedPair);
-  useEffect(() => { currentSelection.current = selectedPair; }, [selectedPair]);
+  const currentPair = readOnlyCommitted ? null : selectedPair;
+  const currentSelection = useRef(currentPair);
+  useEffect(() => { currentSelection.current = currentPair; }, [currentPair]);
 
   // The panel keys this component by requestId; switching reservations resets local state.
   // Sync state across module updates for this specific reservation
@@ -281,13 +283,19 @@ export function CopilotConversation({
   const send = useMutation({
     mutationFn: ({ message, history, requestId: targetId, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, displayedOptions: options }) => {
       let baseline = null;
-      try { baseline = window.sessionStorage.getItem(`fleetops_dispatch_baseline_${targetId}`); } catch { baseline = null; }
+      if (!readOnlyCommitted) {
+        try { baseline = window.sessionStorage.getItem(`fleetops_dispatch_baseline_${targetId}`); } catch { baseline = null; }
+      }
+      const assignmentContext = readOnlyCommitted ? {} : {
+        planToken: token,
+        selectedPair: selection,
+        displayedEvaluatedAt: viewedAt,
+        ...(options ? {displayedOptions:options} : {}),
+        ...(baseline ? {baseline} : {}),
+      };
       return apiFetch(
         `/api/integration/transport-requests/${targetId}/conversation`,
-        {
-          method: "POST",
-          body: { message, history, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, ...(options ? {displayedOptions:options} : {}), ...(baseline ? {baseline} : {}) },
-        }
+        { method: "POST", body: { message, history, ...assignmentContext } }
       );
     },
     onMutate: ({ message, requestId: targetId, selectedPair: selection, selectedPairLabel: selectionLabel, displayedEvaluatedAt: viewedAt }) => {
@@ -296,9 +304,9 @@ export function CopilotConversation({
         content: message,
         at: Date.now(),
         requestId: targetId,
-        selectedPair: selection,
-        selectedPairLabel: selectionLabel,
-        displayedEvaluatedAt: viewedAt,
+        selectedPair: readOnlyCommitted ? null : selection,
+        selectedPairLabel: readOnlyCommitted ? null : selectionLabel,
+        displayedEvaluatedAt: readOnlyCommitted ? null : viewedAt,
         reservationNumber: currentRef,
         guestName: currentGuest,
       };
@@ -317,9 +325,9 @@ export function CopilotConversation({
         content: response.answer + prompt,
         at: Date.now(),
         requestId: targetId,
-        selectedPair: selection,
-        selectedPairLabel: selectionLabel,
-        displayedEvaluatedAt: viewedAt,
+        selectedPair: readOnlyCommitted ? null : selection,
+        selectedPairLabel: readOnlyCommitted ? null : selectionLabel,
+        displayedEvaluatedAt: readOnlyCommitted ? null : viewedAt,
         reservationNumber: currentRef,
         guestName: currentGuest,
       };
@@ -352,17 +360,17 @@ export function CopilotConversation({
     follow.current = true;
     send.mutate({
       requestId,
-      planToken,
-      selectedPair,
-      selectedPairLabel,
-      displayedEvaluatedAt,
-      displayedOptions,
+      planToken: readOnlyCommitted ? null : planToken,
+      selectedPair: currentPair,
+      selectedPairLabel: readOnlyCommitted ? null : selectedPairLabel,
+      displayedEvaluatedAt: readOnlyCommitted ? null : displayedEvaluatedAt,
+      displayedOptions: readOnlyCommitted ? [] : displayedOptions,
       message: message.trim(),
       history: messages
         .slice(-8)
         .map(({ role, content, selectedPair: pastPair }) => ({
           role,
-          content: `${pastPair ? `[Asked about vehicle #${pastPair.vehicleId} / driver #${pastPair.driverId}] ` : ''}${content}`.slice(0, 2000),
+          content: `${!readOnlyCommitted && pastPair ? `[Asked about vehicle #${pastPair.vehicleId} / driver #${pastPair.driverId}] ` : ''}${content}`.slice(0, 2000),
         })),
     });
   };
@@ -371,15 +379,17 @@ export function CopilotConversation({
     clearReservationMessages(requestId);
   };
 
-  const suggestions = hasPair
-    ? ["Why this option?", "Any conflicts?", "Other options?"]
-    : ["Why no match?", "What needs fixing?", "Other options?"];
+  const suggestions = readOnlyCommitted
+    ? ["What is the current trip status?", "What details are recorded?", "What happens next?"]
+    : hasPair
+      ? ["Why this option?", "Any conflicts?", "Other options?"]
+      : ["Why no match?", "What needs fixing?", "Other options?"];
 
   // Keep the live review at its selection turn, never after subsequent Q&A.
   // If memory was cleared/pruned, retain the review above the remaining messages.
-  const selectionTurn = selectedPair ? messages.findLastIndex(m =>
-    m.action === 'select-pair' && m.selectedPair?.vehicleId === selectedPair.vehicleId &&
-    m.selectedPair?.driverId === selectedPair.driverId) : -1;
+  const selectionTurn = currentPair ? messages.findLastIndex(m =>
+    m.action === 'select-pair' && m.selectedPair?.vehicleId === currentPair.vehicleId &&
+    m.selectedPair?.driverId === currentPair.driverId) : -1;
 
   return (
     <section
@@ -411,6 +421,11 @@ export function CopilotConversation({
           </button>
         )}
       </div>
+      {readOnlyCommitted && (
+        <p role="note" className="border-b border-border/60 bg-muted/10 px-3 py-1.5 text-[11px] text-foreground-secondary">
+          Earlier conversation is history; current trip details come from this reservation record.
+        </p>
+      )}
 
       {/* ── Message Log ── */}
       <div
@@ -425,8 +440,8 @@ export function CopilotConversation({
         }}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-3 p-3"
       >
-        {children}
-        {selectionTurn === -1 && selectedReply}
+        {!readOnlyCommitted && children}
+        {!readOnlyCommitted && selectionTurn === -1 && selectedReply}
         {messages.length === 0 && !children && !reply && (
           <div className="flex items-start gap-2 max-w-[95%]">
             <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
@@ -482,7 +497,7 @@ export function CopilotConversation({
                         Chat is temporarily unavailable. These are the recorded findings.
                       </p>
                     )}
-                    {m.role === "assistant" && Array.isArray(m.recoveryActions) && m.recoveryActions.length > 0 && (
+                    {!readOnlyCommitted && m.role === "assistant" && Array.isArray(m.recoveryActions) && m.recoveryActions.length > 0 && (
                       <span className="mt-2 flex flex-wrap gap-1.5">
                         {m.recoveryActions.slice(0, 2).map((action, idx) => {
                           if (action.proof?.ref) {
@@ -525,7 +540,7 @@ export function CopilotConversation({
                     Asked about {m.selectedPairLabel || `vehicle #${m.selectedPair.vehicleId} / driver #${m.selectedPair.driverId}`}
                   </p>
                 )}
-                {m.evaluatedAt && (
+                {!readOnlyCommitted && m.evaluatedAt && (
                   <details className="mt-1 max-w-[90%] pl-8 text-[11px] text-foreground-secondary">
                     <summary className="cursor-pointer">Evidence details</summary>
                     <p>
@@ -558,13 +573,13 @@ export function CopilotConversation({
           </div>
         )}
         {reply}
-        {!completed && !selectedPair && displayedOptions.length > 0 && !send.isPending && messages.length === 0 && <p className="pl-8 text-sm text-foreground-secondary">{displayedOptions.length === 2 ? 'Which would you like to choose: Option 1 or Option 2?' : 'Would you like to choose Option 1?'}</p>}
-        {!completed && !selectedPair && messages.length > 0 && !send.isPending && <div className="flex flex-wrap gap-2 pl-8">
+        {!readOnlyCommitted && !completed && !currentPair && displayedOptions.length > 0 && !send.isPending && messages.length === 0 && <p className="pl-8 text-sm text-foreground-secondary">{displayedOptions.length === 2 ? 'Which would you like to choose: Option 1 or Option 2?' : 'Would you like to choose Option 1?'}</p>}
+        {!readOnlyCommitted && !completed && !currentPair && messages.length > 0 && !send.isPending && <div className="flex flex-wrap gap-2 pl-8">
           {displayedOptions.map((option,index)=><button key={`${option.vehicleId}:${option.driverId}`} type="button" disabled={disabled}
             onClick={()=>submit(`Option ${index+1}`)} className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">Choose Option {index+1}</button>)}
         </div>}
-        {!completed && !send.isPending && (() => {
-          const clearanceInfo = latestClearanceFor(messages, selectedPair);
+        {!readOnlyCommitted && !completed && !send.isPending && (() => {
+          const clearanceInfo = latestClearanceFor(messages, currentPair);
           const comparison = latestComparisonFor(messages);
           if (!clearanceInfo && !comparison) return null;
           return (
