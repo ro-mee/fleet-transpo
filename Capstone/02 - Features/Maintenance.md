@@ -393,6 +393,16 @@ Web-only Workshop, UI files only (`src/app/(dashboard)/mechanic/*`, `src/compone
 
 **Verified.** TDD RED (4 files, modules missing) then GREEN (`src/components/mechanic` **16/16**). `npm run verify:auth` **295/295** (no new API methods). ESLint clean on both new dirs. Full suite **3592 passed / 7 failed**, same 7 fail on clean HEAD (proven via `git stash -u`: auth-session, no-legacy-role, schema-contract, upload-storage, standby ×2, driver-assignments).
 
+## Mechanic scoped single-record read + evidence columns (Task 4b, 2026-10-06)
+
+Plan-gap follow-up: Task 4 scoped the list reads but the Task 6 detail page (`work-order-detail.jsx` timeline + evidence form, history parts cells) needs a single-record read with timeline/evidence columns, which no endpoint served — the UI honestly renders "Not recorded" today. Step 1 finding: **no GET existed on `[id]`** (only `PUT`), so one was added; PUT is byte-untouched.
+
+- `GET /api/vehicle-maintenance/[id]` — `requirePermission(req, "maintenance", "read")`, positive-int id → 400 otherwise, single-row lean SELECT (the brief's exact column list incl. `cost` + `source_inspection_id`, `vehicles` = plate_number + vehicle_name only), 404 when missing/deleted, mechanic 403 unless `assigned_mechanic_id` equals own employee id (fail closed, `NULL` matches nobody), staff read-only superset. Cost is included deliberately (staff need it; the PUT whitelist, not reads, blocks mechanic cost edits — stated in a code comment).
+- `MT_LIST_SELECT` (shared by `MT_MECHANIC_SELECT`) gains the 8 missing evidence keys + `source_inspection_id` (`completed_date` was already there); staff rows carry the same superset, still without `assigned_mechanic_id`. `SUMMARY_ROW_SELECT` + `shapeWorkOrder` gain the same 9 keys + `source_inspection_id` so `queue`/`upNext` agree with the detail page.
+- Lean discipline kept: no `vm.*`, no `row_to_json(v.*)`, no `purchase_price` / `image_url` anywhere on the mechanic path.
+
+**Verified.** TDD RED (3 files / 9 failed: 6× `GET is not a function`, 2× list evidence absent, 1× summary shape) then GREEN (**3 files / 41 passed**). `npm run verify:auth` **295 → 296 PASS** (+1 method, guarded). No guard, transition, whitelist, migration, or UI file touched.
+
 ## Database tables used
 
 `vehiclemaintenance` · `vehicles` (odometer) · `notifications`
