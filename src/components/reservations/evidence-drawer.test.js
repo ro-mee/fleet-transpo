@@ -86,6 +86,7 @@ it.each([
   ['verification rows', [{ label: 'License', state: 'verify', note: 'Needs verification' }], /Eligibility is unknown/i],
   ['missing rows', [], /Eligibility is unknown/i],
   ['GPS-only rows', [{ label: 'GPS Health', state: 'clear', note: 'Fresh' }], /Eligibility is unknown/i],
+  ['GPS clear with non-GPS not-applicable rows', [{ label: 'GPS Health', state: 'clear', note: 'Fresh' }, { label: 'Number coding', state: 'na', note: 'Not applicable' }], /Eligibility is unknown/i],
 ])('never calls %s eligible', (_name, rows, conclusion) => {
   const html = renderToStaticMarkup(React.createElement(EligibilityInspector, {
     pairLabel: 'Marco Santos + ABC', horizon: 'SCHEDULED', rows, onReviewProof: () => {},

@@ -264,10 +264,11 @@ export function inspectorConclusion(rows = []) {
   if (rows.some(row => row.state === "blocked")) {
     return "Blocking evidence was found in the evaluated server evidence for this booking.";
   }
-  const hasClearFinding = rows.some(row => row.state === "clear");
-  const hasEligibilityFinding = rows.some(row => !["Current GPS", "GPS Health"].includes(row.label));
+  const hasClearEligibilityFinding = rows.some(row =>
+    row.state === "clear" && !["Current GPS", "GPS Health"].includes(row.label)
+  );
   const allFindingsEvaluated = rows.length > 0 && rows.every(row => ["clear", "na"].includes(row.state));
-  if (!allFindingsEvaluated || !hasClearFinding || !hasEligibilityFinding) {
+  if (!allFindingsEvaluated || !hasClearEligibilityFinding) {
     return "Eligibility is unknown because the evaluated server evidence for this booking is missing or needs verification.";
   }
   return "Eligible based only on the evaluated server evidence for this booking.";
