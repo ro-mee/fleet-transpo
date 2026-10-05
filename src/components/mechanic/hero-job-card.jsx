@@ -34,7 +34,7 @@ function EvidenceDots({ job }) {
   const parts = Array.isArray(job.parts_replaced) ? job.parts_replaced : null;
   const dots = [
     { key: "diagnosis", label: "Diagnosis", done: String(job.diagnosis ?? "").trim().length > 0 },
-    { key: "parts", label: "Parts", done: parts != null ? parts.length > 0 : job.labor_hours != null },
+    { key: "parts", label: "Parts", done: parts != null ? parts.length > 0 : false },
     { key: "labor", label: "Labor", done: job.labor_hours != null && Number(job.labor_hours) > 0 },
   ];
   return (

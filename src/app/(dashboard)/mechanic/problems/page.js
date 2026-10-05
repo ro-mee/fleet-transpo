@@ -5,7 +5,6 @@ import { TriangleAlert } from "lucide-react";
 import { getVehicleProblems } from "@/services/vehicle.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { PageEntrance } from "@/components/ui/page-entrance";
@@ -17,6 +16,11 @@ import { formatDate } from "@/lib/utils";
 // Problem Queue (mechanic view) — READ-ONLY. Raising a work order from a
 // problem (maintenance:create) is FM-only, so this page renders no raise
 // button by design. Tracked problems carry a WO chip into the work order.
+// Inspection severities (Minor/Moderate/Major/Critical) predate the shared
+// severity grammar (critical/high/medium/low), so map to the nearest tone.
+// "Not assessed" (or anything unmapped) renders the neutral outline chip.
+const SEVERITY_TONE = { Critical: "critical", Major: "high", Moderate: "medium", Minor: "low" };
+
 function ProblemCard({ item }) {
   return (
     <Card className="rounded-card border-border/70 shadow-sm">
@@ -28,9 +32,10 @@ function ProblemCard({ item }) {
           {item.vehicleName && (
             <span className="text-xs text-foreground-secondary">{item.vehicleName}</span>
           )}
-          <Badge variant="secondary" className="rounded-control px-2.5 py-0.5 text-[11px] font-bold">
-            {item.inspectionType}
-          </Badge>
+          <StatusBadge
+            status={item.inspectionType}
+            className="rounded-control px-2.5 py-0.5 text-[11px] font-bold"
+          />
           <span className="text-xs font-medium text-foreground-secondary">
             {formatDate(item.inspectionDate)}
           </span>
@@ -39,9 +44,11 @@ function ProblemCard({ item }) {
           <span className="font-semibold uppercase tracking-wider text-foreground-secondary">
             Severity:
           </span>
-          <Badge variant="outline" className="rounded-control px-2.5 py-0.5 font-bold">
-            {item.severityLabel}
-          </Badge>
+          <StatusBadge
+            severity={SEVERITY_TONE[item.severityLabel]}
+            label={item.severityLabel}
+            className="rounded-control px-2.5 py-0.5 font-bold"
+          />
           {item.driverName && (
             <span className="text-foreground-secondary">Reported by {item.driverName}</span>
           )}

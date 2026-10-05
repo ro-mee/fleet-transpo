@@ -71,7 +71,7 @@ export function JobRow({ job, desktop, onAction, busy }) {
     <li
       id={`job-${job.maintenance_id}`}
       className={cn(
-        "flex scroll-mt-20 flex-col gap-3 rounded-control border border-border/70 bg-surface p-3 shadow-xs sm:flex-row sm:items-center sm:justify-between",
+        "flex scroll-mt-20 flex-col gap-3 rounded-control border border-border/70 bg-surface p-3 sm:flex-row sm:items-center sm:justify-between",
         "border-l-4",
         NOTCH[job.status] ?? "border-l-border"
       )}

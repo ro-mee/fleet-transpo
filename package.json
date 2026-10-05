@@ -28,7 +28,11 @@
     "seed:status": "node scripts/seed-demo.mjs status",
     "seed:plan": "node scripts/seed-demo.mjs plan",
     "seed:up": "node scripts/seed-demo.mjs up",
-    "seed:down": "node scripts/seed-demo.mjs down"
+    "seed:down": "node scripts/seed-demo.mjs down",
+    "seed:mechanic:status": "node scripts/seed-mechanic-demo.mjs status",
+    "seed:mechanic:plan": "node scripts/seed-mechanic-demo.mjs plan",
+    "seed:mechanic:up": "node scripts/seed-mechanic-demo.mjs up",
+    "seed:mechanic:down": "node scripts/seed-mechanic-demo.mjs down"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
