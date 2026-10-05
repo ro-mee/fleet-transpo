@@ -26,7 +26,7 @@ vi.mock("@/lib/audit", async () => {
 import { GET } from "./route";
 import { AuthError } from "@/lib/api/utils";
 
-const session = { user: { employeeId: 7, role: "system_admin" } };
+const session = { user: { employeeId: 7, role: "super_admin" } };
 
 function request(id = "14") {
   return new Request(`http://localhost/api/audit/${id}`);

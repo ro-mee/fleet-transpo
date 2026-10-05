@@ -137,9 +137,13 @@ describe('SEC-AUTH-002 — credential throttles fail closed where the edge guard
   });
 
   it('the counter is capped so it cannot be inflated unbounded', async () => {
-    // LEAST(hit_count + 1, limit + 1) — the stored value never runs away, so the
-    // limiter stays a fixed-size row under sustained attack.
-    expect(read('lib/rate-limit.js')).toMatch(/LEAST\(auth_rate_limits\.hit_count \+ 1, \$3 \+ 1\)/);
+    // With a variable hit cost, both the initial INSERT and conflict UPDATE
+    // must cap the stored counter at limit + 1 under sustained attack.
+    const source = read('lib/rate-limit.js');
+    expect(source).toMatch(/VALUES \(\$1, NOW\(\), LEAST\(\$4, \$3 \+ 1\), NOW\(\)\)/);
+    expect(source).toMatch(/THEN LEAST\(\$4, \$3 \+ 1\)/);
+    expect(source).toMatch(/ELSE LEAST\(auth_rate_limits\.hit_count \+ \$4, \$3 \+ 1\)/);
+    expect(source).toMatch(/Math\.min\(cost, 1000\)/);
   });
 
   it('the bucket key is truncated, so a caller cannot force unbounded key growth', () => {

@@ -32,9 +32,28 @@ const VEHICLE = {
 function setup({ driver = DRIVER, vehicle = VEHICLE } = {}) {
   vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
   vi.spyOn(apiUtils, "parseBody").mockResolvedValue({ driver_id: 7, vehicle_id: 9 });
-  vi.spyOn(db, "query").mockImplementation(async (sql) => {
+  vi.spyOn(db, "query").mockImplementation(async (sql, params) => {
     if (sql.includes("FROM drivers d")) return { rows: driver ? [driver] : [] };
     if (sql.includes("FROM vehicles WHERE")) return { rows: vehicle ? [vehicle] : [] };
+    if (sql.includes("FROM driver_vehicle_assignments") && sql.includes("WHERE a.assignment_id = $1")) {
+      if (params?.length !== 1 || params[0] !== 71) return { rows: [] };
+      return { rows: [{
+        assignment_id: 71,
+        driver_id: 7,
+        vehicle_id: 9,
+        assigned_from: "2026-09-27",
+        assigned_until: null,
+        release_reason: null,
+        notes: null,
+        created_at: "2026-09-27T00:00:00.000Z",
+        updated_at: "2026-09-27T00:00:00.000Z",
+        vehicle_name: "Fleet Car",
+        avatar_url: null,
+        face_image_url: null,
+        ...driver,
+        ...vehicle,
+      }] };
+    }
     if (sql.includes("FROM driver_vehicle_assignments")) return { rows: [] };
     if (sql.includes("RETURNING assignment_id")) return { rows: [{ assignment_id: 71 }] };
     return { rows: [] };
@@ -72,8 +91,12 @@ describe("POST /api/driver-assignments license eligibility", () => {
     setup();
 
     const response = await POST(request({ driver_id: 7, vehicle_id: 9 }));
+    const body = await response.json();
 
     expect(response.status).toBe(201);
+    expect(body.assignment).toMatchObject({ assignment_id: 71, driver_id: 7, vehicle_id: 9 });
+    expect(body.assignment).not.toHaveProperty("license_number");
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("WHERE a.assignment_id = $1"), [71]);
     expect(db.withTransaction).toHaveBeenCalledOnce();
   });
 });

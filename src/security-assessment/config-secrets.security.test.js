@@ -385,7 +385,7 @@ describe('SEC-CONFIG-005 — no credential material is tracked', () => {
       }
     }
     expect(offenders).toEqual([]);
-  });
+  }, 30_000); // Repository-wide tracked-source scan can exceed 5s under parallel load.
 
   it('the one reviewed script fixture really is a throwaway local probe', () => {
     // Guard the exclusion above so it cannot silently cover a real credential.
@@ -414,7 +414,7 @@ describe('SEC-CONFIG-005 — no credential material is tracked', () => {
       }
     }
     expect(offenders).toEqual([]);
-  });
+  }, 30_000); // Same repository-wide scan; retain every secret-name assertion.
 
   it('the two reviewed public keys are the only credential-shaped NEXT_PUBLIC_ names', () => {
     const files = trackedFiles('src', 'scripts').filter(f => /\.(js|jsx|mjs)$/.test(f));
@@ -423,7 +423,7 @@ describe('SEC-CONFIG-005 — no credential material is tracked', () => {
     // Naming them lets this test fail loudly if a third one is ever introduced.
     expect([...names].filter(n => /_KEY$/.test(n)).sort())
       .toEqual(['NEXT_PUBLIC_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_TOMTOM_API_KEY'].sort());
-  });
+  }, 30_000);
 
   it('that mode selector carries no credential', () => {
     expect(read('app/(dashboard)/reservations/new/page.js')).toMatch(/NEXT_PUBLIC_BOOKING_GATEWAY \|\| "mock"/);

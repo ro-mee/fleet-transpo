@@ -65,8 +65,23 @@ it('orders the start-duty gates: roster, then consent, then the pre-shift baseli
 });
 
 it('starts duty once the baseline exists and the roster allows it',async()=>{
- expect(await setDuty(7,true)).toEqual({checkedIn:true});
- expect(query.mock.calls.some(([sql])=>sql.includes('INSERT INTO driverattendance'))).toBe(true);
+  // The attendance write is the authority for `changed`: the duty route uses it
+  // to audit a new start only once. Model a successful UPSERT with pg's rowCount
+  // rather than the default empty query response (which means no-op).
+  const implementation=query.getMockImplementation();
+  query.mockImplementation(async(sql,...args)=>sql.includes('INSERT INTO driverattendance')
+    ? {rows:[{attendance_id:42}],rowCount:1}
+    : implementation(sql,...args));
+  expect(await setDuty(7,true)).toEqual({checkedIn:true,changed:true});
+  expect(query.mock.calls.some(([sql])=>sql.includes('INSERT INTO driverattendance'))).toBe(true);
+});
+
+it('does not report a second duty start when the attendance upsert changes no row',async()=>{
+  const implementation=query.getMockImplementation();
+  query.mockImplementation(async(sql,...args)=>sql.includes('INSERT INTO driverattendance')
+    ? {rows:[],rowCount:0}
+    : implementation(sql,...args));
+  expect(await setDuty(7,true)).toEqual({checkedIn:true,changed:false});
 });
 
 it('clears the stale outcome when setDuty reopens a closed day',async()=>{
@@ -301,7 +316,7 @@ it('fires the fixed point when the NoVehicle row is the SECOND of two',async()=>
   const result=await endDutyWithReport({driverId:7,vehicleId:2,report:{nothing_unusual:true},clientSubmissionId:submission('q')});
   const wroteAnUpdate=query.mock.calls.some(([sql])=>sql.includes('UPDATE driverattendance'));
   expect({result,wroteAnUpdate}).toEqual({
-    result:{checkedIn:false,inspectionId:null,reported:false,recorded:false,late:true},
+    result:{checkedIn:false,inspectionId:null,reported:false,recorded:false,changed:false,late:true},
     wroteAnUpdate:false,
   });
 });

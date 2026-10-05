@@ -66,6 +66,10 @@ The embedded cards on `fleet/vehicles/[id]` (AssignedVehicleCard + SubstituteDri
 - Substitute picker only lists drivers with **no** assigned vehicle (`getDrivers({ status: "Available", unassigned: 1 })`).
 - PATCH quirk: omitting `effective_until` KEEPS the stored end date (cannot clear to open-ended via edit).
 
+## Route test fixture correction — 2026-10-05
+
+The eligible POST pairing test previously returned a false 500: its `db.query` mock returned an empty result for **every** `FROM driver_vehicle_assignments` query, including the route's post-insert read by `assignment_id`. The route then attempted to serialize the missing `created[0]`. The mock now distinguishes that read from the pre-insert active-pairing lookup and returns a representative created row. The test asserts the 201 response includes the new pairing and omits `license_number`; the expired-license and insufficient-class rejection tests remain intact. No endpoint or eligibility behavior changed. Verified by reproducing the failure before the fixture correction and passing all three focused route tests afterward.
+
 ## Related
 
 [[Driver Management]] · [[Fleet And Vehicles]] · [[Dispatch]] · [[Feature Index]]
