@@ -80,6 +80,15 @@ describe("bucketProposal decision truthfulness", () => {
     expect(bucketProposal(missingProposal, Date.now())).toBe("Needs verification");
   });
 
+  it("does not classify an incomplete verified pair as ready", () => {
+    const partialProposal = {
+      pair: safePair,
+      outcome: "VERIFIED",
+      candidateEvaluationComplete: false,
+    };
+    expect(bucketProposal(partialProposal, Date.now())).toBe("Not evaluated");
+  });
+
   it("truthfully handles unplaced and unevaluated proposals", () => {
     const unplaced = {
       pair: null,
