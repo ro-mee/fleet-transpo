@@ -371,6 +371,17 @@ Reads are assignee-scoped: a mechanic sees only their own rows through lean proj
 
 **Verified.** TDD RED (2 maintenance scoping + 2 problems scoping failures, summary suite unloads: route missing; 11 pre-existing green) then GREEN (**4 files / 37 tests**, adjacent `[id]` suite 29/29 unbroken). Full run **3548 passed / 7 failed**, and the same 7 fail on clean HEAD (proven via `git stash`: auth-session throttle, no-legacy-role, schema-contract, upload-storage, standby ×2, driver-assignments) — unrelated to this task. `npm run verify:auth` **295/295** (was 294). No migration touched.
 
+## Mechanic notification fan-out (Task 5, 2026-10-06)
+
+Post-commit, best-effort fan-out on every PUT lifecycle event in `src/app/api/vehicle-maintenance/[id]/route.js`. Guards from Task 3 untouched (only the before-row SELECT gained `priority, vehicle_id, maintenance_date` and the transaction return gained the before-values the triggers compare against).
+
+- `src/lib/notifications/copy.js` — 7 functions with the brief's exact titles (`Maintenance Work Assigned`, `Maintenance Reassignment` — distinct title is load-bearing against the `(employee, title, reference)` dedupe — `Urgent Maintenance Assigned`, `Maintenance Returned for Rework`, `Assigned Maintenance Updated`, `Maintenance Ready for Inspection`, `Maintenance Work Approved`).
+- `src/lib/notifications/target.js` — `MECHANIC_ROUTES` + mechanic branch (`mechanic_maintenance` → `/mechanic/work-orders/:id`, consumed by Task 6); mechanic rows are written as `mechanic_maintenance` so staff taps keep resolving to `/fleet/vehicles/:id`. `presentation.js` HAS a per-type map, so `mechanic_maintenance` got the same Maintenance chip.
+- Fan-out table: newly assigned → Assigned (assignee); X→Y → Reassigned to **both**; priority → High/Emergency on assigned WO → Urgent split (assignee = `mechanic_maintenance`, `route_to_maintenance` staff = `maintenance`, both `Alert`); → Pending Inspection **by mechanic actor only** → Ready (staff, `maintenance`); Pending Inspection → In Progress → Returned (assignee); → Completed → Approved (assignee) + existing `vehicleRepaired` to the reporter; vehicle/date change or archive on assigned WO → Updated (assignee).
+- Inspection-sourced reporter lookup: `vehicleinspection.driver_id → drivers → employees`, same join shape as the incident path; row points at the WO (`maintenance`, WO id — no client route addresses an inspection row, so the driver tap falls back to mark-read). Neither source resolving → silent skip. Failures go to `writeAppError` (replacing the old `console.warn`); the PUT never fails on notify.
+
+**Verified.** TDD RED (29 `fn is not a function`) then GREEN (`copy.test.js` **184/184**; adjacent vehicle-maintenance + notifications suites **230/230**, Task 3 guard tests unbroken; notification-adjacent sweep **135/135**). `npm run verify:auth` **295/295**. No migration touched.
+
 ## Database tables used
 
 `vehiclemaintenance` · `vehicles` (odometer) · `notifications`
