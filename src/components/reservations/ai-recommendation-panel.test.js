@@ -66,7 +66,7 @@ it('speaks gating statuses in the thread and surfaces blocked evidence on the ca
   expect(recheckButton(html)).not.toContain('disabled=""');
   // Blocked evidence is presented on the option card, not as a footer status.
   state.query.isFetching=false;
-  state.query.data={pair:{recommended:{...a,hardConflicts:[{message:'Vehicle overlap'}]}}};
+  const blocked={...a,hardConflicts:[{message:'Vehicle overlap'}]}; state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:blocked,candidates:[blocked]}};
   html=render();
   expect(html).toContain('Blocked');
   expect(html).toContain('Vehicle overlap');
@@ -153,14 +153,54 @@ it('preserves terminal and empty-selection views without confirmation controls',
   expect(render({alreadyAssigned:true})).not.toContain('dispatch-confirmation-status');
   expect(render({requestId:null})).not.toContain('dispatch-confirmation-status');
 });
-it('wraps unavailable assignment and exclusion reasons inside a CopilotBubble',()=>{
+it('limits a completed no-match result to the current evaluation',()=>{
   state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:null,candidates:[],none_reasons:[{reason:'Vehicle status is Under Maintenance.'}]}};
   const html=render();
-  expect(html).toContain('No eligible option is currently available.');
+  expect(html).toContain('No eligible option was found in this evaluation.');
   expect(html).toContain('Vehicle status is Under Maintenance.');
   expect(html).toContain('data-copilot-message="true"');
 });
-it('presents trip details in a CopilotBubble without recommendation options when completed or cancelled',()=>{
+it('does not invent a verification requirement when the evaluation has no exclusion detail',()=>{
+   state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:null,candidates:[],none_reasons:[]}};
+   const html=render();
+   expect(html).toContain('No additional exclusion detail was returned in this evaluation.');
+   expect(html).not.toContain('Required evidence needs verification');
+ });
+ it('does not describe a failed recommendation fetch as a completed no-match',()=>{
+   state.query={data:undefined,isLoading:true,isFetching:true,isError:true,error:new Error('network'),refetch:vi.fn()};
+   const html=render();
+   expect(html).not.toContain('No eligible option');
+   expect(html).toContain('Recommendation evidence unavailable');
+   expect(html).toContain('role="alert"');
+   expect(html).toContain('Retry evidence');
+   expect(html).toContain('Unavailable');
+   expect(html).not.toContain('Choose Option 1');
+ });
+ it('labels stale recommendation findings historic and disables their options after refresh failure',()=>{
+   state.query={data:{evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:a,candidates:[a,b],none_reasons:[]}},isLoading:false,isFetching:true,isError:true,error:new Error('network'),refetch:vi.fn()};
+   const html=render();
+   expect(html).toContain('Historic findings');
+   expect(html).toContain('Option 1 — Recommended option');
+   expect(html).toContain('Unavailable');
+   const choose=html.match(/<button[^>]*>Choose Option 1/);
+   expect(choose?.[0]).toContain('disabled=""');
+   expect(html).not.toContain('Checking…');
+   expect(state.chat?.disabled).toBe(true);
+ });
+ it('keeps an incomplete evaluation unknown instead of reporting no eligible options',()=>{
+   state.query.data={evaluatedAt:'2026-09-15T00:00:00Z',candidateEvaluationComplete:false,pair:{recommended:null,candidates:[],none_reasons:[{reason:'Analysis budget ended.'}]}};
+   const html=render();
+   expect(html).toContain('Eligibility unknown');
+   expect(html).not.toContain('No eligible option');
+   expect(html).toContain('Recheck reservation');
+ });
+ it('gives failed queue analysis an alert and a reanalysis action',()=>{
+   const html=render({queueMode:true,planError:'network',onReanalyze:vi.fn()});
+   expect(html).toContain('Queue analysis failed');
+   expect(html).toContain('role="alert"');
+   expect(html).toContain('Retry queue analysis');
+ });
+ it('presents trip details in a CopilotBubble without recommendation options when completed or cancelled',()=>{
   const completedReq={
     request_id:1,
     fleet_status:'Completed',

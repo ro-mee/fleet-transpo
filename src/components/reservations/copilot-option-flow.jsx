@@ -95,11 +95,11 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
     <CopilotBubble>
       <div className="space-y-1">
         <p className="text-sm font-semibold text-foreground">
-          {options.length ? `${options.length} eligible option${options.length === 1 ? '' : 's'} found for this reservation.` : 'No eligible option is currently available.'}
+          {options.length ? `${options.length} eligible option${options.length === 1 ? '' : 's'} found for this reservation.` : 'No eligible option was found in this evaluation for this reservation.'}
         </p>
         {!options.length && (
           <p className="text-xs text-foreground-secondary">
-            {exclusionReason?.reason || 'Required evidence needs verification. Recheck this reservation.'}
+            {exclusionReason?.reason || 'No additional exclusion detail was returned in this evaluation.'}
           </p>
         )}
       </div>

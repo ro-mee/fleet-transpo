@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn(async () => ({})) }));
 import { apiFetch } from '@/lib/api/client';
-import { fetchEvidence, EvidenceBody, EvidenceDrawer, EligibilityInspector, ComparisonCard, buildInspectorRows } from './evidence-drawer';
+import { fetchEvidence, EvidenceBody, EvidenceDrawer, EvidenceFailureMessage, EligibilityInspector, ComparisonCard, buildInspectorRows, inspectorConclusion } from './evidence-drawer';
 
 beforeEach(() => { vi.stubGlobal('React', React); vi.clearAllMocks(); });
 
@@ -67,17 +67,42 @@ it('builds inspector rows with bounded copy and future GPS as not applicable', (
   expect(immediate.at(-1)).toMatchObject({ label: 'GPS Health', state: 'clear' });
 });
 
-it('inspector renders locked eligibility copy without absolute guarantees', () => {
+it('inspector conclusion follows row state and stays bound to evaluated server evidence', () => {
+  const clear = [{ label: 'Seating capacity', state: 'clear', note: 'No blocking issue found', proof: { type: 'capacity', ref: 'ev_c' } }];
   const html = renderToStaticMarkup(React.createElement(EligibilityInspector, {
-    pairLabel: 'Marco Santos + ABC', horizon: 'SCHEDULED',
-    rows: [{ label: 'Seating capacity', state: 'clear', note: 'No blocking issue found', proof: { type: 'capacity', ref: 'ev_c' } }],
-    onReviewProof: () => {},
+    pairLabel: 'Marco Santos + ABC', horizon: 'SCHEDULED', rows: clear, onReviewProof: () => {},
   }));
-  expect(html).toContain('Eligible based on the evaluated server evidence');
+  expect(inspectorConclusion(clear)).toMatch(/Eligible.*evaluated server evidence.*this booking/i);
+  expect(html).toContain('Eligible');
   expect(html).toContain('SCHEDULED');
   expect(html).toContain('Review');
   expect(html).not.toMatch(/definitely|guarantee|all clear|therefore assign/i);
   expect(html).not.toMatch(/<input|<select|<form/);
+});
+
+it.each([
+  ['blocking rows', [{ label: 'Schedule', state: 'blocked', note: 'Approved leave overlaps' }], /Blocking evidence/i],
+  ['blocked and verification rows', [{ label: 'Schedule', state: 'blocked' }, { label: 'License', state: 'verify' }], /Blocking evidence/i],
+  ['verification rows', [{ label: 'License', state: 'verify', note: 'Needs verification' }], /Eligibility is unknown/i],
+  ['missing rows', [], /Eligibility is unknown/i],
+  ['GPS-only rows', [{ label: 'GPS Health', state: 'clear', note: 'Fresh' }], /Eligibility is unknown/i],
+])('never calls %s eligible', (_name, rows, conclusion) => {
+  const html = renderToStaticMarkup(React.createElement(EligibilityInspector, {
+    pairLabel: 'Marco Santos + ABC', horizon: 'SCHEDULED', rows, onReviewProof: () => {},
+  }));
+  expect(inspectorConclusion(rows)).toMatch(conclusion);
+  expect(html).toMatch(conclusion);
+  expect(html).not.toContain('Eligible');
+});
+
+it('shows Retry and Close for an evidence-fetch failure', () => {
+  const html = renderToStaticMarkup(React.createElement(EvidenceFailureMessage, {
+    error: new Error('network'), onRetry: () => {}, onClose: () => {},
+  }));
+  expect(html).toContain('role="alert"');
+  expect(html).toContain('Evidence unavailable');
+  expect(html).toContain('Retry evidence');
+  expect(html).toContain('Close evidence');
 });
 
 it('comparison card shows codes and facts without scores', () => {

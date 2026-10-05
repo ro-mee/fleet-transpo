@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { CopilotConversation, setReservationMessages, getReservationSelection, setReservationSelection, clearReservationSelection } from "./copilot-conversation";
 import { CopilotBubble, CopilotOptionFlow, SelectedPairSummary } from "@/components/reservations/copilot-option-flow";
+import { CopilotStateMessage } from "@/components/reservations/copilot-state-message";
 import { deriveOptions, optionKey as pairKey, resolveRememberedOption } from "@/components/reservations/copilot-options";
 import { useNow } from "@/components/reservations/trip-summary";
 import {
@@ -411,6 +412,11 @@ export function AiRecommendationPanel({
   });
 
   const rec = query.data;
+  const completedRecommendation =
+    !!rec?.evaluatedAt &&
+    Array.isArray(rec?.pair?.candidates) &&
+    rec?.candidateEvaluationComplete !== false &&
+    rec?.pair?.candidateEvaluationComplete !== false;
   const candidates = isClosed ? [] : (rec?.pair?.candidates ?? []);
   // One derivation, read by both the render path and the restore path below, so
   // the option a restored selection resolves against cannot diverge from the one
@@ -551,7 +557,7 @@ export function AiRecommendationPanel({
   // which option keys are held, so a restore can re-pin the list the dispatcher
   // actually saw rather than today's derivation.
   const runSelectionCheck = async (option, { announce = null, pin = undefined } = {}) => {
-    if (assignment.isPending || failure?.checking || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return;
+    if (query.isError || assignment.isPending || failure?.checking || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return;
     const operation = ++selectionGeneration.current;
     const key = pairKey(option.pair);
     if (announce !== null) setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:announce,at:Date.now(),action:'select-pair',selectedPair:{vehicleId:Number(option.pair.vehicle_id),driverId:Number(option.pair.driver_id)}}]);
@@ -583,6 +589,15 @@ export function AiRecommendationPanel({
 
   const chooseOption = async (option, message = null) =>
     runSelectionCheck(option, { announce: message || `Option ${option.index+1}` });
+
+  const retryQueueAnalysis = async () => {
+    if (!onReanalyze) return;
+    try {
+      await onReanalyze(analysisDate);
+    } catch {
+      // useDispatchPlan publishes the failure through planError.
+    }
+  };
 
   const recheck = async () => {
     setRechecking(true);
@@ -623,7 +638,7 @@ export function AiRecommendationPanel({
   // would re-fire on its own invalidation — one queue analysis per loop.
   const restoredFor = useRef(null);
   useEffect(() => {
-    if (!requestId || isClosed || !options.length) return;
+    if (!requestId || isClosed || query.isError || !options.length) return;
     if (restoredFor.current === requestId) return;
     const remembered = getReservationSelection(requestId);
     restoredFor.current = requestId;
@@ -642,7 +657,7 @@ export function AiRecommendationPanel({
     // fire this on every render; the ref above, not this list, is what holds the
     // restore to one run per request.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once-per-request guard is a ref
-  }, [requestId, isClosed, options.length]);
+  }, [requestId, isClosed, options.length, query.isError]);
 
   useEffect(()=>{onBusyChange?.(assignment.isPending || !!failure?.checking || !!selectionCheck?.pending || rechecking);},[assignment.isPending,failure?.checking,selectionCheck?.pending,rechecking,onBusyChange]);
 
@@ -669,6 +684,7 @@ export function AiRecommendationPanel({
   const handleCommand = message => {
     const intent = parseCopilotIntent(message);
     if (!intent) return null;
+    if (query.isError) return 'Current recommendation evidence is unavailable. Recheck before choosing an option.';
     if (assignment.isPending || failure?.checking) return 'An assignment is still being checked. Wait for its result.';
     if (intent.type === 'change') { chooseAnother(); return 'Choose a current option below.'; }
     if (intent.type === 'choose') {
@@ -718,7 +734,7 @@ export function AiRecommendationPanel({
   // so the flow and its gating are composed as slots of the option message.
   const busy = assignment.isPending || !!failure?.checking;
   // First load or an explicit Recheck press — never a background poll.
-  const recheckBusy = query.isLoading || rechecking;
+  const recheckBusy = rechecking || (!query.isError && query.isLoading);
   const recovery =
     action.recovery === "request" ? (
       <Link className="text-xs text-primary underline" href={`/reservations/${requestId}`}>Open current request</Link>
@@ -755,14 +771,14 @@ export function AiRecommendationPanel({
             {assignment.isPending ? 'Confirming assignment...' : 'Confirm assignment — ' + pairLabel(pair)}
           </Button>
         </>}
-        <Button variant="ghost" size="sm" disabled={busy || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
+        <Button variant="ghost" size="sm" disabled={busy || query.isError || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
       </div>
     </CopilotBubble>
   ) : null;
   // Pre-choice gating (permission, queue analysis, failures) is spoken by
   // Copilot as a status message instead of a disabled footer button.
   const preChoiceStatus =
-    !pair && !action.canSubmit && action.recovery !== "analyze" && action.message !== "No current pair is selected. Review exclusions or recheck this reservation."
+    !query.isError && !pair && !action.canSubmit && action.recovery !== "analyze" && action.message !== "No current pair is selected. Review exclusions or recheck this reservation."
       ? action
       : null;
   const flowNode = (
@@ -770,7 +786,7 @@ export function AiRecommendationPanel({
       <CopilotOptionFlow
         options={options}
         exclusionReason={(rec?.pair?.none_reasons ?? [])[0] ?? (rec?.pair?.recommended && dispatchDecision(rec.pair.recommended,{now}).state === 'BLOCKED' ? {reason:`Blocked: ${dispatchDecision(rec.pair.recommended,{now}).reasons.join(' ')}`} : null)}
-        busy={busy || !!selectionCheck?.pending || !!selected}
+        busy={busy || query.isError || !!selectionCheck?.pending || !!selected}
         onChoose={chooseOption}
         now={now}
       />
@@ -824,9 +840,15 @@ export function AiRecommendationPanel({
                   </span>
                 </h2>
                 <p className="text-[11px] text-foreground-secondary mt-1">
-                  {rec?.evaluatedAt
-                    ? `Evidence evaluated ${formatDateTime(rec.evaluatedAt)}`
-                    : "Evaluating pair options…"}
+                  {query.isError
+                    ? rec?.evaluatedAt
+                      ? `Historic findings · last evaluated ${formatDateTime(rec.evaluatedAt)}`
+                      : "Current recommendation unavailable."
+                    : completedRecommendation
+                      ? `Evidence evaluated ${formatDateTime(rec.evaluatedAt)}`
+                      : query.isLoading
+                        ? "Evaluating pair options…"
+                        : "Recommendation evaluation not completed."}
                 </p>
               </div>
             </div>
@@ -857,7 +879,18 @@ export function AiRecommendationPanel({
         </div>
       )}
 
-      {planError && <p role="alert" className="p-3 text-sm text-danger">Queue analysis failed: {planError}. Choose or recheck an option to try again.</p>}
+      {planError && (
+        <CopilotStateMessage
+          title="Queue analysis failed"
+          description={`${planError?.message ?? planError}. Any previous queue findings are historical until analysis succeeds. Retry before confirming a queue proposal.`}
+        >
+          {onReanalyze && (
+            <Button size="sm" variant="outline" onClick={retryQueueAnalysis} disabled={isAnalyzing}>
+              Retry queue analysis
+            </Button>
+          )}
+        </CopilotStateMessage>
+      )}
       <div className="min-h-0 flex-1 flex flex-col">
         <CopilotConversation
           key={requestId}
@@ -869,14 +902,37 @@ export function AiRecommendationPanel({
           selectedPairLabel={pair ? pairLabel(pair) : null}
           displayedOptions={options.map(o=>({vehicleId:Number(o.pair.vehicle_id),driverId:Number(o.pair.driver_id)}))}
           displayedEvaluatedAt={rec?.evaluatedAt ?? null}
-          disabled={busy || !canRecommend || isClosed}
+          disabled={busy || query.isError || !canRecommend || isClosed}
           completed={isClosed}
           onCommand={handleCommand}
           planStatus={{ isInvalid: !!planInvalidReason, invalidReason: planInvalidReason ?? null }}
           selectedReply={!isClosed && !assignment.isPending ? actionSlot : null}
           reply={<>
-            {query.isLoading && <CopilotBubble><p role="status">Checking the eligible options and their schedules.</p></CopilotBubble>}
-            {query.isError && <CopilotBubble><p role="alert">I could not refresh the evidence. {query.error.message}</p>{recovery}</CopilotBubble>}
+            {!isClosed && query.isError && (
+              <CopilotStateMessage
+                title="Recommendation evidence unavailable"
+                description={completedRecommendation
+                  ? `Historic findings remain below for reference only. Recheck before using them; eligibility is not current. ${query.error?.message ?? "The refresh failed."}`
+                  : `Current eligibility is unknown because the recommendation request failed${query.error?.message ? `: ${query.error.message}` : ""}. Recheck before taking action.`}
+              >
+                <Button size="sm" variant="outline" onClick={recheck} disabled={recheckBusy || busy}>
+                  Retry evidence
+                </Button>
+              </CopilotStateMessage>
+            )}
+            {!isClosed && !query.isError && query.isLoading && <CopilotBubble><p role="status">Checking the eligible options and their schedules.</p></CopilotBubble>}
+            {!isClosed && !query.isError && !query.isLoading && !completedRecommendation && (
+              <CopilotStateMessage
+                role="status"
+                tone="warning"
+                title="Eligibility unknown"
+                description="The recommendation response does not contain a completed evaluation. No fleet-wide exclusion can be inferred; recheck this reservation."
+              >
+                <Button size="sm" variant="outline" onClick={recheck} disabled={recheckBusy || busy}>
+                  Recheck reservation
+                </Button>
+              </CopilotStateMessage>
+            )}
             {failure && <CopilotBubble><p role="alert">{failure.message}</p><ConflictBlock conflicts={failure.conflicts ?? []}/>{recovery}</CopilotBubble>}
             {assignment.isPending && <CopilotBubble><p role="status">Confirming assignment for {pairLabel(pair)}. Revalidating availability and conflicts before saving.</p></CopilotBubble>}
             {isClosed && (
@@ -889,7 +945,7 @@ export function AiRecommendationPanel({
             )}
           </>}
         >
-          {!isClosed && !query.isLoading && flowNode}
+          {!isClosed && completedRecommendation && flowNode}
         </CopilotConversation>
       </div>
     </section>

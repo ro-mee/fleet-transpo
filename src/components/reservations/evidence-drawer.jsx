@@ -2,11 +2,13 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { CopilotStateMessage } from "@/components/reservations/copilot-state-message";
 
 // Read-only evidence drawer (Phase B2). Displays server-verified proof for one
-// signed evidence reference. GET-only: fetches exactly once per opened proof
-// (effect deps are [proofRef, requestId] ONLY — planStatus changes never
-// refetch). Never validates, polls, reranks, selects, assigns, or mutates.
+// signed evidence reference. GET-only: one request on open; a second request
+// occurs only after explicit Retry (planStatus changes never refetch). Never
+// validates, polls, reranks, selects, assigns, or mutates.
 // Staleness is observed from the existing plan-validation state owned by the
 // panel, never determined here.
 export async function fetchEvidence(requestId, proofRef) {
@@ -88,10 +90,27 @@ export function EvidenceBody({ data, proofType, planStatus = null }) {
   );
 }
 
+export function EvidenceFailureMessage({ error, onRetry, onClose }) {
+  return (
+    <CopilotStateMessage
+      title="Evidence unavailable"
+      description={`This evidence snapshot could not be loaded${error?.message ? `: ${error.message}` : ""}. Retry the snapshot or close this view.`}
+    >
+      <Button size="sm" variant="outline" onClick={onRetry}>Retry evidence</Button>
+      <Button size="sm" variant="ghost" onClick={onClose}>Close evidence</Button>
+    </CopilotStateMessage>
+  );
+}
+
 export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = null, planStatus = null, onClose, onBack, onReviewProof }) {
   const proofRef = proof?.ref ?? null;
   const proofType = proof?.type ?? null;
   const [state, setState] = useState({ status: "loading", data: null, error: null });
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => {
+    setState({ status: "loading", data: null, error: null });
+    setAttempt(value => value + 1);
+  };
 
   useEffect(() => {
     if (!proofRef || !requestId) return;
@@ -101,8 +120,8 @@ export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = nu
       error => { if (!cancelled) setState({ status: "error", data: null, error }); }
     );
     return () => { cancelled = true; };
-    // INTENTIONAL dep scope: planStatus excluded — validation changes never refetch.
-  }, [proofRef, requestId]);
+    // Retry is explicit; planStatus stays excluded so validation changes never refetch.
+  }, [proofRef, requestId, attempt]);
 
   const headerTitle = inspector ? "Eligibility Evidence" : (state.data?.title ?? "Evidence");
   return (
@@ -139,9 +158,7 @@ export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = nu
           <>
             {state.status === "loading" && <p role="status" className="text-sm text-foreground-secondary">Loading verified evidence…</p>}
         {state.status === "error" && (
-          <p role="alert" className="text-sm text-danger">
-            This evidence is unavailable{state.error?.message ? `: ${state.error.message}` : "."} Ask Copilot again for fresh evidence.
-          </p>
+          <EvidenceFailureMessage error={state.error} onRetry={retry} onClose={onClose} />
         )}
         {state.status === "ready" && <EvidenceBody data={state.data} proofType={proofType} planStatus={planStatus} />}
         {backTo && (
@@ -243,7 +260,18 @@ export function buildInspectorRows(clearance = [], meta = {}) {
   return rows;
 }
 
-const ROW_STATE_LABEL = { clear: "Clear", blocked: "Blocked", verify: "Needs verification", na: "—" };
+export function inspectorConclusion(rows = []) {
+  if (rows.some(row => row.state === "blocked")) {
+    return "Blocking evidence was found in the evaluated server evidence for this booking.";
+  }
+  const hasClearFinding = rows.some(row => row.state === "clear");
+  const hasEligibilityFinding = rows.some(row => !["Current GPS", "GPS Health"].includes(row.label));
+  const allFindingsEvaluated = rows.length > 0 && rows.every(row => ["clear", "na"].includes(row.state));
+  if (!allFindingsEvaluated || !hasClearFinding || !hasEligibilityFinding) {
+    return "Eligibility is unknown because the evaluated server evidence for this booking is missing or needs verification.";
+  }
+  return "Eligible based only on the evaluated server evidence for this booking.";
+}
 
 export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }) {
   return (
@@ -271,7 +299,7 @@ export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }
       {horizon && (
         <p className="text-[11px] text-foreground-secondary">Evaluation horizon: {horizon}</p>
       )}
-      <p className="text-[11px] text-foreground-secondary">Eligible based on the evaluated server evidence.</p>
+      <p className="text-[11px] text-foreground-secondary">{inspectorConclusion(rows)}</p>
     </div>
   );
 }
