@@ -25,7 +25,7 @@ vi.mock('./copilot-conversation', () => ({
   getReservationSelection: () => state.selection,
   setReservationSelection: (requestId, selection) => { state.persisted.push({requestId, selection}); },
   clearReservationSelection: (requestId) => { state.cleared.push(requestId); },
-  CopilotConversation:({children,reply,selectedReply,...props})=>{state.chat={...props,children,reply,selectedReply};return React.createElement(React.Fragment,null,children,selectedReply,reply);},
+  CopilotConversation:({children,reply,decisionDock,...props})=>{state.chat={...props,children,reply,decisionDock};return React.createElement(React.Fragment,null,children,decisionDock,reply);},
 }));
 import { AiRecommendationPanel, CopilotTripDetailsBubble } from './ai-recommendation-panel';
 import {
@@ -178,7 +178,7 @@ it('withholds a VERIFIED queue proposal whose candidate evaluation is incomplete
   expect(state.chat?.displayedOptions).toEqual([]);
   expect(state.chat?.selectedPair).toBeNull();
   expect(state.chat?.planToken).toBeNull();
-  expect(state.chat?.selectedReply).toBeNull();
+  expect(state.chat?.decisionDock).toBeNull();
   expect(state.chat?.onCommand('Option 1')).toBe('The queue analysis is incomplete. Reanalyze before choosing an option.');
 });
 
@@ -277,7 +277,7 @@ it('does not invent a verification requirement when the evaluation has no exclus
     expect(html).not.toContain('Choose Option 1');
     expect(html).not.toContain('eligible options found for this reservation');
     expect(html).not.toContain('No eligible option');
-    expect(state.chat?.selectedReply).toBeNull();
+    expect(state.chat?.decisionDock).toBeNull();
     expect(state.chat?.hasPair).toBe(false);
     expect(state.chat?.displayedOptions).toEqual([]);
 
@@ -298,7 +298,7 @@ it('does not invent a verification requirement when the evaluation has no exclus
    expect(html).not.toContain('No eligible option');
    expect(html).toContain('Recheck reservation');
     expect(html).not.toContain('Choose Option 1');
-    expect(state.chat?.selectedReply).toBeNull();
+    expect(state.chat?.decisionDock).toBeNull();
     expect(state.chat?.hasPair).toBe(false);
     expect(state.chat?.displayedOptions).toEqual([]);
     expect(canRestoreRememberedSelection({requestId:1,isClosed:false,queryError:false,completedRecommendation:false,optionCount:2})).toBe(false);

@@ -10,11 +10,13 @@ vi.mock('react',async original=>({...await original(),
 vi.mock('@tanstack/react-query',()=>({useQuery:()=>state.query,useMutation:handlers=>{state.handlers=handlers;return state.mutation;},useQueryClient:()=>({setQueryData:vi.fn(),invalidateQueries:vi.fn()})}));
 vi.mock('@/hooks/use-role-access',()=>({useRoleAccess:()=>({can:()=>true})}));
 vi.mock('@/components/reservations/trip-summary',()=>({useNow:()=>Date.parse('2026-09-15T00:00:00Z')}));
-vi.mock('./copilot-conversation',()=>({CopilotConversation:props=>{state.chat=props;return React.createElement(React.Fragment,null,props.children,props.selectedReply,props.reply);},setReservationMessages:vi.fn(),getReservationSelection:()=>null,setReservationSelection:(...args)=>state.persisted(...args),clearReservationSelection:(...args)=>state.cleared(...args)}));
+vi.mock('@/services/transport.service',async importOriginal=>({...await importOriginal(),getTransportRequest:vi.fn(async()=>{throw new Error('Could not verify request');})}));
+vi.mock('./copilot-conversation',()=>({CopilotConversation:props=>{state.chat=props;return React.createElement(React.Fragment,null,props.children,props.decisionDock,props.reply);},setReservationMessages:vi.fn(),getReservationSelection:()=>null,setReservationSelection:(...args)=>state.persisted(...args),clearReservationSelection:(...args)=>state.cleared(...args)}));
 import {AiRecommendationPanel} from './ai-recommendation-panel';
 import {CopilotConversation} from './copilot-conversation';
 const find=(node,type)=>node?.type===type?node:React.Children.toArray(node?.props?.children).map(child=>find(child,type)).find(Boolean);
-const render=(props={})=>{state.cursor=0;return find(AiRecommendationPanel({requestId:1,canAssign:true,...props}),CopilotConversation).props;};
+const renderConversationElement=(props={})=>{state.cursor=0;return find(AiRecommendationPanel({requestId:1,canAssign:true,...props}),CopilotConversation);};
+const render=(props={})=>renderConversationElement(props).props;
 const renderHtml=(props={})=>{state.cursor=0;return renderToStaticMarkup(AiRecommendationPanel({requestId:1,canAssign:true,...props}));};
 beforeEach(()=>{
   vi.stubGlobal('React',React);state.cells=[];state.cursor=0;
@@ -33,9 +35,40 @@ it('selects a typed option, waits for its recheck, then assigns on the first exp
   expect(render().onCommand('Assign it')).toContain('Rechecking current assignment evidence');
   expect(state.mutation.mutate).not.toHaveBeenCalled();
   resolve({isError:false});await Promise.resolve();await Promise.resolve();
+  const reviewed=render();
+  expect(reviewed.decisionDock).not.toBeNull();
+  const dockHtml=renderToStaticMarkup(reviewed.decisionDock);
+  expect(dockHtml).toContain('Confirm assignment — PAIR-2 + Driver 2');
+  expect(dockHtml).toContain('This option passed a fresh check');
+  expect(dockHtml).toContain('Change selection');
+  expect(dockHtml.match(/Confirm assignment —/g)).toHaveLength(1);
   expect(render().onCommand('Assign it')).toEqual({handled:true});
   expect(state.mutation.mutate).toHaveBeenCalledWith(expect.objectContaining({vehicle_id:2,driver_id:2,force:false}));
   render().onCommand('Assign it');expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
+});
+it('remounts a single current decision dock when the selected reservation changes',async()=>{
+  renderConversationElement().props.onCommand('Option 1');await Promise.resolve();await Promise.resolve();
+  const requestOne=renderConversationElement();
+  expect(requestOne.props.decisionDock).not.toBeNull();
+  const switched=renderConversationElement({requestId:2});
+  expect(switched.key).not.toBe(requestOne.key);
+  expect(renderConversationElement({requestId:2}).props.selectedPair).toBeNull();
+  renderConversationElement({requestId:2}).props.onCommand('Option 2');await Promise.resolve();await Promise.resolve();
+  const current=renderConversationElement({requestId:2});
+  expect(current.key).toBe(switched.key);
+  expect(current.props.decisionDock).not.toBeNull();
+  expect(renderToStaticMarkup(current).match(/Confirm assignment —/g)).toHaveLength(1);
+});
+it('keeps review reason and manual override reason in the current decision dock',async()=>{
+  const reviewable={...state.query.data.pair.recommended,readiness:'REVIEWABLE',reviewable:true,feasibility:{verdict:'TIGHT',reasons:['Tight pickup buffer']},reasons:['Tight pickup buffer']};
+  state.query.data={...state.query.data,pair:{recommended:reviewable,candidates:[reviewable]}};
+  state.query.refetch=vi.fn(async()=>({isError:false}));
+  render().onCommand('Option 1');await Promise.resolve();await Promise.resolve();
+  const html=renderToStaticMarkup(render().decisionDock);
+  expect(html).toContain('Tight pickup buffer');
+  expect(html).toContain('dispatch-manual-reason');
+  expect(html).toContain('Reason');
+  expect(html).toContain('Confirm assignment — PAIR-1 + Driver 1');
 });
 it('shows the committed Assigned pair on the first render despite a stale Scheduled row',async()=>{
   const selectedRequest={request_id:1,reservation_number:'RS-1',fleet_status:'Scheduled'};
@@ -76,4 +109,25 @@ it('forgets the chosen pair when the dispatcher changes selection',async()=>{
   expect(render().onCommand('change selection')).toBe('Selection cleared. Choose a current option below.');
   expect(state.cleared).toHaveBeenCalledWith(1);
   expect(render().selectedPair).toBeNull();
+});
+it('Reset Copilot immediately clears the local and persisted selected pair',async()=>{
+  state.query.refetch=vi.fn(async()=>({isError:false}));
+  render().onCommand('Option 2');await Promise.resolve();await Promise.resolve();
+  expect(render().selectedPair).toEqual({vehicleId:2,driverId:2});
+  expect(state.persisted).toHaveBeenCalledWith(1,{key:'2:2',pinnedKeys:['1:1','2:2']});
+  render().onResetDecision();
+  expect(state.cleared).toHaveBeenCalledWith(1);
+  expect(render().selectedPair).toBeNull();
+  expect(render().decisionDock).toBeNull();
+});
+it('keeps Reset Copilot unavailable while assignment outcome is uncertain',async()=>{
+  state.query.refetch=vi.fn(async()=>({isError:false}));
+  render().onCommand('Option 1');await Promise.resolve();await Promise.resolve();
+  render().onCommand('Assign it');
+  await state.handlers.onError(new Error('network timeout'),{label:'PAIR-1',vehicle_id:1,driver_id:1});
+  const uncertain=render();
+  expect(uncertain.resetDisabled).toBe(true);
+  uncertain.onResetDecision();
+  expect(state.cleared).not.toHaveBeenCalled();
+  expect(render().selectedPair).toEqual({vehicleId:1,driverId:1});
 });

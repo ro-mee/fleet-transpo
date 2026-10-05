@@ -680,6 +680,11 @@ export function AiRecommendationPanel({
     setReason("");
     setSelectionCheck(null);
   };
+  const resetDecision = () => {
+    if (assignment.isPending || failure?.checking) return;
+    chooseAnother();
+  };
+  const resetDisabled = assignment.isPending || !!failure?.checking;
 
   const hasSavedSelection = !!selected || !!getReservationSelection(requestId);
 
@@ -737,7 +742,7 @@ export function AiRecommendationPanel({
   if (action.recovery === "analyze") action.message = "This option needs a fresh queue check. Recheck the reservation before assigning.";
   const manual = !!pair && !decision.canConfirm;
   const canRecommend = can("reservations", "recommend");
-  // The checked-pair reply is the review. Choosing never commits an assignment.
+  // The checked-pair decision dock is the review. Choosing never commits an assignment.
   const reviewCurrent = currentRecommendation && !!pair && selectionCheck?.key === selected && !selectionCheck.pending && action.canSubmit;
   const confirmSelection = (message = 'Assign it') => {
     if (!action.canSubmit || !reviewCurrent || submitting.current) return;
@@ -808,8 +813,8 @@ export function AiRecommendationPanel({
     );
   }
 
-  // The confirmation action lives inside the conversation as Copilot's reply,
-  // so the flow and its gating are composed as slots of the option message.
+  // The current selection review and confirmation stay in one guarded decision dock,
+  // and selecting an option never commits an assignment.
   const busy = assignment.isPending || !!failure?.checking;
   // First load or an explicit Recheck press — never a background poll.
   const recheckBusy = rechecking || (!query.isError && query.isLoading);
@@ -846,6 +851,14 @@ export function AiRecommendationPanel({
     <CopilotBubble>
       <div id="copilot-option-result" tabIndex={-1} className="space-y-3">
         <SelectedPairSummary pair={pair} optionNumber={options.findIndex(o=>pairKey(o.pair)===selected)+1} pending={selectionCheck?.pending} now={now}/>
+        {!selectionCheck?.pending && !decision.canConfirm && decision.reasons.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-foreground">{decision.label}</p>
+            <ul aria-label={`${decision.label} reasons`} className="list-disc space-y-0.5 pl-4 text-xs text-foreground-secondary">
+              {decision.reasons.map((reason,index)=><li key={`${index}-${reason}`}>{reason}</li>)}
+            </ul>
+          </div>
+        )}
         {!selectionCheck?.pending && <>
           {reasonSlot}
           <p id="dispatch-confirmation-status" role="status" className="text-xs text-foreground-secondary">{reviewCurrent ? 'This option passed a fresh check. Dispatcher confirmation is required. Confirm assignment? Type "Assign it" or use Confirm assignment below.' : action.message}</p>
@@ -1011,8 +1024,10 @@ export function AiRecommendationPanel({
           completed={conversationClosed}
           readOnlyCommitted={readOnlyCommitted}
           onCommand={handleCommand}
+           onResetDecision={resetDecision}
+           resetDisabled={resetDisabled}
           planStatus={{ isInvalid: !!planInvalidReason, invalidReason: planInvalidReason ?? null }}
-          selectedReply={!readOnlyCommitted && !assignmentClosed && currentRecommendation && !assignment.isPending ? actionSlot : null}
+          decisionDock={!readOnlyCommitted && !assignmentClosed && currentRecommendation && !assignment.isPending ? actionSlot : null}
           reply={<>
             {!assignmentClosed && query.isError && (
               <CopilotStateMessage

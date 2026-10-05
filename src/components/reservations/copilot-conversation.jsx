@@ -246,17 +246,21 @@ export function CopilotConversation({
   readOnlyCommitted = false,
   children,
   reply,
-  selectedReply,
+  decisionDock,
+  onResetDecision,
+  resetDisabled = false,
   onCommand,
   planStatus = null,
 }) {
   const [messages, setMessages] = useState(() => getReservationMessages(requestId));
   const [draft, setDraft] = useState("");
+  const [newReplyAvailable, setNewReplyAvailable] = useState(false);
   // Open evidence proof (server-signed ref). The drawer is a pure read view:
   // opening it fetches one point-in-time snapshot and never validates.
   const [evidenceProof, setEvidenceProof] = useState(null);
   const log = useRef(null);
   const follow = useRef(true);
+  const lastObservedMessage = useRef(messages.at(-1) ?? null);
   const sending = useRef(false);
   const currentPair = readOnlyCommitted ? null : selectedPair;
   const currentSelection = useRef(currentPair);
@@ -265,9 +269,16 @@ export function CopilotConversation({
   // The panel keys this component by requestId; switching reservations resets local state.
   // Sync state across module updates for this specific reservation
   useEffect(() => {
-    const onSync = (map, updatedKey) => {
+    const onSync = (_map, updatedKey) => {
       if (!updatedKey || updatedKey === String(requestId)) {
-        setMessages(getReservationMessages(requestId));
+        const nextMessages = getReservationMessages(requestId);
+        const latestMessage = nextMessages.at(-1) ?? null;
+        if (!follow.current && latestMessage !== lastObservedMessage.current && latestMessage?.role === "assistant") {
+          setNewReplyAvailable(true);
+        }
+        if (!updatedKey) setNewReplyAvailable(false);
+        lastObservedMessage.current = latestMessage;
+        setMessages(nextMessages);
       }
     };
     memoryListeners.add(onSync);
@@ -332,6 +343,7 @@ export function CopilotConversation({
         guestName: currentGuest,
       };
       setReservationMessages(targetId, (previous) => [...previous.slice(-29), assistantMsg]);
+      if (String(targetId) === String(requestId) && !follow.current) setNewReplyAvailable(true);
     },
     onError: (_error, { message }) => setDraft(message),
     onSettled: () => {
@@ -343,11 +355,12 @@ export function CopilotConversation({
     if (follow.current && log.current) {
       log.current.scrollTop = log.current.scrollHeight;
     }
-  }, [messages, send.isPending, reply, selectedReply, children]);
+  }, [messages, send.isPending, reply, decisionDock, children]);
 
   const submit = (message) => {
     if (!message.trim() || sending.current || disabled) return;
     follow.current = true;
+    setNewReplyAvailable(false);
     const commandResult = onCommand?.(message);
     if (commandResult) {
       if (!commandResult.handled) setReservationMessages(requestId, previous => [...previous.slice(-28),
@@ -375,8 +388,20 @@ export function CopilotConversation({
     });
   };
 
-  const clearMemory = () => {
-    clearReservationMessages(requestId);
+  const resetCopilot = () => {
+    if (resetDisabled || send.isPending) return;
+    if (onResetDecision) onResetDecision();
+    else clearReservationSelection(requestId);
+    setMessages([]);
+    setReservationMessages(requestId, []);
+    follow.current = true;
+    setNewReplyAvailable(false);
+  };
+
+  const jumpToLatest = () => {
+    follow.current = true;
+    setNewReplyAvailable(false);
+    if (log.current) log.current.scrollTop = log.current.scrollHeight;
   };
 
   const suggestions = readOnlyCommitted
@@ -384,12 +409,6 @@ export function CopilotConversation({
     : hasPair
       ? ["Why this option?", "Any conflicts?", "Other options?"]
       : ["Why no match?", "What needs fixing?", "Other options?"];
-
-  // Keep the live review at its selection turn, never after subsequent Q&A.
-  // If memory was cleared/pruned, retain the review above the remaining messages.
-  const selectionTurn = currentPair ? messages.findLastIndex(m =>
-    m.action === 'select-pair' && m.selectedPair?.vehicleId === currentPair.vehicleId &&
-    m.selectedPair?.driverId === currentPair.driverId) : -1;
 
   return (
     <section
@@ -408,16 +427,16 @@ export function CopilotConversation({
             {currentGuest ? ` · ${currentGuest}` : ""}
           </span>
         </div>
-        {messages.length > 0 && (
+        {(messages.length > 0 || currentPair) && (
           <button
             type="button"
-            disabled={send.isPending}
-            onClick={clearMemory}
-            className="text-xs text-foreground-muted hover:text-danger hover:bg-hover px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer select-none"
-            title="Clear conversation for this reservation"
+            disabled={resetDisabled || send.isPending}
+            onClick={resetCopilot}
+            className="text-xs text-foreground-muted hover:text-danger hover:bg-hover px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer select-none focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+            title={resetDisabled ? "Wait for the assignment outcome before resetting Copilot." : send.isPending ? "Wait for the current Copilot reply before resetting." : "Reset Copilot conversation and selected pair for this reservation"}
           >
             <RotateCcw className="w-2.5 h-2.5" />
-            Clear memory
+            Reset Copilot
           </button>
         )}
       </div>
@@ -425,6 +444,18 @@ export function CopilotConversation({
         <p role="note" className="border-b border-border/60 bg-muted/10 px-3 py-1.5 text-[11px] text-foreground-secondary">
           Earlier conversation is history; current trip details come from this reservation record.
         </p>
+      )}
+
+      {newReplyAvailable && (
+        <div className="flex shrink-0 justify-end border-b border-border bg-muted/20 px-3 py-1.5">
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            New reply — jump to latest
+          </button>
+        </div>
       )}
 
       {/* ── Message Log ── */}
@@ -437,11 +468,11 @@ export function CopilotConversation({
         onScroll={() => {
           const el = log.current;
           follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+          if (follow.current) setNewReplyAvailable(false);
         }}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-3 p-3"
       >
         {!readOnlyCommitted && children}
-        {!readOnlyCommitted && selectionTurn === -1 && selectedReply}
         {messages.length === 0 && !children && !reply && (
           <div className="flex items-start gap-2 max-w-[95%]">
             <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
@@ -550,7 +581,6 @@ export function CopilotConversation({
                   </details>
                 )}
               </div>
-          {i === selectionTurn && selectedReply}
           </Fragment>
         ))}
 
@@ -602,6 +632,17 @@ export function CopilotConversation({
           );
         })()}
       </div>
+
+      {decisionDock && (
+        <div
+          role="region"
+          aria-label="Current dispatch decision"
+          tabIndex={0}
+          className="min-h-0 max-h-[min(40vh,20rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-surface p-3 scroll-py-2 focus-visible:outline-2 focus-visible:outline-primary"
+        >
+          {decisionDock}
+        </div>
+      )}
 
       {/* ── Action Suggestions & Composer ── */}
       {!completed && <div className="shrink-0 border-t border-border bg-surface p-3 space-y-2">

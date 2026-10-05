@@ -7,10 +7,37 @@ vi.mock('@/lib/api/client',()=>({apiFetch:vi.fn(async()=>({answer:'Checked'}))})
 import { apiFetch } from '@/lib/api/client';
 import { CopilotConversation, clearAllReservationMessages, getReservationMessages, setReservationMessages, latestClearanceFor, latestComparisonFor, getReservationSelection, setReservationSelection, clearReservationSelection, clearReservationMessages } from './copilot-conversation';
 
-beforeEach(()=>{vi.stubGlobal('React',React);vi.clearAllMocks();clearAllReservationMessages();});
+const hookState=vi.hoisted(()=>({slots:[],cursor:0}));
+vi.mock('react',async importOriginal=>{
+  const actual=await importOriginal();
+  return {
+    ...actual,
+    useState:initial=>{
+      const index=hookState.cursor++;
+      if(!(index in hookState.slots)) hookState.slots[index]={value:typeof initial==='function'?initial():initial};
+      const slot=hookState.slots[index];
+      return [slot.value,value=>{slot.value=typeof value==='function'?value(slot.value):value;}];
+    },
+    useRef:initial=>{
+      const index=hookState.cursor++;
+      if(!(index in hookState.slots)) hookState.slots[index]={value:{current:initial}};
+      return hookState.slots[index].value;
+    },
+    useEffect:()=>{},
+  };
+});
+
+beforeEach(()=>{hookState.slots=[];hookState.cursor=0;vi.stubGlobal('React',React);vi.clearAllMocks();clearAllReservationMessages();});
 afterEach(()=>vi.unstubAllGlobals());
 const sent={requestId:1,message:'Why this pair?',history:[],planToken:'old-plan',selectedPair:{vehicleId:3,driverId:4},selectedPairLabel:'PAIR-B + Driver B',displayedEvaluatedAt:'2026-09-15T00:00:00Z'};
-const render=requestId=>renderToStaticMarkup(React.createElement(CopilotConversation,{requestId,selectedPair:{vehicleId:8,driverId:9},planToken:'new-plan',hasPair:true}));
+const render=requestId=>{hookState.slots=[];hookState.cursor=0;return renderToStaticMarkup(React.createElement(CopilotConversation,{requestId,selectedPair:{vehicleId:8,driverId:9},planToken:'new-plan',hasPair:true}));};
+const findNode=(node,predicate)=>{
+  if(Array.isArray(node)) return node.map(child=>findNode(child,predicate)).find(Boolean)??null;
+  if(!React.isValidElement(node)) return null;
+  if(predicate(node)) return node;
+  return findNode(node.props?.children,predicate);
+};
+const conversationTree=props=>{hookState.cursor=0;return CopilotConversation(props);};
 
 it('sends captured request/pair/token context even if the component now has another selection',async()=>{
  render(2);
@@ -47,17 +74,18 @@ it('does not invite selection when fresh evidence contains no selectable option'
   state.handlers.onSuccess({answer:'The vehicle is under maintenance.',choiceOptions:[]},{requestId:1,selectedPair:null,displayedOptions:[{vehicleId:1,driverId:2}]});
   expect(getReservationMessages(1)[0].content).toBe('The vehicle is under maintenance.');
 });
-it('keeps scope-only replies conversational without replacing options or selected review',()=>{
+it('keeps scope-only replies conversational without replacing options or the current decision dock',()=>{
   const options=[{vehicleId:1,driverId:2},{vehicleId:3,driverId:4}];
   const scopeOnly={answer:'Hi. How can I help with this reservation or fleet operation?',mode:'scope-only',choiceOptions:[],snapshot:null,selection:null,coverage:null};
   const selected={vehicleId:3,driverId:4};
-  const selectedView=()=>renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:1,selectedPair:selected,selectedReply:React.createElement('p',null,'Selected review'),displayedOptions:options,planToken:'plan',planStatus:{isInvalid:false},hasPair:true}));
+  const decisionDock=React.createElement('p',null,'Selected review');
+  const selectedView=()=>{hookState.slots=[];hookState.cursor=0;return renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:1,selectedPair:selected,decisionDock,displayedOptions:options,planToken:'plan',planStatus:{isInvalid:false},hasPair:true}));};
   selectedView();
   state.handlers.onSuccess(scopeOnly,{requestId:1,selectedPair:selected,selectedPairLabel:'Option 2',displayedOptions:options,planToken:'plan'});
   expect(selectedView()).toContain('Selected review');
   expect(getReservationMessages(1)[0]).toMatchObject({mode:'scope-only',selectedPair:selected});
 
-  const optionsView=()=>renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:2,selectedPair:null,displayedOptions:options,hasPair:true}));
+  const optionsView=()=>{hookState.slots=[];hookState.cursor=0;return renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:2,selectedPair:null,displayedOptions:options,hasPair:true}));};
   optionsView();
   state.handlers.onSuccess(scopeOnly,{requestId:2,selectedPair:null,displayedOptions:options});
   const html=optionsView();
@@ -100,23 +128,77 @@ it('keeps committed-trip chat read-only and sends no client assignment evidence'
   expect(body).not.toHaveProperty('displayedOptions');
   expect(body).not.toHaveProperty('baseline');
 });
-it('keeps the selected review before later questions and answers, including after memory pruning',()=>{
+it('mounts the current decision once after the log and before the composer through long Q&A and pruning',()=>{
  const selectedPair={vehicleId:3,driverId:4};
  const messages=[
    {role:'user',content:'Choose option two',action:'select-pair',selectedPair,at:1},
-   {role:'user',content:'My latest question',at:2},
-   {role:'assistant',content:'The latest answer',at:3},
+   ...Array.from({length:40},(_,index)=>({role:index%2?'assistant':'user',content:`Conversation message ${index+1}`,at:index+2})),
  ];
- const view=()=>renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:1,selectedPair,selectedReply:React.createElement('p',null,'Selected review')}));
+ const decisionDock=React.createElement('section',{'data-current-decision':'true'},'Selected review');
+ const view=()=>{hookState.slots=[];hookState.cursor=0;return renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:1,selectedPair,decisionDock}));};
+ const assertDockOutsideLog=html=>{
+   const logStart=html.indexOf('<div role="log"');
+   const tags=/<\/?div\b[^>]*>/g;
+   tags.lastIndex=logStart;
+   let depth=0;
+   let logEnd=-1;
+   for(let match=tags.exec(html);match;match=tags.exec(html)){
+     depth+=match[0].startsWith('</')?-1:1;
+     if(depth===0){logEnd=tags.lastIndex;break;}
+   }
+   const dockStart=html.indexOf('data-current-decision');
+   const composerStart=html.indexOf('<form');
+   expect(html.match(/data-current-decision/g)).toHaveLength(1);
+   expect(html).toContain('role="region" aria-label="Current dispatch decision" tabindex="0"');
+   expect(dockStart).toBeGreaterThan(logEnd);
+   expect(dockStart).toBeLessThan(composerStart);
+ };
  setReservationMessages(1,messages);
  let html=view();
- expect(html.indexOf('Selected review')).toBeGreaterThan(html.indexOf('Choose option two'));
- expect(html.indexOf('Selected review')).toBeLessThan(html.indexOf('My latest question'));
- expect(html.indexOf('The latest answer')).toBeGreaterThan(html.indexOf('My latest question'));
-  setReservationMessages(1,messages.slice(1));
-  html=view();
-  expect(html.indexOf('Selected review')).toBeLessThan(html.indexOf('My latest question'));
-  expect(html.match(/Selected review/g)).toHaveLength(1);
+ assertDockOutsideLog(html);
+ expect(html.indexOf('Selected review')).toBeGreaterThan(html.indexOf('Conversation message 40'));
+ setReservationMessages(1,messages.slice(-8));
+ html=view();
+ assertDockOutsideLog(html);
+ expect(html.match(/Selected review/g)).toHaveLength(1);
+});
+
+it('resets the current Copilot memory through the explicit reset control',()=>{
+ const requestId=31;
+ const onResetDecision=vi.fn(()=>clearReservationSelection(requestId));
+ setReservationMessages(requestId,[{role:'assistant',content:'Older answer',at:1}]);
+ setReservationSelection(requestId,{key:'3:4',pinnedKeys:['3:4']});
+ const props={requestId,selectedPair:{vehicleId:3,driverId:4},decisionDock:React.createElement('p',null,'Selected review'),onResetDecision};
+ const tree=conversationTree(props);
+ const reset=findNode(tree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Reset Copilot'));
+ expect(reset).not.toBeNull();
+ reset.props.onClick();
+ expect(onResetDecision).toHaveBeenCalledTimes(1);
+ expect(getReservationMessages(requestId)).toEqual([]);
+ expect(getReservationSelection(requestId)).toBeNull();
+ expect(renderToStaticMarkup(conversationTree(props))).not.toContain('Older answer');
+  const disabledTree=conversationTree({...props,resetDisabled:true});
+  const disabledReset=findNode(disabledTree,node=>node.type==='button'&&React.Children.toArray(node.props.children).includes('Reset Copilot'));
+  expect(disabledReset.props.disabled).toBe(true);
+});
+
+it('offers a keyboard-operable jump to latest when a reply arrives during paused follow-scroll',()=>{
+ hookState.slots=[];hookState.cursor=0;
+ const props={requestId:21,hasPair:true};
+ const firstTree=conversationTree(props);
+ const log=findNode(firstTree,node=>node.props?.role==='log');
+ expect(log).not.toBeNull();
+ log.props.ref.current={scrollHeight:900,scrollTop:0,clientHeight:200};
+ log.props.onScroll();
+ state.handlers.onSuccess({answer:'A new answer arrived.'},{requestId:21,message:'Why?',selectedPair:null,displayedOptions:[]});
+
+ const nextTree=conversationTree(props);
+ const jump=findNode(nextTree,node=>node.type==='button'&&node.props.children==='New reply — jump to latest');
+ expect(jump).not.toBeNull();
+ expect(jump.props.type).toBe('button');
+ expect(renderToStaticMarkup(nextTree)).toContain('New reply — jump to latest');
+ jump.props.onClick();
+ expect(renderToStaticMarkup(conversationTree(props))).not.toContain('New reply — jump to latest');
 });
 it('resolves clearance for the selected pair and offers eligibility review',()=>{
   const selectedPair={vehicleId:3,driverId:4};
