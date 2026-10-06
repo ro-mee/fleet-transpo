@@ -20,12 +20,12 @@ import {
   evaluateTripGeofences,
 } from "@/lib/geo/geofence";
 
-function toLatLng(lat, lng) {
+function toLatLng(lat, lng, { allowZero = false } = {}) {
   const la = Number(lat);
   const ln = Number(lng);
   if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
   if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
-  if (la === 0 && ln === 0) return null;
+  if (la === 0 && ln === 0 && !allowZero) return null;
   return { lat: la, lng: ln };
 }
 
@@ -55,7 +55,8 @@ function v2EndpointTarget(row, endpoint) {
   if (v2EndpointProvenance(row, endpoint) !== "canonical_registry") return null;
   const coordinates = toLatLng(
     row[`_${endpoint}_registry_latitude`],
-    row[`_${endpoint}_registry_longitude`]
+    row[`_${endpoint}_registry_longitude`],
+    { allowZero: true }
   );
   if (!coordinates) return null;
   return {

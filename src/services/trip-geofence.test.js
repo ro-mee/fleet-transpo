@@ -221,6 +221,56 @@ describe("v2 trip geofence targets", () => {
     expect(calls.some(({ sql }) => sql.includes("FROM routes r"))).toBe(false);
   });
 
+  it("accepts the equator-prime-meridian point for a v2 linked active location", async () => {
+    const targets = await getTripGeofenceTargets(stubDb([]), {
+      trip_id: 58,
+      dispatch_id: 9,
+      route_id: null,
+      origin: "Partner pickup label",
+      destination: "Partner drop-off label",
+      external_create_fingerprint: "v2-fingerprint",
+      pickup_location_id: 41,
+      dropoff_location_id: 42,
+      _pickup_registry_location_id: 41,
+      _pickup_registry_is_active: true,
+      _pickup_registry_retired_at: null,
+      _pickup_registry_name: "Equator Harbor",
+      _pickup_registry_latitude: "0",
+      _pickup_registry_longitude: "0",
+      _pickup_registry_radius: 75,
+      _dropoff_registry_location_id: 42,
+      _dropoff_registry_is_active: true,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_name: "Harbor Warehouse",
+      _dropoff_registry_latitude: "14.7",
+      _dropoff_registry_longitude: "121.03",
+      _dropoff_registry_radius: 80,
+    });
+
+    expect(targets.pickup).toMatchObject({
+      lat: 0, lng: 0, radiusM: 75, label: "Equator Harbor", source: "canonical_registry",
+    });
+    expect(targets.pickup_location_provenance).toBe("canonical_registry");
+  });
+
+  it("preserves the legacy (0,0) sentinel for route points", async () => {
+    const db = stubDb([
+      ["FROM dispatchschedules", [{ route_id: 23 }]],
+      ["FROM routes r", [{
+        route_id: 23,
+        o_id: 1, o_name: "Legacy zero point", o_lat: "0", o_lng: "0", o_radius: 100,
+        d_id: 2, d_name: "Unknown", d_lat: null, d_lng: null, d_radius: 100,
+      }]],
+    ]);
+
+    const targets = await getTripGeofenceTargets(db, {
+      trip_id: 59, dispatch_id: 9, route_id: null,
+      origin: "Unknown legacy pickup", destination: "Unknown legacy drop-off",
+    });
+
+    expect(targets.pickup).toBeNull();
+  });
+
   it("does not reuse a retired linked point or resolve its text", async () => {
     clearTripGeofenceCache();
     clearDynamicLocationCache();

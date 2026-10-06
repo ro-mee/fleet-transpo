@@ -67,9 +67,10 @@ describe("Task 1 location identity migration", () => {
 
     expect(migration).toMatch(new RegExp(`ADD COLUMN IF NOT EXISTS ${escapedColumn} JSONB`, "i"));
     expect(expression).not.toBe("");
+    expect(expression).toContain(String.raw`BTRIM(${column}->>'address', E' \t\n\r\f' || chr(11))`);
     expect(expression).toMatch(new RegExp(`jsonb_typeof\\s*\\(\\s*${escapedColumn}\\s*\\)\\s*=\\s*'object'`, "i"));
     expect(expression).toMatch(new RegExp(`${escapedColumn}\\s*-\\s*ARRAY\\s*\\[\\s*'address'\\s*,\\s*'latitude'\\s*,\\s*'longitude'\\s*\\]::text\\[\\]\\s*=\\s*'\\{\\}'::jsonb`, "i"));
-    expect(expression).toMatch(new RegExp(`NULLIF\\s*\\(\\s*BTRIM\\s*\\(\\s*${escapedColumn}\\s*->>\\s*'address'\\s*\\)\\s*,\\s*''\\s*\\)\\s+IS NOT NULL\\s+OR CASE`, "i"));
+    expect(expression).toMatch(new RegExp(`NULLIF\\s*\\(\\s*BTRIM\\s*\\(\\s*${escapedColumn}\\s*->>\\s*'address'\\s*\\)\\s*,\\s*''\\s*\\)\\s+IS NOT NULL`, "i"));
     expect(expression).toMatch(new RegExp(`char_length\\s*\\(\\s*${escapedColumn}\\s*->>\\s*'address'\\s*\\)\\s*<=\\s*2000`, "i"));
     expect(expression).toMatch(new RegExp(`${escapedColumn}\\s*->>\\s*'latitude'[\\s\\S]*?-90[\\s\\S]*?90`, "i"));
     expect(expression).toMatch(new RegExp(`${escapedColumn}\\s*->>\\s*'longitude'[\\s\\S]*?-180[\\s\\S]*?180`, "i"));

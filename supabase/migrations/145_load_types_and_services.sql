@@ -37,12 +37,43 @@ BEGIN
   END IF;
 END $$;
 
-ALTER TABLE public.service_types DROP CONSTRAINT IF EXISTS chk_service_default_load_type;
-ALTER TABLE public.service_types
-  ADD CONSTRAINT chk_service_default_load_type CHECK (
-    (service_code IS NULL OR default_load_type IS NOT NULL)
-    AND (default_load_type IS NULL OR default_load_type IN ('Passenger', 'Cargo'))
-  );
+DO $$
+DECLARE
+  constraint_definition text;
+  expected_constraint_definition text;
+  constraint_is_valid boolean;
+BEGIN
+  CREATE TEMP TABLE _expected_service_default_load_type ON COMMIT DROP AS
+  SELECT service_code, default_load_type
+    FROM public.service_types
+   WITH NO DATA;
+  ALTER TABLE pg_temp._expected_service_default_load_type
+    ADD CONSTRAINT _expected_service_default_load_type_check CHECK (
+      (service_code IS NULL OR default_load_type IS NOT NULL)
+      AND (default_load_type IS NULL OR default_load_type IN ('Passenger', 'Cargo'))
+    );
+  SELECT pg_get_constraintdef(oid)
+    INTO expected_constraint_definition
+    FROM pg_constraint
+   WHERE conrelid = 'pg_temp._expected_service_default_load_type'::regclass
+     AND conname = '_expected_service_default_load_type_check';
+  SELECT pg_get_constraintdef(oid), convalidated
+    INTO constraint_definition, constraint_is_valid
+    FROM pg_constraint
+   WHERE conrelid = 'public.service_types'::regclass
+     AND conname = 'chk_service_default_load_type';
+
+  IF constraint_definition IS NULL THEN
+    ALTER TABLE public.service_types
+      ADD CONSTRAINT chk_service_default_load_type CHECK (
+        (service_code IS NULL OR default_load_type IS NOT NULL)
+        AND (default_load_type IS NULL OR default_load_type IN ('Passenger', 'Cargo'))
+      );
+  ELSIF constraint_definition IS DISTINCT FROM expected_constraint_definition
+     OR constraint_is_valid IS DISTINCT FROM TRUE THEN
+    RAISE EXCEPTION 'chk_service_default_load_type exists with a mismatched or unvalidated definition';
+  END IF;
+END $$;
 
 -- Do not manufacture a second display name beside an unclassified historical row.
 DO $$
@@ -111,17 +142,53 @@ ALTER TABLE public.transportation_requests
 
 -- PostgreSQL NUMERIC NaN compares greater than ordinary numbers; > 0 alone
 -- cannot prove a usable cargo weight when direct DB writers bypass the API.
-ALTER TABLE public.transportation_requests DROP CONSTRAINT IF EXISTS chk_transport_typed_load;
-ALTER TABLE public.transportation_requests
-  ADD CONSTRAINT chk_transport_typed_load CHECK (
-    (load_type = 'Passenger' AND passenger_count IS NOT NULL AND passenger_count > 0
-      AND cargo_weight_kg IS NULL AND cargo_description IS NULL)
-    OR
-    (load_type = 'Cargo' AND passenger_count IS NULL
-      AND cargo_weight_kg IS NOT NULL AND cargo_weight_kg > 0
-      AND cargo_weight_kg <> 'NaN'::numeric
-      AND cargo_description IS NOT NULL AND btrim(cargo_description) <> '')
-  );
+DO $$
+DECLARE
+  constraint_definition text;
+  expected_constraint_definition text;
+  constraint_is_valid boolean;
+BEGIN
+  CREATE TEMP TABLE _expected_transport_typed_load ON COMMIT DROP AS
+  SELECT load_type, passenger_count, cargo_weight_kg, cargo_description
+    FROM public.transportation_requests
+   WITH NO DATA;
+  ALTER TABLE pg_temp._expected_transport_typed_load
+    ADD CONSTRAINT _expected_transport_typed_load_check CHECK (
+      (load_type = 'Passenger' AND passenger_count IS NOT NULL AND passenger_count > 0
+        AND cargo_weight_kg IS NULL AND cargo_description IS NULL)
+      OR
+      (load_type = 'Cargo' AND passenger_count IS NULL
+        AND cargo_weight_kg IS NOT NULL AND cargo_weight_kg > 0
+        AND cargo_weight_kg <> 'NaN'::numeric
+        AND cargo_description IS NOT NULL AND btrim(cargo_description) <> '')
+    );
+  SELECT pg_get_constraintdef(oid)
+    INTO expected_constraint_definition
+    FROM pg_constraint
+   WHERE conrelid = 'pg_temp._expected_transport_typed_load'::regclass
+     AND conname = '_expected_transport_typed_load_check';
+  SELECT pg_get_constraintdef(oid), convalidated
+    INTO constraint_definition, constraint_is_valid
+    FROM pg_constraint
+   WHERE conrelid = 'public.transportation_requests'::regclass
+     AND conname = 'chk_transport_typed_load';
+
+  IF constraint_definition IS NULL THEN
+    ALTER TABLE public.transportation_requests
+      ADD CONSTRAINT chk_transport_typed_load CHECK (
+        (load_type = 'Passenger' AND passenger_count IS NOT NULL AND passenger_count > 0
+          AND cargo_weight_kg IS NULL AND cargo_description IS NULL)
+        OR
+        (load_type = 'Cargo' AND passenger_count IS NULL
+          AND cargo_weight_kg IS NOT NULL AND cargo_weight_kg > 0
+          AND cargo_weight_kg <> 'NaN'::numeric
+          AND cargo_description IS NOT NULL AND btrim(cargo_description) <> '')
+      );
+  ELSIF constraint_definition IS DISTINCT FROM expected_constraint_definition
+     OR constraint_is_valid IS DISTINCT FROM TRUE THEN
+    RAISE EXCEPTION 'chk_transport_typed_load exists with a mismatched or unvalidated definition';
+  END IF;
+END $$;
 
 -- Existing rows are passenger rows; no historical passenger is silently converted to cargo.
 COMMENT ON COLUMN public.transportation_requests.load_type IS

@@ -144,7 +144,10 @@ DECLARE
         END
       )
       AND (
-        NULLIF(BTRIM(partner_pickup_location_proposal->>'address'), '') IS NOT NULL
+        (
+          NULLIF(BTRIM(partner_pickup_location_proposal->>'address'), '') IS NOT NULL
+          AND NULLIF(BTRIM(partner_pickup_location_proposal->>'address', E' \t\n\r\f' || chr(11)), '') IS NOT NULL
+        )
         OR CASE
           WHEN jsonb_typeof(partner_pickup_location_proposal->'latitude') = 'number'
            AND jsonb_typeof(partner_pickup_location_proposal->'longitude') = 'number'
@@ -242,7 +245,10 @@ DECLARE
         END
       )
       AND (
-        NULLIF(BTRIM(partner_dropoff_location_proposal->>'address'), '') IS NOT NULL
+        (
+          NULLIF(BTRIM(partner_dropoff_location_proposal->>'address'), '') IS NOT NULL
+          AND NULLIF(BTRIM(partner_dropoff_location_proposal->>'address', E' \t\n\r\f' || chr(11)), '') IS NOT NULL
+        )
         OR CASE
           WHEN jsonb_typeof(partner_dropoff_location_proposal->'latitude') = 'number'
            AND jsonb_typeof(partner_dropoff_location_proposal->'longitude') = 'number'
