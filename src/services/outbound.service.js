@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { query } from "@/lib/db";
 import { getBookingGateway } from "@/lib/integration/booking-gateway";
 import { toExternalStatus } from "@/lib/integration/status-map";
@@ -43,6 +44,9 @@ export async function emitTransportStatus(request, extra = {}) {
 
   const fleetStatus = extra.fleetStatus || request.fleet_status;
   const event = {
+    event_id: randomUUID(),
+    source_system: request.source_system || "PMS",
+    external_request_id: request.external_request_id || request.external_booking_id,
     external_booking_id: request.external_booking_id,
     status: toExternalStatus(fleetStatus),
     fleet_reference: request.request_id ?? null,

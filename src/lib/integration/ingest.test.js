@@ -80,7 +80,7 @@ describe("ingestRequest", () => {
 
     expect(pulled[0]).toBe(pushed[0]);
     expect(pulledParams).toEqual(pushed[1]);
-    expect(pulledParams).toHaveLength(19);
+    expect(pulledParams).toHaveLength(21);
   });
 
   it("fills the columns the pull path used to omit", async () => {
@@ -126,6 +126,103 @@ describe("ingestRequest", () => {
     expect(out.idempotent).toBe(true);
     expect(out.request.request_id).toBe(42);
     expect(insertCall()).toBeUndefined();
+    expect(recordReservationEvent).not.toHaveBeenCalled();
+  });
+
+  it("scopes the lookup to authenticated source and avoids a select-only insert race", async () => {
+    wire();
+    await ingestRequest({ ...REQUEST, external_booking_id: "123", source_system: "POS" });
+    const lookup = query.mock.calls.find(([sql]) => sql.includes("SELECT * FROM transportation_requests"));
+    expect(lookup[1]).toEqual(["POS", "123"]);
+    expect(insertCall()[0]).toMatch(/ON CONFLICT\s*\(source_system, external_request_id\)\s*DO NOTHING/i);
+  });
+
+  it("does not reuse a source ID when its original request is soft-deleted", async () => {
+    wire({ existing: { request_id: 42, source_system: "PMS", external_request_id: REQUEST.external_booking_id, deleted_at: "2026-10-04T01:00:00Z" } });
+    await expect(ingestRequest(REQUEST)).rejects.toMatchObject({ code: "SOURCE_ID_TOMBSTONED" });
+    expect(insertCall()).toBeUndefined();
+    expect(recordReservationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a v2 create reusing an ID with changed passenger details", async () => {
+    wire();
+    const old = { ...REQUEST, source_system: "POS", external_booking_id: "123", pickup_location: "Old lobby" };
+    await ingestRequest(old, { strictReplay: true });
+    const originalFingerprint = insertCall()[1].at(-1);
+    query.mockClear();
+    wire({ existing: { request_id: 42, source_system: "POS", external_request_id: "123", external_create_fingerprint: originalFingerprint } });
+    await expect(ingestRequest({ ...old, pickup_location: "New lobby" }, { strictReplay: true }))
+      .rejects.toMatchObject({ code: "SOURCE_CREATE_CONFLICT" });
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it("does not pretend an archived v1 row with no fingerprint matches a v2 create", async () => {
+    wire({ existing: { request_id: 42, source_system: "PMS", external_request_id: REQUEST.external_booking_id, external_create_fingerprint: null } });
+    await expect(ingestRequest(REQUEST, { strictReplay: true })).rejects.toMatchObject({ code: "SOURCE_CREATE_CONFLICT" });
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it("persists a v2 create fingerprint for exact replay validation", async () => {
+    wire();
+    await ingestRequest({ ...REQUEST, source_system: "POS", external_booking_id: "123" }, { strictReplay: true });
+    const [sql, params] = insertCall();
+    expect(sql).toContain("external_create_fingerprint");
+    expect(params.at(-1)).toMatch(/^[a-f0-9]{64}$/);
+    const fingerprint = params.at(-1);
+    query.mockClear();
+    wire({ existing: { request_id: 42, source_system: "POS", external_request_id: "123", external_create_fingerprint: fingerprint } });
+    const replay = await ingestRequest({ ...REQUEST, source_system: "POS", external_booking_id: "123" }, { strictReplay: true });
+    expect(replay).toMatchObject({ idempotent: true, request: { request_id: 42 } });
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it("returns the winner after a concurrent insert conflict without another timeline event", async () => {
+    let lookups = 0;
+    query.mockImplementation(async (sql) => {
+      if (sql.includes("SELECT * FROM transportation_requests")) {
+        lookups += 1;
+        return { rows: lookups === 1 ? [] : [{ request_id: 502, source_system: "PMS", external_request_id: REQUEST.external_booking_id }] };
+      }
+      if (sql.includes("INSERT INTO transportation_requests")) return { rows: [] };
+      return { rows: [] };
+    });
+    const out = await ingestRequest(REQUEST);
+    expect(out).toMatchObject({ idempotent: true, request: { request_id: 502 } });
+    expect(recordReservationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a different v2 create whose original ID wins an insert race", async () => {
+    wire();
+    const old = { ...REQUEST, source_system: "POS", external_booking_id: "123", pickup_location: "Old lobby" };
+    await ingestRequest(old, { strictReplay: true });
+    const originalFingerprint = insertCall()[1].at(-1);
+    query.mockClear();
+    recordReservationEvent.mockClear();
+    let lookups = 0;
+    query.mockImplementation(async (sql) => {
+      if (sql.includes("SELECT * FROM transportation_requests")) {
+        lookups += 1;
+        return { rows: lookups === 1 ? [] : [{ request_id: 502, external_create_fingerprint: originalFingerprint }] };
+      }
+      if (sql.includes("INSERT INTO transportation_requests")) return { rows: [] };
+      return { rows: [] };
+    });
+    await expect(ingestRequest({ ...old, pickup_location: "New lobby" }, { strictReplay: true }))
+      .rejects.toMatchObject({ code: "SOURCE_CREATE_CONFLICT" });
+    expect(recordReservationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a tombstone that wins a concurrent insert race", async () => {
+    let lookups = 0;
+    query.mockImplementation(async (sql) => {
+      if (sql.includes("SELECT * FROM transportation_requests")) {
+        lookups += 1;
+        return { rows: lookups === 1 ? [] : [{ request_id: 502, deleted_at: "2026-10-04T01:00:00Z" }] };
+      }
+      if (sql.includes("INSERT INTO transportation_requests")) return { rows: [] };
+      return { rows: [] };
+    });
+    await expect(ingestRequest(REQUEST)).rejects.toMatchObject({ code: "SOURCE_ID_TOMBSTONED" });
     expect(recordReservationEvent).not.toHaveBeenCalled();
   });
 

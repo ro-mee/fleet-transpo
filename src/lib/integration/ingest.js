@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { query } from "@/lib/db";
 import { fleetStatusFromBooking } from "@/lib/integration/status-map";
 import { resolveVehicleCategory } from "@/lib/integration/category-resolver";
@@ -41,20 +42,50 @@ import { RESERVATION_EVENT as E } from "@/lib/constants";
  *                                      for reconciliation
  * @returns {Promise<{idempotent: boolean, request: object, category: object|null}>}
  */
+function rejectTombstone(row) {
+  if (row.deleted_at) {
+    const error = new Error("This source request ID belongs to a deleted request and cannot be reused.");
+    error.code = "SOURCE_ID_TOMBSTONED";
+    throw error;
+  }
+}
+
+const CREATE_FIELDS = [
+  "booking_reference", "guest_name", "pickup_location", "dropoff_location",
+  "pickup_datetime", "passenger_count", "special_requests", "service_type_id",
+  "priority", "booking_status", "requested_vehicle_type", "is_vip", "is_emergency",
+];
+
+function createFingerprint(request) {
+  const values = CREATE_FIELDS.map((key) => request[key] ?? null);
+  return createHash("sha256").update(JSON.stringify(values)).digest("hex");
+}
+
+function rejectChangedCreate(row, fingerprint) {
+  if (fingerprint && row.external_create_fingerprint !== fingerprint) {
+    const error = new Error("This source request ID has a different create payload; send an update revision instead.");
+    error.code = "SOURCE_CREATE_CONFLICT";
+    throw error;
+  }
+}
+
 export async function ingestRequest(
   request,
-  { session = null, actor = "service", eventType = "transport_request_received" } = {}
+  { session = null, actor = "service", eventType = "transport_request_received", strictReplay = false } = {}
 ) {
+  const fingerprint = strictReplay ? createFingerprint(request) : null;
   // IDEMPOTENCY: an external_booking_id already on file is returned untouched
   // instead of inserted again, so a replayed webhook or a repeated poll over
   // the same gateway page cannot double a request. Selecting the whole row
   // (not just request_id) is what lets the push route answer its sender with
   // the record it already holds.
   const existing = await query(
-    `SELECT * FROM transportation_requests WHERE external_booking_id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [request.external_booking_id]
+    `SELECT * FROM transportation_requests WHERE source_system = $1 AND external_request_id = $2 LIMIT 1`,
+    [request.source_system, request.external_booking_id]
   );
   if (existing.rows[0]) {
+    rejectTombstone(existing.rows[0]);
+    rejectChangedCreate(existing.rows[0], fingerprint);
     return { idempotent: true, request: existing.rows[0], category: null };
   }
 
@@ -82,8 +113,9 @@ export async function ingestRequest(
         pickup_location, dropoff_location, pickup_datetime, passenger_count,
         special_requests, service_type_id, priority, booking_status, fleet_status,
         requested_vehicle_type, requested_category_id, estimated_distance, estimated_duration,
-        is_vip, is_emergency)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        is_vip, is_emergency, external_request_id, external_create_fingerprint)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+     ON CONFLICT (source_system, external_request_id) DO NOTHING
      RETURNING *`,
     [
       request.external_booking_id,
@@ -111,8 +143,20 @@ export async function ingestRequest(
       estimate.durationMin,
       request.is_vip === true,
       request.is_emergency === true,
+      request.external_booking_id,
+      fingerprint,
     ]
   );
+  if (!rows[0]) {
+    const replay = await query(
+      `SELECT * FROM transportation_requests WHERE source_system = $1 AND external_request_id = $2 LIMIT 1`,
+      [request.source_system, request.external_booking_id]
+    );
+    if (!replay.rows[0]) throw new Error("Request identity conflict could not be resolved");
+    rejectTombstone(replay.rows[0]);
+    rejectChangedCreate(replay.rows[0], fingerprint);
+    return { idempotent: true, request: replay.rows[0], category: null };
+  }
   const created = rows[0];
 
   // Human-facing identifier. Best-effort: a request without a number is still

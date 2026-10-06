@@ -72,6 +72,9 @@ export const TransportationRequestSchema = z.object({
 // SHARED external vocabulary (see src/lib/integration/status-map.js), never a
 // Fleet-internal string.
 export const TransportStatusEventSchema = z.object({
+  event_id: z.string().optional(),
+  source_system: z.string().min(1).optional(),
+  external_request_id: z.string().min(1).optional(),
   external_booking_id: z.string().min(1),
   status: z.string().min(1), // EXTERNAL_STATUS value
   fleet_reference: z.union([z.string(), z.number()]).optional().nullable(),

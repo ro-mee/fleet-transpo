@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, resolveIdentity, ok, err, handleError } from "@/lib/api/utils";
-import { verifyServiceToken } from "@/lib/api/service-auth";
-import { parseTransportationRequest } from "@/lib/integration/contracts";
+import { safeEqual } from "@/lib/api/service-auth";
+import { normalizeInboundEnvelope } from "@/lib/integration/source-contract";
 import { ingestRequest } from "@/lib/integration/ingest";
 import { detectConflictsForRequests } from "@/lib/scheduling/conflicts";
 import { recomputeDerivedPriority } from "@/services/priority.service";
@@ -26,16 +26,22 @@ import { rolesFor } from "@/lib/auth/permissions";
 
 async function authorize(req) {
   // 1) Service token (machine-to-machine).
-  const secret = process.env.BOOKING_WEBHOOK_SECRET;
-  if (secret) {
-    const tokenResult = verifyServiceToken(req, secret);
-    if (tokenResult.ok) return { actor: "service", session: null };
+  const header = req.headers.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (process.env.BOOKING_WEBHOOK_SECRET && process.env.POS_WEBHOOK_SECRET &&
+      safeEqual(process.env.BOOKING_WEBHOOK_SECRET, process.env.POS_WEBHOOK_SECRET)) return null;
+  for (const [source, secret] of [["PMS", process.env.BOOKING_WEBHOOK_SECRET], ["POS", process.env.POS_WEBHOOK_SECRET]]) {
+    if (secret && token && safeEqual(token, secret)) {
+      return { actor: "service", session: null, source };
+    }
   }
+  // Never fall back to a browser session when a caller presented an invalid token.
+  if (header) return null;
   // 2) Fall back to a logged-in Fleet user (dev injector / manual replay).
   const session = await resolveIdentity(req).catch(() => null);
   const role = session?.user?.role;
   if (session?.user && rolesFor("reservations", "create").includes(role)) {
-    return { actor: "user", session };
+    return { actor: "user", session, source: "PMS" };
   }
   return null;
 }
@@ -444,13 +450,20 @@ export async function POST(req) {
     }
 
     // Validate against the integration contract.
-    let request;
+    let envelope;
     try {
-      request = parseTransportationRequest(raw);
+      envelope = normalizeInboundEnvelope(raw, authz.source);
     } catch (e) {
       const message = e?.issues?.[0]?.message || "Invalid transportation request payload.";
       return err(message, 400);
     }
+
+    // Later revisions and cancellations need a transactional event ledger and
+    // lifecycle service; fail closed rather than silently accepting an update.
+    if (envelope.event_kind !== "create" || envelope.external_revision !== 1) {
+      return err("Update/cancel revisions require reconciliation; no request was changed.", 409);
+    }
+    const request = envelope.request;
 
     // Everything from here — idempotency, estimate, category, INSERT, number,
     // timeline, integration_log — is the shared ingest path, so a pushed
@@ -459,6 +472,7 @@ export async function POST(req) {
       session: authz.session,
       actor: authz.actor,
       eventType: "transport_request_received",
+      strictReplay: envelope.contract_version === 2,
     });
     if (idempotent) return ok({ ...created, idempotent: true }, 200);
 
@@ -471,6 +485,12 @@ export async function POST(req) {
 
     return ok(created, 201);
   } catch (e) {
+    if (e?.code === "SOURCE_ID_TOMBSTONED") {
+      return err("This source request ID belongs to a deleted request and cannot be reused.", 409);
+    }
+    if (e?.code === "SOURCE_CREATE_CONFLICT") {
+      return err("This source request ID has an unverified or different create payload; reconcile before retrying.", 409);
+    }
     return handleError(e);
   }
 }

@@ -1,6 +1,6 @@
 # FleetOps Passenger/Cargo Integration and Fuel — Implementation Baseline
 
-**Status: proposed plan, 2026-10-05. No application, mobile, schema, or live data changed.**
+**Status: implementation in progress on isolated `feat/passenger-cargo` branch (2026-10-05). No live database migration has been applied; the plan itself is not proof of end-to-end behavior.**
 
 Full task-by-task implementation plan: `docs/superpowers/plans/2026-10-05-fleetops-passenger-cargo-integration-and-fuel.md`.
 
@@ -16,7 +16,7 @@ FleetOps receives requests from external hotel/restaurant subsystems. The target
 
 ## Decisions needing real evidence
 
-- A restaurant order ID can collide with a hotel booking ID; identity must be source-scoped. Existing ingest identifies solely by external_booking_id and returns a duplicate without applying changed pickup/weight/time, so correction/cancel semantics must be designed before rollout.
+- A restaurant order ID can collide with a hotel booking ID; identity must be source-scoped. User decision (2026-10-05): a `(source_system, external_request_id)` pair must never be reused, even when the old row is soft-deleted, so replay cannot create a new unrelated trip. Existing ingest identifies solely by external_booking_id and returns a duplicate without applying changed pickup/weight/time, so correction/cancel semantics must be designed before rollout.
 - Existing `source_system` in payload is not authenticated identity. Bind it to an authorized source principal; preserve single shared ingest across pull and push.
 - Approved cargo payload, plate, OR/CR, insurance, registration and real driver license class require verified data. Inventory and remediation precede staged fail-closed rollout; do not fabricate compliance or strand previously committed trips silently.
 - Road readiness and fuel-planning readiness are different. Fuel estimates are not actual burn and never replace receipt transactions.
