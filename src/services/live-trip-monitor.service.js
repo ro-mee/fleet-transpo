@@ -262,6 +262,8 @@ const MONITOR_TRIP_SELECT = `
   de.first_name AS driver_first_name, de.last_name AS driver_last_name,
   ds.dispatch_number, ds.scheduled_departure, ds.scheduled_arrival,
   tr.request_id, tr.pickup_datetime, tr.pickup_location, tr.dropoff_location,
+  tr.external_create_fingerprint, tr.pickup_location_id, tr.dropoff_location_id,
+  tr.partner_pickup_location_proposal, tr.partner_dropoff_location_proposal,
   gp.pings AS gps_pings
 `;
 
@@ -454,6 +456,11 @@ async function evaluateTripRow(db, trip, {
       pickup_location: trip.pickup_location,
       dropoff_location: trip.dropoff_location,
       request_id: trip.request_id ?? null,
+      external_create_fingerprint: trip.external_create_fingerprint ?? null,
+      pickup_location_id: trip.pickup_location_id ?? null,
+      dropoff_location_id: trip.dropoff_location_id ?? null,
+      partner_pickup_location_proposal: trip.partner_pickup_location_proposal ?? null,
+      partner_dropoff_location_proposal: trip.partner_dropoff_location_proposal ?? null,
     }, db);
     plannedPassengerMinutes = passenger.minutes;
     passengerProvenance = passenger.provenance;

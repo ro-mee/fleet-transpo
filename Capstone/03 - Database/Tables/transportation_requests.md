@@ -80,6 +80,8 @@ At the Task 2 boundary (before Task 3), v2 `estimated_distance` and `estimated_d
 
 The v2 ingest estimate call explicitly enables strict registry mode before the request fingerprint is inserted; persisted v2 requests are also detected by non-null `external_create_fingerprint`. Only the code-resolved pickup/drop-off IDs are used. Both linked locations must remain active, non-retired and have complete finite in-range coordinates before even a stored route estimate is considered. Proposals remain review-only and never supply routing coordinates. Missing IDs, retired locations, or unusable points return null estimate fields and source with a stable reason and per-endpoint provenance, without text matching, dynamic/seed estimates, or route persistence. With a usable pair, an active canonical route estimate or TomTom may be used. V1 behavior is unchanged. This task changed no schema, migration, or live database state; the Task 2 migrations remain unapplied, so no live-schema or deployment claim is made.
 
+Review round 1/5: the live-trip-monitor SELECT now carries `external_create_fingerprint`, both canonical request location IDs, and both proposal fields through its passenger-estimate request. This prevents the read path from misclassifying persisted v2 rows as legacy; missing IDs remain strict/unknown. Focused monitor and route-resolver tests passed 51/51 after an expected RED, and touched ESLint / `git diff --check` passed. Migration 146 remains unapplied as a pre-merge release hold.
+
 ## Related
 
 [[Reservations]] · [[Request Lifecycle]] · [[Database Overview]] · [[ERD]] · [[System Boundaries]]

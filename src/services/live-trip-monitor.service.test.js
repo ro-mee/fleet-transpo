@@ -33,10 +33,18 @@ vi.mock("@/services/push.service", async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, sendPush: vi.fn(async () => []) };
 });
+vi.mock("@/services/route-feasibility-context.service", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    resolvePassengerMinutes: vi.fn((...args) => actual.resolvePassengerMinutes(...args)),
+  };
+});
 
 import { query as libQuery } from "@/lib/db";
 import { fetchTomTomRoute } from "@/lib/tomtom";
 import { sendPush } from "@/services/push.service";
+import { resolvePassengerMinutes } from "@/services/route-feasibility-context.service";
 import {
   clearMonitorSnapshots,
   evaluateLiveTripMonitor,
@@ -298,6 +306,36 @@ describe("evaluateLiveTripMonitor — full mode", () => {
     const done = fullDb({ trips: [tripRow({ trip_status: TRIP_STATUS.COMPLETED })] });
     const result = await evaluateLiveTripMonitor(done.db, { tripId: 101, now: NOW });
     expect(result).toMatchObject({ tripId: 101, live: false });
+  });
+
+  it("preserves persisted v2 identity and location links for estimate resolution", async () => {
+    const trip = tripRow({
+      external_create_fingerprint: "v2-fingerprint",
+      pickup_location_id: 111,
+      dropoff_location_id: 222,
+      partner_pickup_location_proposal: { address: "Partner pickup text" },
+      partner_dropoff_location_proposal: { address: "Partner drop-off text" },
+    });
+    const { db } = fullDb({ trips: [trip] });
+
+    await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+
+    const tripSelect = db.calls.find((call) => call.sql.includes("FROM trips t"));
+    expect(tripSelect.sql).toContain("tr.external_create_fingerprint");
+    expect(tripSelect.sql).toContain("tr.pickup_location_id");
+    expect(tripSelect.sql).toContain("tr.dropoff_location_id");
+    expect(tripSelect.sql).toContain("tr.partner_pickup_location_proposal");
+    expect(tripSelect.sql).toContain("tr.partner_dropoff_location_proposal");
+    expect(resolvePassengerMinutes).toHaveBeenCalledWith({
+      pickup_location: "Makati",
+      dropoff_location: "CoCo Star Hotel",
+      request_id: 900,
+      external_create_fingerprint: "v2-fingerprint",
+      pickup_location_id: 111,
+      dropoff_location_id: 222,
+      partner_pickup_location_proposal: { address: "Partner pickup text" },
+      partner_dropoff_location_proposal: { address: "Partner drop-off text" },
+    }, db);
   });
 
   it("a healthy trip is NORMAL with a live ETA and writes no alerts", async () => {
