@@ -66,7 +66,7 @@ export async function POST(req) {
         // Expected source-level conflicts reject this item, not the rest of a
         // trusted mock batch. Infrastructure/DB errors still fail the whole pull.
         const code = error?.code;
-        if (!["SERVICE_UNAVAILABLE", "SOURCE_CREATE_CONFLICT", "SOURCE_ID_TOMBSTONED"].includes(code)) throw error;
+        if (!["SERVICE_UNAVAILABLE", "SOURCE_CREATE_CONFLICT", "SOURCE_ID_TOMBSTONED", "LOCATION_CODE_UNKNOWN", "LOCATION_CODE_RETIRED"].includes(code)) throw error;
         skipped += 1;
         rejected += 1;
         rejectionCodes[code] = (rejectionCodes[code] || 0) + 1;

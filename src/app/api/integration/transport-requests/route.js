@@ -7,6 +7,7 @@ import { detectConflictsForRequests } from "@/lib/scheduling/conflicts";
 import { recomputeDerivedPriority } from "@/services/priority.service";
 import { writeAudit } from "@/lib/audit";
 import { rolesFor } from "@/lib/auth/permissions";
+import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-provenance";
 
 // ============================================================================
 // Inbound ingestion: Booking subsystem -> Fleet Reservation Queue.
@@ -71,10 +72,50 @@ const NEEDS_ASSIGNMENT = `(
 // only from SQL. The stored text above them stays the display value — it is
 // Booking's own record of what Booking asked for, and a rename must not
 // rewrite the parent system's words.
+const LOCATION_COORDINATE_SELECT = `
+  pickup_registry.is_active AS _pickup_registry_is_active,
+  pickup_registry.retired_at AS _pickup_registry_retired_at,
+  pickup_registry.latitude AS _pickup_registry_latitude,
+  pickup_registry.longitude AS _pickup_registry_longitude,
+  dropoff_registry.is_active AS _dropoff_registry_is_active,
+  dropoff_registry.retired_at AS _dropoff_registry_retired_at,
+  dropoff_registry.latitude AS _dropoff_registry_latitude,
+  dropoff_registry.longitude AS _dropoff_registry_longitude
+`;
+const LOCATION_INTERNAL_FIELDS = [
+  "_pickup_registry_is_active", "_pickup_registry_retired_at", "_pickup_registry_latitude", "_pickup_registry_longitude",
+  "_dropoff_registry_is_active", "_dropoff_registry_retired_at", "_dropoff_registry_latitude", "_dropoff_registry_longitude",
+];
+
+function endpointProvenance(row, endpoint) {
+  const registryPrefix = `_${endpoint}_registry`;
+  const coordinateProvenance = getCoordinateProvenanceFields({
+    is_active: row[`${registryPrefix}_is_active`] === true && row[`${registryPrefix}_retired_at`] == null,
+    latitude: row[`${registryPrefix}_latitude`],
+    longitude: row[`${registryPrefix}_longitude`],
+  });
+  if (coordinateProvenance.coordinate_provenance === "canonical_registry") return "canonical_registry";
+  return row[`partner_${endpoint}_location_proposal`] == null ? "unknown" : "pending_review";
+}
+
+function projectLocationProvenance(rows) {
+  return rows.map((row) => {
+    const projected = {
+      ...row,
+      pickup_location_provenance: endpointProvenance(row, "pickup"),
+      dropoff_location_provenance: endpointProvenance(row, "dropoff"),
+    };
+    LOCATION_INTERNAL_FIELDS.forEach((field) => delete projected[field]);
+    return projected;
+  });
+}
+
 const TR_LIST_SELECT = `
   tr.request_id, tr.reservation_number, tr.booking_reference, tr.guest_name,
   tr.source_system, tr.pickup_location, tr.dropoff_location, tr.pickup_datetime,
   tr.pickup_location_id, tr.dropoff_location_id,
+  tr.partner_pickup_location_proposal, tr.partner_dropoff_location_proposal,
+  ${LOCATION_COORDINATE_SELECT},
   tr.priority, tr.passenger_count, tr.load_type, tr.cargo_weight_kg,
   tr.cargo_description, tr.source_department, st.service_code,
   tr.fleet_status, tr.requested_vehicle_type,
@@ -132,6 +173,8 @@ const TR_CARD_SELECT = `
   tr.request_id, tr.reservation_number, tr.booking_reference, tr.guest_name,
   tr.source_system, tr.pickup_location, tr.dropoff_location, tr.pickup_datetime,
   tr.pickup_location_id, tr.dropoff_location_id,
+  tr.partner_pickup_location_proposal, tr.partner_dropoff_location_proposal,
+  ${LOCATION_COORDINATE_SELECT},
   tr.priority, tr.passenger_count, tr.load_type, tr.cargo_weight_kg,
   tr.cargo_description, tr.source_department, st.service_code,
   tr.fleet_status, tr.requested_vehicle_type,
@@ -293,6 +336,8 @@ export async function GET(req) {
     // diverge while a run is interrupted).
     const FROM = `
       FROM transportation_requests tr
+      LEFT JOIN locations pickup_registry ON pickup_registry.location_id = tr.pickup_location_id
+      LEFT JOIN locations dropoff_registry ON dropoff_registry.location_id = tr.dropoff_location_id
       LEFT JOIN service_types st ON tr.service_type_id = st.service_type_id
       LEFT JOIN vehicles v ON tr.vehicle_id = v.vehicle_id
       LEFT JOIN vehiclecategories vc ON tr.requested_category_id = vc.category_id
@@ -351,7 +396,7 @@ export async function GET(req) {
             ),
       ]);
 
-      const rows = rowsRes.rows || [];
+      const rows = projectLocationProvenance(rowsRes.rows || []);
 
       // Queue tab: keep the derived-priority escalation + conflict chips working,
       // but only for the fetched page (small), never the whole set.
@@ -398,6 +443,7 @@ export async function GET(req) {
 
     // ── Full list (queue / dashboard / analytics) ───────────────────────────
     const sql = `SELECT tr.*,
+                      ${LOCATION_COORDINATE_SELECT},
                       row_to_json(st.*) AS service_types,
                       row_to_json(v.*)  AS vehicles,
                       row_to_json(vc.*) AS vehiclecategories,
@@ -413,7 +459,7 @@ export async function GET(req) {
                ${FROM} ${where} ${TR_ORDER_BY}`;
 
     const { rows } = await query(sql, params);
-    const requests = rows || [];
+    const requests = projectLocationProvenance(rows || []);
 
     // Recompute + persist derived_priority for the visible set so the queue's
     // ORDER BY reflects time-to-pickup and flags as of this read. Best-effort
@@ -489,6 +535,12 @@ export async function POST(req) {
 
     return ok(created, 201);
   } catch (e) {
+    if (e?.code === "LOCATION_CODE_UNKNOWN") {
+      return Response.json({ error: "Unknown location code.", code: e.code }, { status: 422 });
+    }
+    if (e?.code === "LOCATION_CODE_RETIRED") {
+      return Response.json({ error: "Location code is retired.", code: e.code }, { status: 409 });
+    }
     if (e?.code === "SERVICE_UNAVAILABLE") {
       return err("Unknown, inactive or incompatible service code.", 422);
     }

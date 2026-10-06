@@ -18,6 +18,12 @@ vi.mock("@/lib/integration/category-resolver", () => ({
 vi.mock("@/lib/geo/distance", () => ({
   estimateTrip: vi.fn(() => ({ distanceKm: 12.5, durationMin: 30 })),
 }));
+const resolveRequestEstimate = vi.fn(async () => ({ distanceKm: 12.5, durationMin: 30 }));
+const linkRequestLocations = vi.fn(async () => ({}));
+vi.mock("@/services/route-resolver.service", () => ({
+  resolveRequestEstimate: (...args) => resolveRequestEstimate(...args),
+  linkRequestLocations: (...args) => linkRequestLocations(...args),
+}));
 vi.mock("@/lib/scheduling/reservation-number", () => ({
   assignReservationNumber: vi.fn(async () => "RSV-2026-0042"),
 }));
@@ -41,15 +47,28 @@ const REQUEST = {
   booking_status: "Approved",
   requested_vehicle_type: "Airport Transfer Van",
 };
+const PICKUP_CODE = "74dd0286-7124-4123-ae99-6896c82348cb";
+const DROPOFF_CODE = "36394b69-57e6-4518-aaca-a755c1754f84";
 
-function wire({ existing = null, service = { service_type_id: 13, default_load_type: "Cargo" } } = {}) {
+function wire({ existing = null, service = { service_type_id: 13, default_load_type: "Cargo" }, locations = [] } = {}) {
   query.mockImplementation(async (sql, params) => {
     if (sql.includes("FROM service_types")) return { rows: service ? [service] : [] };
+    if (sql.includes("FROM locations")) {
+      return { rows: locations.filter((location) => location.location_code === params[0]).slice(0, 1) };
+    }
     if (sql.includes("SELECT * FROM transportation_requests")) {
       return { rows: existing ? [existing] : [] };
     }
     if (sql.includes("INSERT INTO transportation_requests")) {
-      return { rows: [{ request_id: 501, fleet_status: params[12], source_system: params[1] }] };
+      return { rows: [{
+        request_id: 501,
+        fleet_status: params[12],
+        source_system: params[1],
+        pickup_location: params[4],
+        dropoff_location: params[5],
+        partner_pickup_location_proposal: params[27] == null ? null : JSON.parse(params[27]),
+        partner_dropoff_location_proposal: params[28] == null ? null : JSON.parse(params[28]),
+      }] };
     }
     return { rows: [{ log_id: 9 }] };
   });
@@ -61,6 +80,8 @@ const logCall = () => query.mock.calls.find(([sql]) => sql.includes("INSERT INTO
 beforeEach(() => {
   vi.clearAllMocks();
   query.mockReset();
+  resolveRequestEstimate.mockReset().mockResolvedValue({ distanceKm: 12.5, durationMin: 30 });
+  linkRequestLocations.mockReset().mockResolvedValue({});
 });
 
 describe("ingestRequest", () => {
@@ -81,7 +102,7 @@ describe("ingestRequest", () => {
 
     expect(pulled[0]).toBe(pushed[0]);
     expect(pulledParams).toEqual(pushed[1]);
-    expect(pulledParams).toHaveLength(25);
+    expect(pulledParams).toHaveLength(29);
   });
 
   it("fills the columns the pull path used to omit", async () => {
@@ -96,6 +117,12 @@ describe("ingestRequest", () => {
     expect(params[16]).toBe(30);     // estimated duration
     expect(params[17]).toBe(false);  // is_vip absent from payload -> false, not null
     expect(params[18]).toBe(false);
+    expect(resolveRequestEstimate).toHaveBeenCalledTimes(1);
+    expect(linkRequestLocations).toHaveBeenCalledWith(expect.objectContaining({ query: expect.any(Function) }), {
+      requestId: 501,
+      pickup: REQUEST.pickup_location,
+      dropoff: REQUEST.dropoff_location,
+    });
   });
 
   it("opens the timeline on a pulled request too", async () => {
@@ -275,10 +302,6 @@ describe("ingestRequest", () => {
     wire();
     query.mockImplementation(async (sql, params) => {
       if (sql.includes("SELECT * FROM transportation_requests")) return { rows: [] };
-      // Route estimation now checks active locations before falling back to
-      // the deterministic estimator. That lookup is unrelated to the failure
-      // being simulated here, so let it return no matches.
-      if (sql.includes("FROM locations")) return { rows: [] };
       if (sql.includes("INSERT INTO transportation_requests")) {
         return { rows: [{ request_id: 501, fleet_status: params[12], source_system: params[1] }] };
       }
@@ -288,5 +311,126 @@ describe("ingestRequest", () => {
     const out = await ingestRequest(REQUEST, { eventType: "transport_request_pulled" });
     expect(out.idempotent).toBe(false);
     expect(out.request.request_id).toBe(501);
+  });
+
+  it("persists active v2 codes as exact links without estimation or name linking", async () => {
+    const pickupProposal = { address: "Hotel driveway", latitude: 14.5524, longitude: 121.0198 };
+    const dropoffProposal = { address: "Terminal curb", latitude: 14.5086, longitude: 121.0194 };
+    const v2 = {
+      ...REQUEST,
+      external_booking_id: "v2-location-links",
+      pickup_location_code: PICKUP_CODE,
+      dropoff_location_code: DROPOFF_CODE,
+      pickup_location_proposal: pickupProposal,
+      dropoff_location_proposal: dropoffProposal,
+    };
+    wire({ locations: [
+      { location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null },
+      { location_code: DROPOFF_CODE, location_id: 32, is_active: true, retired_at: null },
+    ] });
+
+    await ingestRequest(v2, { strictReplay: true });
+
+    const [sql, params] = insertCall();
+    expect(sql).toContain("pickup_location_id");
+    expect(sql).toContain("dropoff_location_id");
+    expect(sql).toContain("partner_pickup_location_proposal");
+    expect(sql).toContain("partner_dropoff_location_proposal");
+    expect(params.slice(25)).toEqual([
+      31,
+      32,
+      JSON.stringify(pickupProposal),
+      JSON.stringify(dropoffProposal),
+    ]);
+    expect(params[4]).toBe(REQUEST.pickup_location);
+    expect(params[5]).toBe(REQUEST.dropoff_location);
+    expect(params[15]).toBeNull();
+    expect(params[16]).toBeNull();
+    expect(resolveRequestEstimate).not.toHaveBeenCalled();
+    expect(linkRequestLocations).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([statement]) => /INSERT INTO routes/i.test(statement))).toBe(false);
+    expect(query.mock.calls.filter(([statement]) => statement.includes("FROM locations"))
+      .every(([statement]) => statement.includes("location_code"))).toBe(true);
+  });
+
+  it("rejects an unknown v2 location code before inserting or opening the timeline", async () => {
+    wire();
+    await expect(ingestRequest({ ...REQUEST, pickup_location_code: PICKUP_CODE }, { strictReplay: true }))
+      .rejects.toMatchObject({ code: "LOCATION_CODE_UNKNOWN" });
+    expect(insertCall()).toBeUndefined();
+    expect(recordReservationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects an inactive v2 location code as retired", async () => {
+    wire({ locations: [{ location_code: PICKUP_CODE, location_id: 31, is_active: false, retired_at: "2026-10-01T00:00:00Z" }] });
+    await expect(ingestRequest({ ...REQUEST, pickup_location_code: PICKUP_CODE }, { strictReplay: true }))
+      .rejects.toMatchObject({ code: "LOCATION_CODE_RETIRED" });
+    expect(insertCall()).toBeUndefined();
+    expect(recordReservationEvent).not.toHaveBeenCalled();
+  });
+
+  it("persists proposal-only endpoints unresolved and skips legacy location resolution", async () => {
+    const pickupProposal = { address: "Hotel side gate" };
+    const dropoffProposal = { latitude: 14.5, longitude: 121.0 };
+    wire();
+    const result = await ingestRequest({
+      ...REQUEST,
+      pickup_location_proposal: pickupProposal,
+      dropoff_location_proposal: dropoffProposal,
+    }, { strictReplay: true });
+
+    const [sql, params] = insertCall();
+    expect(params[25]).toBeNull();
+    expect(params[26]).toBeNull();
+    expect(JSON.parse(params[27])).toEqual(pickupProposal);
+    expect(JSON.parse(params[28])).toEqual(dropoffProposal);
+    expect(params[15]).toBeNull();
+    expect(params[16]).toBeNull();
+    expect(resolveRequestEstimate).not.toHaveBeenCalled();
+    expect(linkRequestLocations).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([statement]) => statement.includes("FROM locations"))).toBe(false);
+    expect(sql).toContain("partner_pickup_location_proposal");
+    const loggedPayload = JSON.parse(logCall()[1][4]);
+    expect(loggedPayload).not.toHaveProperty("pickup_location_proposal");
+    expect(loggedPayload).not.toHaveProperty("dropoff_location_proposal");
+    expect(result.request).not.toHaveProperty("partner_pickup_location_proposal");
+    expect(result.request).not.toHaveProperty("partner_dropoff_location_proposal");
+  });
+
+  it("returns an exact v2 replay before looking up a now-retired code", async () => {
+    const v2 = { ...REQUEST, pickup_location_code: PICKUP_CODE };
+    wire({ locations: [{ location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null }] });
+    await ingestRequest(v2, { strictReplay: true });
+    const fingerprint = insertCall()[1][20];
+
+    query.mockClear();
+    wire({
+      existing: { request_id: 42, source_system: "PMS", external_request_id: REQUEST.external_booking_id, external_create_fingerprint: fingerprint },
+      locations: [{ location_code: PICKUP_CODE, location_id: 31, is_active: false, retired_at: "2026-10-01T00:00:00Z" }],
+    });
+    await expect(ingestRequest(v2, { strictReplay: true })).resolves.toMatchObject({ idempotent: true, request: { request_id: 42 } });
+    expect(query.mock.calls.some(([statement]) => statement.includes("location_code"))).toBe(false);
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it.each(["location code", "location proposal"])("includes the %s in v2 create replay fingerprints", async (changed) => {
+    const v2 = {
+      ...REQUEST,
+      source_system: "POS",
+      pickup_location_code: PICKUP_CODE,
+      pickup_location_proposal: { address: "Original gate" },
+    };
+    wire({ locations: [{ location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null }] });
+    await ingestRequest(v2, { strictReplay: true });
+    const fingerprint = insertCall()[1][20];
+
+    const changedRequest = changed === "location code"
+      ? { ...v2, pickup_location_code: DROPOFF_CODE }
+      : { ...v2, pickup_location_proposal: { address: "Changed gate" } };
+    query.mockClear();
+    wire({ existing: { request_id: 42, external_create_fingerprint: fingerprint } });
+    await expect(ingestRequest(changedRequest, { strictReplay: true })).rejects.toMatchObject({ code: "SOURCE_CREATE_CONFLICT" });
+    expect(query.mock.calls.some(([statement]) => statement.includes("location_code"))).toBe(false);
+    expect(insertCall()).toBeUndefined();
   });
 });

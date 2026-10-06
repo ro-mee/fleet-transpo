@@ -70,6 +70,12 @@ Migration `146_location_intake_identity.sql` adds nullable JSONB `partner_pickup
 
 The JSONB is explicitly partner-provided review data, not canonical routing data. Same-named checks are accepted on rerun only when validated and their full PostgreSQL-deparsed expressions match the trusted expected definitions; semantically weakened `CHECK (... OR TRUE)` constraints are rejected. Task 1 adds storage constraints only; the ingest writer, request read projections, and dispatcher mapping are later work. The migration is not applied, so this schema is not yet available in the live database.
 
+## Task 2 v2 writer behavior — 2026-10-06 (prepared; migration unapplied)
+
+The shared v2 writer resolves optional `pickup_location_code` / `dropoff_location_code` only after source-ID replay, tombstone, and create-fingerprint checks. Unknown codes reject as `LOCATION_CODE_UNKNOWN`; inactive/retired rows reject as `LOCATION_CODE_RETIRED`. Only resolved active Fleet `location_id` values populate the request FKs; no v2 text matching occurs. Normalized proposal JSON is persisted in the matching `partner_*_location_proposal` column and omitted from generic integration-log payloads and POST response rows. Proposals are never written to `locations`.
+
+Until Task 3 strict canonical-only estimates are implemented, all v2 `estimated_distance` and `estimated_duration` values are null and no route is created. Legacy PMS v1 continues to use its former estimate/name-link path. The register/queue reads derive endpoint provenance from the linked Fleet row and proposal presence. This task did not apply SQL; `npm run db:status` could not verify the live ledger because `.env.local` and `.env` are unavailable. Offline tests do not establish live catalog availability.
+
 ## Related
 
 [[Reservations]] · [[Request Lifecycle]] · [[Database Overview]] · [[ERD]] · [[System Boundaries]]

@@ -54,8 +54,33 @@ const CREATE_FIELDS = [
   "booking_reference", "guest_name", "pickup_location", "dropoff_location",
   "pickup_datetime", "passenger_count", "special_requests", "service_code", "load_type",
   "cargo_weight_kg", "cargo_description", "source_department",
+  "pickup_location_code", "dropoff_location_code",
+  "pickup_location_proposal", "dropoff_location_proposal",
   "priority", "booking_status", "requested_vehicle_type", "is_vip", "is_emergency",
 ];
+
+async function resolveLocationCode(locationCode) {
+  if (!locationCode) return null;
+  const { rows } = await query(
+    `SELECT location_id, is_active, retired_at
+       FROM locations
+      WHERE location_code = $1
+      LIMIT 1`,
+    [locationCode]
+  );
+  const location = rows[0];
+  if (!location) {
+    const error = new Error("Unknown location code.");
+    error.code = "LOCATION_CODE_UNKNOWN";
+    throw error;
+  }
+  if (location.is_active !== true || location.retired_at != null) {
+    const error = new Error("Location code is retired.");
+    error.code = "LOCATION_CODE_RETIRED";
+    throw error;
+  }
+  return location.location_id;
+}
 
 function createFingerprint(request) {
   const values = CREATE_FIELDS.map((key) => request[key] ?? null);
@@ -68,6 +93,13 @@ function rejectChangedCreate(row, fingerprint) {
     error.code = "SOURCE_CREATE_CONFLICT";
     throw error;
   }
+}
+
+function withoutPartnerLocationProposals(row) {
+  const response = { ...row };
+  delete response.partner_pickup_location_proposal;
+  delete response.partner_dropoff_location_proposal;
+  return response;
 }
 
 export async function ingestRequest(
@@ -87,8 +119,13 @@ export async function ingestRequest(
   if (existing.rows[0]) {
     rejectTombstone(existing.rows[0]);
     rejectChangedCreate(existing.rows[0], fingerprint);
-    return { idempotent: true, request: existing.rows[0], category: null };
+    return { idempotent: true, request: withoutPartnerLocationProposals(existing.rows[0]), category: null };
   }
+
+  // V2 links are resolved only after replay/tombstone/fingerprint checks, so an
+  // exact retry stays idempotent even if a registry code is retired later.
+  const pickupLocationId = strictReplay ? await resolveLocationCode(request.pickup_location_code) : null;
+  const dropoffLocationId = strictReplay ? await resolveLocationCode(request.dropoff_location_code) : null;
 
   let serviceTypeId = request.service_type_id || null;
   if (request.service_code) {
@@ -107,9 +144,11 @@ export async function ingestRequest(
 
   const fleetStatus = fleetStatusFromBooking(request.booking_status);
 
-  // Estimate travel up front so the queue can sort and filter on it without
-  // waiting for someone to open the AI panel. Advisory only (see lib/geo).
-  const estimate = await resolveRequestEstimate(request, { query }, { persistRoute: true });
+  // Legacy v1 estimates travel up front so the queue can sort and filter on it.
+  // V2 remains fail-closed with null estimates until Task 3 adds strict routing.
+  const estimate = strictReplay
+    ? { distanceKm: null, durationMin: null }
+    : await resolveRequestEstimate(request, { query }, { persistRoute: true });
 
   // Translate Booking's free-text vehicle wording into one of Fleet's own
   // categories. This is the anti-corruption step migration 016 added
@@ -130,8 +169,10 @@ export async function ingestRequest(
         special_requests, service_type_id, priority, booking_status, fleet_status,
         requested_vehicle_type, requested_category_id, estimated_distance, estimated_duration,
         is_vip, is_emergency, external_request_id, external_create_fingerprint,
-         load_type, cargo_weight_kg, cargo_description, source_department)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+         load_type, cargo_weight_kg, cargo_description, source_department,
+         pickup_location_id, dropoff_location_id,
+         partner_pickup_location_proposal, partner_dropoff_location_proposal)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
      ON CONFLICT (source_system, external_request_id) DO NOTHING
      RETURNING *`,
     [
@@ -166,6 +207,10 @@ export async function ingestRequest(
       request.cargo_weight_kg ?? null,
       request.cargo_description ?? null,
       request.source_department ?? null,
+      pickupLocationId,
+      dropoffLocationId,
+      request.pickup_location_proposal == null ? null : JSON.stringify(request.pickup_location_proposal),
+      request.dropoff_location_proposal == null ? null : JSON.stringify(request.dropoff_location_proposal),
     ]
   );
   if (!rows[0]) {
@@ -176,7 +221,7 @@ export async function ingestRequest(
     if (!replay.rows[0]) throw new Error("Request identity conflict could not be resolved");
     rejectTombstone(replay.rows[0]);
     rejectChangedCreate(replay.rows[0], fingerprint);
-    return { idempotent: true, request: replay.rows[0], category: null };
+    return { idempotent: true, request: withoutPartnerLocationProposals(replay.rows[0]), category: null };
   }
   const created = rows[0];
 
@@ -206,19 +251,22 @@ export async function ingestRequest(
     },
   });
 
-  // Link the request to the canonical locations its text names. Best-effort:
-  // the request is already ingested and is fully usable without the link — an
-  // unlinked request resolves by name exactly as it did before these columns
-  // were ever written — so a failure here must be reported, not rethrown.
-  //
-  // After the insert because the link is an UPDATE on the row. The replayed
-  // webhook path returns before this for a different reason: a request already
-  // on file is the backfill's business, not redelivery's.
-  await linkRequestLocations({ query }, {
-    requestId: created.request_id,
-    pickup: created.pickup_location,
-    dropoff: created.dropoff_location,
-  }).catch((e) => console.warn("request location link failed:", e?.message || e));
+  // Legacy v1 keeps its best-effort text-based link. V2 links only through the
+  // active location codes resolved above; its original text is never a lookup.
+  if (!strictReplay) {
+    await linkRequestLocations({ query }, {
+      requestId: created.request_id,
+      pickup: created.pickup_location,
+      dropoff: created.dropoff_location,
+    }).catch((e) => console.warn("request location link failed:", e?.message || e));
+  }
+
+  // Keep raw proposals on their dedicated request columns. The generic
+  // integration log can be read outside the reservation queue, so do not copy
+  // these review-only values into its payload.
+  const integrationPayload = { ...request };
+  delete integrationPayload.pickup_location_proposal;
+  delete integrationPayload.dropoff_location_proposal;
 
   // Record the inbound event for audit / reconciliation. event_type is the
   // caller's, so a reconciliation query can still tell a pushed request from a
@@ -233,9 +281,9 @@ export async function ingestRequest(
       eventType,
       created.request_id,
       request.external_booking_id,
-      JSON.stringify(request),
+      JSON.stringify(integrationPayload),
     ]
   ).catch((e) => console.warn(`${eventType} integration_log write failed:`, e?.message || e));
 
-  return { idempotent: false, request: created, category };
+  return { idempotent: false, request: withoutPartnerLocationProposals(created), category };
 }

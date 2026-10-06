@@ -139,7 +139,29 @@ const SERVICE_LOAD = {
   HOTEL_SUPPLY_TRANSFER: "Cargo",
 };
 
+// Partner proposals are bounded review data; only opaque codes can resolve a
+// request FK, and proposal coordinates never become routing inputs.
+const LocationCodeSchema = z.string().uuid().transform((value) => value.toLowerCase()).nullable().optional();
+const LocationProposalSchema = z.object({
+  address: z.string().max(2000).trim().optional(),
+  latitude: z.number().finite().min(-90).max(90).nullable().optional(),
+  longitude: z.number().finite().min(-180).max(180).nullable().optional(),
+}).strict().superRefine((proposal, ctx) => {
+  const hasLatitude = proposal.latitude != null;
+  const hasLongitude = proposal.longitude != null;
+  if (hasLatitude !== hasLongitude) {
+    ctx.addIssue({ code: "custom", path: [hasLatitude ? "longitude" : "latitude"], message: "Proposal coordinates must be provided as a pair" });
+  }
+  if (!proposal.address?.trim() && !(hasLatitude && hasLongitude)) {
+    ctx.addIssue({ code: "custom", path: [], message: "Proposal requires a nonempty address or a complete coordinate pair" });
+  }
+});
+
 const V2RequestSchema = TransportationRequestSchema.omit({ passenger_count: true, service_type_id: true }).extend({
+  pickup_location_code: LocationCodeSchema,
+  dropoff_location_code: LocationCodeSchema,
+  pickup_location_proposal: LocationProposalSchema.nullable().optional(),
+  dropoff_location_proposal: LocationProposalSchema.nullable().optional(),
   load_type: z.enum(["Passenger", "Cargo"]),
   service_code: z.enum(Object.keys(SERVICE_LOAD)),
   passenger_count: z.number().int().nonnegative().max(2147483647).nullable().optional(),

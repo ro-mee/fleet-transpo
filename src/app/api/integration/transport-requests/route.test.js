@@ -8,11 +8,13 @@ vi.mock("@/lib/scheduling/conflicts", () => ({ detectConflictsForRequests: vi.fn
 vi.mock("@/services/priority.service", () => ({ recomputeDerivedPriority: vi.fn() }));
 vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn() }));
 import { GET, POST } from "./route";
+import { requirePermission } from "@/lib/api/utils";
+import { writeAudit } from "@/lib/audit";
 
 const payload = { external_booking_id: "123", source_system: "POS", pickup_location: "Lobby", pickup_datetime: "2026-10-05T10:00:00+08:00" };
 const typedPayload = { ...payload, load_type: "Passenger", service_code: "GUEST_TRANSPORT", passenger_count: 4 };
 const send = (body, token, url = "http://localhost/api/integration/transport-requests") => POST(new Request(url, { method: "POST", headers: token ? { authorization: `Bearer ${token}` } : {}, body: JSON.stringify(body) }));
-afterEach(() => { vi.unstubAllEnvs(); ingestRequest.mockClear(); });
+afterEach(() => { vi.unstubAllEnvs(); ingestRequest.mockClear(); writeAudit.mockClear(); });
 
 it("projects typed load and service codes on register and queue GET responses", async () => {
   const row = { request_id: 501, load_type: "Cargo", passenger_count: null, cargo_weight_kg: "650.000", cargo_description: "Vegetables", source_department: "Kitchen", service_code: "RESTAURANT_SUPPLY_PICKUP" };
@@ -24,6 +26,69 @@ it("projects typed load and service codes on register and queue GET responses", 
     expect((await res.json()).rows[0]).toMatchObject(row);
     const sql = query.mock.calls[0][0];
     for (const name of ["tr.load_type", "tr.cargo_weight_kg", "tr.cargo_description", "tr.source_department", "st.service_code"]) expect(sql).toContain(name);
+  }
+});
+
+it("projects proposals and location provenance on authorized register and queue reads", async () => {
+  const pickupProposal = { address: "Hotel driveway", latitude: 14.5524, longitude: 121.0198 };
+  const dropoffProposal = { address: "Terminal curb" };
+  const rows = [
+    {
+      request_id: 501,
+      pickup_location_id: 31,
+      dropoff_location_id: null,
+      partner_pickup_location_proposal: pickupProposal,
+      partner_dropoff_location_proposal: dropoffProposal,
+      _pickup_registry_is_active: true,
+      _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: 14.5524,
+      _pickup_registry_longitude: 121.0198,
+      _dropoff_registry_is_active: null,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: null,
+      _dropoff_registry_longitude: null,
+    },
+    {
+      request_id: 502,
+      pickup_location_id: null,
+      dropoff_location_id: 32,
+      partner_pickup_location_proposal: null,
+      partner_dropoff_location_proposal: null,
+      _pickup_registry_is_active: null,
+      _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: null,
+      _pickup_registry_longitude: null,
+      _dropoff_registry_is_active: true,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: 91,
+      _dropoff_registry_longitude: 121,
+    },
+  ];
+  let selectedRow = rows[0];
+  query.mockImplementation(async (sql) => ({ rows: sql.includes("count(") ? [{ total: 1, open: 1 }] : [selectedRow] }));
+
+  for (const [row, expected] of [
+    [rows[0], { pickup_location_provenance: "canonical_registry", dropoff_location_provenance: "pending_review" }],
+    [rows[1], { pickup_location_provenance: "unknown", dropoff_location_provenance: "unknown" }],
+  ]) {
+    selectedRow = row;
+    for (const suffix of ["?page=1", "?tab=today"]) {
+      query.mockClear();
+      requirePermission.mockClear();
+      const req = new Request(`http://localhost/api/integration/transport-requests${suffix}`);
+      const res = await GET(req);
+      expect(res.status).toBe(200);
+      const projected = (await res.json()).rows[0];
+      expect(projected).toMatchObject({ ...expected, partner_pickup_location_proposal: row.partner_pickup_location_proposal, partner_dropoff_location_proposal: row.partner_dropoff_location_proposal });
+      expect(projected).not.toHaveProperty("_pickup_registry_latitude");
+      expect(projected).not.toHaveProperty("_dropoff_registry_longitude");
+      expect(requirePermission).toHaveBeenCalledWith(req, "reservations", "read");
+      const sql = query.mock.calls[0][0];
+      expect(sql).toContain("tr.partner_pickup_location_proposal");
+      expect(sql).toContain("tr.partner_dropoff_location_proposal");
+      expect(sql).toContain("LEFT JOIN locations pickup_registry");
+      expect(sql).toContain("LEFT JOIN locations dropoff_registry");
+    }
   }
 });
 
@@ -79,5 +144,27 @@ describe("authenticated integration POST", () => {
     const res = await send({ contract_version: 2, source_system: "PMS", external_request_id: "123", external_revision: 1, event_id: "evt-1", event_kind: "create", request: typedPayload }, "pos-secret");
     expect(res.status).toBe(200);
     expect(ingestRequest.mock.calls[0][0].source_system).toBe("POS");
+  });
+
+  it.each([
+    ["LOCATION_CODE_UNKNOWN", 422],
+    ["LOCATION_CODE_RETIRED", 409],
+  ])("returns the stable %s status without auditing a failed create", async (code, status) => {
+    vi.stubEnv("POS_WEBHOOK_SECRET", "pos-secret");
+    ingestRequest.mockRejectedValueOnce(Object.assign(new Error("Location code rejected"), { code }));
+    const body = {
+      contract_version: 2,
+      external_request_id: `request-${code}`,
+      external_revision: 1,
+      event_id: `event-${code}`,
+      event_kind: "create",
+      request: { ...typedPayload, pickup_location_code: "74dd0286-7124-4123-ae99-6896c82348cb" },
+    };
+
+    const res = await send(body, "pos-secret");
+
+    expect(res.status).toBe(status);
+    expect(await res.json()).toMatchObject({ code });
+    expect(writeAudit).not.toHaveBeenCalled();
   });
 });
