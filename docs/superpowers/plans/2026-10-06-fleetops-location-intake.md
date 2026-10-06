@@ -79,11 +79,11 @@
 
 ### Task 4: Enforce strict v2 endpoints in mobile/geofence/feasibility readers
 
-**Files:** Modify `src/services/trip-geofence.service.js` + tests, `src/app/api/mobile/driver/trips/route.js` + tests, and `src/services/route-feasibility-context.service.js` + tests.
+**Files:** Modify `src/services/trip-geofence.service.js` + tests, `src/app/api/mobile/driver/trips/route.js` + tests, `src/services/route-feasibility-context.service.js` + tests, and `src/services/live-trip-monitor.service.js` + tests for next-dispatch reposition resolution.
 
 - [ ] Add failing tests for v2 trips without a canonical location link: no text/gazetteer coordinate is returned by mobile, geofence targets remain unknown, and reposition feasibility remains unknown. Add legacy tests proving existing gazetteer fallback still works for v1.
 - [ ] Include request `external_create_fingerprint` and explicit location-link IDs in relevant SELECTs. For v2, use active Fleet registry points associated with those request links only; if a stored route endpoint differs from the request's canonical FK, do not expose the route's point for that request. Return per-endpoint `canonical_registry`, `pending_review`, or `unknown` provenance consistently with the queue projection.
-- [ ] Skip `resolveCoordinatesWithDb`/gazetteer fallback for v2 in the mobile trip endpoint and next-dispatch feasibility path; preserve current fallback for legacy rows. Proposals are not consulted by these readers.
+- [ ] Skip `resolveCoordinatesWithDb`/gazetteer fallback for v2 in the mobile trip endpoint, next-dispatch feasibility path, and live-trip-monitor reposition path; preserve current fallback for legacy rows. Proposals are not consulted by these readers.
 - [ ] Add focused tests for a mismatched route link, retired location and valid canonical link; verify no changes to trip lifecycle or geofence state transitions.
 - [ ] Run mobile-trip, geofence, route-feasibility and live-trip-monitor suites; run touched ESLint and `git diff --check`; commit `fix(routes): prevent v2 partner text fallback in trip readers`.
 
