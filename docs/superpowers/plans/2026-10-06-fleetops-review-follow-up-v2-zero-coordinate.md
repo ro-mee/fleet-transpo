@@ -49,29 +49,32 @@ it("allows zero only for a canonical target, never a GPS position", () => {
 - [ ] **Step 3: Add failing service tests.** In `trip-geofence.test.js`, feed an active v2 linked registry point at `(0,0)` into `evaluatePingGeofence` and `checkPickupProximity`; use a nonzero ping within the radius and assert `near_pickup`/`inside`. Keep the existing legacy route `(0,0)` suppression test and add a zero-GPS-position unknown assertion.
 
 ```js
-const zeroV2Trip = {
-  trip_id: 58, dispatch_id: 9, route_id: null,
-  origin: "Partner pickup", destination: "Partner drop-off",
-  external_create_fingerprint: "v2-zero", pickup_location_id: 41, dropoff_location_id: null,
-  _pickup_registry_location_id: 41, _pickup_registry_name: "Equator Harbor",
-  _pickup_registry_is_active: true, _pickup_registry_retired_at: null,
-  _pickup_registry_latitude: "0", _pickup_registry_longitude: "0", _pickup_registry_radius: 75,
-  _dropoff_registry_location_id: null,
-};
-const pingResult = await evaluatePingGeofence(stubDb([]), zeroV2Trip, {
-  latitude: 0.0005, longitude: 0, accuracy: 10,
-});
-expect(pingResult.near_pickup).toBe(true);
+it("evaluates a v2 zero-coordinate target through ping and arrival gates", async () => {
+  clearTripGeofenceCache();
+  const zeroV2Trip = {
+    trip_id: 58, dispatch_id: 9, route_id: null,
+    origin: "Partner pickup", destination: "Partner drop-off",
+    external_create_fingerprint: "v2-zero", pickup_location_id: 41, dropoff_location_id: null,
+    _pickup_registry_location_id: 41, _pickup_registry_name: "Equator Harbor",
+    _pickup_registry_is_active: true, _pickup_registry_retired_at: null,
+    _pickup_registry_latitude: "0", _pickup_registry_longitude: "0", _pickup_registry_radius: 75,
+    _dropoff_registry_location_id: null,
+  };
+  const pingResult = await evaluatePingGeofence(stubDb([]), zeroV2Trip, {
+    latitude: 0.0005, longitude: 0, accuracy: 10,
+  });
+  expect(pingResult.near_pickup).toBe(true);
 
-clearTripGeofenceCache();
-const now = new Date("2026-09-07T10:00:00+08:00");
-const arrivalDb = stubDb([
-  ["FROM gpstracking", [{ latitude: "0.0005", longitude: "0", accuracy: "10", recorded_at: now.toISOString() }]],
-  ["FROM trips t", [zeroV2Trip]],
-]);
-expect((await checkPickupProximity(arrivalDb, 58, now)).state).toBe("inside");
+  clearTripGeofenceCache();
+  const now = new Date("2026-09-07T10:00:00+08:00");
+  const arrivalDb = stubDb([
+    ["FROM gpstracking", [{ latitude: "0.0005", longitude: "0", accuracy: "10", recorded_at: now.toISOString() }]],
+    ["FROM trips t", [zeroV2Trip]],
+  ]);
+  expect((await checkPickupProximity(arrivalDb, 58, now)).state).toBe("inside");
+});
 ```
-- [ ] **Step 4: Verify service RED.** Run `npm run test:run -- src/services/trip-geofence.test.js -t "zero-coordinate v2"`. Expected: targets are constructed, but the evaluation/gate reports unknown.
+- [ ] **Step 4: Verify service RED.** Run `npm run test:run -- src/services/trip-geofence.test.js -t "v2 zero-coordinate"`. Expected: targets are constructed, but the evaluation/gate reports unknown.
 - [ ] **Step 5: Implement the target-only parser option.** Add `allowZeroZeroTarget = false` to `evaluateGeofence`. Parse `position` with the default sentinel rule and parse `target` with the opt-in. In `evaluateTripGeofences`, derive that opt-in from `target.source === "canonical_registry"`; in `checkEndProximity`, pass the same provenance check.
 
 ```diff
@@ -99,28 +102,64 @@ Use `toLatLng(value, { allowZeroZero = false } = {})`; call it without options f
 - [ ] **Step 1: Add failing off-route tests.** In `off-route.test.js`, assert a two-point corridor ending at `(0,0)` yields null with default options and a finite distance with `allowZeroRoutePoints: true`; assert a `(0,0)` current GPS position remains an invalid observation even with the route-point opt-in.
 
 ```js
-const points = [[0.0005, 0], [0, 0]];
-expect(distanceToPolylineM({ lat: 0.0005, lng: 0 }, points)).toBeNull();
-expect(distanceToPolylineM(
-  { lat: 0.0005, lng: 0 }, points, { allowZeroRoutePoints: true }
-)).toBe(0);
-expect(evaluateOffRoute({
-  position: { lat: 0, lng: 0 }, routePoints: points, allowZeroRoutePoints: true,
-}).state).toBe("unknown");
+it("allows a zero route point only with the target-scoped option", () => {
+  const points = [[0.0005, 0], [0, 0]];
+  expect(distanceToPolylineM({ lat: 0.0005, lng: 0 }, points)).toBeNull();
+  expect(distanceToPolylineM(
+    { lat: 0.0005, lng: 0 }, points, { allowZeroRoutePoints: true }
+  )).toBe(0);
+  expect(evaluateOffRoute({
+    position: { lat: 0, lng: 0 }, routePoints: points, allowZeroRoutePoints: true,
+  }).state).toBe("unknown");
+});
 ```
 - [ ] **Step 2: Verify RED.** Run `npm run test:run -- src/lib/geo/off-route.test.js -t "zero route point"`. Expected: both route-point cases are currently treated as unusable.
-- [ ] **Step 3: Add failing live-monitor test.** Build a persisted-v2 trip row whose active linked target is `(0,0)`, with a nonzero GPS fix within 100 m. Mock TomTom to return a route whose final point is `[0, 0]`. Assert the monitor exposes the target as `{ lat: 0, lng: 0, source: "canonical_registry" }`, produces a non-null ETA, and computes finite corridor distance; assert a legacy zero target or zero GPS fix does not receive the opt-in.
+- [ ] **Step 3: Add failing live-monitor test.** Build a persisted-v2 trip row whose active linked target is `(0,0)`, with a nonzero GPS fix within 100 m. Mock TomTom to return a route whose final point is `[0, 0]`. Assert the monitor exposes the target as `{ lat: 0, lng: 0, source: "canonical_registry" }`, produces a non-null ETA, and computes finite corridor distance. Then change the same trip's GPS origin to `(0,0)`, clear route/monitor caches, and assert ETA/corridor remain unknown; the legacy zero-target suppression remains covered by the trip-geofence test.
 
 ```js
-fetchTomTomRoute.mockResolvedValue({
-  durationMin: 8,
-  trafficDelayMin: 0,
-  coordinates: [[0.0005, 0], [0, 0]],
+it("keeps a v2 zero-coordinate target through live ETA and corridor evaluation", async () => {
+  clearRouteCache();
+  clearMonitorSnapshots();
+  clearTripGeofenceCache();
+  fetchTomTomRoute.mockResolvedValue({
+    durationMin: 8,
+    trafficDelayMin: 0,
+    coordinates: [[0.0005, 0], [0, 0]],
+  });
+  const trip = tripRow({
+    external_create_fingerprint: "v2-zero",
+    pickup_location_id: 111,
+    dropoff_location_id: 222,
+    gps_pings: [ping([0.0005, 0])],
+  });
+  const requestTargets = {
+    trip_id: 101, dispatch_id: 55, route_id: 1,
+    origin: "Partner pickup", destination: "Partner drop-off",
+    external_create_fingerprint: "v2-zero", pickup_location_id: 111, dropoff_location_id: 222,
+    _pickup_registry_location_id: 111, _pickup_registry_name: "Equator Harbor",
+    _pickup_registry_is_active: true, _pickup_registry_retired_at: null,
+    _pickup_registry_latitude: "0", _pickup_registry_longitude: "0",
+    _dropoff_registry_location_id: 222, _dropoff_registry_name: "Harbor Warehouse",
+    _dropoff_registry_is_active: true, _dropoff_registry_retired_at: null,
+    _dropoff_registry_latitude: "0.01", _dropoff_registry_longitude: "0.01",
+  };
+  const db = makeDb([
+    ["FROM trips t", (sql) => ({ rows: sql.includes("pickup_registry.location_id AS _pickup_registry_location_id") ? [requestTargets] : [trip] })],
+    ["FROM routes r", () => ({ rows: [ROUTE_LOCATIONS_ROW] })],
+  ]);
+  const result = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+  expect(result.endpointTargets.pickup).toMatchObject({ lat: 0, lng: 0, source: "canonical_registry" });
+  expect(result.liveEta).not.toBeNull();
+  expect(result.offRoute.distanceM).not.toBeNull();
+
+  trip.gps_pings = [ping([0, 0])];
+  clearRouteCache();
+  clearMonitorSnapshots();
+  clearTripGeofenceCache();
+  const invalidGps = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+  expect(invalidGps.liveEta).toBeNull();
+  expect(invalidGps.offRoute.distanceM).toBeNull();
 });
-const result = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
-expect(result.endpointTargets.pickup).toMatchObject({ lat: 0, lng: 0, source: "canonical_registry" });
-expect(result.liveEta).not.toBeNull();
-expect(result.offRoute.distanceM).not.toBeNull();
 ```
 - [ ] **Step 4: Verify RED.** Run `npm run test:run -- src/services/live-trip-monitor.service.test.js -t "v2 zero-coordinate target"`. Expected: target route-key parsing yields unknown ETA/corridor.
 - [ ] **Step 5: Implement scoped target parsing.** Add the default-false options to `toLatLngArray`, `targetKeyOf`, and `resolveLegRoute`; only parse a canonical-registry target with zero allowed. Add the default-false route-point option to `distanceToPolylineM`/`evaluateOffRoute`, and pass it from `evaluateTripRow()` only for a canonical-registry target.

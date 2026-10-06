@@ -87,7 +87,7 @@ async function resolveActiveServiceCode(serviceCode, loadType, dbQuery = query, 
 }
 ```
 
-- [ ] **Step 1: Add failing tests.** In `ingest.test.js`, make strict estimation return a complete estimate and capture a transaction-local query adapter. Assert the order is location locks → active-service `FOR SHARE` lookup → request insert → `persistStrictRouteEstimate(tx, ...)`; assert the inserted service ID is the locked row ID and the estimate call uses `{ persistRoute: false, strictRegistry: true }`. Add failure tests proving a service retired at final recheck rejects without insert/route persistence, and `ON CONFLICT DO NOTHING` does not persist a route.
+- [ ] **Step 1: Add failing tests.** In `ingest.test.js`, add tests named `locks the active service through request insert` and `does not persist a route after a rejected create`. Make strict estimation return a complete estimate, capture a transaction-local query adapter, and mock `persistStrictRouteEstimate` to record its adapter/order. Assert the order is location locks → active-service `FOR SHARE` lookup → request insert → `persistStrictRouteEstimate(tx, ...)`; assert the inserted service ID is the locked row ID and the estimate call uses `{ persistRoute: false, strictRegistry: true }`. Add failure tests proving a service retired at final recheck rejects without insert/route persistence, and `ON CONFLICT DO NOTHING` does not persist a route.
 
 ```js
 expect(events).toEqual([
@@ -105,7 +105,27 @@ expect(persistStrictRouteEstimate).toHaveBeenCalledWith(
 );
 ```
 - [ ] **Step 2: Verify RED.** Run `npm run test:run -- src/lib/integration/ingest.test.js -t "locks the active service|does not persist a route"`. Expected: current code lacks the service lock and calls strict estimation with `persistRoute: true`.
-- [ ] **Step 3: Add a route-helper unit test.** In `route-resolver.test.js`, prove a positive estimate creates a route from exact active linked IDs with `allowNameFallback: false`, and prove a non-Manual incomplete route is updated without any provider call. Keep Manual route estimates unchanged.
+- [ ] **Step 3: Add a route-helper unit test.** In `route-resolver.test.js`, add a test named `persists a resolved strict estimate without calling the provider`. Prove a positive estimate creates a route from exact active linked IDs with `allowNameFallback: false`, and prove a non-Manual incomplete route is updated without any provider call. Keep Manual route estimates unchanged.
+
+```js
+it("persists a resolved strict estimate without calling the provider", async () => {
+  const db = requestDb({ locations: [HOTEL, NAIA], route: null });
+  const linkedRequest = { pickup_location_id: HOTEL.location_id, dropoff_location_id: NAIA.location_id };
+  const estimate = { distanceKm: 12.5, durationMin: 30, source: "TomTom" };
+  await persistStrictRouteEstimate(db, linkedRequest, estimate);
+  expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+  expect(db.calls.some(({ sql }) => sql.includes("INSERT INTO routes"))).toBe(true);
+
+  const incompleteRoute = { ...ROUTE, estimated_distance: null, estimated_duration: null, estimate_source: "Legacy / Unknown" };
+  const incompleteDb = requestDb({ locations: [HOTEL, NAIA], route: incompleteRoute });
+  await persistStrictRouteEstimate(incompleteDb, linkedRequest, estimate);
+  expect(incompleteDb.calls.some(({ sql }) => sql.includes("UPDATE routes"))).toBe(true);
+
+  const manualDb = requestDb({ locations: [HOTEL, NAIA], route: { ...incompleteRoute, estimate_source: "Manual" } });
+  await persistStrictRouteEstimate(manualDb, linkedRequest, estimate);
+  expect(manualDb.calls.some(({ sql }) => sql.includes("UPDATE routes"))).toBe(false);
+});
+```
 - [ ] **Step 4: Verify helper RED.** Run `npm run test:run -- src/services/route-resolver.test.js -t "persists a resolved strict estimate"`; expected: export/function is missing.
 - [ ] **Step 5: Implement the database-only helper.** Reuse `resolveRouteEndpoints`, `findActiveRoute`, and `resolveRouteForRequest`; validate linked active canonical endpoints before route writes. Update only missing fields on a non-Manual route using the transaction adapter. The helper must contain no TomTom/provider call:
 
@@ -179,23 +199,25 @@ return inserted;
 - [ ] **Step 1: Add failing tests.** Feed update, cancel, and revision-2 create envelopes followed by one valid create. Assert `ingested: 1`, three rejections under `SOURCE_REVISION_UNSUPPORTED`, and that only the valid row reaches `ingestRequest`.
 
 ```js
-const unsupported = [
-  { ...MOCK_INCOMING[0], event_kind: "update" },
-  { ...MOCK_INCOMING[0], event_kind: "cancel" },
-  { ...MOCK_INCOMING[0], external_revision: 2 },
-];
-getGateway.mockReturnValue({
-  name: "mock",
-  fetchPendingRequests: async () => [...unsupported, MOCK_INCOMING[1]],
+it("reports unsupported v2 revisions and continues through the batch", async () => {
+  const unsupported = [
+    { ...MOCK_INCOMING[0], event_kind: "update" },
+    { ...MOCK_INCOMING[0], event_kind: "cancel" },
+    { ...MOCK_INCOMING[0], external_revision: 2 },
+  ];
+  getGateway.mockReturnValue({
+    name: "mock",
+    fetchPendingRequests: async () => [...unsupported, MOCK_INCOMING[1]],
+  });
+  const response = await POST(new Request("http://localhost/api/integration/pull", { method: "POST" }));
+  expect(await response.json()).toMatchObject({
+    ingested: 1,
+    skipped: 3,
+    rejected: 3,
+    rejectionCodes: { SOURCE_REVISION_UNSUPPORTED: 3 },
+  });
+  expect(ingestRequest).toHaveBeenCalledTimes(1);
 });
-const response = await POST(new Request("http://localhost/api/integration/pull", { method: "POST" }));
-expect(await response.json()).toMatchObject({
-  ingested: 1,
-  skipped: 3,
-  rejected: 3,
-  rejectionCodes: { SOURCE_REVISION_UNSUPPORTED: 3 },
-});
-expect(ingestRequest).toHaveBeenCalledTimes(1);
 ```
 - [ ] **Step 2: Verify RED.** Run `npm run test:run -- src/app/api/integration/pull/route.test.js -t "unsupported v2 revisions"`. Expected: current code reports them only as skipped and has no code.
 - [ ] **Step 3: Add the stable code.** When a parsed v2 envelope has an unsupported kind/revision, throw an error with code `SOURCE_REVISION_UNSUPPORTED`. In the envelope-parse catch, count that recognized code as both skipped and rejected, increment `rejectionCodes[code]`, and continue; leave other malformed items as skipped only.
