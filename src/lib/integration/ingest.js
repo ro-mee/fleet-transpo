@@ -144,10 +144,16 @@ export async function ingestRequest(
 
   const fleetStatus = fleetStatusFromBooking(request.booking_status);
 
-  // Legacy v1 estimates travel up front so the queue can sort and filter on it.
-  // V2 remains fail-closed with null estimates until Task 3 adds strict routing.
+  // V1 retains its text-based estimate and route linking. V2 estimates only
+  // against the exact active registry IDs resolved from the supplied codes.
   const estimate = strictReplay
-    ? { distanceKm: null, durationMin: null }
+    ? await resolveRequestEstimate({
+      ...request,
+      pickup_location_id: pickupLocationId,
+      dropoff_location_id: dropoffLocationId,
+      partner_pickup_location_proposal: request.pickup_location_proposal ?? null,
+      partner_dropoff_location_proposal: request.dropoff_location_proposal ?? null,
+    }, { query }, { persistRoute: true, strictRegistry: true })
     : await resolveRequestEstimate(request, { query }, { persistRoute: true });
 
   // Translate Booking's free-text vehicle wording into one of Fleet's own

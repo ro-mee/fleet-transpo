@@ -99,7 +99,7 @@ export async function resolveRouteEndpoints(db, options = {}) {
 
   if (!clauses.length) return null;
   const result = await db.query(
-    `SELECT location_id, name, address, latitude, longitude
+    `SELECT location_id, name, address, latitude, longitude, is_active, retired_at
        FROM locations
       WHERE is_active = true AND (${clauses.join(" OR ")})
       ORDER BY location_id`,
@@ -212,7 +212,7 @@ export async function findActiveRoute(db, endpoints) {
  * resolved to location IDs. The partial unique index is the final concurrency
  * guard; a concurrent insert is re-read and returned as the winner.
  */
-export async function resolveRouteForRequest(db, request, { createMissing = true } = {}) {
+export async function resolveRouteForRequest(db, request, { createMissing = true, allowNameFallback = true } = {}) {
   const endpoints = await resolveRouteEndpoints(db, {
     origin: request?.pickup_location ?? request?.origin,
     destination: request?.dropoff_location ?? request?.destination,
@@ -222,7 +222,7 @@ export async function resolveRouteForRequest(db, request, { createMissing = true
     destinationLocationId: request?.dropoff_location_id ?? request?.destination_location_id,
     // The link is preferred, not authoritative: a request whose location was
     // retired must fall back to its stored text rather than to no route at all.
-    allowNameFallback: true,
+    allowNameFallback,
   });
   if (!endpoints) return null;
 
@@ -385,12 +385,161 @@ async function tomTomEstimate(endpoints, departAt) {
   );
 }
 
+function hasCoordinatePair(location) {
+  const valid = (value, max) => {
+    if (value === null || value === undefined || String(value).trim() === "") return false;
+    const number = Number(value);
+    return Number.isFinite(number) && Math.abs(number) <= max;
+  };
+  return valid(location?.latitude, 90) && valid(location?.longitude, 180);
+}
+
+function isActiveCanonicalLocation(location) {
+  return location?.is_active === true && location?.retired_at == null;
+}
+
+function isUsableCanonicalLocation(location) {
+  return isActiveCanonicalLocation(location) && hasCoordinatePair(location);
+}
+
+async function loadLinkedLocationRows(db, ids) {
+  const values = [...new Set(ids.filter(isId).map(Number))];
+  if (!db?.query || values.length === 0) return [];
+  const placeholders = values.map((_, index) => `$${index + 1}`).join(", ");
+  const { rows } = await db.query(
+    `SELECT location_id, is_active, retired_at, latitude, longitude
+       FROM locations
+      WHERE location_id IN (${placeholders})
+      ORDER BY location_id`,
+    values
+  );
+  return rows || [];
+}
+
+function strictEndpointProvenance(request, endpoint, location) {
+  if (isUsableCanonicalLocation(location)) return "canonical_registry";
+  return request?.[`partner_${endpoint}_location_proposal`] == null ? "unknown" : "pending_review";
+}
+
+function strictUnknownEstimate(request, reason, locations = []) {
+  const locationForId = (id) => locations.find((row) => Number(row.location_id) === Number(id)) || null;
+  return {
+    distanceKm: null,
+    durationMin: null,
+    confidence: "low",
+    basis: "Canonical location unavailable",
+    source: null,
+    reason,
+    endpointProvenance: {
+      pickup: strictEndpointProvenance(request, "pickup", locationForId(request?.pickup_location_id)),
+      dropoff: strictEndpointProvenance(request, "dropoff", locationForId(request?.dropoff_location_id)),
+    },
+  };
+}
+
+async function resolveStrictRequestEstimate(request, db, persistRoute) {
+  const pickupId = request?.pickup_location_id;
+  const dropoffId = request?.dropoff_location_id;
+  const ids = [pickupId, dropoffId];
+  const idsValid = ids.map(isId);
+  if (!idsValid.every(Boolean)) {
+    const linkedLocations = await loadLinkedLocationRows(db, idsValid.map((valid, index) => valid ? ids[index] : null));
+    const hasMissingId = ids.some((id) => id === null || id === undefined || String(id).trim() === "");
+    return strictUnknownEstimate(
+      request,
+      hasMissingId ? "location_ids_required" : "location_ids_invalid",
+      linkedLocations
+    );
+  }
+  if (!db?.query) return strictUnknownEstimate(request, "canonical_locations_unavailable");
+
+  // V2 IDs are authoritative. Never pass partner text into either side of the
+  // endpoint resolver, where an id-less side would otherwise name-match.
+  const endpoints = await resolveRouteEndpoints(db, {
+    origin: null,
+    destination: null,
+    originLocationId: pickupId,
+    destinationLocationId: dropoffId,
+    allowNameFallback: false,
+  });
+  if (!endpoints) {
+    const linkedLocations = await loadLinkedLocationRows(db, ids);
+    const pickup = linkedLocations.find((row) => Number(row.location_id) === Number(pickupId));
+    const dropoff = linkedLocations.find((row) => Number(row.location_id) === Number(dropoffId));
+    const reason = isUsableCanonicalLocation(pickup) && isUsableCanonicalLocation(dropoff)
+      ? "canonical_route_unavailable"
+      : "canonical_locations_unavailable";
+    return strictUnknownEstimate(request, reason, linkedLocations);
+  }
+
+  const origin = endpoints.originLocation;
+  const destination = endpoints.destinationLocation;
+  if (!isActiveCanonicalLocation(origin) || !isActiveCanonicalLocation(destination)) {
+    return strictUnknownEstimate(request, "canonical_locations_unavailable", [origin, destination]);
+  }
+  if (!hasCoordinatePair(origin) || !hasCoordinatePair(destination)) {
+    return strictUnknownEstimate(request, "canonical_coordinates_unavailable", [origin, destination]);
+  }
+
+  // Even a configured route is only an eligible v2 estimate when both linked
+  // registry points are usable. Coordinate checks deliberately precede lookup.
+  const route = await findActiveRoute(db, endpoints);
+  if (route && positiveNumber(route.estimated_distance) !== null && positiveNumber(route.estimated_duration) !== null) {
+    return estimateForRequest({
+      ...request,
+      estimated_distance: route.estimated_distance,
+      estimated_duration: route.estimated_duration,
+      estimate_source: route.estimate_source,
+    });
+  }
+
+  const resolved = await tomTomEstimate(endpoints, request?.pickup_datetime);
+  const hasEstimate = positiveNumber(resolved?.distanceKm) !== null
+    && positiveNumber(resolved?.durationMin) !== null;
+  const fallback = hasEstimate
+    ? resolved
+    : strictUnknownEstimate(request, "route_estimate_unavailable", [origin, destination]);
+
+  if (persistRoute && hasEstimate && !route) {
+    await resolveRouteForRequest(db, {
+      ...request,
+      pickup_location: null,
+      dropoff_location: null,
+      origin: null,
+      destination: null,
+      estimated_distance: fallback.distanceKm,
+      estimated_duration: fallback.durationMin,
+      estimate_source: fallback.source,
+    }, { allowNameFallback: false });
+  } else if (
+    persistRoute && hasEstimate && route && route.estimate_source !== "Manual"
+    && (route.estimated_distance == null || route.estimated_duration == null)
+  ) {
+    await db.query(
+      `UPDATE routes
+          SET estimated_distance = $1, estimated_duration = $2,
+              estimate_source = $3, estimate_updated_at = NOW(), updated_at = NOW()
+        WHERE route_id = $4 AND estimate_source IS DISTINCT FROM 'Manual'`,
+      [fallback.distanceKm, fallback.durationMin, fallback.source, route.route_id]
+    );
+  }
+  return fallback;
+}
+
 /**
  * Resolve a request's canonical route estimate without creating a route for an
- * unknown destination. A configured directional route wins, then TomTom for
- * two real endpoint coordinates, then the existing legacy estimate.
+ * unknown destination. V2 estimates require linked, active registry coordinates;
+ * legacy requests retain the existing route, TomTom, and text-estimate order.
  */
-export async function resolveRequestEstimate(request, db, { persistRoute = false } = {}) {
+export async function resolveRequestEstimate(
+  request,
+  db,
+  { persistRoute = false, strictRegistry = false } = {}
+) {
+  if (strictRegistry || request?.external_create_fingerprint != null) {
+    return resolveStrictRequestEstimate(request, db, persistRoute);
+  }
+
   const endpoints = db ? await resolveRouteEndpoints(db, {
     origin: request?.pickup_location,
     destination: request?.dropoff_location,

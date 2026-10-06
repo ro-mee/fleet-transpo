@@ -18,7 +18,11 @@ vi.mock("@/lib/integration/category-resolver", () => ({
 vi.mock("@/lib/geo/distance", () => ({
   estimateTrip: vi.fn(() => ({ distanceKm: 12.5, durationMin: 30 })),
 }));
-const resolveRequestEstimate = vi.fn(async () => ({ distanceKm: 12.5, durationMin: 30 }));
+const resolveRequestEstimate = vi.fn(async (_request, _db, options = {}) => (
+  options.strictRegistry
+    ? { distanceKm: null, durationMin: null, source: null }
+    : { distanceKm: 12.5, durationMin: 30 }
+));
 const linkRequestLocations = vi.fn(async () => ({}));
 vi.mock("@/services/route-resolver.service", () => ({
   resolveRequestEstimate: (...args) => resolveRequestEstimate(...args),
@@ -80,7 +84,11 @@ const logCall = () => query.mock.calls.find(([sql]) => sql.includes("INSERT INTO
 beforeEach(() => {
   vi.clearAllMocks();
   query.mockReset();
-  resolveRequestEstimate.mockReset().mockResolvedValue({ distanceKm: 12.5, durationMin: 30 });
+  resolveRequestEstimate.mockReset().mockImplementation(async (_request, _db, options = {}) => (
+    options.strictRegistry
+      ? { distanceKm: null, durationMin: null, source: null }
+      : { distanceKm: 12.5, durationMin: 30 }
+  ));
   linkRequestLocations.mockReset().mockResolvedValue({});
 });
 
@@ -313,7 +321,7 @@ describe("ingestRequest", () => {
     expect(out.request.request_id).toBe(501);
   });
 
-  it("persists active v2 codes as exact links without estimation or name linking", async () => {
+  it("passes exact active v2 links to strict estimation without name linking", async () => {
     const pickupProposal = { address: "Hotel driveway", latitude: 14.5524, longitude: 121.0198 };
     const dropoffProposal = { address: "Terminal curb", latitude: 14.5086, longitude: 121.0194 };
     const v2 = {
@@ -346,7 +354,14 @@ describe("ingestRequest", () => {
     expect(params[5]).toBe(REQUEST.dropoff_location);
     expect(params[15]).toBeNull();
     expect(params[16]).toBeNull();
-    expect(resolveRequestEstimate).not.toHaveBeenCalled();
+    expect(resolveRequestEstimate).toHaveBeenCalledTimes(1);
+    expect(resolveRequestEstimate.mock.calls[0][0]).toMatchObject({
+      pickup_location_id: 31,
+      dropoff_location_id: 32,
+      partner_pickup_location_proposal: pickupProposal,
+      partner_dropoff_location_proposal: dropoffProposal,
+    });
+    expect(resolveRequestEstimate.mock.calls[0][2]).toEqual({ persistRoute: true, strictRegistry: true });
     expect(linkRequestLocations).not.toHaveBeenCalled();
     expect(query.mock.calls.some(([statement]) => /INSERT INTO routes/i.test(statement))).toBe(false);
     expect(query.mock.calls.filter(([statement]) => statement.includes("FROM locations"))
@@ -386,7 +401,14 @@ describe("ingestRequest", () => {
     expect(JSON.parse(params[28])).toEqual(dropoffProposal);
     expect(params[15]).toBeNull();
     expect(params[16]).toBeNull();
-    expect(resolveRequestEstimate).not.toHaveBeenCalled();
+    expect(resolveRequestEstimate).toHaveBeenCalledTimes(1);
+    expect(resolveRequestEstimate.mock.calls[0][0]).toMatchObject({
+      pickup_location_id: null,
+      dropoff_location_id: null,
+      partner_pickup_location_proposal: pickupProposal,
+      partner_dropoff_location_proposal: dropoffProposal,
+    });
+    expect(resolveRequestEstimate.mock.calls[0][2]).toEqual({ persistRoute: true, strictRegistry: true });
     expect(linkRequestLocations).not.toHaveBeenCalled();
     expect(query.mock.calls.some(([statement]) => statement.includes("FROM locations"))).toBe(false);
     expect(sql).toContain("partner_pickup_location_proposal");

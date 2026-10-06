@@ -1,5 +1,31 @@
-import { describe, it, expect } from "vitest";
-import { resolveRouteEndpoints, resolveRouteForRequest, linkRequestLocations } from "@/services/route-resolver.service";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  resolveRequestEstimate,
+  resolveRouteEndpoints,
+  resolveRouteForRequest,
+  linkRequestLocations,
+} from "@/services/route-resolver.service";
+
+const { fetchTomTomEstimate, getHotelContext, getActiveLocations } = vi.hoisted(() => ({
+  fetchTomTomEstimate: vi.fn(),
+  getHotelContext: vi.fn(),
+  getActiveLocations: vi.fn(),
+}));
+
+vi.mock("@/lib/tomtom", () => ({ fetchTomTomEstimate }));
+vi.mock("@/lib/geo/dynamic-locations", () => ({ getHotelContext, getActiveLocations }));
+
+beforeEach(() => {
+  fetchTomTomEstimate.mockReset().mockResolvedValue({
+    distanceKm: 8.2,
+    durationMin: 20,
+    confidence: "high",
+    basis: "TomTom route",
+    source: "TomTom",
+  });
+  getHotelContext.mockReset().mockResolvedValue({ hotel_name: "Configured Hotel", latitude: 14.5, longitude: 121 });
+  getActiveLocations.mockReset().mockResolvedValue([]);
+});
 
 // The module is otherwise only ever mocked (dispatch-radar, recommendation,
 // the security assessment), so nothing here was pinned before. These tests fix
@@ -18,10 +44,10 @@ function stubDb(rows = [], { rowCount = 1 } = {}) {
   };
 }
 
-const HOTEL = { location_id: 7, name: "CoCo Star Hotel", address: "1 Roxas Blvd", latitude: 14.5, longitude: 121 };
-const HOTEL_RENAMED = { location_id: 7, name: "CoCo Star Hotel Manila", address: "1 Roxas Blvd", latitude: 14.5, longitude: 121 };
-const HOTEL_NEW_ROW = { location_id: 11, name: "CoCo Star Hotel", address: "9 Bay Blvd", latitude: 14.6, longitude: 121 };
-const NAIA = { location_id: 9, name: "NAIA Terminal 3", address: "Andrews Ave", latitude: 14.52, longitude: 121.01 };
+const HOTEL = { location_id: 7, name: "CoCo Star Hotel", address: "1 Roxas Blvd", latitude: 14.5, longitude: 121, is_active: true, retired_at: null };
+const HOTEL_RENAMED = { location_id: 7, name: "CoCo Star Hotel Manila", address: "1 Roxas Blvd", latitude: 14.5, longitude: 121, is_active: true, retired_at: null };
+const HOTEL_NEW_ROW = { location_id: 11, name: "CoCo Star Hotel", address: "9 Bay Blvd", latitude: 14.6, longitude: 121, is_active: true, retired_at: null };
+const NAIA = { location_id: 9, name: "NAIA Terminal 3", address: "Andrews Ave", latitude: 14.52, longitude: 121.01, is_active: true, retired_at: null };
 const ROUTE = { route_id: 30, origin_location_id: 7, destination_location_id: 9, status: "Active" };
 
 /**
@@ -179,6 +205,229 @@ describe("resolveRouteForRequest — the link survives a rename", () => {
     // anything.
     const db = requestDb({ locations: [HOTEL, NAIA], route: ROUTE });
     expect((await resolveRouteForRequest(db, request, { createMissing: false }))?.route_id).toBe(30);
+  });
+});
+
+describe("resolveRequestEstimate — strict v2 registry", () => {
+  const unknownEstimate = (reason, endpointProvenance) => ({
+    distanceKm: null,
+    durationMin: null,
+    confidence: "low",
+    basis: "Canonical location unavailable",
+    source: null,
+    reason,
+    endpointProvenance,
+  });
+
+  it("keeps text-only v2 requests unknown without loading dynamic or seed locations", async () => {
+    const db = requestDb();
+    const request = {
+      external_create_fingerprint: "persisted-v2-fingerprint",
+      pickup_location: "Hotel Lobby",
+      dropoff_location: "NAIA Terminal 3",
+      partner_pickup_location_proposal: { address: "Hotel side gate" },
+      partner_dropoff_location_proposal: { latitude: 14.5, longitude: 121 },
+    };
+
+    const estimate = await resolveRequestEstimate(request, db, { persistRoute: true });
+
+    expect(estimate).toEqual(unknownEstimate("location_ids_required", {
+      pickup: "pending_review",
+      dropoff: "pending_review",
+    }));
+    expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+    expect(getHotelContext).not.toHaveBeenCalled();
+    expect(getActiveLocations).not.toHaveBeenCalled();
+    expect(db.calls.some(({ sql }) => sql.includes("FROM routes"))).toBe(false);
+    expect(db.calls.some(({ sql }) => sql.includes("INSERT INTO routes"))).toBe(false);
+  });
+
+  it("does not fill an unlinked v2 endpoint from its matching text", async () => {
+    const db = requestDb({ locations: [HOTEL, NAIA] });
+    const request = {
+      external_create_fingerprint: "persisted-v2-fingerprint",
+      pickup_location: "CoCo Star Hotel",
+      dropoff_location: "NAIA Terminal 3",
+      pickup_location_id: 7,
+      partner_dropoff_location_proposal: { address: "Terminal curb" },
+    };
+
+    const estimate = await resolveRequestEstimate(request, db, { persistRoute: true });
+
+    expect(estimate).toEqual(unknownEstimate("location_ids_required", {
+      pickup: "canonical_registry",
+      dropoff: "pending_review",
+    }));
+    expect(db.calls).toHaveLength(1);
+    expect(db.calls[0].sql).not.toContain("regexp_replace");
+    expect(db.calls[0].params).toEqual([7]);
+    expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+    expect(db.calls.some(({ sql }) => sql.includes("FROM routes"))).toBe(false);
+    expect(db.calls.some(({ sql }) => sql.includes("INSERT INTO routes"))).toBe(false);
+  });
+
+  it("uses only linked active registry coordinates for v2 TomTom estimates", async () => {
+    const db = requestDb({ locations: [HOTEL, NAIA] });
+    const request = {
+      external_create_fingerprint: "persisted-v2-fingerprint",
+      pickup_location: "untrusted Hotel Lobby proposal",
+      dropoff_location: "untrusted NAIA proposal",
+      pickup_location_id: 7,
+      dropoff_location_id: 9,
+      partner_pickup_location_proposal: { address: "Bogus pickup", latitude: 0, longitude: 0 },
+      partner_dropoff_location_proposal: { address: "Bogus dropoff", latitude: 0, longitude: 0 },
+    };
+
+    const estimate = await resolveRequestEstimate(request, db);
+
+    expect(estimate).toEqual({
+      distanceKm: 8.2,
+      durationMin: 20,
+      confidence: "high",
+      basis: "TomTom route",
+      source: "TomTom",
+    });
+    expect(fetchTomTomEstimate).toHaveBeenCalledWith([14.5, 121], [14.52, 121.01], {
+      departAt: undefined,
+    });
+    expect(db.calls[0].params).toEqual([7, 9]);
+    expect(db.calls[0].sql).not.toContain("regexp_replace");
+    expect(getHotelContext).not.toHaveBeenCalled();
+    expect(getActiveLocations).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back by name when a linked v2 location is retired", async () => {
+    const db = requestDb({ locations: [NAIA] });
+    const request = {
+      external_create_fingerprint: "persisted-v2-fingerprint",
+      pickup_location: "CoCo Star Hotel",
+      dropoff_location: "NAIA Terminal 3",
+      pickup_location_id: 7,
+      dropoff_location_id: 9,
+      partner_pickup_location_proposal: { address: "Hotel side gate" },
+    };
+
+    const estimate = await resolveRequestEstimate(request, db, { persistRoute: true });
+
+    expect(estimate).toEqual(unknownEstimate("canonical_locations_unavailable", {
+      pickup: "pending_review",
+      dropoff: "canonical_registry",
+    }));
+    expect(db.calls[0].params).toEqual([7, 9]);
+    expect(db.calls[0].sql).not.toContain("regexp_replace");
+    expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+    expect(getHotelContext).not.toHaveBeenCalled();
+    expect(getActiveLocations).not.toHaveBeenCalled();
+    expect(db.calls.some(({ sql }) => sql.includes("FROM routes"))).toBe(false);
+    expect(db.calls.some(({ sql }) => sql.includes("INSERT INTO routes"))).toBe(false);
+  });
+
+  it("does not trust a stored route estimate when a linked registry point is missing", async () => {
+    const db = requestDb({
+      locations: [{ ...HOTEL, latitude: null, longitude: null }, NAIA],
+      route: { ...ROUTE, estimated_distance: 6.4, estimated_duration: 18, estimate_source: "Manual" },
+    });
+    const request = {
+      external_create_fingerprint: "persisted-v2-fingerprint",
+      pickup_location: "CoCo Star Hotel",
+      dropoff_location: "NAIA Terminal 3",
+      pickup_location_id: 7,
+      dropoff_location_id: 9,
+      partner_pickup_location_proposal: { address: "Hotel side gate" },
+    };
+
+    const estimate = await resolveRequestEstimate(request, db, { persistRoute: true });
+
+    expect(estimate).toEqual(unknownEstimate("canonical_coordinates_unavailable", {
+      pickup: "pending_review",
+      dropoff: "canonical_registry",
+    }));
+    expect(db.calls.some(({ sql }) => sql.includes("FROM routes"))).toBe(false);
+    expect(db.calls.some(({ sql }) => sql.includes("INSERT INTO routes"))).toBe(false);
+    expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+    expect(getHotelContext).not.toHaveBeenCalled();
+    expect(getActiveLocations).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["partial", { latitude: 14.5, longitude: null }],
+    ["non-finite", { latitude: Number.NaN, longitude: 121 }],
+    ["out-of-range", { latitude: 90.1, longitude: 121 }],
+    ["blank", { latitude: "", longitude: 121 }],
+  ])("rejects %s linked coordinates before using a stored route", async (_kind, coordinates) => {
+    const db = requestDb({
+      locations: [{ ...HOTEL, ...coordinates }, NAIA],
+      route: { ...ROUTE, estimated_distance: 6.4, estimated_duration: 18, estimate_source: "Manual" },
+    });
+    const request = {
+      external_create_fingerprint: "persisted-v2-fingerprint",
+      pickup_location_id: 7,
+      dropoff_location_id: 9,
+    };
+
+    const estimate = await resolveRequestEstimate(request, db, { persistRoute: true });
+
+    expect(estimate.source).toBeNull();
+    expect(estimate.distanceKm).toBeNull();
+    expect(estimate.durationMin).toBeNull();
+    expect(estimate.reason).toBe("canonical_coordinates_unavailable");
+    expect(db.calls.some(({ sql }) => sql.includes("FROM routes"))).toBe(false);
+    expect(db.calls.some(({ sql }) => sql.includes("INSERT INTO routes"))).toBe(false);
+    expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+  });
+
+  it("treats an incomplete TomTom result as unknown and does not persist a route", async () => {
+    fetchTomTomEstimate.mockResolvedValueOnce({
+      distanceKm: 0,
+      durationMin: null,
+      confidence: "low",
+      basis: "TomTom",
+      source: "TomTom",
+    });
+    const db = requestDb({ locations: [HOTEL, NAIA] });
+    const request = {
+      external_create_fingerprint: "persisted-v2-fingerprint",
+      pickup_location_id: 7,
+      dropoff_location_id: 9,
+    };
+
+    const estimate = await resolveRequestEstimate(request, db, { persistRoute: true });
+
+    expect(estimate).toEqual(unknownEstimate("route_estimate_unavailable", {
+      pickup: "canonical_registry",
+      dropoff: "canonical_registry",
+    }));
+    expect(db.calls.some(({ sql }) => sql.includes("INSERT INTO routes"))).toBe(false);
+  });
+
+  it("honors explicit strict registry mode before a fingerprint is persisted", async () => {
+    const db = requestDb();
+    const estimate = await resolveRequestEstimate({
+      pickup_location: "Hotel Lobby",
+      dropoff_location: "NAIA Terminal 3",
+    }, db, { strictRegistry: true });
+
+    expect(estimate).toEqual(unknownEstimate("location_ids_required", {
+      pickup: "unknown",
+      dropoff: "unknown",
+    }));
+    expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+    expect(db.calls).toHaveLength(0);
+  });
+
+  it("keeps the legacy v1 text estimator fallback", async () => {
+    const estimate = await resolveRequestEstimate({
+      pickup_location: "Hotel Lobby",
+      dropoff_location: "NAIA Terminal 3",
+    }, null);
+
+    expect(estimate).toMatchObject({
+      source: "Legacy / Unknown",
+      basis: expect.any(String),
+    });
+    expect(estimate.distanceKm).toBeGreaterThan(0);
+    expect(estimate.durationMin).toBeGreaterThan(0);
+    expect(estimate).not.toHaveProperty("endpointProvenance");
   });
 });
 
