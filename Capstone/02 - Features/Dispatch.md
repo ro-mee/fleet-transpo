@@ -20,13 +20,13 @@ related: ["[[Reservations]]", "[[Trips]]"]
 
 ## Task 5 verification follow-up — mock isolation (2026-10-06)
 
-The order-dependent Dispatch Radar failure came from a prior test queuing a one-time `driverBlockReason` result while asserting the mock was not called; `vi.clearAllMocks()` cleared calls but left that result queued. The test `beforeEach` now resets only `driverBlockReason` and restores its default `null` return. Test-only isolation fix; runtime behavior is unchanged. Verification: Dispatch Radar 26/26; combined Task 4 reader suites 5 files, 86/86; touched ESLint passed. The 311-file / 3,661-test full-suite pass was run after Task 5 and before this correction wave; it is the pre-fix baseline only. The coordinator owns the single post-fix full-suite run.
+The order-dependent Dispatch Radar failure came from a prior test queuing a one-time `driverBlockReason` result while asserting the mock was not called; `vi.clearAllMocks()` cleared calls but left that result queued. The test `beforeEach` now resets only `driverBlockReason` and restores its default `null` return. Test-only isolation fix; runtime behavior is unchanged. Verification: Dispatch Radar 26/26; combined Task 4 reader suites 5 files, 86/86; touched ESLint passed. That 311-file / 3,661-test result is the pre-fix baseline; the coordinator's post-fix full-suite run passed 311 files and 3,686/3,686 tests.
 
 ## Final-review v2 estimate propagation — 2026-10-06
 
 Dispatch recommendation preparation now uses strict resolver distance, duration, and source for persisted v2 requests exactly, including nulls, rather than falling back to stored request fields. Dispatch candidate service-end calculation likewise does not substitute a persisted v2 duration when its strict estimate is unknown; legacy v1 duration fallback remains. Current-pair feasibility reads v2 endpoints from explicit active request-linked Fleet rows and never text-resolves the partner labels.
 
-Verification after the correction wave: the four focused reader suites passed 69/69 and touched-source ESLint passed. This is post-fix focused evidence only; the earlier 3,661-test full-suite result is a pre-fix baseline, not post-fix verification. The coordinator owns the single full-suite run after all fixes.
+Verification after the correction wave: the four focused reader suites passed 69/69 and touched-source ESLint passed. This is post-fix focused evidence only; the coordinator's post-fix full-suite run passed 311 files / 3,686 tests.
 
 ## Dispatch Radar v2 recommendation endpoints — review round 1/5 (2026-10-06)
 
