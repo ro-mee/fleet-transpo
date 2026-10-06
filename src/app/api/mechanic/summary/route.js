@@ -14,7 +14,7 @@ const SUMMARY_COUNTS_SQL = `
   SELECT
     COUNT(*) AS assigned,
     COUNT(*) FILTER (WHERE vm.status = 'In Progress') AS "inProgress",
-    COUNT(*) FILTER (WHERE vm.status = 'Pending Inspection' AND vm.repair_completed_by = $1) AS "waitingApproval",
+    COUNT(*) FILTER (WHERE vm.status = 'Pending Inspection') AS "waitingApproval",
     COUNT(*) FILTER (WHERE vm.priority IN ('High', 'Emergency') AND vm.status IN ('Scheduled', 'In Progress')) AS urgent,
     COUNT(*) FILTER (WHERE vm.status IN ('Scheduled', 'In Progress') AND vm.maintenance_date < CURRENT_DATE) AS overdue
     FROM vehiclemaintenance vm

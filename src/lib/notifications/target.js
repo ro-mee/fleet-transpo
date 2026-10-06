@@ -43,7 +43,9 @@ const MECHANIC_ROUTES = {
   maintenance: (id) => `/mechanic/work-orders/${id}`,
   mechanic_maintenance: (id) => `/mechanic/work-orders/${id}`,
   incident: () => `/mechanic/problems`,
-  vehicle: (id) => `/mechanic/vehicles/${id}`,
+  // No /mechanic/vehicles/:id route exists — resolve to null so a tap falls
+  // back to marking read instead of triggering a guard redirect loop.
+  vehicle: () => null,
 };
 
 /** @param {object} notification notification row (reference_type, reference_id, link) */

@@ -23,11 +23,13 @@ import { useIsDesktop } from "./use-is-desktop";
 // assignment inputs — those keys are staff-only and the submit body is built
 // through buildMechanicUpdateBody, so they cannot be sent by accident.
 //
-// Read-contract note: the mechanic lean projection carries no assigned_at /
-// repair_started_at / repair_completed_at stamps and no current
-// diagnosis/parts/labor values, so milestones show "Not recorded" where the
-// stamp is absent (never a guessed timestamp) and the evidence form opens
-// blank for entry. A scoped single-record read is the follow-up.
+// Read-contract note: the post-4b lean projection is a read-only superset —
+// it CARRIES assigned_at / repair_started_at / repair_completed_at plus the
+// evidence keys (diagnosis, parts_replaced, labor_hours, rejection_reason,
+// completed_date), so milestones render real stamps where present and
+// "Not recorded" where a stamp is absent (never a guessed timestamp). The
+// evidence form still opens blank for entry; a scoped single-record read is
+// the follow-up.
 
 const MILESTONES = ["Assigned", "Started", "Submitted"];
 

@@ -163,6 +163,23 @@ describe("GET /api/mechanic/summary (Task 4)", () => {
     expect(body.queue).toEqual([]);
   });
 
+  it("counts ALL assigned Pending Inspection rows in waitingApproval — including staff-moved ones", async () => {
+    // Staff may move an assigned WO to Pending Inspection without the
+    // mechanic completing it (legal per STAFF_TRANSITIONS), so the count must
+    // not filter on repair_completed_by = me — a staff-moved row has a null
+    // or other completer and still awaits inspection of this mechanic's work.
+    requirePermission.mockResolvedValue({ user: { role: "mechanic", employeeId: 77 } });
+    stubSummary();
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const countsSql = query.mock.calls
+      .map(([sql]) => String(sql))
+      .find((sql) => /COUNT\(\*\)\s+AS\s+assigned/.test(sql));
+    expect(countsSql).toBeDefined();
+    expect(countsSql).toContain("vm.status = 'Pending Inspection'");
+    expect(countsSql).not.toContain("repair_completed_by");
+  });
+
   it("refuses an unauthenticated caller without querying", async () => {
     requirePermission.mockRejectedValue(new AuthError("Unauthorized", 401));
     stubSummary();

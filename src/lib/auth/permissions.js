@@ -335,7 +335,10 @@ const MATRIX = {
     predictive_maintenance: { read: true },
     notifications: { read: true, update: true, delete: true },
     device_tokens: { create: true, delete: true },
-    search: { read: true },
+    // Denied explicitly: /api/search authorizes only on search/read then
+    // returns reservations/dispatches/drivers/vehicles with no per-entity
+    // check — entities the mechanic holds no grant for.
+    search: { read: false },
     employees: { read: true },
     system: { read: false, update: false },
   },

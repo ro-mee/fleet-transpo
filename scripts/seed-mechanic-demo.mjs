@@ -351,7 +351,7 @@ async function cmdDown(pool) {
     // Matched on the exact reference ids, so nothing else is touched.
     if (ids.workOrders?.length) {
       const n = await client.query(
-        `DELETE FROM notifications WHERE reference_type = 'maintenance' AND reference_id = ANY($1::int[])`,
+        `DELETE FROM notifications WHERE reference_type IN ('maintenance','mechanic_maintenance') AND reference_id = ANY($1::int[])`,
         [ids.workOrders]
       );
       if (n.rowCount) console.log(`  ${String(n.rowCount).padStart(6)}  notifications (maintenance)`);
