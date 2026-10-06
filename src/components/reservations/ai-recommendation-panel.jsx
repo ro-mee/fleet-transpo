@@ -702,7 +702,7 @@ export function AiRecommendationPanel({
   useEffect(() => {
     if (!canRestoreRememberedSelection({
       requestId,
-      assignmentClosed,
+      isClosed: assignmentClosed,
       queryError: query.isError,
       completedRecommendation,
       optionCount: options.length,

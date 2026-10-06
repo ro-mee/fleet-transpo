@@ -1,4 +1,5 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -526,4 +527,22 @@ it('does not invent a verification requirement when the evaluation has no exclus
   expect(html).toContain('Pedro Penduko');
   expect(html).not.toContain('eligible option found for this reservation.');
   expect(html).not.toContain('Choose Option 1');
+});
+it('passes the closed-trip guard explicitly at the restore call site (isClosed, never shorthand assignmentClosed)',()=>{
+  // Helper contract: a closed trip never restores, even with options available.
+  expect(canRestoreRememberedSelection({requestId:1,isClosed:true,queryError:false,completedRecommendation:true,optionCount:2})).toBe(false);
+  // The drift this pins: shorthand `assignmentClosed` is not the helper's
+  // `isClosed` key, so the guard would see undefined and a closed trip with
+  // non-empty options would restore/re-pin and run a selection check.
+  expect(canRestoreRememberedSelection({requestId:1,assignmentClosed:true,queryError:false,completedRecommendation:true,optionCount:2})).toBe(true);
+  // Panel call site must pass the helper's `isClosed` key explicitly. SSR
+  // (renderToStaticMarkup) never runs the restore effect, so the passing key
+  // is pinned against the panel source instead of through a render.
+  const source=readFileSync(new URL('./ai-recommendation-panel.jsx',import.meta.url),'utf8');
+  const anchor='if (!canRestoreRememberedSelection({';
+  const at=source.indexOf(anchor);
+  expect(at).not.toBe(-1);
+  const callSite=source.slice(at,at+400);
+  expect(callSite).toContain('isClosed: assignmentClosed');
+  expect(callSite).not.toMatch(/canRestoreRememberedSelection\(\{\s*requestId,\s*assignmentClosed,/);
 });
