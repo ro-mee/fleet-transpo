@@ -90,15 +90,17 @@ Centralized service used across booking ingestion, dispatch auto-creation, resch
 - **Two-stage costing**: recommendation enriches only the nearest-5 Haversine shortlist with `_deadhead_minutes_routed` / `_deadhead_provenance`. Scoring untouched (Phase 2). Routing matrix noted as future evolution.
 - **Verified**: `route-feasibility.test.js` (8 tests incl. 8:15→9:00→11:00 acceptance: buffer 16, arrival 9:42, turnaround 53 → SAFE; 38-min deadhead → INFEASIBLE "departed 3 min ago"), `route-cache.test.js`, extended `tomtom.test.js`. Full suite 654 passing, eslint clean.
 
-## Route Feasibility Card — PR #2 (2026-09-07)
+## Route Feasibility Card — PR #2 (historical, 2026-09-07)
 
-The engine is now dispatcher-visible. The recommendation endpoint attaches a `feasibility` object to recommended + alternate + top-3 candidates (`attachPairFeasibility`, deduped, capped at 5 computations, fail-open per pair, scoring untouched):
+Historical record only: this section describes the PR #2 implementation, not current recommendation wiring. The old `attachPairFeasibility` helper has no production caller, and no current JSX source consumes the `FeasibilityBlock` card. The current recommendation handler at `src/app/api/integration/transport-requests/[id]/recommendation/route.js` prepares candidates and calls `applyDispatchRadar` from `src/services/dispatch-radar.service.js` for GET and POST; see [[Dispatch]] for current v2 endpoint handling. This section does not imply current UI rendering of a feasibility card.
 
-- Per-pair verdict (`SAFE|TIGHT|INFEASIBLE|UNKNOWN`) with required departure, pickup buffer, passenger journey, expected arrival, next assigned pickup, reposition travel, turnaround, `reasons[]`, and per-leg provenance.
-- Deadhead reuses the shortlist's routed minutes; passenger minutes come from the already-resolved trip estimate (no second live call); driver position coordinates now ride on candidate rows (`_position_lat/_position_lng`).
-- The panel (`AiRecommendationPanel` → `FeasibilityBlock`) renders the card for the shown pair with a verdict chip and provenance labels; pairs beyond the computed set simply show no card. Skipped vehicles are disclosed in a collapsible "Why N other vehicles didn't qualify" list even when pairs exist.
-- Override reasons: the assign endpoint accepts `override_reason` (≤500 chars, stored in timeline metadata alongside `overridden_conflicts[]`); the panel shows a reason input whenever the Override & Accept path is visible. Optional, not blocking.
-- Verified: `route-feasibility-context.test.js` (5 tests: provenance labels, SAFE pair shape, UNKNOWN fail-open, top-set attachment, empty passthrough). Full suite 659 passing, eslint clean.
+At the time, the recommendation endpoint attached a `feasibility` object to recommended, alternate, and top-3 candidates via `attachPairFeasibility` (deduped, capped at 5 computations, fail-open per pair, scoring untouched):
+
+- The historical card displayed per-pair verdict (`SAFE|TIGHT|INFEASIBLE|UNKNOWN`) with required departure, pickup buffer, passenger journey, expected arrival, next assigned pickup, reposition travel, turnaround, `reasons[]`, and per-leg provenance.
+- Deadhead reused the shortlist's routed minutes; passenger minutes came from the already-resolved trip estimate (no second live call); driver position coordinates rode on candidate rows (`_position_lat/_position_lng`).
+- The PR #2 panel path (`AiRecommendationPanel` → `FeasibilityBlock`) rendered the card for the shown pair with a verdict chip and provenance labels; pairs beyond the computed set showed no card. Skipped vehicles were disclosed in a collapsible "Why N other vehicles didn't qualify" list even when pairs existed.
+- The historical PR also documented override reasons: the assign endpoint accepted `override_reason` (≤500 chars, stored in timeline metadata alongside `overridden_conflicts[]`); the panel showed a reason input whenever the Override & Accept path was visible. Optional, not blocking.
+- Historical verification: `route-feasibility-context.test.js` (5 tests: provenance labels, SAFE pair shape, UNKNOWN fail-open, top-set attachment, empty passthrough). Full suite 659 passing, eslint clean at that time.
 
 ## Arrival Geofences — PR #3 (2026-09-08)
 
