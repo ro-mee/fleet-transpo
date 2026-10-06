@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Send, LoaderCircle, RotateCcw } from "lucide-react";
 import { formatDateTime, cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client";
+import { useRoleAccess } from "@/hooks/use-role-access";
 import { EvidenceDrawer, buildInspectorRows } from "./evidence-drawer";
 
 // Latest comparison proof from assistant messages. Exported for tests.
@@ -58,14 +59,35 @@ function readStoredMemoryMap() {
   }
 }
 
-function recoveryHref(action) {
-  if (!action || action.record == null) return null;
-  const id = action.id;
+// Allowlisted recovery destinations (P1-08). Every target below is a route
+// verified on disk under src/app/(dashboard): the fleet vehicle detail and
+// directory, the driver detail and directory, the maintenance directory, and
+// the reservation detail. IDs interpolate only when they are finite positive
+// integers. The maintenance page reads no vehicle filter, so that record
+// resolves to the directory; a schedule block resolves to a driver page only
+// for DRIVER_UNAVAILABLE (which carries the driver id) — pairing blocks
+// carry the vehicle id and must never interpolate into a driver route.
+// The caller additionally gates every href through useRoleAccess; a null or
+// unauthorized target renders as guidance text, never as a link.
+function toSafeRecordId(value) {
+  if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : null;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+export function recoveryHref(action) {
+  if (!action || typeof action !== "object" || action.record == null) return null;
+  const id = toSafeRecordId(action.id);
   switch (action.record) {
-    case 'vehicle': return id != null ? `/vehicles/${id}` : '/vehicles';
+    case 'vehicle': return id != null ? `/fleet/vehicles/${id}` : '/fleet/vehicles';
     case 'driver': return id != null ? `/drivers/${id}` : '/drivers';
-    case 'maintenance': return id != null ? `/maintenance?vehicleId=${id}` : '/maintenance';
-    case 'schedule': return id != null ? `/schedules?driverId=${id}` : '/schedules';
+    case 'maintenance': return '/maintenance';
+    case 'schedule':
+      if (action.code !== 'DRIVER_UNAVAILABLE') return null;
+      return id != null ? `/drivers/${id}` : '/drivers';
     case 'request': return id != null ? `/reservations/${id}` : null;
     default: return null;
   }
@@ -282,6 +304,9 @@ export function CopilotConversation({
   const sending = useRef(false);
   const currentPair = readOnlyCommitted ? null : selectedPair;
   const currentSelection = useRef(currentPair);
+  // Permission-aware recovery links: a null or unauthorized target renders
+  // as plain guidance text, never as a link. Fail closed when no checker.
+  const { canAccess } = useRoleAccess() ?? {};
   useEffect(() => { currentSelection.current = currentPair; }, [currentPair]);
 
   // The panel keys this component by requestId; switching reservations resets local state.
@@ -560,7 +585,8 @@ export function CopilotConversation({
                           }
                           const href = recoveryHref(action);
                           const label = action.label || 'Check record';
-                          return href ? (
+                          const openable = href && typeof canAccess === "function" ? canAccess(href) : false;
+                          return openable ? (
                             <a key={`${action.code}-${idx}`} href={href}
                               className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary">
                               {label}

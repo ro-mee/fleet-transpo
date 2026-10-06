@@ -2,10 +2,12 @@ import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 const state=vi.hoisted(()=>({handlers:null}));
+const accessState=vi.hoisted(()=>({canAccess:()=>true}));
+vi.mock('@/hooks/use-role-access',()=>({useRoleAccess:()=>({canAccess:accessState.canAccess})}));
 vi.mock('@tanstack/react-query',()=>({useMutation:options=>{state.handlers=options;return {isPending:false,mutate:vi.fn()};}}));
 vi.mock('@/lib/api/client',()=>({apiFetch:vi.fn(async()=>({answer:'Checked'}))}));
 import { apiFetch } from '@/lib/api/client';
-import { CopilotConversation, clearAllReservationMessages, getReservationMessages, setReservationMessages, latestClearanceFor, latestComparisonFor, getReservationSelection, setReservationSelection, clearReservationSelection, clearReservationMessages } from './copilot-conversation';
+import { CopilotConversation, clearAllReservationMessages, getReservationMessages, setReservationMessages, latestClearanceFor, latestComparisonFor, recoveryHref, getReservationSelection, setReservationSelection, clearReservationSelection, clearReservationMessages } from './copilot-conversation';
 import { DispatchPlanPanel } from './dispatch-plan-panel';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -34,7 +36,7 @@ vi.mock('react',async importOriginal=>{
   };
 });
 
-beforeEach(()=>{hookState.slots=[];hookState.cursor=0;vi.stubGlobal('React',React);vi.clearAllMocks();clearAllReservationMessages();});
+beforeEach(()=>{hookState.slots=[];hookState.cursor=0;vi.stubGlobal('React',React);vi.clearAllMocks();clearAllReservationMessages();accessState.canAccess=()=>true;});
 afterEach(()=>vi.unstubAllGlobals());
 const sent={requestId:1,message:'Why this pair?',history:[],planToken:'old-plan',selectedPair:{vehicleId:3,driverId:4},selectedPairLabel:'PAIR-B + Driver B',displayedEvaluatedAt:'2026-09-15T00:00:00Z'};
 const render=requestId=>{hookState.slots=[];hookState.cursor=0;return renderToStaticMarkup(React.createElement(CopilotConversation,{requestId,selectedPair:{vehicleId:8,driverId:9},planToken:'new-plan',hasPair:true}));};
@@ -431,4 +433,81 @@ it('does not fetch evidence when the mobile Copilot or conversation merely mount
   expect(findNode(mobileTree,node=>node.type===EvidenceDrawer)).toBeNull();
   expect(findNode(conversation,node=>node.type===EvidenceDrawer)).toBeNull();
   expect(apiFetch).not.toHaveBeenCalled();
+});
+
+// Task 7 (P1-08): recovery links must target routes that exist.
+it('maps recovery records to real in-app routes only',()=>{
+  expect(recoveryHref({record:'vehicle',id:17})).toBe('/fleet/vehicles/17');
+  expect(recoveryHref({record:'driver',id:4})).toBe('/drivers/4');
+  expect(recoveryHref({record:'maintenance',id:21})).toBe('/maintenance');
+  expect(recoveryHref({record:'schedule',id:null})).toBeNull();
+  expect(recoveryHref({record:'schedule',code:'DRIVER_UNAVAILABLE',id:4})).toBe('/drivers/4');
+  expect(recoveryHref({record:'schedule',code:'PAIRING',id:9})).toBeNull();
+  expect(recoveryHref({record:'request',id:502})).toBe('/reservations/502');
+  expect(recoveryHref({record:'request',id:null})).toBeNull();
+  expect(recoveryHref({record:'unknown',id:1})).toBeNull();
+  expect(recoveryHref(null)).toBeNull();
+});
+
+it('never points recovery at removed dashboard routes',()=>{
+  const hrefs=[
+    recoveryHref({record:'vehicle',id:17}),
+    recoveryHref({record:'driver',id:4}),
+    recoveryHref({record:'maintenance',id:21}),
+    recoveryHref({record:'schedule',code:'DRIVER_UNAVAILABLE',id:4}),
+    recoveryHref({record:'request',id:502}),
+    recoveryHref({record:'vehicle',id:null}),
+    recoveryHref({record:'driver',id:null}),
+  ].filter(Boolean);
+  expect(hrefs.length).toBeGreaterThan(0);
+  for(const href of hrefs){
+    expect(href).not.toMatch(/^\/vehicles(\/|$)/);
+    expect(href).not.toMatch(/^\/schedules(\/|$)/);
+    expect(href).not.toContain('?vehicleId=');
+  }
+});
+
+it('never interpolates unsafe ids into recovery routes',()=>{
+  expect(recoveryHref({record:'vehicle',id:'17;DROP'})).toBe('/fleet/vehicles');
+  expect(recoveryHref({record:'vehicle',id:-3})).toBe('/fleet/vehicles');
+  expect(recoveryHref({record:'vehicle',id:0})).toBe('/fleet/vehicles');
+  expect(recoveryHref({record:'vehicle',id:1.5})).toBe('/fleet/vehicles');
+  expect(recoveryHref({record:'driver',id:'abc'})).toBe('/drivers');
+  expect(recoveryHref({record:'driver',id:{}})).toBe('/drivers');
+  expect(recoveryHref({record:'schedule',code:'DRIVER_UNAVAILABLE',id:'4;DROP'})).toBe('/drivers');
+  expect(recoveryHref({record:'request',id:'502;DROP'})).toBeNull();
+  expect(recoveryHref({record:'request',id:NaN})).toBeNull();
+});
+
+it('renders recovery links only for routes the role may access',()=>{
+  const actions=[
+    {code:'MAINTENANCE_CONFLICT',label:'Check maintenance record',record:'maintenance',id:21},
+    {code:'LICENSE_EXPIRED',label:'Renew driver license',record:'driver',id:4},
+  ];
+  setReservationMessages(61,[{role:'assistant',content:'Blocked.',at:1,recoveryActions:actions}]);
+  accessState.canAccess=()=>true;
+  hookState.slots=[];hookState.cursor=0;
+  const allowedHtml=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:61,hasPair:true}));
+  expect(allowedHtml).toContain('href="/maintenance"');
+  expect(allowedHtml).toContain('href="/drivers/4"');
+
+  accessState.canAccess=()=>false;
+  hookState.slots=[];hookState.cursor=0;
+  const deniedHtml=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:61,hasPair:true}));
+  expect(deniedHtml).not.toContain('href="/maintenance"');
+  expect(deniedHtml).not.toContain('href="/drivers/4"');
+  expect(deniedHtml).not.toContain('<a ');
+  expect(deniedHtml).toContain('Check maintenance record');
+  expect(deniedHtml).toContain('Renew driver license');
+});
+
+it('never links a pairing schedule block to a driver record',()=>{
+  // PAIRING carries the vehicle id, so interpolating it into /drivers/:id
+  // would open the wrong record. It stays guidance text even when allowed.
+  setReservationMessages(62,[{role:'assistant',content:'Blocked.',at:1,
+    recoveryActions:[{code:'PAIRING',label:'Check substitute schedule',record:'schedule',id:9}]}]);
+  accessState.canAccess=()=>true;
+  const html=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:62,hasPair:true}));
+  expect(html).not.toContain('<a ');
+  expect(html).toContain('Check substitute schedule');
 });

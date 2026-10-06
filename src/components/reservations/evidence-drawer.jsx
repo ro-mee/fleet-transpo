@@ -209,6 +209,13 @@ export function EvidenceDrawer({
 export function ComparisonCard({ data, planStatus = null }) {
   const facts = data?.facts ?? {};
   const { optionA, optionB, hierarchy = [] } = facts;
+  // Immutable pair identity from the signed server facts (P2-06). The
+  // comparison resolver carries vehicleId/driverId only — plates and names
+  // are never guessed here. Missing values stay unknown.
+  const pairIdentity = side => {
+    if (!side || (side.vehicleId == null && side.driverId == null)) return "Unidentified pair";
+    return `Vehicle #${side.vehicleId ?? "?"} / Driver #${side.driverId ?? "?"}`;
+  };
   const cell = side => {
     if (!side) return "—";
     return (
@@ -224,11 +231,13 @@ export function ComparisonCard({ data, planStatus = null }) {
     <>
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-lg border border-border/60 px-2.5 py-1.5">
-          <p className="mb-1 font-semibold text-foreground">Option 1</p>
+          <p className="mb-1 font-semibold text-foreground">{pairIdentity(optionA)}</p>
+          <p className="mb-1 text-[11px] text-foreground-secondary">Option 1</p>
           {cell(optionA)}
         </div>
         <div className="rounded-lg border border-border/60 px-2.5 py-1.5">
-          <p className="mb-1 font-semibold text-foreground">Option 2</p>
+          <p className="mb-1 font-semibold text-foreground">{pairIdentity(optionB)}</p>
+          <p className="mb-1 text-[11px] text-foreground-secondary">Option 2</p>
           {cell(optionB)}
         </div>
       </div>

@@ -24,6 +24,8 @@ vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn(async () => ({})) }));
 import { apiFetch } from '@/lib/api/client';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { fetchEvidence, EvidenceBody, EvidenceDrawer, EvidenceFailureMessage, EligibilityInspector, ComparisonCard, buildInspectorRows, inspectorConclusion } from './evidence-drawer';
+import { readFileSync } from 'node:fs';
+const drawerSource = readFileSync(new URL('./evidence-drawer.jsx', import.meta.url), 'utf8');
 
 beforeEach(() => { focusHooks.slots=[]; focusHooks.cursor=0; focusHooks.effects=[]; vi.stubGlobal('React', React); vi.clearAllMocks(); });
 
@@ -275,4 +277,53 @@ it('passes the exact eligibility Review button to its nested proof dialog',()=>{
 
   review.props.onClick({currentTarget:trigger});
   expect(onReviewProof).toHaveBeenCalledWith(proof,trigger);
+});
+
+// Task 7 (P2-06): comparison columns must identify both actual pairs by the
+// immutable server ids, never by guessed plates or names.
+it('identifies both compared pairs by immutable server ids',()=>{
+  const comparisonHtml=renderToStaticMarkup(React.createElement(ComparisonCard,{
+    planStatus:null,
+    data:{
+      title:'Option Comparison',managingModule:'Dispatch Copilot',checkedAt:'2026-09-17T17:42:10+08:00',
+      facts:{
+        optionA:{vehicleId:1,driverId:2,reliability:'SAFE',transferMinutes:12,workload:{totalTrips:4,serviceDate:'2026-09-19'},standing:'Non-standing'},
+        optionB:{vehicleId:3,driverId:4,reliability:'SAFE',transferMinutes:25,workload:{totalTrips:2,serviceDate:'2026-09-19'},standing:'Standing pair'},
+        hierarchy:['Reliability','Efficiency'],verdict:'clear',
+      },
+    },
+  }));
+  expect(comparisonHtml).toContain('Vehicle #1 / Driver #2');
+  expect(comparisonHtml).toContain('Vehicle #3 / Driver #4');
+  expect(comparisonHtml).toContain('Option 1');
+  expect(comparisonHtml).toContain('Option 2');
+  expect(comparisonHtml).toContain('Checked');
+  expect(comparisonHtml).not.toMatch(/score|87\/100|points/i);
+});
+
+// Task 7 (P2-08 remainder): a failed proof snapshot retries with one more
+// GET only on explicit Retry, never polls, and never mutates (so retry
+// cannot create an assignment).
+it('issues another snapshot GET only on explicit Retry and never mutates',()=>{
+  apiFetch.mockClear();
+  focusHooks.slots=[];
+  focusHooks.cursor=0;
+  focusHooks.effects=[];
+  EvidenceDrawer({requestId:502,proof:{type:'leave',ref:'ev_retry'},onClose:()=>{}});
+  expect(focusHooks.effects).toHaveLength(1);
+  focusHooks.effects[0]();
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+
+  focusHooks.slots[0].value={status:'error',data:null,error:new Error('network')};
+  focusHooks.cursor=0;
+  const errorView=EvidenceDrawer({requestId:502,proof:{type:'leave',ref:'ev_retry'},onClose:()=>{}});
+  const failure=findNode(errorView,node=>node.type===EvidenceFailureMessage);
+  expect(failure).not.toBeNull();
+  expect(failure.props.onRetry).toBeTypeOf('function');
+  failure.props.onRetry();
+  expect(focusHooks.slots[0].value).toMatchObject({status:'loading'});
+  focusHooks.effects.at(-1)();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+  for(const [,options] of apiFetch.mock.calls) expect(options).toMatchObject({method:'GET'});
+  expect(drawerSource).not.toMatch(/setInterval|setTimeout/);
 });
