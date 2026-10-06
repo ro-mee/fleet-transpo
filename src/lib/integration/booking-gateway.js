@@ -106,6 +106,7 @@ class MockBookingGateway {
 class HttpBookingGateway {
   constructor() {
     this.name = "http";
+    this.sourceIdentity = "PMS";
     this.baseUrl = process.env.BOOKING_API_URL || "";
     this.apiKey = process.env.BOOKING_API_KEY || "";
   }

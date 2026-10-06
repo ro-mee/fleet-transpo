@@ -35,15 +35,19 @@ export async function POST(req) {
       let request;
       let strictReplay = false;
       try {
-        if (gateway.name === "mock" && raw?.contract_version === 2) {
-          // Only the in-process mock is a trusted source adapter. Do not let an
-          // unconnected HTTP gateway self-assert a POS/PMS identity on pull.
-          const envelope = normalizeInboundEnvelope(raw, raw.source_system);
+        // Only the in-process mock may use fixture-declared identities. Every
+        // other adapter must supply its trusted source principal explicitly.
+        const sourceIdentity = gateway.name === "mock" ? raw?.source_system : gateway.sourceIdentity;
+        if (typeof sourceIdentity !== "string" || !sourceIdentity.trim()) {
+          throw new Error("Booking gateway has no trusted source identity");
+        }
+        if (raw?.contract_version === 2) {
+          const envelope = normalizeInboundEnvelope(raw, sourceIdentity);
           if (envelope.event_kind !== "create" || envelope.external_revision !== 1) throw new Error("Unsupported revision");
           request = envelope.request;
           strictReplay = true;
         } else {
-          request = parseTransportationRequest(raw);
+          request = parseTransportationRequest({ ...raw, source_system: sourceIdentity });
         }
       } catch {
         // One malformed item is skipped rather than failing the pull: a bad

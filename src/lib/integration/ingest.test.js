@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const query = vi.fn();
-vi.mock("@/lib/db", () => ({ query: (...a) => query(...a) }));
+const withTransaction = vi.fn();
+vi.mock("@/lib/db", () => ({
+  query: (...a) => query(...a),
+  withTransaction: (...args) => withTransaction(...args),
+}));
 
 const recordReservationEvent = vi.fn(async () => ({}));
 vi.mock("@/services/reservation-events.service", () => ({
@@ -84,6 +88,7 @@ const logCall = () => query.mock.calls.find(([sql]) => sql.includes("INSERT INTO
 beforeEach(() => {
   vi.clearAllMocks();
   query.mockReset();
+  withTransaction.mockReset().mockImplementation(async (work) => work({ query: (...args) => query(...args) }));
   resolveRequestEstimate.mockReset().mockImplementation(async (_request, _db, options = {}) => (
     options.strictRegistry
       ? { distanceKm: null, durationMin: null, source: null }
@@ -262,6 +267,25 @@ describe("ingestRequest", () => {
     expect(recordReservationEvent).not.toHaveBeenCalled();
   });
 
+  it("rejects a legacy passenger request whose internal service ID resolves to Cargo", async () => {
+    wire({ service: { service_type_id: 13, default_load_type: "Cargo" } });
+
+    await expect(ingestRequest({ ...REQUEST, service_type_id: 13 }))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+
+    expect(query.mock.calls.some(([sql]) => sql.includes("service_type_id = $1"))).toBe(true);
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it("preserves a legacy Passenger service ID when its catalog load type matches", async () => {
+    wire({ service: { service_type_id: 13, default_load_type: "Passenger" } });
+
+    await ingestRequest({ ...REQUEST, service_type_id: 13 });
+
+    expect(query.mock.calls.some(([sql]) => sql.includes("service_type_id = $1"))).toBe(true);
+    expect(insertCall()[1][9]).toBe(13);
+  });
+
   it("resolves active service code to a database id and persists cargo without a passenger", async () => {
     wire();
     await ingestRequest({ ...REQUEST, passenger_count: null, load_type: "Cargo", service_code: "RESTAURANT_SUPPLY_PICKUP", cargo_weight_kg: 650, cargo_description: "Vegetables", source_department: "Kitchen" }, { strictReplay: true });
@@ -366,6 +390,65 @@ describe("ingestRequest", () => {
     expect(query.mock.calls.some(([statement]) => /INSERT INTO routes/i.test(statement))).toBe(false);
     expect(query.mock.calls.filter(([statement]) => statement.includes("FROM locations"))
       .every(([statement]) => statement.includes("location_code"))).toBe(true);
+  });
+
+  it("locks the final active-code checks and inserts through the same transaction", async () => {
+    const v2 = {
+      ...REQUEST,
+      external_booking_id: "v2-locked-location-links",
+      pickup_location_code: PICKUP_CODE,
+      dropoff_location_code: DROPOFF_CODE,
+    };
+    wire({ locations: [
+      { location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null },
+      { location_code: DROPOFF_CODE, location_id: 32, is_active: true, retired_at: null },
+    ] });
+    const transactionCalls = [];
+    withTransaction.mockImplementation(async (work) => work({
+      query: async (...args) => {
+        transactionCalls.push(args);
+        return query(...args);
+      },
+    }));
+
+    await ingestRequest(v2, { strictReplay: true });
+
+    const lockedLookups = transactionCalls.filter(([sql]) => sql.includes("FROM locations"));
+    const transactionInsert = transactionCalls.find(([sql]) => sql.includes("INSERT INTO transportation_requests"));
+    expect(lockedLookups).toHaveLength(2);
+    expect(lockedLookups.every(([sql]) => /FOR SHARE/i.test(sql))).toBe(true);
+    expect(transactionInsert).toBeDefined();
+    expect(transactionCalls.indexOf(transactionInsert)).toBeGreaterThan(transactionCalls.indexOf(lockedLookups.at(-1)));
+    expect(transactionInsert[1].slice(25, 27)).toEqual([31, 32]);
+  });
+
+  it("rejects a location retired before its locked insert without writing the request", async () => {
+    const v2 = {
+      ...REQUEST,
+      external_booking_id: "v2-retired-before-insert",
+      pickup_location_code: PICKUP_CODE,
+    };
+    wire({ locations: [
+      { location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null },
+    ] });
+    const transactionCalls = [];
+    withTransaction.mockImplementation(async (work) => work({
+      query: async (sql, params) => {
+        transactionCalls.push([sql, params]);
+        if (sql.includes("FROM locations") && /FOR SHARE/i.test(sql)) {
+          return { rows: [{ location_id: 31, is_active: false, retired_at: "2026-10-05T00:00:00Z" }] };
+        }
+        return query(sql, params);
+      },
+    }));
+
+    await expect(ingestRequest(v2, { strictReplay: true }))
+      .rejects.toMatchObject({ code: "LOCATION_CODE_RETIRED" });
+
+    expect(transactionCalls.some(([sql]) => /FOR SHARE/i.test(sql))).toBe(true);
+    expect(transactionCalls.some(([sql]) => sql.includes("INSERT INTO transportation_requests"))).toBe(false);
+    expect(insertCall()).toBeUndefined();
+    expect(recordReservationEvent).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown v2 location code before inserting or opening the timeline", async () => {

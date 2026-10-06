@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { fleetStatusFromBooking } from "@/lib/integration/status-map";
 import { resolveVehicleCategory } from "@/lib/integration/category-resolver";
 import { resolveRequestEstimate, linkRequestLocations } from "@/services/route-resolver.service";
@@ -59,13 +59,12 @@ const CREATE_FIELDS = [
   "priority", "booking_status", "requested_vehicle_type", "is_vip", "is_emergency",
 ];
 
-async function resolveLocationCode(locationCode) {
+async function resolveLocationCode(locationCode, dbQuery = query, { lock = false } = {}) {
   if (!locationCode) return null;
-  const { rows } = await query(
+  const { rows } = await dbQuery(
     `SELECT location_id, is_active, retired_at
        FROM locations
-      WHERE location_code = $1
-      LIMIT 1`,
+      WHERE location_code = $1${lock ? " FOR SHARE" : ""}`,
     [locationCode]
   );
   const location = rows[0];
@@ -128,6 +127,18 @@ export async function ingestRequest(
   const dropoffLocationId = strictReplay ? await resolveLocationCode(request.dropoff_location_code) : null;
 
   let serviceTypeId = request.service_type_id || null;
+  if (serviceTypeId != null && !request.service_code) {
+    const { rows: services } = await query(
+      `SELECT service_type_id, default_load_type FROM service_types WHERE service_type_id = $1 LIMIT 1`,
+      [serviceTypeId]
+    );
+    const catalogLoadType = services[0]?.default_load_type;
+    if (catalogLoadType != null && catalogLoadType !== (request.load_type || "Passenger")) {
+      const error = new Error("Service ID is incompatible with the request load type.");
+      error.code = "SERVICE_UNAVAILABLE";
+      throw error;
+    }
+  }
   if (request.service_code) {
     const { rows: services } = await query(
       `SELECT service_type_id, default_load_type FROM service_types
@@ -168,8 +179,7 @@ export async function ingestRequest(
     request.special_requests
   );
 
-  const { rows } = await query(
-    `INSERT INTO transportation_requests
+  const insertSql = `INSERT INTO transportation_requests
        (external_booking_id, source_system, booking_reference, guest_name,
         pickup_location, dropoff_location, pickup_datetime, passenger_count,
         special_requests, service_type_id, priority, booking_status, fleet_status,
@@ -180,45 +190,57 @@ export async function ingestRequest(
          partner_pickup_location_proposal, partner_dropoff_location_proposal)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
      ON CONFLICT (source_system, external_request_id) DO NOTHING
-     RETURNING *`,
-    [
-      request.external_booking_id,
-      request.source_system,
-      request.booking_reference || null,
-      request.guest_name || null,
-      request.pickup_location,
-      request.dropoff_location || null,
-      request.pickup_datetime,
-      request.passenger_count,
-      request.special_requests || null,
-      serviceTypeId,
-      // Already translated to Fleet's vocabulary by parseTransportationRequest
-      // ('Normal' -> 'Medium'); inserting Booking's raw value would violate
-      // chk_transport_priority.
-      request.priority,
-      request.booking_status,
-      fleetStatus,
-      // Kept verbatim alongside the resolved id: the raw ask is the record of
-      // what Booking wanted, and it is all the queue can show when the string
-      // matched no category.
-      request.requested_vehicle_type || null,
-      category.categoryId,
-      estimate.distanceKm,
-      estimate.durationMin,
-      request.is_vip === true,
-      request.is_emergency === true,
-      request.external_booking_id,
-      fingerprint,
-      request.load_type || "Passenger",
-      request.cargo_weight_kg ?? null,
-      request.cargo_description ?? null,
-      request.source_department ?? null,
-      pickupLocationId,
-      dropoffLocationId,
-      request.pickup_location_proposal == null ? null : JSON.stringify(request.pickup_location_proposal),
-      request.dropoff_location_proposal == null ? null : JSON.stringify(request.dropoff_location_proposal),
-    ]
-  );
+     RETURNING *`;
+  const insertParams = [
+    request.external_booking_id,
+    request.source_system,
+    request.booking_reference || null,
+    request.guest_name || null,
+    request.pickup_location,
+    request.dropoff_location || null,
+    request.pickup_datetime,
+    request.passenger_count,
+    request.special_requests || null,
+    serviceTypeId,
+    // Already translated to Fleet's vocabulary by parseTransportationRequest
+    // ('Normal' -> 'Medium'); inserting Booking's raw value would violate
+    // chk_transport_priority.
+    request.priority,
+    request.booking_status,
+    fleetStatus,
+    // Kept verbatim alongside the resolved id: the raw ask is the record of
+    // what Booking wanted, and it is all the queue can show when the string
+    // matched no category.
+    request.requested_vehicle_type || null,
+    category.categoryId,
+    estimate.distanceKm,
+    estimate.durationMin,
+    request.is_vip === true,
+    request.is_emergency === true,
+    request.external_booking_id,
+    fingerprint,
+    request.load_type || "Passenger",
+    request.cargo_weight_kg ?? null,
+    request.cargo_description ?? null,
+    request.source_department ?? null,
+    pickupLocationId,
+    dropoffLocationId,
+    request.pickup_location_proposal == null ? null : JSON.stringify(request.pickup_location_proposal),
+    request.dropoff_location_proposal == null ? null : JSON.stringify(request.dropoff_location_proposal),
+  ];
+  let rows;
+  if (strictReplay) {
+    ({ rows } = await withTransaction(async (tx) => {
+      const lockedPickupId = await resolveLocationCode(request.pickup_location_code, tx.query, { lock: true });
+      const lockedDropoffId = await resolveLocationCode(request.dropoff_location_code, tx.query, { lock: true });
+      const lockedParams = [...insertParams];
+      lockedParams[25] = lockedPickupId;
+      lockedParams[26] = lockedDropoffId;
+      return tx.query(insertSql, lockedParams);
+    }));
+  } else {
+    ({ rows } = await query(insertSql, insertParams));
+  }
   if (!rows[0]) {
     const replay = await query(
       `SELECT * FROM transportation_requests WHERE source_system = $1 AND external_request_id = $2 LIMIT 1`,
