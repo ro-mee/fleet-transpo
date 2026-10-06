@@ -81,3 +81,20 @@ Live trip monitor (`src/services/live-trip-monitor.service.test.js`):
 ### Self-review and limits
 
 The next-dispatch SQL joins locations only through `transportation_requests.pickup_location_id` / `dropoff_location_id`; it does not read route endpoint coordinates. The shared strict helper requires ID equality, active status, no retirement timestamp, and queue-compatible complete/range-checked coordinates. Proposal data contributes only to provenance labels. V1 continues through the existing `resolveCoordinatesWithDb()` chain. The unused exported `buildFeasibilityContext()` has no direct repository consumer; it was kept consistent with the shared resolver, and no consumer changes were needed. Trip lifecycle and geofence state transitions are untouched; Task 1/2 ingest, Task 3 resolver logic, mobile route, geofence service, migrations, `.env`, and `schema.sql` were not changed. No live SQL/database behavior is claimed. Migration 146 remains an unapplied release hold.
+
+## Dispatch Radar recommendation fix — review round 1/5 (2026-10-06)
+
+**Starting HEAD:** `e84d4527c715525b46405a85f602675a8ee38ce5`\
+**Review base:** `b71812105eae810acc580c1cfca2ff4b75ae99a6`
+
+For the current v2 request and persisted preceding/next commitments, recommendation route endpoints now use only active, non-retired Fleet registry rows whose IDs match the corresponding explicit request link and whose coordinates are complete, finite, and in range. Missing, retired, mismatched, or invalid links remain unknown and never fall back to partner text. The commitment SELECT now projects `external_create_fingerprint`, pickup/drop-off IDs, proposal-presence flags, and both linked registry rows. Proposal data is used only to derive `pending_review` provenance. V1 and tentative legacy text resolution remains unchanged.
+
+### TDD evidence
+
+- Restored only `src/services/dispatch-radar.service.js` to HEAD; retained the new regression tests.
+- `npm run test:run -- src/services/dispatch-radar.test.js` against unchanged production: supplied regressions **5 failed, 17 passed**. After adding invalid-coordinate and persisted retired/mismatch cases, the RED run was **9 failed, 17 passed**.
+- After the fresh implementation, focused dispatch-radar suite: **1 file passed, 26/26 tests**.
+- Combined dispatch-radar, mobile-trip, geofence, route-feasibility, and live-trip-monitor suites: **5 files passed, 86/86 tests**.
+- Touched-file ESLint and `git diff --check` passed.
+
+No migration, DB, `.env`, or `schema.sql` work was performed. Verification is static/mock-based; live SQL and deployment behavior are not claimed.

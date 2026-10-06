@@ -4,6 +4,7 @@ import { GPS_FRESH_MS,isValidCoordinate } from '@/lib/gps';
 import { LOCATION_POLICY_VERSION, requestLocationContext, resolveLocationRelevance } from '@/lib/dispatch/location-relevance';
 import { standbyState } from '@/services/standby.service';
 import { resolveDeadheadMinutes } from '@/services/route-feasibility-context.service';
+import { getCoordinateProvenanceFields } from '@/lib/locations/coordinate-provenance';
 import { evaluateRouteFeasibility } from '@/lib/scheduling/route-feasibility';
 import { detectRequestConflicts } from '@/lib/scheduling/conflicts';
 import { loadDriverScheduleContext } from '@/services/driver-schedule.service';
@@ -31,10 +32,83 @@ function dutyWindowForPair(dutyCtx, driverId, pickupMs) {
     breakEnd: row.break_end ? String(row.break_end) : null,
   };
 }
+const isV2Request = row => row?.external_create_fingerprint != null;
+const point = row => isValidCoordinate(row?.latitude,row?.longitude) ? { lat:Number(row.latitude),lng:Number(row.longitude) } : null;
+
+function v2EndpointEvidence(row, endpoint) {
+  const linkedId = row?.[`${endpoint}_location_id`];
+  const registryId = row?.[`_${endpoint}_registry_location_id`];
+  const registry = getCoordinateProvenanceFields({
+    is_active: linkedId != null && registryId != null && String(linkedId) === String(registryId)
+      && row?.[`_${endpoint}_registry_is_active`] === true
+      && row?.[`_${endpoint}_registry_retired_at`] == null,
+    latitude: row?.[`_${endpoint}_registry_latitude`],
+    longitude: row?.[`_${endpoint}_registry_longitude`],
+  });
+  if (registry.coordinate_provenance === 'canonical_registry') {
+    return {
+      coordinates: { lat:Number(row[`_${endpoint}_registry_latitude`]),lng:Number(row[`_${endpoint}_registry_longitude`]) },
+      provenance: 'canonical_registry',
+      locationId: linkedId,
+    };
+  }
+  const hasProposal = row?.[`_${endpoint}_proposal_present`] === true
+    || row?.[`partner_${endpoint}_location_proposal`] != null;
+  return { coordinates:null,provenance:hasProposal ? 'pending_review' : 'unknown',locationId:linkedId };
+}
+
+async function withV2RegistryLocations(request) {
+  if (!isV2Request(request)) return request;
+  const ids = [...new Set([request.pickup_location_id,request.dropoff_location_id]
+    .map(Number).filter(id => Number.isInteger(id) && id > 0))];
+  let rows = [];
+  if (ids.length) {
+    try {
+      ({ rows = [] } = await query(`SELECT location_id,is_active,retired_at,latitude,longitude
+        FROM locations WHERE location_id = ANY($1::integer[])`,[ids]));
+    } catch { rows = []; }
+  }
+  const byId = new Map(rows.map(row => [String(row.location_id),row]));
+  const projected = { ...request };
+  for (const endpoint of ['pickup','dropoff']) {
+    const location = byId.get(String(request[`${endpoint}_location_id`])) ?? null;
+    projected[`_${endpoint}_registry_location_id`] = location?.location_id ?? null;
+    projected[`_${endpoint}_registry_is_active`] = location?.is_active ?? null;
+    projected[`_${endpoint}_registry_retired_at`] = location?.retired_at ?? null;
+    projected[`_${endpoint}_registry_latitude`] = location?.latitude ?? null;
+    projected[`_${endpoint}_registry_longitude`] = location?.longitude ?? null;
+  }
+  return projected;
+}
+
+function endpointReference(row, endpoint) {
+  if (isV2Request(row)) return { strict:true,...v2EndpointEvidence(row,endpoint),label:null };
+  return { strict:false,label:row?.[`${endpoint}_location`] ?? null,coordinates:null };
+}
+
 async function knownLeg(origin,destination) {
   const endpoints = await resolveRouteEndpoints({ query },{ origin,destination });
-  const point = row => isValidCoordinate(row?.latitude,row?.longitude) ? { lat:Number(row.latitude),lng:Number(row.longitude) } : null;
   return { origin:point(endpoints?.originLocation),destination:point(endpoints?.destinationLocation) };
+}
+
+async function knownRequestLeg(originRow,originEndpoint,destinationRow,destinationEndpoint) {
+  const origin = endpointReference(originRow,originEndpoint);
+  const destination = endpointReference(destinationRow,destinationEndpoint);
+  if (!origin.strict && !destination.strict) return knownLeg(origin.label,destination.label);
+  if (origin.strict && !origin.coordinates || destination.strict && !destination.coordinates)
+    return { origin:origin.coordinates ?? null,destination:destination.coordinates ?? null };
+  if (origin.strict && destination.strict) return { origin:origin.coordinates,destination:destination.coordinates };
+
+  const endpoints = await resolveRouteEndpoints({ query },{
+    origin:origin.strict ? null : origin.label,
+    destination:destination.strict ? null : destination.label,
+    ...(origin.strict ? { originLocationId:origin.locationId } : {}),
+    ...(destination.strict ? { destinationLocationId:destination.locationId } : {}),
+  });
+  return {
+    origin:origin.strict ? origin.coordinates : point(endpoints?.originLocation),
+    destination:destination.strict ? destination.coordinates : point(endpoints?.destinationLocation),
+  };
 }
 
 export function serviceEnd(request, estimate) {
@@ -69,9 +143,30 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
   const pickup = new Date(request.pickup_datetime).getTime();
   const { conflicts, checks } = await detectRequestConflicts({ ...request, scheduled_arrival: end?.toISOString() }, { vehicleId, driverId, strict: true, includeEvidence:true, policy });
   const blocking = conflicts.filter(c => c.severity === 'blocking');
+  const endpointRequest = await withV2RegistryLocations(request);
+  const endpointProvenance = isV2Request(endpointRequest) ? {
+    pickup:v2EndpointEvidence(endpointRequest,'pickup').provenance,
+    dropoff:v2EndpointEvidence(endpointRequest,'dropoff').provenance,
+  } : null;
+  const withEndpointProvenance = verdict => endpointProvenance ? { ...verdict,endpointProvenance } : verdict;
   const { rows: persistedCommitments } = await query(`SELECT ds.dispatch_id,ds.driver_id,ds.vehicle_id,ds.status,
-      ds.scheduled_departure,ds.scheduled_arrival,completed.actual_end,tr.pickup_location,tr.dropoff_location
+      ds.scheduled_departure,ds.scheduled_arrival,completed.actual_end,tr.pickup_location,tr.dropoff_location,
+      tr.external_create_fingerprint,tr.pickup_location_id,tr.dropoff_location_id,
+      tr.partner_pickup_location_proposal IS NOT NULL AS _pickup_proposal_present,
+      tr.partner_dropoff_location_proposal IS NOT NULL AS _dropoff_proposal_present,
+      pickup_registry.location_id AS _pickup_registry_location_id,
+      pickup_registry.is_active AS _pickup_registry_is_active,
+      pickup_registry.retired_at AS _pickup_registry_retired_at,
+      pickup_registry.latitude AS _pickup_registry_latitude,
+      pickup_registry.longitude AS _pickup_registry_longitude,
+      dropoff_registry.location_id AS _dropoff_registry_location_id,
+      dropoff_registry.is_active AS _dropoff_registry_is_active,
+      dropoff_registry.retired_at AS _dropoff_registry_retired_at,
+      dropoff_registry.latitude AS _dropoff_registry_latitude,
+      dropoff_registry.longitude AS _dropoff_registry_longitude
     FROM dispatchschedules ds LEFT JOIN transportation_requests tr ON tr.request_id=ds.request_id AND tr.deleted_at IS NULL
+    LEFT JOIN locations pickup_registry ON pickup_registry.location_id=tr.pickup_location_id
+    LEFT JOIN locations dropoff_registry ON dropoff_registry.location_id=tr.dropoff_location_id
     LEFT JOIN LATERAL (SELECT MAX(t.end_time) AS actual_end FROM trips t WHERE t.dispatch_id=ds.dispatch_id AND t.deleted_at IS NULL AND t.trip_status='Completed') completed ON TRUE
     WHERE ds.deleted_at IS NULL AND ds.status IN ('Scheduled','In Progress','Completed')
       AND (ds.driver_id=$1 OR ds.vehicle_id=$2) AND ($3::int IS NULL OR ds.request_id IS DISTINCT FROM $3)
@@ -101,7 +196,7 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
     const meaningful = latest.status !== 'Completed';
     const leg = meaningful && prevDriver?.dispatch_id === prevVehicle?.dispatch_id && Number.isFinite(available)
       && !(latest.status === 'In Progress' && available < new Date(now).getTime())
-      ? await knownLeg(latest.dropoff_location,request.pickup_location) : null;
+      ? await knownRequestLeg(latest,'dropoff',endpointRequest,'pickup') : null;
     if (meaningful) preceding = { dispatch_id: latest.dispatch_id,
       availableAt: Number.isFinite(available) ? new Date(available).toISOString() : null,
       origin: prevDriver?.dispatch_id === prevVehicle?.dispatch_id && Number.isFinite(available)
@@ -134,10 +229,10 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
     // check leaves no message). Null on rest days, missing rows, or missing
     // context — never a default shift.
     dutyWindow: dutyWindowForPair(dutyCtx, driverId, pickup),
-  }, dispatchContext, checks, evaluated:true, readiness: 'REVIEW_REQUIRED', feasibility: unknown('Route evidence needs review.'), hardConflicts: blocking,
+  }, dispatchContext, checks, evaluated:true, readiness: 'REVIEW_REQUIRED', feasibility: withEndpointProvenance(unknown('Route evidence needs review.')), hardConflicts: blocking,
     advisories:conflicts.filter(c => c.severity !== 'blocking'), reviewable:false };
   if (blocking.length) {
-    result.feasibility = { verdict: 'INFEASIBLE', reasons: blocking.map(c => c.message) };
+    result.feasibility = withEndpointProvenance({ verdict: 'INFEASIBLE', reasons: blocking.map(c => c.message) });
     return result;
   }
   const origin = dispatchContext.liveLocationUsed ? { lat: Number(fix.latitude), lng: Number(fix.longitude) } : preceding?.origin;
@@ -153,12 +248,12 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
     const ctx = await loadDriverScheduleContext([driverId]);
     const duty = driverBlockReason({ driverId,pickup:departAt,returnAt:end,ctx });
     if (duty?.blocked) {
-      result.feasibility = { verdict:'INFEASIBLE',reasons:[duty.reason] };
+      result.feasibility = withEndpointProvenance({ verdict:'INFEASIBLE',reasons:[duty.reason] });
       result.hardConflicts.push({ severity:'blocking',type:'duty_window',message:duty.reason });
       return result;
     }
   }
-  const endpoints = origin || commitments.length ? await knownLeg(request.pickup_location,request.dropoff_location) : null;
+  const endpoints = origin || commitments.length ? await knownRequestLeg(endpointRequest,'pickup',endpointRequest,'dropoff') : null;
   const route = { ...(await routeFor(origin,endpoints?.origin,departAt)) };
   if (dispatchContext.liveLocationUsed && route.minutes != null) {
     const expiresAt = new Date(Math.min(new Date(dispatchContext.evidenceExpiresAt).getTime(),new Date(route.computedAt).getTime()+GPS_FRESH_MS)).toISOString();
@@ -174,22 +269,27 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
   result.scheduleEvidence.usableSlackMinutes = route.minutes == null ? null : Math.round((pickup - +new Date(departAt))/60_000 - route.minutes - preparationMinutes);
   result.scheduleEvidence.pickupMarginMinutes = route.minutes == null ? null : Math.round((pickup - +new Date(departAt))/60_000 - route.minutes);
   if (result.proximity) result.scheduleEvidence.uncertainty = null;
-  if (!end) { result.feasibility = unknown('Service completion time is unknown.'); return result; }
+  if (!end) { result.feasibility = withEndpointProvenance(unknown('Service completion time is unknown.')); return result; }
   const passenger = ['TomTom','Manual'].includes(estimate?.source) || request.scheduled_arrival ? (end.getTime()-pickup)/60_000 : null;
   const nextFor = (key,id) => commitments.find(c => c.status !== 'Completed' && Number(c[key])===Number(id) && new Date(c.scheduled_departure).getTime() >= pickup);
   const nexts = [...new Map([nextFor('driver_id',driverId),nextFor('vehicle_id',vehicleId)].filter(Boolean).map(c => [c.dispatch_id,c])).values()];
   const verdicts = [];
   for (const next of nexts.length ? nexts : [null]) {
-    const nextLeg = next ? await knownLeg(request.dropoff_location,next.pickup_location) : null;
+    const nextLeg = next ? await knownRequestLeg(endpointRequest,'dropoff',next,'pickup') : null;
     const reposition = next ? await routeFor(nextLeg.origin,nextLeg.destination,end) : null;
-    verdicts.push({ ...evaluateRouteFeasibility({ now:departAt,pickupAt:request.pickup_datetime,
+    const nextDispatchEndpointProvenance = isV2Request(next) ? {
+      pickup:v2EndpointEvidence(next,'pickup').provenance,
+      dropoff:v2EndpointEvidence(next,'dropoff').provenance,
+    } : null;
+    verdicts.push({ ...withEndpointProvenance(evaluateRouteFeasibility({ now:departAt,pickupAt:request.pickup_datetime,
       deadheadMinutes:route.minutes,passengerMinutes:passenger,nextPickupAt:next?.scheduled_departure,
       repositionMinutes:reposition?.minutes,safetyBufferMinutes:preparationMinutes,
       // The deadhead leg is only material evidence when the journey has a
       // known start (preceding destination or live position). A scheduled
       // pair with no preceding commitment is judged on the knowable static
       // legs instead of warning about an unknowable ETA.
-      deadheadRequired: origin != null || preceding != null || dispatchContext.mode !== 'SCHEDULED' }),
+      deadheadRequired: origin != null || preceding != null || dispatchContext.mode !== 'SCHEDULED' })),
+      ...(nextDispatchEndpointProvenance ? { nextDispatchEndpointProvenance } : {}),
       nextDispatchId:next?.dispatch_id ?? null,nextPickupAt:next?.scheduled_departure ?? null,
       deadheadMin:route.minutes,passengerMin:passenger,repositionMin:reposition?.minutes ?? null,
       provenance:{deadhead:route.provenance,passenger:estimate?.source === 'TomTom' ? 'snapshot' : 'unknown',reposition:reposition?.provenance ?? 'unknown'} });

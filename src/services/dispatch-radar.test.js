@@ -161,6 +161,136 @@ it('skips the release-to-end duty re-check when it spans calendar days (RS-W3JU)
   expect((result.hardConflicts||[]).some(c=>c.type==='duty_window')).toBe(false);
   expect(driverBlockReason).not.toHaveBeenCalled();
 });
+it.each([
+  ['missing',null,[]],
+  ['retired',11,[{location_id:11,is_active:false,retired_at:'2026-01-01T00:00:00Z',latitude:14.7,longitude:121.3}]],
+  ['mismatched',11,[{location_id:99,is_active:true,retired_at:null,latitude:14.7,longitude:121.3}]],
+])('keeps a v2 recommendation pickup unknown when its link is %s despite matching text',async(_case,pickupLocationId,linkedRows)=>{
+  request={...request,external_create_fingerprint:'v2-fingerprint',pickup_location_id:pickupLocationId,dropoff_location_id:12,
+    partner_pickup_location_proposal:{address:'Proposed pickup',latitude:14.7,longitude:121.3}};
+  query.mockImplementation(async sql=>String(sql).includes('FROM locations')?{rows:linkedRows}:{rows:[]});
+  const candidates=[{driver_id:1,vehicle_id:1,driver:{},vehicle:{},score:80}];
+  const recommendation={pair:{candidates}};
+
+  await applyDispatchRadar({request,estimate:{durationMin:30,source:'TomTom'},recommendation,now});
+
+  expect(candidates[0].feasibility.verdict).toBe('UNKNOWN');
+  expect(candidates[0].feasibility.endpointProvenance).toEqual({pickup:'pending_review',dropoff:'unknown'});
+  expect(resolveRouteEndpoints).not.toHaveBeenCalled();
+  expect(resolveDeadheadMinutes).not.toHaveBeenCalled();
+});
+
+it('uses active linked Fleet points instead of text-resolved recommendation coordinates',async()=>{
+  request={...request,external_create_fingerprint:'v2-fingerprint',pickup_location_id:11,dropoff_location_id:12};
+  query.mockImplementation(async sql=>String(sql).includes('FROM locations')?{rows:[
+    {location_id:11,is_active:true,retired_at:null,latitude:14.72,longitude:121.31},
+    {location_id:12,is_active:true,retired_at:null,latitude:14.81,longitude:121.42},
+  ]}:{rows:[]});
+  const candidates=[{driver_id:1,vehicle_id:1,driver:{},vehicle:{},score:80}];
+  const recommendation={pair:{candidates}};
+
+  await applyDispatchRadar({request,estimate:{durationMin:30,source:'TomTom'},recommendation,now});
+
+  expect(candidates[0].feasibility.verdict).toBe('SAFE');
+  expect(candidates[0].feasibility.endpointProvenance).toEqual({pickup:'canonical_registry',dropoff:'canonical_registry'});
+  expect(resolveDeadheadMinutes).toHaveBeenCalledWith(
+    {lat:14.51,lng:121},{lat:14.72,lng:121.31},expect.objectContaining({strict:true})
+  );
+  expect(resolveRouteEndpoints).not.toHaveBeenCalled();
+});
+
+it('keeps v2 next-dispatch reposition unknown when its pickup link is absent',async()=>{
+  request={...request,external_create_fingerprint:'current-v2',pickup_location_id:11,dropoff_location_id:12};
+  const nextCommitment={
+    dispatch_id:31,driver_id:1,vehicle_id:1,status:'Scheduled',
+    scheduled_departure:new Date(+new Date(request.pickup_datetime)+180*60_000),
+    pickup_location:'Known Next Terminal',dropoff_location:'Known Destination',
+    external_create_fingerprint:'next-v2',pickup_location_id:null,dropoff_location_id:32,
+    _pickup_proposal_present:true,_dropoff_proposal_present:false,
+    _pickup_registry_location_id:null,_pickup_registry_is_active:null,
+    _pickup_registry_retired_at:null,_pickup_registry_latitude:null,_pickup_registry_longitude:null,
+    _dropoff_registry_location_id:32,_dropoff_registry_is_active:true,
+    _dropoff_registry_retired_at:null,_dropoff_registry_latitude:14.9,_dropoff_registry_longitude:121.5,
+  };
+  query.mockImplementation(async sql=>{
+    if(String(sql).includes('FROM dispatchschedules ds'))return {rows:[nextCommitment]};
+    if(String(sql).includes('FROM locations'))return {rows:[
+      {location_id:11,is_active:true,retired_at:null,latitude:14.72,longitude:121.31},
+      {location_id:12,is_active:true,retired_at:null,latitude:14.81,longitude:121.42},
+    ]};
+    return {rows:[]};
+  });
+  const candidates=[{driver_id:1,vehicle_id:1,driver:{},vehicle:{},score:80}];
+  const recommendation={pair:{candidates}};
+
+  await applyDispatchRadar({request,estimate:{durationMin:30,source:'TomTom'},recommendation,now});
+
+  expect(candidates[0].feasibility.verdict).toBe('UNKNOWN');
+  expect(candidates[0].feasibility.reasons.join(' ')).toMatch(/Unverified turnaround before dispatch #31/);
+  expect(candidates[0].feasibility.nextDispatchEndpointProvenance).toEqual({pickup:'pending_review',dropoff:'canonical_registry'});
+  expect(resolveDeadheadMinutes).toHaveBeenCalledTimes(1);
+  expect(resolveRouteEndpoints).not.toHaveBeenCalled();
+  const commitmentSql=query.mock.calls.map(([sql])=>String(sql)).find(sql=>sql.includes('FROM dispatchschedules ds'));
+  expect(commitmentSql).toContain('tr.external_create_fingerprint');
+  expect(commitmentSql).toContain('tr.pickup_location_id');
+  expect(commitmentSql).toContain('pickup_registry.location_id');
+});
+
+it('does not use an active v2 location whose coordinates are invalid',async()=>{
+  request={...request,external_create_fingerprint:'v2-fingerprint',pickup_location_id:11,dropoff_location_id:12};
+  query.mockImplementation(async sql=>String(sql).includes('FROM locations')?{rows:[
+    {location_id:11,is_active:true,retired_at:null,latitude:91,longitude:121},
+    {location_id:12,is_active:true,retired_at:null,latitude:14.81,longitude:121.42},
+  ]}:{rows:[]});
+  const candidates=[{driver_id:1,vehicle_id:1,driver:{},vehicle:{},score:80}];
+  const recommendation={pair:{candidates}};
+
+  await applyDispatchRadar({request,estimate:{durationMin:30,source:'TomTom'},recommendation,now});
+
+  expect(candidates[0].feasibility.verdict).toBe('UNKNOWN');
+  expect(candidates[0].feasibility.endpointProvenance).toEqual({pickup:'unknown',dropoff:'canonical_registry'});
+  expect(resolveRouteEndpoints).not.toHaveBeenCalled();
+  expect(resolveDeadheadMinutes).not.toHaveBeenCalled();
+});
+
+it.each([
+  ['retired', {location_id:31,is_active:false,retired_at:'2026-01-01T00:00:00Z',latitude:14.7,longitude:121.3}],
+  ['mismatched', {location_id:99,is_active:true,retired_at:null,latitude:14.7,longitude:121.3}],
+  ['invalid', {location_id:31,is_active:true,retired_at:null,latitude:91,longitude:121.3}],
+])('keeps a persisted v2 next pickup %s despite matching text',async(_case,pickupRegistry)=>{
+  request={...request,external_create_fingerprint:'current-v2',pickup_location_id:11,dropoff_location_id:12};
+  const nextCommitment={
+    dispatch_id:31,driver_id:1,vehicle_id:1,status:'Scheduled',
+    scheduled_departure:new Date(+new Date(request.pickup_datetime)+180*60_000),
+    pickup_location:'Known Next Terminal',dropoff_location:'Known Destination',
+    external_create_fingerprint:'next-v2',pickup_location_id:31,dropoff_location_id:32,
+    _pickup_proposal_present:true,_dropoff_proposal_present:false,
+    _pickup_registry_location_id:pickupRegistry.location_id,
+    _pickup_registry_is_active:pickupRegistry.is_active,
+    _pickup_registry_retired_at:pickupRegistry.retired_at,
+    _pickup_registry_latitude:pickupRegistry.latitude,_pickup_registry_longitude:pickupRegistry.longitude,
+    _dropoff_registry_location_id:32,_dropoff_registry_is_active:true,
+    _dropoff_registry_retired_at:null,_dropoff_registry_latitude:14.9,_dropoff_registry_longitude:121.5,
+  };
+  query.mockImplementation(async sql=>{
+    if(String(sql).includes('FROM dispatchschedules ds'))return {rows:[nextCommitment]};
+    if(String(sql).includes('FROM locations'))return {rows:[
+      {location_id:11,is_active:true,retired_at:null,latitude:14.72,longitude:121.31},
+      {location_id:12,is_active:true,retired_at:null,latitude:14.81,longitude:121.42},
+    ]};
+    return {rows:[]};
+  });
+  const candidates=[{driver_id:1,vehicle_id:1,driver:{},vehicle:{},score:80}];
+  const recommendation={pair:{candidates}};
+
+  await applyDispatchRadar({request,estimate:{durationMin:30,source:'TomTom'},recommendation,now});
+
+  expect(candidates[0].feasibility.verdict).toBe('UNKNOWN');
+  expect(candidates[0].feasibility.nextDispatchEndpointProvenance).toEqual({pickup:'pending_review',dropoff:'canonical_registry'});
+  expect(resolveRouteEndpoints).not.toHaveBeenCalled();
+  expect(resolveDeadheadMinutes).toHaveBeenCalledTimes(1);
+});
+
 it('still applies the release-to-end duty re-check within one calendar day',async()=>{
   now=new Date('2026-09-19T09:00:00+08:00');
   request={...request,pickup_datetime:new Date('2026-09-19T14:00:00+08:00').toISOString()};

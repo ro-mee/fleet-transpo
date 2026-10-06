@@ -15,6 +15,12 @@ related: ["[[Reservations]]", "[[Trips]]"]
 
 # Feature: Dispatch
 
+## Dispatch Radar v2 recommendation endpoints — review round 1/5 (2026-10-06)
+
+The dispatch radar now resolves current-request and persisted-commitment route endpoints for v2 only from the explicit request location IDs. A point is usable only when the joined Fleet row matches that ID, is active and non-retired, and has a complete finite in-range coordinate pair. Missing, retired, mismatched, or invalid endpoints remain unknown; partner text is not sent through route/name resolution. Proposal presence contributes only the `pending_review` provenance label and proposal coordinates are never route inputs. The commitment query carries the fingerprint, both IDs, proposal-presence flags, and both linked Fleet rows. V1 and tentative legacy commitments retain their existing text fallback.
+
+Verified: dispatch-radar RED against unchanged production (9 failed, 17 passed after adding invalid-coordinate and persisted-link cases), then 26/26 focused tests; the combined five Task 4 reader suites passed 86/86; touched ESLint and `git diff --check` passed. Evidence is mocked/static; no live database behavior is claimed.
+
 ## Duty clock is Manila-explicit, not server-local — 2026-10-02
 
 `localDayOfWeek` / `localTimeOfDay` (`src/lib/scheduling/driver-schedule.js`) read the pickup instant with the server's local getters. Dev machines sit in GMT+8 so nothing looked wrong; a UTC runner reads a 5 PM Manila pickup as 9 AM and the noon break as 4 AM, silently moving shift containment, break overlap, weekday lookup and leave-day derivation by up to 8 hours. Both helpers now read Asia/Manila through Intl, `hasLeaveConflict` derives the pickup's Manila calendar day explicitly, and `day-eligibility.js` builds its day bounds as Manila-midnight instants. `driver-schedule.test.js` constructs Manila instants (`+08:00`) instead of server-local Dates and pins the RS-UZYD instant (07:09Z reads 15:09 Friday). Verified under both the local zone and `TZ=UTC`. `toCalendarDay` is deliberately untouched: pg `date` columns arrive as local-midnight Dates and its local-component read is correct for them. Residual: the noon break and 6 AM/10 PM edges still need the live test setup described in [[AI Advisory]].
