@@ -52,6 +52,7 @@ import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
 
 const LOCATION_ID = 3;
+const LOCATION_CODE = "f902c1ea-6019-46e0-b56d-0b429fae0ee6";
 const ADDRESS_ID = 4;
 
 const STREET = "Winding Creek Boulevard";
@@ -90,6 +91,7 @@ const LOADED = loaded();
 function locationRow(overrides = {}) {
   return {
     location_id: LOCATION_ID,
+    location_code: LOCATION_CODE,
     name: "BGC Terminal",
     address: "8572 Winding Creek Boulevard, Quezon City",
     latitude: 14.6538,
@@ -146,6 +148,18 @@ describe("GET /api/locations/[id] — the address it hands the picker", () => {
     expect(body.structured_address.streetRoad).toBe(STREET);
     expect(body.structured_address_reason).toBeNull();
     expect(loadStructuredAddress).toHaveBeenCalledWith(ADDRESS_ID);
+  });
+
+  it("projects the stable location code in the read-only detail response", async () => {
+    installDb();
+
+    const res = await GET(request(), context());
+    const body = await res.json();
+    const [sql] = db.query.mock.calls[0];
+
+    expect(res.status).toBe(200);
+    expect(body.location_code).toBe(LOCATION_CODE);
+    expect(sql).toMatch(/SELECT location_id, location_code,/i);
   });
 
   it("sends both keys and the reason when the address cannot be reopened", async () => {

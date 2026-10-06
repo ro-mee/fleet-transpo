@@ -14,7 +14,8 @@ source:
   - src/lib/routing/route-cache.js
   - src/lib/scheduling/route-feasibility.js
   - supabase/migrations/076_routes_integrity.sql
-last_verified: 2026-09-07
+  - supabase/migrations/146_location_intake_identity.sql
+last_verified: 2026-10-06
 related: ["[[Dispatch]]", "[[Trips]]", "[[Reservations]]"]
 ---
 
@@ -183,3 +184,9 @@ standby ×2, driver-assignments), untouched by this change.
 PR 4.5 uses strict routed deadhead/reposition evidence: canonical catalog coordinates, original cache computation time, 90-second immediate cache limit, four workers and a bounded provider budget. No haversine-speed fallback becomes verified pickup ETA. Passenger duration feeds the same service window used by assignment and dispatch creation. Both resources? next bookings are checked independently; unknown origins, duration or provider results remain review-required.
 
 Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]]. Full suite: 1,140 passing tests; later focused checks: 37 passing tests; web build, Android export, route-auth audit and migration/query verification passed.
+
+## Fleet location codes — Task 1 (2026-10-06, prepared; migration not applied)
+
+Migration `146_location_intake_identity.sql` adds a database-generated UUID `location_code` to each canonical `locations` row. A full unique index reserves codes across active and retired rows; the code is not derived from mutable names or addresses. The prepared location list/detail GET projections expose it for partner configuration. POST and PUT do not write a supplied code: new and versioned rows receive the database default, while in-place edits preserve the existing identity.
+
+The Fleet location registry shows the code in a copyable list column and in the edit/detail dialog as read-only. This slice only establishes identity and API projection: it does not change route resolution, geofencing, navigation, or v2 intake behavior. The migration is prepared but unapplied, so the changed application code requires that migration before deployment. Static migration/API tests and offline `db:check` are the evidence, not live catalog behavior.

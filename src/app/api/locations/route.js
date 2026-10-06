@@ -46,7 +46,7 @@ export async function GET(req) {
     const canSeeInactive = rolesFor("locations", "read_inactive").includes(session.user.role);
 
     const { rows } = await query(
-      `SELECT location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, address_id, created_at
+      `SELECT location_id, location_code, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, address_id, created_at
          FROM locations
         ${includeInactive && canSeeInactive ? "" : "WHERE is_active = true"}
         ORDER BY name ASC`
@@ -118,7 +118,7 @@ export async function POST(req) {
       const { rows } = await tx.query(
         `INSERT INTO locations (name, address, latitude, longitude, is_active, pickup_radius_m, dropoff_radius_m, address_id)
          VALUES ($1, $2, $3, $4, true, COALESCE($5, 100), COALESCE($6, 100), $7)
-         RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, address_id, created_at, is_active, retired_at`,
+         RETURNING location_id, location_code, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, address_id, created_at, is_active, retired_at`,
         [name, address, latitude, longitude, radiusOrNull(body.pickup_radius_m), radiusOrNull(body.dropoff_radius_m), addressId]
       );
       return rows[0];

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Edit3, ExternalLink, Loader2, MapPin, Plus, Route as RouteIcon } from "lucide-react";
+import { Copy, Edit3, ExternalLink, Loader2, MapPin, Plus, Route as RouteIcon } from "lucide-react";
 import { DataTable } from "@/components/tables/data-table";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,15 @@ function mapUrl(location) {
   const longitude = Number(location.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+}
+
+async function copyLocationCode(locationCode) {
+  try {
+    await navigator.clipboard.writeText(locationCode);
+    toast.success("Fleet location code copied");
+  } catch {
+    toast.error("Could not copy Fleet location code");
+  }
 }
 
 export default function LocationsPage() {
@@ -214,6 +223,27 @@ export default function LocationsPage() {
       render: (value, location) => <div><p className="font-semibold text-foreground">{value}</p><p className="mt-0.5 font-data text-[11px] text-foreground-muted">Canonical location #{location.location_id}</p></div>,
     },
     {
+      key: "location_code",
+      label: "Partner code",
+      render: (value, location) => (
+        <div className="flex min-w-56 items-center gap-2">
+          <code className="min-w-0 break-all font-data text-[11px] text-foreground-secondary">{value || "Unavailable"}</code>
+          {value && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label={`Copy location code for ${location.name}`}
+              onClick={() => void copyLocationCode(value)}
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+    {
       key: "address",
       label: "Address",
       sortable: true,
@@ -264,7 +294,7 @@ export default function LocationsPage() {
         title="Canonical location registry"
         description="Names, addresses, and exact coordinates used by route estimates and live navigation."
         icon={MapPin}
-        searchPlaceholder="Search location or address..."
+        searchPlaceholder="Search location, address, or code..."
         emptyTitle="No canonical locations yet"
         emptyDescription="Add a verified location before creating a reusable route."
         emptyVariant="first-run"
@@ -286,6 +316,23 @@ export default function LocationsPage() {
             <DialogDescription>{editingLocation ? "Name and address changes keep this location identity. A coordinate change used by trip history creates a new version instead." : "Use a distinct operational name and verify the pin before saving. Airport arrivals and departures should be separate endpoints."}</DialogDescription>
           </DialogHeader>
           <form onSubmit={submitForm} className="space-y-4 p-6 pt-5">
+            {editingLocation?.location_code && (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] text-foreground-muted">Fleet location code · read-only</p>
+                  <code className="block break-all font-data text-xs text-foreground-secondary">{editingLocation.location_code}</code>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0"
+                  onClick={() => void copyLocationCode(editingLocation.location_code)}
+                >
+                  <Copy className="mr-1.5 h-3.5 w-3.5" />Copy
+                </Button>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="location_name">Location name</Label>
               <Input id="location_name" value={formData.name} onChange={(event) => setFormData((previous) => ({ ...previous, name: event.target.value }))} ref={registerField("name")} invalid={fieldError("name").invalid} placeholder="Enter the official location name" maxLength={255} autoFocus />

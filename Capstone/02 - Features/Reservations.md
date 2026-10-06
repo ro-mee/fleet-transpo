@@ -8,7 +8,8 @@ source:
   - src/services/reservation-lifecycle.service.js
   - src/lib/scheduling/reservation-state.js
   - src/lib/scheduling/priority.js
-last_verified: 2026-09-08
+  - supabase/migrations/146_location_intake_identity.sql
+last_verified: 2026-10-06
 related: ["[[Dispatch]]", "[[System Boundaries]]"]
 ---
 
@@ -249,3 +250,9 @@ The mutation also invalidated only `["reservations"]`, which matches **no query 
 ### Verification
 
 `src/lib/scheduling/smart-default-tab.test.js` (+9), a new `src/app/(dashboard)/reservations/queue/page.test.js` (5), `src/lib/integration/ingest-outcome.test.js` (5), plus the touched-file ESLint and production build. Full suite 3484 passed / 6 failed, the six being the pre-existing failures already recorded for 2026-10-01.
+
+## Partner endpoint proposal storage — Task 1 (2026-10-06, prepared; migration not applied)
+
+The prepared migration adds nullable `partner_pickup_location_proposal` and `partner_dropoff_location_proposal` JSONB fields to `transportation_requests`. Each proposal is constrained to an object with only `address`, `latitude`, and `longitude`; it needs a nonempty address or a complete coordinate pair, limits addresses to 2,000 characters, and rejects partial, non-finite, or out-of-range coordinates. This preserves partner place information durably for a later review flow.
+
+These values are untrusted review data only. Task 1 does not add a v2 writer or project proposals to the reservation queue, and partner coordinates do not become route, dispatch, mobile, or geofence inputs. The migration remains unapplied; only static migration tests and offline `db:check` were run.

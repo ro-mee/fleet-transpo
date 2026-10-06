@@ -5,10 +5,16 @@ tags: [database, migrations]
 source:
   - supabase/migrations
   - AGENTS.md
-last_verified: 2026-09-27
+last_verified: 2026-10-06
 ---
 
 # Migrations
+
+## 2026-10-06 — `146_location_intake_identity.sql` (Fleet location identity + partner proposal storage; prepared, NOT applied)
+
+Adds `locations.location_code UUID NOT NULL DEFAULT uuid_generate_v4()` and backfills every existing row without changing location IDs or their relationships. A full unique index reserves the code across active and retired rows. Adds nullable JSONB partner pickup/drop-off proposal columns to `transportation_requests`, constrained to the supported object keys, bounded address strings, and coordinate values that are absent/null together or supplied as a complete finite in-range pair. No new table or RLS change.
+
+`npm run db:status` was rerun read-only from the root checkout before choosing the number (141 files applied, 0 pending/changed; ledger-only 113/114/115 and 141/142 remain spent). Root migration 143 is present and applied; this worktree already contains draft migrations 144 and 145, so 146 is the next available branch number. Static migration assertions and offline `npm run db:check` passed; no `db:up`, `db:dump`, live SQL, or catalog query was run. The location API/UI code requires this migration before deployment; live schema presence is not claimed.
 
 ## 2026-09-29 — `139_driver_punctuality.sql` (Driver Punctuality, Task 1 of 9)
 

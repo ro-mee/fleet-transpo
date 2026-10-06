@@ -39,7 +39,7 @@ function normalizeName(value) {
 
 async function loadLocation(tx, id) {
   const { rows } = await tx.query(
-    `SELECT location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
+    `SELECT location_id, location_code, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
             address_id, created_at, is_active, retired_at
        FROM locations
       WHERE location_id = $1
@@ -181,7 +181,7 @@ export async function PUT(req, { params }) {
         const inserted = await tx.query(
           `INSERT INTO locations (name, address, latitude, longitude, is_active, pickup_radius_m, dropoff_radius_m, address_id)
            VALUES ($1, $2, $3, $4, true, $5, $6, $7)
-           RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
+           RETURNING location_id, location_code, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
                      address_id, created_at, is_active, retired_at`,
           [name, nextAddress, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius, addressId]
         );
@@ -199,7 +199,7 @@ export async function PUT(req, { params }) {
             SET name = $1, address = $2, latitude = $3, longitude = $4,
                 pickup_radius_m = $5, dropoff_radius_m = $6, address_id = $7
           WHERE location_id = $8 AND is_active = true
-          RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
+          RETURNING location_id, location_code, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
                     address_id, created_at, is_active, retired_at`,
         [name, nextAddress, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius, addressId, Number(id)]
       );

@@ -5,8 +5,9 @@ tags: [database, table, core]
 source:
   - supabase/migrations/016_reservation_module.sql
   - supabase/migrations/012_status_constraints.sql
+  - supabase/migrations/146_location_intake_identity.sql
   - src/services/reservation-lifecycle.service.js
-last_verified: 2026-08-11
+last_verified: 2026-10-06
 ---
 
 # Table: transportation_requests
@@ -62,6 +63,12 @@ Bypassing it produces a status change with no audit trail. → [[ADR-007 Single 
 Draft migration `145_load_types_and_services.sql` (provisional number, after draft identity migration 144) adds `load_type` (`Passenger` by default for historical rows), nullable cargo `passenger_count` with its old DB default removed, positive `cargo_weight_kg` numeric(12,3), required cargo description, and optional source department. A CHECK requires positive passenger counts and no cargo fields for passenger rows, or null passengers and positive, non-NaN weight/nonblank description for cargo. A preflight aborts atomically on historical passenger counts ≤0; no historical counts are rewritten. No live migration, schema dump, or catalog/data verification was run. Deploy prepared migrations in order before enabling corresponding application code; until then INSERT/GET queries reference nonexistent columns.
 
 `service_types` gains unique `service_code` and nullable `default_load_type` for unclassified custom history. Five canonical codes are seeded and verified for kind/name/active status; explicit retired names (`Staff Transport`, `Employee Transport`, `Hotel Shuttle`, `Guest Shuttle`) are marked Inactive, retaining historical FK rows. Unknown legacy names remain untouched. App create resolves active code to internal `service_type_id`; historical rows are not recategorized. SQL CHECK does not itself enforce service-code/load compatibility across this FK: all non-app DB writers must validate the same invariant.
+
+## Prepared partner proposal fields — Task 1, 2026-10-06 (NOT applied)
+
+Migration `146_location_intake_identity.sql` adds nullable JSONB `partner_pickup_location_proposal` and `partner_dropoff_location_proposal` columns. Each check accepts only an object containing `address`, `latitude`, and/or `longitude`; a proposal needs a nonempty address or a complete coordinate pair. An address is capped at 2,000 characters. Coordinates must both be absent/null or both finite and within latitude `[-90, 90]` and longitude `[-180, 180]`; partial pairs, unsupported keys, non-object values, and empty proposals are rejected.
+
+The JSONB is explicitly partner-provided review data, not canonical routing data. Task 1 adds storage constraints only; the ingest writer, request read projections, and dispatcher mapping are later work. The migration is not applied, so this schema is not yet available in the live database.
 
 ## Related
 
