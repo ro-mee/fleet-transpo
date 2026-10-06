@@ -1,6 +1,6 @@
 # FleetOps Passenger/Cargo Integration and Fuel — Implementation Baseline
 
-**Status: implementation in progress on isolated `feat/passenger-cargo` branch (2026-10-05). No live database migration has been applied; the plan itself is not proof of end-to-end behavior.**
+**Status: implementation in progress on isolated `feat/passenger-cargo` branch (2026-10-05). User chose to prepare migrations but not apply them to the live database pending separate authorization/staging. The plan itself is not proof of end-to-end behavior.**
 
 Full task-by-task implementation plan: `docs/superpowers/plans/2026-10-05-fleetops-passenger-cargo-integration-and-fuel.md`.
 
