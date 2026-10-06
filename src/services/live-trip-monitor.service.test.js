@@ -19,6 +19,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TRIP_STATUS } from "@/lib/constants";
 import { clearRouteCache } from "@/lib/routing/route-cache";
+import { clearDynamicLocationCache } from "@/lib/geo/dynamic-locations";
 import { clearTripGeofenceCache } from "@/services/trip-geofence.service";
 
 vi.mock("@/lib/db", async (importOriginal) => {
@@ -38,13 +39,17 @@ vi.mock("@/services/route-feasibility-context.service", async (importOriginal) =
   return {
     ...actual,
     resolvePassengerMinutes: vi.fn((...args) => actual.resolvePassengerMinutes(...args)),
+    resolveDeadheadMinutes: vi.fn((...args) => actual.resolveDeadheadMinutes(...args)),
   };
 });
 
 import { query as libQuery } from "@/lib/db";
 import { fetchTomTomRoute } from "@/lib/tomtom";
 import { sendPush } from "@/services/push.service";
-import { resolvePassengerMinutes } from "@/services/route-feasibility-context.service";
+import {
+  resolveDeadheadMinutes,
+  resolvePassengerMinutes,
+} from "@/services/route-feasibility-context.service";
 import {
   clearMonitorSnapshots,
   evaluateLiveTripMonitor,
@@ -165,6 +170,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearMonitorSnapshots();
   clearRouteCache();
+  clearDynamicLocationCache();
   clearTripGeofenceCache();
   libQuery.mockImplementation(async () => ({ rows: [] }));
   fetchTomTomRoute.mockImplementation(async () => null);
@@ -360,8 +366,94 @@ describe("evaluateLiveTripMonitor — full mode", () => {
     // No TomTom key in tests → haversine fallback, honestly labelled.
     expect(result.provenance.eta).toBe("fallback");
     expect(result.nextDispatch).toMatchObject({ dispatchId: 77, pickupLocation: "Makati" });
+    expect(result.provenance.reposition).toBe("fallback");
     expect(table.state.size).toBe(0);
     expect(db.calls.some((c) => c.sql.includes("INSERT INTO notifications"))).toBe(false);
+  });
+
+  it("keeps v2 next-trip reposition unknown without its active request-linked pickup", async () => {
+    const nextDispatch = {
+      dispatch_id: 78,
+      vehicle_id: 5,
+      driver_id: 7,
+      scheduled_departure: "2026-09-08T13:00:00+08:00",
+      scheduled_arrival: "2026-09-08T14:00:00+08:00",
+      pickup_location: "Makati",
+      dropoff_location: "Pasay",
+      external_create_fingerprint: "persisted-v2",
+      pickup_location_id: null,
+      dropoff_location_id: null,
+      partner_pickup_location_proposal: { address: "Partner pickup", latitude: 14.55, longitude: 121.0 },
+      partner_dropoff_location_proposal: null,
+      _pickup_proposal_present: true,
+      _dropoff_proposal_present: false,
+      _pickup_registry_location_id: null,
+      _dropoff_registry_location_id: null,
+    };
+    const { db } = fullDb({ trips: [tripRow()], nextDispatch: [nextDispatch] });
+
+    const result = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+
+    expect(result.nextTrip).toEqual({ slackMin: null, impact: null, nextPickupAt: null, atRisk: null });
+    expect(result.reasons).toContain("Reposition drive to the next assigned pickup is unknown — next-trip impact cannot be computed.");
+    expect(result.provenance.reposition).toBe("unknown");
+    expect(result.nextDispatch.endpointProvenance).toEqual({ pickup: "pending_review", dropoff: "unknown" });
+    expect(resolveDeadheadMinutes).not.toHaveBeenCalled();
+    const dispatchSelect = db.calls.find((call) => call.sql.includes("FROM dispatchschedules ds"));
+    expect(dispatchSelect.sql).toContain("tr.external_create_fingerprint");
+    expect(dispatchSelect.sql).toContain("tr.pickup_location_id");
+    expect(dispatchSelect.sql).toContain("tr.dropoff_location_id");
+    expect(dispatchSelect.sql).toContain("pickup_registry.location_id = tr.pickup_location_id");
+  });
+
+  it("keeps v2 monitor endpoints linked to the request IDs and exposes per-endpoint provenance", async () => {
+    const trip = tripRow({
+      external_create_fingerprint: "persisted-v2",
+      pickup_location_id: 111,
+      dropoff_location_id: 222,
+      partner_pickup_location_proposal: null,
+      partner_dropoff_location_proposal: { address: "Review drop-off" },
+    });
+    const requestTargets = {
+      trip_id: 101,
+      dispatch_id: 55,
+      route_id: 1,
+      origin: "Partner pickup label",
+      destination: "Partner drop-off label",
+      external_create_fingerprint: "persisted-v2",
+      pickup_location_id: 111,
+      dropoff_location_id: 222,
+      _pickup_proposal_present: false,
+      _dropoff_proposal_present: true,
+      _pickup_registry_location_id: 111,
+      _pickup_registry_name: "Linked pickup",
+      _pickup_registry_is_active: true,
+      _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: "14.6100",
+      _pickup_registry_longitude: "121.1100",
+      _dropoff_registry_location_id: 222,
+      _dropoff_registry_name: "Retired drop-off",
+      _dropoff_registry_is_active: false,
+      _dropoff_registry_retired_at: "2026-09-01T00:00:00Z",
+      _dropoff_registry_latitude: "14.7000",
+      _dropoff_registry_longitude: "121.2000",
+    };
+    const db = makeDb([
+      ["FROM trips t", (sql) => ({ rows: sql.includes("pickup_registry.location_id AS _pickup_registry_location_id") ? [requestTargets] : [trip] })],
+      ["FROM routes r", () => ({ rows: [ROUTE_LOCATIONS_ROW] })],
+      ["FROM dispatchschedules ds", []],
+      ["WHERE active AND trip_id = ANY($1)", []],
+      ["FROM driverincidents", []],
+    ]);
+
+    const result = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+
+    expect(result.endpointTargets).toMatchObject({
+      pickup: { lat: 14.61, lng: 121.11, label: "Linked pickup", source: "canonical_registry" },
+      destination: null,
+      pickup_location_provenance: "canonical_registry",
+      dropoff_location_provenance: "pending_review",
+    });
   });
 
   it("a trip with no GPS becomes UNKNOWN and raises a gps_unavailable alert", async () => {

@@ -162,10 +162,12 @@ constant anymore:
   (`canonical`) → configured hotel name / on-site words (`hotel`) → static
   gazetteer (`gazetteer`) → null (honest unknown, never guessed).
   `estimateTripWithDb()` prefers live-registry haversine, else the legacy
-  estimator with the live hotel. All `db`-aware callers (trip-geofence,
-  route-feasibility-context, live-trip-monitor, mobile driver trips,
-  `resolveRequestEstimate`) resolve through it; pure offline callers keep the
-  seed-default `resolveCoordinates(text)` signature with optional overrides.
+  estimator with the live hotel. Legacy/v1 readers retain this compatibility
+  chain. Persisted v2 mobile, geofence, route-feasibility next-dispatch, and
+  live-monitor reposition readers instead require the request's active linked
+  Fleet coordinates; `resolveRequestEstimate()` has its own strict linked-ID
+  path. Pure offline callers keep the seed-default `resolveCoordinates(text)`
+  signature with optional overrides.
 - **Injector** (`/reservations/new`) defaults are derived from the live
   registry (first airport-like location + configured hotel name), not string
   literals; settings copy is brand-neutral ("Sync Airport Routes").
@@ -207,3 +209,9 @@ Verification: focused resolver and ingest tests passed (53/53), touched-file ESL
 ### Live-trip-monitor identity propagation — review round 1/5 (2026-10-06)
 
 The monitor's full-mode request projection now includes the persisted v2 fingerprint, canonical pickup/drop-off IDs, and partner proposal fields, and forwards them with the labels to estimate resolution. This preserves strict v2 behavior through the live-trip reader: a missing linked ID remains unknown rather than being filled by name/gazetteer, while v1 requests with a null fingerprint retain legacy behavior. Verification: regression RED (1 expected failure because the projection lacked the fingerprint), then live-trip-monitor + route-resolver GREEN (51/51), touched ESLint, and `git diff --check`. Migration 146 remains unapplied and is an explicit pre-merge release hold; no live DB behavior is claimed.
+
+### Task 4 Slice B — strict next-dispatch reposition (2026-10-06)
+
+`findNextAssignedDispatch()` now selects the request's persisted fingerprint, explicit pickup/drop-off IDs, proposal-presence flags, and location rows joined only through those IDs. For a v2 request, a coordinate is usable only when that linked Fleet row is active, non-retired, ID-matched, and has a complete finite in-range pair. Missing, mismatched, retired, or invalid endpoints remain coordinate-unknown; proposal coordinates are never inputs, and a route endpoint cannot substitute for the request link. Endpoint provenance is returned independently as `canonical_registry`, `pending_review`, or `unknown`. Both route feasibility and live-trip reposition share this resolver; legacy v1 text/gazetteer fallback remains unchanged. The feasibility payload also carries strict request-estimate endpoint provenance; live monitor endpoint targets expose the same per-endpoint labels.
+
+Verification: new RED on unchanged production (10 failures across route-feasibility-context and live-trip-monitor; v1 fallback stayed green), then focused GREEN (39/39), combined Task 4 mobile/geofence/feasibility/monitor suites (60/60), touched-file ESLint, and `git diff --check`. No route resolver, mobile route, geofence service, trip lifecycle, migration, or schema files changed. Verification is static/mock-based; migration 146 remains an unapplied release hold and live DB behavior is not claimed.

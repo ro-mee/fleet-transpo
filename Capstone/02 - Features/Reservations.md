@@ -274,3 +274,9 @@ Verification: resolver and ingest suites passed 53/53; touched-file ESLint and `
 ### Live-trip-monitor estimate reader — review round 1/5 (2026-10-06)
 
 The live-trip monitor now selects and forwards the persisted v2 fingerprint, canonical endpoint IDs, and proposal fields when resolving passenger minutes. Persisted v2 requests therefore remain in strict mode through this reader, including requests with missing IDs; proposals still do not resolve endpoints. The v1 compatibility path is unchanged. Focused regression and route-resolver tests passed 51/51 after an expected RED; touched ESLint and `git diff --check` passed. Migration 146 remains unapplied and is a pre-merge release hold; no live SQL or deployment verification was performed.
+
+### Strict v2 next-dispatch identity — Task 4 Slice B (2026-10-06)
+
+Readers of an assigned next trip now carry the request's fingerprint and both canonical location IDs into the reposition context. V2 pickup coordinates come only from the active/non-retired Fleet row joined through `transportation_requests.pickup_location_id`; a stored route endpoint, partner text, or proposal coordinate cannot substitute. Missing, mismatched, retired, or invalid coordinates make reposition unknown. Endpoint provenance remains per-side (`canonical_registry`, `pending_review`, `unknown`) and consistent with the reservation queue; v1 retains the existing text fallback. No Task 1/2 ingest or Task 3 resolver behavior was changed.
+
+Verification: route-feasibility-context + live-trip-monitor focused suites 39/39, combined Task 4 suites 60/60, touched ESLint and `git diff --check`; RED evidence is recorded in the Task 4 report. This remains mock/offline evidence only, and unapplied migration 146 is a release hold.

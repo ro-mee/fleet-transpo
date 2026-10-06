@@ -41,4 +41,43 @@ The same focused suites retain the v1 gazetteer fallback, route-coordinate prese
 
 ## Scope and limits
 
-Only the mobile trip route/service and trip-geofence service/test files were changed in this slice. `route-feasibility-context` and `live-trip-monitor` were not touched; Task 4's remaining slice will address them and update the Capstone notes. No migration, DB apply, `.env`, or `schema.sql` work was performed. Verification is focused and mock-based; live schema/deployment behavior was not tested. The prepared Task 2/3 migration prerequisites remain a deployment hold as recorded in the existing reports.
+Only the mobile trip route/service and trip-geofence service/test files were changed in Slice A. No migration, DB apply, `.env`, or `schema.sql` work was performed. Verification is focused and mock-based; live schema/deployment behavior was not tested. The prepared Task 2/3 migration prerequisites remain a deployment hold as recorded in the existing reports.
+
+## Slice B — route-feasibility next-dispatch and live-trip-monitor reposition
+
+`findNextAssignedDispatch()` now projects the request's `external_create_fingerprint`, explicit pickup/drop-off IDs, proposal-presence flags, and both linked Fleet location rows. Persisted v2 next pickups use only a matching active, non-retired Fleet point with a complete finite in-range coordinate pair; missing, retired, invalid, or mismatched rows stay unknown. Route endpoints, partner text, and proposal coordinates are never reposition inputs. Each endpoint's `canonical_registry`, `pending_review`, or `unknown` provenance is preserved in the route-feasibility and monitor results. `resolvePassengerMinutes()` also retains the strict resolver's per-endpoint provenance. Legacy v1 text/gazetteer fallback is unchanged. Live monitor current endpoint targets preserve the Task 4A linked points and expose the same per-endpoint status.
+
+### TDD — RED on unchanged production
+
+Command:
+
+```text
+npm run test:run -- src/services/route-feasibility-context.test.js src/services/live-trip-monitor.service.test.js
+```
+
+Observed before production edits: **exit 1; 2 files failed; 10 failed, 29 passed (39 total)**. The failures showed that v2 requests without a usable pickup link still resolved known partner text to a gazetteer point (16-minute reposition), retired/invalid/mismatched links did the same, a valid explicit ID was ignored in favor of text coordinates, strict endpoint provenance was discarded, and live-monitor reposition still called the text resolver. The v1 fallback regression passed against unchanged production.
+
+### New regression tests
+
+Route feasibility (`src/services/route-feasibility-context.test.js`):
+- `does not use partner text or proposal coordinates when a v2 pickup link is missing`
+- `uses the explicit active request link instead of a mismatched route endpoint`
+- table cases for retired, invalid, out-of-range, and ID-mismatched linked rows
+- `keeps the legacy v1 gazetteer fallback for a next pickup`
+- strict per-endpoint provenance survives `resolvePassengerMinutes()` and attached feasibility
+
+Live trip monitor (`src/services/live-trip-monitor.service.test.js`):
+- `keeps v2 next-trip reposition unknown without its active request-linked pickup`
+- verifies linked current endpoints and per-endpoint provenance in the selected monitor response
+- extends the v1 healthy-trip case to pin the existing fallback provenance
+
+### GREEN and scoped verification
+
+- Focused route-feasibility + live-trip-monitor suites — **2 files passed; 39/39 tests**.
+- Combined Task 4 mobile-trip, geofence, route-feasibility, and live-trip-monitor suites — **4 files passed; 60/60 tests**.
+- Touched-file ESLint on both services and both test files — passed with no output/errors.
+- `git diff --check` — passed before documentation updates and again after the documentation updates.
+
+### Self-review and limits
+
+The next-dispatch SQL joins locations only through `transportation_requests.pickup_location_id` / `dropoff_location_id`; it does not read route endpoint coordinates. The shared strict helper requires ID equality, active status, no retirement timestamp, and queue-compatible complete/range-checked coordinates. Proposal data contributes only to provenance labels. V1 continues through the existing `resolveCoordinatesWithDb()` chain. The unused exported `buildFeasibilityContext()` has no direct repository consumer; it was kept consistent with the shared resolver, and no consumer changes were needed. Trip lifecycle and geofence state transitions are untouched; Task 1/2 ingest, Task 3 resolver logic, mobile route, geofence service, migrations, `.env`, and `schema.sql` were not changed. No live SQL/database behavior is claimed. Migration 146 remains an unapplied release hold.

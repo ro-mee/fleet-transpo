@@ -54,11 +54,11 @@ import { evaluateOffRoute } from "@/lib/geo/off-route";
 import { fetchTomTomRoute } from "@/lib/tomtom";
 import { getCachedRoute, setCachedRoute } from "@/lib/routing/route-cache";
 import { etaFromDistanceKm, haversineKm } from "@/lib/scheduling/travel-buffer";
-import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
 import { cachedTargets } from "@/services/trip-geofence.service";
 import {
   findNextAssignedDispatch,
   resolveDeadheadMinutes,
+  resolveNextDispatchEndpoints,
   resolvePassengerMinutes,
 } from "@/services/route-feasibility-context.service";
 import { resolveNotificationRecipients } from "@/lib/notifications/recipients";
@@ -478,17 +478,18 @@ async function evaluateTripRow(db, trip, {
       excludeDispatchId: trip.dispatch_id ?? null,
     });
     if (next) {
+      const nextEndpoints = await resolveNextDispatchEndpoints(db, next);
       nextDispatch = {
         dispatchId: next.dispatch_id,
         pickupAt: toIso(next.scheduled_departure),
         pickupLocation: next.pickup_location ?? null,
+        endpointProvenance: nextEndpoints.endpointProvenance,
       };
-      const nextCoords = next.pickup_location ? await resolveCoordinatesWithDb(db, next.pickup_location) : null;
       const destCoords = targets.destination
         ? [targets.destination.lat, targets.destination.lng]
         : null;
-      if (nextCoords && destCoords) {
-        const reposition = await resolveDeadheadMinutes(destCoords, nextCoords, {
+      if (nextEndpoints.pickupCoordinates && destCoords) {
+        const reposition = await resolveDeadheadMinutes(destCoords, nextEndpoints.pickupCoordinates, {
           departAt: next.scheduled_departure,
         });
         repositionMinutes = reposition.minutes;
@@ -517,6 +518,19 @@ async function evaluateTripRow(db, trip, {
     openIncident,
   });
 
+  const endpointTargets = {
+    pickup: targets.pickup
+      ? { label: targets.pickup.label ?? null, lat: targets.pickup.lat, lng: targets.pickup.lng, source: targets.pickup.source ?? null }
+      : null,
+    destination: targets.destination
+      ? { label: targets.destination.label ?? null, lat: targets.destination.lat, lng: targets.destination.lng, source: targets.destination.source ?? null }
+      : null,
+  };
+  if (trip.external_create_fingerprint != null) {
+    endpointTargets.pickup_location_provenance = targets.pickup_location_provenance ?? "unknown";
+    endpointTargets.dropoff_location_provenance = targets.dropoff_location_provenance ?? "unknown";
+  }
+
   return {
     ...evaluation,
     phase,
@@ -534,18 +548,9 @@ async function evaluateTripRow(db, trip, {
     target: target
       ? { label: target.label ?? null, lat: target.lat, lng: target.lng, source: target.source ?? null }
       : null,
-    // Resolved endpoint PAIR from the existing canonical → gazetteer → null
-    // chain (cachedTargets). Additive and optional: route-less trips expose
-    // both ends so the web map can draw a stable pickup→destination corridor;
-    // null per end when unresolvable — never fabricated, never GPS-derived.
-    endpointTargets: {
-      pickup: targets.pickup
-        ? { label: targets.pickup.label ?? null, lat: targets.pickup.lat, lng: targets.pickup.lng, source: targets.pickup.source ?? null }
-        : null,
-      destination: targets.destination
-        ? { label: targets.destination.label ?? null, lat: targets.destination.lat, lng: targets.destination.lng, source: targets.destination.source ?? null }
-        : null,
-    },
+    // Resolved endpoint PAIR is the legacy canonical → gazetteer chain or,
+    // for v2, the request's explicit active Fleet links only.
+    endpointTargets,
     nextDispatch,
     provenance: {
       eta: eta.provenance,

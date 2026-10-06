@@ -23,6 +23,7 @@ import { fetchTomTomRoute } from "@/lib/tomtom";
 import { getCachedRoute, setCachedRoute } from "@/lib/routing/route-cache";
 import { etaFromDistanceKm, haversineKm } from "@/lib/scheduling/travel-buffer";
 import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
+import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-provenance";
 import { resolveRequestEstimate } from "@/services/route-resolver.service";
 import { evaluateRouteFeasibility } from "@/lib/scheduling/route-feasibility";
 import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
@@ -110,15 +111,75 @@ export function provenanceOfEstimate(estimate) {
 export async function resolvePassengerMinutes(request, db) {
   try {
     const estimate = await resolveRequestEstimate(request, db, { persistRoute: false });
-    if (estimate?.durationMin == null) return { minutes: null, provenance: "unknown" };
+    if (estimate?.durationMin == null) {
+      return {
+        minutes: null,
+        provenance: "unknown",
+        endpointProvenance: estimate?.endpointProvenance ?? null,
+      };
+    }
     return {
       minutes: Math.round(Number(estimate.durationMin)),
       provenance: provenanceOfEstimate(estimate),
       source: estimate.source || null,
+      endpointProvenance: estimate.endpointProvenance ?? null,
     };
   } catch {
-    return { minutes: null, provenance: "unknown" };
+    return { minutes: null, provenance: "unknown", endpointProvenance: null };
   }
+}
+
+function v2EndpointCoordinates(row, endpoint) {
+  const linkedId = row?.[`${endpoint}_location_id`];
+  const registryId = row?.[`_${endpoint}_registry_location_id`];
+  const registry = getCoordinateProvenanceFields({
+    is_active: row?.[`_${endpoint}_registry_is_active`] === true
+      && row?.[`_${endpoint}_registry_retired_at`] == null
+      && linkedId != null
+      && registryId != null
+      && String(linkedId) === String(registryId),
+    latitude: row?.[`_${endpoint}_registry_latitude`],
+    longitude: row?.[`_${endpoint}_registry_longitude`],
+  });
+  if (registry.coordinate_provenance === "canonical_registry") {
+    return {
+      coordinates: {
+        lat: Number(row[`_${endpoint}_registry_latitude`]),
+        lng: Number(row[`_${endpoint}_registry_longitude`]),
+      },
+      provenance: "canonical_registry",
+    };
+  }
+
+  const hasProposal = row?.[`_${endpoint}_proposal_present`] === true
+    || row?.[`partner_${endpoint}_location_proposal`] != null;
+  return {
+    coordinates: null,
+    provenance: hasProposal ? "pending_review" : "unknown",
+  };
+}
+
+/**
+ * Resolve a next assigned request's pickup for repositioning. Persisted v2
+ * rows are authoritative only through their explicit linked Fleet location;
+ * v1 keeps its historical free-text resolver chain.
+ */
+export async function resolveNextDispatchEndpoints(db, dispatch) {
+  if (!dispatch) return { pickupCoordinates: null, endpointProvenance: null };
+
+  if (dispatch.external_create_fingerprint != null) {
+    const pickup = v2EndpointCoordinates(dispatch, "pickup");
+    const dropoff = v2EndpointCoordinates(dispatch, "dropoff");
+    return {
+      pickupCoordinates: pickup.coordinates,
+      endpointProvenance: { pickup: pickup.provenance, dropoff: dropoff.provenance },
+    };
+  }
+
+  const pickupCoordinates = dispatch.pickup_location
+    ? await resolveCoordinatesWithDb(db, dispatch.pickup_location)
+    : null;
+  return { pickupCoordinates, endpointProvenance: null };
 }
 
 /**
@@ -140,10 +201,27 @@ export async function findNextAssignedDispatch(db, { vehicleId = null, driverId 
     const { rows } = await db.query(
       `SELECT ds.dispatch_id, ds.vehicle_id, ds.driver_id,
               ds.scheduled_departure, ds.scheduled_arrival,
-              tr.pickup_location, tr.dropoff_location
+              tr.pickup_location, tr.dropoff_location,
+              tr.external_create_fingerprint, tr.pickup_location_id, tr.dropoff_location_id,
+              tr.partner_pickup_location_proposal IS NOT NULL AS _pickup_proposal_present,
+              tr.partner_dropoff_location_proposal IS NOT NULL AS _dropoff_proposal_present,
+              pickup_registry.location_id AS _pickup_registry_location_id,
+              pickup_registry.is_active AS _pickup_registry_is_active,
+              pickup_registry.retired_at AS _pickup_registry_retired_at,
+              pickup_registry.latitude AS _pickup_registry_latitude,
+              pickup_registry.longitude AS _pickup_registry_longitude,
+              dropoff_registry.location_id AS _dropoff_registry_location_id,
+              dropoff_registry.is_active AS _dropoff_registry_is_active,
+              dropoff_registry.retired_at AS _dropoff_registry_retired_at,
+              dropoff_registry.latitude AS _dropoff_registry_latitude,
+              dropoff_registry.longitude AS _dropoff_registry_longitude
          FROM dispatchschedules ds
          LEFT JOIN transportation_requests tr
            ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
+         LEFT JOIN locations pickup_registry
+           ON pickup_registry.location_id = tr.pickup_location_id
+         LEFT JOIN locations dropoff_registry
+           ON dropoff_registry.location_id = tr.dropoff_location_id
         WHERE ds.deleted_at IS NULL
           AND ds.status IN ('Scheduled', 'In Progress')
           AND (ds.vehicle_id = $1 OR ds.driver_id = $2)
@@ -184,17 +262,12 @@ export async function buildFeasibilityContext(db, {
   const next = await findNextAssignedDispatch(db, {
     vehicleId, driverId, after: request?.pickup_datetime,
   });
+  const nextEndpoints = await resolveNextDispatchEndpoints(db, next);
   let reposition = { minutes: null, provenance: "unknown" };
-  if (next) {
-    // Next-dispatch rows carry free-text pickup locations — resolve against
-    // the live registry first, static gazetteer last. Unresolvable text
-    // stays honestly unknown rather than guessed.
-    const nextCoords = await resolveCoordinatesWithDb(db, next.pickup_location);
-    if (nextCoords) {
-      reposition = await resolveDeadheadMinutes(destinationCoords, nextCoords, {
-        departAt: request?.pickup_datetime,
-      });
-    }
+  if (nextEndpoints.pickupCoordinates) {
+    reposition = await resolveDeadheadMinutes(destinationCoords, nextEndpoints.pickupCoordinates, {
+      departAt: request?.pickup_datetime,
+    });
   }
 
   return {
@@ -210,6 +283,8 @@ export async function buildFeasibilityContext(db, {
       passenger: passenger.provenance,
       reposition: next ? reposition.provenance : "unknown",
     },
+    endpointProvenance: passenger.endpointProvenance,
+    nextDispatchEndpointProvenance: nextEndpoints.endpointProvenance,
     nextDispatchId: next?.dispatch_id ?? null,
   };
 }
@@ -240,6 +315,7 @@ export async function buildPairFeasibility(db, {
   request,
   passengerMinutes = null,
   passengerProvenance = "unknown",
+  passengerEndpointProvenance = null,
   driverRow = null,
   pickupCoords = null,
   destinationCoords = null,
@@ -272,14 +348,12 @@ export async function buildPairFeasibility(db, {
     const next = await findNextAssignedDispatch(db, {
       vehicleId, driverId, after: request?.pickup_datetime,
     });
+    const nextEndpoints = await resolveNextDispatchEndpoints(db, next);
     let reposition = { minutes: null, provenance: "unknown" };
-    if (next) {
-      const nextCoords = await resolveCoordinatesWithDb(db, next.pickup_location);
-      if (nextCoords) {
-        reposition = await resolveDeadheadMinutes(destinationCoords, nextCoords, {
-          departAt: request?.pickup_datetime,
-        });
-      }
+    if (nextEndpoints.pickupCoordinates) {
+      reposition = await resolveDeadheadMinutes(destinationCoords, nextEndpoints.pickupCoordinates, {
+        departAt: request?.pickup_datetime,
+      });
     }
 
     const verdict = evaluateRouteFeasibility({
@@ -304,6 +378,8 @@ export async function buildPairFeasibility(db, {
       turnaroundMin: verdict.turnaroundMin,
       nextPickupAt: toIsoOrNull(next?.scheduled_departure),
       nextDispatchId: next?.dispatch_id ?? null,
+      endpointProvenance: passengerEndpointProvenance,
+      nextDispatchEndpointProvenance: nextEndpoints.endpointProvenance,
       provenance: {
         deadhead: deadhead.provenance,
         passenger: passengerProvenance,
@@ -367,6 +443,7 @@ export async function attachPairFeasibility(db, {
       request,
       passengerMinutes,
       passengerProvenance,
+      passengerEndpointProvenance: estimate?.endpointProvenance ?? null,
       driverRow: byDriverId.get(c.driver_id) || null,
       pickupCoords,
       destinationCoords,
