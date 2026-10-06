@@ -132,7 +132,12 @@ export async function ingestRequest(
       `SELECT service_type_id, default_load_type FROM service_types WHERE service_type_id = $1 LIMIT 1`,
       [serviceTypeId]
     );
-    const catalogLoadType = services[0]?.default_load_type;
+    if (!services[0]) {
+      const error = new Error("Service ID is unknown or unavailable.");
+      error.code = "SERVICE_UNAVAILABLE";
+      throw error;
+    }
+    const catalogLoadType = services[0].default_load_type;
     if (catalogLoadType != null && catalogLoadType !== (request.load_type || "Passenger")) {
       const error = new Error("Service ID is incompatible with the request load type.");
       error.code = "SERVICE_UNAVAILABLE";

@@ -267,6 +267,16 @@ describe("ingestRequest", () => {
     expect(recordReservationEvent).not.toHaveBeenCalled();
   });
 
+  it("rejects an unknown legacy service ID before estimation", async () => {
+    wire({ service: null });
+
+    await expect(ingestRequest({ ...REQUEST, service_type_id: 13 }))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+
+    expect(resolveRequestEstimate).not.toHaveBeenCalled();
+    expect(insertCall()).toBeUndefined();
+  });
+
   it("rejects a legacy passenger request whose internal service ID resolves to Cargo", async () => {
     wire({ service: { service_type_id: 13, default_load_type: "Cargo" } });
 
