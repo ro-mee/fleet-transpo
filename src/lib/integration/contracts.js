@@ -128,5 +128,45 @@ export function normalizePriority(raw) {
  */
 export function parseTransportationRequest(raw) {
   const parsed = TransportationRequestSchema.parse(raw);
-  return { ...parsed, priority: normalizePriority(parsed.priority) };
+  return { ...parsed, load_type: "Passenger", priority: normalizePriority(parsed.priority) };
+}
+
+const SERVICE_LOAD = {
+  GUEST_TRANSPORT: "Passenger",
+  VIP_GUEST_TRANSPORT: "Passenger",
+  RESTAURANT_SUPPLY_PICKUP: "Cargo",
+  RESTAURANT_FOOD_DELIVERY: "Cargo",
+  HOTEL_SUPPLY_TRANSFER: "Cargo",
+};
+
+const V2RequestSchema = TransportationRequestSchema.omit({ passenger_count: true, service_type_id: true }).extend({
+  load_type: z.enum(["Passenger", "Cargo"]),
+  service_code: z.enum(Object.keys(SERVICE_LOAD)),
+  passenger_count: z.number().int().nonnegative().max(2147483647).nullable().optional(),
+  cargo_weight_kg: z.number().finite().min(0.001).max(999999999.999)
+    .refine((value) => Number(value.toFixed(3)) === value, "Cargo weight supports at most three decimal places")
+    .nullable().optional(),
+  cargo_description: z.string().trim().min(1).max(2000).nullable().optional(),
+  source_department: z.string().trim().min(1).max(100).nullable().optional(),
+}).superRefine((value, ctx) => {
+  if (SERVICE_LOAD[value.service_code] !== value.load_type) {
+    ctx.addIssue({ code: "custom", path: ["service_code"], message: "Service code does not match load type" });
+  }
+  if (value.load_type === "Passenger" && (!value.passenger_count || value.cargo_weight_kg != null || value.cargo_description != null)) {
+    ctx.addIssue({ code: "custom", path: ["passenger_count"], message: "Passenger loads require a positive passenger count and no cargo details" });
+  }
+  if (value.load_type === "Cargo" && (value.passenger_count != null && value.passenger_count !== 0 || !value.cargo_weight_kg || !value.cargo_description)) {
+    ctx.addIssue({ code: "custom", path: ["cargo_weight_kg"], message: "Cargo requires weight and description, not passengers" });
+  }
+});
+
+export function parseV2TransportationRequest(raw) {
+  const parsed = V2RequestSchema.parse(raw);
+  return {
+    ...parsed,
+    passenger_count: parsed.load_type === "Cargo" ? null : parsed.passenger_count,
+    cargo_weight_kg: parsed.load_type === "Passenger" ? null : parsed.cargo_weight_kg,
+    cargo_description: parsed.load_type === "Passenger" ? null : parsed.cargo_description,
+    priority: normalizePriority(parsed.priority),
+  };
 }

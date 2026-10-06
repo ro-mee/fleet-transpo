@@ -207,6 +207,12 @@ the useful part:
   → It no longer does; migration 036 dropped the empty table. The repository
   never documented why it was originally kept. → [[DEBT vehiclereservations vs transportation_requests]]
 
+## Prepared passenger/cargo intake — Task 2, 2026-10-05 (NOT deployed)
+
+PMS v1 remains passenger-only and defaults missing count to 1. Authenticated v2 create requires explicit matching canonical `service_code` and `load_type`: passenger needs positive count; cargo needs positive representable kg and a nonblank description, never a fabricated rider. New cargo description and department have bounded lengths. The shared push/pull writer resolves active internal service ID and hashes service/load/cargo details for exact-id replay protection (changed cargo weight → 409). In-process mock pull demonstrates POS cargo and PMS VIP passenger using v2, while non-mock HTTP pull is NOT an authenticated POS adapter. List/register/card projections return typed columns and service code; detail GET's `tr.*` carries typed columns after migration. Legacy in-app PMS injection remains v1. Unknown/inactive code rejects new create without inserting; an unchanged replay of an older row remains idempotent even if that service was later retired.
+
+**Release hold:** SQL migrations 144/145 are unapplied drafts, so this code cannot be enabled independently. Cargo dispatch/capacity/driver mobile remain later tasks; do not dispatch cargo on passenger assumptions before the cargo eligibility gate is complete. No external PMS/POS connection exists. See the Task 2 report for tests and rollout limitations.
+
 ## Related
 
 [[Request Lifecycle]] · [[Reservation State Machine]] · [[Dispatch]] · [[Feature Index]]

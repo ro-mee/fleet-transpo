@@ -75,11 +75,13 @@ const TR_LIST_SELECT = `
   tr.request_id, tr.reservation_number, tr.booking_reference, tr.guest_name,
   tr.source_system, tr.pickup_location, tr.dropoff_location, tr.pickup_datetime,
   tr.pickup_location_id, tr.dropoff_location_id,
-  tr.priority, tr.passenger_count, tr.fleet_status, tr.requested_vehicle_type,
+  tr.priority, tr.passenger_count, tr.load_type, tr.cargo_weight_kg,
+  tr.cargo_description, tr.source_department, st.service_code,
+  tr.fleet_status, tr.requested_vehicle_type,
   tr.estimated_distance, tr.estimated_duration, tr.booking_status, tr.status_reason,
   ds.dispatch_id, ds.dispatch_status,
   CASE WHEN st.service_type_id IS NULL THEN NULL ELSE
-    json_build_object('service_name', st.service_name)
+    json_build_object('service_name', st.service_name, 'service_code', st.service_code, 'default_load_type', st.default_load_type)
   END AS service_types,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object('plate_number', v.plate_number)
@@ -130,13 +132,15 @@ const TR_CARD_SELECT = `
   tr.request_id, tr.reservation_number, tr.booking_reference, tr.guest_name,
   tr.source_system, tr.pickup_location, tr.dropoff_location, tr.pickup_datetime,
   tr.pickup_location_id, tr.dropoff_location_id,
-  tr.priority, tr.passenger_count, tr.fleet_status, tr.requested_vehicle_type,
+  tr.priority, tr.passenger_count, tr.load_type, tr.cargo_weight_kg,
+  tr.cargo_description, tr.source_department, st.service_code,
+  tr.fleet_status, tr.requested_vehicle_type,
   tr.estimated_distance, tr.estimated_duration, tr.booking_status, tr.status_reason,
   tr.special_requests, tr.created_at, tr.is_vip, tr.is_emergency,
   tr.derived_priority, tr.ai_driver_recommendation, tr.ai_vehicle_recommendation,
   ds.dispatch_id, ds.dispatch_status,
   CASE WHEN st.service_type_id IS NULL THEN NULL ELSE
-    json_build_object('service_name', st.service_name)
+    json_build_object('service_name', st.service_name, 'service_code', st.service_code, 'default_load_type', st.default_load_type)
   END AS service_types,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object('plate_number', v.plate_number, 'model', v.model)
@@ -485,6 +489,9 @@ export async function POST(req) {
 
     return ok(created, 201);
   } catch (e) {
+    if (e?.code === "SERVICE_UNAVAILABLE") {
+      return err("Unknown, inactive or incompatible service code.", 422);
+    }
     if (e?.code === "SOURCE_ID_TOMBSTONED") {
       return err("This source request ID belongs to a deleted request and cannot be reused.", 409);
     }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseTransportationRequest } from "@/lib/integration/contracts";
+import { parseTransportationRequest, parseV2TransportationRequest } from "@/lib/integration/contracts";
 
 const source = z.enum(["PMS", "POS", "Web"]);
 const id = z.string().min(1).max(255).refine((value) => value.trim().length > 0, "ID must not be blank");
@@ -28,8 +28,10 @@ export function normalizeInboundEnvelope(raw, authenticatedSource) {
   }
   const parsed = v2.parse(raw);
   if (parsed.event_kind !== "cancel" && !parsed.request) throw new Error("request is required");
-  const request = parsed.request
-    ? parseTransportationRequest({ ...parsed.request, external_booking_id: parsed.external_request_id, source_system })
+  // Unsupported revisions are rejected by the route; do not impose create-only
+  // shape on an update that the server deliberately does not process.
+  const request = parsed.event_kind === "create"
+    ? parseV2TransportationRequest({ ...parsed.request, external_booking_id: parsed.external_request_id, source_system })
     : null;
   return { ...parsed, source_system, request };
 }

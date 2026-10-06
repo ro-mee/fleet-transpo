@@ -52,7 +52,8 @@ function rejectTombstone(row) {
 
 const CREATE_FIELDS = [
   "booking_reference", "guest_name", "pickup_location", "dropoff_location",
-  "pickup_datetime", "passenger_count", "special_requests", "service_type_id",
+  "pickup_datetime", "passenger_count", "special_requests", "service_code", "load_type",
+  "cargo_weight_kg", "cargo_description", "source_department",
   "priority", "booking_status", "requested_vehicle_type", "is_vip", "is_emergency",
 ];
 
@@ -74,9 +75,9 @@ export async function ingestRequest(
   { session = null, actor = "service", eventType = "transport_request_received", strictReplay = false } = {}
 ) {
   const fingerprint = strictReplay ? createFingerprint(request) : null;
-  // IDEMPOTENCY: an external_booking_id already on file is returned untouched
-  // instead of inserted again, so a replayed webhook or a repeated poll over
-  // the same gateway page cannot double a request. Selecting the whole row
+  // IDEMPOTENCY: an existing source-scoped external_request_id is returned
+  // untouched on exact replay instead of inserted again, so webhook retries
+  // or repeat polls cannot double a request. Selecting the whole row
   // (not just request_id) is what lets the push route answer its sender with
   // the record it already holds.
   const existing = await query(
@@ -87,6 +88,21 @@ export async function ingestRequest(
     rejectTombstone(existing.rows[0]);
     rejectChangedCreate(existing.rows[0], fingerprint);
     return { idempotent: true, request: existing.rows[0], category: null };
+  }
+
+  let serviceTypeId = request.service_type_id || null;
+  if (request.service_code) {
+    const { rows: services } = await query(
+      `SELECT service_type_id, default_load_type FROM service_types
+        WHERE service_code = $1 AND status = 'Active' AND deleted_at IS NULL LIMIT 1`,
+      [request.service_code]
+    );
+    if (!services[0] || services[0].default_load_type !== request.load_type) {
+      const error = new Error("Service code is unavailable or incompatible with the load type.");
+      error.code = "SERVICE_UNAVAILABLE";
+      throw error;
+    }
+    serviceTypeId = services[0].service_type_id;
   }
 
   const fleetStatus = fleetStatusFromBooking(request.booking_status);
@@ -113,8 +129,9 @@ export async function ingestRequest(
         pickup_location, dropoff_location, pickup_datetime, passenger_count,
         special_requests, service_type_id, priority, booking_status, fleet_status,
         requested_vehicle_type, requested_category_id, estimated_distance, estimated_duration,
-        is_vip, is_emergency, external_request_id, external_create_fingerprint)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+        is_vip, is_emergency, external_request_id, external_create_fingerprint,
+         load_type, cargo_weight_kg, cargo_description, source_department)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
      ON CONFLICT (source_system, external_request_id) DO NOTHING
      RETURNING *`,
     [
@@ -127,7 +144,7 @@ export async function ingestRequest(
       request.pickup_datetime,
       request.passenger_count,
       request.special_requests || null,
-      request.service_type_id || null,
+      serviceTypeId,
       // Already translated to Fleet's vocabulary by parseTransportationRequest
       // ('Normal' -> 'Medium'); inserting Booking's raw value would violate
       // chk_transport_priority.
@@ -145,6 +162,10 @@ export async function ingestRequest(
       request.is_emergency === true,
       request.external_booking_id,
       fingerprint,
+      request.load_type || "Passenger",
+      request.cargo_weight_kg ?? null,
+      request.cargo_description ?? null,
+      request.source_department ?? null,
     ]
   );
   if (!rows[0]) {

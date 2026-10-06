@@ -57,6 +57,12 @@ Bypassing it produces a status change with no audit trail. → [[ADR-007 Single 
 2. **Absent from both ERDs** in `docs/erd/`. → [[DOC ERDs Missing Core Table]]
 3. `status` here is one of **three** parallel status vocabularies. → [[Data Flow]]
 
+## Prepared typed-load extension — Task 2, 2026-10-05 (NOT applied)
+
+Draft migration `145_load_types_and_services.sql` (provisional number, after draft identity migration 144) adds `load_type` (`Passenger` by default for historical rows), nullable cargo `passenger_count` with its old DB default removed, positive `cargo_weight_kg` numeric(12,3), required cargo description, and optional source department. A CHECK requires positive passenger counts and no cargo fields for passenger rows, or null passengers and positive, non-NaN weight/nonblank description for cargo. A preflight aborts atomically on historical passenger counts ≤0; no historical counts are rewritten. No live migration, schema dump, or catalog/data verification was run. Deploy prepared migrations in order before enabling corresponding application code; until then INSERT/GET queries reference nonexistent columns.
+
+`service_types` gains unique `service_code` and nullable `default_load_type` for unclassified custom history. Five canonical codes are seeded and verified for kind/name/active status; explicit retired names (`Staff Transport`, `Employee Transport`, `Hotel Shuttle`, `Guest Shuttle`) are marked Inactive, retaining historical FK rows. Unknown legacy names remain untouched. App create resolves active code to internal `service_type_id`; historical rows are not recategorized. SQL CHECK does not itself enforce service-code/load compatibility across this FK: all non-app DB writers must validate the same invariant.
+
 ## Related
 
 [[Reservations]] · [[Request Lifecycle]] · [[Database Overview]] · [[ERD]] · [[System Boundaries]]

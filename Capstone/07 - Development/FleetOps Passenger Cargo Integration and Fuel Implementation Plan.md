@@ -1,6 +1,6 @@
 # FleetOps Passenger/Cargo Integration and Fuel — Implementation Baseline
 
-**Status: implementation in progress on isolated `feat/passenger-cargo` branch (2026-10-05). User chose to prepare migrations but not apply them to the live database pending separate authorization/staging. The plan itself is not proof of end-to-end behavior.**
+**Status: implementation in progress on isolated `feat/passenger-cargo` branch (2026-10-05 onward). User chose to prepare migrations but not apply them to the live database pending separate authorization/staging. A concurrent Hotel/POS integration plan on `main` overlaps the request schema/ingest/gateway and reserves version 144; user chose continue this branch and reconcile code plus migration ordering before merge. The plan itself is not proof of end-to-end behavior.**
 
 Full task-by-task implementation plan: `docs/superpowers/plans/2026-10-05-fleetops-passenger-cargo-integration-and-fuel.md`.
 
@@ -16,7 +16,7 @@ FleetOps receives requests from external hotel/restaurant subsystems. The target
 
 ## Decisions needing real evidence
 
-- A restaurant order ID can collide with a hotel booking ID; identity must be source-scoped. User decision (2026-10-05): a `(source_system, external_request_id)` pair must never be reused, even when the old row is soft-deleted, so replay cannot create a new unrelated trip. Existing ingest identifies solely by external_booking_id and returns a duplicate without applying changed pickup/weight/time, so correction/cancel semantics must be designed before rollout.
+- A restaurant order ID can collide with a hotel booking ID; identity must be source-scoped. User decision (2026-10-05): a `(source_system, external_request_id)` pair must never be reused, even when the old row is soft-deleted, so replay cannot create a new unrelated trip. Before the prepared Task 1 slice, ingest identified solely by external_booking_id; Task 1 now scopes create identity but still returns 409 for changed create/update/cancel, so revision/correction/cancel handling must be completed before rollout.
 - Existing `source_system` in payload is not authenticated identity. Bind it to an authorized source principal; preserve single shared ingest across pull and push.
 - Approved cargo payload, plate, OR/CR, insurance, registration and real driver license class require verified data. Inventory and remediation precede staged fail-closed rollout; do not fabricate compliance or strand previously committed trips silently.
 - Road readiness and fuel-planning readiness are different. Fuel estimates are not actual burn and never replace receipt transactions.

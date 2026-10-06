@@ -1,12 +1,13 @@
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { getBookingGateway } from "@/lib/integration/booking-gateway";
 import { parseTransportationRequest } from "@/lib/integration/contracts";
+import { normalizeInboundEnvelope } from "@/lib/integration/source-contract";
 import { ingestRequest } from "@/lib/integration/ingest";
 import { writeAudit } from "@/lib/audit";
 
 // Pull transportation requests FROM the Booking gateway (mock or http) and
-// ingest any that Fleet hasn't seen yet. Idempotent on external_booking_id, so
-// pulling repeatedly is safe — already-known requests are skipped.
+// ingest any that Fleet hasn't seen yet. Idempotent on (source_system,
+// external_request_id), so pulling repeatedly cannot reuse a deleted source ID.
 //
 // In development (BOOKING_GATEWAY=mock) this is how canned Booking requests land
 // in the Fleet queue without a live Booking system. In production a scheduled
@@ -26,12 +27,24 @@ export async function POST(req) {
 
     let ingested = 0;
     let skipped = 0;
+    let rejected = 0;
+    const rejectionCodes = {};
     const created = [];
 
     for (const raw of incoming) {
       let request;
+      let strictReplay = false;
       try {
-        request = parseTransportationRequest(raw);
+        if (gateway.name === "mock" && raw?.contract_version === 2) {
+          // Only the in-process mock is a trusted source adapter. Do not let an
+          // unconnected HTTP gateway self-assert a POS/PMS identity on pull.
+          const envelope = normalizeInboundEnvelope(raw, raw.source_system);
+          if (envelope.event_kind !== "create" || envelope.external_revision !== 1) throw new Error("Unsupported revision");
+          request = envelope.request;
+          strictReplay = true;
+        } else {
+          request = parseTransportationRequest(raw);
+        }
       } catch {
         // One malformed item is skipped rather than failing the pull: a bad
         // record from Booking must not block the good ones behind it. The
@@ -41,11 +54,25 @@ export async function POST(req) {
         continue;
       }
 
-      const { idempotent, request: row } = await ingestRequest(request, {
-        session,
-        actor: `gateway:${gateway.name}`,
-        eventType: "transport_request_pulled",
-      });
+      let result;
+      try {
+        result = await ingestRequest(request, {
+          session,
+          actor: `gateway:${gateway.name}`,
+          eventType: "transport_request_pulled",
+          strictReplay,
+        });
+      } catch (error) {
+        // Expected source-level conflicts reject this item, not the rest of a
+        // trusted mock batch. Infrastructure/DB errors still fail the whole pull.
+        const code = error?.code;
+        if (!["SERVICE_UNAVAILABLE", "SOURCE_CREATE_CONFLICT", "SOURCE_ID_TOMBSTONED"].includes(code)) throw error;
+        skipped += 1;
+        rejected += 1;
+        rejectionCodes[code] = (rejectionCodes[code] || 0) + 1;
+        continue;
+      }
+      const { idempotent, request: row } = result;
       if (idempotent) {
         skipped += 1;
         continue;
@@ -61,16 +88,19 @@ export async function POST(req) {
       await writeAudit(req, session, {
         action: "create",
         resource: "transportation_requests",
-        newValues: { ingested, via: `gateway:${gateway.name}` },
+        newValues: { ingested, rejected, rejectionCodes, via: `gateway:${gateway.name}` },
       });
     }
 
+    if (rejected > 0) console.warn("Integration pull rejected source items:", { gateway: gateway.name, rejected, rejectionCodes });
     return ok({
       gateway: gateway.name,
       ingested,
       skipped,
+      rejected,
+      rejectionCodes,
       requests: created,
-      message: `Pulled ${incoming.length} from Booking (${gateway.name}): ${ingested} new, ${skipped} already known.`,
+      message: `Pulled ${incoming.length} from Booking (${gateway.name}): ${ingested} new, ${skipped} skipped (${rejected} rejected).`,
     });
   } catch (e) { return handleError(e); }
 }

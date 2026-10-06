@@ -40,38 +40,47 @@ const MOCK_REQUESTS = [
     booking_status: "Approved",
   },
   {
-    external_booking_id: "BK-2026-00102",
+    contract_version: 2,
+    external_request_id: "POS-SUPPLY-2026-001",
+    external_revision: 1,
+    event_id: "mock-pos-supply-001",
+    event_kind: "create",
     source_system: "POS",
-    booking_reference: "ORD-55031",
-    guest_name: "Sam Delacruz",
-    pickup_location: "Seaside Restaurant",
-    dropoff_location: "City Center Mall",
-    pickup_datetime: "2026-08-10T18:00:00+08:00",
-    passenger_count: 2,
-    special_requests: null,
-    requested_vehicle_type: "Guest Shuttle",
-    service_type_id: null,
-    priority: "Normal",
-    booking_status: "Approved",
+    request: {
+      booking_reference: "ORD-55031",
+      pickup_location: "Supplier Warehouse",
+      dropoff_location: "Seaside Restaurant",
+      pickup_datetime: "2026-08-10T18:00:00+08:00",
+      load_type: "Cargo",
+      service_code: "RESTAURANT_SUPPLY_PICKUP",
+      cargo_weight_kg: 650,
+      cargo_description: "Restaurant dry goods and produce",
+      source_department: "Kitchen",
+      priority: "Normal",
+      booking_status: "Approved",
+    },
   },
   {
-    external_booking_id: "BK-2026-00103",
-    source_system: "Web",
-    booking_reference: "WEB-90887",
-    guest_name: "Alex Tan",
-    pickup_location: "Airport Arrivals",
-    dropoff_location: "Grand Hotel Main Wing",
-    pickup_datetime: "2026-08-11T09:15:00+08:00",
-    passenger_count: 4,
-    // "VIP guest" used to live in special_requests, which was the wrong home for
-    // it: VIP-ness is a vehicle class Fleet already models as a category, not a
-    // free-text note a dispatcher has to read and interpret. It now arrives as a
-    // requested_vehicle_type and resolves to the VIP category at ingest.
-    special_requests: "Meet and greet at arrivals gate",
-    requested_vehicle_type: "Executive SUV",
-    service_type_id: null,
-    priority: "Urgent",
-    booking_status: "Approved",
+    contract_version: 2,
+    external_request_id: "PMS-VIP-2026-001",
+    external_revision: 1,
+    event_id: "mock-pms-vip-001",
+    event_kind: "create",
+    source_system: "PMS",
+    request: {
+      booking_reference: "WEB-90887",
+      guest_name: "Alex Tan",
+      pickup_location: "Airport Arrivals",
+      dropoff_location: "Grand Hotel Main Wing",
+      pickup_datetime: "2026-08-11T09:15:00+08:00",
+      load_type: "Passenger",
+      service_code: "VIP_GUEST_TRANSPORT",
+      passenger_count: 4,
+      special_requests: "Meet and greet at arrivals gate",
+      requested_vehicle_type: "Executive SUV",
+      priority: "Urgent",
+      booking_status: "Approved",
+    },
   },
 ];
 
@@ -82,7 +91,7 @@ class MockBookingGateway {
 
   async fetchPendingRequests() {
     // Return copies so callers can't mutate the canned source.
-    return MOCK_REQUESTS.map((r) => ({ ...r }));
+    return MOCK_REQUESTS.map((r) => ({ ...r, ...(r.request ? { request: { ...r.request } } : {}) }));
   }
 
   async acknowledgeStatus(event) {

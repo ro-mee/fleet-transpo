@@ -42,8 +42,9 @@ const REQUEST = {
   requested_vehicle_type: "Airport Transfer Van",
 };
 
-function wire({ existing = null } = {}) {
+function wire({ existing = null, service = { service_type_id: 13, default_load_type: "Cargo" } } = {}) {
   query.mockImplementation(async (sql, params) => {
+    if (sql.includes("FROM service_types")) return { rows: service ? [service] : [] };
     if (sql.includes("SELECT * FROM transportation_requests")) {
       return { rows: existing ? [existing] : [] };
     }
@@ -80,7 +81,7 @@ describe("ingestRequest", () => {
 
     expect(pulled[0]).toBe(pushed[0]);
     expect(pulledParams).toEqual(pushed[1]);
-    expect(pulledParams).toHaveLength(21);
+    expect(pulledParams).toHaveLength(25);
   });
 
   it("fills the columns the pull path used to omit", async () => {
@@ -148,7 +149,7 @@ describe("ingestRequest", () => {
     wire();
     const old = { ...REQUEST, source_system: "POS", external_booking_id: "123", pickup_location: "Old lobby" };
     await ingestRequest(old, { strictReplay: true });
-    const originalFingerprint = insertCall()[1].at(-1);
+    const originalFingerprint = insertCall()[1][20];
     query.mockClear();
     wire({ existing: { request_id: 42, source_system: "POS", external_request_id: "123", external_create_fingerprint: originalFingerprint } });
     await expect(ingestRequest({ ...old, pickup_location: "New lobby" }, { strictReplay: true }))
@@ -167,8 +168,8 @@ describe("ingestRequest", () => {
     await ingestRequest({ ...REQUEST, source_system: "POS", external_booking_id: "123" }, { strictReplay: true });
     const [sql, params] = insertCall();
     expect(sql).toContain("external_create_fingerprint");
-    expect(params.at(-1)).toMatch(/^[a-f0-9]{64}$/);
-    const fingerprint = params.at(-1);
+    expect(params[20]).toMatch(/^[a-f0-9]{64}$/);
+    const fingerprint = params[20];
     query.mockClear();
     wire({ existing: { request_id: 42, source_system: "POS", external_request_id: "123", external_create_fingerprint: fingerprint } });
     const replay = await ingestRequest({ ...REQUEST, source_system: "POS", external_booking_id: "123" }, { strictReplay: true });
@@ -195,7 +196,7 @@ describe("ingestRequest", () => {
     wire();
     const old = { ...REQUEST, source_system: "POS", external_booking_id: "123", pickup_location: "Old lobby" };
     await ingestRequest(old, { strictReplay: true });
-    const originalFingerprint = insertCall()[1].at(-1);
+    const originalFingerprint = insertCall()[1][20];
     query.mockClear();
     recordReservationEvent.mockClear();
     let lookups = 0;
@@ -224,6 +225,48 @@ describe("ingestRequest", () => {
     });
     await expect(ingestRequest(REQUEST)).rejects.toMatchObject({ code: "SOURCE_ID_TOMBSTONED" });
     expect(recordReservationEvent).not.toHaveBeenCalled();
+  });
+
+  it("resolves active service code to a database id and persists cargo without a passenger", async () => {
+    wire();
+    await ingestRequest({ ...REQUEST, passenger_count: null, load_type: "Cargo", service_code: "RESTAURANT_SUPPLY_PICKUP", cargo_weight_kg: 650, cargo_description: "Vegetables", source_department: "Kitchen" }, { strictReplay: true });
+    const [sql, params] = insertCall();
+    expect(sql).toContain("cargo_weight_kg");
+    expect(sql).toContain("cargo_description");
+    expect(sql).toContain("source_department");
+    expect(sql).toContain("load_type");
+    expect(params[7]).toBeNull();
+    expect(params[9]).toBe(13);
+    expect(params).toContain(650);
+    expect(params).toContain("Kitchen");
+  });
+
+  it("rejects unknown, inactive and mismatched services without inserting", async () => {
+    const cargo = { ...REQUEST, passenger_count: null, load_type: "Cargo", service_code: "RESTAURANT_SUPPLY_PICKUP", cargo_weight_kg: 650, cargo_description: "Vegetables" };
+    for (const service of [null, { service_type_id: 13, default_load_type: "Passenger" }]) {
+      query.mockReset(); wire({ service });
+      await expect(ingestRequest(cargo, { strictReplay: true })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+      expect(insertCall()).toBeUndefined();
+    }
+  });
+
+  it("acknowledges an unchanged historical replay even after its service is disabled", async () => {
+    const cargo = { ...REQUEST, passenger_count: null, load_type: "Cargo", service_code: "RESTAURANT_SUPPLY_PICKUP", cargo_weight_kg: 650, cargo_description: "Vegetables" };
+    wire(); await ingestRequest(cargo, { strictReplay: true });
+    const fingerprint = insertCall()[1].find((value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value));
+    query.mockClear(); wire({ existing: { request_id: 42, external_create_fingerprint: fingerprint }, service: null });
+    await expect(ingestRequest(cargo, { strictReplay: true })).resolves.toMatchObject({ idempotent: true });
+    expect(insertCall()).toBeUndefined();
+  });
+
+  it("conflicts on changed cargo weight rather than acknowledging a stale replay", async () => {
+    const cargo = { ...REQUEST, passenger_count: null, load_type: "Cargo", service_code: "RESTAURANT_SUPPLY_PICKUP", cargo_weight_kg: 650, cargo_description: "Vegetables" };
+    wire();
+    await ingestRequest(cargo, { strictReplay: true });
+    const fingerprint = insertCall()[1].find((value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value));
+    query.mockClear(); wire({ existing: { request_id: 42, external_create_fingerprint: fingerprint } });
+    await expect(ingestRequest({ ...cargo, cargo_weight_kg: 651 }, { strictReplay: true })).rejects.toMatchObject({ code: "SOURCE_CREATE_CONFLICT" });
+    expect(insertCall()).toBeUndefined();
   });
 
   it("does not fail the ingest when the integration_log write fails", async () => {
