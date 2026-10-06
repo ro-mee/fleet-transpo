@@ -17,7 +17,10 @@ import { resolveRouteEndpoints } from '@/services/route-resolver.service';
 import { evaluateDispatchCandidate,applyDispatchRadar } from './dispatch-radar.service';
 let now, request;
 beforeEach(()=>{
-  vi.clearAllMocks(); now=new Date(); request={request_id:1,fleet_status:'Pending',pickup_datetime:new Date(+now+60*60_000).toISOString(),pickup_location:'NAIA',dropoff_location:'Makati'};
+  vi.clearAllMocks();
+  driverBlockReason.mockReset();
+  driverBlockReason.mockReturnValue(null);
+  now=new Date(); request={request_id:1,fleet_status:'Pending',pickup_datetime:new Date(+now+60*60_000).toISOString(),pickup_location:'NAIA',dropoff_location:'Makati'};
   query.mockResolvedValue({rows:[]}); detectRequestConflicts.mockResolvedValue({conflicts:[],checks:[{id:'request',status:'verified'}]});
   standbyState.mockImplementation(async id=>({checked_in:true,consented:true,busy:false,session_live:true,standby_tracking_enabled:true,location_source:'standby',location_vehicle_id:id,standby_latitude:14.5+id/100,standby_longitude:121,location_accuracy_m:10,location_observed_at:now}));
   resolveDeadheadMinutes.mockResolvedValue({minutes:5,distanceKm:6,provenance:'live',computedAt:now.toISOString()});

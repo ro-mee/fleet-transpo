@@ -15,6 +15,10 @@ related: ["[[Reservations]]", "[[Trips]]"]
 
 # Feature: Dispatch
 
+## Task 5 verification follow-up — mock isolation (2026-10-06)
+
+The order-dependent Dispatch Radar failure came from a prior test queuing a one-time `driverBlockReason` result while asserting the mock was not called; `vi.clearAllMocks()` cleared calls but left that result queued. The test `beforeEach` now resets only `driverBlockReason` and restores its default `null` return. Test-only isolation fix; runtime behavior is unchanged. Verification: Dispatch Radar 26/26; combined Task 4 reader suites 5 files, 86/86; touched ESLint passed. Full suite intentionally not rerun here; coordinator owns its single post-change run.
+
 ## Dispatch Radar v2 recommendation endpoints — review round 1/5 (2026-10-06)
 
 The dispatch radar now resolves current-request and persisted-commitment route endpoints for v2 only from the explicit request location IDs. A point is usable only when the joined Fleet row matches that ID, is active and non-retired, and has a complete finite in-range coordinate pair. Missing, retired, mismatched, or invalid endpoints remain unknown; partner text is not sent through route/name resolution. Proposal presence contributes only the `pending_review` provenance label and proposal coordinates are never route inputs. The commitment query carries the fingerprint, both IDs, proposal-presence flags, and both linked Fleet rows. V1 and tentative legacy commitments retain their existing text fallback.
