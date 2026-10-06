@@ -193,7 +193,10 @@ describe("measured workspace layout (P1-10)", () => {
 
   it("lets hero actions wrap as independent children instead of one overflowing flex item", () => {
     const queueHtml = renderPage();
-    expect(queueHtml).toContain("flex flex-wrap items-center gap-2 min-w-0");
+    // Narrow widths stack full-width then reflow to a wrapped row at sm+.
+    expect(queueHtml).toContain("flex-col");
+    expect(queueHtml).toContain("sm:flex-row");
+    expect(queueHtml).toContain("w-full sm:w-auto");
   });
 });
 

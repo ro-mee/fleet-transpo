@@ -96,6 +96,11 @@ it('keeps exactly one named Copilot identity and no looping avatar asset', () =>
   for (const name of COPILOT_SOURCES) {
     expect(src(name)).not.toMatch(/\btext-(info|warning|danger)(?![-\w])/);
   }
+  // Committed-trip status icons use 700 inks (3:1 icon floor), never 600 on tint.
+  expect(src('ai-recommendation-panel.jsx')).not.toMatch(/text-(emerald|rose|blue|indigo)-600/);
+  // No idle pulse in the committed-trip bubble; activity motion stays motion-safe spin only.
+  expect(src('ai-recommendation-panel.jsx')).not.toContain('animate-pulse');
+  expect(src('ai-recommendation-panel.jsx')).not.toContain('animate-ping');
 });
 
 it('keeps option and evidence status in AA ink with named comparison headings', () => {

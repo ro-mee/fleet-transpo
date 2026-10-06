@@ -130,6 +130,9 @@ it('keeps committed-trip chat read-only and sends no client assignment evidence'
   expect(html).not.toContain('Compare options');
   expect(html).not.toContain('Review Evidence');
   expect(html).toContain('What is the current trip status?');
+  // Status-only route: must not promise details/next-step answers it cannot give.
+  expect(html).not.toContain('What details are recorded?');
+  expect(html).not.toContain('What happens next?');
   expect(html).not.toContain('Why this option?');
   expect(html).not.toContain('Any conflicts?');
   expect(html).not.toContain('Other options?');
@@ -165,8 +168,10 @@ it('mounts the current decision once after the log and before the composer throu
    }
    const dockStart=html.indexOf('data-current-decision');
    const composerStart=html.indexOf('<form');
-   expect(html.match(/data-current-decision/g)).toHaveLength(1);
-   expect(html).toContain('role="region" aria-label="Current dispatch decision" tabindex="0"');
+    expect(html.match(/data-current-decision/g)).toHaveLength(1);
+    // The dock region itself is not a tab stop; its Confirm/Change controls are.
+    expect(html).toContain('role="region" aria-label="Current dispatch decision"');
+    expect(html).not.toContain('aria-label="Current dispatch decision" tabindex');
    expect(dockStart).toBeGreaterThan(logEnd);
    expect(dockStart).toBeLessThan(composerStart);
  };

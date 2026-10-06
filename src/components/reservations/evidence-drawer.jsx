@@ -273,7 +273,11 @@ export function buildInspectorRows(clearance = [], meta = {}) {
         proof: c.proof ?? null,
       });
     } else if (c.status === "blocking") {
-      rows.push({ label: c.label, state: "blocked", note: "See exclusion proof", proof: null });
+      // Blocked clearance carries no direct proof ref by contract
+      // (evidence-contract mints refs for verified checks; blocking detail
+      // rides with recoveryActions in the conversation). The note must not
+      // promise an inspector Review button that does not exist.
+      rows.push({ label: c.label, state: "blocked", note: "Blocked — see Review Evidence in the conversation for the exclusion detail", proof: null });
     } else {
       rows.push({ label: c.label, state: "verify", note: "Needs verification", proof: null });
     }

@@ -58,11 +58,17 @@ export function CopilotTripDetailsBubble({
   alreadyAssigned,
 }) {
   const selectedStatus = selectedRequest?.fleet_status;
+  // Missing status must never read as terminal: this bubble only renders when
+  // the panel is assignment-closed (committed or Assigned/terminal), so an
+  // absent status is an optimistic post-success Assigned, never Completed.
+  // A truly unknown lifecycle stays visible as Assigned only here because the
+  // caller gates terminal behavior (composer, refresh) on displayedRequest,
+  // not on this display label.
   const status = ['In Progress', 'Completed', 'Cancelled'].includes(selectedStatus)
     ? selectedStatus
     : (committedPair || alreadyAssigned || selectedStatus === 'Assigned')
       ? 'Assigned'
-      : selectedStatus || 'Completed';
+      : selectedStatus || 'Assigned';
   const isCompleted = status === "Completed";
   const isCancelled = status === "Cancelled";
   const isInProgress = status === "In Progress";
@@ -114,15 +120,15 @@ export function CopilotTripDetailsBubble({
               className={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 shadow-2xs",
                 isCompleted &&
-                  "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 ring-emerald-500/25",
+                  "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 ring-emerald-500/25",
                 isCancelled &&
-                  "bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 ring-rose-500/25",
+                  "bg-rose-500/10 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300 ring-rose-500/25",
                 isInProgress &&
-                  "bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 ring-blue-500/25",
+                  "bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 ring-blue-500/25",
                 !isCompleted &&
                   !isCancelled &&
                   !isInProgress &&
-                  "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 ring-indigo-500/25"
+                  "bg-indigo-500/10 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 ring-indigo-500/25"
               )}
             >
               {isCompleted && <CheckCircle2 className="size-4" />}
@@ -173,7 +179,7 @@ export function CopilotTripDetailsBubble({
                 isCancelled &&
                   "bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.7)]",
                 isInProgress &&
-                  "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.7)] motion-safe:animate-pulse",
+                  "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.7)]",
                 !isCompleted &&
                   !isCancelled &&
                   !isInProgress &&
@@ -203,7 +209,7 @@ export function CopilotTripDetailsBubble({
         {/* ── Cancellation Reason Alert (if cancelled) ── */}
         {isCancelled && selectedRequest?.status_reason && (
           <div className="rounded-xl border border-rose-200/80 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-950/20 p-2.5 flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-200 shadow-2xs">
-            <AlertCircle className="size-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+            <AlertCircle className="size-4 shrink-0 text-rose-700 dark:text-rose-300 mt-0.5" />
             <div className="min-w-0 flex-1">
               <span className="font-semibold block text-xs uppercase tracking-wider text-rose-700 dark:text-rose-300">
                 Cancellation Reason
@@ -680,10 +686,10 @@ export function AiRecommendationPanel({
     setSelectionCheck(null);
   };
   const resetDecision = () => {
-    if (assignment.isPending || failure?.checking) return;
+    if (assignment.isPending || failure?.checking || selectionCheck?.pending) return;
     chooseAnother();
   };
-  const resetDisabled = assignment.isPending || !!failure?.checking;
+  const resetDisabled = assignment.isPending || !!failure?.checking || !!selectionCheck?.pending;
 
   const hasSavedSelection = !!selected || !!getReservationSelection(requestId);
 
@@ -818,10 +824,10 @@ export function AiRecommendationPanel({
     action.recovery === "request" ? (
       <Link className="text-xs text-primary underline" href={`/reservations/${requestId}`}>Open current request</Link>
     ) : (action.recovery === "recheck" || action.recovery === "analyze") ? (
-      <Button size="xs" variant="outline" className="rounded-lg text-[11px]" onClick={recheck} disabled={recheckBusy || busy}>Recheck reservation</Button>
+      <Button size="sm" variant="outline" className="rounded-lg text-[11px] min-h-[44px]" onClick={recheck} disabled={recheckBusy || busy}>Recheck reservation</Button>
     ) : null;
   const selectionChangeButton = hasSavedSelection ? (
-    <Button size="sm" variant="outline" disabled={busy} onClick={chooseAnother}>
+    <Button size="sm" variant="outline" className="min-h-[44px]" disabled={busy} onClick={chooseAnother}>
       Change selection
     </Button>
   ) : null;
@@ -863,7 +869,7 @@ export function AiRecommendationPanel({
             {assignment.isPending ? 'Confirming assignment...' : 'Confirm assignment — ' + pairLabel(pair)}
           </Button>
         </>}
-        <Button variant="ghost" size="sm" disabled={busy || query.isError || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
+        <Button variant="ghost" size="sm" className="min-h-[44px]" disabled={busy || query.isError || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
       </div>
     </CopilotBubble>
   ) : null;
@@ -965,10 +971,10 @@ export function AiRecommendationPanel({
             {!assignmentClosed && <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
-                size="xs"
+                size="sm"
                 onClick={recheck}
                 disabled={recheckBusy || assignment.isPending || failure?.checking}
-                className="h-7 text-xs rounded-lg border-border/80"
+                className="min-h-[44px] text-xs rounded-lg border-border/80"
                 title="Recheck evidence for this reservation"
               >
                 <RefreshCw
@@ -994,7 +1000,7 @@ export function AiRecommendationPanel({
           description={`${planError?.message ?? planError}. Any previous queue findings are historical until analysis succeeds. Retry before confirming a queue proposal.`}
         >
           {onReanalyze && (
-            <Button size="sm" variant="outline" onClick={retryQueueAnalysis} disabled={isAnalyzing}>
+            <Button size="sm" variant="outline" className="min-h-[44px]" onClick={retryQueueAnalysis} disabled={isAnalyzing}>
               Retry queue analysis
             </Button>
           )}
@@ -1028,7 +1034,7 @@ export function AiRecommendationPanel({
                   ? `The prior evaluation is not current. ${historicSummaryPairs.length ? "Historic details are shown below for reference only. " : ""}Retry before selecting or assigning. ${query.error?.message ?? "The refresh failed."}`
                   : `Current eligibility is unknown because the recommendation request failed${query.error?.message ? `: ${query.error.message}` : ""}. Recheck before taking action.`}
               >
-                <Button size="sm" variant="outline" onClick={recheck} disabled={recheckBusy || busy}>
+                <Button size="sm" variant="outline" className="min-h-[44px]" onClick={recheck} disabled={recheckBusy || busy}>
                   Retry evidence
                 </Button>
                 {selectionChangeButton}
@@ -1044,7 +1050,7 @@ export function AiRecommendationPanel({
                   : "This queue proposal is partial. Reanalyze the service date before selecting or confirming a resource pair."}
               >
                 {onReanalyze && (
-                  <Button size="sm" variant="outline" onClick={retryQueueAnalysis} disabled={isAnalyzing || busy}>
+                  <Button size="sm" variant="outline" className="min-h-[44px]" onClick={retryQueueAnalysis} disabled={isAnalyzing || busy}>
                     {isAnalyzing ? "Reanalyzing queue…" : "Retry queue analysis"}
                   </Button>
                 )}
@@ -1060,7 +1066,7 @@ export function AiRecommendationPanel({
                 title="Eligibility unknown"
                 description="The recommendation response does not contain a completed evaluation. No fleet-wide exclusion can be inferred; recheck this reservation."
               >
-                <Button size="sm" variant="outline" onClick={recheck} disabled={recheckBusy || busy}>
+                <Button size="sm" variant="outline" className="min-h-[44px]" onClick={recheck} disabled={recheckBusy || busy}>
                   Recheck reservation
                 </Button>
                 {selectionChangeButton}

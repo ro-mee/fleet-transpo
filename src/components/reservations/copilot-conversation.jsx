@@ -448,8 +448,12 @@ export function CopilotConversation({
     if (log.current) log.current.scrollTop = log.current.scrollHeight;
   };
 
+  // Committed trips get a status-only route response (server lifecycle + IDs,
+  // no ranking/proof/LLM). Suggestions must not promise details or next-step
+  // answers the route does not provide; trip details render in the decision
+  // bubble from the reservation record instead.
   const suggestions = readOnlyCommitted
-    ? ["What is the current trip status?", "What details are recorded?", "What happens next?"]
+    ? ["What is the current trip status?"]
     : hasPair
       ? ["Why this option?", "Any conflicts?", "Other options?"]
       : ["Why no match?", "What needs fixing?", "Other options?"];
@@ -664,8 +668,7 @@ export function CopilotConversation({
         <div
           role="region"
           aria-label="Current dispatch decision"
-          tabIndex={0}
-          className="min-h-0 max-h-[min(40vh,20rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-surface p-3 scroll-py-2 focus-visible:outline-2 focus-visible:outline-primary"
+          className="min-h-0 max-h-[min(40vh,20rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-surface p-3 scroll-py-2"
         >
           <p aria-hidden="true" className="mb-2 text-[11px] font-bold uppercase tracking-wider text-foreground-secondary">
             Current decision

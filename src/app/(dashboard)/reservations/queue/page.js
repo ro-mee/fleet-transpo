@@ -323,7 +323,7 @@ export default function UnifiedQueuePage() {
         badge="Operations"
         description="Every request and committed dispatch in one place — auto-sorted by urgency."
         actions={
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <div className="flex flex-col gap-2 min-w-0 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             {!isDesktop && selectedRequest && (
               <Button
                 ref={mobileOpenTriggerRef}
@@ -333,7 +333,7 @@ export default function UnifiedQueuePage() {
                   mobileDrawerOpenerRef.current = event.currentTarget;
                   setIsMobileDrawerOpen(true);
                 }}
-                className="min-h-[44px] rounded-xl text-xs font-semibold pl-2 max-w-full"
+                className="min-h-[44px] rounded-xl text-xs font-semibold pl-2 w-full sm:w-auto max-w-full"
               >
                 <CopilotAvatar size="xxs" className="mr-1.5" />
                 Open Copilot
@@ -342,7 +342,7 @@ export default function UnifiedQueuePage() {
             <Button
               variant="outline"
               size="sm"
-              className="min-h-[44px] rounded-xl text-xs font-semibold max-w-full"
+              className="min-h-[44px] rounded-xl text-xs font-semibold w-full sm:w-auto max-w-full"
               asChild
             >
               <Link href="/dispatch/calendar">
@@ -351,7 +351,7 @@ export default function UnifiedQueuePage() {
               </Link>
             </Button>
             <Button
-              className={cn(heroButtonPrimaryClass, "min-h-[44px] max-w-full")}
+              className={cn(heroButtonPrimaryClass, "min-h-[44px] w-full sm:w-auto max-w-full")}
               onClick={() => pullMutation.mutate()}
               disabled={pullMutation.isPending}
             >

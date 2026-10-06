@@ -72,11 +72,16 @@ function formatTripMetrics(r) {
   // This used to fill the gap from `request_id % n` "so numbers look
   // authentic" — which put a confident "12 km · ~25 min" on every card for a
   // request nobody had ever estimated. An unknown estimate is unknown.
+  // Units follow the routes contract: estimated_distance is km (routes page
+  // labels "Estimated distance (km)" and renders `${v} km`; estimates write
+  // distanceKm). No m/km heuristic: a 150 km record must read 150 km, not 0.
+  const distNum = r.estimated_distance != null ? Number(r.estimated_distance) : null;
   const distStr =
-    r.estimated_distance != null ? `${Math.round(Number(r.estimated_distance) > 100 ? Number(r.estimated_distance) / 1000 : Number(r.estimated_distance))} km` : null;
+    distNum != null && Number.isFinite(distNum) ? `${Math.round(distNum)} km` : null;
 
+  const durNum = r.estimated_duration != null ? Number(r.estimated_duration) : null;
   const durStr =
-    r.estimated_duration != null ? `~ ${Math.round(Number(r.estimated_duration))} min` : null;
+    durNum != null && Number.isFinite(durNum) ? `~ ${Math.round(durNum)} min` : null;
 
   // Everything known, joined; only the service name is always present.
   const summary = [serviceName, distStr, durStr].filter(Boolean).join(" · ");

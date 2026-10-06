@@ -46,9 +46,9 @@ describe('L. Evidence Drawer renders the narrated evidence', () => {
     expect(pair.checks.map(c => c.id)).toEqual(pair.clearance.map(c => c.checkId).filter(id => id !== 'leave'));
     // State mapping: verified -> clear, blocking -> blocked, missing -> verify.
     const rows = buildInspectorRows(pair.clearance, pair.clearanceMeta);
-    expect(rows.find(r => r.label === 'Service-window maintenance')).toMatchObject({ state: 'blocked', note: 'See exclusion proof' });
+    expect(rows.find(r => r.label === 'Service-window maintenance')).toMatchObject({ state: 'blocked', note: 'Blocked — see Review Evidence in the conversation for the exclusion detail' });
     expect(rows.find(r => r.label === 'Seating capacity')).toMatchObject({ state: 'clear', note: 'No blocking issue found' });
-    expect(html).toContain('See exclusion proof');
+    expect(html).toContain('Blocked — see Review Evidence in the conversation for the exclusion detail');
 
     const unverified = handoff([unverifiedPair(['maintenance'])]);
     expect(buildInspectorRows(unverified.pairs[0].clearance, unverified.pairs[0].clearanceMeta).find(r => r.label === 'Service-window maintenance'))
