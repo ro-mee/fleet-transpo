@@ -82,6 +82,16 @@ The v2 ingest estimate call explicitly enables strict registry mode before the r
 
 Review round 1/5: the live-trip-monitor SELECT now carries `external_create_fingerprint`, both canonical request location IDs, and both proposal fields through its passenger-estimate request. This prevents the read path from misclassifying persisted v2 rows as legacy; missing IDs remain strict/unknown. Focused monitor and route-resolver tests passed 51/51 after an expected RED, and touched ESLint / `git diff --check` passed. Migration 146 remains unapplied as a pre-merge release hold.
 
+## Task 4 strict v2 endpoint readers — 2026-10-06
+
+Persisted v2 requests (non-null `external_create_fingerprint`) are strict across estimate resolution, mobile coordinates, geofence targets, route-feasibility/reposition, and dispatch-radar recommendation legs. Every usable point must come from the active, non-retired Fleet row whose ID matches the request's explicit `pickup_location_id` / `dropoff_location_id`, with a complete finite in-range coordinate pair. V2 readers do not fall back to request text, name matching, dynamic hotel/gazetteer/seed data, stored route endpoints, or proposal coordinates. Missing, retired, mismatched, or invalid links remain null/unknown; legacy PMS v1 retains its prior resolver behavior.
+
+## Task 5 final contract and release holds — 2026-10-06
+
+V2 codes are server-generated immutable UUIDs unique across active and retired `locations` rows; they are the only partner-controlled way to establish a request FK. Partner proposals are durably stored in the two dedicated JSONB columns as review-only data. They never create locations or directly supply routing coordinates. They remain review-only until a future human dispatcher mapping action links the request to an active Fleet location; any subsequent routing uses that linked canonical Fleet point, not the proposal JSONB. No mapping UI/action exists yet. `canonical_registry` means provenance from an active Fleet-managed point with complete finite in-range coordinates, not independent verification. `pending_review` marks an unlinked proposal; otherwise unresolved endpoint status is `unknown`.
+
+V2 is create-only: source revision and update/cancel semantics are not implemented. Candidate migration 146 remains unapplied. Migrations 144/145 and 146 must be reconciled with concurrent main Hotel/POS work before merge; migration apply requires explicit approval. No live schema/RLS verification is claimed, and no PMS/POS connectivity is implied.
+
 ## Related
 
 [[Reservations]] · [[Request Lifecycle]] · [[Database Overview]] · [[ERD]] · [[System Boundaries]]

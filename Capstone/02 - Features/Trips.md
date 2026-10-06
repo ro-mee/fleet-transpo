@@ -12,7 +12,7 @@ source:
   - mobile/lib/tracking.js
   - src/app/api/mobile/driver/inspections/route.js
   - src/lib/inspections/checklists.js
-last_verified: 2026-09-27
+last_verified: 2026-10-06
 related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 ---
 
@@ -191,3 +191,7 @@ The fix is at the shared boundary, not in one page:
 The route-feasibility next-dispatch leg and full live-trip-monitor reposition now use the next request's `external_create_fingerprint` and explicit pickup ID to choose coordinates. V2 uses only a matching, active, non-retired Fleet location with a complete finite in-range pair. Missing/retired/invalid links stay unknown; partner proposals and stored route endpoints never supply reposition coordinates. Per-endpoint `canonical_registry`, `pending_review`, or `unknown` provenance is preserved on the feasibility/monitor result. Legacy v1 keeps the previous text/gazetteer fallback.
 
 No trip lifecycle or geofence state transitions changed. Verification: new RED on unchanged production, focused feasibility + live-trip-monitor GREEN (39/39), combined Task 4 reader suites GREEN (60/60), touched ESLint, and `git diff --check`. Mock/offline evidence only; migration 146 remains unapplied.
+
+## Task 5 v2 reader contract and release hold — 2026-10-06
+
+Across estimates, mobile endpoint coordinates, geofence targets, route-feasibility/reposition, and dispatch recommendations, persisted v2 requests use only active Fleet points reached through their explicit request location IDs. No request-text/name, gazetteer, dynamic hotel, seed, route-endpoint, or proposal-coordinate fallback is allowed; absent or unusable links stay null/unknown. `canonical_registry` is Fleet-managed point provenance, not independent verification. Proposals remain review-only and do not create or route to locations unless a future human dispatcher mapping action establishes a Fleet link; that UI/action is not implemented. Trip lifecycle/geofence state transitions are unchanged. Migration 146 is unapplied and migrations 144/145/146 remain held for concurrent-main reconciliation; no live schema/RLS verification is claimed.

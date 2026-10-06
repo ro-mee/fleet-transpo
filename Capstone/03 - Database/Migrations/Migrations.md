@@ -16,6 +16,8 @@ Adds `locations.location_code UUID NOT NULL DEFAULT uuid_generate_v4()` and back
 
 `npm run db:status` was rerun read-only from the root checkout before choosing the number (141 files applied, 0 pending/changed; ledger-only 113/114/115 and 141/142 remain spent). Root migration 143 is present and applied; this worktree already contains draft migrations 144 and 145, so 146 is the next available branch number. Same-named proposal checks are now compared against a trusted scratch constraint's complete `pg_get_constraintdef` output and must be validated and single-column; `CHECK (... OR TRUE)` cannot satisfy the guard, while an exact matching definition remains idempotent on rerun. Static migration assertions and offline `npm run db:check` passed; no `db:up`, `db:dump`, live SQL, or catalog query was run. Migration 146 remains unapplied and must be reconciled with concurrent main Hotel/POS work before merge; the location API/UI code requires it before deployment, and live schema presence is not claimed.
 
+**Task 5 release hold (2026-10-06):** Draft migrations 144 and 145 and candidate 146 must all be reconciled with the concurrent main Hotel/POS work before merge. Candidate 146 is still unapplied. This documentation/verification task makes no migration-number or migration-status decision; applying any migration requires explicit approval. No live schema or RLS verification is claimed.
+
 ## 2026-09-29 — `139_driver_punctuality.sql` (Driver Punctuality, Task 1 of 9)
 
 Adds the authoritative pickup-arrival timestamp for Driver Punctuality to

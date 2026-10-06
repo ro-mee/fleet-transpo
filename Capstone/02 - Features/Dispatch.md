@@ -9,7 +9,7 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-09-27
+last_verified: 2026-10-06
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
@@ -20,6 +20,8 @@ related: ["[[Reservations]]", "[[Trips]]"]
 The dispatch radar now resolves current-request and persisted-commitment route endpoints for v2 only from the explicit request location IDs. A point is usable only when the joined Fleet row matches that ID, is active and non-retired, and has a complete finite in-range coordinate pair. Missing, retired, mismatched, or invalid endpoints remain unknown; partner text is not sent through route/name resolution. Proposal presence contributes only the `pending_review` provenance label and proposal coordinates are never route inputs. The commitment query carries the fingerprint, both IDs, proposal-presence flags, and both linked Fleet rows. V1 and tentative legacy commitments retain their existing text fallback.
 
 Verified: dispatch-radar RED against unchanged production (9 failed, 17 passed after adding invalid-coordinate and persisted-link cases), then 26/26 focused tests; the combined five Task 4 reader suites passed 86/86; touched ESLint and `git diff --check` passed. Evidence is mocked/static; no live database behavior is claimed.
+
+Task 5 boundary: `canonical_registry` is provenance from an active Fleet-managed point with complete finite in-range coordinates, not independent verification. Partner proposals remain durable review-only request JSONB; they neither create a location nor supply recommendation/routing coordinates. A future human mapping action is required to associate a proposal with an active Fleet location, and the dispatcher mapping UI/action is not implemented. V2 recommendation legs remain null/unknown without a usable explicit request link; migration 146 remains unapplied and is subject to the shared 144/145/146 release hold.
 
 ## Duty clock is Manila-explicit, not server-local — 2026-10-02
 
