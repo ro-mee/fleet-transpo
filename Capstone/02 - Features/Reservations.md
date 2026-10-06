@@ -5,6 +5,8 @@ tags: [feature, reservations, integration]
 source:
   - src/app/api/integration/transport-requests/route.js
   - src/app/api/integration/pull/route.js
+  - src/lib/integration/booking-gateway.js
+  - src/lib/integration/ingest.js
   - src/services/reservation-lifecycle.service.js
   - src/lib/scheduling/reservation-state.js
   - src/lib/scheduling/priority.js
@@ -292,3 +294,11 @@ V2 request-location links are code-only: opaque server-generated UUID codes iden
 Partner proposals are durable `partner_pickup_location_proposal` / `partner_dropoff_location_proposal` JSONB review data. They are not copied into `locations`, do not populate request FKs, and never drive routing. `canonical_registry` means an active Fleet-managed point with a complete finite in-range coordinate pair, not an independently verified point; a proposal without a usable link is `pending_review`, and otherwise an unresolved endpoint is `unknown`. A separate human dispatcher mapping action is required to associate a proposal with an active Fleet point; the dispatcher mapping UI/action is not implemented.
 
 For persisted v2 creates, estimates and downstream mobile, geofence, route-feasibility/reposition, and recommendation readers require the request's explicit active links. They have no name, gazetteer, dynamic hotel, seed, route-endpoint, or proposal-coordinate fallback. Missing/invalid links or coordinates remain null/unknown. V2 intake is create-only; source revision, update, and cancellation semantics remain incomplete. Candidate migration 146 is unapplied; migrations 144/145/146 must be reconciled with concurrent main Hotel/POS work before merge, and applying any migration requires explicit approval. No live schema/RLS verification or PMS/POS connectivity is claimed.
+
+## Final-review intake hardening — 2026-10-06
+
+The pull route now takes each non-mock row's source identity from the gateway adapter, never from `raw.source_system`; missing adapter identity skips the row. The in-process mock is the only fixture-identity exception. The current HTTP gateway is marked as PMS but is still unconnected, so no live pull or POS adapter is claimed.
+
+Legacy v1 remains passenger-defaulted. If a v1 request supplies an internal `service_type_id` that resolves to a catalog row with a known incompatible load type (including Cargo against the Passenger default), ingest rejects it before insert; matching Passenger IDs remain accepted. For new v2 creates, exact replay, tombstone, and fingerprint checks still precede location lookup. After any route-provider estimate returns, the writer re-resolves supplied codes with `FOR SHARE` and inserts the request using those locked IDs on the same transaction connection, preventing a concurrent retirement from creating a stale link without holding the lock across provider work.
+
+This fix wave used focused mocked/static tests and offline migration checks only. No live DB, migration apply, schema dump, connector activation, or full-suite run was performed here; the coordinator owns the single post-fix full-suite run.

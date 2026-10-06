@@ -5,6 +5,8 @@ tags: [database, table, core]
 source:
   - supabase/migrations/016_reservation_module.sql
   - supabase/migrations/012_status_constraints.sql
+  - supabase/migrations/145_load_types_and_services.sql
+  - src/lib/integration/ingest.js
   - supabase/migrations/146_location_intake_identity.sql
   - src/services/reservation-lifecycle.service.js
 last_verified: 2026-10-06
@@ -91,6 +93,12 @@ Persisted v2 requests (non-null `external_create_fingerprint`) are strict across
 V2 codes are server-generated immutable UUIDs unique across active and retired `locations` rows; they are the only partner-controlled way to establish a request FK. Partner proposals are durably stored in the two dedicated JSONB columns as review-only data. They never create locations or directly supply routing coordinates. They remain review-only until a future human dispatcher mapping action links the request to an active Fleet location; any subsequent routing uses that linked canonical Fleet point, not the proposal JSONB. No mapping UI/action exists yet. `canonical_registry` means provenance from an active Fleet-managed point with complete finite in-range coordinates, not independent verification. `pending_review` marks an unlinked proposal; otherwise unresolved endpoint status is `unknown`.
 
 V2 is create-only: source revision and update/cancel semantics are not implemented. Candidate migration 146 remains unapplied. Migrations 144/145 and 146 must be reconciled with concurrent main Hotel/POS work before merge; migration apply requires explicit approval. No live schema/RLS verification is claimed, and no PMS/POS connectivity is implied.
+
+## Final-review correction wave — 2026-10-06
+
+The legacy pull path now overwrites sender-declared `source_system` with the trusted gateway identity (mock fixtures are the sole exception); a non-mock adapter without identity is skipped. A supplied legacy `service_type_id` remains accepted when compatible, but a catalog row with a known `default_load_type` incompatible with v1's Passenger default is rejected before request insert. V2 code-based creates retain replay/tombstone/fingerprint checks before location lookups, then lock each supplied active code row with `FOR SHARE` and insert using those IDs on the same transaction connection after route-provider estimation.
+
+Candidate migration 145's two same-name load constraints now require an exact deparsed expected definition and `convalidated = true`; absent constraints are added, mismatched/unvalidated constraints raise rather than being dropped. Candidate migration 146 rejects addresses made only of ASCII SQL whitespace (including tabs/newlines). All three migrations remain unapplied. Strict v2 readers suppress unknown/stale persisted estimates when request links are unusable; v2 geofence targets accept a complete active linked `(0,0)`, while the v1 sentinel remains unchanged. These statements reflect code/static tests only, not live schema behavior.
 
 ## Related
 

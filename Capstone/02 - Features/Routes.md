@@ -11,6 +11,10 @@ source:
   - src/services/route-resolver.service.js
   - src/services/route.service.js
   - src/services/route-feasibility-context.service.js
+  - src/services/dispatch-recommendation-preparation.service.js
+  - src/services/dispatch-radar.service.js
+  - src/services/trip-geofence.service.js
+  - src/app/api/mobile/driver/trips/route.js
   - src/lib/tomtom.js
   - src/lib/routing/route-cache.js
   - src/lib/scheduling/route-feasibility.js
@@ -229,3 +233,9 @@ Verification: dispatch-radar RED on unchanged production (9 failed, 17 passed af
 - `canonical_registry` describes provenance from an active Fleet-managed point with a complete finite in-range coordinate pair; it does **not** mean independently verified. A proposal without a usable canonical link is `pending_review`; otherwise an unresolved endpoint is `unknown`.
 - V2 estimates, mobile endpoint coordinates, geofence targets, route-feasibility/reposition legs, and dispatch-radar recommendations use only the request's explicit active location links. No v2 name matching, gazetteer, dynamic hotel, seed, stored-route-endpoint, or proposal-coordinate fallback is allowed. Missing, retired, mismatched, or unusable links yield null/unknown outcomes and no route is created or persisted. Legacy PMS v1 resolution remains unchanged.
 - V2 remains create-only: revisions beyond the initial create and update/cancel semantics are not implemented. Candidate migration `146_location_intake_identity.sql` remains unapplied. Migrations 144/145 and candidate 146 must be reconciled with concurrent main Hotel/POS work before merge; any migration apply requires explicit approval. No live schema or RLS verification is claimed, and this contract does not imply PMS/POS connectivity.
+
+## Final-review strict-reader corrections — 2026-10-06
+
+`attachPairFeasibility` now resolves current v2 endpoints by request-linked Fleet IDs and uses only matching active, non-retired rows with complete finite in-range coordinates. Missing, mismatched, retired, malformed, or unavailable rows stay null/unknown; v2 labels are never sent through the legacy text resolver. Mobile trip responses suppress stored distance/duration whenever either v2 link is unusable, while preserving valid-link behavior and the v1 `COALESCE` path. Recommendation preparation propagates null strict resolver fields over stale v2 request estimates, and dispatch candidate service-end timing no longer falls back to a stored v2 duration; v1 fallback is preserved. Linked canonical v2 `(0,0)` is accepted as a valid coordinate in geofence targets, while the historical v1 sentinel remains rejected.
+
+Verification was focused/mock-only: route-feasibility, mobile trips, recommendation preparation, and dispatch-radar suites passed 69/69; touched ESLint and diff check passed. The coordinator owns the post-fix full-suite run.

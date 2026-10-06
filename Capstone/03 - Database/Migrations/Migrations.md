@@ -18,6 +18,12 @@ Adds `locations.location_code UUID NOT NULL DEFAULT uuid_generate_v4()` and back
 
 **Task 5 release hold (2026-10-06):** Draft migrations 144 and 145 and candidate 146 must all be reconciled with the concurrent main Hotel/POS work before merge. Candidate 146 is still unapplied. This documentation/verification task makes no migration-number or migration-status decision; applying any migration requires explicit approval. No live schema or RLS verification is claimed.
 
+## 2026-10-06 — final-review migration safeguards (draft, NOT applied)
+
+Migration `145_load_types_and_services.sql` now adds either named load CHECK only when it is absent; if already present, its complete PostgreSQL-deparsed definition must match a scratch constraint built from the expected expression and `convalidated` must be true. A same-name wrong or unvalidated constraint raises instead of being dropped/replaced. Candidate migration `146_location_intake_identity.sql` rejects address values containing only SQL ASCII whitespace, including tab, line feed, carriage return, form feed, and vertical tab, while retaining the paired-coordinate proposal case.
+
+Offline verification: `npm run db:check` accepted 143 migration files. No `db:status`, live catalog query, apply, or schema dump was run in this correction wave. Migrations 144/145/146 remain subject to the existing reconciliation and explicit-approval hold; this does not claim live schema state.
+
 ## 2026-09-29 — `139_driver_punctuality.sql` (Driver Punctuality, Task 1 of 9)
 
 Adds the authoritative pickup-arrival timestamp for Driver Punctuality to
