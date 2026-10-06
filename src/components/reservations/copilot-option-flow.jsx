@@ -145,7 +145,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
           </span>
         </div>
         <details className="group mt-2">
-          <summary title="Show schedule and workload details" className="inline-flex cursor-pointer list-none items-center gap-1 text-[11px] text-foreground-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">
+          <summary title="Show schedule and workload details" className="inline-flex min-h-[44px] cursor-pointer list-none items-center gap-1 text-[11px] text-foreground-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">
             <span className="underline underline-offset-2">Schedule &amp; workload details</span>
           </summary>
           <div className="mt-2 border-t border-border pt-2">
@@ -173,7 +173,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
           <span>{c.label}: {c.message || (c.status === 'verified' ? 'Verified for the booking window' : 'Needs verification')}</span>
         </li>)}</ul>
         {!decision.canConfirm && <p className="mb-3 flex items-start gap-2 text-xs text-warning"><CircleAlert className="size-4 shrink-0" aria-hidden="true"/><span>{p.unavailable ? 'This option is no longer available.' : decision.reasons[0] || decision.label}</span></p>}
-        <Button type="button" variant="outline" size="sm" aria-label={`Choose Option ${index+1}: ${vehicleLabel} with ${driverLabel}, ${option.recommended ? 'recommended' : 'alternate'}${disabled ? ', unavailable' : ''}`} className={cn('h-9 w-full rounded-md text-sm font-semibold focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',option.recommended ? 'border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800 hover:text-white' : 'border-slate-400 bg-transparent text-foreground hover:bg-hover')}
+        <Button type="button" variant="outline" size="sm" aria-label={`Choose Option ${index+1}: ${vehicleLabel} with ${driverLabel}, ${option.recommended ? 'recommended' : 'alternate'}${disabled ? ', unavailable' : ''}`} className={cn('min-h-[44px] w-full rounded-md text-sm font-semibold focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',option.recommended ? 'border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800 hover:text-white' : 'border-slate-400 bg-transparent text-foreground hover:bg-hover')}
           disabled={disabled} onClick={() => { if (!disabled) onChoose(option); }}>Choose Option {index+1}<ArrowRight className="ml-1 size-4" aria-hidden="true"/></Button>
       </article>;
     })}

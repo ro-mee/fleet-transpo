@@ -58,14 +58,18 @@ const ROW = {
   passenger_count: 2,
 };
 
-// The tab buttons are the only elements carrying role="tab" before the
-// list/grid switcher (which is aria-pressed, not a tablist). Attribute values
-// come back HTML-escaped from the static render, so `&amp;` is decoded.
+// The queue-section filter buttons are a labelled filter-button group
+// (aria-pressed), not ARIA tabs: they switch filtered queues rather than
+// tabpanels. The list/grid switcher also uses aria-pressed, so only buttons
+// whose accessible name carries the "Label — count" shape are collected.
+// Attribute values come back HTML-escaped, so `&amp;` is decoded.
 function tabs(html) {
-  return [...html.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map((match) => ({
-    label: (match[0].match(/aria-label="([^"]*)"/)?.[1] ?? "").replace(/&amp;/g, "&"),
-    selected: /aria-selected="true"/.test(match[0]),
-  }));
+  return [...html.matchAll(/<button[^>]*aria-pressed="[^"]*"[^>]*>/g)]
+    .map((match) => ({
+      label: (match[0].match(/aria-label="([^"]*)"/)?.[1] ?? "").replace(/&amp;/g, "&"),
+      selected: /aria-pressed="true"/.test(match[0]),
+    }))
+    .filter(({ label }) => label.includes("—"));
 }
 
 function renderTree() {
@@ -95,6 +99,15 @@ describe("Unified queue — first load", () => {
     expect(html).toContain("(…)");
     expect(html).not.toContain("(0)");
     for (const tab of rendered) expect(tab.label).toMatch(/— count loading$/);
+  });
+
+  it("exposes the sections as a filter-button group without tab semantics", () => {
+    const html = renderTree();
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Queue sections"');
+    expect(html).not.toContain('role="tablist"');
+    expect(html).not.toContain('role="tab"');
+    expect(html).not.toContain("aria-selected");
   });
 
   it("highlights Today & overdue while Today is what is being fetched", () => {

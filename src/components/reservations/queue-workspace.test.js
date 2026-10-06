@@ -1,5 +1,41 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import React from "react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import { bucketProposal, DECISION_LABELS } from "@/lib/dispatch/decision";
+
+const panelHookState = vi.hoisted(() => ({ slots: [], cursor: 0 }));
+const panelCapture = vi.hoisted(() => ({ panels: [] }));
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    useState: (initial) => {
+      const index = panelHookState.cursor++;
+      if (!(index in panelHookState.slots))
+        panelHookState.slots[index] = { value: typeof initial === "function" ? initial() : initial };
+      const slot = panelHookState.slots[index];
+      return [slot.value, (value) => { slot.value = typeof value === "function" ? value(slot.value) : value; }];
+    },
+    useRef: (initial) => {
+      const index = panelHookState.cursor++;
+      if (!(index in panelHookState.slots)) panelHookState.slots[index] = { value: { current: initial } };
+      return panelHookState.slots[index].value;
+    },
+    useEffect: () => {},
+    useMemo: (fn) => fn(),
+    useCallback: (fn) => fn,
+  };
+});
+vi.mock("./ai-recommendation-panel", () => ({
+  AiRecommendationPanel: (props) => {
+    panelCapture.panels.push(props);
+    return null;
+  },
+}));
+import { DispatchPlanPanel } from "./dispatch-plan-panel";
+import { Dialog } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { EvidenceDrawer, EvidenceFailureMessage, EligibilityInspector } from "./evidence-drawer";
 
 describe("bucketProposal decision truthfulness", () => {
   const safePair = {
@@ -295,5 +331,158 @@ describe("queue presentation StatusBadge tones", () => {
     expect(statusVariant(ready.status, ready.entity)).toBe("success");
     expect(verification.label).toBe("Needs verification");
     expect(statusVariant(verification.status, verification.entity)).toBe("warning");
+  });
+});
+
+const findTreeNode = (node, predicate) => {
+  if (Array.isArray(node)) return node.map((child) => findTreeNode(child, predicate)).find(Boolean) ?? null;
+  if (!React.isValidElement(node)) return null;
+  if (predicate(node)) return node;
+  return findTreeNode(node.props?.children, predicate);
+};
+const countTreeNodes = (node, predicate) => {
+  if (Array.isArray(node)) return node.reduce((n, child) => n + countTreeNodes(child, predicate), 0);
+  if (!React.isValidElement(node)) return 0;
+  return (predicate(node) ? 1 : 0) + countTreeNodes(node.props?.children, predicate);
+};
+const treeText = (node) => {
+  if (Array.isArray(node)) return node.map(treeText).join(" ");
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (!React.isValidElement(node)) return "";
+  return treeText(node.props?.children);
+};
+const panelTree = (props = {}) => {
+  panelHookState.slots = [];
+  panelHookState.cursor = 0;
+  panelCapture.panels = [];
+  return DispatchPlanPanel({
+    selectedRequest: { request_id: 901 },
+    planHook: null,
+    isDesktop: true,
+    isMobileDrawerOpen: false,
+    ...props,
+  });
+};
+
+describe("DispatchPlanPanel single mounted body (Task 6)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("React", React);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("mounts exactly one decision body in the desktop aside and no dialog", () => {
+    const tree = panelTree({ isDesktop: true });
+    expect(findTreeNode(tree, (node) => node.type === "aside")).not.toBeNull();
+    expect(findTreeNode(tree, (node) => node.type === Dialog)).toBeNull();
+    expect(countTreeNodes(tree, (node) => node.type?.name === "AiRecommendationPanel")).toBe(1);
+  });
+
+  it("mounts nothing while the narrow drawer stays closed", () => {
+    expect(panelTree({ isDesktop: false, isMobileDrawerOpen: false })).toBeNull();
+  });
+
+  it("mounts exactly one decision body in the narrow drawer", () => {
+    const tree = panelTree({ isDesktop: false, isMobileDrawerOpen: true });
+    expect(findTreeNode(tree, (node) => node.type === Dialog)).not.toBeNull();
+    expect(findTreeNode(tree, (node) => node.type === "aside")).toBeNull();
+    expect(countTreeNodes(tree, (node) => node.type?.name === "AiRecommendationPanel")).toBe(1);
+  });
+
+  it("freezes a busy operation's presentation when the width crosses the threshold", () => {
+    let tree = panelTree({ isDesktop: false, isMobileDrawerOpen: true });
+    const body = findTreeNode(tree, (node) => node.type?.name === "AiRecommendationPanel");
+    expect(body).not.toBeNull();
+    // A recheck/assignment starts while narrow: the drawer presentation locks.
+    body.props.onBusyChange(true);
+    // Width now measures wide mid-commit: the drawer stays, no aside appears,
+    // so the in-flight operation is never unmounted mid-commit.
+    panelHookState.cursor = 0;
+    tree = DispatchPlanPanel({
+      selectedRequest: { request_id: 901 },
+      planHook: null,
+      isDesktop: true,
+      isMobileDrawerOpen: true,
+    });
+    expect(findTreeNode(tree, (node) => node.type === Dialog)).not.toBeNull();
+    expect(findTreeNode(tree, (node) => node.type === "aside")).toBeNull();
+    expect(countTreeNodes(tree, (node) => node.type?.name === "AiRecommendationPanel")).toBe(1);
+    // Once the operation resolves the presentation follows the measured width.
+    const busyBody = findTreeNode(tree, (node) => node.type?.name === "AiRecommendationPanel");
+    busyBody.props.onBusyChange(false);
+    panelHookState.cursor = 0;
+    tree = DispatchPlanPanel({
+      selectedRequest: { request_id: 901 },
+      planHook: null,
+      isDesktop: true,
+      isMobileDrawerOpen: true,
+    });
+    expect(findTreeNode(tree, (node) => node.type === "aside")).not.toBeNull();
+    expect(findTreeNode(tree, (node) => node.type === Dialog)).toBeNull();
+  });
+
+  it("sizes the drawer Close control to 44px without an undeclared Button size", () => {
+    const tree = panelTree({ isDesktop: false, isMobileDrawerOpen: true });
+    const close = findTreeNode(
+      tree,
+      (node) => node.type === Button && treeText(node.props.children).includes("Close")
+    );
+    expect(close).not.toBeNull();
+    expect(close.props.size).not.toBe("xs");
+    expect(String(close.props.className)).toContain("min-h-[44px]");
+  });
+});
+
+describe("evidence drawer operator targets (Task 6)", () => {
+  beforeEach(() => {
+    vi.stubGlobal("React", React);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sizes the evidence Close and Back controls to 44px", () => {
+    panelHookState.slots = [];
+    panelHookState.cursor = 0;
+    const tree = EvidenceDrawer({
+      requestId: 901,
+      proof: { type: "leave", ref: "ev_x" },
+      backTo: { kind: "inspector" },
+      onClose: () => {},
+      onBack: () => {},
+    });
+    const close = findTreeNode(
+      tree,
+      (node) => node.type === "button" && treeText(node.props.children).includes("Close evidence") === false && treeText(node.props.children) === "Close"
+    );
+    expect(close).not.toBeNull();
+    expect(String(close.props.className)).toContain("min-h-[44px]");
+    const back = findTreeNode(
+      tree,
+      (node) => node.type === "button" && treeText(node.props.children).includes("Back to checklist")
+    );
+    expect(back).not.toBeNull();
+    expect(String(back.props.className)).toContain("min-h-[44px]");
+  });
+
+  it("sizes the inspector Review control to 44px", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(EligibilityInspector, {
+        pairLabel: "ABC-1234 + Maria Santos",
+        horizon: "FUTURE",
+        rows: [{ label: "Capacity", state: "clear", note: "No blocking issue found", proof: { type: "capacity", ref: "ev_1" } }],
+        onReviewProof: () => {},
+      })
+    );
+    expect(html).toContain("Review");
+    expect(html).toContain("min-h-[44px]");
+  });
+
+  it("sizes the evidence failure Retry/Close controls to 44px", () => {
+    const html = renderToStaticMarkup(
+      React.createElement(EvidenceFailureMessage, {
+        error: new Error("snapshot fetch failed"),
+        onRetry: () => {},
+        onClose: () => {},
+      })
+    );
+    expect(html).toContain("min-h-[44px]");
   });
 });

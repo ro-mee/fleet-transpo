@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { useWorkspaceAside } from "@/hooks/use-workspace-aside";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -108,23 +109,19 @@ const TAB_META = {
   },
 };
 
-const desktopQuery = "(min-width: 1280px)";
-const subscribeDesktop = notify => {
-  const mq=window.matchMedia(desktopQuery);
-  mq.addEventListener("change",notify);
-  return ()=>mq.removeEventListener("change",notify);
-};
-function useIsDesktop() {
-  return useSyncExternalStore(subscribeDesktop,()=>window.matchMedia(desktopQuery).matches,()=>true);
-}
-
 export default function UnifiedQueuePage() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
   const reassignmentFilter = searchParams.get("filter") === "reassignment";
   const { can } = useRoleAccess();
-  const isDesktop = useIsDesktop();
+  // Side-by-side vs drawer keys off the measured workspace *content* width
+  // (1120px = 460 aside + 24 gap + 636 queue), not the viewport: with the
+  // expanded 240px sidebar a 1280px viewport leaves only ~992px usable, which
+  // crushes the queue beside the Copilot. First render is false on server and
+  // client alike so hydration agrees; the observer upgrades after mount.
+  const workspaceRef = useRef(null);
+  const isDesktop = useWorkspaceAside(workspaceRef);
   const [lockedRequest,setLockedRequest] = useState(null);
   const [completedRequest,setCompletedRequest] = useState(null);
 
@@ -325,7 +322,7 @@ export default function UnifiedQueuePage() {
         badge="Operations"
         description="Every request and committed dispatch in one place — auto-sorted by urgency."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
             {!isDesktop && selectedRequest && (
               <Button
                 ref={mobileOpenTriggerRef}
@@ -335,7 +332,7 @@ export default function UnifiedQueuePage() {
                   mobileDrawerOpenerRef.current = event.currentTarget;
                   setIsMobileDrawerOpen(true);
                 }}
-                className="h-9 rounded-xl text-xs font-semibold pl-2"
+                className="min-h-[44px] rounded-xl text-xs font-semibold pl-2 max-w-full"
               >
                 <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 mr-1.5 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
                   <img src="/images/copilot-avatar-blinking.gif" alt="" aria-hidden="true" className="w-full h-full object-cover select-none pointer-events-none" />
@@ -346,7 +343,7 @@ export default function UnifiedQueuePage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-9 rounded-xl text-xs font-semibold"
+              className="min-h-[44px] rounded-xl text-xs font-semibold max-w-full"
               asChild
             >
               <Link href="/dispatch/calendar">
@@ -355,7 +352,7 @@ export default function UnifiedQueuePage() {
               </Link>
             </Button>
             <Button
-              className={cn(heroButtonPrimaryClass)}
+              className={cn(heroButtonPrimaryClass, "min-h-[44px] max-w-full")}
               onClick={() => pullMutation.mutate()}
               disabled={pullMutation.isPending}
             >
@@ -366,14 +363,17 @@ export default function UnifiedQueuePage() {
         }
       />
 
-      {/* ── Filters & Search Row (Preserved Lifecycle Tabs) ── */}
+      {/* ── Filters & Search Row (Preserved Lifecycle Filters) ── */}
       <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface p-3.5 sm:flex-row sm:items-center sm:justify-between shadow-xs">
-        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Queue sections">
+        {/* Labelled filter-button group (not ARIA tabs): these switch between
+            filtered queues rather than tabpanels, so they expose aria-pressed
+            instead of the tablist/tab/aria-selected contract. */}
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Queue sections">
           {reassignmentFilter && (
             <button
               type="button"
               onClick={() => router.replace("/reservations/queue")}
-              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full text-xs font-bold border border-red-500/40 bg-red-100/90 text-red-900 dark:bg-red-950/60 dark:text-red-200 cursor-pointer transition-colors hover:bg-red-200/90 dark:hover:bg-red-900/60"
+              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-full text-xs font-bold border border-red-500/40 bg-red-100/90 text-red-900 dark:bg-red-950/60 dark:text-red-200 cursor-pointer transition-colors hover:bg-red-200/90 dark:hover:bg-red-900/60"
               title="Clear reassignment filter"
             >
               <TriangleAlert className="w-3.5 h-3.5" aria-hidden="true" />
@@ -393,8 +393,7 @@ export default function UnifiedQueuePage() {
               <button
                 key={id}
                 type="button"
-                role="tab"
-                aria-selected={active}
+                aria-pressed={active}
                 aria-label={
                   countsReady
                     ? `${meta.label} — ${badge} request${badge === 1 ? "" : "s"}`
@@ -403,7 +402,7 @@ export default function UnifiedQueuePage() {
                 title={meta.description}
                 onClick={() => pickTab(id)}
                 className={cn(
-                  "inline-flex items-center gap-2 px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer",
+                  "inline-flex items-center gap-2 px-4 min-h-[44px] rounded-full text-xs font-bold border transition-all cursor-pointer",
                   active
                     ? "bg-primary text-white dark:text-slate-950 border-primary shadow-xs"
                     : "bg-surface border-border/60 text-foreground-secondary hover:border-primary/40 hover:text-foreground"
@@ -426,7 +425,7 @@ export default function UnifiedQueuePage() {
               aria-hidden="true"
             />
             <input
-              className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface border border-border/80 text-xs font-medium text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 transition-colors"
+              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl bg-surface border border-border/80 text-xs font-medium text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 transition-colors"
               placeholder="Guest, reference, location…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -444,7 +443,7 @@ export default function UnifiedQueuePage() {
               type="button"
               onClick={() => setViewMode("list")}
               className={cn(
-                "px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
+                "px-2.5 py-1 min-h-[44px] rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
                 viewMode === "list"
                   ? "bg-surface text-foreground shadow-2xs font-bold border border-border/60"
                   : "text-foreground-muted hover:text-foreground"
@@ -460,7 +459,7 @@ export default function UnifiedQueuePage() {
               type="button"
               onClick={() => setViewMode("grid")}
               className={cn(
-                "px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
+                "px-2.5 py-1 min-h-[44px] rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
                 viewMode === "grid"
                   ? "bg-surface text-foreground shadow-2xs font-bold border border-border/60"
                   : "text-foreground-muted hover:text-foreground"
@@ -477,11 +476,16 @@ export default function UnifiedQueuePage() {
       </div>
 
       {/* ── Two-Column Main Workspace (Queue on Left, Persistent Copilot on Right) ── */}
-      <div className="flex flex-col xl:flex-row items-start gap-6">
+      {/* Stacking and the aside/drawer decision key off the measured content
+          width (useWorkspaceAside), never the viewport: the observer watches
+          this container, and the queue column below is the @container the
+          rows respond to. Selection lives in page state, so crossing the
+          threshold never loses the selected request. */}
+      <div ref={workspaceRef} className={cn("flex items-start gap-6 min-w-0", isDesktop ? "flex-row" : "flex-col")}>
         {/* LEFT COLUMN: Queue Content */}
-        <div className="flex-1 w-full min-w-0 space-y-4">
+        <div className="flex-1 w-full min-w-0 space-y-4 @container" aria-busy={isLoading}>
           {isError ? (
-            <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
+            <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4" role="alert">
               <div className="flex items-start gap-3">
                 <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" aria-hidden="true" />
                 <div>
@@ -494,7 +498,10 @@ export default function UnifiedQueuePage() {
               </div>
             </div>
           ) : isLoading ? (
-            <ReservationQueueTableSkeleton viewMode={viewMode} />
+            <>
+              <p role="status" className="sr-only">Loading transportation requests…</p>
+              <ReservationQueueTableSkeleton viewMode={viewMode} />
+            </>
           ) : requests.length === 0 ? (
             <div className="rounded-3xl border border-border bg-surface">
               <EmptyState
@@ -512,11 +519,11 @@ export default function UnifiedQueuePage() {
                 variant={searching ? "filtered" : "waiting"}
                 action={
                   searching ? (
-                    <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+                    <Button variant="outline" size="sm" className="min-h-[44px]" onClick={() => setSearch("")}>
                       Clear search
                     </Button>
                   ) : (
-                    <Button size="sm" onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
+                    <Button size="sm" className="min-h-[44px]" onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
                       <DownloadCloud className="w-4 h-4 mr-2" />
                       Pull from Booking
                     </Button>
@@ -556,7 +563,7 @@ export default function UnifiedQueuePage() {
                   aria-label="First page"
                   onClick={() => setPage(1)}
                   disabled={page === 1}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
                 >
                   <ChevronsLeft className="w-3.5 h-3.5" />
                 </button>
@@ -564,7 +571,7 @@ export default function UnifiedQueuePage() {
                   aria-label="Previous page"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
@@ -578,7 +585,7 @@ export default function UnifiedQueuePage() {
                       key={pg}
                       onClick={() => setPage(pg)}
                       className={cn(
-                        "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                        "flex min-h-[44px] min-w-[44px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
                         pg === page
                           ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
                           : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
@@ -592,7 +599,7 @@ export default function UnifiedQueuePage() {
                   aria-label="Next page"
                   onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                   disabled={page === pageCount}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
@@ -600,7 +607,7 @@ export default function UnifiedQueuePage() {
                   aria-label="Last page"
                   onClick={() => setPage(pageCount)}
                   disabled={page === pageCount}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
                 >
                   <ChevronsRight className="w-3.5 h-3.5" />
                 </button>

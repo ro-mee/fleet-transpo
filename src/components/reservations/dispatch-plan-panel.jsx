@@ -48,12 +48,15 @@ export function DispatchPlanPanel({
     return planHook.getProposal(selectedRequest.request_id);
   }, [selectedRequest, planHook]);
 
-  // Desktop persistent workstation aside
+  // Desktop persistent workstation aside. Visibility is decided by the measured
+  // workspace content width from the queue page (useWorkspaceAside), never by
+  // a viewport breakpoint: this branch only renders when the content clears
+  // 1120px, so no xl: gate may hide it here.
   if (desktop) {
     return (
       <aside
         aria-label="Dispatch Copilot Workstation"
-        className="hidden xl:flex flex-col w-[460px] 2xl:w-[490px] shrink-0 sticky top-20 max-h-[calc(100vh-6rem)] rounded-3xl border border-border/80 bg-surface shadow-xs overflow-hidden"
+        className="flex flex-col w-[460px] 2xl:w-[490px] shrink-0 sticky top-20 max-h-[calc(100vh-6rem)] rounded-3xl border border-border/80 bg-surface shadow-xs overflow-hidden"
       >
         <AiRecommendationPanel
           key={selectedRequest?.request_id || "copilot-aside-empty"}
@@ -107,10 +110,10 @@ export function DispatchPlanPanel({
             ref={closeButtonRef}
             type="button"
             variant="ghost"
-            size="xs"
+            size="sm"
             disabled={drawerBusy}
             onClick={() => handleDismiss(false)}
-            className="rounded-lg h-7 px-2.5 text-xs text-foreground-secondary hover:text-foreground"
+            className="rounded-lg min-h-[44px] px-3 text-xs text-foreground-secondary hover:text-foreground"
           >
             Close
           </Button>

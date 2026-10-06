@@ -189,9 +189,15 @@ export function ReservationQueueTable({
   bucketProposal,
   viewMode = "list",
 }) {
+  // Rows are a named list of native selection buttons. The row's horizontal
+  // switch keys off the queue column's own container width (@md:), never the
+  // viewport, and guest/category/route identity wraps to two lines with the
+  // full text kept in the DOM (title + accessible name) instead of one-line
+  // truncation. No nested interactive descendants: StatusBadge and PillTag
+  // render plain spans, and the chevron is decorative.
   if (viewMode === "grid") {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+      <ul aria-label="Transportation requests" className="grid grid-cols-1 @sm:grid-cols-2 gap-3.5 min-w-0">
         {requests.map((r) => {
           const isSelected = Number(selectedId) === Number(r.request_id);
           const proposal = getProposal ? getProposal(r.request_id) : null;
@@ -204,33 +210,26 @@ export function ReservationQueueTable({
           const bags = bagSummary(r);
 
           return (
-            <div
-              key={r.request_id}
-              role="button"
-              tabIndex={0}
+            <li key={r.request_id} className="min-w-0">
+            <button
+              type="button"
               aria-pressed={isSelected}
               onClick={() => onSelect?.(r)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelect?.(r);
-                }
-              }}
               className={cn(
-                "group p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs",
+                "group p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs w-full min-w-0 min-h-[44px]",
                 isSelected
                   ? "border-primary/50 bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30 shadow-xs"
                   : "border-border/80 hover:border-border hover:shadow-xs"
               )}
             >
               {/* Top Bar: Reference ID + Category + Status Pill */}
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-xs font-bold text-foreground font-data shrink-0">
                     {formatReference(r)}
                   </span>
                   {category && (
-                    <span className="text-[11px] font-medium text-foreground-muted truncate" title={`Category: ${category}`}>
+                    <span className="text-[11px] font-medium text-foreground-muted min-w-0 line-clamp-2 break-words" title={`Category: ${category}`}>
                       · {category}
                     </span>
                   )}
@@ -244,10 +243,10 @@ export function ReservationQueueTable({
               </div>
 
               {/* Guest Details */}
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" />
-                  <span className="text-sm font-bold text-foreground truncate" title={r.guest_name}>
+                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={r.guest_name}>
                     {r.guest_name || "Unnamed Guest"}
                   </span>
                 </div>
@@ -260,7 +259,7 @@ export function ReservationQueueTable({
               <div className="grid grid-cols-12 gap-2 pt-1 border-t border-border/40 text-xs items-center">
                 {/* Schedule: 5 cols */}
                 <div className="col-span-5 flex items-start gap-1.5 min-w-0">
-                  <Calendar className="w-3.5 h-3.5 text-foreground-muted shrink-0 mt-0.5" />
+                  <Calendar className="w-3.5 h-3.5 text-foreground-muted shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="min-w-0 space-y-0.5 leading-tight">
                     <p className="text-foreground-secondary text-[11px] truncate">
                       {formatDateWithDay(r.pickup_datetime)}
@@ -273,10 +272,10 @@ export function ReservationQueueTable({
 
                 {/* Route & Distance: 6 cols */}
                 <div className="col-span-6 flex items-start gap-1.5 min-w-0">
-                  <MapPin className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <MapPin className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="min-w-0 space-y-0.5 leading-tight">
                     <p
-                      className="font-bold text-foreground text-xs truncate"
+                      className="font-bold text-foreground text-xs min-w-0 line-clamp-2 break-words"
                       title={`${r.pickup_location} → ${r.dropoff_location}`}
                     >
                       {r.pickup_location || "Pickup not recorded"} → {r.dropoff_location || "Dropoff not recorded"}
@@ -289,7 +288,7 @@ export function ReservationQueueTable({
 
                 {/* Action Chevron: 1 col */}
                 <div className="col-span-1 flex justify-end">
-                  <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" aria-hidden="true" />
                 </div>
               </div>
 
@@ -299,16 +298,17 @@ export function ReservationQueueTable({
                   <PillTag key={tag.key} tag={tag} />
                 ))}
               </div>
-            </div>
+            </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
     );
   }
 
   // Default: List View (1-to-1 match with reference image 1)
   return (
-    <div className="space-y-2.5">
+    <ul aria-label="Transportation requests" className="space-y-2.5 min-w-0">
       {requests.map((r) => {
         const isSelected = Number(selectedId) === Number(r.request_id);
         const proposal = getProposal ? getProposal(r.request_id) : null;
@@ -321,27 +321,20 @@ export function ReservationQueueTable({
         const bags = bagSummary(r);
 
         return (
-          <div
-            key={r.request_id}
-            role="button"
-            tabIndex={0}
+          <li key={r.request_id} className="min-w-0">
+          <button
+            type="button"
             aria-pressed={isSelected}
             onClick={() => onSelect?.(r)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onSelect?.(r);
-              }
-            }}
             className={cn(
-              "group p-3.5 sm:p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs relative",
+              "group p-3.5 sm:p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col @md:flex-row items-start @md:items-center justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs relative w-full min-w-0 min-h-[44px]",
               isSelected
                 ? "border-primary/50 bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30 shadow-xs"
                 : "border-border/80 hover:border-border hover:shadow-xs"
             )}
           >
             {/* Left Segment: Checkbox + Reference & Guest */}
-            <div className="flex items-center gap-3.5 min-w-0 sm:min-w-[220px]">
+            <div className="flex items-center gap-3.5 min-w-0">
               {/* Checkbox */}
               <div
                 className={cn(
@@ -352,7 +345,7 @@ export function ReservationQueueTable({
                 )}
                 aria-hidden="true"
               >
-                {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" aria-hidden="true" />}
               </div>
 
               {/* Reference, Category, Guest, Passengers */}
@@ -362,14 +355,14 @@ export function ReservationQueueTable({
                     {formatReference(r)}
                   </span>
                   {category && (
-                    <span className="text-[11px] font-medium text-foreground-muted truncate" title={`Category: ${category}`}>
+                    <span className="text-[11px] font-medium text-foreground-muted min-w-0 line-clamp-2 break-words" title={`Category: ${category}`}>
                       · {category}
                     </span>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" />
-                  <span className="text-sm font-bold text-foreground truncate" title={r.guest_name}>
+                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={r.guest_name}>
                     {r.guest_name || "Unnamed Guest"}
                   </span>
                 </div>
@@ -382,8 +375,8 @@ export function ReservationQueueTable({
             </div>
 
             {/* Middle Segment: Date & Time */}
-            <div className="flex items-center gap-2.5 min-w-0 sm:min-w-[130px] pl-8 md:pl-0">
-              <Calendar className="w-4 h-4 text-foreground-muted shrink-0" />
+            <div className="flex items-center gap-2.5 min-w-0 pl-8 @md:pl-0">
+              <Calendar className="w-4 h-4 text-foreground-muted shrink-0" aria-hidden="true" />
               <div className="space-y-0.5 leading-tight">
                 <p className="font-bold text-foreground font-data text-sm">
                   {r.pickup_datetime ? formatTime(r.pickup_datetime) : "Time not set"}
@@ -395,26 +388,26 @@ export function ReservationQueueTable({
             </div>
 
             {/* Center-Right Segment: Route & Metrics */}
-            <div className="flex items-start gap-2.5 min-w-0 flex-1 pl-8 md:pl-0 max-w-md">
-              <MapPin className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2.5 min-w-0 flex-1 pl-8 @md:pl-0">
+              <MapPin className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="space-y-0.5 min-w-0 leading-tight">
                 <p
-                  className="font-bold text-sm text-foreground truncate"
+                  className="font-bold text-sm text-foreground min-w-0 line-clamp-2 break-words"
                   title={`${r.pickup_location} → ${r.dropoff_location}`}
                 >
                   {r.pickup_location || "Pickup not recorded"} → {r.dropoff_location || "Dropoff not recorded"}
                 </p>
                 <p className="text-xs text-foreground-secondary truncate flex items-center gap-1">
-                  <Navigation className="w-3 h-3 text-foreground-muted shrink-0" />
+                  <Navigation className="w-3 h-3 text-foreground-muted shrink-0" aria-hidden="true" />
                   <span className="truncate">{metrics.summary}</span>
                 </p>
               </div>
             </div>
 
             {/* Right Segment: Tags + Status Pill + Chevron */}
-            <div className="flex items-center gap-2.5 shrink-0 self-end md:self-center pl-8 md:pl-0">
+            <div className="flex items-center gap-2.5 shrink-0 self-end @md:self-center pl-8 @md:pl-0">
               {/* Pill Tags */}
-              <div className="hidden sm:flex items-center gap-1.5">
+              <div className="hidden @sm:flex items-center gap-1.5">
                 {tags.map((tag) => (
                   <PillTag key={tag.key} tag={tag} />
                 ))}
@@ -429,19 +422,20 @@ export function ReservationQueueTable({
               />
 
               {/* Chevron */}
-              <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" />
+              <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" aria-hidden="true" />
             </div>
-          </div>
+          </button>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
 export function ReservationQueueTableSkeleton({ viewMode = "list" }) {
   if (viewMode === "grid") {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 animate-pulse">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 motion-safe:animate-pulse">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
@@ -470,7 +464,7 @@ export function ReservationQueueTableSkeleton({ viewMode = "list" }) {
   }
 
   return (
-    <div className="space-y-2.5 animate-pulse">
+    <div className="space-y-2.5 motion-safe:animate-pulse">
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}

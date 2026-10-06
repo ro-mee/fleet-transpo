@@ -97,8 +97,8 @@ export function EvidenceFailureMessage({ error, onRetry, onClose }) {
       title="Evidence unavailable"
       description={`This evidence snapshot could not be loaded${error?.message ? `: ${error.message}` : ""}. Retry the snapshot or close this view.`}
     >
-      <Button size="sm" variant="outline" onClick={onRetry}>Retry evidence</Button>
-      <Button size="sm" variant="ghost" onClick={onClose}>Close evidence</Button>
+      <Button size="sm" variant="outline" onClick={onRetry} className="min-h-[44px]">Retry evidence</Button>
+      <Button size="sm" variant="ghost" onClick={onClose} className="min-h-[44px]">Close evidence</Button>
     </CopilotStateMessage>
   );
 }
@@ -166,7 +166,7 @@ export function EvidenceDrawer({
             type="button"
             onClick={onCloseAll ?? onClose}
             aria-label="Close evidence"
-            className="rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+            className="rounded-lg border border-border px-2.5 min-h-[44px] inline-flex items-center text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
           >
             Close
           </button>
@@ -191,7 +191,7 @@ export function EvidenceDrawer({
                 <button
                   type="button"
                   onClick={onBack}
-                  className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+                  className="rounded-lg border border-border px-2.5 min-h-[44px] inline-flex items-center text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
                 >
                   Back to checklist
                 </button>
@@ -316,7 +316,7 @@ export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }
               <button
                 type="button"
                 onClick={event => onReviewProof?.(row.proof, event.currentTarget)}
-                className="mt-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+                className="mt-1.5 rounded-lg border border-border px-2.5 min-h-[44px] inline-flex items-center text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
               >
                 Review
               </button>

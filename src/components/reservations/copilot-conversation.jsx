@@ -450,7 +450,7 @@ export function CopilotConversation({
             type="button"
             disabled={resetDisabled || send.isPending}
             onClick={resetCopilot}
-            className="text-xs text-foreground-muted hover:text-danger hover:bg-hover px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer select-none focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+            className="text-xs text-foreground-muted hover:text-danger hover:bg-hover px-2 min-h-[44px] rounded flex items-center gap-1 transition-colors cursor-pointer select-none focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
             title={resetDisabled ? "Wait for the assignment outcome before resetting Copilot." : send.isPending ? "Wait for the current Copilot reply before resetting." : "Reset Copilot conversation and selected pair for this reservation"}
           >
             <RotateCcw className="w-2.5 h-2.5" />
@@ -469,7 +469,7 @@ export function CopilotConversation({
           <button
             type="button"
             onClick={jumpToLatest}
-            className="rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary"
+            className="rounded-lg border border-border bg-surface px-2.5 min-h-[44px] text-xs font-medium text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary"
           >
             New reply — jump to latest
           </button>
@@ -553,7 +553,7 @@ export function CopilotConversation({
                             return (
                               <button key={`${action.code}-${idx}`} type="button"
                                 onClick={event => openEvidence(event, { kind: "proof", type: action.proof.type, ref: action.proof.ref })}
-                                className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer">
+                                className="rounded-lg border border-border px-2.5 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer">
                                 Review Evidence
                               </button>
                             );
@@ -624,7 +624,7 @@ export function CopilotConversation({
         {!readOnlyCommitted && !completed && !currentPair && displayedOptions.length > 0 && !send.isPending && messages.length === 0 && <p className="pl-8 text-sm text-foreground-secondary">{displayedOptions.length === 2 ? 'Which would you like to choose: Option 1 or Option 2?' : 'Would you like to choose Option 1?'}</p>}
         {!readOnlyCommitted && !completed && !currentPair && messages.length > 0 && !send.isPending && <div className="flex flex-wrap gap-2 pl-8">
           {displayedOptions.map((option,index)=><button key={`${option.vehicleId}:${option.driverId}`} type="button" disabled={disabled}
-            onClick={()=>submit(`Option ${index+1}`)} className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">Choose Option {index+1}</button>)}
+            onClick={()=>submit(`Option ${index+1}`)} className="rounded-lg border border-border px-3 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">Choose Option {index+1}</button>)}
         </div>}
         {!readOnlyCommitted && !completed && !send.isPending && (() => {
           const clearanceInfo = latestClearanceFor(messages, currentPair);
@@ -635,14 +635,14 @@ export function CopilotConversation({
               {clearanceInfo && (
                 <button type="button" disabled={disabled}
                   onClick={event => openEvidence(event, { kind: "inspector", ...clearanceInfo })}
-                  className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  className="rounded-lg border border-border px-3 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
                   Review eligibility
                 </button>
               )}
               {comparison && (
                 <button type="button" disabled={disabled}
                   onClick={event => openEvidence(event, { kind: "proof", type: comparison.type, ref: comparison.ref })}
-                  className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  className="rounded-lg border border-border px-3 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
                   Compare options
                 </button>
               )}
@@ -671,7 +671,7 @@ export function CopilotConversation({
               type="button"
               disabled={disabled || send.isPending}
               onClick={() => submit(question)}
-              className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+              className="rounded-lg border border-border bg-surface px-2.5 min-h-[44px] text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
             >
               {question}
             </button>
@@ -720,7 +720,7 @@ export function CopilotConversation({
               type="submit"
               aria-label="Send message"
               disabled={disabled || send.isPending || !draft.trim()}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-40 cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-40 cursor-pointer"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
             </button>
