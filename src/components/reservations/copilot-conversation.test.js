@@ -358,7 +358,8 @@ it('reads the remembered pair back out of the session, not out of module memory'
 it('marks repeated assistant transcript avatars as decorative',()=>{
   setReservationMessages(24,[{role:'assistant',content:'Recorded findings',at:Date.now()}]);
   const html=render(24);
-  const avatars=[...html.matchAll(/<img\b[^>]*src="\/images\/copilot-avatar-blinking\.gif"[^>]*>/g)].map(match=>match[0]);
+  expect(html).not.toContain('copilot-avatar-blinking.gif');
+  const avatars=[...html.matchAll(/<img\b[^>]*src="\/images\/copilot-avatar\.png"[^>]*>/g)].map(match=>match[0]);
   expect(avatars).toHaveLength(1);
   expect(avatars[0]).toMatch(/alt=""/);
 });

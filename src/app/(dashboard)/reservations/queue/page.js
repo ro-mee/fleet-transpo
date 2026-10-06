@@ -11,6 +11,7 @@ import {
   ReservationQueueTableSkeleton,
 } from "@/components/reservations/reservation-queue-table";
 import { DispatchPlanPanel } from "@/components/reservations/dispatch-plan-panel";
+import { CopilotAvatar } from "@/components/reservations/copilot-avatar";
 import { useDispatchPlan } from "@/hooks/use-dispatch-plan";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
@@ -334,9 +335,7 @@ export default function UnifiedQueuePage() {
                 }}
                 className="min-h-[44px] rounded-xl text-xs font-semibold pl-2 max-w-full"
               >
-                <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 mr-1.5 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-                  <img src="/images/copilot-avatar-blinking.gif" alt="" aria-hidden="true" className="w-full h-full object-cover select-none pointer-events-none" />
-                </div>
+                <CopilotAvatar size="xxs" className="mr-1.5" />
                 Open Copilot
               </Button>
             )}

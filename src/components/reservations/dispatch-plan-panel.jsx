@@ -4,6 +4,7 @@ import { useMemo, useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
+import { CopilotAvatar } from "@/components/reservations/copilot-avatar";
 
 export function DispatchPlanPanel({
   selectedRequest = null,
@@ -100,10 +101,10 @@ export function DispatchPlanPanel({
       >
         <div className="flex items-center justify-between p-4 border-b border-border/80 bg-muted/20 shrink-0">
           <DialogTitle className="text-sm font-bold flex items-center gap-2.5 text-foreground">
-            <div className="relative w-7 h-7 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-              <img src="/images/copilot-avatar-blinking.gif" alt="" aria-hidden="true" className="w-full h-full object-cover select-none pointer-events-none" />
+            <span className="relative inline-flex">
+              <CopilotAvatar size="sm" />
               <span className="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full bg-emerald-500 ring-1 ring-surface" aria-hidden="true" />
-            </div>
+            </span>
             Dispatch Copilot
           </DialogTitle>
           <Button

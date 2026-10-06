@@ -2,14 +2,13 @@
 import { dispatchDecision } from '@/lib/dispatch/decision';
 import { optionKey } from './copilot-options';
 import { Button } from '@/components/ui/button';
+import { CopilotAvatar } from './copilot-avatar';
 import { ArrowRight, CarFront, Check, ChevronDown, Circle, CircleAlert, UserRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function CopilotBubble({children}) {
   return <div className="flex items-start gap-2.5" data-copilot-message="true">
-    <div className="relative mt-0.5 size-7 shrink-0 overflow-hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 p-0.5 shadow-2xs">
-      <img src="/images/copilot-avatar-blinking.gif" alt="" aria-hidden="true" className="size-full rounded-full object-cover select-none pointer-events-none"/>
-    </div>
+    <CopilotAvatar size="sm" className="mt-0.5 p-0.5" />
     <div className="min-w-0 flex-1 rounded-2xl rounded-tl-xs border border-border/80 bg-surface p-3.5 text-sm leading-relaxed text-foreground shadow-xs">{children}</div>
   </div>;
 }
@@ -42,7 +41,7 @@ export function SelectedPairSummary({pair, optionNumber, pending, now}) {
   const checkRows = rows => <ul className="divide-y divide-border">{rows.map(c => {
     const message = c.message?.startsWith(`${c.label}:`) ? c.message.slice(c.label.length + 1).trim() : c.message;
     return <li key={c.id} className="flex items-start gap-2 py-2">
-      {c.status === 'verified' ? <Check className="mt-0.5 size-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true"/> : <CircleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true"/>}
+      {c.status === 'verified' ? <Check className="mt-0.5 size-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true"/> : <CircleAlert className="mt-0.5 size-4 shrink-0 text-warning-700" aria-hidden="true"/>}
       <div className="min-w-0"><p className="text-sm font-medium">{c.label}</p><p className="text-xs text-foreground-secondary">{message || (c.status === 'verified' ? 'Verified' : 'Needs verification')}</p></div>
     </li>;
   })}</ul>;
@@ -64,7 +63,7 @@ export function SelectedPairSummary({pair, optionNumber, pending, now}) {
           {schedule?.releaseAt && Number.isFinite(+new Date(schedule.releaseAt)) && <div><dt className="text-xs text-foreground-secondary">{schedule.releaseSource === 'recorded completion' ? 'Previous trip completed' : 'Previous booking expected to finish'}</dt><dd className="mt-1 font-medium">{new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(new Date(schedule.releaseAt))}</dd></div>}
         </dl>
         <p className="text-xs text-foreground-secondary">After transfer time and the required buffer.</p>
-        {schedule?.uncertainty && <p className="flex items-start gap-2 text-sm"><CircleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true"/><span>{schedule.uncertainty}</span></p>}
+        {schedule?.uncertainty && <p className="flex items-start gap-2 text-sm"><CircleAlert className="mt-0.5 size-4 shrink-0 text-warning-700" aria-hidden="true"/><span>{schedule.uncertainty}</span></p>}
         {!['FUTURE','SAME_DAY','INACTIVE'].includes(pair.temporalContext?.horizon) && pair.temporalContext && <p className="text-sm font-medium">{pair.dispatchContext?.liveLocationUsed && pair.proximity && +new Date(pair.proximity.expiresAt) > now ? `Live ETA: ${pair.proximity.etaMinutes} min` : 'Live ETA unavailable'}</p>}
         {workload?.complete ? <div>
           <p className="mb-2 text-xs text-foreground-secondary">Workload · {workload.serviceDate}</p>
@@ -165,14 +164,14 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
           </div>
           <div className="flex min-w-0 items-center gap-2 border-l border-border pl-3">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300"><UserRound className="size-5" aria-hidden="true"/></span>
-            <div className="min-w-0"><p className="text-[11px] text-foreground-secondary">Driver</p><p className="break-words text-sm font-semibold leading-tight">{p.driver?.driver_name || `Driver #${p.driver_id}`}</p><p className="mt-0.5 font-data text-xs text-foreground-secondary">ID {p.driver_id}</p></div>
+            <div className="min-w-0"><p className="text-[11px] text-foreground-secondary">Driver</p><p className="break-words text-sm font-semibold leading-tight">{p.driver?.driver_name || `Driver #${p.driver_id}`}</p></div>
           </div>
         </div>
         <ul className="mb-3 space-y-1.5 text-xs text-foreground-secondary">{checks.slice(0,3).map(c => <li key={c.id} className="flex items-start gap-2">
-          {c.status === 'verified' ? <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white"><Check className="size-3" aria-hidden="true"/></span> : <CircleAlert className="size-4 shrink-0 text-warning" aria-hidden="true"/>}
+          {c.status === 'verified' ? <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white"><Check className="size-3" aria-hidden="true"/></span> : <CircleAlert className="size-4 shrink-0 text-warning-700" aria-hidden="true"/>}
           <span>{c.label}: {c.message || (c.status === 'verified' ? 'Verified for the booking window' : 'Needs verification')}</span>
         </li>)}</ul>
-        {!decision.canConfirm && <p className="mb-3 flex items-start gap-2 text-xs text-warning"><CircleAlert className="size-4 shrink-0" aria-hidden="true"/><span>{p.unavailable ? 'This option is no longer available.' : decision.reasons[0] || decision.label}</span></p>}
+        {!decision.canConfirm && <p className="mb-3 flex items-start gap-2 text-xs text-warning-700"><CircleAlert className="size-4 shrink-0" aria-hidden="true"/><span>{p.unavailable ? 'This option is no longer available.' : decision.reasons[0] || decision.label}</span></p>}
         <Button type="button" variant="outline" size="sm" aria-label={`Choose Option ${index+1}: ${vehicleLabel} with ${driverLabel}, ${option.recommended ? 'recommended' : 'alternate'}${disabled ? ', unavailable' : ''}`} className={cn('min-h-[44px] w-full rounded-md text-sm font-semibold focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',option.recommended ? 'border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800 hover:text-white' : 'border-slate-400 bg-transparent text-foreground hover:bg-hover')}
           disabled={disabled} onClick={() => { if (!disabled) onChoose(option); }}>Choose Option {index+1}<ArrowRight className="ml-1 size-4" aria-hidden="true"/></Button>
       </article>;

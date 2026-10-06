@@ -57,7 +57,7 @@ function ConflictTimeline({ facts }) {  if (!facts.existingDeparture || !facts.r
     <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs" aria-label="Schedule conflict timeline">
       <p>Existing: {formatValue("existingDeparture", facts.existingDeparture)} → {formatValue("existingArrival", facts.existingArrival)}</p>
       <p>Requested: {formatValue("requestedPickup", facts.requestedPickup)} → {formatValue("requestedEnd", facts.requestedEnd)}</p>
-      <p className="mt-1 font-semibold text-danger">CONFLICT — windows overlap</p>
+      <p className="mt-1 font-semibold text-danger-700">CONFLICT — windows overlap</p>
     </div>
   );
 }
@@ -231,12 +231,12 @@ export function ComparisonCard({ data, planStatus = null }) {
     <>
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-lg border border-border/60 px-2.5 py-1.5">
-          <p className="mb-1 font-semibold text-foreground">{pairIdentity(optionA)}</p>
+          <h4 className="mb-1 text-sm font-bold text-foreground">{pairIdentity(optionA)}</h4>
           <p className="mb-1 text-[11px] text-foreground-secondary">Option 1</p>
           {cell(optionA)}
         </div>
         <div className="rounded-lg border border-border/60 px-2.5 py-1.5">
-          <p className="mb-1 font-semibold text-foreground">{pairIdentity(optionB)}</p>
+          <h4 className="mb-1 text-sm font-bold text-foreground">{pairIdentity(optionB)}</h4>
           <p className="mb-1 text-[11px] text-foreground-secondary">Option 2</p>
           {cell(optionB)}
         </div>
@@ -313,7 +313,7 @@ export function inspectorConclusion(rows = []) {
 export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }) {
   return (
     <div className="space-y-2">
-      {pairLabel && <p className="text-xs font-medium text-foreground">{pairLabel}</p>}
+      {pairLabel && <h4 className="text-sm font-bold text-foreground">{pairLabel}</h4>}
       <dl className="space-y-1.5">
         {rows.map((row, idx) => (
           <div key={`${row.label}-${idx}`} className="rounded-lg border border-border/60 px-2.5 py-1.5 text-xs">

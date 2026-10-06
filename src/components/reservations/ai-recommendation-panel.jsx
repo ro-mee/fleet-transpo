@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { CopilotConversation, setReservationMessages, getReservationSelection, setReservationSelection, clearReservationSelection } from "./copilot-conversation";
 import { CopilotBubble, CopilotOptionFlow, SelectedPairSummary } from "@/components/reservations/copilot-option-flow";
+import { CopilotAvatar } from "@/components/reservations/copilot-avatar";
 import { HistoricRecommendationSummary } from "@/components/reservations/historic-recommendation-summary";
 import { CopilotStateMessage } from "@/components/reservations/copilot-state-message";
 import { deriveOptions, optionKey as pairKey, resolveRememberedOption } from "@/components/reservations/copilot-options";
@@ -172,7 +173,7 @@ export function CopilotTripDetailsBubble({
                 isCancelled &&
                   "bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.7)]",
                 isInProgress &&
-                  "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.7)] animate-pulse",
+                  "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.7)] motion-safe:animate-pulse",
                 !isCompleted &&
                   !isCancelled &&
                   !isInProgress &&
@@ -214,15 +215,14 @@ export function CopilotTripDetailsBubble({
           </div>
         )}
 
-        {/* ── Double-Bezel Hardware Card for Trip Details ── */}
+        {/* ── Trip details card: single DESIGN.md card-radius layer ── */}
         {(pickupLoc ||
           dropoffLoc ||
           guestName ||
           vehiclePlate ||
           driverName ||
           categoryName) && (
-          <div className="rounded-2xl border border-border/80 bg-muted/40 dark:bg-muted/10 p-1.5 shadow-xs">
-            <div className="rounded-xl border border-border/60 bg-surface/95 dark:bg-surface/85 backdrop-blur-xs p-3 space-y-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
+          <div className="rounded-card border border-border/80 bg-surface p-3 space-y-3 shadow-2xs">
               {/* Route Transit Stops Wayfinding */}
               {(pickupLoc || dropoffLoc) && (
                 <div className="rounded-lg border border-border/50 bg-background/50 dark:bg-background/20 p-2.5 space-y-2">
@@ -324,7 +324,6 @@ export function CopilotTripDetailsBubble({
                   </div>
                 ) : null}
               </div>
-            </div>
           </div>
         )}
 
@@ -794,14 +793,11 @@ export function AiRecommendationPanel({
       >
         <div className="relative w-20 h-20 rounded-3xl p-1 bg-gradient-to-b from-emerald-500/20 to-emerald-600/5 border border-emerald-500/25 shadow-sm flex items-center justify-center">
           <img
-            src="/images/copilot-avatar-blinking.gif"
-            alt="Dispatch Copilot Mascot"
+            src="/images/copilot-avatar.png"
+            alt="" aria-hidden="true"
             className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none"
           />
-          <span className="absolute -bottom-1 -right-1 flex h-4 w-4" aria-hidden="true">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-600 border-2 border-surface" />
-          </span>
+          <span className="absolute -bottom-1 -right-1 flex h-4 w-4 rounded-full bg-emerald-600 border-2 border-surface" aria-hidden="true" />
         </div>
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-foreground">Dispatch Copilot Ready</h3>
@@ -833,7 +829,7 @@ export function AiRecommendationPanel({
     canAssign && manual && decision.canReview ? (
       <div>
         <label htmlFor="dispatch-manual-reason" className="block text-xs font-bold text-foreground mb-1">
-          Reason <span className="text-danger">*</span>
+          Reason <span className="text-danger-700">*</span>
         </label>
         <textarea
           id="dispatch-manual-reason"
@@ -886,7 +882,7 @@ export function AiRecommendationPanel({
         onChoose={chooseOption}
         now={now}
       />
-      {!!plan?.changedProposals?.length && <p className="text-xs text-warning">Queue proposals changed for requests {plan.changedProposals.join(', ')}. Review the updated arrangement before confirmation.</p>}
+      {!!plan?.changedProposals?.length && <p className="text-xs text-warning-700">Queue proposals changed for requests {plan.changedProposals.join(', ')}. Review the updated arrangement before confirmation.</p>}
       {preChoiceStatus && (
         <CopilotBubble>
           <div className="space-y-1.5">
@@ -935,12 +931,8 @@ export function AiRecommendationPanel({
         <div className="p-4 border-b border-border/80 bg-muted/20 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
-              <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-                <img
-                  src="/images/copilot-avatar-blinking.gif"
-                  alt="Dispatch Copilot Avatar"
-                  className="w-full h-full object-cover select-none pointer-events-none"
-                />
+              <div className="relative">
+                <CopilotAvatar size="md" decorative={false} label="Dispatch Copilot Avatar" />
                 <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-surface" aria-hidden="true" />
               </div>
               <div>
@@ -980,7 +972,7 @@ export function AiRecommendationPanel({
                 title="Recheck evidence for this reservation"
               >
                 <RefreshCw
-                  className={cn("w-3 h-3 mr-1", recheckBusy && "animate-spin")}
+                  className={cn("w-3 h-3 mr-1", recheckBusy && "motion-safe:animate-spin")}
                 />
                 {recheckBusy ? "Checking…" : "Recheck reservation"}
               </Button>

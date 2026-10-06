@@ -5,6 +5,7 @@ import { Send, LoaderCircle, RotateCcw } from "lucide-react";
 import { formatDateTime, cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client";
 import { useRoleAccess } from "@/hooks/use-role-access";
+import { CopilotAvatar } from "./copilot-avatar";
 import { EvidenceDrawer, buildInspectorRows } from "./evidence-drawer";
 
 // Latest comparison proof from assistant messages. Exported for tests.
@@ -475,7 +476,7 @@ export function CopilotConversation({
             type="button"
             disabled={resetDisabled || send.isPending}
             onClick={resetCopilot}
-            className="text-xs text-foreground-muted hover:text-danger hover:bg-hover px-2 min-h-[44px] rounded flex items-center gap-1 transition-colors cursor-pointer select-none focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+            className="text-xs text-foreground-muted hover:text-danger-700 hover:bg-hover px-2 min-h-[44px] rounded flex items-center gap-1 transition-colors cursor-pointer select-none focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
             title={resetDisabled ? "Wait for the assignment outcome before resetting Copilot." : send.isPending ? "Wait for the current Copilot reply before resetting." : "Reset Copilot conversation and selected pair for this reservation"}
           >
             <RotateCcw className="w-2.5 h-2.5" />
@@ -518,13 +519,7 @@ export function CopilotConversation({
         {!readOnlyCommitted && children}
         {messages.length === 0 && !children && !reply && (
           <div className="flex items-start gap-2 max-w-[95%]">
-            <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
-              <img
-                src="/images/copilot-avatar-blinking.gif"
-                alt="" aria-hidden="true"
-                className="w-full h-full object-cover select-none pointer-events-none"
-              />
-            </div>
+            <CopilotAvatar size="xs" className="mt-0.5" />
             <div className="rounded-xl rounded-tl-sm border border-border bg-surface px-3 py-2 text-sm leading-relaxed shadow-xs">
               I can help you understand this reservation and compare options. What would you like to know?
             </div>
@@ -546,19 +541,13 @@ export function CopilotConversation({
                   )}
                 >
                   {m.role === "assistant" && (
-                    <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
-                      <img
-                        src="/images/copilot-avatar-blinking.gif"
-                        alt="" aria-hidden="true"
-                        className="w-full h-full object-cover select-none pointer-events-none"
-                      />
-                    </div>
+                    <CopilotAvatar size="xs" className="mt-0.5" />
                   )}
                   <div
                     className={cn(
                       "rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words",
                       m.role === "user"
-                        ? "rounded-br-sm bg-info-bg text-info"
+                        ? "rounded-br-sm bg-info-bg text-info-700"
                         : "rounded-tl-sm border border-border bg-surface text-foreground shadow-xs"
                     )}
                   >
@@ -630,13 +619,7 @@ export function CopilotConversation({
 
         {send.isPending && (
           <div role="status" className="flex items-center gap-2 max-w-[95%]">
-            <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs animate-pulse">
-              <img
-                src="/images/copilot-avatar-blinking.gif"
-                alt="" aria-hidden="true"
-                className="w-full h-full object-cover select-none pointer-events-none"
-              />
-            </div>
+            <CopilotAvatar size="xs" />
             <div className="flex items-center gap-2 rounded-xl rounded-tl-sm border border-border bg-surface px-3 py-2 text-xs text-foreground-secondary">
               <LoaderCircle
                 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary"
@@ -684,6 +667,9 @@ export function CopilotConversation({
           tabIndex={0}
           className="min-h-0 max-h-[min(40vh,20rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-surface p-3 scroll-py-2 focus-visible:outline-2 focus-visible:outline-primary"
         >
+          <p aria-hidden="true" className="mb-2 text-[11px] font-bold uppercase tracking-wider text-foreground-secondary">
+            Current decision
+          </p>
           {decisionDock}
         </div>
       )}
@@ -704,7 +690,7 @@ export function CopilotConversation({
           ))}
         </div>
         {send.isError && (
-          <p role="alert" className="text-xs text-danger">
+          <p role="alert" className="text-xs text-danger-700">
             I couldn&apos;t get an answer. {send.error.message} Your question is ready to resend.
           </p>
         )}
