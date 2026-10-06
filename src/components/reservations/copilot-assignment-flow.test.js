@@ -14,6 +14,8 @@ vi.mock('@/services/transport.service',async importOriginal=>({...await importOr
 vi.mock('./copilot-conversation',()=>({CopilotConversation:props=>{state.chat=props;return React.createElement(React.Fragment,null,props.children,props.decisionDock,props.reply);},setReservationMessages:vi.fn(),getReservationSelection:()=>null,setReservationSelection:(...args)=>state.persisted(...args),clearReservationSelection:(...args)=>state.cleared(...args)}));
 import {AiRecommendationPanel} from './ai-recommendation-panel';
 import {CopilotConversation} from './copilot-conversation';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { getTransportRequest } from '@/services/transport.service';
 const find=(node,type)=>node?.type===type?node:React.Children.toArray(node?.props?.children).map(child=>find(child,type)).find(Boolean);
 const renderConversationElement=(props={})=>{state.cursor=0;return find(AiRecommendationPanel({requestId:1,canAssign:true,...props}),CopilotConversation);};
 const render=(props={})=>renderConversationElement(props).props;
@@ -130,4 +132,71 @@ it('keeps Reset Copilot unavailable while assignment outcome is uncertain',async
   uncertain.onResetDecision();
   expect(state.cleared).not.toHaveBeenCalled();
   expect(render().selectedPair).toEqual({vehicleId:1,driverId:1});
+});
+it('surfaces a 409 conflict with its server findings and marks the queue plan stale without a second commit',async()=>{
+  // Integrated 409 path: the assign write is refused (stale plan / live
+  // conflict), the panel shows the server-worded findings, the queue plan is
+  // marked stale for reanalysis, and the dispatcher cannot recommit blindly.
+  const plan={planToken:'signed',expiresAt:'2026-09-15T00:01:00Z'};
+  const onPlanStale=vi.fn();
+  const queueProps={queueMode:true,plan,planProposal:{pair:{vehicle_id:3,driver_id:4,vehicle:{plate_number:'PAIR-B'},driver:{driver_name:'Driver B'},checks:[{id:'capacity',status:'verified'}],readiness:'VERIFIED',feasibility:{verdict:'SAFE'}},outcome:'VERIFIED'},planToken:'signed',planExpiresAt:plan.expiresAt,planValidation:{isSuccess:true},onPlanStale};
+  state.query.refetch=vi.fn(async()=>({isError:false}));
+  render(queueProps).onCommand('Option 1');await Promise.resolve();await Promise.resolve();
+  render(queueProps).onCommand('Assign it');
+  expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
+  const conflict=new Error('Queue plan changed.');
+  conflict.status=409;
+  conflict.data={conflicts:[{type:'driver_conflict',message:'Driver reassigned to another request.'}]};
+  await state.handlers.onError(conflict,{label:'PAIR-B',vehicle_id:3,driver_id:4});
+  expect(onPlanStale).toHaveBeenCalledTimes(1);
+  // ConflictChips renders Radix tooltips, which require the provider the real
+  // app tree supplies; the static harness wraps just this render with it.
+  state.cursor=0;
+  const html=renderToStaticMarkup(React.createElement(TooltipProvider,null,AiRecommendationPanel({requestId:1,canAssign:true,...queueProps})));
+  expect(html).toContain('Queue plan changed.');
+  expect(html).toContain('role="alert"');
+  expect(html).toContain('Assignment blocked by 1 conflict');
+  expect(html).toContain('Driver reassigned to another request.');
+  // The failed choice is retained for review, but a bare retry is refused:
+  // only one commit ever left this panel.
+  expect(render(queueProps).selectedPair).toEqual({vehicleId:3,driverId:4});
+  render(queueProps).onCommand('Assign it');
+  expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
+});
+it('reconciles a network-ambiguous commit against the live request and completes when the pair is assigned',async()=>{
+  // Integrated ambiguity path, success side: the commit may have landed despite
+  // the transport failure, so the panel re-reads the request. The live record
+  // shows the same pair Assigned, so the panel completes exactly as a direct
+  // success would — one commit, committed status over the stale row, selection
+  // spent, assignment recorded on the transcript.
+  const selectedRequest={request_id:1,reservation_number:'RS-1',fleet_status:'Scheduled'};
+  state.query.refetch=vi.fn(async()=>({isError:false}));
+  render({selectedRequest}).onCommand('Option 1');await Promise.resolve();await Promise.resolve();
+  render({selectedRequest}).onCommand('Assign it');
+  expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
+  getTransportRequest.mockResolvedValueOnce({request_id:1,fleet_status:'Assigned',vehicle_id:1,driver_id:1});
+  await state.handlers.onError(new Error('network timeout'),{label:'PAIR-1',vehicle_id:1,driver_id:1});
+  expect(getTransportRequest).toHaveBeenCalledWith(1);
+  const html=renderHtml({selectedRequest});
+  expect(html).toContain('>Assigned</span>');
+  expect(html).not.toContain('>Scheduled</span>');
+  expect(html).toContain('PAIR-1');
+  expect(state.cleared).toHaveBeenCalledWith(1);
+  expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
+});
+it('keeps the selection reviewable when reconciliation shows the ambiguous commit did not land',async()=>{
+  // Integrated ambiguity path, mismatch side: the live record is still
+  // unassigned, so the panel says exactly that, keeps the checked selection
+  // for a deliberate retry, and still records only the single original commit.
+  state.query.refetch=vi.fn(async()=>({isError:false}));
+  render().onCommand('Option 1');await Promise.resolve();await Promise.resolve();
+  render().onCommand('Assign it');
+  expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
+  getTransportRequest.mockResolvedValueOnce({request_id:1,fleet_status:'Scheduled',vehicle_id:1,driver_id:2});
+  await state.handlers.onError(new Error('network timeout'),{label:'PAIR-1',vehicle_id:1,driver_id:1});
+  const reviewed=render();
+  expect(reviewed.selectedPair).toEqual({vehicleId:1,driverId:1});
+  expect(reviewed.resetDisabled).toBe(false);
+  expect(renderHtml()).toContain('Current request loaded. Review the record and recheck before retrying.');
+  expect(state.mutation.mutate).toHaveBeenCalledTimes(1);
 });

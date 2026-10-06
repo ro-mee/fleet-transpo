@@ -145,12 +145,19 @@ it('keeps the recommendation query on the app-wide freshness policy',()=>{
   expect(q.refetchOnWindowFocus).toBeUndefined();
   expect(q.refetchOnMount).toBeUndefined();
 });
-it('shows the option flow inside the conversation thread by default',()=>{
+it('shows the option flow inside the conversation thread by default (Task 5 native cards: Option number and recommendation pill are sibling spans, never a clickable-card role)',()=>{
   const html=render();
   expect(html).toContain('2 eligible options found for this reservation.');
-  expect(html).toContain('Option 1 — Recommended option');
-  expect(html).toContain('Option 2 — Alternate option');
-  expect(html).toContain('role="button"');
+  // Task 5 split the historic "Option 1 — Recommended option" literal into two
+  // sibling spans so the card stays a noninteractive article with one named
+  // choice button. The contract is the span pair, not the joined literal.
+  expect(html).toContain('>Option 1</span>');
+  expect(html).toContain('Recommended option');
+  expect(html).toContain('>Option 2</span>');
+  expect(html).toContain('Alternate option');
+  // The now-rejected nested-interactive card carried role="button" on the option
+  // ancestor; the current article must not.
+  expect(html).not.toContain('role="button"');
   expect(html).toContain('Schedule &amp; workload details');
   expect(html).toContain('Choose Option 1');
   expect(html).toContain('Choose Option 2');
@@ -182,10 +189,13 @@ it('withholds a VERIFIED queue proposal whose candidate evaluation is incomplete
   expect(state.chat?.onCommand('Option 1')).toBe('The queue analysis is incomplete. Reanalyze before choosing an option.');
 });
 
-it('presents the queue proposal as Option 1 with both cards and a choose prompt',()=>{
+it('presents the queue proposal as Option 1 with both cards and a choose prompt (Task 5 native cards: split Option/recommendation spans)',()=>{
   const plan={planToken:'signed',expiresAt:'2026-09-15T00:01:00Z'};
   const html=render({queueMode:true,plan,planProposal:{pair:b,outcome:'VERIFIED'},planToken:'signed',planExpiresAt:plan.expiresAt,planValidation:{isSuccess:true}});
-  expect(html).toContain('Option 1 — Recommended option');
+  // Same Task 5 contract as above: the proposal card is "Option 1" plus a
+  // separate "Recommended option" pill, not the historic joined literal.
+  expect(html).toContain('>Option 1</span>');
+  expect(html).toContain('Recommended option');
   expect(html).toContain('PAIR-B'); // proposal pair is Option 1
   expect(html).toContain('PAIR-A'); // engine candidate is Option 2
   expect(html).not.toContain('Read-only comparison');
@@ -272,7 +282,10 @@ it('does not invent a verification requirement when the evaluation has no exclus
     expect(html).toContain('PAIR-A');
     expect(html).toContain('Driver A');
     expect(html).toContain('Capacity: verified');
-    expect(html).not.toContain('Option 1 — Recommended option');
+    // The historic view renders "Historic candidate pair N" cards, never live
+    // option cards — so under the Task 5 split-span contract the meaningful
+    // absence is the recommendation pill, not the historic joined literal.
+    expect(html).not.toContain('Recommended option');
    expect(html).toContain('Unavailable');
     expect(html).not.toContain('Choose Option 1');
     expect(html).not.toContain('eligible options found for this reservation');
