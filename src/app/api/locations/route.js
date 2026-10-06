@@ -7,6 +7,7 @@ import { writeAudit } from "@/lib/audit";
 import { isGoogleMapsUrl } from "@/lib/google-maps";
 import { resolveCoordinates } from "@/lib/locations/coordinates";
 import { rolesFor } from "@/lib/auth/permissions";
+import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-provenance";
 
 /** Validated radius or null (→ DB default 100 m). Schema validation ran first. */
 function radiusOrNull(value) {
@@ -46,13 +47,16 @@ export async function GET(req) {
     const canSeeInactive = rolesFor("locations", "read_inactive").includes(session.user.role);
 
     const { rows } = await query(
-      `SELECT location_id, location_code, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, address_id, created_at
+      `SELECT location_id, location_code, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, address_id, created_at, is_active
          FROM locations
         ${includeInactive && canSeeInactive ? "" : "WHERE is_active = true"}
         ORDER BY name ASC`
     );
 
-    return ok(rows);
+    return ok(rows.map((location) => ({
+      ...location,
+      ...getCoordinateProvenanceFields(location),
+    })));
   } catch (e) {
     return handleError(e);
   }

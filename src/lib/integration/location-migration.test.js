@@ -14,10 +14,27 @@ function quotedColumn(name) {
   return name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function proposalConstraintGuard(column) {
+  const constraintName = `chk_transportation_requests_${column}`;
+  const constraintLookup = migration.indexOf(`conname = '${constraintName}'`);
+  if (constraintLookup < 0) return "";
+  const blockStart = migration.lastIndexOf("DO $$", constraintLookup);
+  const blockEnd = migration.indexOf("END $$;", constraintLookup);
+  return blockStart < 0 || blockEnd < 0 ? "" : migration.slice(blockStart, blockEnd);
+}
+
 function proposalConstraint(column) {
-  const constraintName = quotedColumn(`chk_transportation_requests_${column}`);
-  const match = migration.match(new RegExp(`ADD CONSTRAINT ${constraintName}\\s+CHECK\\s*\\(([\\s\\S]*?)\\);`, "i"));
-  return match?.[1] ?? "";
+  const guard = proposalConstraintGuard(column);
+  const marker = "proposal_check_expression text := $proposal_check$";
+  const expressionStart = guard.indexOf(marker);
+  if (expressionStart < 0) return "";
+  const start = expressionStart + marker.length;
+  const end = guard.indexOf("$proposal_check$", start);
+  return end < 0 ? "" : guard.slice(start, end);
+}
+
+function acceptsCatalogConstraint({ definition, expectedDefinition, validated }) {
+  return validated === true && definition === expectedDefinition;
 }
 
 describe("Task 1 location identity migration", () => {
@@ -59,6 +76,24 @@ describe("Task 1 location identity migration", () => {
     expect(expression).toMatch(new RegExp(`NOT \\(${escapedColumn}\\s*\\? 'latitude'\\)[\\s\\S]*?'null'[\\s\\S]*?NOT \\(${escapedColumn}\\s*\\? 'longitude'\\)[\\s\\S]*?'null'[\\s\\S]*?OR CASE[\\s\\S]*?'latitude'[\\s\\S]*?'number'[\\s\\S]*?'longitude'[\\s\\S]*?'number'`, "i"));
     expect(expression).toMatch(new RegExp(`${escapedColumn}[\\s\\S]*?'NaN'::numeric`, "i"));
     expect(migration).toMatch(new RegExp(`${quotedColumn(`chk_transportation_requests_${column}`)}[\\s\\S]*?RAISE EXCEPTION`, "i"));
+  });
+
+  it.each(PROPOSAL_COLUMNS)("rejects a same-named %s constraint weakened with OR TRUE", (column) => {
+    const expression = proposalConstraint(column).trim();
+    const guard = proposalConstraintGuard(column);
+    const expectedDefinition = `CHECK (${expression})`;
+    const weakenedDefinition = `CHECK ((${expression}) OR TRUE)`;
+
+    // PostgreSQL deparses a scratch check built from the migration's expected expression;
+    // accepting only that exact, validated catalog definition makes OR TRUE fail closed.
+    expect(guard).toMatch(/CREATE TEMP TABLE[\s\S]*?ON COMMIT DROP/i);
+    expect(guard).toMatch(/SELECT pg_get_constraintdef\(oid\)\s+INTO expected_constraint_definition[\s\S]*?conrelid = 'pg_temp\._expected_/i);
+    expect(guard).toMatch(/constraint_definition\s+IS DISTINCT FROM\s+expected_constraint_definition/i);
+    expect(guard).toMatch(/constraint_is_valid\s+IS DISTINCT FROM\s+TRUE/i);
+    expect(guard).toMatch(/ALTER TABLE public\.transportation_requests ADD CONSTRAINT %I %s/i);
+    expect(acceptsCatalogConstraint({ definition: expectedDefinition, expectedDefinition, validated: true })).toBe(true);
+    expect(weakenedDefinition).toMatch(/\bOR\s+TRUE\b/i);
+    expect(acceptsCatalogConstraint({ definition: weakenedDefinition, expectedDefinition, validated: true })).toBe(false);
   });
 
   it("fails closed on conflicting existing columns and does not change table or RLS scope", () => {

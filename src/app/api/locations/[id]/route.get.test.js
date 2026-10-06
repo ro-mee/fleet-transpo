@@ -159,7 +159,28 @@ describe("GET /api/locations/[id] — the address it hands the picker", () => {
 
     expect(res.status).toBe(200);
     expect(body.location_code).toBe(LOCATION_CODE);
+    expect(body.coordinate_provenance).toBe("canonical_registry");
+    expect(body.coordinate_provenance_note).toBe("not independently verified");
+    expect(body).not.toHaveProperty("verified");
     expect(sql).toMatch(/SELECT location_id, location_code,/i);
+  });
+
+  it.each([
+    ["inactive row", { is_active: false }],
+    ["missing latitude", { latitude: null }],
+    ["missing longitude", { longitude: null }],
+    ["latitude outside valid range", { latitude: 91 }],
+    ["longitude outside valid range", { longitude: 181 }],
+    ["non-finite pair", { longitude: Infinity }],
+  ])("omits provenance fields for %s", async (_caseName, overrides) => {
+    installDb({ location: locationRow(overrides) });
+
+    const res = await GET(request(), context());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).not.toHaveProperty("coordinate_provenance");
+    expect(body).not.toHaveProperty("coordinate_provenance_note");
   });
 
   it("sends both keys and the reason when the address cannot be reopened", async () => {

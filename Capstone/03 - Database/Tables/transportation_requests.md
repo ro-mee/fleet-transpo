@@ -68,7 +68,7 @@ Draft migration `145_load_types_and_services.sql` (provisional number, after dra
 
 Migration `146_location_intake_identity.sql` adds nullable JSONB `partner_pickup_location_proposal` and `partner_dropoff_location_proposal` columns. Each check accepts only an object containing `address`, `latitude`, and/or `longitude`; a proposal needs a nonempty address or a complete coordinate pair. An address is capped at 2,000 characters. Coordinates must both be absent/null or both finite and within latitude `[-90, 90]` and longitude `[-180, 180]`; partial pairs, unsupported keys, non-object values, and empty proposals are rejected.
 
-The JSONB is explicitly partner-provided review data, not canonical routing data. Task 1 adds storage constraints only; the ingest writer, request read projections, and dispatcher mapping are later work. The migration is not applied, so this schema is not yet available in the live database.
+The JSONB is explicitly partner-provided review data, not canonical routing data. Same-named checks are accepted on rerun only when validated and their full PostgreSQL-deparsed expressions match the trusted expected definitions; semantically weakened `CHECK (... OR TRUE)` constraints are rejected. Task 1 adds storage constraints only; the ingest writer, request read projections, and dispatcher mapping are later work. The migration is not applied, so this schema is not yet available in the live database.
 
 ## Related
 

@@ -6,6 +6,7 @@ import { isGoogleMapsUrl } from "@/lib/google-maps";
 import { resolveCoordinates } from "@/lib/locations/coordinates";
 import { saveAddress, loadStructuredAddress } from "@/services/address.service";
 import { resolveStructuredAddress } from "@/lib/address/validate-structured";
+import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-provenance";
 
 const locationSchema = {
   name: { required: true, maxLength: 255, label: "Location name", validate: (value) => typeof value === "string" ? null : "Location name must be text." },
@@ -80,6 +81,7 @@ export async function GET(req, { params }) {
 
     return ok({
       ...location,
+      ...getCoordinateProvenanceFields(location),
       structured_address: address.ok ? address.value : null,
       structured_address_reason: address.ok ? null : address.reason,
     });

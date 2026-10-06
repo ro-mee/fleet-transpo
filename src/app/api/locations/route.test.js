@@ -88,6 +88,34 @@ describe("GET /api/locations", () => {
     expect(body[0].location_code).toBe(LOCATION_CODE);
     expect(sql).toMatch(/SELECT location_id, location_code,/i);
   });
+
+  it("labels only active rows with a complete valid pair as canonical_registry and not independently verified", async () => {
+    mocks.query.mockResolvedValue({ rows: [
+      locationRow(),
+      locationRow({ location_id: 18, is_active: false }),
+      locationRow({ location_id: 19, latitude: null }),
+      locationRow({ location_id: 20, longitude: null }),
+      locationRow({ location_id: 21, latitude: 91 }),
+      locationRow({ location_id: 22, longitude: 181 }),
+      locationRow({ location_id: 23, latitude: Infinity }),
+    ] });
+
+    const res = await GET(request());
+    const body = await res.json();
+    const [sql] = mocks.query.mock.calls[0];
+
+    expect(res.status).toBe(200);
+    expect(body[0]).toMatchObject({
+      coordinate_provenance: "canonical_registry",
+      coordinate_provenance_note: "not independently verified",
+    });
+    expect(body[0]).not.toHaveProperty("verified");
+    for (const row of body.slice(1)) {
+      expect(row).not.toHaveProperty("coordinate_provenance");
+      expect(row).not.toHaveProperty("coordinate_provenance_note");
+    }
+    expect(sql).toMatch(/\bis_active\b/i);
+  });
 });
 
 describe("POST /api/locations", () => {

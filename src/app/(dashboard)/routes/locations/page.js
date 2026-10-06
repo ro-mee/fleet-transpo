@@ -252,7 +252,15 @@ export default function LocationsPage() {
     {
       key: "latitude",
       label: "Coordinates",
-      render: (_, location) => <div className="font-data text-xs"><p>Lat {formatCoordinate(location.latitude)}</p><p className="mt-0.5 text-foreground-muted">Lng {formatCoordinate(location.longitude)}</p></div>,
+      render: (_, location) => (
+        <div className="font-data text-xs">
+          <p>Lat {formatCoordinate(location.latitude)}</p>
+          <p className="mt-0.5 text-foreground-muted">Lng {formatCoordinate(location.longitude)}</p>
+          {location.coordinate_provenance === "canonical_registry"
+            && location.coordinate_provenance_note === "not independently verified"
+            && <p className="mt-1 font-sans text-[10px] leading-snug text-foreground-muted">canonical_registry · not independently verified</p>}
+        </div>
+      ),
     },
     {
       key: "longitude",
@@ -292,7 +300,7 @@ export default function LocationsPage() {
         columns={columns}
         data={locationsQuery.data || []}
         title="Canonical location registry"
-        description="Names, addresses, and exact coordinates used by route estimates and live navigation."
+        description="Active, complete Fleet coordinate pairs can supply route estimates and live navigation; each eligible point carries a per-row provenance label."
         icon={MapPin}
         searchPlaceholder="Search location, address, or code..."
         emptyTitle="No canonical locations yet"
@@ -410,7 +418,7 @@ export default function LocationsPage() {
                 </div>
               </div>
             </details>
-            <p className="text-xs text-foreground-muted">Coordinates are saved to seven decimal places and become the source for TomTom estimates and live navigation. The system blocks duplicate active names after trimming case and spacing differences.</p>
+            <p className="text-xs text-foreground-muted">Coordinates are saved to seven decimal places. Active complete registry pairs can supply TomTom estimates and live navigation, but they are not independently verified. The system blocks duplicate active names after trimming case and spacing differences.</p>
             {formError && <p role="alert" className="text-sm font-semibold text-danger">{formError}</p>}
             <DialogFooter className="-mx-6 -mb-6 border-t border-border/60"><Button type="button" variant="outline" disabled={saveMutation.isPending} onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={saveMutation.isPending}>{saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingLocation ? "Save changes" : "Add location"}</Button></DialogFooter>
           </form>

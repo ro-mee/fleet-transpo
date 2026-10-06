@@ -6,6 +6,7 @@ source:
   - src/app/(dashboard)/routes
   - src/app/api/routes
   - src/app/api/locations
+  - src/lib/locations/coordinate-provenance.js
   - src/app/api/tomtom/route
   - src/services/route-resolver.service.js
   - src/services/route.service.js
@@ -189,4 +190,4 @@ Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Ra
 
 Migration `146_location_intake_identity.sql` adds a database-generated UUID `location_code` to each canonical `locations` row. A full unique index reserves codes across active and retired rows; the code is not derived from mutable names or addresses. The prepared location list/detail GET projections expose it for partner configuration. POST and PUT do not write a supplied code: new and versioned rows receive the database default, while in-place edits preserve the existing identity.
 
-The Fleet location registry shows the code in a copyable list column and in the edit/detail dialog as read-only. This slice only establishes identity and API projection: it does not change route resolution, geofencing, navigation, or v2 intake behavior. The migration is prepared but unapplied, so the changed application code requires that migration before deployment. Static migration/API tests and offline `db:check` are the evidence, not live catalog behavior.
+The Fleet location registry shows the code in a copyable list column and in the edit/detail dialog as read-only. Location list/detail GETs label `coordinate_provenance: canonical_registry` with the note `not independently verified` only for active rows with a complete finite in-range latitude/longitude pair; inactive, missing, partial, non-finite, or out-of-range coordinates receive no provenance label. The UI displays that label beside eligible coordinate pairs. No `verified` flag is added or set. This slice does not change route resolution, geofencing, navigation, or v2 intake behavior. The migration is prepared but unapplied, so the changed application code requires that migration before deployment. Static migration/API/UI tests and offline `db:check` are the evidence, not live catalog behavior.

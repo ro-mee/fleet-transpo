@@ -101,13 +101,65 @@ BEGIN
   END IF;
 END $$;
 
+-- Compare the complete PostgreSQL-deparsed CHECK definition against a scratch
+-- constraint built from the trusted expression below. Token-presence checks are
+-- unsafe here: a same-named CHECK (... OR TRUE) would contain every required token.
 DO $$
 DECLARE
   constraint_type "char";
   constraint_is_valid boolean;
   constraint_columns smallint[];
   constraint_definition text;
+  expected_constraint_definition text;
+  constraint_exists boolean;
   proposal_attnum smallint;
+  proposal_check_expression text := $proposal_check$
+    partner_pickup_location_proposal IS NULL
+    OR (
+      jsonb_typeof(partner_pickup_location_proposal) = 'object'
+      AND partner_pickup_location_proposal - ARRAY['address', 'latitude', 'longitude']::text[] = '{}'::jsonb
+      AND (
+        NOT (partner_pickup_location_proposal ? 'address')
+        OR (
+          jsonb_typeof(partner_pickup_location_proposal->'address') = 'string'
+          AND char_length(partner_pickup_location_proposal->>'address') <= 2000
+        )
+      )
+      AND (
+        (
+          (NOT (partner_pickup_location_proposal ? 'latitude') OR jsonb_typeof(partner_pickup_location_proposal->'latitude') = 'null')
+          AND (NOT (partner_pickup_location_proposal ? 'longitude') OR jsonb_typeof(partner_pickup_location_proposal->'longitude') = 'null')
+        )
+        OR CASE
+          WHEN jsonb_typeof(partner_pickup_location_proposal->'latitude') = 'number'
+           AND jsonb_typeof(partner_pickup_location_proposal->'longitude') = 'number'
+          THEN CASE
+            WHEN (partner_pickup_location_proposal->>'latitude')::numeric = 'NaN'::numeric
+              OR (partner_pickup_location_proposal->>'longitude')::numeric = 'NaN'::numeric
+            THEN FALSE
+            ELSE (partner_pickup_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
+             AND (partner_pickup_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
+          END
+          ELSE FALSE
+        END
+      )
+      AND (
+        NULLIF(BTRIM(partner_pickup_location_proposal->>'address'), '') IS NOT NULL
+        OR CASE
+          WHEN jsonb_typeof(partner_pickup_location_proposal->'latitude') = 'number'
+           AND jsonb_typeof(partner_pickup_location_proposal->'longitude') = 'number'
+          THEN CASE
+            WHEN (partner_pickup_location_proposal->>'latitude')::numeric = 'NaN'::numeric
+              OR (partner_pickup_location_proposal->>'longitude')::numeric = 'NaN'::numeric
+            THEN FALSE
+            ELSE (partner_pickup_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
+             AND (partner_pickup_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
+          END
+          ELSE FALSE
+        END
+      )
+    )
+  $proposal_check$;
 BEGIN
   SELECT attnum
     INTO proposal_attnum
@@ -121,72 +173,31 @@ BEGIN
     FROM pg_constraint
    WHERE conrelid = 'public.transportation_requests'::regclass
      AND conname = 'chk_transportation_requests_partner_pickup_location_proposal';
+  constraint_exists := FOUND;
 
-  IF NOT FOUND THEN
-    ALTER TABLE public.transportation_requests
-      ADD CONSTRAINT chk_transportation_requests_partner_pickup_location_proposal
-      CHECK (
-        partner_pickup_location_proposal IS NULL
-        OR (
-          jsonb_typeof(partner_pickup_location_proposal) = 'object'
-          AND partner_pickup_location_proposal - ARRAY['address', 'latitude', 'longitude']::text[] = '{}'::jsonb
-          AND (
-            NOT (partner_pickup_location_proposal ? 'address')
-            OR (
-              jsonb_typeof(partner_pickup_location_proposal->'address') = 'string'
-              AND char_length(partner_pickup_location_proposal->>'address') <= 2000
-            )
-          )
-          AND (
-            (
-              (NOT (partner_pickup_location_proposal ? 'latitude') OR jsonb_typeof(partner_pickup_location_proposal->'latitude') = 'null')
-              AND (NOT (partner_pickup_location_proposal ? 'longitude') OR jsonb_typeof(partner_pickup_location_proposal->'longitude') = 'null')
-            )
-            OR CASE
-              WHEN jsonb_typeof(partner_pickup_location_proposal->'latitude') = 'number'
-               AND jsonb_typeof(partner_pickup_location_proposal->'longitude') = 'number'
-              THEN CASE
-                WHEN (partner_pickup_location_proposal->>'latitude')::numeric = 'NaN'::numeric
-                  OR (partner_pickup_location_proposal->>'longitude')::numeric = 'NaN'::numeric
-                THEN FALSE
-                ELSE (partner_pickup_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
-                 AND (partner_pickup_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
-              END
-              ELSE FALSE
-            END
-          )
-          AND (
-            NULLIF(BTRIM(partner_pickup_location_proposal->>'address'), '') IS NOT NULL
-            OR CASE
-              WHEN jsonb_typeof(partner_pickup_location_proposal->'latitude') = 'number'
-               AND jsonb_typeof(partner_pickup_location_proposal->'longitude') = 'number'
-              THEN CASE
-                WHEN (partner_pickup_location_proposal->>'latitude')::numeric = 'NaN'::numeric
-                  OR (partner_pickup_location_proposal->>'longitude')::numeric = 'NaN'::numeric
-                THEN FALSE
-                ELSE (partner_pickup_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
-                 AND (partner_pickup_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
-              END
-              ELSE FALSE
-            END
-          )
-        )
-      );
+  CREATE TEMP TABLE _expected_pickup_location_proposal (
+    partner_pickup_location_proposal jsonb
+  ) ON COMMIT DROP;
+  EXECUTE format(
+    'ALTER TABLE pg_temp._expected_pickup_location_proposal ADD CONSTRAINT expected_pickup_location_proposal CHECK (%s)',
+    proposal_check_expression
+  );
+  SELECT pg_get_constraintdef(oid)
+    INTO expected_constraint_definition
+    FROM pg_constraint
+   WHERE conrelid = 'pg_temp._expected_pickup_location_proposal'::regclass
+     AND conname = 'expected_pickup_location_proposal';
+
+  IF NOT constraint_exists THEN
+    EXECUTE format(
+      'ALTER TABLE public.transportation_requests ADD CONSTRAINT %I %s',
+      'chk_transportation_requests_partner_pickup_location_proposal',
+      expected_constraint_definition
+    );
   ELSIF constraint_type IS DISTINCT FROM 'c'
      OR constraint_is_valid IS DISTINCT FROM TRUE
      OR constraint_columns IS DISTINCT FROM ARRAY[proposal_attnum]::smallint[]
-     OR constraint_definition !~* 'jsonb_typeof'
-     OR constraint_definition !~* 'array\[.*address.*latitude.*longitude'
-     OR constraint_definition !~* 'char_length'
-     OR constraint_definition !~* '2000'
-     OR constraint_definition !~* '-90'
-     OR constraint_definition !~* '90'
-     OR constraint_definition !~* '-180'
-     OR constraint_definition !~* '180'
-     OR constraint_definition !~* 'NaN'
-     OR constraint_definition !~* 'btrim'
-     OR constraint_definition !~* 'latitude'
-     OR constraint_definition !~* 'longitude' THEN
+     OR constraint_definition IS DISTINCT FROM expected_constraint_definition THEN
     RAISE EXCEPTION 'chk_transportation_requests_partner_pickup_location_proposal conflicts with the required proposal validation';
   END IF;
 END $$;
@@ -197,7 +208,56 @@ DECLARE
   constraint_is_valid boolean;
   constraint_columns smallint[];
   constraint_definition text;
+  expected_constraint_definition text;
+  constraint_exists boolean;
   proposal_attnum smallint;
+  proposal_check_expression text := $proposal_check$
+    partner_dropoff_location_proposal IS NULL
+    OR (
+      jsonb_typeof(partner_dropoff_location_proposal) = 'object'
+      AND partner_dropoff_location_proposal - ARRAY['address', 'latitude', 'longitude']::text[] = '{}'::jsonb
+      AND (
+        NOT (partner_dropoff_location_proposal ? 'address')
+        OR (
+          jsonb_typeof(partner_dropoff_location_proposal->'address') = 'string'
+          AND char_length(partner_dropoff_location_proposal->>'address') <= 2000
+        )
+      )
+      AND (
+        (
+          (NOT (partner_dropoff_location_proposal ? 'latitude') OR jsonb_typeof(partner_dropoff_location_proposal->'latitude') = 'null')
+          AND (NOT (partner_dropoff_location_proposal ? 'longitude') OR jsonb_typeof(partner_dropoff_location_proposal->'longitude') = 'null')
+        )
+        OR CASE
+          WHEN jsonb_typeof(partner_dropoff_location_proposal->'latitude') = 'number'
+           AND jsonb_typeof(partner_dropoff_location_proposal->'longitude') = 'number'
+          THEN CASE
+            WHEN (partner_dropoff_location_proposal->>'latitude')::numeric = 'NaN'::numeric
+              OR (partner_dropoff_location_proposal->>'longitude')::numeric = 'NaN'::numeric
+            THEN FALSE
+            ELSE (partner_dropoff_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
+             AND (partner_dropoff_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
+          END
+          ELSE FALSE
+        END
+      )
+      AND (
+        NULLIF(BTRIM(partner_dropoff_location_proposal->>'address'), '') IS NOT NULL
+        OR CASE
+          WHEN jsonb_typeof(partner_dropoff_location_proposal->'latitude') = 'number'
+           AND jsonb_typeof(partner_dropoff_location_proposal->'longitude') = 'number'
+          THEN CASE
+            WHEN (partner_dropoff_location_proposal->>'latitude')::numeric = 'NaN'::numeric
+              OR (partner_dropoff_location_proposal->>'longitude')::numeric = 'NaN'::numeric
+            THEN FALSE
+            ELSE (partner_dropoff_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
+             AND (partner_dropoff_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
+          END
+          ELSE FALSE
+        END
+      )
+    )
+  $proposal_check$;
 BEGIN
   SELECT attnum
     INTO proposal_attnum
@@ -211,72 +271,31 @@ BEGIN
     FROM pg_constraint
    WHERE conrelid = 'public.transportation_requests'::regclass
      AND conname = 'chk_transportation_requests_partner_dropoff_location_proposal';
+  constraint_exists := FOUND;
 
-  IF NOT FOUND THEN
-    ALTER TABLE public.transportation_requests
-      ADD CONSTRAINT chk_transportation_requests_partner_dropoff_location_proposal
-      CHECK (
-        partner_dropoff_location_proposal IS NULL
-        OR (
-          jsonb_typeof(partner_dropoff_location_proposal) = 'object'
-          AND partner_dropoff_location_proposal - ARRAY['address', 'latitude', 'longitude']::text[] = '{}'::jsonb
-          AND (
-            NOT (partner_dropoff_location_proposal ? 'address')
-            OR (
-              jsonb_typeof(partner_dropoff_location_proposal->'address') = 'string'
-              AND char_length(partner_dropoff_location_proposal->>'address') <= 2000
-            )
-          )
-          AND (
-            (
-              (NOT (partner_dropoff_location_proposal ? 'latitude') OR jsonb_typeof(partner_dropoff_location_proposal->'latitude') = 'null')
-              AND (NOT (partner_dropoff_location_proposal ? 'longitude') OR jsonb_typeof(partner_dropoff_location_proposal->'longitude') = 'null')
-            )
-            OR CASE
-              WHEN jsonb_typeof(partner_dropoff_location_proposal->'latitude') = 'number'
-               AND jsonb_typeof(partner_dropoff_location_proposal->'longitude') = 'number'
-              THEN CASE
-                WHEN (partner_dropoff_location_proposal->>'latitude')::numeric = 'NaN'::numeric
-                  OR (partner_dropoff_location_proposal->>'longitude')::numeric = 'NaN'::numeric
-                THEN FALSE
-                ELSE (partner_dropoff_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
-                 AND (partner_dropoff_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
-              END
-              ELSE FALSE
-            END
-          )
-          AND (
-            NULLIF(BTRIM(partner_dropoff_location_proposal->>'address'), '') IS NOT NULL
-            OR CASE
-              WHEN jsonb_typeof(partner_dropoff_location_proposal->'latitude') = 'number'
-               AND jsonb_typeof(partner_dropoff_location_proposal->'longitude') = 'number'
-              THEN CASE
-                WHEN (partner_dropoff_location_proposal->>'latitude')::numeric = 'NaN'::numeric
-                  OR (partner_dropoff_location_proposal->>'longitude')::numeric = 'NaN'::numeric
-                THEN FALSE
-                ELSE (partner_dropoff_location_proposal->>'latitude')::numeric BETWEEN -90 AND 90
-                 AND (partner_dropoff_location_proposal->>'longitude')::numeric BETWEEN -180 AND 180
-              END
-              ELSE FALSE
-            END
-          )
-        )
-      );
+  CREATE TEMP TABLE _expected_dropoff_location_proposal (
+    partner_dropoff_location_proposal jsonb
+  ) ON COMMIT DROP;
+  EXECUTE format(
+    'ALTER TABLE pg_temp._expected_dropoff_location_proposal ADD CONSTRAINT expected_dropoff_location_proposal CHECK (%s)',
+    proposal_check_expression
+  );
+  SELECT pg_get_constraintdef(oid)
+    INTO expected_constraint_definition
+    FROM pg_constraint
+   WHERE conrelid = 'pg_temp._expected_dropoff_location_proposal'::regclass
+     AND conname = 'expected_dropoff_location_proposal';
+
+  IF NOT constraint_exists THEN
+    EXECUTE format(
+      'ALTER TABLE public.transportation_requests ADD CONSTRAINT %I %s',
+      'chk_transportation_requests_partner_dropoff_location_proposal',
+      expected_constraint_definition
+    );
   ELSIF constraint_type IS DISTINCT FROM 'c'
      OR constraint_is_valid IS DISTINCT FROM TRUE
      OR constraint_columns IS DISTINCT FROM ARRAY[proposal_attnum]::smallint[]
-     OR constraint_definition !~* 'jsonb_typeof'
-     OR constraint_definition !~* 'array\[.*address.*latitude.*longitude'
-     OR constraint_definition !~* 'char_length'
-     OR constraint_definition !~* '2000'
-     OR constraint_definition !~* '-90'
-     OR constraint_definition !~* '90'
-     OR constraint_definition !~* '-180'
-     OR constraint_definition !~* '180'
-     OR constraint_definition !~* 'NaN'
-     OR constraint_definition !~* 'btrim'
-     OR constraint_definition !~* 'latitude'
-     OR constraint_definition !~* 'longitude' THEN
+     OR constraint_definition IS DISTINCT FROM expected_constraint_definition THEN
     RAISE EXCEPTION 'chk_transportation_requests_partner_dropoff_location_proposal conflicts with the required proposal validation';
   END IF;
 END $$;
