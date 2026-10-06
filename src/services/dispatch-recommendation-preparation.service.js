@@ -271,13 +271,14 @@ export async function loadActiveSubstitutes() {
 }
 export async function withResolvedEstimate(request, { persistRoute = false } = {}) {
   const estimate = await resolveRequestEstimate(request, { query }, { persistRoute });
+  const isV2 = request?.external_create_fingerprint != null;
   return {
     estimate,
     request: {
       ...request,
-      estimated_distance: request?.estimated_distance ?? estimate.distanceKm,
-      estimated_duration: request?.estimated_duration ?? estimate.durationMin,
-      estimate_source: request?.estimate_source ?? estimate.source,
+      estimated_distance: isV2 ? estimate.distanceKm : request?.estimated_distance ?? estimate.distanceKm,
+      estimated_duration: isV2 ? estimate.durationMin : request?.estimated_duration ?? estimate.durationMin,
+      estimate_source: isV2 ? estimate.source : request?.estimate_source ?? estimate.source,
     },
   };
 }

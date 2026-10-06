@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
+vi.mock("@/services/route-resolver.service", () => ({
+  estimateForRequest: vi.fn(),
+  resolveRequestEstimate: vi.fn(),
+  resolveRouteEndpoints: vi.fn(async () => null),
+}));
 
 import { query } from "@/lib/db";
+import { resolveRequestEstimate } from "@/services/route-resolver.service";
 import {
   fetchCandidates,
   prefilterReason,
   loadServiceDateWorkload,
+  withResolvedEstimate,
 } from "./dispatch-recommendation-preparation.service";
 import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
 
@@ -30,6 +37,32 @@ function mockDb({ prefiltered = [] } = {}) {
 }
 
 beforeEach(() => vi.clearAllMocks());
+
+it("propagates a strict v2 unknown estimate over stale persisted request fields", async () => {
+  const request = {
+    ...REQUEST,
+    external_create_fingerprint: "persisted-v2",
+    estimated_distance: 88,
+    estimated_duration: 120,
+    estimate_source: "TomTom",
+  };
+  const unknownEstimate = { distanceKm: null, durationMin: null, source: null, basis: "Canonical location unavailable" };
+  resolveRequestEstimate.mockResolvedValue(unknownEstimate);
+
+  const resolved = await withResolvedEstimate(request);
+
+  expect(resolved.estimate).toEqual(unknownEstimate);
+  expect(resolved.request).toMatchObject({ estimated_distance: null, estimated_duration: null, estimate_source: null });
+});
+
+it("retains legacy persisted estimates when the v1 resolver is unknown", async () => {
+  resolveRequestEstimate.mockResolvedValue({ distanceKm: null, durationMin: null, source: null });
+
+  const resolved = await withResolvedEstimate({ ...REQUEST, estimated_distance: 22, estimated_duration: 35, estimate_source: "Manual" });
+
+  expect(resolved.request).toMatchObject({ estimated_distance: 22, estimated_duration: 35, estimate_source: "Manual" });
+});
+
 it('uses the Manila service date and preserves unknown duration versus a recorded empty day',async()=>{
  query.mockResolvedValue({rows:[{driver_id:1,total:5,completed:2,active:1,scheduled:2,minutes:null}]});
  const workloads=await loadServiceDateWorkload([1,2],'2026-09-15T17:00:00Z');

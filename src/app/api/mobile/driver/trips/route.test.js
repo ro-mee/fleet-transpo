@@ -223,4 +223,60 @@ describe("GET /api/mobile/driver/trips — endpoint coordinate fallback", () => 
     expect(row.pickup_location_provenance).toBe("pending_review");
     expect(row.dropoff_location_provenance).toBe("unknown");
   });
+
+  it.each([
+    ["missing", { _pickup_location_id: null, _pickup_registry_location_id: null }],
+    ["mismatched", { _pickup_location_id: 41, _pickup_registry_location_id: 99, _pickup_registry_is_active: true, _pickup_registry_latitude: 14.6, _pickup_registry_longitude: 121.02 }],
+    ["retired", { _pickup_location_id: 41, _pickup_registry_location_id: 41, _pickup_registry_is_active: false, _pickup_registry_retired_at: "2026-09-01T00:00:00Z", _pickup_registry_latitude: 14.6, _pickup_registry_longitude: 121.02 }],
+    ["invalid", { _pickup_location_id: 41, _pickup_registry_location_id: 41, _pickup_registry_is_active: true, _pickup_registry_latitude: 91, _pickup_registry_longitude: 121.02 }],
+  ])("suppresses stale v2 estimates when request links are %s", async (_case, linkFields) => {
+    vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+    mockQuery([tripRow({
+      estimated_distance: 88,
+      estimated_duration: 120,
+      _external_create_fingerprint: "v2-fingerprint",
+      _pickup_proposal_present: false,
+      _dropoff_proposal_present: false,
+      _dropoff_location_id: null,
+      _dropoff_registry_location_id: null,
+      _dropoff_registry_is_active: null,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: null,
+      _dropoff_registry_longitude: null,
+      ...linkFields,
+    })]);
+
+    const response = await GET(mockReq());
+    const row = (await response.json())[0];
+
+    expect(row.estimated_distance).toBeNull();
+    expect(row.estimated_duration).toBeNull();
+  });
+
+  it("retains v2 estimates when both request-linked active points are usable", async () => {
+    vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+    mockQuery([tripRow({
+      estimated_distance: 88,
+      estimated_duration: 120,
+      _external_create_fingerprint: "v2-fingerprint",
+      _pickup_location_id: 41,
+      _dropoff_location_id: 42,
+      _pickup_registry_location_id: 41,
+      _pickup_registry_is_active: true,
+      _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: "14.6000",
+      _pickup_registry_longitude: "121.0200",
+      _dropoff_registry_location_id: 42,
+      _dropoff_registry_is_active: true,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: "14.7000",
+      _dropoff_registry_longitude: "121.0300",
+    })]);
+
+    const response = await GET(mockReq());
+    const row = (await response.json())[0];
+
+    expect(row.estimated_distance).toBe(88);
+    expect(row.estimated_duration).toBe(120);
+  });
 });

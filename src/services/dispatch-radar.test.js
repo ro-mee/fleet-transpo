@@ -14,7 +14,7 @@ import { standbyState } from '@/services/standby.service';
 import { detectRequestConflicts } from '@/lib/scheduling/conflicts';
 import { resolveDeadheadMinutes } from '@/services/route-feasibility-context.service';
 import { resolveRouteEndpoints } from '@/services/route-resolver.service';
-import { evaluateDispatchCandidate,applyDispatchRadar } from './dispatch-radar.service';
+import { evaluateDispatchCandidate, applyDispatchRadar, serviceEnd } from './dispatch-radar.service';
 let now, request;
 beforeEach(()=>{
   vi.clearAllMocks();
@@ -26,6 +26,15 @@ beforeEach(()=>{
   resolveDeadheadMinutes.mockResolvedValue({minutes:5,distanceKm:6,provenance:'live',computedAt:now.toISOString()});
 });
 const evaluate = (extra={})=>evaluateDispatchCandidate({request,vehicleId:1,driverId:1,estimate:{durationMin:30,source:"TomTom"},now,...extra});
+it("does not use a persisted v2 duration when the strict estimate is unknown", () => {
+  const pickup = "2026-10-06T10:00:00+08:00";
+  expect(serviceEnd({ ...request, pickup_datetime: pickup, external_create_fingerprint: "v2", estimated_duration: 90 }, { durationMin: null })).toBeNull();
+});
+it("retains the legacy duration fallback for v1", () => {
+  const pickup = "2026-10-06T10:00:00+08:00";
+  expect(serviceEnd({ ...request, pickup_datetime: pickup, estimated_duration: 30 }, { durationMin: null }))
+    .toEqual(new Date(new Date(pickup).getTime() + 30 * 60_000));
+});
 it('attaches the Manila duty window behind the shift verdict, null without a row',async()=>{
   const friday = new Date('2026-10-02T09:00:00.000Z'); // 5 PM Manila Friday
   loadDriverScheduleContext.mockResolvedValue({ schedules: new Map([[1, new Map([[5, {

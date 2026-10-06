@@ -159,6 +159,40 @@ function v2EndpointCoordinates(row, endpoint) {
   };
 }
 
+async function resolveV2RequestCoordinates(db, request) {
+  const linkedIds = [request?.pickup_location_id, request?.dropoff_location_id];
+  const ids = [...new Set(linkedIds
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0))];
+  let rows = [];
+  if (ids.length && db?.query) {
+    try {
+      ({ rows = [] } = await db.query(
+        `SELECT location_id, is_active, retired_at, latitude, longitude
+           FROM locations WHERE location_id = ANY($1::integer[])`,
+        [ids]
+      ));
+    } catch {
+      rows = [];
+    }
+  }
+
+  const byId = new Map(rows.map((location) => [String(location.location_id), location]));
+  const projected = { ...request };
+  for (const endpoint of ["pickup", "dropoff"]) {
+    const location = byId.get(String(request?.[`${endpoint}_location_id`])) ?? null;
+    projected[`_${endpoint}_registry_location_id`] = location?.location_id ?? null;
+    projected[`_${endpoint}_registry_is_active`] = location?.is_active ?? null;
+    projected[`_${endpoint}_registry_retired_at`] = location?.retired_at ?? null;
+    projected[`_${endpoint}_registry_latitude`] = location?.latitude ?? null;
+    projected[`_${endpoint}_registry_longitude`] = location?.longitude ?? null;
+  }
+  return [
+    v2EndpointCoordinates(projected, "pickup").coordinates,
+    v2EndpointCoordinates(projected, "dropoff").coordinates,
+  ];
+}
+
 /**
  * Resolve a next assigned request's pickup for repositioning. Persisted v2
  * rows are authoritative only through their explicit linked Fleet location;
@@ -427,10 +461,12 @@ export async function attachPairFeasibility(db, {
   if (!targets.length) return recommendation;
 
   const byDriverId = new Map((Array.isArray(drivers) ? drivers : []).map((d) => [d?.driver_id, d]));
-  const [pickupCoords, destinationCoords] = await Promise.all([
-    resolveCoordinatesWithDb(db, request?.pickup_location),
-    resolveCoordinatesWithDb(db, request?.dropoff_location),
-  ]);
+  const [pickupCoords, destinationCoords] = request?.external_create_fingerprint != null
+    ? await resolveV2RequestCoordinates(db, request)
+    : await Promise.all([
+      resolveCoordinatesWithDb(db, request?.pickup_location),
+      resolveCoordinatesWithDb(db, request?.dropoff_location),
+    ]);
   const passengerMinutes = estimate?.durationMin != null ? Math.round(Number(estimate.durationMin)) : null;
   const passengerProvenance = provenanceOfEstimate(estimate);
 

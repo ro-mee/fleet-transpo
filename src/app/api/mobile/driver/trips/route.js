@@ -169,6 +169,10 @@ export async function GET(req) {
         t.destination_longitude = dropoff.longitude;
         t.pickup_location_provenance = pickup.provenance;
         t.dropoff_location_provenance = dropoff.provenance;
+        if (pickup.provenance !== "canonical_registry" || dropoff.provenance !== "canonical_registry") {
+          t.estimated_distance = null;
+          t.estimated_duration = null;
+        }
       } else {
         // Routeless legacy booking dispatches have no location rows to join, so
         // fill missing endpoints from the current registry/hotel/gazetteer chain.

@@ -126,6 +126,78 @@ describe("attachPairFeasibility", () => {
     expect(recommendation.pair).toBeNull();
   });
 
+  it("uses only matching active request-linked points for v2 current-pair feasibility", async () => {
+    clearDynamicLocationCache();
+    const calls = [];
+    const strictDb = {
+      async query(sql, params = []) {
+        calls.push({ sql: String(sql), params });
+        if (String(sql).includes("SELECT name, latitude, longitude FROM locations")) {
+          return { rows: [
+            { name: REQUEST.pickup_location, latitude: 1, longitude: 2 },
+            { name: REQUEST.dropoff_location, latitude: 3, longitude: 4 },
+          ] };
+        }
+        if (String(sql).includes("FROM locations") && String(sql).includes("location_id")) {
+          return { rows: [
+            { location_id: 41, is_active: true, retired_at: null, latitude: 14.6, longitude: 121.02 },
+            { location_id: 42, is_active: true, retired_at: null, latitude: 14.7, longitude: 121.03 },
+          ] };
+        }
+        return { rows: [] };
+      },
+    };
+    const recommendation = { pair: { recommended: { vehicle_id: 1, driver_id: 7 }, alternate: null, candidates: [] } };
+
+    await attachPairFeasibility(strictDb, {
+      request: { ...REQUEST, external_create_fingerprint: "v2", pickup_location_id: 41, dropoff_location_id: 42 },
+      estimate: ESTIMATE,
+      recommendation,
+      drivers: [{ driver_id: 7, _position_lat: 14.53, _position_lng: 121.02 }],
+      now: NOW,
+    });
+
+    expect(calls.some(({ sql }) => sql.includes("SELECT name, latitude, longitude FROM locations"))).toBe(false);
+    expect(calls.some(({ sql }) => sql.includes("location_id = ANY($1::integer[])"))).toBe(true);
+    expect(fetchTomTomRoute.mock.calls[0][0]).toEqual([14.53, 121.02]);
+    expect(fetchTomTomRoute.mock.calls[0][1]).toEqual([14.6, 121.02]);
+  });
+
+  it.each([
+    ["missing", null, []],
+    ["mismatched", 41, [{ location_id: 99, is_active: true, retired_at: null, latitude: 14.6, longitude: 121.02 }]],
+    ["retired", 41, [{ location_id: 41, is_active: false, retired_at: "2026-09-01T00:00:00Z", latitude: 14.6, longitude: 121.02 }]],
+    ["invalid coordinates", 41, [{ location_id: 41, is_active: true, retired_at: null, latitude: 91, longitude: 121.02 }]],
+  ])("keeps a v2 %s pickup unknown instead of resolving its text", async (_label, pickupLocationId, registryRows) => {
+    clearDynamicLocationCache();
+    const calls = [];
+    const strictDb = {
+      async query(sql, params = []) {
+        calls.push({ sql: String(sql), params });
+        if (String(sql).includes("SELECT name, latitude, longitude FROM locations")) {
+          return { rows: [{ name: REQUEST.pickup_location, latitude: 1, longitude: 2 }] };
+        }
+        if (String(sql).includes("FROM locations") && String(sql).includes("location_id")) {
+          return { rows: registryRows };
+        }
+        return { rows: [] };
+      },
+    };
+    const recommendation = { pair: { recommended: { vehicle_id: 1, driver_id: 7 }, alternate: null, candidates: [] } };
+
+    await attachPairFeasibility(strictDb, {
+      request: { ...REQUEST, external_create_fingerprint: "v2", pickup_location_id: pickupLocationId, dropoff_location_id: null },
+      estimate: ESTIMATE,
+      recommendation,
+      drivers: [{ driver_id: 7, _position_lat: 14.53, _position_lng: 121.02 }],
+      now: NOW,
+    });
+
+    expect(recommendation.pair.recommended.feasibility.verdict).toBe("UNKNOWN");
+    expect(calls.some(({ sql }) => sql.includes("SELECT name, latitude, longitude FROM locations"))).toBe(false);
+    expect(fetchTomTomRoute).not.toHaveBeenCalled();
+  });
+
   it("retains strict request endpoint provenance on attached feasibility", async () => {
     const recommendation = {
       pair: { recommended: { vehicle_id: 1, driver_id: 7 }, alternate: null, candidates: [] },

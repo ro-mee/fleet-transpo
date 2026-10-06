@@ -114,7 +114,8 @@ async function knownRequestLeg(originRow,originEndpoint,destinationRow,destinati
 export function serviceEnd(request, estimate) {
   const pickup = new Date(request?.pickup_datetime).getTime();
   const explicit = request?.scheduled_arrival ? new Date(request.scheduled_arrival).getTime() : NaN;
-  const duration = minutes(estimate?.durationMin ?? request?.estimated_duration);
+  const durationValue = estimate?.durationMin ?? (isV2Request(request) ? null : request?.estimated_duration);
+  const duration = minutes(durationValue);
   return Number.isFinite(explicit) && explicit > pickup ? new Date(explicit) :
     Number.isFinite(pickup) && duration != null ? new Date(pickup + duration * 60_000) : null;
 }
