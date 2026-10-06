@@ -4,6 +4,7 @@ import { computeDepartureWindow } from "@/lib/scheduling/departure-window";
 import { resolveEtaMinutes } from "@/lib/scheduling/start-window";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
 import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
+import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-provenance";
 
 /**
  * GET /api/mobile/driver/trips
@@ -34,6 +35,42 @@ STATUS_GROUPS.all = [
   ...STATUS_GROUPS.active,
   ...STATUS_GROUPS.completed,
 ];
+
+const V2_LOCATION_INTERNAL_FIELDS = [
+  "_external_create_fingerprint",
+  "_pickup_location_id", "_dropoff_location_id",
+  "_pickup_registry_location_id", "_pickup_registry_is_active", "_pickup_registry_retired_at",
+  "_pickup_registry_latitude", "_pickup_registry_longitude", "_pickup_proposal_present",
+  "_dropoff_registry_location_id", "_dropoff_registry_is_active", "_dropoff_registry_retired_at",
+  "_dropoff_registry_latitude", "_dropoff_registry_longitude", "_dropoff_proposal_present",
+];
+
+function v2Endpoint(row, endpoint) {
+  const prefix = `_${endpoint}`;
+  const linkedId = row[`${prefix}_location_id`];
+  const registryId = row[`${prefix}_registry_location_id`];
+  const registry = getCoordinateProvenanceFields({
+    is_active: row[`${prefix}_registry_is_active`] === true
+      && row[`${prefix}_registry_retired_at`] == null
+      && linkedId != null
+      && registryId != null
+      && String(linkedId) === String(registryId),
+    latitude: row[`${prefix}_registry_latitude`],
+    longitude: row[`${prefix}_registry_longitude`],
+  });
+  if (registry.coordinate_provenance === "canonical_registry") {
+    return {
+      latitude: row[`${prefix}_registry_latitude`],
+      longitude: row[`${prefix}_registry_longitude`],
+      provenance: "canonical_registry",
+    };
+  }
+  return {
+    latitude: null,
+    longitude: null,
+    provenance: row[`${prefix}_proposal_present`] === true ? "pending_review" : "unknown",
+  };
+}
 
 async function preTripStatus(tripId) {
   const { rows } = await query(
@@ -66,18 +103,18 @@ export async function GET(req) {
 
     const { rows } = await query(
       `SELECT t.trip_id, t.trip_status,
-              COALESCE(r.origin, tr.pickup_location) AS origin, 
+              COALESCE(r.origin, tr.pickup_location) AS origin,
               COALESCE(r.destination, tr.dropoff_location) AS destination,
               ol.latitude  AS origin_latitude,  ol.longitude  AS origin_longitude,
               dl.latitude  AS destination_latitude, dl.longitude AS destination_longitude,
-              t.start_time, t.end_time, 
-              COALESCE(r.estimated_distance, tr.estimated_distance) AS estimated_distance, 
+              t.start_time, t.end_time,
+              COALESCE(r.estimated_distance, tr.estimated_distance) AS estimated_distance,
               COALESCE(r.estimated_duration, tr.estimated_duration) AS estimated_duration,
               t.dispatch_id, t.notes, t.start_odometer,
-              v.vehicle_id, 
-              v.plate_number, 
+              v.vehicle_id,
+              v.plate_number,
               v.plate_number AS vehicle_plate,
-              v.model, 
+              v.model,
               v.model AS vehicle_model,
               v.mileage AS current_mileage,
               r.route_id, r.route_name,
@@ -86,7 +123,22 @@ export async function GET(req) {
               tr.guest_name AS passenger_name,
               tr.passenger_count,
               tr.booking_reference,
-              tr.special_requests
+              tr.special_requests,
+              tr.external_create_fingerprint AS _external_create_fingerprint,
+              tr.pickup_location_id AS _pickup_location_id,
+              tr.dropoff_location_id AS _dropoff_location_id,
+              tr.partner_pickup_location_proposal IS NOT NULL AS _pickup_proposal_present,
+              tr.partner_dropoff_location_proposal IS NOT NULL AS _dropoff_proposal_present,
+              pickup_registry.location_id AS _pickup_registry_location_id,
+              pickup_registry.is_active AS _pickup_registry_is_active,
+              pickup_registry.retired_at AS _pickup_registry_retired_at,
+              pickup_registry.latitude AS _pickup_registry_latitude,
+              pickup_registry.longitude AS _pickup_registry_longitude,
+              dropoff_registry.location_id AS _dropoff_registry_location_id,
+              dropoff_registry.is_active AS _dropoff_registry_is_active,
+              dropoff_registry.retired_at AS _dropoff_registry_retired_at,
+              dropoff_registry.latitude AS _dropoff_registry_latitude,
+              dropoff_registry.longitude AS _dropoff_registry_longitude
          FROM trips t
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
          LEFT JOIN routes r   ON r.route_id = t.route_id
@@ -94,6 +146,8 @@ export async function GET(req) {
          LEFT JOIN locations dl ON dl.location_id = r.destination_location_id
          LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
          LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+         LEFT JOIN locations pickup_registry ON pickup_registry.location_id = tr.pickup_location_id
+         LEFT JOIN locations dropoff_registry ON dropoff_registry.location_id = tr.dropoff_location_id
         WHERE t.driver_id = $1 AND t.deleted_at IS NULL
           AND t.trip_status = ANY($2)
         ORDER BY ds.scheduled_departure ASC NULLS LAST, t.trip_id ASC
@@ -101,23 +155,33 @@ export async function GET(req) {
       [session.user.driverId, statuses, limit]
     );
 
-    // Routeless booking dispatches (trips whose dispatch carries a request but
-    // no route) have no location rows to join, so their endpoint coordinates
-    // come back null and the Home/Trip Details previews fall to "unavailable".
-    // Fill the gap from the live registry on the endpoint text — the same
-    // registry → hotel → gazetteer → none chain getTripGeofenceTargets uses
-    // (see src/lib/geo/dynamic-locations.js). Unmatched text stays null;
-    // coordinates are never guessed.
+    // V2 coordinates are only taken from active Fleet locations joined through
+    // the request's explicit IDs. Partner text and proposals remain review data;
+    // the legacy endpoint-text fallback below is retained for v1 rows only.
     const db = { query };
     for (const t of rows) {
-      if (t.origin_latitude == null && t.origin) {
-        const c = await resolveCoordinatesWithDb(db, t.origin);
-        if (c) { t.origin_latitude = c.lat; t.origin_longitude = c.lng; }
+      if (t._external_create_fingerprint != null) {
+        const pickup = v2Endpoint(t, "pickup");
+        const dropoff = v2Endpoint(t, "dropoff");
+        t.origin_latitude = pickup.latitude;
+        t.origin_longitude = pickup.longitude;
+        t.destination_latitude = dropoff.latitude;
+        t.destination_longitude = dropoff.longitude;
+        t.pickup_location_provenance = pickup.provenance;
+        t.dropoff_location_provenance = dropoff.provenance;
+      } else {
+        // Routeless legacy booking dispatches have no location rows to join, so
+        // fill missing endpoints from the current registry/hotel/gazetteer chain.
+        if (t.origin_latitude == null && t.origin) {
+          const c = await resolveCoordinatesWithDb(db, t.origin);
+          if (c) { t.origin_latitude = c.lat; t.origin_longitude = c.lng; }
+        }
+        if (t.destination_latitude == null && t.destination) {
+          const c = await resolveCoordinatesWithDb(db, t.destination);
+          if (c) { t.destination_latitude = c.lat; t.destination_longitude = c.lng; }
+        }
       }
-      if (t.destination_latitude == null && t.destination) {
-        const c = await resolveCoordinatesWithDb(db, t.destination);
-        if (c) { t.destination_latitude = c.lat; t.destination_longitude = c.lng; }
-      }
+      V2_LOCATION_INTERNAL_FIELDS.forEach((field) => delete t[field]);
     }
 
     // Pre-trip + departure-window enrichment. Every pre-start trip (not yet

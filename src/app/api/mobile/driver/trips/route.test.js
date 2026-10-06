@@ -7,6 +7,7 @@
 // endpoint coordinates from the shared gazetteer on the endpoint text —
 // the same canonical → gazetteer → none chain getTripGeofenceTargets uses.
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { clearDynamicLocationCache } from "@/lib/geo/dynamic-locations";
 import { GET } from "./route";
 import * as db from "@/lib/db";
 import * as apiUtils from "@/lib/api/utils";
@@ -110,5 +111,116 @@ describe("GET /api/mobile/driver/trips — endpoint coordinate fallback", () => 
 
     expect(Number(row.origin_latitude)).toBeCloseTo(14.5159034, 5);
     expect(row.destination_latitude).toBeNull();
+  });
+
+  it("keeps v2 partner text and proposals out of mobile coordinates", async () => {
+    clearDynamicLocationCache();
+    vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+    mockQuery([tripRow({
+      _external_create_fingerprint: "v2-fingerprint",
+      _pickup_location_id: null,
+      _dropoff_location_id: null,
+      _pickup_registry_location_id: null,
+      _pickup_registry_is_active: null,
+      _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: null,
+      _pickup_registry_longitude: null,
+      _dropoff_registry_location_id: null,
+      _dropoff_registry_is_active: null,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: null,
+      _dropoff_registry_longitude: null,
+      _pickup_proposal_present: true,
+      _dropoff_proposal_present: false,
+    })]);
+
+    const res = await GET(mockReq());
+    const row = (await res.json())[0];
+
+    expect(row.origin_latitude).toBeNull();
+    expect(row.origin_longitude).toBeNull();
+    expect(row.destination_latitude).toBeNull();
+    expect(row.destination_longitude).toBeNull();
+    expect(row.pickup_location_provenance).toBe("pending_review");
+    expect(row.dropoff_location_provenance).toBe("unknown");
+    expect(row).not.toHaveProperty("_external_create_fingerprint");
+    expect(row).not.toHaveProperty("partner_pickup_location_proposal");
+  });
+
+  it("uses request-linked active points instead of mismatched stored route endpoints", async () => {
+    vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+    const query = mockQuery([tripRow({
+      origin_latitude: "1.0000",
+      origin_longitude: "2.0000",
+      destination_latitude: "3.0000",
+      destination_longitude: "4.0000",
+      _external_create_fingerprint: "v2-fingerprint",
+      _pickup_location_id: 41,
+      _dropoff_location_id: 42,
+      _pickup_registry_location_id: 41,
+      _pickup_registry_is_active: true,
+      _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: "14.6000",
+      _pickup_registry_longitude: "121.0200",
+      _dropoff_registry_location_id: 42,
+      _dropoff_registry_is_active: true,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: "14.7000",
+      _dropoff_registry_longitude: "121.0300",
+      _pickup_proposal_present: false,
+      _dropoff_proposal_present: false,
+    })]);
+
+    const res = await GET(mockReq());
+    const row = (await res.json())[0];
+
+    expect(Number(row.origin_latitude)).toBe(14.6);
+    expect(Number(row.origin_longitude)).toBe(121.02);
+    expect(Number(row.destination_latitude)).toBe(14.7);
+    expect(Number(row.destination_longitude)).toBe(121.03);
+    expect(row.pickup_location_provenance).toBe("canonical_registry");
+    expect(row.dropoff_location_provenance).toBe("canonical_registry");
+
+    const tripSelect = query.mock.calls.find(([sql]) => sql.includes("FROM trips t"))?.[0] ?? "";
+    expect(tripSelect).toContain("tr.external_create_fingerprint");
+    expect(tripSelect).toContain("tr.pickup_location_id");
+    expect(tripSelect).toContain("tr.dropoff_location_id");
+    expect(tripSelect).toContain("pickup_registry.location_id = tr.pickup_location_id");
+    expect(tripSelect).toContain("dropoff_registry.location_id = tr.dropoff_location_id");
+    expect(row).not.toHaveProperty("_pickup_registry_location_id");
+    expect(row).not.toHaveProperty("_dropoff_registry_location_id");
+  });
+
+  it("does not expose a retired v2 location or substitute the stored route point", async () => {
+    vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+    mockQuery([tripRow({
+      origin_latitude: "10.0000",
+      origin_longitude: "20.0000",
+      _external_create_fingerprint: "v2-fingerprint",
+      _pickup_location_id: 41,
+      _dropoff_location_id: null,
+      _pickup_registry_location_id: 41,
+      _pickup_registry_is_active: false,
+      _pickup_registry_retired_at: "2026-09-01T00:00:00Z",
+      _pickup_registry_latitude: "14.6000",
+      _pickup_registry_longitude: "121.0200",
+      _dropoff_registry_location_id: null,
+      _dropoff_registry_is_active: null,
+      _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: null,
+      _dropoff_registry_longitude: null,
+      _pickup_proposal_present: true,
+      _dropoff_proposal_present: false,
+    })]);
+
+    const res = await GET(mockReq());
+    const row = (await res.json())[0];
+
+    expect(row.origin_latitude).toBeNull();
+    expect(row.origin_longitude).toBeNull();
+    expect(row.destination_latitude).toBeNull();
+    expect(row.destination_longitude).toBeNull();
+    expect(row.pickup_location_provenance).toBe("pending_review");
+    expect(row.dropoff_location_provenance).toBe("unknown");
   });
 });

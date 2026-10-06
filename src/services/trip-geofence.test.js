@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getTripGeofenceTargets, checkDestinationProximity, checkPickupProximity, clearTripGeofenceCache } from "@/services/trip-geofence.service";
+import { clearDynamicLocationCache } from "@/lib/geo/dynamic-locations";
+import { getTripGeofenceTargets, evaluatePingGeofence, checkDestinationProximity, checkPickupProximity, clearTripGeofenceCache } from "@/services/trip-geofence.service";
 
 function stubDb(handlers) {
   return {
@@ -101,6 +102,171 @@ describe("getTripGeofenceTargets", () => {
     await getTripGeofenceTargets(db, { trip_id: 5, origin: "A", destination: "B", dispatch_id: 9, route_id: 77 });
     expect(seen).toContain(77);
     expect(seen).not.toContain(9);
+  });
+});
+
+describe("v2 trip geofence targets", () => {
+  it("keeps partner proposals and matching text out of targets and leaves the ping unknown", async () => {
+    clearTripGeofenceCache();
+    clearDynamicLocationCache();
+    const calls = [];
+    const db = {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        if (sql.includes("FROM trips t")) {
+          return { rows: [{
+            trip_id: 55,
+            dispatch_id: 9,
+            route_id: null,
+            origin: "CoCo Star Hotel",
+            destination: "NAIA Terminal 3 - Arrivals (Bay 9)",
+            external_create_fingerprint: "v2-fingerprint",
+            pickup_location_id: null,
+            dropoff_location_id: null,
+            _pickup_registry_location_id: null,
+            _pickup_registry_is_active: null,
+            _pickup_registry_retired_at: null,
+            _pickup_registry_name: null,
+            _pickup_registry_latitude: null,
+            _pickup_registry_longitude: null,
+            _pickup_registry_radius: null,
+            _pickup_proposal_present: true,
+            _dropoff_registry_location_id: null,
+            _dropoff_registry_is_active: null,
+            _dropoff_registry_retired_at: null,
+            _dropoff_registry_name: null,
+            _dropoff_registry_latitude: null,
+            _dropoff_registry_longitude: null,
+            _dropoff_registry_radius: null,
+            _dropoff_proposal_present: false,
+          }] };
+        }
+        return { rows: [] };
+      },
+    };
+
+    const targets = await getTripGeofenceTargets(db, { trip_id: 55, dispatch_id: 9 });
+    expect(targets.pickup).toBeNull();
+    expect(targets.destination).toBeNull();
+    expect(targets.pickup_location_provenance).toBe("pending_review");
+    expect(targets.dropoff_location_provenance).toBe("unknown");
+
+    clearTripGeofenceCache();
+    const ping = await evaluatePingGeofence(db, { trip_id: 55 }, {
+      latitude: 14.5159034,
+      longitude: 120.9953405,
+      accuracy: 12,
+    });
+    expect(ping.geofence_state).toBe("unknown");
+    expect(calls.some(({ sql }) => /\bUPDATE\s+(trips|dispatchschedules)\b/i.test(sql))).toBe(false);
+  });
+
+  it("uses only active request-linked points when stored route endpoints differ", async () => {
+    clearTripGeofenceCache();
+    const calls = [];
+    const db = {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        if (sql.includes("FROM trips t")) {
+          return { rows: [{
+            trip_id: 56,
+            dispatch_id: 9,
+            route_id: 12,
+            origin: "Partner pickup label",
+            destination: "Partner drop-off label",
+            external_create_fingerprint: "v2-fingerprint",
+            pickup_location_id: 101,
+            dropoff_location_id: 102,
+            route_origin_location_id: 901,
+            route_destination_location_id: 902,
+            _pickup_registry_location_id: 101,
+            _pickup_registry_is_active: true,
+            _pickup_registry_retired_at: null,
+            _pickup_registry_name: "Fleet pickup",
+            _pickup_registry_latitude: "14.6000",
+            _pickup_registry_longitude: "121.0200",
+            _pickup_registry_radius: 65,
+            _pickup_proposal_present: false,
+            _dropoff_registry_location_id: 102,
+            _dropoff_registry_is_active: true,
+            _dropoff_registry_retired_at: null,
+            _dropoff_registry_name: "Fleet drop-off",
+            _dropoff_registry_latitude: "14.7000",
+            _dropoff_registry_longitude: "121.0300",
+            _dropoff_registry_radius: 175,
+            _dropoff_proposal_present: false,
+          }] };
+        }
+        if (sql.includes("FROM routes r")) {
+          return { rows: [{
+            route_id: 12,
+            o_id: 901, o_name: "Mismatched route pickup", o_lat: "1.0000", o_lng: "2.0000", o_radius: 100,
+            d_id: 902, d_name: "Mismatched route drop-off", d_lat: "3.0000", d_lng: "4.0000", d_radius: 100,
+          }] };
+        }
+        return { rows: [] };
+      },
+    };
+
+    const targets = await getTripGeofenceTargets(db, { trip_id: 56, dispatch_id: 9 });
+
+    expect(targets.pickup).toMatchObject({
+      lat: 14.6, lng: 121.02, radiusM: 65, label: "Fleet pickup", source: "canonical_registry",
+    });
+    expect(targets.destination).toMatchObject({
+      lat: 14.7, lng: 121.03, radiusM: 175, label: "Fleet drop-off", source: "canonical_registry",
+    });
+    expect(targets.pickup_location_provenance).toBe("canonical_registry");
+    expect(targets.dropoff_location_provenance).toBe("canonical_registry");
+    expect(calls.some(({ sql }) => sql.includes("FROM routes r"))).toBe(false);
+  });
+
+  it("does not reuse a retired linked point or resolve its text", async () => {
+    clearTripGeofenceCache();
+    clearDynamicLocationCache();
+    const calls = [];
+    const db = {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        if (sql.includes("FROM trips t")) {
+          return { rows: [{
+            trip_id: 57,
+            dispatch_id: 9,
+            route_id: null,
+            origin: "CoCo Star Hotel",
+            destination: "NAIA Terminal 3 - Arrivals (Bay 9)",
+            external_create_fingerprint: "v2-fingerprint",
+            pickup_location_id: 41,
+            dropoff_location_id: null,
+            _pickup_registry_location_id: 41,
+            _pickup_registry_is_active: false,
+            _pickup_registry_retired_at: "2026-09-01T00:00:00Z",
+            _pickup_registry_name: "Retired Fleet pickup",
+            _pickup_registry_latitude: "14.6000",
+            _pickup_registry_longitude: "121.0200",
+            _pickup_registry_radius: 65,
+            _pickup_proposal_present: true,
+            _dropoff_registry_location_id: null,
+            _dropoff_registry_is_active: null,
+            _dropoff_registry_retired_at: null,
+            _dropoff_registry_name: null,
+            _dropoff_registry_latitude: null,
+            _dropoff_registry_longitude: null,
+            _dropoff_registry_radius: null,
+            _dropoff_proposal_present: false,
+          }] };
+        }
+        return { rows: [] };
+      },
+    };
+
+    const targets = await getTripGeofenceTargets(db, { trip_id: 57, dispatch_id: 9 });
+
+    expect(targets.pickup).toBeNull();
+    expect(targets.destination).toBeNull();
+    expect(targets.pickup_location_provenance).toBe("pending_review");
+    expect(targets.dropoff_location_provenance).toBe("unknown");
+    expect(calls.some(({ sql }) => sql.includes("FROM routes r"))).toBe(false);
   });
 });
 
