@@ -6,6 +6,11 @@ vi.mock('@tanstack/react-query',()=>({useMutation:options=>{state.handlers=optio
 vi.mock('@/lib/api/client',()=>({apiFetch:vi.fn(async()=>({answer:'Checked'}))}));
 import { apiFetch } from '@/lib/api/client';
 import { CopilotConversation, clearAllReservationMessages, getReservationMessages, setReservationMessages, latestClearanceFor, latestComparisonFor, getReservationSelection, setReservationSelection, clearReservationSelection, clearReservationMessages } from './copilot-conversation';
+import { DispatchPlanPanel } from './dispatch-plan-panel';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { EvidenceDrawer } from './evidence-drawer';
+import { readFileSync } from 'node:fs';
 
 const hookState=vi.hoisted(()=>({slots:[],cursor:0}));
 vi.mock('react',async importOriginal=>{
@@ -24,6 +29,8 @@ vi.mock('react',async importOriginal=>{
       return hookState.slots[index].value;
     },
     useEffect:()=>{},
+     useMemo:fn=>fn(),
+     useCallback:fn=>fn,
   };
 });
 
@@ -38,6 +45,14 @@ const findNode=(node,predicate)=>{
   return findNode(node.props?.children,predicate);
 };
 const conversationTree=props=>{hookState.cursor=0;return CopilotConversation(props);};
+const mobilePanelTree=props=>{hookState.slots=[];hookState.cursor=0;return DispatchPlanPanel(props);};
+const queuePageSource=readFileSync(new URL('../../app/(dashboard)/reservations/queue/page.js',import.meta.url),'utf8');
+const treeText=node=>{
+  if(Array.isArray(node)) return node.map(treeText).join(' ');
+  if(typeof node==='string'||typeof node==='number') return String(node);
+  if(!React.isValidElement(node)) return '';
+  return treeText(node.props?.children);
+};
 
 it('sends captured request/pair/token context even if the component now has another selection',async()=>{
  render(2);
@@ -225,6 +240,41 @@ it('offers option comparison only when a comparison proof exists',()=>{
   const html=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:8,hasPair:true}));
   expect(html).toContain('Compare options');
 });
+it('keeps the inspector dialog open beneath a nested proof and restores the exact Review row on Back',()=>{
+  const requestId=47;
+  const selectedPair={vehicleId:3,driverId:4};
+  const withClearance={vehicleId:3,driverId:4,clearance:[{checkId:'capacity',label:'Seating capacity',status:'verified',proof:{type:'capacity',ref:'ev_c'}}],meta:{horizon:'SCHEDULED'}};
+  setReservationMessages(requestId,[{role:'assistant',content:'Evidence is available.',pairRecovery:[withClearance],at:1}]);
+  const props={requestId,selectedPair,hasPair:true};
+  hookState.slots=[];
+  hookState.cursor=0;
+  const initial=CopilotConversation(props);
+  const reviewTrigger={focus:vi.fn()};
+  const openInspector=findNode(initial,node=>node.type==='button'&&node.props.children==='Review eligibility');
+
+  expect(openInspector).not.toBeNull();
+  openInspector.props.onClick({currentTarget:reviewTrigger});
+  const inspectorView=conversationTree(props);
+  const inspector=findNode(inspectorView,node=>node.type===EvidenceDrawer&&node.props.inspector);
+  expect(inspector?.props.openerRef.current).toBe(reviewTrigger);
+
+  const rowReviewTrigger={focus:vi.fn()};
+  inspector.props.onReviewProof({type:'capacity',ref:'ev_c'},rowReviewTrigger);
+  const nestedView=conversationTree(props);
+  const openInspectorLayer=findNode(nestedView,node=>node.type===EvidenceDrawer&&node.props.inspector);
+  const proofLayer=findNode(nestedView,node=>node.type===EvidenceDrawer&&node.props.nested);
+  expect(openInspectorLayer).not.toBeNull();
+  expect(proofLayer).not.toBeNull();
+  expect(proofLayer.props.openerRef.current).toBe(rowReviewTrigger);
+  expect(proofLayer.props.closeFocusRef.current).toBe(rowReviewTrigger);
+
+  proofLayer.props.onBack();
+  expect(proofLayer.props.closeFocusRef.current).toBe(rowReviewTrigger);
+  const checklistView=conversationTree(props);
+  expect(findNode(checklistView,node=>node.type===EvidenceDrawer&&node.props.inspector)).not.toBeNull();
+  expect(findNode(checklistView,node=>node.type===EvidenceDrawer&&node.props.nested)).toBeNull();
+});
+
 // The chosen pair is component state inside the panel, and the panel is remounted
 // per request (`key={selectedRequest?.request_id}`), so the choice has to live
 // outside React to survive a move to another section and back. It lives here,
@@ -301,4 +351,84 @@ it('reads the remembered pair back out of the session, not out of module memory'
   vi.resetModules();
   const unparseable=await import('./copilot-conversation');
   expect(unparseable.getReservationSelection(11)).toBeNull();
+});
+
+it('marks repeated assistant transcript avatars as decorative',()=>{
+  setReservationMessages(24,[{role:'assistant',content:'Recorded findings',at:Date.now()}]);
+  const html=render(24);
+  const avatars=[...html.matchAll(/<img\b[^>]*src="\/images\/copilot-avatar-blinking\.gif"[^>]*>/g)].map(match=>match[0]);
+  expect(avatars).toHaveLength(1);
+  expect(avatars[0]).toMatch(/alt=""/);
+});
+
+it('uses a modal Radix dialog for mobile Copilot and restores the exact opener on dismiss',()=>{
+  const opener={current:{focus:vi.fn()}};
+  const onCloseMobileDrawer=vi.fn();
+  const tree=mobilePanelTree({isDesktop:false,isMobileDrawerOpen:true,mobileOpenerRef:opener,onCloseMobileDrawer});
+  const root=findNode(tree,node=>node.type===Dialog);
+  const content=findNode(tree,node=>node.type===DialogContent);
+  const close=findNode(tree,node=>node.type===Button&&treeText(node.props.children).includes('Close'));
+
+  expect(root).not.toBeNull();
+  expect(root.props.open).toBe(true);
+  expect(root.props.modal).not.toBe(false);
+  expect(content?.props.onOpenAutoFocus).toBeTypeOf('function');
+  expect(content?.props.onCloseAutoFocus).toBeTypeOf('function');
+  expect(close).not.toBeNull();
+  const closeFocus=vi.fn();
+  const closeRef=close.props.ref??close.ref;
+  expect(closeRef).toBeDefined();
+  closeRef.current={focus:closeFocus};
+  const openEvent={preventDefault:vi.fn()};
+  content.props.onOpenAutoFocus(openEvent);
+  expect(openEvent.preventDefault).toHaveBeenCalledOnce();
+  expect(closeFocus).toHaveBeenCalledOnce();
+  const escapeEvent={preventDefault:vi.fn()};
+  content.props.onEscapeKeyDown(escapeEvent);
+  expect(escapeEvent.preventDefault).not.toHaveBeenCalled();
+
+  root.props.onOpenChange(false);
+  expect(onCloseMobileDrawer).toHaveBeenCalledOnce();
+  const closeEvent={preventDefault:vi.fn()};
+  content.props.onCloseAutoFocus(closeEvent);
+  expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+  expect(opener.current.focus).toHaveBeenCalledOnce();
+});
+
+it('keeps busy mobile Close visibly disabled and explains why dismissal is unavailable',()=>{
+  const onCloseMobileDrawer=vi.fn();
+  const tree=mobilePanelTree({isDesktop:false,isMobileDrawerOpen:true,isBusy:true,onCloseMobileDrawer});
+  const root=findNode(tree,node=>node.type===Dialog);
+  const content=findNode(tree,node=>node.type===DialogContent);
+  const close=findNode(tree,node=>node.type===Button&&treeText(node.props.children).includes('Close'));
+
+  expect(close?.props.disabled).toBe(true);
+  expect(treeText(tree)).toMatch(/in progress|must finish/i);
+  const escapeEvent={preventDefault:vi.fn()};
+  content?.props.onEscapeKeyDown?.(escapeEvent);
+  expect(escapeEvent.preventDefault).toHaveBeenCalledOnce();
+  root?.props.onOpenChange(false);
+  expect(onCloseMobileDrawer).not.toHaveBeenCalled();
+});
+
+it('captures the queue row or Open Copilot control as the mobile dialog opener',()=>{
+  expect(queuePageSource).toContain('mobileDrawerOpenerRef');
+  expect(queuePageSource).toContain('document.activeElement');
+  expect(queuePageSource).toContain('activeElement?.hasAttribute?.("aria-pressed")');
+  expect(queuePageSource).toContain('event.currentTarget');
+  expect(queuePageSource).toContain('mobileOpenTriggerRef.current');
+  expect(queuePageSource).toContain('mobileOpenerRef={mobileDrawerOpenerRef}');
+});
+
+it('does not fetch evidence when the mobile Copilot or conversation merely mounts',()=>{
+  apiFetch.mockClear();
+  const mobileTree=mobilePanelTree({requestId:24,isDesktop:false,isMobileDrawerOpen:true,selectedRequest:{request_id:24}});
+  hookState.slots=[];
+  hookState.cursor=0;
+  const conversation=CopilotConversation({requestId:24,hasPair:true});
+
+  expect(findNode(mobileTree,node=>node.type===Dialog)?.props.open).toBe(true);
+  expect(findNode(mobileTree,node=>node.type===EvidenceDrawer)).toBeNull();
+  expect(findNode(conversation,node=>node.type===EvidenceDrawer)).toBeNull();
+  expect(apiFetch).not.toHaveBeenCalled();
 });

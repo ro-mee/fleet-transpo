@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
@@ -13,14 +13,35 @@ export function DispatchPlanPanel({
   planHook,
   isDesktop = true,
   isMobileDrawerOpen = false,
+  isBusy = false,
+  mobileOpenerRef = null,
+  mobileFallbackRef = null,
   onCloseMobileDrawer,
 }) {
   const [operation, setOperation] = useState(null);
+  const closeButtonRef = useRef(null);
   const desktop = operation?.desktop ?? isDesktop;
+  const drawerBusy = Boolean(isBusy || operation);
   const handleBusy = useCallback(busy => {
     setOperation(previous => busy ? previous ?? {desktop} : null);
     onBusyChange?.(busy);
   }, [desktop,onBusyChange]);
+  const handleOpenAutoFocus = event => {
+    event.preventDefault();
+    closeButtonRef.current?.focus();
+  };
+  const handleCloseAutoFocus = event => {
+    event.preventDefault();
+    const opener = mobileOpenerRef?.current;
+    if (typeof opener?.focus === "function" && opener.isConnected !== false) opener.focus();
+    else mobileFallbackRef?.current?.focus();
+  };
+  const handleDismiss = open => {
+    if (!open && !drawerBusy) onCloseMobileDrawer?.();
+  };
+  const blockDismissWhileBusy = event => {
+    if (drawerBusy) event.preventDefault();
+  };
   const plan = planHook?.plan;
   const proposal = useMemo(() => {
     if (!selectedRequest || !planHook?.getProposal) return null;
@@ -66,27 +87,39 @@ export function DispatchPlanPanel({
   }
 
   return (
-    <Dialog open={isMobileDrawerOpen} onOpenChange={(open) => !open && onCloseMobileDrawer?.()}>
+    <Dialog open={isMobileDrawerOpen} onOpenChange={handleDismiss}>
       <DialogContent
+        onOpenAutoFocus={handleOpenAutoFocus}
+        onCloseAutoFocus={handleCloseAutoFocus}
+        onEscapeKeyDown={blockDismissWhileBusy}
+        onPointerDownOutside={blockDismissWhileBusy}
         className="left-auto right-0 top-0 translate-x-0 translate-y-0 h-dvh max-h-dvh w-full max-w-lg rounded-none p-0 bg-surface flex flex-col overflow-hidden shadow-2xl"
       >
         <div className="flex items-center justify-between p-4 border-b border-border/80 bg-muted/20 shrink-0">
           <DialogTitle className="text-sm font-bold flex items-center gap-2.5 text-foreground">
             <div className="relative w-7 h-7 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-              <img src="/images/copilot-avatar-blinking.gif" alt="Dispatch Copilot" className="w-full h-full object-cover select-none pointer-events-none" />
+              <img src="/images/copilot-avatar-blinking.gif" alt="" aria-hidden="true" className="w-full h-full object-cover select-none pointer-events-none" />
               <span className="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full bg-emerald-500 ring-1 ring-surface" aria-hidden="true" />
             </div>
             Dispatch Copilot
           </DialogTitle>
           <Button
+            ref={closeButtonRef}
+            type="button"
             variant="ghost"
             size="xs"
-            onClick={onCloseMobileDrawer}
+            disabled={drawerBusy}
+            onClick={() => handleDismiss(false)}
             className="rounded-lg h-7 px-2.5 text-xs text-foreground-secondary hover:text-foreground"
           >
             Close
           </Button>
         </div>
+        {drawerBusy && (
+          <p role="status" className="shrink-0 border-b border-border bg-muted/20 px-4 py-2 text-xs text-foreground-secondary">
+            A Copilot operation is in progress. Close will be available when it finishes.
+          </p>
+        )}
 
         <div className="min-h-0 flex-1 overflow-hidden">
           <AiRecommendationPanel

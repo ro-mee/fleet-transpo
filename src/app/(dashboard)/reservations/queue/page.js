@@ -151,6 +151,8 @@ export default function UnifiedQueuePage() {
   const [selectedRequestId, setSelectedRequestId] = useState(null);
 
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const mobileDrawerOpenerRef = useRef(null);
+  const mobileOpenTriggerRef = useRef(null);
   const [viewMode, setViewMode] = useState("list");
 
   // Dispatch copilot shared plan hook
@@ -256,7 +258,12 @@ export default function UnifiedQueuePage() {
   const handleSelectRow = (r) => {
     if (lockedRequest) return;
     setSelectedRequestId(r.request_id);
-    if (!isDesktop) setIsMobileDrawerOpen(true);
+    if (!isDesktop) {
+      const activeElement = typeof document !== "undefined" ? document.activeElement : null;
+      const rowOpener = activeElement?.hasAttribute?.("aria-pressed") ? activeElement : null;
+      mobileDrawerOpenerRef.current = rowOpener ?? mobileOpenTriggerRef.current;
+      setIsMobileDrawerOpen(true);
+    }
   };
 
   // Pagination page numbers
@@ -321,13 +328,17 @@ export default function UnifiedQueuePage() {
           <div className="flex items-center gap-2">
             {!isDesktop && selectedRequest && (
               <Button
+                ref={mobileOpenTriggerRef}
                 variant="outline"
                 size="sm"
-                onClick={() => setIsMobileDrawerOpen(true)}
+                onClick={event => {
+                  mobileDrawerOpenerRef.current = event.currentTarget;
+                  setIsMobileDrawerOpen(true);
+                }}
                 className="h-9 rounded-xl text-xs font-semibold pl-2"
               >
                 <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 mr-1.5 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-                  <img src="/images/copilot-avatar-blinking.gif" alt="Copilot" className="w-full h-full object-cover select-none pointer-events-none" />
+                  <img src="/images/copilot-avatar-blinking.gif" alt="" aria-hidden="true" className="w-full h-full object-cover select-none pointer-events-none" />
                 </div>
                 Open Copilot
               </Button>
@@ -612,6 +623,9 @@ export default function UnifiedQueuePage() {
             planHook={planHook}
             isDesktop={isDesktop}
             isMobileDrawerOpen={isMobileDrawerOpen}
+            isBusy={Boolean(lockedRequest)}
+            mobileOpenerRef={mobileDrawerOpenerRef}
+            mobileFallbackRef={mobileOpenTriggerRef}
             onCloseMobileDrawer={() => { if (!lockedRequest) setIsMobileDrawerOpen(false); }}
           />
         )}

@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { CopilotStateMessage } from "@/components/reservations/copilot-state-message";
 
 // Read-only evidence drawer (Phase B2). Displays server-verified proof for one
@@ -102,11 +103,25 @@ export function EvidenceFailureMessage({ error, onRetry, onClose }) {
   );
 }
 
-export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = null, planStatus = null, onClose, onBack, onReviewProof }) {
+export function EvidenceDrawer({
+  requestId,
+  proof,
+  inspector = null,
+  backTo = null,
+  planStatus = null,
+  openerRef = null,
+  closeFocusRef = openerRef,
+  nested = false,
+  onClose,
+  onCloseAll,
+  onBack,
+  onReviewProof,
+}) {
   const proofRef = proof?.ref ?? null;
   const proofType = proof?.type ?? null;
   const [state, setState] = useState({ status: "loading", data: null, error: null });
   const [attempt, setAttempt] = useState(0);
+  const closeButtonRef = useRef(null);
   const retry = () => {
     setState({ status: "loading", data: null, error: null });
     setAttempt(value => value + 1);
@@ -124,56 +139,68 @@ export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = nu
   }, [proofRef, requestId, attempt]);
 
   const headerTitle = inspector ? "Eligibility Evidence" : (state.data?.title ?? "Evidence");
-  return (
-    <aside
-      role="dialog"
-      aria-modal="false"
-      aria-label={`${headerTitle} evidence`}
-      className="absolute inset-y-0 right-0 z-20 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-lg"
-    >
-      <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2.5">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">{headerTitle}</h2>
-          <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-foreground-secondary">Read-only evidence</p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close evidence"
-          className="rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
-        >
-          Close
-        </button>
-      </div>
+  const handleOpenAutoFocus = event => {
+    event.preventDefault();
+    closeButtonRef.current?.focus();
+  };
+  const handleCloseAutoFocus = event => {
+    event.preventDefault();
+    closeFocusRef?.current?.focus();
+  };
 
-      <div className="min-h-0 flex-1 overflow-y-auto space-y-3 p-3">
-        {inspector ? (
-          <EligibilityInspector
-            pairLabel={inspector.pairLabel}
-            horizon={inspector.horizon}
-            rows={inspector.rows}
-            onReviewProof={onReviewProof}
-          />
-        ) : (
-          <>
-            {state.status === "loading" && <p role="status" className="text-sm text-foreground-secondary">Loading verified evidence…</p>}
-        {state.status === "error" && (
-          <EvidenceFailureMessage error={state.error} onRetry={retry} onClose={onClose} />
-        )}
-        {state.status === "ready" && <EvidenceBody data={state.data} proofType={proofType} planStatus={planStatus} />}
-        {backTo && (
+  return (
+    <Dialog open onOpenChange={open => !open && onClose?.()}>
+      <DialogContent
+        onOpenAutoFocus={handleOpenAutoFocus}
+        onCloseAutoFocus={handleCloseAutoFocus}
+        overlayClassName={nested ? "z-[80] bg-black/40 backdrop-blur-none" : "z-[60] bg-black/40 backdrop-blur-none"}
+        className={cn("left-auto right-0 top-0 translate-x-0 translate-y-0 flex h-dvh max-h-dvh w-full max-w-sm min-w-0 flex-col overflow-hidden rounded-none border-l border-border bg-surface p-0 shadow-xl", nested ? "z-[90]" : "z-[70]")}
+      >
+        <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2.5">
+          <div>
+            <DialogTitle className="text-sm font-semibold text-foreground">{headerTitle}</DialogTitle>
+            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-foreground-secondary">Read-only evidence</p>
+          </div>
           <button
+            ref={closeButtonRef}
             type="button"
-            onClick={onBack}
-            className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+            onClick={onCloseAll ?? onClose}
+            aria-label="Close evidence"
+            className="rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
           >
-            Back to checklist
+            Close
           </button>
-        )}
-          </>
-        )}
-      </div>
-    </aside>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+          {inspector ? (
+            <EligibilityInspector
+              pairLabel={inspector.pairLabel}
+              horizon={inspector.horizon}
+              rows={inspector.rows}
+              onReviewProof={onReviewProof}
+            />
+          ) : (
+            <>
+              {state.status === "loading" && <p role="status" className="text-sm text-foreground-secondary">Loading verified evidence…</p>}
+              {state.status === "error" && (
+                <EvidenceFailureMessage error={state.error} onRetry={retry} onClose={onClose} />
+              )}
+              {state.status === "ready" && <EvidenceBody data={state.data} proofType={proofType} planStatus={planStatus} />}
+              {backTo && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+                >
+                  Back to checklist
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -288,7 +315,7 @@ export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }
             {row.proof?.ref && (
               <button
                 type="button"
-                onClick={() => onReviewProof?.(row.proof)}
+                onClick={event => onReviewProof?.(row.proof, event.currentTarget)}
                 className="mt-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
               >
                 Review

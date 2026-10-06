@@ -258,6 +258,24 @@ export function CopilotConversation({
   // Open evidence proof (server-signed ref). The drawer is a pure read view:
   // opening it fetches one point-in-time snapshot and never validates.
   const [evidenceProof, setEvidenceProof] = useState(null);
+  const [nestedEvidenceProof, setNestedEvidenceProof] = useState(null);
+  const evidenceOpenerRef = useRef(null);
+  const nestedEvidenceOpenerRef = useRef(null);
+  const nestedProofCloseFocusRef = useRef(null);
+  const openEvidence = (event, proof) => {
+    evidenceOpenerRef.current = event.currentTarget;
+    setNestedEvidenceProof(null);
+    setEvidenceProof(proof);
+  };
+  const closeEvidence = () => {
+    nestedProofCloseFocusRef.current = evidenceOpenerRef.current;
+    setNestedEvidenceProof(null);
+    setEvidenceProof(null);
+  };
+  const closeNestedEvidence = () => {
+    nestedProofCloseFocusRef.current = nestedEvidenceOpenerRef.current;
+    setNestedEvidenceProof(null);
+  };
   const log = useRef(null);
   const follow = useRef(true);
   const lastObservedMessage = useRef(messages.at(-1) ?? null);
@@ -478,7 +496,7 @@ export function CopilotConversation({
             <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
               <img
                 src="/images/copilot-avatar-blinking.gif"
-                alt="Copilot"
+                alt="" aria-hidden="true"
                 className="w-full h-full object-cover select-none pointer-events-none"
               />
             </div>
@@ -506,7 +524,7 @@ export function CopilotConversation({
                     <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
                       <img
                         src="/images/copilot-avatar-blinking.gif"
-                        alt="Copilot"
+                        alt="" aria-hidden="true"
                         className="w-full h-full object-cover select-none pointer-events-none"
                       />
                     </div>
@@ -534,7 +552,7 @@ export function CopilotConversation({
                           if (action.proof?.ref) {
                             return (
                               <button key={`${action.code}-${idx}`} type="button"
-                                onClick={() => setEvidenceProof({ kind: "proof", type: action.proof.type, ref: action.proof.ref })}
+                                onClick={event => openEvidence(event, { kind: "proof", type: action.proof.type, ref: action.proof.ref })}
                                 className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer">
                                 Review Evidence
                               </button>
@@ -589,7 +607,7 @@ export function CopilotConversation({
             <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs animate-pulse">
               <img
                 src="/images/copilot-avatar-blinking.gif"
-                alt="Copilot"
+                alt="" aria-hidden="true"
                 className="w-full h-full object-cover select-none pointer-events-none"
               />
             </div>
@@ -616,14 +634,14 @@ export function CopilotConversation({
             <div className="flex flex-wrap gap-2 pl-8">
               {clearanceInfo && (
                 <button type="button" disabled={disabled}
-                  onClick={() => setEvidenceProof({ kind: "inspector", ...clearanceInfo })}
+                  onClick={event => openEvidence(event, { kind: "inspector", ...clearanceInfo })}
                   className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
                   Review eligibility
                 </button>
               )}
               {comparison && (
                 <button type="button" disabled={disabled}
-                  onClick={() => setEvidenceProof({ kind: "proof", type: comparison.type, ref: comparison.ref })}
+                  onClick={event => openEvidence(event, { kind: "proof", type: comparison.type, ref: comparison.ref })}
                   className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
                   Compare options
                 </button>
@@ -709,7 +727,7 @@ export function CopilotConversation({
           </div>
         </form>
       </div>}
-      {evidenceProof && evidenceProof.kind === "inspector" ? (
+      {evidenceProof?.kind === "inspector" && (
         <EvidenceDrawer
           key="inspector"
           requestId={requestId}
@@ -720,20 +738,40 @@ export function CopilotConversation({
             rows: buildInspectorRows(evidenceProof.clearance, evidenceProof.meta),
           }}
           planStatus={planStatus}
-          onClose={() => setEvidenceProof(null)}
-          onReviewProof={(proof) => setEvidenceProof({ kind: "proof", type: proof.type, ref: proof.ref, backTo: evidenceProof })}
+          openerRef={evidenceOpenerRef}
+          onClose={closeEvidence}
+          onReviewProof={(proof, reviewTrigger) => {
+            nestedEvidenceOpenerRef.current = reviewTrigger;
+            nestedProofCloseFocusRef.current = reviewTrigger;
+            setNestedEvidenceProof({ kind: "proof", type: proof.type, ref: proof.ref });
+          }}
         />
-      ) : evidenceProof ? (
+      )}
+      {evidenceProof?.kind === "proof" && (
         <EvidenceDrawer
           key={evidenceProof.ref}
           requestId={requestId}
           proof={evidenceProof}
-          backTo={evidenceProof.backTo ?? null}
           planStatus={planStatus}
-          onClose={() => setEvidenceProof(null)}
-          onBack={evidenceProof.backTo ? () => setEvidenceProof(evidenceProof.backTo) : undefined}
+          openerRef={evidenceOpenerRef}
+          onClose={closeEvidence}
         />
-      ) : null}
+      )}
+      {evidenceProof?.kind === "inspector" && nestedEvidenceProof && (
+        <EvidenceDrawer
+          key={nestedEvidenceProof.ref}
+          requestId={requestId}
+          proof={nestedEvidenceProof}
+          backTo={evidenceProof}
+          planStatus={planStatus}
+          nested
+          openerRef={nestedEvidenceOpenerRef}
+          closeFocusRef={nestedProofCloseFocusRef}
+          onClose={closeNestedEvidence}
+          onCloseAll={closeEvidence}
+          onBack={closeNestedEvidence}
+        />
+      )}
     </section>
   );
 }

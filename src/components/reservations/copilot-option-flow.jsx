@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 export function CopilotBubble({children}) {
   return <div className="flex items-start gap-2.5" data-copilot-message="true">
     <div className="relative mt-0.5 size-7 shrink-0 overflow-hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 p-0.5 shadow-2xs">
-      <img src="/images/copilot-avatar-blinking.gif" alt="Copilot" className="size-full rounded-full object-cover select-none pointer-events-none"/>
+      <img src="/images/copilot-avatar-blinking.gif" alt="" aria-hidden="true" className="size-full rounded-full object-cover select-none pointer-events-none"/>
     </div>
     <div className="min-w-0 flex-1 rounded-2xl rounded-tl-xs border border-border/80 bg-surface p-3.5 text-sm leading-relaxed text-foreground shadow-xs">{children}</div>
   </div>;
@@ -109,25 +109,14 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
       const pickup = p.temporalContext?.pickupAt;
       const checks = (p.checks ?? []).filter(c => ['capacity','schedule','maintenance','pairing'].includes(c.id));
       const disabled = busy || p.unavailable || decision.stale || decision.state === 'BLOCKED';
-      return <section
+      const vehicleLabel = p.vehicle?.plate_number || `Vehicle #${p.vehicle_id}`;
+      const driverLabel = p.driver?.driver_name || `Driver #${p.driver_id}`;
+      return <article
         key={optionKey(p)}
         data-copilot-message="true"
-        role="button"
-        tabIndex={disabled ? -1 : 0}
-        aria-label={`Option ${index+1} — ${option.recommended ? 'Recommended option' : 'Alternate option'}`}
-        aria-disabled={disabled}
-        onClick={() => { if (!disabled) onChoose(option); }}
-        onKeyDown={(e) => {
-          if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            onChoose(option);
-          }
-        }}
         className={cn(
-          'group/card rounded-lg border p-3 text-foreground transition-all duration-150',
-          disabled
-            ? 'cursor-not-allowed opacity-75'
-            : 'cursor-pointer hover:border-emerald-600 hover:shadow-md focus-visible:outline-2 focus-visible:outline-emerald-600',
+          'group/card rounded-lg border p-3 text-foreground transition-colors duration-150',
+          disabled && 'opacity-75',
           option.recommended
             ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20'
             : 'border-border bg-surface'
@@ -155,7 +144,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
             </span>
           </span>
         </div>
-        <details className="group mt-2" onClick={(e) => e.stopPropagation()}>
+        <details className="group mt-2">
           <summary title="Show schedule and workload details" className="inline-flex cursor-pointer list-none items-center gap-1 text-[11px] text-foreground-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary [&::-webkit-details-marker]:hidden">
             <span className="underline underline-offset-2">Schedule &amp; workload details</span>
           </summary>
@@ -184,9 +173,9 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
           <span>{c.label}: {c.message || (c.status === 'verified' ? 'Verified for the booking window' : 'Needs verification')}</span>
         </li>)}</ul>
         {!decision.canConfirm && <p className="mb-3 flex items-start gap-2 text-xs text-warning"><CircleAlert className="size-4 shrink-0" aria-hidden="true"/><span>{p.unavailable ? 'This option is no longer available.' : decision.reasons[0] || decision.label}</span></p>}
-        <Button variant="outline" size="sm" className={cn('h-9 w-full rounded-md text-sm font-semibold',option.recommended ? 'border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800 hover:text-white' : 'border-slate-400 bg-transparent text-foreground hover:bg-hover')}
-          disabled={disabled} onClick={(e) => { e.stopPropagation(); if (!disabled) onChoose(option); }}>Choose Option {index+1}<ArrowRight className="ml-1 size-4" aria-hidden="true"/></Button>
-      </section>;
+        <Button type="button" variant="outline" size="sm" aria-label={`Choose Option ${index+1}: ${vehicleLabel} with ${driverLabel}, ${option.recommended ? 'recommended' : 'alternate'}${disabled ? ', unavailable' : ''}`} className={cn('h-9 w-full rounded-md text-sm font-semibold focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',option.recommended ? 'border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800 hover:text-white' : 'border-slate-400 bg-transparent text-foreground hover:bg-hover')}
+          disabled={disabled} onClick={() => { if (!disabled) onChoose(option); }}>Choose Option {index+1}<ArrowRight className="ml-1 size-4" aria-hidden="true"/></Button>
+      </article>;
     })}
     {options.some(o => ['FUTURE','SAME_DAY'].includes(o.pair.temporalContext?.horizon)) && <p className="text-xs text-foreground-secondary">Based on the current schedule. Rechecked before assignment and dispatch. Live pickup ETA is not shown yet because the vehicle&apos;s location near departure is not known.</p>}
   </div>;
