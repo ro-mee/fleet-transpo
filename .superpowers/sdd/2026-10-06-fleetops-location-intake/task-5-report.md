@@ -64,14 +64,15 @@ All commands ran from `.worktrees/feat-passenger-cargo`.
   ```
   Result: exit 0; no output, errors, or warnings.
 - `git diff --check` — exit 0; no output (also run once more after this report was written).
-- `npm run test:run -- --reporter=dot` — run **once**; exit 1; **311 files: 310 passed, 1 failed; 3,661 tests: 3,660 passed, 1 failed**; duration 49.62s. The only failure was the order-dependent Dispatch Radar mock leak above. Do not rerun the full suite without a code change.
+- `npm run test:run -- --reporter=dot` — initial run before the test-isolation change: exit 1; **311 files: 310 passed, 1 failed; 3,661 tests: 3,660 passed, 1 failed**; duration 49.62s. The only failure was the order-dependent Dispatch Radar mock leak above.
+- After test-only commit `2d34d18ef26793551179a4a6bdb40294fdd251ac`, reran `npm run test:run -- --reporter=dot` once: exit 0; **311 files passed; 3,661/3,661 tests passed**; duration 38.55s.
 - `npm run build` (separate command) — exit 1 before production compilation: `NEXT_PUBLIC_SUPABASE_URL is not set for this production build.` No placeholder was added.
 
 ## Follow-up — Task 4 mock-isolation blocker resolved (2026-10-06)
 
 The failing Dispatch Radar run was reproduced before the change (**1 failed, 25 passed**): the calendar-span test queued a one-time `driverBlockReason` result but asserted the mock was not called, and `vi.clearAllMocks()` left that implementation queued. `src/services/dispatch-radar.test.js` now resets only that mock in `beforeEach` and restores its default `null` return. This is test-only; runtime source and behavior are unchanged.
 
-Verification after the change: focused Dispatch Radar suite **26/26**; combined Task 4 reader suites **5 files, 86/86**; touched ESLint passed; `git diff --check` passed. The full suite was not rerun per coordination; the coordinator will run it once after this test-only code change.
+Verification after the change: focused Dispatch Radar suite **26/26**; combined Task 4 reader suites **5 files, 86/86**; touched ESLint passed; `git diff --check` passed. The coordinator then reran the full suite once after the test-only code change: **311 files passed, 3,661/3,661 tests passed**. A database-looking error in the security-test stderr is a deliberate thrown error fixture at `race-and-leakage.security.test.js:198`, not a connection attempt; no live DB query was executed.
 
 ## Safety and release holds
 
