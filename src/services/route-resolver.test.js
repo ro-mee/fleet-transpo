@@ -4,6 +4,7 @@ import {
   resolveRouteEndpoints,
   resolveRouteForRequest,
   linkRequestLocations,
+  persistStrictRouteEstimate,
 } from "@/services/route-resolver.service";
 
 const { fetchTomTomEstimate, getHotelContext, getActiveLocations } = vi.hoisted(() => ({
@@ -205,6 +206,46 @@ describe("resolveRouteForRequest — the link survives a rename", () => {
     // anything.
     const db = requestDb({ locations: [HOTEL, NAIA], route: ROUTE });
     expect((await resolveRouteForRequest(db, request, { createMissing: false }))?.route_id).toBe(30);
+  });
+});
+
+describe("persistStrictRouteEstimate", () => {
+  it("persists a resolved strict estimate without calling the provider", async () => {
+    const linkedRequest = {
+      pickup_location: "untrusted pickup label",
+      dropoff_location: "untrusted dropoff label",
+      pickup_location_id: HOTEL.location_id,
+      dropoff_location_id: NAIA.location_id,
+    };
+    const estimate = { distanceKm: 12.5, durationMin: 30, source: "TomTom" };
+    const db = requestDb({ locations: [HOTEL, NAIA], route: null });
+
+    await persistStrictRouteEstimate(db, linkedRequest, estimate);
+
+    expect(fetchTomTomEstimate).not.toHaveBeenCalled();
+    const routeInsert = db.calls.find(({ sql }) => sql.includes("INSERT INTO routes"));
+    expect(routeInsert).toBeDefined();
+    expect(routeInsert.params.slice(3, 8)).toEqual([7, 9, 12.5, 30, "TomTom"]);
+    expect(db.calls[0].params).toEqual([7, 9]);
+    expect(db.calls[0].sql).not.toContain("regexp_replace");
+
+    const incompleteRoute = {
+      ...ROUTE,
+      estimated_distance: null,
+      estimated_duration: null,
+      estimate_source: "Legacy / Unknown",
+    };
+    const incompleteDb = requestDb({ locations: [HOTEL, NAIA], route: incompleteRoute });
+    await persistStrictRouteEstimate(incompleteDb, linkedRequest, estimate);
+    const routeUpdate = incompleteDb.calls.find(({ sql }) => sql.includes("UPDATE routes"));
+    expect(routeUpdate.params).toEqual([12.5, 30, "TomTom", ROUTE.route_id]);
+
+    const manualDb = requestDb({
+      locations: [HOTEL, NAIA],
+      route: { ...incompleteRoute, estimate_source: "Manual" },
+    });
+    await persistStrictRouteEstimate(manualDb, linkedRequest, estimate);
+    expect(manualDb.calls.some(({ sql }) => sql.includes("UPDATE routes"))).toBe(false);
   });
 });
 

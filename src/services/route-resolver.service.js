@@ -266,6 +266,45 @@ export async function resolveRouteForRequest(db, request, { createMissing = true
   }
 }
 
+export async function persistStrictRouteEstimate(db, request, estimate) {
+  const distanceKm = positiveNumber(estimate?.distanceKm);
+  const durationMin = positiveNumber(estimate?.durationMin);
+  if (distanceKm === null || durationMin === null || !db?.query) return null;
+
+  const endpoints = await resolveRouteEndpoints(db, {
+    origin: null,
+    destination: null,
+    originLocationId: request.pickup_location_id,
+    destinationLocationId: request.dropoff_location_id,
+    allowNameFallback: false,
+  });
+  if (!endpoints || !isActiveCanonicalLocation(endpoints.originLocation)
+    || !isActiveCanonicalLocation(endpoints.destinationLocation)
+    || !hasCoordinatePair(endpoints.originLocation)
+    || !hasCoordinatePair(endpoints.destinationLocation)) return null;
+
+  const route = await findActiveRoute(db, endpoints);
+  if (!route) {
+    return resolveRouteForRequest(db, {
+      ...request,
+      pickup_location: null,
+      dropoff_location: null,
+      estimated_distance: distanceKm,
+      estimated_duration: durationMin,
+      estimate_source: estimate.source,
+    }, { allowNameFallback: false });
+  }
+  if (route.estimate_source === "Manual"
+    || (route.estimated_distance != null && route.estimated_duration != null)) return route;
+
+  return db.query(
+    `UPDATE routes SET estimated_distance = $1, estimated_duration = $2,
+       estimate_source = $3, estimate_updated_at = NOW(), updated_at = NOW()
+     WHERE route_id = $4 AND estimate_source IS DISTINCT FROM 'Manual'`,
+    [distanceKm, durationMin, estimate.source, route.route_id]
+  );
+}
+
 export function normalizeRoutePayload(body = {}, { partial = false } = {}) {
   const payload = {};
   const errors = {};

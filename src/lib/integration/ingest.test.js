@@ -27,9 +27,11 @@ const resolveRequestEstimate = vi.fn(async (_request, _db, options = {}) => (
     ? { distanceKm: null, durationMin: null, source: null }
     : { distanceKm: 12.5, durationMin: 30 }
 ));
+const persistStrictRouteEstimate = vi.fn(async () => null);
 const linkRequestLocations = vi.fn(async () => ({}));
 vi.mock("@/services/route-resolver.service", () => ({
   resolveRequestEstimate: (...args) => resolveRequestEstimate(...args),
+  persistStrictRouteEstimate: (...args) => persistStrictRouteEstimate(...args),
   linkRequestLocations: (...args) => linkRequestLocations(...args),
 }));
 vi.mock("@/lib/scheduling/reservation-number", () => ({
@@ -94,6 +96,7 @@ beforeEach(() => {
       ? { distanceKm: null, durationMin: null, source: null }
       : { distanceKm: 12.5, durationMin: 30 }
   ));
+  persistStrictRouteEstimate.mockReset().mockResolvedValue(null);
   linkRequestLocations.mockReset().mockResolvedValue({});
 });
 
@@ -355,6 +358,176 @@ describe("ingestRequest", () => {
     expect(out.request.request_id).toBe(501);
   });
 
+  it("locks the active service through request insert", async () => {
+    const v2 = {
+      ...REQUEST,
+      external_booking_id: "v2-service-lock-order",
+      service_code: "HOTEL_VIP",
+      load_type: "Passenger",
+      pickup_location_code: PICKUP_CODE,
+      dropoff_location_code: DROPOFF_CODE,
+    };
+    const estimate = { distanceKm: 12.5, durationMin: 30, source: "TomTom" };
+    const events = [];
+    const transactionCalls = [];
+    const tx = {
+      query: async (sql, params) => {
+        transactionCalls.push([sql, params]);
+        if (sql.includes("FROM locations")) {
+          events.push(params[0] === PICKUP_CODE ? "pickup_lock" : "dropoff_lock");
+          return { rows: [{ location_id: params[0] === PICKUP_CODE ? 31 : 32, is_active: true, retired_at: null }] };
+        }
+        if (sql.includes("FROM service_types")) {
+          events.push("service_lock");
+          return { rows: [{ service_type_id: 79, default_load_type: "Passenger" }] };
+        }
+        if (sql.includes("INSERT INTO transportation_requests")) {
+          events.push("request_insert");
+          return { rows: [{ request_id: 501, fleet_status: params[12], source_system: params[1] }] };
+        }
+        return { rows: [] };
+      },
+    };
+    wire({
+      service: { service_type_id: 44, default_load_type: "Passenger" },
+      locations: [
+        { location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null },
+        { location_code: DROPOFF_CODE, location_id: 32, is_active: true, retired_at: null },
+      ],
+    });
+    withTransaction.mockImplementation(async (work) => work(tx));
+    resolveRequestEstimate.mockResolvedValueOnce(estimate);
+    persistStrictRouteEstimate.mockImplementation(async () => {
+      events.push("route_persist");
+      return null;
+    });
+
+    await ingestRequest(v2, { strictReplay: true });
+
+    expect(events).toEqual([
+      "pickup_lock", "dropoff_lock", "service_lock", "request_insert", "route_persist",
+    ]);
+    const serviceLock = transactionCalls.find(([sql]) => sql.includes("FROM service_types"));
+    const transactionInsert = transactionCalls.find(([sql]) => sql.includes("INSERT INTO transportation_requests"));
+    expect(serviceLock[0]).toMatch(/FOR SHARE/i);
+    expect(serviceLock[0]).toContain("status = 'Active'");
+    expect(serviceLock[0]).toContain("deleted_at IS NULL");
+    expect(serviceLock[1]).toEqual([v2.service_code]);
+    expect(transactionInsert[1][9]).toBe(79);
+    expect(resolveRequestEstimate).toHaveBeenCalledWith(
+      expect.objectContaining({ pickup_location_id: 31, dropoff_location_id: 32 }),
+      expect.anything(),
+      { persistRoute: false, strictRegistry: true },
+    );
+    expect(resolveRequestEstimate.mock.invocationCallOrder[0])
+      .toBeLessThan(withTransaction.mock.invocationCallOrder[0]);
+    expect(persistStrictRouteEstimate).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ pickup_location_id: 31, dropoff_location_id: 32 }),
+      estimate,
+    );
+  });
+
+  it("does not persist a route after a rejected create", async () => {
+    const v2 = {
+      ...REQUEST,
+      external_booking_id: "v2-service-retired-before-insert",
+      service_code: "HOTEL_VIP",
+      load_type: "Passenger",
+      pickup_location_code: PICKUP_CODE,
+      dropoff_location_code: DROPOFF_CODE,
+    };
+    const estimate = { distanceKm: 12.5, durationMin: 30, source: "TomTom" };
+    const transactionCalls = [];
+    wire({
+      service: { service_type_id: 44, default_load_type: "Passenger" },
+      locations: [
+        { location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null },
+        { location_code: DROPOFF_CODE, location_id: 32, is_active: true, retired_at: null },
+      ],
+    });
+    withTransaction.mockImplementation(async (work) => work({
+      query: async (sql, params) => {
+        transactionCalls.push([sql, params]);
+        if (sql.includes("FROM locations")) {
+          return { rows: [{ location_id: params[0] === PICKUP_CODE ? 31 : 32, is_active: true, retired_at: null }] };
+        }
+        if (sql.includes("FROM service_types")) return { rows: [] };
+        if (sql.includes("INSERT INTO transportation_requests")) {
+          return { rows: [{ request_id: 501, fleet_status: params[12], source_system: params[1] }] };
+        }
+        return { rows: [] };
+      },
+    }));
+    resolveRequestEstimate.mockResolvedValueOnce(estimate);
+
+    await expect(ingestRequest(v2, { strictReplay: true }))
+      .rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+
+    expect(transactionCalls.some(([sql]) => sql.includes("INSERT INTO transportation_requests"))).toBe(false);
+    expect(resolveRequestEstimate).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), { persistRoute: false, strictRegistry: true },
+    );
+    expect(persistStrictRouteEstimate).not.toHaveBeenCalled();
+  });
+
+  it("does not persist a route when the v2 insert conflicts", async () => {
+    const v2 = {
+      ...REQUEST,
+      external_booking_id: "v2-insert-conflict",
+      service_code: "HOTEL_VIP",
+      load_type: "Passenger",
+      pickup_location_code: PICKUP_CODE,
+      dropoff_location_code: DROPOFF_CODE,
+    };
+    const estimate = { distanceKm: 12.5, durationMin: 30, source: "TomTom" };
+    const transactionCalls = [];
+    let requestLookups = 0;
+    let replayFingerprint;
+    wire({
+      service: { service_type_id: 44, default_load_type: "Passenger" },
+      locations: [
+        { location_code: PICKUP_CODE, location_id: 31, is_active: true, retired_at: null },
+        { location_code: DROPOFF_CODE, location_id: 32, is_active: true, retired_at: null },
+      ],
+    });
+    query.mockImplementation(async (sql, params) => {
+      if (sql.includes("SELECT * FROM transportation_requests")) {
+        requestLookups += 1;
+        return { rows: requestLookups === 1 ? [] : [{ request_id: 502, external_create_fingerprint: replayFingerprint }] };
+      }
+      if (sql.includes("FROM service_types")) return { rows: [{ service_type_id: 44, default_load_type: "Passenger" }] };
+      if (sql.includes("FROM locations")) {
+        return { rows: [{ location_id: params[0] === PICKUP_CODE ? 31 : 32, is_active: true, retired_at: null }] };
+      }
+      return { rows: [] };
+    });
+    withTransaction.mockImplementation(async (work) => work({
+      query: async (sql, params) => {
+        transactionCalls.push([sql, params]);
+        if (sql.includes("FROM locations")) {
+          return { rows: [{ location_id: params[0] === PICKUP_CODE ? 31 : 32, is_active: true, retired_at: null }] };
+        }
+        if (sql.includes("FROM service_types")) return { rows: [{ service_type_id: 79, default_load_type: "Passenger" }] };
+        if (sql.includes("INSERT INTO transportation_requests")) {
+          replayFingerprint = params[20];
+          return { rows: [] };
+        }
+        return { rows: [] };
+      },
+    }));
+    resolveRequestEstimate.mockResolvedValueOnce(estimate);
+
+    await expect(ingestRequest(v2, { strictReplay: true }))
+      .resolves.toMatchObject({ idempotent: true, request: { request_id: 502 } });
+
+    expect(transactionCalls.some(([sql]) => sql.includes("INSERT INTO transportation_requests"))).toBe(true);
+    expect(resolveRequestEstimate).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), { persistRoute: false, strictRegistry: true },
+    );
+    expect(persistStrictRouteEstimate).not.toHaveBeenCalled();
+  });
+
   it("passes exact active v2 links to strict estimation without name linking", async () => {
     const pickupProposal = { address: "Hotel driveway", latitude: 14.5524, longitude: 121.0198 };
     const dropoffProposal = { address: "Terminal curb", latitude: 14.5086, longitude: 121.0194 };
@@ -395,7 +568,7 @@ describe("ingestRequest", () => {
       partner_pickup_location_proposal: pickupProposal,
       partner_dropoff_location_proposal: dropoffProposal,
     });
-    expect(resolveRequestEstimate.mock.calls[0][2]).toEqual({ persistRoute: true, strictRegistry: true });
+    expect(resolveRequestEstimate.mock.calls[0][2]).toEqual({ persistRoute: false, strictRegistry: true });
     expect(linkRequestLocations).not.toHaveBeenCalled();
     expect(query.mock.calls.some(([statement]) => /INSERT INTO routes/i.test(statement))).toBe(false);
     expect(query.mock.calls.filter(([statement]) => statement.includes("FROM locations"))
@@ -501,7 +674,7 @@ describe("ingestRequest", () => {
       partner_pickup_location_proposal: pickupProposal,
       partner_dropoff_location_proposal: dropoffProposal,
     });
-    expect(resolveRequestEstimate.mock.calls[0][2]).toEqual({ persistRoute: true, strictRegistry: true });
+    expect(resolveRequestEstimate.mock.calls[0][2]).toEqual({ persistRoute: false, strictRegistry: true });
     expect(linkRequestLocations).not.toHaveBeenCalled();
     expect(query.mock.calls.some(([statement]) => statement.includes("FROM locations"))).toBe(false);
     expect(sql).toContain("partner_pickup_location_proposal");

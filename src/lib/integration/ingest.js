@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { query, withTransaction } from "@/lib/db";
 import { fleetStatusFromBooking } from "@/lib/integration/status-map";
 import { resolveVehicleCategory } from "@/lib/integration/category-resolver";
-import { resolveRequestEstimate, linkRequestLocations } from "@/services/route-resolver.service";
+import {
+  resolveRequestEstimate,
+  linkRequestLocations,
+  persistStrictRouteEstimate,
+} from "@/services/route-resolver.service";
 import { assignReservationNumber } from "@/lib/scheduling/reservation-number";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { RESERVATION_EVENT as E } from "@/lib/constants";
@@ -81,6 +85,21 @@ async function resolveLocationCode(locationCode, dbQuery = query, { lock = false
   return location.location_id;
 }
 
+async function resolveActiveServiceCode(serviceCode, loadType, dbQuery = query, { lock = false } = {}) {
+  const { rows } = await dbQuery(
+    `SELECT service_type_id, default_load_type FROM service_types
+      WHERE service_code = $1 AND status = 'Active' AND deleted_at IS NULL${lock ? " FOR SHARE" : ""}`,
+    [serviceCode]
+  );
+  const service = rows[0];
+  if (!service || service.default_load_type !== loadType) {
+    const error = new Error("Service code is unavailable or incompatible with the load type.");
+    error.code = "SERVICE_UNAVAILABLE";
+    throw error;
+  }
+  return service.service_type_id;
+}
+
 function createFingerprint(request) {
   const values = CREATE_FIELDS.map((key) => request[key] ?? null);
   return createHash("sha256").update(JSON.stringify(values)).digest("hex");
@@ -145,17 +164,7 @@ export async function ingestRequest(
     }
   }
   if (request.service_code) {
-    const { rows: services } = await query(
-      `SELECT service_type_id, default_load_type FROM service_types
-        WHERE service_code = $1 AND status = 'Active' AND deleted_at IS NULL LIMIT 1`,
-      [request.service_code]
-    );
-    if (!services[0] || services[0].default_load_type !== request.load_type) {
-      const error = new Error("Service code is unavailable or incompatible with the load type.");
-      error.code = "SERVICE_UNAVAILABLE";
-      throw error;
-    }
-    serviceTypeId = services[0].service_type_id;
+    serviceTypeId = await resolveActiveServiceCode(request.service_code, request.load_type);
   }
 
   const fleetStatus = fleetStatusFromBooking(request.booking_status);
@@ -169,7 +178,7 @@ export async function ingestRequest(
       dropoff_location_id: dropoffLocationId,
       partner_pickup_location_proposal: request.pickup_location_proposal ?? null,
       partner_dropoff_location_proposal: request.dropoff_location_proposal ?? null,
-    }, { query }, { persistRoute: true, strictRegistry: true })
+    }, { query }, { persistRoute: false, strictRegistry: true })
     : await resolveRequestEstimate(request, { query }, { persistRoute: true });
 
   // Translate Booking's free-text vehicle wording into one of Fleet's own
@@ -238,10 +247,22 @@ export async function ingestRequest(
     ({ rows } = await withTransaction(async (tx) => {
       const lockedPickupId = await resolveLocationCode(request.pickup_location_code, tx.query, { lock: true });
       const lockedDropoffId = await resolveLocationCode(request.dropoff_location_code, tx.query, { lock: true });
+      const lockedServiceTypeId = request.service_code
+        ? await resolveActiveServiceCode(request.service_code, request.load_type, tx.query, { lock: true })
+        : serviceTypeId;
       const lockedParams = [...insertParams];
+      lockedParams[9] = lockedServiceTypeId;
       lockedParams[25] = lockedPickupId;
       lockedParams[26] = lockedDropoffId;
-      return tx.query(insertSql, lockedParams);
+      const inserted = await tx.query(insertSql, lockedParams);
+      if (inserted.rows[0]) {
+        await persistStrictRouteEstimate(tx, {
+          ...request,
+          pickup_location_id: lockedPickupId,
+          dropoff_location_id: lockedDropoffId,
+        }, estimate);
+      }
+      return inserted;
     }));
   } else {
     ({ rows } = await query(insertSql, insertParams));
