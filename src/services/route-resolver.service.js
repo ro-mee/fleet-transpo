@@ -298,9 +298,11 @@ export async function persistStrictRouteEstimate(db, request, estimate) {
     || (route.estimated_distance != null && route.estimated_duration != null)) return route;
 
   return db.query(
-    `UPDATE routes SET estimated_distance = $1, estimated_duration = $2,
+    `UPDATE routes SET estimated_distance = COALESCE(estimated_distance, $1),
+       estimated_duration = COALESCE(estimated_duration, $2),
        estimate_source = $3, estimate_updated_at = NOW(), updated_at = NOW()
-     WHERE route_id = $4 AND estimate_source IS DISTINCT FROM 'Manual'`,
+     WHERE route_id = $4 AND estimate_source IS DISTINCT FROM 'Manual'
+       AND (estimated_distance IS NULL OR estimated_duration IS NULL)`,
     [distanceKm, durationMin, estimate.source, route.route_id]
   );
 }

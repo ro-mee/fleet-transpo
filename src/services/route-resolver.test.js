@@ -210,7 +210,7 @@ describe("resolveRouteForRequest — the link survives a rename", () => {
 });
 
 describe("persistStrictRouteEstimate", () => {
-  it("persists a resolved strict estimate without calling the provider", async () => {
+  it("persists a resolved strict estimate without overwriting existing fields or calling the provider", async () => {
     const linkedRequest = {
       pickup_location: "untrusted pickup label",
       dropoff_location: "untrusted dropoff label",
@@ -239,6 +239,14 @@ describe("persistStrictRouteEstimate", () => {
     await persistStrictRouteEstimate(incompleteDb, linkedRequest, estimate);
     const routeUpdate = incompleteDb.calls.find(({ sql }) => sql.includes("UPDATE routes"));
     expect(routeUpdate.params).toEqual([12.5, 30, "TomTom", ROUTE.route_id]);
+
+    const partialRoute = { ...incompleteRoute, estimated_distance: 7.5, estimated_duration: null };
+    const partialDb = requestDb({ locations: [HOTEL, NAIA], route: partialRoute });
+    await persistStrictRouteEstimate(partialDb, linkedRequest, estimate);
+    const partialRouteUpdate = partialDb.calls.find(({ sql }) => sql.includes("UPDATE routes"));
+    expect(partialRouteUpdate.sql).toMatch(/estimated_distance = COALESCE\(estimated_distance, \$1\)/i);
+    expect(partialRouteUpdate.sql).toMatch(/estimated_duration = COALESCE\(estimated_duration, \$2\)/i);
+    expect(partialRouteUpdate.sql).toMatch(/AND \(estimated_distance IS NULL OR estimated_duration IS NULL\)/i);
 
     const manualDb = requestDb({
       locations: [HOTEL, NAIA],
