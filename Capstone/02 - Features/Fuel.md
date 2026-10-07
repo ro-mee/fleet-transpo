@@ -278,6 +278,18 @@ Save one Petron and one Skyewin/Shell scan against an active trip, then verify t
 
 **Verification.** `price-migration.test.js` (5) + `price-policy.test.js` (8); offline `db:check` 145 files valid. No live DB contact, no migration applied.
 
+## Trip fuel estimates — Task 11, 2026-10-07 (estimator + completion wiring; migration unapplied)
+
+`supabase/migrations/155_trip_fuel_estimate.sql` (provisional, unapplied) adds `planned_distance_km`, `actual_distance_km`, `distance_provenance`, `estimated_fuel_l`, `estimated_fuel_cost`, `fuel_reference_price`, `fuel_price_snapshot_id` (FK to 154, which must apply first), and `fuel_region` to the already-classified `trips` table. `fuel_consumed` is untouched.
+
+`src/lib/fuel/trip-estimate.js` (pure): `resolveEstimateDistance` prefers odometer math, then validated trip distance, then the GPS trail (null with no provenance, never 0); `estimateFuelCost` computes decimal-safe litres (3 dp) and cost (2 dp, from rounded litres) — 36 km at 9 km/L and PHP 62.70/L stores 4.00 L / PHP 250.80 — and returns nulls with `no-distance`/`no-efficiency`/`no-price` reasons otherwise.
+
+`completeTrip` captures planned distance from the pre-update row, resolves efficiency from the vehicle (NULL means "does not predict"), the price region from the `fuel_price_region` system setting (absent → explicit unavailable), and the applicable `Active` snapshot at completion instant. Estimate columns write `COALESCE` first-write-wins inside the completion transaction, so later price or vehicle edits never rewrite a completed trip's basis; receipt pump prices stay independent. Late corrections are new snapshot rows, so historical instants keep resolving to the price then in effect.
+
+**Release hold:** estimate columns exist only after 154/155 — do not deploy before both are applied.
+
+**Verification.** `trip-estimate.test.js` (5) + `estimate-migration.test.js` (3) + `trip-lifecycle.service.test.js` (4: snapshot arithmetic 36/9/62.70, first-write-wins columns, nulls-never-zeros, existing alert resolution untouched).
+
 ## Export exports the view you are looking at — 2026-10-01 (implemented)
 
 The header **Export CSV** button always exported fuel **receipt claims**, whichever of the three views (Registry / Monthly Budget / Permits) was on screen — and it did it wrong. `getFuelRecords` answers in paginated mode with an envelope, `{ rows, total, counts }`, and that object was handed straight to `exportToCSV`, which tests `data?.length` — `undefined` on an object — and returns `{ count: 0 }` without writing a file. Clicking Export with **45 permits** visible produced no download and a toast reading *"Exported undefined records"*.

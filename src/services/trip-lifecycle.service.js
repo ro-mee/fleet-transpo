@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, findRequestForDispatch } from "@/services/reservation-lifecycle.service";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
+import { resolveEstimateDistance, estimateFuelCost } from "@/lib/fuel/trip-estimate";
 import { trailDistanceKm } from "@/lib/geo/geofence";
 import { resolveMonitorAlerts } from "@/services/live-trip-monitor.service";
 
@@ -37,7 +38,8 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  */
 export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
   const { rows: before } = await query(
-    `SELECT t.vehicle_id, t.driver_id, t.dispatch_id, t.trip_status, v.mileage AS vehicle_mileage
+    `SELECT t.vehicle_id, t.driver_id, t.dispatch_id, t.trip_status, t.distance AS planned_distance,
+            v.mileage AS vehicle_mileage, v.fuel_efficiency_kmpl, v.fuel_type
        FROM trips t
        LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL
       WHERE t.trip_id = $1
@@ -106,6 +108,57 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
     gpsTrailKm = null;
   }
   //
+  // Task 11: per-trip estimated fuel/cost snapshot, written once at
+  // completion. Planned is the distance the trip carried into completion;
+  // actual prefers odometer math, then the validated trip distance, then the
+  // GPS trail. The basis (efficiency, reference price, snapshot, region) is
+  // captured now and stored COALESCE first-write-wins: later price or vehicle
+  // edits never rewrite a completed trip's basis, and receipt pump prices stay
+  // independent. A missing basis yields nulls with no fabricated actual.
+  //
+  // Release hold: the estimate columns exist only after migration 155 (and the
+  // snapshots table after 154) — do not deploy this revision before both are
+  // applied.
+  const plannedKm = before[0]?.planned_distance ?? null;
+  const odoKm = derived !== null && derived >= 0 ? derived : null;
+  const tripKm = Number.isFinite(suppliedDistance)
+    ? suppliedDistance
+    : before[0]?.planned_distance ?? null;
+  const estimateDistance = resolveEstimateDistance({ odometerKm: odoKm, tripDistanceKm: tripKm, gpsTrailKm });
+  const efficiency = before[0]?.fuel_efficiency_kmpl ?? null;
+  const fuelType = String(before[0]?.fuel_type ?? "").trim() || null;
+  let fuelRegion = null;
+  try {
+    const { rows: regionRows } = await query(
+      `SELECT setting_value FROM system_settings WHERE setting_key = 'fuel_price_region' LIMIT 1`
+    );
+    fuelRegion = String(regionRows[0]?.setting_value ?? "").trim() || null;
+  } catch {
+    fuelRegion = null;
+  }
+  let snapshot = null;
+  if (fuelType && fuelRegion) {
+    try {
+      const { rows: snapshotRows } = await query(
+        `SELECT snapshot_id, reference_price FROM fuel_price_snapshots
+          WHERE fuel_product = $1 AND region = $2 AND lifecycle = 'Active'
+            AND verification_method IN ('Manual', 'Automatic')
+            AND currency = 'PHP' AND unit = 'L'
+            AND reference_price > 0 AND effective_at <= NOW()
+          ORDER BY effective_at DESC, snapshot_id DESC LIMIT 1`,
+        [fuelType, fuelRegion]
+      );
+      snapshot = snapshotRows[0] ?? null;
+    } catch {
+      snapshot = null;
+    }
+  }
+  const fuelEstimate = estimateFuelCost({
+    distanceKm: estimateDistance.km,
+    efficiencyKmpl: efficiency,
+    pricePerLiter: snapshot?.reference_price ?? null,
+  });
+  //
   // actual_duration is derived in the same statement rather than a follow-up
   // query, so it can never drift from end_time — NOW() is one value per
   // statement. The CASE leaves trips that never started untouched: a duration
@@ -127,6 +180,14 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
               end_odometer = $1,
               distance = COALESCE($2, $4, distance),
               gps_distance_km = COALESCE($4, gps_distance_km),
+              planned_distance_km = COALESCE(planned_distance_km, $5),
+              actual_distance_km = COALESCE(actual_distance_km, $6),
+              distance_provenance = COALESCE(distance_provenance, $7),
+              estimated_fuel_l = COALESCE(estimated_fuel_l, $8),
+              estimated_fuel_cost = COALESCE(estimated_fuel_cost, $9),
+              fuel_reference_price = COALESCE(fuel_reference_price, $10),
+              fuel_price_snapshot_id = COALESCE(fuel_price_snapshot_id, $11),
+              fuel_region = COALESCE(fuel_region, $12),
               actual_duration = CASE
                 WHEN start_time IS NOT NULL
                   THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (NOW() - start_time)) / 60))::int
@@ -134,7 +195,20 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
               END
         WHERE trip_id = $3
         RETURNING *`,
-      [rawEndOdometer, dist, tripId, gpsTrailKm]
+      [
+        rawEndOdometer,
+        dist,
+        tripId,
+        gpsTrailKm,
+        plannedKm,
+        estimateDistance.km,
+        estimateDistance.provenance,
+        fuelEstimate.liters,
+        fuelEstimate.cost,
+        snapshot?.reference_price != null ? Number(snapshot.reference_price) : null,
+        snapshot?.snapshot_id ?? null,
+        fuelRegion,
+      ]
     );
     if (!r.rows[0]) throw new AuthError("Trip not found", 404);
     const txWrites = [];
