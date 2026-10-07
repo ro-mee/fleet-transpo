@@ -268,6 +268,16 @@ Save one Petron and one Skyewin/Shell scan against an active trip, then verify t
 
 [[Fleet And Vehicles]] · [[DEBT Services Folder Mixes Two Concerns]] · [[Feature Index]] · [[Reports]]
 
+## Reference-price snapshots — Task 10, 2026-10-07 (migration + policy; repository/API deferred)
+
+`supabase/migrations/154_fuel_price_snapshots.sql` (provisional number, unapplied) creates `fuel_price_snapshots`: product, region, PHP/L units, reference + prior price, announced/effective/fetched timestamps, source URL, `Manual|Automatic` method, `Pending|Active|Historical` lifecycle, source hash, verifier identity. Unique `(fuel_product, region, effective_at)` key (a repeated ingestion is ignored; a correction is a new row, so history never reprices), RLS enabled with zero anon/authenticated grants and no policies.
+
+`src/lib/fuel/price-policy.js` (pure, no SQL): `priceAt(rows, { fuelType, region, at })` returns the verified applicable snapshot or null — latest effective at or before the instant, future rows invisible, invalid rows (bad price/currency/unit/product/region/timestamp) skipped, stale/absent explicit as null, never 0. `validateSnapshotInput` gates manual writes (required provenance, PHP 1–200/L typo band, Manual needs verifier, Automatic needs source hash).
+
+**Explicitly deferred to the apply checkpoint:** the table-touching repository, permission-gated manual API/UI, and `scripts/lib/schema-contract.mjs` registration. Reason: with migration 154 unapplied and `schema.sql` unrefreshable offline, landing src SQL now fails the unclassified-table gate, while registering now fails the phantom-table gate — the repo's own apply checkpoint (`db:up`, `db:dump`, `verify:anon`, `db:contract`) is what resolves both. The checkpoint must also run the catalog grants check (RLS + revokes are invisible in the `schema.sql` diff).
+
+**Verification.** `price-migration.test.js` (5) + `price-policy.test.js` (8); offline `db:check` 145 files valid. No live DB contact, no migration applied.
+
 ## Export exports the view you are looking at — 2026-10-01 (implemented)
 
 The header **Export CSV** button always exported fuel **receipt claims**, whichever of the three views (Registry / Monthly Budget / Permits) was on screen — and it did it wrong. `getFuelRecords` answers in paginated mode with an envelope, `{ rows, total, counts }`, and that object was handed straight to `exportToCSV`, which tests `data?.length` — `undefined` on an object — and returns `{ count: 0 }` without writing a file. Clicking Export with **45 permits** visible produced no download and a toast reading *"Exported undefined records"*.
