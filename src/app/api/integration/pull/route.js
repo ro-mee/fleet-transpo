@@ -43,18 +43,29 @@ export async function POST(req) {
         }
         if (raw?.contract_version === 2) {
           const envelope = normalizeInboundEnvelope(raw, sourceIdentity);
-          if (envelope.event_kind !== "create" || envelope.external_revision !== 1) throw new Error("Unsupported revision");
+          if (envelope.event_kind !== "create" || envelope.external_revision !== 1) {
+            const error = new Error("Unsupported v2 event or revision.");
+            error.code = "SOURCE_REVISION_UNSUPPORTED";
+            throw error;
+          }
           request = envelope.request;
           strictReplay = true;
         } else {
           request = parseTransportationRequest({ ...raw, source_system: sourceIdentity });
         }
-      } catch {
+      } catch (error) {
         // One malformed item is skipped rather than failing the pull: a bad
         // record from Booking must not block the good ones behind it. The
         // push route answers its sender a 400 instead, which is why the
         // contract parse stays out here rather than inside ingestRequest.
-        skipped += 1;
+        const code = error?.code;
+        if (code === "SOURCE_REVISION_UNSUPPORTED") {
+          skipped += 1;
+          rejected += 1;
+          rejectionCodes[code] = (rejectionCodes[code] || 0) + 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
 

@@ -101,3 +101,24 @@ it("skips non-mock rows when the adapter has no trusted source identity", async 
   expect((await response.json()).skipped).toBe(1);
   expect(ingestRequest).not.toHaveBeenCalled();
 });
+
+it("reports unsupported v2 revisions and continues through the batch", async () => {
+  const unsupported = [
+    { ...MOCK_INCOMING[0], event_kind: "update" },
+    { ...MOCK_INCOMING[0], event_kind: "cancel" },
+    { ...MOCK_INCOMING[0], external_revision: 2 },
+  ];
+  getGateway.mockReturnValue({
+    name: "mock",
+    fetchPendingRequests: async () => [...unsupported, MOCK_INCOMING[1]],
+  });
+  const response = await POST(new Request("http://localhost/api/integration/pull", { method: "POST" }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    ingested: 1,
+    skipped: 3,
+    rejected: 3,
+    rejectionCodes: { SOURCE_REVISION_UNSUPPORTED: 3 },
+  });
+  expect(ingestRequest).toHaveBeenCalledTimes(1);
+});
