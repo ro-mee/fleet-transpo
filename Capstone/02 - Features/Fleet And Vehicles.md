@@ -60,6 +60,16 @@ On the vehicle form (`fleet/vehicles/new`), attaching an OR/CR or Insurance file
 
 [[Dispatch]] · [[Maintenance]] · [[Fuel]] · [[UVVRP Number Coding]] · [[Feature Index]]
 
+## Road-readiness contract — pure evaluator, 2026-10-07 (no runtime effect)
+
+Release B Task 4 bounded slice per `docs/superpowers/specs/2026-10-06-fleetops-road-readiness-contract-design.md`: new pure helper `evaluateRoadReadiness(vehicle, documents, now)` in `src/lib/vehicles/readiness.js` (+ `readiness.test.js`, 15 tests). Inputs are normalized DTO fields (`plate_number`, `commissioning_status`, `maintenance_clear`, `safety_clear`; per-document `document_type`, `verification_status`, `verified_by`, `verified_at`, `expiry_date`, `deleted_at`) — not current DB columns, since `vehicledocuments` has no verification columns yet.
+
+Fail-closed semantics: nonblank plate, `commissioning_status === 'Ready'`, explicit `=== true` maintenance/safety clearance, exactly one non-deleted `Verified` OR_CR and one `Insurance` record each with a non-null verifier, parseable `verified_at` no later than `now`, and a valid non-expired `YYYY-MM-DD` expiry (valid through that day in Asia/Manila). Duplicate verified records block as ambiguous rather than picking one; pending/rejected/deleted rows never count. Legacy `status`, `vehicles.registration_expiry` and `vehicles.insurance_expiry` are ignored. Emits stable blocker codes in deterministic order, `{ ready, blockers }` only — no prose, no persistence, no API/dispatch/mobile wiring. A null/undefined `now` fails closed with `REFERENCE_TIME_INVALID` instead of defaulting to wall-clock.
+
+**Not a safety gate yet:** nothing calls this helper; the later persistence task (verifier authorization/audit writes, asset-code policy, migration numbering) and the dispatch commit/start enforcement are still outstanding. Do not dispatch cargo on this helper alone.
+
+**Verification.** RED (missing-module failure) → GREEN 15/15; `src/lib/vehicles` + `src/app/api/vehicles` suites 6 files / 31 tests pass; touched ESLint clean; `git diff --check` clean; offline `npm run db:check` 143 files valid. No migration written or applied; no live DB contact.
+
 ## "Vehicle edit category and license class are blank" — 2026-10-01 (data, not a bug)
 
 Reported as a prefill failure on the vehicle edit form. It is not one.
