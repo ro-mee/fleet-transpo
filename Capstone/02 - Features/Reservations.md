@@ -8,11 +8,24 @@ source:
   - src/services/reservation-lifecycle.service.js
   - src/lib/scheduling/reservation-state.js
   - src/lib/scheduling/priority.js
-last_verified: 2026-09-08
+  - src/components/reservations/ai-recommendation-panel.jsx
+  - src/components/reservations/historic-recommendation-summary.jsx
+  - src/lib/dispatch/decision.js
+last_verified: 2026-10-02
 related: ["[[Dispatch]]", "[[System Boundaries]]"]
 ---
 
 # Feature: Reservations
+
+## Dispatch Copilot audit remediation — Task 2 (2026-10-02)
+
+Reservation recommendation and queue-proposal states distinguish current, incomplete, failed, and historic evidence. A queue proposal with `candidateEvaluationComplete: false` is not offered as a current option even if its outcome says `VERIFIED`; the request panel suppresses its option/chat/selection/confirmation context, offers queue reanalysis, and the shared confirmation policy independently rejects incomplete proposals. Queue counts and reservation-table badges classify incomplete evaluations as `Not evaluated`. Explicit Recheck invalidates old selection-check state, refreshes request evidence first, and only proceeds to queue reanalysis/checking if the selected pair remains current and selectable; queue mode retains the post-analysis refetch. A successful fresh response can recover a prior request-error/incomplete snapshot; failed/incomplete refreshed evidence or a missing, blocked, or unavailable pair cannot reuse the prior check. Plan-error states preserve the non-mutating saved-selection clear action without duplication when request evidence also fails. For first-load/incomplete recommendation data, free-text chat is disabled so the conversation endpoint cannot expose a separate evaluation while the panel is unknown. Failed refreshes retain cached facts only in a visibly historic, read-only summary.
+
+Verification: focused panel, evidence-drawer, dispatch-decision, and queue-workspace suites passed 74/74; touched-file ESLint and `git diff --check` passed. Post-fix review found no Critical/Important regressions and scoped source/test commit `8d4f19e8` is complete. One Minor duplicate-control finding spans two edge-state combinations and is deferred to final whole-branch review; full browser/build checks remain pending.
+
+## Dispatch Copilot audit follow-up: committed lifecycle display — 2026-10-02
+
+After a successful queue assignment, the returned status and resource IDs remain visible over stale list/locked-request data until the same request has a committed or terminal status in the refreshed queue; the selected row remains isolated while Copilot is busy. Assigned/In Progress requests disable recommendation refresh, choices, and assignment controls while allowing read-only questions only when `reservations:recommend` is permitted; Completed/Cancelled requests have no composer. Conversation POSTs preserve auth, validation, and the existing response shape, load the request, then return server-derived status/IDs without recommendation/radar/ranking/proof/LLM work or fresh choices. Missing IDs remain unavailable; client IDs are never assignment truth; Pending behavior is unchanged, and authorized dispatch detail remains the reassignment path. Verification reported 182/182 tests across 10 suites, touched-file ESLint and `git diff --check` passed; production build/browser acceptance remain pending. Commit `21ba8efd` contains the scoped source/test changes; independent review found no Critical/Important issues, with two Minor observations deferred.
 
 ## Manual Analyze controls removed - 2026-09-15
 

@@ -50,11 +50,17 @@ reappears anywhere under `src/` or `scripts/`.
   account screens); mechanic accounts are staff-created like the other staff
   roles. Target protection covers enable/disable AND credential reset: admin targets
   are Super Admin-only (no Admin→Admin disable/reset).
-- Mechanic matrix row (`MATRIX.mechanic`, 2026-10-06): vehicles/read,
+- Mechanic matrix row (`MATRIX.mechanic`, 2026-10-06, corrected 2026-10-07): vehicles/read,
   incidents read-only (`acknowledge`/`resolve`/`route_to_maintenance` explicitly
   false), maintenance read+update, predictive_maintenance/read, notifications
-  read/update/delete, device_tokens create/delete, search/read, employees/read,
-  system read/update explicitly false. Nav keys: `/mechanic`,
+  read/update/delete, device_tokens create/delete, search/read explicitly
+  false (`/api/search` returns reservations/dispatches/drivers/vehicles with
+  no per-entity check), employees/read,
+  system read/update explicitly false. Assignee scoping enforced in-route:
+  `/api/incidents` filters to incidents linked to own assigned WOs,
+  `/api/ai/predictive-maintenance` filters to assigned vehicles,
+  `/api/vehicle-inspections/problems` filters to linked assigned WOs.
+  Nav keys: `/mechanic`,
   `/mechanic/work-orders`, `/mechanic/problems`, `/mechanic/history`
   (mechanic-only; `/mechanic/work-orders/[id]` inherits by prefix match).
   Unknown-role fallback is least-privilege "No Access" (`/settings/profile`),

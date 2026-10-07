@@ -390,25 +390,34 @@ Completion Audit" above; the seven notification titles in [[Notifications]].
   once (never overwritten); entering `Pending Inspection` stamps
   `repair_completed_by/at` — the four-eyes key (the completer cannot approve
   their own work: 403).
-- **Scoped reads (Task 4).** Mechanic list/counts carry
+- **Scoped reads (Task 4, corrected 2026-10-07).** Mechanic list/counts carry
   `AND vm.assigned_mechanic_id = $n` (paginated and non-paginated, lean
   projection + own id; staff SQL byte-identical); the problem queue gains an
   `EXISTS` on the linked live WO (a problem with no live linked order is
-  invisible to a mechanic); `GET /api/mechanic/summary` serves counts +
+  invisible to a mechanic); `/api/incidents` gains the same linked-WO EXISTS
+  for mechanic; `/api/ai/predictive-maintenance` filters to assigned vehicles
+  for mechanic; `GET /api/mechanic/summary` serves counts +
   ordered queue (`upNext` = `queue[0]`, actionable Scheduled/In Progress only)
-  + latest 8 notifications + `upcoming: []`. Non-mechanic → 403.
+  + latest 8 notifications + `upcoming: []`. `assigned` counts actionable
+  (Scheduled/In Progress/Pending Inspection) only so the Today's Line
+  EmptyState gate stays honest; `overdue` includes Pending Inspection past
+  `maintenance_date`. Non-mechanic → 403.
 - **Single-record GET (Task 4b).** `GET /api/vehicle-maintenance/[id]`
   (mechanic 403 unless assignee; staff read-only superset; lean columns incl.
   cost + `source_inspection_id`; vehicle = plate + name only). List and
   summary projections carry the same evidence keys, so queue, up-next and
   detail agree.
-- **Workshop UI (Task 6, web-only).** `/mechanic` (Today's Line),
+- **Workshop UI (Task 6, web-only, corrected 2026-10-07).** `/mechanic` (Today's Line),
   `/mechanic/work-orders`, `/mechanic/work-orders/[id]`,
   `/mechanic/problems` (read-only, no raise button — `maintenance:create` is
-  FM-only), `/mechanic/history` (Completed/Cancelled, cost display-only).
+  FM-only), `/mechanic/history` (Completed/Cancelled, cost display-only,
+  parts rendered from `parts_replaced`, "Not recorded" only when absent).
   Hero shows Start / Mark Ready only — Approve/Complete have no
   representation; mutating actions disable below 1024px with the desktop
-  reason. Task 7 polish: queue rows drop `shadow-xs`, problem chips reuse
+  reason. Detail timeline prefers `repair_completed_at` with `completed_date`
+  fallback for staff-direct completions; `Cancelled` maps to milestone 0.
+  Notification explicit `link` values are role-validated (`target.js`) so a
+  cross-role link resolves to null instead of a guard redirect. Task 7 polish: queue rows drop `shadow-xs`, problem chips reuse
   `StatusBadge` tones, the parts dot never falls back to `labor_hours`.
 - **Demo seed (Task 7).** `scripts/seed-mechanic-demo.mjs`
   (`seed:mechanic:plan/up/down`, ledger `seed:mechanic-demo` — the same
