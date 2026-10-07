@@ -253,6 +253,37 @@ describe("v2 trip geofence targets", () => {
     expect(targets.pickup_location_provenance).toBe("canonical_registry");
   });
 
+  it("evaluates a v2 zero-coordinate target through ping and arrival gates", async () => {
+    clearTripGeofenceCache();
+    const zeroV2Trip = {
+      trip_id: 58, dispatch_id: 9, route_id: null,
+      origin: "Partner pickup", destination: "Partner drop-off",
+      external_create_fingerprint: "v2-zero", pickup_location_id: 41, dropoff_location_id: null,
+      _pickup_registry_location_id: 41, _pickup_registry_name: "Equator Harbor",
+      _pickup_registry_is_active: true, _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: "0", _pickup_registry_longitude: "0", _pickup_registry_radius: 75,
+      _dropoff_registry_location_id: null,
+    };
+    const pingResult = await evaluatePingGeofence(stubDb([]), zeroV2Trip, {
+      latitude: 0.0005, longitude: 0, accuracy: 10,
+    });
+    expect(pingResult.near_pickup).toBe(true);
+
+    const zeroPositionResult = await evaluatePingGeofence(stubDb([]), zeroV2Trip, {
+      latitude: 0, longitude: 0, accuracy: 10,
+    });
+    expect(zeroPositionResult.near_pickup).toBe(false);
+    expect(zeroPositionResult.pickup.state).toBe("unknown");
+
+    clearTripGeofenceCache();
+    const now = new Date("2026-09-07T10:00:00+08:00");
+    const arrivalDb = stubDb([
+      ["FROM gpstracking", [{ latitude: "0.0005", longitude: "0", accuracy: "10", recorded_at: now.toISOString() }]],
+      ["FROM trips t", [zeroV2Trip]],
+    ]);
+    expect((await checkPickupProximity(arrivalDb, 58, now)).state).toBe("inside");
+  });
+
   it("preserves the legacy (0,0) sentinel for route points", async () => {
     const db = stubDb([
       ["FROM dispatchschedules", [{ route_id: 23 }]],

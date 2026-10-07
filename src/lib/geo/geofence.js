@@ -23,13 +23,13 @@ export const GEOFENCE_FIX_FRESH_MS = 10 * 60 * 1000;
 /** Segments implying faster than this are teleports, not driving. */
 export const TRAIL_MAX_KMH = 180;
 
-function toLatLng(value) {
+function toLatLng(value, { allowZeroZero = false } = {}) {
   if (!value || typeof value !== "object") return null;
   const lat = Number(value.lat ?? value.latitude);
   const lng = Number(value.lng ?? value.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  if (lat === 0 && lng === 0) return null;
+  if (lat === 0 && lng === 0 && !allowZeroZero) return null;
   return { lat, lng };
 }
 
@@ -52,12 +52,13 @@ export function resolveGeofenceRadius(value, fallback = DEFAULT_GEOFENCE_RADIUS_
  * @param {{lat:number,lng:number}|{latitude:number,longitude:number}} p.target
  * @param {number} [p.radiusM] geofence radius in metres
  * @param {number|null} [p.accuracyM] reported fix accuracy in metres (null = unreported)
+ * @param {boolean} [p.allowZeroZeroTarget=false] allow (0,0) for target only
  * @returns {{ state: "inside"|"outside"|"unknown", distanceM: number|null, radiusM: number, reason: string }}
  */
-export function evaluateGeofence({ position, target, radiusM, accuracyM = null }) {
+export function evaluateGeofence({ position, target, radiusM, accuracyM = null, allowZeroZeroTarget = false }) {
   const radius = resolveGeofenceRadius(radiusM);
   const pos = toLatLng(position);
-  const tgt = toLatLng(target);
+  const tgt = toLatLng(target, { allowZeroZero: allowZeroZeroTarget });
   if (!pos || !tgt) {
     return { state: "unknown", distanceM: null, radiusM: radius, reason: "Position or target is missing." };
   }
@@ -90,10 +91,16 @@ export function evaluateGeofence({ position, target, radiusM, accuracyM = null }
  * unknown — never guessed.
  */export function evaluateTripGeofences({ position, accuracyM = null, pickup = null, destination = null }) {
   const pick = pickup
-    ? evaluateGeofence({ position, target: pickup, radiusM: pickup.radiusM, accuracyM })
+    ? evaluateGeofence({
+        position, target: pickup, radiusM: pickup.radiusM, accuracyM,
+        allowZeroZeroTarget: pickup.source === "canonical_registry",
+      })
     : { state: "unknown", distanceM: null, radiusM: DEFAULT_GEOFENCE_RADIUS_M, reason: "Pickup point is not resolved." };
   const dest = destination
-    ? evaluateGeofence({ position, target: destination, radiusM: destination.radiusM, accuracyM })
+    ? evaluateGeofence({
+        position, target: destination, radiusM: destination.radiusM, accuracyM,
+        allowZeroZeroTarget: destination.source === "canonical_registry",
+      })
     : { state: "unknown", distanceM: null, radiusM: DEFAULT_GEOFENCE_RADIUS_M, reason: "Destination is not resolved." };
   return {
     near_pickup: pick.state === "inside",

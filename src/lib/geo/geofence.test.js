@@ -34,6 +34,17 @@ describe("evaluateGeofence", () => {
     expect(out.distanceM).toBeLessThanOrEqual(60);
   });
 
+  it("allows zero only for a canonical target, never a GPS position", () => {
+    const target = { lat: 0, lng: 0, source: "canonical_registry" };
+    expect(evaluateGeofence({
+      position: { lat: 0.0005, lng: 0 }, target, allowZeroZeroTarget: true,
+    }).state).toBe("inside");
+    expect(evaluateGeofence({ position: { lat: 0.0005, lng: 0 }, target }).state).toBe("unknown");
+    expect(evaluateGeofence({
+      position: { lat: 0, lng: 0 }, target, allowZeroZeroTarget: true,
+    }).state).toBe("unknown");
+  });
+
   it("detects outside (180 m, nothing fires)", () => {
     const out = evaluateGeofence({
       position: { lat: 14.5175, lng: 120.9953 }, // ~180 m away

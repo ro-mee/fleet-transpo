@@ -310,6 +310,7 @@ async function checkEndProximity(db, tripId, now, end) {
       target,
       radiusM: target.radiusM,
       accuracyM: ping.accuracy,
+      allowZeroZeroTarget: target.source === "canonical_registry",
     });
     return {
       ...verdict,
