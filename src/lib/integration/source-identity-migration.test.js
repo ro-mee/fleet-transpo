@@ -5,6 +5,12 @@ import { describe, expect, it } from "vitest";
 const migration = readFileSync(fileURLToPath(new URL("../../../supabase/migrations/144_transport_source_identity.sql", import.meta.url)), "utf8");
 
 describe("prepared source-identity migration safety", () => {
+  it("wraps every migration statement in an explicit transaction", () => {
+    const uncommented = migration.replace(/^\s*--.*$/gm, "").trim();
+    expect(uncommented).toMatch(/^BEGIN;/i);
+    expect(uncommented).toMatch(/COMMIT;$/i);
+  });
+
   it("fails rather than accepting a wrong same-named or partial source identity index", () => {
     expect(migration).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS transportation_requests_source_request_uq/i);
     expect(migration).toMatch(/pg_index/i);

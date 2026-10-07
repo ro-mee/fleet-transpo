@@ -1,6 +1,8 @@
 -- Prepared only; never applied as part of Task 1. Rollback requires first resolving
 -- duplicate external_booking_id values across sources; do not blindly restore old unique.
 -- Keep archived external_booking_id unchanged for existing PMS and other archived rows.
+BEGIN;
+
 ALTER TABLE public.transportation_requests
   ADD COLUMN IF NOT EXISTS external_request_id varchar(255),
   ADD COLUMN IF NOT EXISTS external_create_fingerprint varchar(64);
@@ -56,3 +58,5 @@ END $$;
 -- FULL composite uniqueness: no WHERE deleted_at IS NULL partial predicate.
 -- A non-null (source_system, external_request_id) is never reusable, including
 -- after soft deletion; replays of tombstoned identities receive HTTP 409.
+
+COMMIT;
