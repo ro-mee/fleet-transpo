@@ -381,3 +381,62 @@ export async function getSupplyShipmentForEvaluation(shipmentId, vehicleId) {
   const { manifest_snapshot: manifest, vehicle_status: vehicleStatus, ...profile } = rows[0];
   return { manifest, profile: { ...profile, vehicle_status: vehicleStatus } };
 }
+
+export async function getSupplyShipmentForFleetLoadEvaluation(shipmentId) {
+  const { rows } = await query(
+    `WITH selected_shipment AS (
+       SELECT r.manifest_snapshot
+         FROM supply_shipments s
+         JOIN supply_manifest_revisions r
+           ON r.supply_shipment_id = s.supply_shipment_id
+          AND r.manifest_revision = s.current_manifest_revision
+        WHERE s.supply_shipment_id = $1
+     ), fleet AS (
+       SELECT vehicle_id, plate_number, vehicle_name, vehicle_status
+         FROM vehicles
+        WHERE deleted_at IS NULL
+        ORDER BY plate_number NULLS LAST, vehicle_id
+        LIMIT 501
+     )
+     SELECT s.manifest_snapshot,
+            v.vehicle_id, v.plate_number, v.vehicle_name, v.vehicle_status,
+            p.supports_supply_delivery, p.rated_payload_kg,
+            p.gross_vehicle_weight_limit_kg, p.operating_mass_kg,
+            p.operational_reserve_kg, p.usable_volume_m3,
+            p.compartment_length_m, p.compartment_width_m, p.compartment_height_m,
+            p.opening_length_m, p.opening_width_m, p.opening_height_m,
+            p.temperature_min_c, p.temperature_max_c, p.handling_capabilities,
+            p.verification_reference, p.verification_valid_until,
+            p.verified_at, p.verified_by
+       FROM selected_shipment s
+       LEFT JOIN fleet v ON true
+       LEFT JOIN vehicle_cargo_profiles p ON p.vehicle_id = v.vehicle_id
+      ORDER BY v.plate_number NULLS LAST, v.vehicle_id`,
+    [shipmentId]
+  );
+
+  if (!rows.length) return null;
+  if (rows.length > 500) {
+    throw new SupplyIntegrationError("Fleet exceeds the 500-vehicle comparison limit; no partial comparison was returned.", 422, "FLEET_COMPARISON_LIMIT");
+  }
+
+  return {
+    manifest: rows[0].manifest_snapshot,
+    vehicles: rows
+      .filter((row) => row.vehicle_id != null)
+      .map((row) => {
+        const {
+          manifest_snapshot: _manifest,
+          vehicle_id,
+          plate_number,
+          vehicle_name,
+          vehicle_status,
+          ...profile
+        } = row;
+        return {
+          vehicle: { vehicle_id, plate_number, vehicle_name, vehicle_status },
+          profile: { ...profile, vehicle_status },
+        };
+      }),
+  };
+}

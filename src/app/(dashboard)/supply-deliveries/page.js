@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, ClipboardCheck, MapPin, PackageCheck, RefreshCw, Scale, ShieldCheck, Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -187,6 +187,7 @@ export default function SupplyDeliveriesPage() {
   const [importJson, setImportJson] = useState("");
   const [importError, setImportError] = useState("");
   const [evaluation, setEvaluation] = useState(null);
+  const [fleetLoadFit, setFleetLoadFit] = useState(null);
   const [siteMappingKey, setSiteMappingKey] = useState("");
   const [siteMappingLocationId, setSiteMappingLocationId] = useState("");
 
@@ -226,6 +227,9 @@ export default function SupplyDeliveriesPage() {
   const selectedShipment = shipments.find((item) => item.supply_shipment_id === selectedShipmentId) ?? shipments[0] ?? null;
   const selectedVehicle = profiles.find((item) => String(item.vehicle_id) === selectedVehicleId) ?? null;
   const profileVehicle = profiles.find((item) => String(item.vehicle_id) === profileVehicleId) ?? null;
+  const selectedShipmentRef = useRef("");
+  selectedShipmentRef.current = selectedShipment?.supply_shipment_id ?? "";
+  const visibleFleetLoadFit = fleetLoadFit?.shipment_id === selectedShipment?.supply_shipment_id ? fleetLoadFit : null;
   const siteMappingKeyIsValid = siteTargets.some((item) => item.key === siteMappingKey);
   const effectiveSiteMappingKey = siteMappingKeyIsValid ? siteMappingKey : siteTargets[0]?.key || "";
   const selectedSiteTarget = siteTargets.find((item) => item.key === effectiveSiteMappingKey) ?? null;
@@ -242,6 +246,7 @@ export default function SupplyDeliveriesPage() {
     if (selectedShipmentId && !shipments.some((item) => item.supply_shipment_id === selectedShipmentId)) {
       setSelectedShipmentId(shipments[0]?.supply_shipment_id ?? "");
       setEvaluation(null);
+      setFleetLoadFit(null);
     }
   }, [selectedShipmentId, shipments]);
 
@@ -264,6 +269,7 @@ export default function SupplyDeliveriesPage() {
       toast.success(result.replayed ? "Sandbox event already received" : "Sandbox request imported");
       setSelectedShipmentId(result.shipment_id);
       setEvaluation(null);
+      setFleetLoadFit(null);
       queryClient.invalidateQueries({ queryKey: ["supply-shipments"] });
     },
     onError: (error) => setImportError(error.message),
@@ -278,6 +284,17 @@ export default function SupplyDeliveriesPage() {
     onError: (error) => toast.error(error.message),
   });
 
+  const fleetLoadFitMutation = useMutation({
+    mutationFn: (shipmentId) => requestJson("/api/supply/shipments/load-fit", {
+      method: "POST",
+      body: JSON.stringify({ shipment_id: shipmentId }),
+    }),
+    onMutate: () => setFleetLoadFit(null),
+    onSuccess: (result, shipmentId) => {
+      if (shipmentId === selectedShipmentRef.current) setFleetLoadFit(result);
+    },
+  });
+
   const profileMutation = useMutation({
     mutationFn: (body) => requestJson("/api/supply/vehicles/cargo-profile", {
       method: "PUT",
@@ -287,6 +304,7 @@ export default function SupplyDeliveriesPage() {
       toast.success("Vehicle cargo profile saved");
       queryClient.invalidateQueries({ queryKey: ["supply-cargo-profiles"] });
       setEvaluation(null);
+      setFleetLoadFit(null);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -429,7 +447,7 @@ export default function SupplyDeliveriesPage() {
                       key={shipment.supply_shipment_id}
                       type="button"
                       aria-pressed={active}
-                      onClick={() => { setSelectedShipmentId(shipment.supply_shipment_id); setEvaluation(null); }}
+                      onClick={() => { setSelectedShipmentId(shipment.supply_shipment_id); setEvaluation(null); setFleetLoadFit(null); }}
                       className={`grid w-full gap-3 rounded-xl px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2 sm:grid-cols-[minmax(0,1fr)_auto] ${active ? "bg-info/5" : "hover:bg-muted/40"}`}
                     >
                       <div className="min-w-0">
@@ -464,7 +482,7 @@ export default function SupplyDeliveriesPage() {
               <span>Supply request</span>
               <select
                 value={selectedShipment?.supply_shipment_id ?? ""}
-                onChange={(event) => { setSelectedShipmentId(event.target.value); setEvaluation(null); }}
+                onChange={(event) => { setSelectedShipmentId(event.target.value); setEvaluation(null); setFleetLoadFit(null); }}
                 className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
               >
                 {shipments.map((shipment) => <option key={shipment.supply_shipment_id} value={shipment.supply_shipment_id}>{shipment.external_request_id} · rev {shipment.current_manifest_revision}</option>)}
@@ -490,8 +508,19 @@ export default function SupplyDeliveriesPage() {
               <Scale className="mr-2 h-4 w-4" aria-hidden="true" />
               {evaluationMutation.isPending ? "Checking measurements…" : "Check load fit"}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={!selectedShipment || profilesQuery.isLoading || profiles.length === 0 || fleetLoadFitMutation.isPending}
+              onClick={() => fleetLoadFitMutation.mutate(selectedShipment.supply_shipment_id)}
+            >
+              <Truck className="mr-2 h-4 w-4" aria-hidden="true" />
+              {fleetLoadFitMutation.isPending ? "Comparing fleet measurements…" : "Compare load fit across fleet"}
+            </Button>
 
             {evaluationMutation.isError && <p role="alert" className="text-sm text-danger-800 dark:text-rose-200">{evaluationMutation.error.message}</p>}
+            {fleetLoadFitMutation.isError && <p role="alert" className="text-sm text-danger-800 dark:text-rose-200">{fleetLoadFitMutation.error.message}</p>}
             {evaluation && (
               <div className="space-y-3 border-t border-border pt-4" aria-live="polite">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -515,6 +544,62 @@ export default function SupplyDeliveriesPage() {
                   ))}
                 </ul>
               </div>
+            )}
+            {visibleFleetLoadFit && (
+              <section className="space-y-3 border-t border-border pt-4" aria-label="Fleet load-fit comparison">
+                <div className="space-y-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">Load-fit pre-screen only</p>
+                    <Badge variant="outline">Assignment not evaluated</Badge>
+                  </div>
+                  <p className="leading-relaxed">
+                    A measurement pass does not make a vehicle assignable. These checks are still open: {visibleFleetLoadFit.not_evaluated.join("; ")}.
+                  </p>
+                </div>
+                <p className="text-xs text-foreground-secondary" aria-live="polite">
+                  Measurement results for {visibleFleetLoadFit.vehicles.length} {visibleFleetLoadFit.vehicles.length === 1 ? "vehicle" : "vehicles"}.
+                </p>
+                {visibleFleetLoadFit.vehicles.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-border p-4 text-sm text-foreground-secondary">No fleet vehicles are available for this comparison.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {visibleFleetLoadFit.vehicles.map((vehicle) => {
+                      const unresolvedChecks = vehicle.evaluation.checks.filter((item) => item.status !== "PASS");
+                      return (
+                        <li key={vehicle.vehicle_id} className="space-y-2 rounded-xl border border-border bg-background p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-semibold text-foreground">{vehicle.plate_number} · {vehicle.vehicle_name}</p>
+                              <p className="mt-0.5 text-xs text-foreground-secondary">Vehicle state: {vehicle.vehicle_status || "Unknown"}</p>
+                            </div>
+                            <Badge variant="outline">{vehicle.evaluation.load_checks_pass ? "Measurement pass" : "Blocked"}</Badge>
+                          </div>
+                          <p className="text-xs text-foreground-secondary">
+                            Gross weight: {numberText(vehicle.evaluation.totals.gross_weight_kg)} kg · Nominal volume: {numberText(vehicle.evaluation.totals.nominal_volume_m3)} m³
+                          </p>
+                          {unresolvedChecks.length > 0 ? (
+                            <details className="text-xs">
+                              <summary className="cursor-pointer font-medium text-info underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info">
+                                Review {unresolvedChecks.length} blocked or unknown measurement {unresolvedChecks.length === 1 ? "check" : "checks"}
+                              </summary>
+                              <ul className="mt-2 space-y-2">
+                                {unresolvedChecks.map((item) => (
+                                  <li key={item.id} className={`rounded-lg border px-3 py-2 ${checkTone(item.status)}`}>
+                                    <p className="font-semibold">{item.id.replaceAll("_", " ")} · {item.status}</p>
+                                    <p className="mt-0.5 leading-relaxed">{item.reason}</p>
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : (
+                            <p className="text-xs text-success-800 dark:text-success-200">All recorded physical load checks pass.</p>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
             )}
           </CardContent>
         </Card>

@@ -190,7 +190,7 @@ Manifest: 120 cartons, 10 kg gross per carton, each 0.50 m × 0.50 m × 0.20 m. 
 
 ## 8. APIs, events and permissions
 
-These routes and payloads are proposals only; they are not existing endpoints. Use versioned, Zod-validated contracts and an anti-corruption adapter. Do not send the SCM schema through the Booking transportation-request parser.
+The partner-facing SCM route and event shapes below remain proposals; FleetOps is not connected to SCM. Existing Fleet-only sandbox routes support approved sample imports, shipment listing, cargo-profile maintenance, single-vehicle load evaluation and a read-only fleet load-fit pre-screen (`POST /api/supply/shipments/load-fit`). Use versioned, Zod-validated contracts and an anti-corruption adapter. Do not send the SCM schema through the Booking transportation-request parser.
 
 ### Contract shape
 
@@ -300,6 +300,8 @@ Complexity is a planning estimate: S small, M medium, L large. Paths are likely 
 | P0.6 Reporting split, regression and reproducible demo | *src/lib/reports/operational-reports.js*, reports routes/pages and tests near changed modules | M | Historical untyped dispatches could contaminate KPIs | Passenger metrics remain unchanged for passenger fixtures; cargo metrics use typed cargo rows; full contract-to-receipt sandbox walkthrough is repeatable. |
 
 P0 excludes multi-stop route batching, mixed passenger/cargo trips, automatic multi-vehicle bin packing and live stock writes. It must nevertheless reject an unfit load and offer a safe documented split/additional-vehicle path.
+
+**Implementation status (2026-10-07):** The Supply Deliveries page now compares the current manifest against all non-deleted fleet vehicles in one bounded read query and shows physical-load measurement results and their blockers. The endpoint rejects fleets over 500 vehicles instead of returning a partial comparison. Its response explicitly marks assignment eligibility `NOT_EVALUATED`; driver qualification/duty/leave/schedule, shared vehicle/driver overlap, route/window, documents/inspection/roadworthiness, trip mass, loading arrangement, axle balance and securement remain unverified. This is a pre-screen only, so P0.3 remains open until the full vehicle-driver candidate service and its route, legal, document, schedule and shared-resource checks exist. P0.4–P0.6 remain unimplemented; cargo assignment is still disabled. No DB objects or operational rows changed in this increment.
 
 ### P1 — production readiness
 
