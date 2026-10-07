@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { query, withTransaction } from "@/lib/db";
 
 export class SupplyIntegrationError extends Error {
-  constructor(message, status = 400) {
+  constructor(message, status = 400, code = "BUSINESS_RULE_CONFLICT") {
     super(message);
     this.name = "SupplyIntegrationError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -18,6 +19,50 @@ function stableStringify(value) {
 }
 
 const hash = (value) => createHash("sha256").update(stableStringify(value)).digest("hex");
+
+function safeIdentifier(value, maxLength) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maxLength || /[\u0000-\u001f\u007f]/.test(normalized)) return null;
+  return normalized;
+}
+
+function attemptIdentifiers(value) {
+  const sourceOrganizationId = safeIdentifier(value?.source?.organization_id, 128);
+  const sandboxOrganizationId = sourceOrganizationId?.startsWith("sandbox:")
+    ? sourceOrganizationId
+    : null;
+  const sequence = value?.sequence;
+  return {
+    sourceOrganizationId: sandboxOrganizationId,
+    externalRequestId: sandboxOrganizationId ? safeIdentifier(value?.request?.external_request_id, 128) : null,
+    sourceEventId: sandboxOrganizationId ? safeIdentifier(value?.event_id, 255) : null,
+    sourceSequence: sandboxOrganizationId && Number.isSafeInteger(sequence) && sequence > 0 ? sequence : null,
+  };
+}
+
+export const hashSupplyPayload = hash;
+
+/** Store only a hash and bounded identifiers for a rejected sandbox submission. */
+export async function recordSandboxImportAttempt({ value, payloadHash = hash(value), actorEmployeeId, rejectionCode, responseStatus }) {
+  const identifiers = attemptIdentifiers(value);
+  await query(
+    `INSERT INTO supply_integration_attempts
+       (source_organization_id, external_request_id, source_event_id,
+        source_sequence, payload_hash, rejection_code, response_status, actor_employee_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      identifiers.sourceOrganizationId,
+      identifiers.externalRequestId,
+      identifiers.sourceEventId,
+      identifiers.sourceSequence,
+      payloadHash,
+      rejectionCode,
+      responseStatus,
+      actorEmployeeId,
+    ]
+  );
+}
 
 function responseFor(shipment, replayed = false) {
   return {
@@ -67,7 +112,11 @@ export async function ingestSandboxTransportEvent(event, actorEmployeeId) {
         [event.source.organization_id, event.event_id]
       );
       if (rows[0]?.event_hash !== eventHash) {
-        throw new SupplyIntegrationError("This source event ID was already used with a different payload.", 409);
+        throw new SupplyIntegrationError(
+          "This source event ID was already used with a different payload.",
+          409,
+          "SOURCE_EVENT_ID_CONFLICT"
+        );
       }
       if (rows[0]?.processing_status === "REJECTED") {
         const rejection = rows[0].response_snapshot ?? {};
@@ -132,7 +181,7 @@ export async function ingestSandboxTransportEvent(event, actorEmployeeId) {
           throw new SupplyIntegrationError("A manifest revision is immutable; send a higher revision to change it.", 409);
         }
         if (event.sequence <= Number(shipment.source_sequence)) {
-          throw new SupplyIntegrationError("Event sequence must advance for this request.", 409);
+          throw new SupplyIntegrationError("Event sequence must advance for this request.", 409, "SOURCE_SEQUENCE_CONFLICT");
         }
         await tx.query(
           `UPDATE supply_shipments
@@ -152,7 +201,7 @@ export async function ingestSandboxTransportEvent(event, actorEmployeeId) {
           throw new SupplyIntegrationError("Manifest revision must advance by exactly one.", 409);
         }
         if (event.sequence <= Number(shipment.source_sequence)) {
-          throw new SupplyIntegrationError("Event sequence must advance for this request.", 409);
+          throw new SupplyIntegrationError("Event sequence must advance for this request.", 409, "SOURCE_SEQUENCE_CONFLICT");
         }
         if (!["READY_FOR_PLANNING", "WAITING_FOR_PICKUP", "BLOCKED"].includes(shipment.status)) {
           throw new SupplyIntegrationError("The manifest cannot change after allocation or loading has started.", 409);
@@ -247,13 +296,14 @@ export async function ingestSandboxTransportEvent(event, actorEmployeeId) {
       error: error.message,
       status: error.status,
     };
-    await query(
+    const { rows } = await query(
       `INSERT INTO supply_integration_inbox
          (source_organization_id, external_request_id, source_event_id, event_type,
           source_sequence, correlation_id, schema_version, event_hash,
           processing_status, response_snapshot)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'REJECTED', $9::jsonb)
-       ON CONFLICT DO NOTHING`,
+       ON CONFLICT DO NOTHING
+       RETURNING supply_inbox_id`,
       [
         event.source.organization_id,
         event.request.external_request_id,
@@ -266,6 +316,15 @@ export async function ingestSandboxTransportEvent(event, actorEmployeeId) {
         JSON.stringify(rejection),
       ]
     );
+    if (!rows[0]) {
+      await recordSandboxImportAttempt({
+        value: event,
+        payloadHash: eventHash,
+        actorEmployeeId,
+        rejectionCode: error.code || "BUSINESS_RULE_CONFLICT",
+        responseStatus: error.status,
+      });
+    }
     throw error;
   }
 }

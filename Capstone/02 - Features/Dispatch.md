@@ -9,7 +9,7 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-10-03
+last_verified: 2026-10-07
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
@@ -480,3 +480,13 @@ Keep shipment and receiving states separate from dispatch/trip states. The passe
 The `/supply-deliveries` surface lists imported sandbox shipment snapshots, maintains measured cargo profiles, and evaluates weight, nominal volume, package fit, handling, temperature, pickup readiness and the existing vehicle statuses that prevent dispatch. Its PASS result covers those checks only. It does not check schedule availability, driver qualification, documents, roadworthiness, axle distribution, loading arrangement or securement.
 
 No shipment-to-dispatch allocation, signed recommendation token, commit-time shared reservation, typed driver job, mobile checkpoint or receipt path was added. Existing passenger queue, manual assignment and trip lifecycle remain the only assignment/execution workflows. Do not assign supply shipments through this page; the implementation progress is recorded in docs/plans/supply-chain-fleet-integration-plan.md.
+
+The sandbox page now lets admins map external SCM site IDs to active Fleet locations with stored addresses and valid coordinates. This resolves identity only: it does not provide routing evidence, driver/vehicle scheduling, dispatch assignment or trip creation. The mapping must not be treated as evidence that a route is feasible or that a shipment is eligible for assignment.
+
+## Supply delivery shared-dispatch baseline - 2026-10-07
+
+A read-only live query grouped dispatch rows by active/deleted state, status and whether `request_id` is null. The active snapshot contained 37 rows: 30 `Completed` and 7 `Scheduled`; all 37 had a request ID. Migration `147_dispatch_service_type.sql` adds a nullable, checked `service_type` on this shared resource slot. Request-linked rows are `PASSENGER`; requestless historical rows remain NULL. New dispatches default to `PASSENGER`.
+
+The source audit found two dispatch creation paths: `POST /api/dispatch` and `/api/integration/transport-requests/[id]/assign`, which calls `createDispatchForRequest()` inside the passenger assignment transaction. The general endpoint now stamps `PASSENGER` and rejects `SUPPLY_DELIVERY`; the request assignment helper explicitly creates or updates `PASSENGER` dispatches. `PUT /api/dispatch/[id]` does not allow changing the type. Other current consumers include dispatch calendar/availability, trip lifecycle and mobile projection, scheduling, notifications, and trip-based reports. The UI service's `createDispatch()` helper has no non-test caller in this checkout.
+
+Report review found that driver punctuality uses passenger pickup evidence (`at_pickup_at` against dispatch departure or the Booking pickup promise). Fleet Utilization, Driver Performance and the Trip Performance workbook now exclude typed `SUPPLY_DELIVERY` dispatches while retaining legacy untyped trips. Fleet Cost, Financial Summary and Fuel Consumption remain fleet-wide. There are still no cargo dispatches, allocations, recommendation tokens or typed mobile jobs. Cargo assignment must remain unavailable until shared transaction checks, cargo KPIs and the driver workflow are implemented. No operational dispatch was inserted; the migration classified existing request-linked rows only.

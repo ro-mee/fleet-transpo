@@ -3,6 +3,7 @@ import { ensureTripForDispatch, syncVehicleStatus, syncDriverStatus } from "@/se
 import { flushOutbox } from "@/services/push.service";
 import { resolveRouteForRequest } from "@/services/route-resolver.service";
 import { serviceEnd } from '@/services/dispatch-radar.service';
+import { DISPATCH_SERVICE_TYPE } from "@/lib/constants";
 
 // Auto-create a dispatch (+ its trip) the moment a full vehicle+driver pair is
 // committed to a transportation request — GAP-FIX: previously the assign
@@ -48,9 +49,9 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
       if (Number(row.vehicle_id)===Number(vehicleId) && Number(row.driver_id)===Number(driverId)
         && new Date(row.scheduled_departure).getTime()===new Date(request.pickup_datetime).getTime()
         && new Date(row.scheduled_arrival).getTime()===serviceEnd(request)?.getTime()) return row;
-      const { rows } = await tx.query(`UPDATE dispatchschedules SET vehicle_id=$2,driver_id=$3,
-        scheduled_departure=$4,scheduled_arrival=$5,updated_at=NOW() WHERE dispatch_id=$1 RETURNING *`,
-      [row.dispatch_id,vehicleId,driverId,request.pickup_datetime,serviceEnd(request)?.toISOString() ?? null]);
+      const { rows } = await tx.query(`UPDATE dispatchschedules SET service_type=$2,vehicle_id=$3,driver_id=$4,
+        scheduled_departure=$5,scheduled_arrival=$6,updated_at=NOW() WHERE dispatch_id=$1 RETURNING *`,
+      [row.dispatch_id,DISPATCH_SERVICE_TYPE.PASSENGER,vehicleId,driverId,request.pickup_datetime,serviceEnd(request)?.toISOString() ?? null]);
       return rows[0];
     }
 
@@ -75,12 +76,13 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
     try {
       const ins = await tx.query(
         `INSERT INTO dispatchschedules
-           (request_id, vehicle_id, driver_id, route_id, scheduled_departure,
+           (request_id, service_type, vehicle_id, driver_id, route_id, scheduled_departure,
             scheduled_arrival, status, notes, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, 'Scheduled', $7, $8, $8)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Scheduled', $8, $9, $9)
          RETURNING *`,
         [
           request.request_id,
+          DISPATCH_SERVICE_TYPE.PASSENGER,
           vehicleId,
           driverId,
           routeId,
@@ -100,12 +102,13 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
         const fallback = `DSP-${suffix}`;
         const ins = await tx.query(
           `INSERT INTO dispatchschedules
-             (request_id, vehicle_id, driver_id, route_id, scheduled_departure,
+             (request_id, service_type, vehicle_id, driver_id, route_id, scheduled_departure,
               scheduled_arrival, status, notes, dispatch_number, created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, $6, 'Scheduled', $7, $8, $9, $9)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'Scheduled', $8, $9, $10, $10)
            RETURNING *`,
           [
             request.request_id,
+            DISPATCH_SERVICE_TYPE.PASSENGER,
             vehicleId,
             driverId,
             routeId,

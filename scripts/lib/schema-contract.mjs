@@ -198,9 +198,17 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "SCM sandbox event hashes, sequencing and idempotent acknowledgements.",
   },
+  supply_integration_attempts: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Rejected SCM sandbox attempt hashes and bounded conflict metadata; never stores rejected bodies.",
+  },
   supply_shipment_events: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Append-only supply shipment integration and Fleet audit events.",
+  },
+  supply_site_mappings: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Admin-verified mapping from sandbox SCM site IDs to active Fleet locations and coordinates.",
   },
   routes: {
     classification: CLASSIFICATION.PRIVATE,

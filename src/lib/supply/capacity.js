@@ -67,11 +67,20 @@ export function evaluateSupplyLoad(manifest, profile, now = new Date()) {
     checks.push(check("vehicle_operational_status", "PASS", "Vehicle condition status does not block dispatch. Time-specific availability is not checked here."));
   }
 
+  const verificationExpiresAt = profile?.verification_valid_until == null
+    ? Number.NaN
+    : new Date(profile.verification_valid_until).getTime();
+  const verifiedAt = profile?.verified_at == null ? Number.NaN : new Date(profile.verified_at).getTime();
   if (!profile || profile.supports_supply_delivery !== true) {
     checks.push(check("service_eligibility", "BLOCK", "This vehicle is not explicitly enabled for supply delivery."));
-  } else if (!profile.verified_at || !profile.verification_reference) {
-    checks.push(check("profile_verification", "BLOCK", "Cargo measurements do not have a recorded verification reference."));
-  } else if (profile.verification_valid_until && new Date(profile.verification_valid_until).getTime() <= now.getTime()) {
+  } else if (
+    !profile.verified_by ||
+    !profile.verification_reference ||
+    !Number.isFinite(verifiedAt) ||
+    !Number.isFinite(verificationExpiresAt)
+  ) {
+    checks.push(check("profile_verification", "BLOCK", "Cargo measurements need a recorded verifier, timestamp, reference and validity date."));
+  } else if (verificationExpiresAt <= now.getTime()) {
     checks.push(check("profile_verification", "BLOCK", "Cargo measurements have passed their verification date."));
   } else {
     checks.push(check("service_eligibility", "PASS", "The vehicle has explicit supply-delivery approval."));

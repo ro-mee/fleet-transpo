@@ -112,4 +112,4 @@ Four objects existed with no migration file and one CHECK constraint differed. *
 
 ## Supply delivery tables
 
-The sandbox supply-delivery foundation is documented in [[supply_delivery_foundation]] and applied by migration 144. It stores private shipment/manifest snapshots and measured per-vehicle cargo profiles. It does not yet reserve dispatches or store receiver acceptance/inventory postings.
+The sandbox supply-delivery foundation is documented in [[supply_delivery_foundation]] and applied by migrations 144 and 145. It stores private shipment/manifest snapshots, measured per-vehicle cargo profiles, and admin-verified mappings from sandbox SCM site IDs to Fleet locations. It does not yet reserve dispatches or store receiver acceptance/inventory postings.

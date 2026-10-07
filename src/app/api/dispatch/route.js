@@ -11,7 +11,7 @@ import { flushOutbox } from "@/services/push.service";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { validatePairAvailability } from "@/services/recommendation.service";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
-import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
+import { DISPATCH_SERVICE_TYPE, RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 
 const JOIN_SELECT = `ds.*, row_to_json(v.*) as vehicles, row_to_json(d.*) as drivers, row_to_json(tr.*) as transportation_requests, row_to_json(r.*) as routes`;
@@ -36,6 +36,10 @@ export async function POST(req) {
   try {
     const session = await requirePermission(req, "dispatch", "create");
     const body = await parseBody(req);
+
+    if (body.service_type !== undefined && body.service_type !== DISPATCH_SERVICE_TYPE.PASSENGER) {
+      return err("Supply delivery dispatches must be created from the shipment allocation workflow.", 409);
+    }
 
     // Dispatch may originate from an approved Booking transportation request.
     // request_id is persisted on the dispatch row so trip completion can notify
@@ -91,6 +95,7 @@ export async function POST(req) {
     // Normalize request_id to the validated integer (or drop it entirely).
     if (requestId) body.request_id = requestId;
     else delete body.request_id;
+    body.service_type = DISPATCH_SERVICE_TYPE.PASSENGER;
 
     if (body.vehicle_id) {
       const { rows: vehicles } = await query(

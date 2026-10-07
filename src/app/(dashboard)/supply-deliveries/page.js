@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, ClipboardCheck, PackageCheck, RefreshCw, Scale, ShieldCheck, Truck } from "lucide-react";
+import { AlertTriangle, Check, ClipboardCheck, MapPin, PackageCheck, RefreshCw, Scale, ShieldCheck, Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { can, hasRole } from "@/lib/auth/permissions";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { toast } from "@/components/ui/toast";
+import { getSupplySiteMappings, saveSupplySiteMapping } from "@/services/supply-site-mapping.service";
 
 const HANDLING_CAPABILITIES = [
   ["FRAGILE", "Fragile"],
@@ -186,6 +187,8 @@ export default function SupplyDeliveriesPage() {
   const [importJson, setImportJson] = useState("");
   const [importError, setImportError] = useState("");
   const [evaluation, setEvaluation] = useState(null);
+  const [siteMappingKey, setSiteMappingKey] = useState("");
+  const [siteMappingLocationId, setSiteMappingLocationId] = useState("");
 
   const shipmentsQuery = useQuery({
     queryKey: ["supply-shipments"],
@@ -197,11 +200,42 @@ export default function SupplyDeliveriesPage() {
     queryFn: () => requestJson("/api/supply/vehicles/cargo-profile"),
     staleTime: 30_000,
   });
+  const siteMappingsQuery = useQuery({
+    queryKey: ["supply-site-mappings"],
+    queryFn: getSupplySiteMappings,
+    enabled: canImportSandbox,
+    staleTime: 30_000,
+  });
   const shipments = shipmentsQuery.data?.shipments ?? [];
   const profiles = profilesQuery.data?.profiles ?? [];
+  const siteMappings = siteMappingsQuery.data?.mappings ?? [];
+  const fleetLocations = siteMappingsQuery.data?.locations ?? [];
+  const siteTargets = useMemo(() => {
+    const targets = new Map();
+    for (const shipment of shipments) {
+      for (const [site_id, stop] of [[shipment.pickup_site_id, "Pickup"], [shipment.delivery_site_id, "Delivery"]]) {
+        if (!shipment.source_organization_id || !site_id) continue;
+        const key = JSON.stringify([shipment.source_organization_id, site_id]);
+        const current = targets.get(key) ?? { key, source_organization_id: shipment.source_organization_id, external_site_id: site_id, stops: [] };
+        if (!current.stops.includes(stop)) current.stops.push(stop);
+        targets.set(key, current);
+      }
+    }
+    return [...targets.values()].sort((a, b) => a.source_organization_id.localeCompare(b.source_organization_id) || a.external_site_id.localeCompare(b.external_site_id));
+  }, [shipments]);
   const selectedShipment = shipments.find((item) => item.supply_shipment_id === selectedShipmentId) ?? shipments[0] ?? null;
   const selectedVehicle = profiles.find((item) => String(item.vehicle_id) === selectedVehicleId) ?? null;
   const profileVehicle = profiles.find((item) => String(item.vehicle_id) === profileVehicleId) ?? null;
+  const siteMappingKeyIsValid = siteTargets.some((item) => item.key === siteMappingKey);
+  const effectiveSiteMappingKey = siteMappingKeyIsValid ? siteMappingKey : siteTargets[0]?.key || "";
+  const selectedSiteTarget = siteTargets.find((item) => item.key === effectiveSiteMappingKey) ?? null;
+  const selectedSiteMapping = siteMappings.find((item) => item.source_organization_id === selectedSiteTarget?.source_organization_id && item.external_site_id === selectedSiteTarget?.external_site_id) ?? null;
+  const selectedMappingLocationIsAvailable = fleetLocations.some((item) => item.location_id === selectedSiteMapping?.location_id);
+  const effectiveSiteMappingLocationId = siteMappingKeyIsValid && siteMappingLocationId && fleetLocations.some((item) => String(item.location_id) === siteMappingLocationId)
+    ? siteMappingLocationId
+    : selectedMappingLocationIsAvailable
+      ? String(selectedSiteMapping.location_id)
+      : fleetLocations[0] ? String(fleetLocations[0].location_id) : "";
 
   useEffect(() => {
     if (!selectedShipmentId && shipments[0]) setSelectedShipmentId(shipments[0].supply_shipment_id);
@@ -257,6 +291,15 @@ export default function SupplyDeliveriesPage() {
     onError: (error) => toast.error(error.message),
   });
 
+  const siteMappingMutation = useMutation({
+    mutationFn: saveSupplySiteMapping,
+    onSuccess: () => {
+      toast.success("Sandbox site mapping saved");
+      queryClient.invalidateQueries({ queryKey: ["supply-site-mappings"] });
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const queueSummary = useMemo(() => ({
     total: shipments.length,
     ready: shipments.filter((item) => item.status === "READY_FOR_PLANNING").length,
@@ -299,6 +342,17 @@ export default function SupplyDeliveriesPage() {
     const body = { ...profileForm, vehicle_id: Number(profileVehicleId) };
     for (const key of numericFields) body[key] = profileForm[key] === "" ? null : Number(profileForm[key]);
     profileMutation.mutate(body);
+  }
+
+  function submitSiteMapping(event) {
+    event.preventDefault();
+    const target = siteTargets.find((item) => item.key === effectiveSiteMappingKey);
+    if (!target || !effectiveSiteMappingLocationId) return;
+    siteMappingMutation.mutate({
+      source_organization_id: target.source_organization_id,
+      external_site_id: target.external_site_id,
+      location_id: Number(effectiveSiteMappingLocationId),
+    });
   }
 
   return (
@@ -495,6 +549,113 @@ export default function SupplyDeliveriesPage() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {canImportSandbox && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Map SCM sites to Fleet locations</CardTitle>
+              <p className="text-xs text-foreground-secondary">
+                Match sandbox pickup and delivery IDs to active Fleet locations with a stored address and coordinates. Review the location before saving; this does not look up or guess locations.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {siteMappingsQuery.isLoading ? (
+                <p className="text-sm text-foreground-secondary" role="status">Loading site mappings and Fleet locations…</p>
+              ) : siteMappingsQuery.isError ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-danger-800 dark:text-rose-200" role="alert">Site mappings could not be loaded. Refresh to try again.</p>
+                  <Button type="button" variant="outline" onClick={() => siteMappingsQuery.refetch()}>
+                    <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  {siteTargets.length === 0 ? (
+                    <p className="rounded-xl bg-muted/40 p-3 text-sm text-foreground-secondary">
+                      Import a sandbox shipment with pickup and delivery site IDs to configure its location mappings.
+                    </p>
+                  ) : fleetLocations.length === 0 ? (
+                    <p className="rounded-xl bg-warning/10 p-3 text-sm text-foreground-secondary">
+                      No active Fleet locations have both a stored address and valid coordinates. Add or review a location before mapping SCM sites.
+                    </p>
+                  ) : (
+                    <form className="space-y-3" onSubmit={submitSiteMapping}>
+                      <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary" htmlFor="site-mapping-target">
+                        <span>Sandbox SCM site</span>
+                        <select
+                          id="site-mapping-target"
+                          value={effectiveSiteMappingKey}
+                          onChange={(event) => {
+                            const targetKey = event.target.value;
+                            setSiteMappingKey(targetKey);
+                            const target = siteTargets.find((item) => item.key === targetKey);
+                            const savedMapping = siteMappings.find((item) => item.source_organization_id === target?.source_organization_id && item.external_site_id === target?.external_site_id);
+                            const locationId = savedMapping?.location_id ?? fleetLocations[0]?.location_id;
+                            setSiteMappingLocationId(locationId ? String(locationId) : "");
+                          }}
+                          required
+                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
+                        >
+                          {siteTargets.map((target) => (
+                            <option key={target.key} value={target.key}>
+                              {target.source_organization_id} · {target.external_site_id} ({target.stops.join(" / ")})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary" htmlFor="site-mapping-location">
+                        <span>Fleet location</span>
+                        <select
+                          id="site-mapping-location"
+                          value={effectiveSiteMappingLocationId}
+                          onChange={(event) => setSiteMappingLocationId(event.target.value)}
+                          required
+                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
+                        >
+                          {fleetLocations.map((location) => (
+                            <option key={location.location_id} value={location.location_id}>
+                              {location.name} · {location.address}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="flex justify-end">
+                        <Button type="submit" disabled={!effectiveSiteMappingKey || !effectiveSiteMappingLocationId || siteMappingMutation.isPending}>
+                          <MapPin className="mr-2 h-4 w-4" aria-hidden="true" />
+                          {siteMappingMutation.isPending ? "Saving…" : selectedSiteMapping ? "Update mapping" : "Save mapping"}
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+
+                  {siteMappings.length > 0 && (
+                    <div className="border-t border-border pt-4">
+                      <h3 className="text-sm font-semibold text-foreground">Saved sandbox mappings</h3>
+                      <ul className="mt-3 divide-y divide-border">
+                        {siteMappings.map((mapping) => {
+                          const mappingActive = mapping.is_active && mapping.location_is_active;
+                          const coordinates = [mapping.latitude, mapping.longitude].map(Number);
+                          const hasCoordinates = coordinates.every(Number.isFinite);
+                          return (
+                            <li key={mapping.supply_site_mapping_id} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                              <div className="min-w-0">
+                                <p className="break-all text-sm font-medium text-foreground">{mapping.external_site_id}</p>
+                                <p className="break-all text-xs text-foreground-secondary">{mapping.source_organization_id}</p>
+                                <p className="mt-1 text-xs text-foreground-secondary">{mapping.location_name} · {hasCoordinates ? coordinates.map((value) => value.toFixed(5)).join(", ") : "Coordinates unavailable"}</p>
+                              </div>
+                              <Badge variant={mappingActive ? "success" : "warning"}>{mappingActive ? "Active" : "Unavailable"}</Badge>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         )}

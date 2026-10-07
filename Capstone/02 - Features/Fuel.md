@@ -334,4 +334,4 @@ A later read-only snapshot of the same project (02:59 Manila) found 22 fulfilled
 
 ### Fuel request review dialog viewport fit - 2026-10-07
 
-The review dialog previously capped only its content body at `75vh`, while the header and action row sat outside that cap. On shorter viewports, the combined dialog exceeded its available height and `overflow-hidden` clipped the approval buttons. The dialog now caps its full height to `100dvh - 2rem`, keeps the header and footer intact, and scrolls only the content body. Source diff reviewed; no automated or browser verification was run.
+The dialog already capped its full height to `100dvh - 2rem`, but the root used `overflow-hidden` while only the body scrolled. The action row sat outside that body scroll area, so a tall dialog could clip the buttons at the viewport edge. The dialog root now owns vertical scrolling, and the header and action row stick to its top and bottom edges. The footer wraps at narrow widths and keeps each button at its natural width. No automated or browser verification was run.

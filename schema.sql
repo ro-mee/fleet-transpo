@@ -236,6 +236,8 @@ CREATE TABLE dispatchschedules (
   updated_by integer,
   request_id integer,
   cancel_reason text,
+  service_type varchar(32) DEFAULT 'PASSENGER'::character varying,
+  CONSTRAINT chk_dispatch_service_type CHECK (((service_type IS NULL) OR ((service_type)::text = ANY ((ARRAY['PASSENGER'::character varying, 'SUPPLY_DELIVERY'::character varying])::text[])))),
   CONSTRAINT chk_dispatch_status CHECK (((status)::text = ANY ((ARRAY['Scheduled'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying, 'Pending Reassignment'::character varying])::text[]))),
   CONSTRAINT dispatchschedules_pkey PRIMARY KEY (dispatch_id),
   CONSTRAINT dispatchschedules_dispatch_number_key UNIQUE (dispatch_number)
@@ -935,6 +937,26 @@ CREATE TABLE substitute_vehicle_schedules (
   CONSTRAINT substitute_vehicle_schedules_pkey PRIMARY KEY (substitute_id)
 );
 
+CREATE TABLE supply_integration_attempts (
+  supply_integration_attempt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  source_organization_id varchar(128),
+  external_request_id varchar(128),
+  source_event_id varchar(255),
+  source_sequence bigint,
+  payload_hash char(64) NOT NULL,
+  rejection_code varchar(48) NOT NULL,
+  response_status smallint NOT NULL,
+  actor_employee_id integer NOT NULL,
+  attempted_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chk_supply_attempt_identifier_lengths CHECK ((((external_request_id IS NULL) OR ((length(TRIM(BOTH FROM external_request_id)) >= 1) AND (length(TRIM(BOTH FROM external_request_id)) <= 128))) AND ((source_event_id IS NULL) OR ((length(TRIM(BOTH FROM source_event_id)) >= 1) AND (length(TRIM(BOTH FROM source_event_id)) <= 255))))),
+  CONSTRAINT chk_supply_attempt_sandbox_identity CHECK (((source_organization_id IS NULL) OR ((source_organization_id)::text ~~ 'sandbox:%'::text))),
+  CONSTRAINT chk_supply_attempt_sequence CHECK (((source_sequence IS NULL) OR (source_sequence > 0))),
+  CONSTRAINT supply_integration_attempts_payload_hash_check CHECK ((payload_hash ~ '^[0-9a-f]{64}$'::text)),
+  CONSTRAINT supply_integration_attempts_rejection_code_check CHECK (((rejection_code)::text = ANY ((ARRAY['SCHEMA_INVALID'::character varying, 'SOURCE_EVENT_ID_CONFLICT'::character varying, 'SOURCE_SEQUENCE_CONFLICT'::character varying, 'SOURCE_REQUEST_CONFLICT'::character varying, 'BUSINESS_RULE_CONFLICT'::character varying, 'DATABASE_UNIQUENESS_CONFLICT'::character varying])::text[]))),
+  CONSTRAINT supply_integration_attempts_response_status_check CHECK ((response_status = ANY (ARRAY[400, 409]))),
+  CONSTRAINT supply_integration_attempts_pkey PRIMARY KEY (supply_integration_attempt_id)
+);
+
 CREATE TABLE supply_integration_inbox (
   supply_inbox_id uuid DEFAULT gen_random_uuid() NOT NULL,
   source_organization_id varchar(128) NOT NULL,
@@ -1011,6 +1033,22 @@ CREATE TABLE supply_shipments (
   CONSTRAINT supply_shipments_status_check CHECK (((status)::text = ANY ((ARRAY['INGESTED'::character varying, 'WAITING_FOR_PICKUP'::character varying, 'READY_FOR_PLANNING'::character varying, 'BLOCKED'::character varying, 'ALLOCATED'::character varying, 'LOADING'::character varying, 'LOADED'::character varying, 'IN_TRANSIT'::character varying, 'ARRIVED'::character varying, 'AWAITING_RECEIPT'::character varying, 'PARTIALLY_RECEIVED'::character varying, 'RECEIVED'::character varying, 'CANCEL_REQUESTED'::character varying, 'CANCELLED'::character varying, 'DELIVERY_EXCEPTION'::character varying, 'CLOSED_WITH_EXCEPTION'::character varying])::text[]))),
   CONSTRAINT supply_shipments_pkey PRIMARY KEY (supply_shipment_id),
   CONSTRAINT uq_supply_shipment_source_request UNIQUE (source_organization_id, external_request_id)
+);
+
+CREATE TABLE supply_site_mappings (
+  supply_site_mapping_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  source_organization_id varchar(128) NOT NULL,
+  external_site_id varchar(128) NOT NULL,
+  location_id integer NOT NULL,
+  is_active boolean DEFAULT true NOT NULL,
+  verified_by integer NOT NULL,
+  verified_at timestamptz DEFAULT now() NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chk_supply_site_mapping_external_id CHECK ((length(TRIM(BOTH FROM external_site_id)) > 0)),
+  CONSTRAINT chk_supply_site_mapping_sandbox CHECK (((source_organization_id)::text ~~ 'sandbox:%'::text)),
+  CONSTRAINT supply_site_mappings_pkey PRIMARY KEY (supply_site_mapping_id),
+  CONSTRAINT uq_supply_site_mapping_source_site UNIQUE (source_organization_id, external_site_id)
 );
 
 CREATE TABLE system_health_snapshots (
@@ -1460,8 +1498,11 @@ ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_sched
 ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_schedules_substitute_driver_id_fkey FOREIGN KEY (substitute_driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_schedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_schedules_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
+ALTER TABLE supply_integration_attempts ADD CONSTRAINT supply_integration_attempts_actor_employee_id_fkey FOREIGN KEY (actor_employee_id) REFERENCES employees(employee_id) ON DELETE RESTRICT;
 ALTER TABLE supply_manifest_revisions ADD CONSTRAINT supply_manifest_revisions_supply_shipment_id_fkey FOREIGN KEY (supply_shipment_id) REFERENCES supply_shipments(supply_shipment_id) ON DELETE RESTRICT;
 ALTER TABLE supply_shipment_events ADD CONSTRAINT supply_shipment_events_supply_shipment_id_fkey FOREIGN KEY (supply_shipment_id) REFERENCES supply_shipments(supply_shipment_id) ON DELETE RESTRICT;
+ALTER TABLE supply_site_mappings ADD CONSTRAINT supply_site_mappings_location_id_fkey FOREIGN KEY (location_id) REFERENCES locations(location_id) ON DELETE RESTRICT;
+ALTER TABLE supply_site_mappings ADD CONSTRAINT supply_site_mappings_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_dropoff_location_id_fkey FOREIGN KEY (dropoff_location_id) REFERENCES locations(location_id) ON DELETE SET NULL;
@@ -1620,9 +1661,11 @@ CREATE INDEX idx_sub_driver ON public.substitute_vehicle_schedules USING btree (
 CREATE INDEX idx_sub_vehicle_history ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_range ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from, effective_until);
 CREATE INDEX idx_supply_inbox_received ON public.supply_integration_inbox USING btree (received_at DESC);
+CREATE INDEX idx_supply_integration_attempts_recent ON public.supply_integration_attempts USING btree (attempted_at DESC, supply_integration_attempt_id DESC);
 CREATE INDEX idx_supply_manifest_revisions_shipment ON public.supply_manifest_revisions USING btree (supply_shipment_id, manifest_revision DESC);
 CREATE INDEX idx_supply_shipment_events_timeline ON public.supply_shipment_events USING btree (supply_shipment_id, recorded_at, supply_shipment_event_id);
 CREATE INDEX idx_supply_shipments_status_window ON public.supply_shipments USING btree (status, delivery_window_start);
+CREATE INDEX idx_supply_site_mappings_location ON public.supply_site_mappings USING btree (location_id) WHERE is_active;
 CREATE INDEX idx_system_health_snapshots_recorded_at ON public.system_health_snapshots USING btree (recorded_at DESC);
 CREATE INDEX idx_tracking_time ON public.gpstracking USING btree (recorded_at);
 CREATE INDEX idx_tracking_trip ON public.gpstracking USING btree (trip_id);
