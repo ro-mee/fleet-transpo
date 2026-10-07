@@ -50,10 +50,6 @@ function setup() {
     if (s.includes("SELECT t.vehicle_id, t.driver_id")) return { rows: [BEFORE_ROW] };
     if (s.includes("SELECT vehicle_id, driver_id")) return { rows: [BEFORE_ROW] };
     if (s.includes("FROM gpstracking")) return { rows: [] };
-    if (s.includes("fuel_price_region")) return { rows: [{ setting_value: "NCR" }] };
-    if (s.includes("FROM fuel_price_snapshots")) {
-      return { rows: [{ snapshot_id: 4, reference_price: "62.70" }] };
-    }
     if (s.includes("UPDATE trips")) {
       return { rows: [{ ...COMPLETED_ROW, trip_status: s.includes("Cancelled") ? "Cancelled" : "Completed" }] };
     }
@@ -107,10 +103,16 @@ describe("trip lifecycle → monitor alert resolution", () => {
   });
 
   it("completeTrip snapshots the estimate basis once: 36 km at 9 km/L and PHP 62.70/L", async () => {
+    // The price basis arrives as an explicit caller-supplied seam (the
+    // snapshots table is unreadable until the apply checkpoint registers it).
     // Odometer 1100 over vehicle mileage 1000 is not a valid derivation here
     // (needs a start reading), so the estimate rides the supplied distance.
     const { txLog, txParams } = setup();
-    await completeTrip(101, { user: { employeeId: 1 } }, { endOdometer: 1100, distance: 36 });
+    await completeTrip(
+      101,
+      { user: { employeeId: 1 } },
+      { endOdometer: 1100, distance: 36, fuelPriceBasis: { price: 62.7, snapshotId: 4, region: "NCR" } }
+    );
 
     const idx = txLog.findIndex((s) => s.includes("UPDATE trips") && s.includes("estimated_fuel_l"));
     expect(idx).toBeGreaterThan(-1);
@@ -138,15 +140,13 @@ describe("trip lifecycle → monitor alert resolution", () => {
 
   it("completeTrip stores nulls — never zeros — when the basis is missing", async () => {
     const { txLog, txParams } = setup();
-    // No efficiency, no region, no snapshot: the trip still completes.
+    // No efficiency and no price basis: the trip still completes.
     const { query } = await import("@/lib/db");
     query.mockImplementation(async (sql) => {
       const s = String(sql);
       if (s.includes("SELECT t.vehicle_id, t.driver_id")) {
         return { rows: [{ ...BEFORE_ROW, fuel_efficiency_kmpl: null, planned_distance: null }] };
       }
-      if (s.includes("fuel_price_region")) return { rows: [] };
-      if (s.includes("FROM fuel_price_snapshots")) return { rows: [] };
       if (s.includes("FROM gpstracking")) return { rows: [] };
       if (s.includes("UPDATE trips")) return { rows: [{ ...COMPLETED_ROW }] };
       if (s.includes("UPDATE trip_monitor_alerts")) return { rows: [] };
@@ -158,5 +158,15 @@ describe("trip lifecycle → monitor alert resolution", () => {
     const params = txParams[idx];
     expect(params[7]).toBeNull();
     expect(params[8]).toBeNull();
+  });
+
+  it("never queries the snapshots table: the basis is caller-supplied until the checkpoint", async () => {
+    const { txLog } = setup();
+    await completeTrip(
+      101,
+      { user: { employeeId: 1 } },
+      { endOdometer: 1100, distance: 36, fuelPriceBasis: { price: 62.7, snapshotId: 4, region: "NCR" } }
+    );
+    expect(txLog.join("\n")).not.toContain("fuel_price_snapshots");
   });
 });

@@ -27,6 +27,16 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  * @param {number|string} [params.startOdometer] optional start reading; when present and
  *                                               real (> 0), distance is derived from it and
  *                                               overrides the supplied distance
+ * @param {object|null}   [params.fuelPriceBasis] Task 11 checkpoint seam:
+ *                                               { price, snapshotId, region } resolved
+ *                                               by the caller from a verified
+ *                                               snapshot, or null. The service
+ *                                               never queries the snapshots
+ *                                               table itself: that table has
+ *                                               no access decision until the
+ *                                               apply checkpoint registers it,
+ *                                               and the schema-contract gate
+ *                                               fails the suite otherwise.
  * @param {string|null}   [params.completionReason] PR #3: required reason when
  *                                               completing away from the destination
  * @param {boolean}       [params.geofenceOverride] PR #3: deliberate far-from-
@@ -36,10 +46,10 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  *                                               completion time, for the timeline
  * @returns {Promise<object>} the updated trip row
  */
-export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
+export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, fuelPriceBasis = null, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
   const { rows: before } = await query(
     `SELECT t.vehicle_id, t.driver_id, t.dispatch_id, t.trip_status, t.distance AS planned_distance,
-            v.mileage AS vehicle_mileage, v.fuel_efficiency_kmpl, v.fuel_type
+            v.mileage AS vehicle_mileage, v.fuel_efficiency_kmpl
        FROM trips t
        LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL
       WHERE t.trip_id = $1
@@ -111,14 +121,17 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
   // Task 11: per-trip estimated fuel/cost snapshot, written once at
   // completion. Planned is the distance the trip carried into completion;
   // actual prefers odometer math, then the validated trip distance, then the
-  // GPS trail. The basis (efficiency, reference price, snapshot, region) is
-  // captured now and stored COALESCE first-write-wins: later price or vehicle
-  // edits never rewrite a completed trip's basis, and receipt pump prices stay
-  // independent. A missing basis yields nulls with no fabricated actual.
+  // GPS trail. The price basis (reference price, snapshot, region) arrives as
+  // an explicit caller-supplied seam: the snapshots table is unreadable here
+  // until the apply checkpoint registers its access decision, so the service
+  // never queries it directly. Columns write COALESCE first-write-wins, so
+  // later price or vehicle edits never rewrite a completed trip's basis, and
+  // receipt pump prices stay independent. A missing basis yields nulls with
+  // no fabricated actual.
   //
-  // Release hold: the estimate columns exist only after migration 155 (and the
-  // snapshots table after 154) — do not deploy this revision before both are
-  // applied.
+  // Release hold: the estimate columns exist only after migration 155 (and
+  // the snapshots table after 154) — do not deploy this revision before
+  // both are applied.
   const plannedKm = before[0]?.planned_distance ?? null;
   const odoKm = derived !== null && derived >= 0 ? derived : null;
   const tripKm = Number.isFinite(suppliedDistance)
@@ -126,37 +139,13 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
     : before[0]?.planned_distance ?? null;
   const estimateDistance = resolveEstimateDistance({ odometerKm: odoKm, tripDistanceKm: tripKm, gpsTrailKm });
   const efficiency = before[0]?.fuel_efficiency_kmpl ?? null;
-  const fuelType = String(before[0]?.fuel_type ?? "").trim() || null;
-  let fuelRegion = null;
-  try {
-    const { rows: regionRows } = await query(
-      `SELECT setting_value FROM system_settings WHERE setting_key = 'fuel_price_region' LIMIT 1`
-    );
-    fuelRegion = String(regionRows[0]?.setting_value ?? "").trim() || null;
-  } catch {
-    fuelRegion = null;
-  }
-  let snapshot = null;
-  if (fuelType && fuelRegion) {
-    try {
-      const { rows: snapshotRows } = await query(
-        `SELECT snapshot_id, reference_price FROM fuel_price_snapshots
-          WHERE fuel_product = $1 AND region = $2 AND lifecycle = 'Active'
-            AND verification_method IN ('Manual', 'Automatic')
-            AND currency = 'PHP' AND unit = 'L'
-            AND reference_price > 0 AND effective_at <= NOW()
-          ORDER BY effective_at DESC, snapshot_id DESC LIMIT 1`,
-        [fuelType, fuelRegion]
-      );
-      snapshot = snapshotRows[0] ?? null;
-    } catch {
-      snapshot = null;
-    }
-  }
+  const basisPrice = fuelPriceBasis?.price ?? null;
+  const basisSnapshotId = fuelPriceBasis?.snapshotId ?? null;
+  const basisRegion = fuelPriceBasis?.region ?? null;
   const fuelEstimate = estimateFuelCost({
     distanceKm: estimateDistance.km,
     efficiencyKmpl: efficiency,
-    pricePerLiter: snapshot?.reference_price ?? null,
+    pricePerLiter: basisPrice,
   });
   //
   // actual_duration is derived in the same statement rather than a follow-up
@@ -205,9 +194,9 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
         estimateDistance.provenance,
         fuelEstimate.liters,
         fuelEstimate.cost,
-        snapshot?.reference_price != null ? Number(snapshot.reference_price) : null,
-        snapshot?.snapshot_id ?? null,
-        fuelRegion,
+        basisPrice != null ? Number(basisPrice) : null,
+        basisSnapshotId,
+        basisRegion,
       ]
     );
     if (!r.rows[0]) throw new AuthError("Trip not found", 404);
