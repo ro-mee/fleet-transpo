@@ -145,7 +145,7 @@ export async function ingestRequest(
   const pickupLocationId = strictReplay ? await resolveLocationCode(request.pickup_location_code) : null;
   const dropoffLocationId = strictReplay ? await resolveLocationCode(request.dropoff_location_code) : null;
 
-  let serviceTypeId = request.service_type_id || null;
+  let serviceTypeId = request.service_type_id ?? null;
   if (serviceTypeId != null && !request.service_code) {
     const { rows: services } = await query(
       `SELECT service_type_id, default_load_type FROM service_types WHERE service_type_id = $1 LIMIT 1`,
