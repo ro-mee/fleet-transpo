@@ -935,6 +935,84 @@ CREATE TABLE substitute_vehicle_schedules (
   CONSTRAINT substitute_vehicle_schedules_pkey PRIMARY KEY (substitute_id)
 );
 
+CREATE TABLE supply_integration_inbox (
+  supply_inbox_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  source_organization_id varchar(128) NOT NULL,
+  external_request_id varchar(128) NOT NULL,
+  source_event_id varchar(255) NOT NULL,
+  event_type varchar(64) NOT NULL,
+  source_sequence bigint NOT NULL,
+  correlation_id varchar(255) NOT NULL,
+  schema_version varchar(16) NOT NULL,
+  event_hash char(64) NOT NULL,
+  processing_status varchar(16) NOT NULL,
+  response_snapshot jsonb NOT NULL,
+  received_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT supply_integration_inbox_event_hash_check CHECK ((event_hash ~ '^[0-9a-f]{64}$'::text)),
+  CONSTRAINT supply_integration_inbox_event_type_check CHECK (((event_type)::text = ANY ((ARRAY['TransportRequestApproved'::character varying, 'ManifestUpdated'::character varying])::text[]))),
+  CONSTRAINT supply_integration_inbox_processing_status_check CHECK (((processing_status)::text = ANY ((ARRAY['ACCEPTED'::character varying, 'REJECTED'::character varying])::text[]))),
+  CONSTRAINT supply_integration_inbox_source_sequence_check CHECK ((source_sequence > 0)),
+  CONSTRAINT supply_integration_inbox_pkey PRIMARY KEY (supply_inbox_id),
+  CONSTRAINT uq_supply_inbox_event UNIQUE (source_organization_id, source_event_id),
+  CONSTRAINT uq_supply_inbox_sequence UNIQUE (source_organization_id, external_request_id, source_sequence)
+);
+
+CREATE TABLE supply_manifest_revisions (
+  supply_manifest_revision_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  supply_shipment_id uuid NOT NULL,
+  manifest_revision integer NOT NULL,
+  schema_version varchar(16) NOT NULL,
+  manifest_hash char(64) NOT NULL,
+  manifest_snapshot jsonb NOT NULL,
+  source_event_id varchar(255) NOT NULL,
+  recorded_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT supply_manifest_revisions_manifest_hash_check CHECK ((manifest_hash ~ '^[0-9a-f]{64}$'::text)),
+  CONSTRAINT supply_manifest_revisions_manifest_revision_check CHECK ((manifest_revision > 0)),
+  CONSTRAINT supply_manifest_revisions_pkey PRIMARY KEY (supply_manifest_revision_id),
+  CONSTRAINT uq_supply_manifest_revision UNIQUE (supply_shipment_id, manifest_revision)
+);
+
+CREATE TABLE supply_shipment_events (
+  supply_shipment_event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  supply_shipment_id uuid NOT NULL,
+  event_type varchar(64) NOT NULL,
+  manifest_revision integer,
+  source_event_id varchar(255),
+  correlation_id varchar(255),
+  actor_type varchar(32) NOT NULL,
+  actor_ref varchar(255),
+  event_data jsonb DEFAULT '{}'::jsonb NOT NULL,
+  occurred_at timestamptz,
+  recorded_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT supply_shipment_events_actor_type_check CHECK (((actor_type)::text = ANY ((ARRAY['SCM_SANDBOX'::character varying, 'FLEET_EMPLOYEE'::character varying, 'DRIVER'::character varying, 'RECEIVER'::character varying])::text[]))),
+  CONSTRAINT supply_shipment_events_pkey PRIMARY KEY (supply_shipment_event_id)
+);
+
+CREATE TABLE supply_shipments (
+  supply_shipment_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  source_organization_id varchar(128) NOT NULL,
+  external_request_id varchar(128) NOT NULL,
+  external_approver_ref varchar(128) NOT NULL,
+  current_manifest_revision integer NOT NULL,
+  status varchar(32) NOT NULL,
+  pickup_snapshot jsonb NOT NULL,
+  delivery_snapshot jsonb NOT NULL,
+  requested_timezone varchar(64) NOT NULL,
+  delivery_window_start timestamptz NOT NULL,
+  delivery_window_end timestamptz NOT NULL,
+  source_sequence bigint NOT NULL,
+  source_correlation_id varchar(255) NOT NULL,
+  source_occurred_at timestamptz NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chk_supply_shipment_delivery_window CHECK ((delivery_window_start < delivery_window_end)),
+  CONSTRAINT supply_shipments_current_manifest_revision_check CHECK ((current_manifest_revision > 0)),
+  CONSTRAINT supply_shipments_source_sequence_check CHECK ((source_sequence > 0)),
+  CONSTRAINT supply_shipments_status_check CHECK (((status)::text = ANY ((ARRAY['INGESTED'::character varying, 'WAITING_FOR_PICKUP'::character varying, 'READY_FOR_PLANNING'::character varying, 'BLOCKED'::character varying, 'ALLOCATED'::character varying, 'LOADING'::character varying, 'LOADED'::character varying, 'IN_TRANSIT'::character varying, 'ARRIVED'::character varying, 'AWAITING_RECEIPT'::character varying, 'PARTIALLY_RECEIVED'::character varying, 'RECEIVED'::character varying, 'CANCEL_REQUESTED'::character varying, 'CANCELLED'::character varying, 'DELIVERY_EXCEPTION'::character varying, 'CLOSED_WITH_EXCEPTION'::character varying])::text[]))),
+  CONSTRAINT supply_shipments_pkey PRIMARY KEY (supply_shipment_id),
+  CONSTRAINT uq_supply_shipment_source_request UNIQUE (source_organization_id, external_request_id)
+);
+
 CREATE TABLE system_health_snapshots (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
   recorded_at timestamptz DEFAULT now() NOT NULL,
@@ -1109,6 +1187,34 @@ CREATE TABLE uvvrp_violations (
   CONSTRAINT uvvrp_violations_pkey PRIMARY KEY (violation_id)
 );
 
+CREATE TABLE vehicle_cargo_profiles (
+  vehicle_id integer NOT NULL,
+  supports_supply_delivery boolean DEFAULT false NOT NULL,
+  rated_payload_kg numeric(12,3),
+  gross_vehicle_weight_limit_kg numeric(12,3),
+  operating_mass_kg numeric(12,3),
+  operational_reserve_kg numeric(12,3),
+  usable_volume_m3 numeric(12,6),
+  compartment_length_m numeric(10,4),
+  compartment_width_m numeric(10,4),
+  compartment_height_m numeric(10,4),
+  opening_length_m numeric(10,4),
+  opening_width_m numeric(10,4),
+  opening_height_m numeric(10,4),
+  temperature_min_c numeric(5,2),
+  temperature_max_c numeric(5,2),
+  handling_capabilities text[] DEFAULT '{}'::text[] NOT NULL,
+  verification_reference varchar(255),
+  verification_valid_until date,
+  verified_at timestamptz,
+  verified_by integer,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chk_vehicle_cargo_enabled_is_verified CHECK (((NOT supports_supply_delivery) OR ((rated_payload_kg IS NOT NULL) AND (gross_vehicle_weight_limit_kg IS NOT NULL) AND (operating_mass_kg IS NOT NULL) AND (operational_reserve_kg IS NOT NULL) AND (usable_volume_m3 IS NOT NULL) AND (compartment_length_m IS NOT NULL) AND (compartment_width_m IS NOT NULL) AND (compartment_height_m IS NOT NULL) AND (opening_length_m IS NOT NULL) AND (opening_width_m IS NOT NULL) AND (opening_height_m IS NOT NULL) AND (verification_reference IS NOT NULL) AND (verification_valid_until IS NOT NULL) AND (verified_at IS NOT NULL) AND (verified_by IS NOT NULL)))),
+  CONSTRAINT chk_vehicle_cargo_positive_measurements CHECK ((((rated_payload_kg IS NULL) OR (rated_payload_kg > (0)::numeric)) AND ((gross_vehicle_weight_limit_kg IS NULL) OR (gross_vehicle_weight_limit_kg > (0)::numeric)) AND ((operating_mass_kg IS NULL) OR (operating_mass_kg > (0)::numeric)) AND ((operational_reserve_kg IS NULL) OR (operational_reserve_kg >= (0)::numeric)) AND ((gross_vehicle_weight_limit_kg IS NULL) OR (operating_mass_kg IS NULL) OR (gross_vehicle_weight_limit_kg > operating_mass_kg)) AND ((usable_volume_m3 IS NULL) OR (usable_volume_m3 > (0)::numeric)) AND ((compartment_length_m IS NULL) OR (compartment_length_m > (0)::numeric)) AND ((compartment_width_m IS NULL) OR (compartment_width_m > (0)::numeric)) AND ((compartment_height_m IS NULL) OR (compartment_height_m > (0)::numeric)) AND ((opening_length_m IS NULL) OR (opening_length_m > (0)::numeric)) AND ((opening_width_m IS NULL) OR (opening_width_m > (0)::numeric)) AND ((opening_height_m IS NULL) OR (opening_height_m > (0)::numeric)))),
+  CONSTRAINT chk_vehicle_cargo_temperature CHECK (((temperature_min_c IS NULL) OR (temperature_max_c IS NULL) OR (temperature_min_c <= temperature_max_c))),
+  CONSTRAINT vehicle_cargo_profiles_pkey PRIMARY KEY (vehicle_id)
+);
+
 CREATE TABLE vehiclecategories (
   category_id integer DEFAULT nextval('vehiclecategories_category_id_seq'::regclass) NOT NULL,
   category_name varchar(100) NOT NULL,
@@ -1192,6 +1298,13 @@ CREATE TABLE vehiclemaintenance (
   manager_approved_by integer,
   repair_completed_by integer,
   source_inspection_id integer,
+  assigned_mechanic_id integer,
+  assigned_at timestamptz,
+  repair_started_at timestamptz,
+  diagnosis text,
+  parts_replaced jsonb DEFAULT '[]'::jsonb,
+  labor_hours numeric(8,2),
+  rejection_reason text,
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -1347,6 +1460,8 @@ ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_sched
 ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_schedules_substitute_driver_id_fkey FOREIGN KEY (substitute_driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_schedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_schedules_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
+ALTER TABLE supply_manifest_revisions ADD CONSTRAINT supply_manifest_revisions_supply_shipment_id_fkey FOREIGN KEY (supply_shipment_id) REFERENCES supply_shipments(supply_shipment_id) ON DELETE RESTRICT;
+ALTER TABLE supply_shipment_events ADD CONSTRAINT supply_shipment_events_supply_shipment_id_fkey FOREIGN KEY (supply_shipment_id) REFERENCES supply_shipments(supply_shipment_id) ON DELETE RESTRICT;
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_dropoff_location_id_fkey FOREIGN KEY (dropoff_location_id) REFERENCES locations(location_id) ON DELETE SET NULL;
@@ -1369,10 +1484,13 @@ ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_created_by_fkey FOR
 ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_decided_by_fkey FOREIGN KEY (decided_by) REFERENCES employees(employee_id);
 ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_dispatch_id_fkey FOREIGN KEY (dispatch_id) REFERENCES dispatchschedules(dispatch_id);
 ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE vehicle_cargo_profiles ADD CONSTRAINT vehicle_cargo_profiles_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
+ALTER TABLE vehicle_cargo_profiles ADD CONSTRAINT vehicle_cargo_profiles_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES employees(employee_id);
 ALTER TABLE vehicledocuments ADD CONSTRAINT vehicledocuments_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_assigned_mechanic_id_fkey FOREIGN KEY (assigned_mechanic_id) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_completed_by_fkey FOREIGN KEY (completed_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_inspected_by_fkey FOREIGN KEY (inspected_by) REFERENCES employees(employee_id);
@@ -1501,6 +1619,10 @@ CREATE INDEX idx_routes_origin_loc ON public.routes USING btree (origin_location
 CREATE INDEX idx_sub_driver ON public.substitute_vehicle_schedules USING btree (substitute_driver_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_history ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_range ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from, effective_until);
+CREATE INDEX idx_supply_inbox_received ON public.supply_integration_inbox USING btree (received_at DESC);
+CREATE INDEX idx_supply_manifest_revisions_shipment ON public.supply_manifest_revisions USING btree (supply_shipment_id, manifest_revision DESC);
+CREATE INDEX idx_supply_shipment_events_timeline ON public.supply_shipment_events USING btree (supply_shipment_id, recorded_at, supply_shipment_event_id);
+CREATE INDEX idx_supply_shipments_status_window ON public.supply_shipments USING btree (status, delivery_window_start);
 CREATE INDEX idx_system_health_snapshots_recorded_at ON public.system_health_snapshots USING btree (recorded_at DESC);
 CREATE INDEX idx_tracking_time ON public.gpstracking USING btree (recorded_at);
 CREATE INDEX idx_tracking_trip ON public.gpstracking USING btree (trip_id);
@@ -1545,6 +1667,7 @@ CREATE INDEX idx_vehiclemaintenance_source_incident ON public.vehiclemaintenance
 CREATE INDEX idx_vehicles_category ON public.vehicles USING btree (category_id);
 CREATE INDEX idx_vehicles_plate ON public.vehicles USING btree (plate_number);
 CREATE INDEX idx_vehicles_status ON public.vehicles USING btree (vehicle_status);
+CREATE INDEX idx_vm_assigned_mechanic ON public.vehiclemaintenance USING btree (assigned_mechanic_id) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_web_sessions_employee_active ON public.web_sessions USING btree (employee_id, revoked_at, expires_at);
 CREATE UNIQUE INDEX uq_ai_report_narrative_key ON public.ai_report_narratives USING btree (report, COALESCE(range_from, '*'::character varying), COALESCE(range_to, '*'::character varying));
 CREATE UNIQUE INDEX uq_attendance_driver_end_duty_submission ON public.driverattendance USING btree (driver_id, end_duty_submission_id) WHERE (end_duty_submission_id IS NOT NULL);
@@ -1559,6 +1682,7 @@ CREATE UNIQUE INDEX uq_fuelrequests_open_vehicle ON public.fuelrequests USING bt
 CREATE UNIQUE INDEX uq_rec_snapshot_active ON public.recommendation_snapshots USING btree (request_id) WHERE (is_consumed = false);
 CREATE UNIQUE INDEX uq_routes_active_direction ON public.routes USING btree (origin_location_id, destination_location_id) WHERE (((status)::text = 'Active'::text) AND (deleted_at IS NULL) AND (origin_location_id IS NOT NULL) AND (destination_location_id IS NOT NULL));
 CREATE UNIQUE INDEX uq_sub_open_vehicle ON public.substitute_vehicle_schedules USING btree (vehicle_id) WHERE (effective_until IS NULL);
+CREATE UNIQUE INDEX uq_supply_shipment_source_event ON public.supply_shipment_events USING btree (supply_shipment_id, source_event_id) WHERE (source_event_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehiclemaintenance_source_incident ON public.vehiclemaintenance USING btree (source_incident_id) WHERE (source_incident_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehiclemaintenance_source_inspection ON public.vehiclemaintenance USING btree (source_inspection_id) WHERE (source_inspection_id IS NOT NULL);
@@ -1938,6 +2062,17 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.prevent_supply_history_mutation()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  RAISE EXCEPTION '% rows are immutable; record a new revision or event instead', TG_TABLE_NAME
+    USING ERRCODE = '55000';
+END;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.purge_deleted_notifications(p_retention_days integer DEFAULT 90)
  RETURNS integer
  LANGUAGE plpgsql
@@ -1989,6 +2124,8 @@ $function$
 
 -- =========================== TRIGGERS ===========================
 
+CREATE TRIGGER supply_manifest_revisions_immutable BEFORE DELETE OR UPDATE ON public.supply_manifest_revisions FOR EACH ROW EXECUTE FUNCTION prevent_supply_history_mutation();
+CREATE TRIGGER supply_shipment_events_immutable BEFORE DELETE OR UPDATE ON public.supply_shipment_events FOR EACH ROW EXECUTE FUNCTION prevent_supply_history_mutation();
 CREATE TRIGGER trg_dispatch_number BEFORE INSERT ON public.dispatchschedules FOR EACH ROW WHEN ((new.dispatch_number IS NULL)) EXECUTE FUNCTION generate_dispatch_number();
 CREATE TRIGGER trg_dispatch_overlap BEFORE INSERT OR UPDATE OF vehicle_id, driver_id, scheduled_departure, scheduled_arrival, status ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION guard_dispatch_overlap();
 CREATE TRIGGER trigger_enqueue_dispatch_push AFTER INSERT ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION enqueue_dispatch_push();

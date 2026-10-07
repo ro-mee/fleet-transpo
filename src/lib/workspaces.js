@@ -36,6 +36,7 @@ import {
   Activity,
   ListTodo,
   Layers,
+  PackageCheck,
 } from "lucide-react";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 
@@ -72,6 +73,7 @@ export const WORKS = {
               { href: "/reservations", label: "Reservations" },
               { href: "/reservations/queue", label: "Request Queue" },
               { href: "/dispatch/calendar", label: "Dispatch" },
+              { href: "/supply-deliveries", label: "Supply Deliveries" },
               { href: "/trips", label: "Trips" },
               { href: "/routes", label: "Routes" },
               { href: "/incidents", label: "Incidents" },
@@ -140,6 +142,7 @@ export const WORKS = {
           { href: "/reservations", label: "Reservations", icon: CalendarCheck },
           { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
           { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
+          { href: "/supply-deliveries", label: "Supply Deliveries", icon: PackageCheck },
           { href: "/trips", label: "Trips", icon: ClipboardList },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
@@ -205,6 +208,7 @@ export const WORKS = {
           { href: "/drivers", label: "Driver Management", icon: Users },
           { href: "/drivers/leave", label: "Leave Management", icon: CalendarCheck },
           { href: "/fleet/assignments", label: "Driver Assignments", icon: ClipboardCheck },
+          { href: "/supply-deliveries", label: "Cargo Capability", icon: PackageCheck },
         ],
       },
       {
@@ -242,6 +246,7 @@ export const WORKS = {
         items: [
           { href: "/reservations/queue", label: "Reservation Queue", icon: Inbox },
           { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
+          { href: "/supply-deliveries", label: "Supply Deliveries", icon: PackageCheck },
           { href: "/dispatch/availability", label: "Resource Availability", icon: Users },
           { href: "/trips", label: "Trips", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },

@@ -109,3 +109,7 @@ Four objects existed with no migration file and one CHECK constraint differed. *
 ## Related
 
 [[ERD]] · [[Migrations]] · [[Supabase]] · [[Architecture]] · [[Home]]
+
+## Supply delivery tables
+
+The sandbox supply-delivery foundation is documented in [[supply_delivery_foundation]] and applied by migration 144. It stores private shipment/manifest snapshots and measured per-vehicle cargo profiles. It does not yet reserve dispatches or store receiver acceptance/inventory postings.

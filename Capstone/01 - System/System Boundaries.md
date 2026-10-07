@@ -116,3 +116,20 @@ Correct for availability. It means `integration_log` (149 rows) is the reconcili
 ## Related
 
 [[Anti-Corruption Layer]] · [[ADR-002 Anti-Corruption Layer]] · [[Reservations]] · [[integration_log]] · [[Request Lifecycle]]
+
+## Supply delivery integration audit — 2026-10-07 (plan only)
+
+The post-defense source audit found no cargo/shipment manifest or proof-of-delivery implementation in the checked-in source, mobile app, migrations or schema dump. The existing Booking contract is guest/passenger-shaped and the default Booking gateway is a mock; it is not an SCM adapter.
+
+Recommended boundary: SCM owns approval, catalog, stock and inventory posting; FleetOps receives an approved immutable manifest snapshot, validates physical fit and availability, operates the dispatch/trip and records transport evidence; Receiving/SCM owns accepted quantities. Use a bounded shipment domain attached to the shared dispatch resource slot and trip, preserving passenger request and trip behavior. Arrival/GPS/trip completion never posts stock.
+
+This is a repository-source audit only. The external SCM/HR contracts and live database catalog were not inspected, and no feature has been implemented. See docs/plans/supply-chain-fleet-integration-plan.md for evidence, options, schema/security gates, acceptance matrix and phased work.
+## Supply delivery foundation follow-up - 2026-10-07
+
+Implemented a bounded foundation in migration 144 and the `/supply-deliveries` page: private shipment and revision snapshots, a measured cargo profile, sandbox-only approved-request ingest, and deterministic load checks. SCM import requires the explicit sandbox flag, a `sandbox:` source identity, an admin session, and a non-production environment. No real SCM or HR contract was available.
+
+The page does not create or reserve dispatches, create trips, or project cargo work to the driver app. Pickup/loading evidence, POD, receiver identity/quantities, SCM acknowledgement, and stock posting are not implemented. Trip completion and GPS remain separate from receipt. See [[supply_delivery_foundation]] and docs/plans/supply-chain-fleet-integration-plan.md for the exact limits and next P0 work.
+
+Sandbox ingest now retains semantic rejections after contract validation as a hash and bounded error/status receipt, then returns the same conflict for an exact replay. It does not retain schema-invalid payloads or uniqueness-conflict attempts (event ID/sequence), and it never stores those rejected event bodies.
+
+The load evaluator also applies FleetOps' existing non-dispatchable vehicle status rule. A current `In Use` status remains time-dependent and does not by itself block a future load check; shared schedule availability is still not part of this evaluation.

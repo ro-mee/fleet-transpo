@@ -182,6 +182,26 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Dispatch records, assignments and cancellation reasons.",
   },
+  vehicle_cargo_profiles: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Per-vehicle measured cargo capacity, handling capability and verification evidence.",
+  },
+  supply_shipments: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "SCM transport-request snapshots, destination windows and shipment lifecycle; contains operational locations.",
+  },
+  supply_manifest_revisions: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Immutable approved SCM manifest snapshots and package measurements.",
+  },
+  supply_integration_inbox: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "SCM sandbox event hashes, sequencing and idempotent acknowledgements.",
+  },
+  supply_shipment_events: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Append-only supply shipment integration and Fleet audit events.",
+  },
   routes: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Canonical route registry with endpoint FKs.",

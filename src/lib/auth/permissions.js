@@ -49,6 +49,7 @@ export const NAV_ROLES = {
   "/dispatch": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/dispatch/calendar": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/dispatch/availability": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/supply-deliveries": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/incidents": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],

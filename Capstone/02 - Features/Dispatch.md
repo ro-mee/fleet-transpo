@@ -469,3 +469,14 @@ The Fleet Manager dashboard's Upcoming fleet schedule now includes only schedule
 The Dispatcher dashboard separates unassigned pickups due in the next 30 minutes, assigned departures due in that window, and assigned dispatches at/past pickup without a recorded start. `isWithinUpcomingWindow()` uses exact timestamps, so overdue pickups cannot inflate a future-departure count. Each urgency link opens its matching Calendar or Queue filter; the Queue's `departing-soon` predicate is evaluated in SQL and applies to both page rows and total count.
 
 `isPickupDueWithoutStart()` derives the no-start signal from a `Scheduled` dispatch, assigned vehicle/driver, the scheduled pickup threshold, and the absence of start evidence. Calendar and Trip detail show the same warning. `start-window-notifications.service.js` now scans the mobile-supported `PRE_START_TRIP_STATUSES` instead of Driver Accepted alone. Status remains a separate lifecycle decision: timers only surface work and never advance dispatch, trip, reservation, or driver state.
+
+## Supply delivery integration audit — 2026-10-07 (proposed, not implemented)
+
+The checked-in overlap guard protects active rows in dispatchschedules with per-vehicle/per-driver advisory locks. A future supply assignment should use that shared reservation row so passenger and cargo assignments cannot overlap. The existing queue planner, request assignment, availability board and mobile response are passenger-shaped; cargo needs its own shipment/manifest checks, permissions, recommendation evidence and typed driver projection.
+
+Keep shipment and receiving states separate from dispatch/trip states. The passenger trip graph includes Passenger Onboard; that must not become a cargo-loaded signal, and completing a trip must not imply goods were accepted. No cargo data model or SCM integration was found in this audit. See docs/plans/supply-chain-fleet-integration-plan.md; no dispatch behavior changed.
+## Supply delivery foundation implementation - 2026-10-07
+
+The `/supply-deliveries` surface lists imported sandbox shipment snapshots, maintains measured cargo profiles, and evaluates weight, nominal volume, package fit, handling, temperature, pickup readiness and the existing vehicle statuses that prevent dispatch. Its PASS result covers those checks only. It does not check schedule availability, driver qualification, documents, roadworthiness, axle distribution, loading arrangement or securement.
+
+No shipment-to-dispatch allocation, signed recommendation token, commit-time shared reservation, typed driver job, mobile checkpoint or receipt path was added. Existing passenger queue, manual assignment and trip lifecycle remain the only assignment/execution workflows. Do not assign supply shipments through this page; the implementation progress is recorded in docs/plans/supply-chain-fleet-integration-plan.md.
