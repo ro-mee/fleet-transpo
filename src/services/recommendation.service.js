@@ -6,6 +6,7 @@ import {
   PAIRING_KIND,
 } from "@/lib/ai/pair-scoring";
 import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
+import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { evaluateDispatchCandidate, serviceEnd } from '@/services/dispatch-radar.service';
 import { resolveRequestEstimate } from '@/services/route-resolver.service';
@@ -181,6 +182,12 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     if (!rows[0] || !['Pending','Scheduled','Assigned'].includes(rows[0].fleet_status))
       return { ok:false,conflict:{type:'request_state',severity:'blocking',message:'The transportation request is no longer actionable.'} };
     request = { ...rows[0],...request,passenger_count:rows[0].passenger_count,requested_category_id:rows[0].requested_category_id };
+    // Typed load fields are authoritative from the stored row, never from the
+    // caller — mirroring the passenger_count pin above. A changed weight on a
+    // committed pair must re-gate here rather than ride in on stale input.
+    if (rows[0].load_type != null) {
+      request = { ...request, load_type: rows[0].load_type, cargo_weight_kg: rows[0].cargo_weight_kg, cargo_description: rows[0].cargo_description };
+    }
   }
   const commitToken = { driverId,vehicleId,requestId:request?.request_id ?? null,...(excludeTripId ? {tripId:excludeTripId} : {}) };
   commitToken.revision = await readDispatchRevision(commitToken);
@@ -204,7 +211,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
          FROM substitute_vehicle_schedules`
     ),
     query(
-      `SELECT vehicle_id, plate_number, vehicle_status,category_id,seating_capacity,required_license_class
+      `SELECT vehicle_id, plate_number, vehicle_status,category_id,seating_capacity,operational_use,cargo_capacity_kg,required_license_class
          FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
       [vehicleId]
     ),
@@ -224,6 +231,32 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
         detail: { vehicle_id: vehicleId, vehicle_status: vehicle.vehicle_status },
       },
     };
+  }
+
+  // One typed load-capacity gate (Task 5): the same pure evaluator the queue
+  // chips use, applied inside the final commit path so a changed weight or
+  // vehicle re-blocks here. Original assign, reassignment, direct dispatch and
+  // trip start all funnel through this function and return the SAME blocker.
+  // An override reason NEVER bypasses a load safety blocker.
+  {
+    const verdict = evaluateVehicleCapacity(request, vehicle);
+    if (!verdict.eligible) {
+      return {
+        ok: false,
+        conflict: {
+          type: "capacity_mismatch",
+          severity: "blocking",
+          message: formatCapacityBlocker(verdict, `Vehicle ${vehicle.plate_number || `#${vehicleId}`}`),
+          detail: {
+            vehicle_id: vehicleId,
+            capacity_code: verdict.code,
+            required: verdict.required,
+            capacity: verdict.capacity,
+            unit: verdict.unit,
+          },
+        },
+      };
+    }
   }
 
   const pickupDate = request?.pickup_datetime || now;

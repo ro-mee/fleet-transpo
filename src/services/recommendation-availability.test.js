@@ -43,16 +43,30 @@ it('requires explicit manual review for scheduled uncertainty and never permits 
  expect((await check(true)).conflict.reviewable).toBe(false);
 });
 it('rejects a Student Permit before review overrides or candidate evaluation',async()=>{
- driver.license_type='Student Permit';
- const result=await check(true);
- expect(result.ok).toBe(false);
- expect(result.conflict).toMatchObject({type:'driver_license',severity:'blocking'});
- expect(result.conflict.message).toMatch(/Student Permit is not eligible/i);
- expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
+  driver.license_type='Student Permit';
+  const result=await check(true);
+  expect(result.ok).toBe(false);
+  expect(result.conflict).toMatchObject({type:'driver_license',severity:'blocking'});
+  expect(result.conflict.message).toMatch(/Student Permit is not eligible/i);
+  expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
 });
-it('rejects a license class that does not cover the selected vehicle',async()=>{
- driver.license_class='B1';
- const result=await check();
- expect(result.ok).toBe(false);
- expect(result.conflict.message).toMatch(/License class does not cover this vehicle/i);
+it('rejects license class that does not cover the selected vehicle',async()=>{
+  driver.license_class='B1';
+  const result=await check();
+  expect(result.ok).toBe(false);
+  expect(result.conflict.message).toMatch(/License class does not cover this vehicle/i);
+});
+it('blocks an overweight cargo pair with the shared gate message before candidate evaluation',async()=>{
+  record.load_type='Cargo';record.passenger_count=null;record.cargo_weight_kg=1800;record.cargo_description='Rice';
+  query.mockImplementation(async sql=>{
+    if(sql.includes('SELECT * FROM transportation_requests'))return {rows:[record]};
+    if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,plate_number:'TRK 5678',category_id:category,vehicle_status:'Available',operational_use:'Cargo',cargo_capacity_kg:1000,required_license_class:'B'}]};
+    if(sql.includes('FROM drivers d'))return {rows:[driver]};
+    return {rows:[]};
+  });
+  const result=await validatePairAvailability({request:{...record},vehicleId:2,driverId:7});
+  expect(result.ok).toBe(false);
+  expect(result.conflict).toMatchObject({type:'capacity_mismatch',severity:'blocking'});
+  expect(result.conflict.message).toBe('Vehicle TRK 5678 cargo capacity 1000 kg, request needs 1800 kg (over by 800 kg).');
+  expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
 });

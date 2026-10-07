@@ -2,6 +2,7 @@ import { query } from "@/lib/db";
 import { isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
+import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
 import { getUvvrpPolicy, getExemptVehicleIds } from "@/lib/uvvrp/uvvrp.service";
 import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
 import { resolveSubstituteForDate, resolveVehiclePairing, vehicleOperationallyAvailable } from "@/lib/ai/pair-scoring";
@@ -245,6 +246,8 @@ function travelBufferFindings(request, resource, kind, cfg) {
  */
 export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null, scheduleContext, travelBufferEnabled, safetyBufferMinutes, bufferFloorMinutes } = {}) {
   const findings = [];
+  // Legacy untyped default, used only by the historical seats check below.
+  // Typed rows resolve their requirement through the Task 5 gate instead.
   const passengers = Number(request?.passenger_count) || 1;
   const pickup = request?.pickup_datetime || null;
   const arrival = request?.scheduled_arrival || null;
@@ -302,6 +305,29 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
         message: `Vehicle seats ${vehicle.seating_capacity}, request needs ${passengers}.`,
         detail: { vehicle_id: vehicle.vehicle_id, seating_capacity: vehicle.seating_capacity, passenger_count: passengers },
       });
+    }
+    // One typed load-capacity gate (Task 5): the same pure evaluator every
+    // commit path uses, so queue chips and the assign 409 can never disagree.
+    // Legacy untyped rows keep their exact historical seats wording above and
+    // skip the typed gate; typed rows fail closed on unknown load, use, or
+    // capacity. The finding type stays CAPACITY_MISMATCH — the stable code UI,
+    // logs, Copilot evidence and tests key on — with the evaluator code inside.
+    if (request?.load_type === "Passenger" || request?.load_type === "Cargo") {
+      const verdict = evaluateVehicleCapacity(request, vehicle);
+      if (!verdict.eligible) {
+        findings.push({
+          type: CONFLICT_TYPE.CAPACITY_MISMATCH,
+          severity: SEVERITY.BLOCKING,
+          message: formatCapacityBlocker(verdict, `Vehicle ${vehicle.plate_number || `#${vehicle.vehicle_id}`}`),
+          detail: {
+            vehicle_id: vehicle.vehicle_id,
+            capacity_code: verdict.code,
+            required: verdict.required,
+            capacity: verdict.capacity,
+            unit: verdict.unit,
+          },
+        });
+      }
     }
   }
 
@@ -491,7 +517,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     // 6. Vehicle registration + 7. capacity.
     vehicleId
       ? query(
-          `SELECT vehicle_id, plate_number, category_id, seating_capacity, registration_expiry, insurance_expiry, vehicle_status,fuel_level,next_service_date,required_license_class
+          `SELECT vehicle_id, plate_number, category_id, seating_capacity, operational_use, cargo_capacity_kg, registration_expiry, insurance_expiry, vehicle_status,fuel_level,next_service_date,required_license_class
              FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
           [vehicleId]
         )
@@ -641,9 +667,15 @@ export async function detectRequestConflicts(request, opts = {}) {
   for (const incident of incidents) if (shouldGroundVehicle({incidentType:incident.incident_type,severity:incident.severity,vehicleId}))
     findings.push({type:'incident',severity:'blocking',message:`Vehicle is restricted by incident #${incident.incident_id}.`,detail:{incident_id:incident.incident_id}});
   const validDate = value => !!value && Number.isFinite(+new Date(value));
+  // Typed rows resolve capacity through the Task 5 gate; legacy rows keep the
+  // historical seats check so existing evidence labels never change.
+  const typedLoad = request.load_type === "Passenger" || request.load_type === "Cargo";
+  const capacityVerdict = typedLoad ? evaluateVehicleCapacity(request, vehicleRow ?? {}) : null;
   const known = [
     ['request','Request requirements',validDate(pickup) && Number.isInteger(Number(request.passenger_count)) && Number(request.passenger_count)>0 && validDate(request.scheduled_arrival)],
-    ['capacity','Seating capacity',Number(vehicleRow?.seating_capacity)>0],
+    typedLoad
+      ? ['capacity','Load capacity',capacityVerdict.eligible]
+      : ['capacity','Seating capacity',Number(vehicleRow?.seating_capacity)>0],
     ['registration','Vehicle registration',validDate(vehicleRow?.registration_expiry)],
     ['insurance','Vehicle insurance',validDate(vehicleRow?.insurance_expiry)],
     ['license','Driver license',validDate(driverRow?.license_expiry)],
@@ -700,7 +732,7 @@ export async function detectConflictsForRequests(requests = []) {
   const [vehicles, drivers, dispatches, maintenance, assignments, substitutes] = await Promise.all([
     vehicleIds.length
       ? query(
-          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, insurance_expiry, vehicle_status, required_license_class
+          `SELECT vehicle_id, plate_number, seating_capacity, operational_use, cargo_capacity_kg, registration_expiry, insurance_expiry, vehicle_status, required_license_class
              FROM vehicles WHERE vehicle_id = ANY($1) AND deleted_at IS NULL`,
           [vehicleIds]
         ).then((r) => r.rows).catch(() => [])

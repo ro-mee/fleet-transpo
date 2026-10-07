@@ -39,6 +39,19 @@ export async function GET(req) {
     const min_capacity = searchParams.get("min_capacity");
     if (min_capacity) { sql += ` AND v.seating_capacity >= $${idx++}`; params.push(+min_capacity); }
 
+    // Typed capacity search (Task 5): filter by declared operational use, or by
+    // a minimum usable cargo payload. Both predicates reference migration 153
+    // columns — do not deploy this revision before that migration is applied.
+    const operational_use = searchParams.get("operational_use");
+    if (operational_use && ["Passenger", "Cargo"].includes(operational_use)) {
+      sql += ` AND v.operational_use = $${idx++}`; params.push(operational_use);
+    }
+
+    const min_cargo_kg = searchParams.get("min_cargo_kg");
+    if (min_cargo_kg) {
+      sql += ` AND v.operational_use = 'Cargo' AND v.cargo_capacity_kg >= $${idx++}`; params.push(+min_cargo_kg);
+    }
+
     const fuel_type = searchParams.get("fuel_type");
     if (fuel_type) { sql += ` AND v.fuel_type = $${idx++}`; params.push(fuel_type); }
 
