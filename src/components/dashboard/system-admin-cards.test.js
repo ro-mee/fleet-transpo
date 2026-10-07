@@ -46,7 +46,7 @@ describe("system-admin-cards", () => {
     const customEl = AccountPostureCard({
       roles: customRoles,
       totalAccounts: 17,
-      disabledRoles: ["guest"],
+      disabledAccounts: [{ employeeId: 1, name: "Guest" }],
       disabledExtra: 0,
     });
     expect(customEl).toBeDefined();

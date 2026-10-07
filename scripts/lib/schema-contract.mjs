@@ -182,6 +182,38 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Dispatch records, assignments and cancellation reasons.",
   },
+  vehicle_cargo_profiles: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Per-vehicle measured cargo capacity, handling capability and verification evidence.",
+  },
+  supply_shipments: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "SCM transport-request snapshots, destination windows and shipment lifecycle; contains operational locations.",
+  },
+  supply_dispatch_allocations: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Private link between an immutable SCM manifest revision and a shared Fleet dispatch; includes assignment history.",
+  },
+  supply_manifest_revisions: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Immutable approved SCM manifest snapshots and package measurements.",
+  },
+  supply_integration_inbox: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "SCM sandbox event hashes, sequencing and idempotent acknowledgements.",
+  },
+  supply_integration_attempts: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Rejected SCM sandbox attempt hashes and bounded conflict metadata; never stores rejected bodies.",
+  },
+  supply_shipment_events: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Append-only supply shipment integration and Fleet audit events.",
+  },
+  supply_site_mappings: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Admin-verified mapping from sandbox SCM site IDs to active Fleet locations and coordinates.",
+  },
   routes: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Canonical route registry with endpoint FKs.",
@@ -427,6 +459,11 @@ export const TABLES = Object.freeze({
       "Unexpected-failure log. The `stack` column holds full server stack traces with internal paths and SQL detail.",
     rlsNote:
       "Found readable with the public anon key on 2026-09-18 (SEC-DB-003); RLS added by migration 115. CONFIRMED from the database side by `db:contract`: RLS enabled, no anon policy. Regression-guarded by `npm run verify:anon`.",
+  },
+  system_health_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Historical system health and reliability telemetry snapshots. RLS enabled with anon/authenticated privileges revoked.",
   },
   schema_migrations: {
     classification: CLASSIFICATION.PRIVATE,

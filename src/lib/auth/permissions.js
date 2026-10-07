@@ -27,6 +27,7 @@ export const AUTHENTICATED_ROLES = [...KNOWN_ROLES];
 
 export const NAV_ROLES = {
   "/dashboard": ["super_admin", "admin", "fleet_manager", "dispatcher", "management"],
+  "/operations": ["super_admin"],
   "/driver": ["driver"],
   "/driver/trips": ["driver"],
   "/driver/vehicle": ["driver"],
@@ -49,6 +50,7 @@ export const NAV_ROLES = {
   "/dispatch": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/dispatch/calendar": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/dispatch/availability": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
+  "/supply-deliveries": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/incidents": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
@@ -79,6 +81,7 @@ export const NAV_ROLES = {
   "/settings/general": ["admin", "super_admin"],
   "/settings/number-coding": ["admin", "super_admin"],
   "/settings/dispatch": ["admin", "super_admin"],
+  "/settings/fuel": ["admin", "super_admin", "fleet_manager"],
   "/settings/users": ["admin", "super_admin"],
   "/settings/users/new": ["admin", "super_admin"],
   // Platform configuration — Super Admin only. Admin keeps operational
@@ -136,10 +139,12 @@ const MATRIX = {
     // Day-scoped substitute driver coverage (migration 032) follows the same
     // fleet-management authority as the custodial pairing it complements.
     substitute_driver_schedules: { create: true, read: true, update: true, delete: true },
-    // Weekly work schedules + leave (migration 049): admin observes, the fleet
-    // manager sets them (see fleet_manager). Same split as driver_assignments.
+    // Weekly work schedules + leave (migration 049): the fleet manager sets the
+    // schedule, but BOTH admin and fleet_manager review leave — an admin must be
+    // able to approve/decline when the fleet manager is unavailable. Schedules
+    // stay read-only here (see fleet_manager).
     driver_work_schedules: { read: true },
-    driver_leave_requests: { read: true, read_all: true },
+    driver_leave_requests: { read: true, read_all: true, update: true },
     reservations: {
       create: true, read: true, update: true, delete: true,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true, recommend: true, manage_flags: true,
@@ -163,6 +168,7 @@ const MATRIX = {
     accounts: { create: true, read: true, update: true },
     settings: { read: true, update: true },
     dispatch_settings: { read: true, update: true },
+    fuel_settings: { read: true, update: true },
     uvvrp: { read: true, update: true, decide: true, manage_exemptions: true },
     driver_leave_balances: { read_all: true },
     maps: { read: true },
@@ -212,6 +218,7 @@ const MATRIX = {
     accounts: { create: false, read: false, update: false },
     settings: { read: false, update: false },
     dispatch_settings: { read: true, update: false },
+    fuel_settings: { read: true, update: true },
     uvvrp: { read: true, update: false, decide: true, manage_exemptions: true },
     driver_leave_balances: { read_all: true },
     maps: { read: true },
@@ -233,7 +240,8 @@ const MATRIX = {
     driver_assignments: { read: true },
     substitute_driver_schedules: { read: true },
     // Schedules are visible so the dispatch screen can explain why a
-    // driver is not offered for a window. Dispatchers can now also review (update) leave requests.
+    // driver is not offered for a window. Leave review is NOT theirs — see
+    // admin and fleet_manager above.
     driver_work_schedules: { read: true },
     driver_leave_requests: { read: true, read_all: true },
     reservations: {
@@ -256,6 +264,7 @@ const MATRIX = {
     accounts: { create: false, read: false, update: false },
     settings: { read: false, update: false },
     dispatch_settings: { read: true, update: false },
+    fuel_settings: { read: false, update: false },
     uvvrp: { read: true, update: false, decide: false, manage_exemptions: false },
     predictive_maintenance: { read: false },
     integrations: { read: true, execute: true },
@@ -285,6 +294,7 @@ const MATRIX = {
     accounts: { create: false, read: false, update: false },
     settings: { read: false, update: false },
     dispatch_settings: { read: false, update: false },
+    fuel_settings: { read: false, update: false },
     uvvrp: { read: false, update: false },
     maps: { read: true },
     device_tokens: { create: true, delete: true },
@@ -319,6 +329,7 @@ const MATRIX = {
     accounts: { create: false, read: false, update: false },
     settings: { read: false, update: false },
     dispatch_settings: { read: false, update: false },
+    fuel_settings: { read: true, update: false },
     uvvrp: { read: true, update: false },
     notifications: { read: true, update: true, delete: true },
     device_tokens: { create: true, delete: true },

@@ -155,6 +155,12 @@ export const HomeQuickActions = memo(function HomeQuickActions({ actions, scroll
           }
         }
 
+        if (a.label === 'Pre-Shift') {
+          if (walkthroughActive || tutorialTransitioning) {
+            return;
+          }
+        }
+
         a.action?.();
       };
 

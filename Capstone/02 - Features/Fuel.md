@@ -286,4 +286,52 @@ Confirmed against live on 2026-10-01: `fuelrequests` = **45** rows, `fuelrecords
 
 The old `pageSize: total` call was also an unbounded single query; the paged walk replaces it.
 
+## Fleet Manager live-use remediation - 2026-10-03
+
+`GET /api/fuel/requests` now includes active and archived receipt counts plus the statuses of active receipts for each permit. The Permits table shows whether the linked receipt is approved, pending, completed, rejected, archived, or missing, and whether it is eligible for Fuel Analytics. Fulfilled remains the permit lifecycle state; it does not promise that a receipt is currently active or approved. Fuel Analytics includes non-deleted `Approved` fuel records only.
+
+An earlier read-only snapshot (about 02:04 Manila) of the documented live project found 24 fulfilled permits: 21 had archived receipts only and 3 had active receipts (2 Approved, 1 Pending). It counted 12 active Approved fuel records. A later same-day snapshot differed; see the archive audit follow-up below. No permits or receipts were modified. The receipt-state helper and route response tests passed.
+
 **Verification.** `src/lib/export.test.js` (8 tests) — including the root-cause pin that `exportToCSV` refuses a paginated envelope and reports `count: 0` — and `src/lib/fuel/export-targets.test.js` (7 tests), which asserts the 45-permit case explicitly: the permits view must call the permits endpoint, must not touch `getFuelRecords`, and must carry the active status/search filter through every page of the registry walk.
+
+## Fuel Governance & Policy Engine — 2026-10-03 (implemented & verified)
+
+Refueling planning, pilferage detection, and auto-authorization previously relied on hard-coded constants (10% reserve, 90% target fill, 15% variance threshold, and 60 L auto-approval). These are now centralized in an audited, configurable policy engine stored in `system_settings` under setting key `fuel_policy`:
+
+| Policy Key | Default | Allowed Range | Description |
+|---|---|---|---|
+| `reserveBufferPercent` | `10` | 5% – 40% | Safety floor retained in tank before mandatory refill is recommended |
+| `preferredTargetPercent` | `90` | 40% – 100% | Operating refill target to minimize repeated pump visits |
+| `maxFillCapPercent` | `100` | 80% – 100% | Physical tank upper bound accounting for thermal expansion |
+| `varianceThresholdPercent` | `15` | 5% – 40% | Mileage vs gauge discrepancy triggering an anomaly alert |
+| `enableVarianceAlerts` | `true` | boolean | Toggles pilferage & consumption variance detection |
+| `autoApprovalEnabled` | `true` | boolean | Toggles instant auto-authorization engine |
+| `autoApprovalMaxLiters` | `60` | 10 – 200 L | Liter ceiling above which requests require Fleet Manager review |
+| `budgetEnforcementMode` | `"warning"` | `"warning"` \| `"strict"` | Warning permits manager override with reason; Strict hard blocks |
+| `maxPricePerLiter` | `120` | ₱40 – ₱200 / L | Receipts exceeding this ceiling trigger anomaly warning |
+| `strictFuelTypeMatching` | `false` | boolean | Strictly block claims where receipt fuel type conflicts with engine |
+
+### Architecture & Touchpoints
+
+- **Pure Policy Definition:** `src/lib/fuel/fuel-policy.js` provides `DEFAULT_FUEL_POLICY`, `FUEL_POLICY_RANGES`, `mergeFuelPolicy()`, and `validateFuelPolicy()`.
+- **Database Storage:** `src/services/fuel-settings.service.js` reads/writes `system_settings` using `fuel_policy` key, preventing any breaking table migration.
+- **REST Endpoints:** `GET` / `PUT /api/settings/fuel` (`src/app/api/settings/fuel/route.js`) with RBAC guard (`requirePermission(req, "fuel_settings", ...)`), parameter allowlist, and audit logging (`writeAudit`).
+- **Core Decision Logic:** `src/lib/fuel/request-policy.js` accepts optional `policy` in `calculateFuelRecommendation()`, `assessFuelVariance()`, and `evaluateFuelPolicy()`.
+- **Request Creation Integration:** `src/app/api/fuel/requests/route.js` fetches the active policy and injects it into all calculations and auto-authorization evaluations.
+- **Approval and receipt integration:** Strict budget mode blocks manager over-budget approvals even with an override reason. Mobile receipt submission uses the configured price ceiling for anomaly flags and blocks a known fuel-type mismatch when strict matching is enabled. Gauge photos on requests and receipt photos on claims remain mandatory in the mobile flow; neither is exposed as a configurable toggle.
+- **UI Management Console:** `src/app/(dashboard)/settings/fuel/page.js` provides a modern settings console with HeroHeader, 5 KPI stat cards, an interactive Three-Value Tank Visualizer, Refueling & Planning Thresholds, Pilferage & Variance Detection, Auto-Authorization Engine, Cost & Budget Governance, and action buttons.
+- **Navigation & Access:** Added to `NAV_ROLES["/settings/fuel"]` and `MATRIX.fuel_settings` for `admin`, `super_admin`, and `fleet_manager` (`src/lib/auth/permissions.js`), workspace sidebars (`src/lib/workspaces.js`), and Command Palette (`src/components/ui/command-palette.jsx`).
+
+**Verification.** Policy, request, and mobile receipt suites passed in the 3,605-test full run; `npm run lint:ci`, `npm run verify:auth`, and `npm run db:check` passed. The new settings reject non-boolean switches and a target fill above the tank cap.
+
+### Receipt archive audit follow-up - 2026-10-03
+
+A later read-only snapshot of the same project (02:59 Manila) found 22 fulfilled permits: 21 with archived receipts only, 1 with an active linked receipt, and none without a linked receipt. Across `fuelrecords`, 49 of 50 records were soft-deleted (20 with status `Approved`, 29 `Pending`); none had a matching `fuelrecords` audit event. The actor and reason for those historical archives cannot be recovered. Counts differed from the earlier same-day snapshot, so each is timestamped evidence rather than a stable total. Both snapshots predate the controlled defense data cleanup and must not be treated as current counts.
+
+`DELETE /api/fuel/[id]` now locks an active record, soft-deletes it, and writes a required `fuelrecords` audit event in the same transaction. The event captures the actor, timestamp, previous status, and linked permit ID without logging receipt contents or free-text notes. If the audit write fails, the archive rolls back. The existing endpoint remains reason-free; this adds future attribution but cannot explain historical archives.
+
+**Verification.** The latest focused run passed 14 tests across four files, including archive success, already-archived behavior, and rollback when required audit logging fails. Changed route/helper paths passed ESLint and `git diff --check`. No live row or migration was changed.
+
+### Fuel request review dialog viewport fit - 2026-10-07
+
+The dialog already capped its full height to `100dvh - 2rem`, but the root used `overflow-hidden` while only the body scrolled. The action row sat outside that body scroll area, so a tall dialog could clip the buttons at the viewport edge. The dialog root now owns vertical scrolling, and the header and action row stick to its top and bottom edges. The footer wraps at narrow widths and keeps each button at its natural width. No automated or browser verification was run.

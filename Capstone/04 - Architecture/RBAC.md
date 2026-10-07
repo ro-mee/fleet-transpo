@@ -103,6 +103,22 @@ reappears anywhere under `src/` or `scripts/`.
   `workspaces.js` as unused. Verified: `lint:ci` clean, `test:run` 242 files /
   3167 tests green (`system-errors-access.test.js` reads this nav;
   `privilege.test.js` pins `NAV_ROLES`).
+- Workspace: System Console sidebar trimmed again (2026-10-03, nav only,
+  nothing deleted). `WORKS.super_admin.nav` no longer lists **Profile**
+  (`/settings/profile` — its Account group is removed entirely, as Profile was
+  its only item) or **Security Center** (`/settings/security-center`, Security
+  & Access). User Management and Audit Logs stay in Security & Access, so the
+  trim does not touch the super_admin tooling. `NAV_ROLES` is unchanged, so
+  both routes remain reachable by URL and direct navigation — the same
+  sidebar-only pattern as the 2026-09-28 trim above and `/tracking/history` /
+  `/fleet/documents`. `Fingerprint` and `UserCog` are still imported (used by
+  Driver Attendance and User Management respectively), so no import cleanup was
+  needed. Verified: `npx eslint src/lib/workspaces.js` clean and
+  `system-errors-access.test.js` 5/5 (it reads this nav).
+- Workspace: Super Admin Operations Navigation Reorganization & AI Insights Nav Removal (2026-10-03, nav organization only, no RBAC or permission changes).
+  Reorganized `WORKS.super_admin.nav` so that **Operations** is the single collapsible dropdown navigation item, grouping all 17 fleet and operational modules in one place (`/fleet/vehicles`, `/drivers`, `/drivers/leave`, `/fleet/assignments`, `/drivers/performance`, `/reservations`, `/reservations/queue`, `/dispatch/calendar`, `/trips`, `/routes`, `/incidents`, `/fuel`, `/maintenance`, `/tracking/live-map`, `/uvvrp`, `/reports`, `/analytics`). Removed **AI Insights** (`/ai/insights`) from navigation across all role workspaces (`super_admin`, `admin`, `management`). User Management (`/settings/users`) flattened into a standalone item (no dropdowns outside Operations). Redundant Oversight group removed. Route permissions and authorization matrices remain completely unchanged (`NAV_ROLES` and API route guards for `/ai/insights` still active for direct/command-palette navigation; `NAV_ROLES["/operations"] = ["super_admin"]` registered for strict route-contract parity).
+  Verified: `super-admin-nav.test.js` (7/7), `system-errors-access.test.js` (5/5), scoped ESLint 0 errors 0 warnings.
+- Workspace follow-up (2026-10-03, sidebar only): removed **API & Integrations** (`/settings/api`) from the Super Admin Platform group. Route permissions are unchanged; the page remains available through direct URL and the command palette.
 - Historical note: journal entries predating 2026-09-22 that say `system_admin`
   refer to role_id 1, now `super_admin`. Old migration files unchanged.
 - Display-name leftovers fixed 2026-09-23 (hygiene pass): `ROLE_COLORS` in
@@ -248,6 +264,10 @@ Verification after the worktree audit: `npm run lint:ci`, `npm run build`,
 retained suite runs with Vitest's `--configLoader runner` workaround at 474/474 across 43 files.
 The integration-ingest fixture allows the route-resolver lookup and still
 verifies that `integration_log` errors remain best-effort.
+
+## Dispatcher pairing workflow presentation - 2026-10-03
+
+Dispatchers retain read access to pairing and substitute information where it explains dispatch availability. In the Fleet Assignments page, the Matchmaking Assistant (including pair-staging controls) is only rendered when `driver_assignments:create` is allowed. Availability uses “View pairing” / “View substitute schedule” labels for read-only users. An isolated route-level authorization test now invokes all five pairing/substitute write handlers using the actual permission helper: Dispatcher receives 403 before database or audit calls, and Fleet Manager is permitted by the matrix for each action. This verifies the code boundary; it does not replace an HTTP replay using a live Dispatcher cookie.
 
 ## Related
 

@@ -9,11 +9,40 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-09-27
+last_verified: 2026-10-07
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
 # Feature: Dispatch
+
+## Calendar 500 root-cause fix — 2026-10-03
+
+The dispatcher calendar's required vehicle-roster query selected `vehicles.make`,
+but the schema defines `vehicles.manufacturer` and has no `make` column. That
+column error rejects the route's `Promise.all`, returning the page's generic
+calendar 500. The query now selects `manufacturer AS make`, preserving the
+calendar's existing client-side field contract. Source/schema evidence strongly
+matches the reported failure; a live error-log query was blocked by the local
+sandbox's database network restriction, so authenticated deployed replay remains
+pending. Scoped ESLint passed; tests were not run.
+
+## Admin calendar count follow-up — 2026-10-02
+
+The dashboard's Scheduled dispatches metric covers **all dates** and now says so; its link opens the all-date dispatch board. The calendar's Total trips metric covers only its selected date window. Read-only live SQL found scheduled dispatch 622 at 2026-10-02 15:00 Manila and 10 available drivers, so the QA report's October 2 calendar zeros were not explained by date scope alone. The same selected window matched two dispatch rows in SQL. The deployed browser response was not captured, so the exact failure in that session remains unproven.
+
+`GET /api/dispatch/calendar` no longer converts failed dispatch, vehicle or driver queries into empty arrays. These core failures now reach the page's existing retry panel. Optional overlays remain independently tolerant. Calendar KPI cards show a loading/unavailable state during initial fetch, error or placeholder data rather than claiming zero trips or drivers. Route tests pin both failure paths and a successful core payload; focused tests, ESLint and production build passed. Authenticated deployed replay remains pending.
+
+## Calendar vehicle roster column mapping — 2026-10-03
+
+An authenticated local Dispatcher calendar request returned 500. The vehicle roster SQL selected `vehicles.make`, but the connected PostgreSQL schema contains `vehicles.manufacturer`; a direct read-only catalog check confirmed the missing column (`42703`). The route now selects `manufacturer AS make`, preserving the API field consumed by `calendar.js` and `calendar-lanes.jsx`. No migration or operational data change was made. The user later confirmed the calendar works and shared a screenshot showing the summary and resource lanes populated; a separate HTTP status/body was not captured.
+
+## Dispatcher live-use acceptance follow-up — 2026-10-03
+
+On the authenticated local Dispatcher session, direct GET `/api/integration/transport-requests/508/timeline` rendered five recorded events; the reported Not Found did not reproduce. Reservation 508 shows requested category **Guest Transportation** and assigned model **Hiace**. Linked Trip 488 remains **Assigned** and displays the due-pickup/no-start warning without changing its lifecycle status. Its vehicle card now says **Model: Hiace · Vehicle type/name: SUV**; vehicle 37 stores `model=Hiace`, `vehicle_name=SUV`, and category Guest Transportation. This matches the fleet form's “Vehicle Type / Name” field. The master-data owner should confirm the intended `vehicle_name` before any row is changed.
+
+Pairing/substitute write authorization now has isolated handler coverage: all five Dispatcher mutations return 403 before DB or audit side effects, and the actual matrix guard allows Fleet Manager for those same actions. `npm run verify:auth` passes 294/294 API methods. With user approval, one authenticated GET for recommendation request 499 returned HTTP 200 and `narration: null`; it returned zero eligible candidates because the request was overdue and no pair met the service-date eligibility checks. No POST or assignment was made. The Recheck button itself was not clicked, so the rendered empty-candidate explanation remains a browser acceptance item. See [[Dispatcher Live Use-Case Remediation Plan]] for details.
+
+In a later signed-in Dispatcher browser pass, Trip 488 still showed **Assigned** with the due/no-start warning and **Model: Hiace · Vehicle type/name: SUV**; pairing and substitute records were viewable while their management controls were absent. The five direct API probes were not run because DevTools Console was unavailable. The correct detail path `/reservations/499` returned “Transportation request not found,” and the queue showed a different seeded request set, so the Recheck button was not reached and no recommendation lookup was made. Confirm the current request ID/environment before retrying. No operational record was changed.
 
 ## Duty clock is Manila-explicit, not server-local — 2026-10-02
 
@@ -419,3 +448,71 @@ A new event type, `RESERVATION_EVENT.DISPATCH_RELEASED` (`"dispatch_released"`),
 The dialog now states the real outcome ("The guest's request is NOT cancelled — it is released back to Scheduled and stays in the queue so you can assign a replacement pair"), the Cancel button is still only offered for `Scheduled`/`In Progress` dispatches (the state machine refuses a terminal one), and the success toast says *"Dispatch stood down — the request is back in the queue for reassignment"*.
 
 `src/services/transition.service.test.js` (11 tests) drives the real `advanceReservation` against a fake transaction and pins: released-to-`Scheduled` (never `Cancelled`), pair cleared, dispatch flip and trip cancellation inside the same transaction, `Completed` trips untouched, terminal requests left alone but the dispatch still cancelled, a refused release aborting the chain (no audit, no outbound), Booking notified only after commit, and the audit carrying both statuses. `scripts/verify-cancel-cascade.mjs` was updated to the corrected rule for both directions (it needs a running dev server to execute).
+
+## Dispatch settings & operating hours policy — 2026-10-03 (implemented)
+
+`/settings/dispatch` provides system-level configuration for dispatchers and fleet operations:
+1. **Operating Hours & Driver Shift Policy** (`system_settings.work_shift_policy`):
+   - Configurable organizational shift window (`shiftStart`, `shiftEnd`), standard lunch break (`breakStart`, `breakEnd`), and default working/rest days (`workingDays` array). Defaults to 06:00–22:00 with 12:00–13:00 lunch (Mon–Sat active, Sun rest).
+   - **Stagger Lunch Breaks (`staggerBreaks`):** Rotates active drivers across 4 lunchtime slots (`11:30–12:30`, `12:00–13:00`, `12:30–13:30`, `13:00–14:00`) so vehicles are always available during peak lunch hours to catch incoming booking assignments.
+   - **Stagger Rest Days (`staggerRestDays`):** Rotates days off across all 7 days of the week (`driverIndex % 7`, Sun–Sat) so no day is left without driver coverage, ensuring 7-day continuous fleet readiness.
+   - **Apply Routine to All Drivers:** Batch upserts `driver_work_schedules` atomically across all active drivers (`POST /api/settings/work-shift/apply`), preserving existing schedule IDs. The button requires the edited policy to be saved first; a failed policy read blocks the editor. An explicitly empty `driver_ids` selection is rejected instead of applying to everyone. Break slots outside a shortened shift are skipped.
+2. **Queue Priority Bands** (`system_settings.dispatch_policy`): Configurable minute horizons for Critical, High, and Medium priority classification in the transportation queue, alongside VIP and Emergency elevation toggles.
+3. **Unassigned Departure Warnings**: Configurable minute thresholds before scheduled departure to alert dispatchers of unassigned or pending dispatches.
+
+## Fleet Manager dashboard upcoming schedule - 2026-10-03
+
+The Fleet Manager dashboard's Upcoming fleet schedule now includes only scheduled departures strictly after the current instant, plus pending-reassignment exceptions. Past scheduled records remain available on the dispatch calendar for review. This is a read-only presentation rule; it does not advance or cancel dispatches. Availability's exact-window readiness remains a separate scope.
+
+## Dispatcher urgency readout - 2026-10-03
+
+The Dispatcher dashboard separates unassigned pickups due in the next 30 minutes, assigned departures due in that window, and assigned dispatches at/past pickup without a recorded start. `isWithinUpcomingWindow()` uses exact timestamps, so overdue pickups cannot inflate a future-departure count. Each urgency link opens its matching Calendar or Queue filter; the Queue's `departing-soon` predicate is evaluated in SQL and applies to both page rows and total count.
+
+`isPickupDueWithoutStart()` derives the no-start signal from a `Scheduled` dispatch, assigned vehicle/driver, the scheduled pickup threshold, and the absence of start evidence. Calendar and Trip detail show the same warning. `start-window-notifications.service.js` now scans the mobile-supported `PRE_START_TRIP_STATUSES` instead of Driver Accepted alone. Status remains a separate lifecycle decision: timers only surface work and never advance dispatch, trip, reservation, or driver state.
+
+## Supply delivery integration audit — 2026-10-07 (proposed, not implemented)
+
+The checked-in overlap guard protects active rows in dispatchschedules with per-vehicle/per-driver advisory locks. A future supply assignment should use that shared reservation row so passenger and cargo assignments cannot overlap. The existing queue planner, request assignment, availability board and mobile response are passenger-shaped; cargo needs its own shipment/manifest checks, permissions, recommendation evidence and typed driver projection.
+
+Keep shipment and receiving states separate from dispatch/trip states. The passenger trip graph includes Passenger Onboard; that must not become a cargo-loaded signal, and completing a trip must not imply goods were accepted. No cargo data model or SCM integration was found in this audit. See docs/plans/supply-chain-fleet-integration-plan.md; no dispatch behavior changed.
+## Supply delivery foundation implementation - 2026-10-07
+
+The `/supply-deliveries` surface lists imported sandbox shipment snapshots, maintains measured cargo profiles, and evaluates weight, nominal volume, package fit, handling, temperature, pickup readiness and the existing vehicle statuses that prevent dispatch. It also compares those physical checks across the non-deleted fleet through a bounded, read-only endpoint. A PASS covers measured load checks only; it does not check cargo-specific driver class/training, exact duty window, route, documents, roadworthiness, shared overlap, axle distribution, loading arrangement or securement. The response explicitly says assignment eligibility is not evaluated.
+
+The user confirmed on 2026-10-07 that no approved cargo license/training, reservation-interval, or load-plan/axle/securement specification exists yet. Keep this screen as a pre-screen: do not present a candidate as eligible or enable assignment until designated owners approve those rules and evidence sources. See the P0.3 approval gate in `docs/plans/supply-chain-fleet-integration-plan.md`.
+
+No assignment API, signed recommendation token, commit-time shared reservation, typed driver job, mobile checkpoint or receipt path was added in this foundation slice or the later load-fit pre-screen. Migration 148 later added the private shipment-to-dispatch schema bridge and database consistency guards, but application code does not write it. Existing passenger queue, manual assignment and trip lifecycle remain the only assignment/execution workflows. Do not assign supply shipments through this page; the implementation progress is recorded in docs/plans/supply-chain-fleet-integration-plan.md.
+
+The sandbox page now lets admins map external SCM site IDs to active Fleet locations with stored addresses and valid coordinates. This resolves identity only: it does not provide routing evidence, driver/vehicle scheduling, dispatch assignment or trip creation. The mapping must not be treated as evidence that a route is feasible or that a shipment is eligible for assignment.
+
+## Supply delivery shared-dispatch baseline - 2026-10-07
+
+A read-only live query grouped dispatch rows by active/deleted state, status and whether `request_id` is null. The active snapshot contained 37 rows: 30 `Completed` and 7 `Scheduled`; all 37 had a request ID. Migration `147_dispatch_service_type.sql` adds a nullable, checked `service_type` on this shared resource slot. Request-linked rows are `PASSENGER`; requestless historical rows remain NULL. New dispatches default to `PASSENGER`.
+
+The source audit found two dispatch creation paths: `POST /api/dispatch` and `/api/integration/transport-requests/[id]/assign`, which calls `createDispatchForRequest()` inside the passenger assignment transaction. The general endpoint now stamps `PASSENGER` and rejects `SUPPLY_DELIVERY`; the request assignment helper explicitly creates or updates `PASSENGER` dispatches. `PUT /api/dispatch/[id]` does not allow changing the type. Other current consumers include dispatch calendar/availability, trip lifecycle and mobile projection, scheduling, notifications, and trip-based reports. The UI service's `createDispatch()` helper has no non-test caller in this checkout.
+
+Report review found that driver punctuality uses passenger pickup evidence (`at_pickup_at` against dispatch departure or the Booking pickup promise). Fleet Utilization, Driver Performance and the Trip Performance workbook now exclude typed `SUPPLY_DELIVERY` dispatches while retaining legacy untyped trips. Fleet Cost, Financial Summary and Fuel Consumption remain fleet-wide. There are still no cargo dispatches, recommendation tokens or typed mobile jobs. The allocation relation added by migration 148 remains unused. Cargo assignment must remain unavailable until candidate/eligibility checks, shared transactional assignment, cargo KPIs and the driver workflow are implemented. No operational dispatch was inserted; migration 147 only classified existing request-linked rows.
+
+Migration `148_supply_dispatch_allocations.sql` adds the private shipment-to-dispatch bridge. Deferred database triggers require a cargo dispatch and its allocation to exist together at commit, reject passenger request links and stale assigned manifest revisions, and preserve ended allocation history. The one-shipment/one-dispatch P0 constraints are present, but there is no candidate token, commit-time driver/vehicle eligibility revalidation, shared assignment transaction, trip-creation flow or driver projection. `POST /api/dispatch` still rejects `SUPPLY_DELIVERY`.
+
+The 2026-10-07 read-only UI review found passenger-oriented pickup/time controls but no cargo reservation interval, and found no received SCM snapshot to inspect through a dispatch/trip timeline. This confirms the timing and live-flow evidence gaps only; it does not approve a reservation formula or establish a partner contract. See the UI review reconciliation in `docs/plans/supply-chain-fleet-integration-plan.md`.
+
+## Supply Deliveries internal module scope - 2026-10-07
+
+The active scope is readiness of the internal sandbox module: shipment import/list, source-site mapping to Fleet locations, vehicle cargo-profile maintenance, and physical measurement pre-screen. SCM/HR connectivity is not present. Partner integration, cargo dispatch assignment, driver execution, receiver/POD, and inventory posting remain future work; none is needed to fix internal page state handling. The current page keeps eligibility explicitly `NOT_EVALUATED` and does not write dispatches or trips.
+
+The Supply Deliveries page ignores single-vehicle load-check responses when the selected shipment, vehicle, or fetched source data changes, and ignores fleet comparison responses when the shipment or source data changes. It preserves unsaved cargo-profile edits across background profile refreshes and only rehydrates the editor when its selected vehicle changes. The admin Refresh action reloads site mappings and Fleet locations as well as shipments and cargo profiles. Saved mappings no longer render missing coordinates as `0, 0`, and mappings whose Fleet location is inactive or lacks a usable address or coordinates appear unavailable. Scope is limited to client state and mapping status display; no role, dispatch, safety, schema, or inventory rule changed. JSX parsing passed with Espree; focused ESLint exited with a Node heap allocation failure, and no browser or live sandbox interaction was performed.
+
+The remaining internal page fixes and acceptance sequence are tracked in `docs/plans/supply-deliveries-internal-readiness-plan.md`: align profile input validation with the existing API, put the `NOT_EVALUATED` boundary beside individual results, clarify saved verifier provenance, then complete an authenticated non-production walkthrough. This plan does not enable cargo assignment or SCM/HR connectivity.
+
+## Supply Deliveries internal readiness implementation - 2026-10-07
+
+The cargo-profile editor now mirrors the existing API's enabled-profile bounds and relationships: positive measurements and API maxima, a zero-allowed reserve, optional temperature endpoints in range and ordered, gross vehicle weight above operating mass, a trimmed 3–255 character reference, and a real expiry date after the current UTC day. Client validation and keyed API errors appear beside their fields, the first invalid field receives focus, and the editor preserves its draft after a failed save.
+
+The single-vehicle evaluation endpoint now returns `assignment_eligibility: NOT_EVALUATED`. Its page result is labeled as a measured-load check, displays this status beside the outcome, and shows the evaluator's limitations. The saved profile metadata is described as the latest recorded save and displays the existing employee ID, timestamp and reference; the page says this is not a separate compliance approval.
+
+Espree parsing and `git diff --check` passed. Focused ESLint exited 0 with 0 errors and 16 React hook warnings in page state/ref handling. The authenticated non-production walkthrough is still pending; no sandbox import, operational data write, assignment or trip was performed. See `docs/plans/supply-deliveries-internal-readiness-plan.md` for the remaining acceptance gate.
+
+## Supply Deliveries UI alignment - 2026-10-07
+
+The page now follows the shared FleetOps dashboard patterns: the HeroHeader refresh action uses the inverse-theme button style; request counts use `StatGrid`/`StatCard`; form controls use the shared `Input` and `Label`; empty data uses `EmptyState`; and request, vehicle, site, and location choices use the shared Radix `Select` control with styled menus. The primary request and measurement panels use consistent section headers and card surfaces, selected requests have a visible border state, and profile measurements are grouped into capacity, dimensions, temperature/handling, and verification sections. Loading, error/retry, and no-data states are explicit; admin sandbox tools are grouped apart from the Fleet cargo-profile editor. Changes are presentation and workflow clarity only: permissions, routes, data semantics and assignments are unchanged. Espree parsing and `git diff --check` passed; no browser preview or authenticated acceptance was performed.

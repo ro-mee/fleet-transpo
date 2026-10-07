@@ -85,4 +85,33 @@ describe("outbox cap", () => {
     expect(queue).toHaveLength(100);
     expect(queue.some((r) => r.path === "/api/driver/incidents")).toBe(true);
   });
+
+  it("replays the coded severity assessment and submission id unchanged", async () => {
+    const { mod } = await freshSync();
+    const payload = {
+      client_submission_id: "1727900000000-test-guidance",
+      severity: "Moderate",
+      severity_assessment: {
+        version: 1,
+        answers: {
+          immediateDanger: "no",
+          vehicleSafety: "safe",
+          tripImpact: "delayed",
+          hazardToOthers: "no",
+        },
+        override_reason_code: null,
+        critical_confirmed: false,
+        lower_severity_confirmed: false,
+      },
+    };
+    const apiFetch = vi.fn(async () => ({ ok: true }));
+    mod.setApiFetch(apiFetch);
+
+    await mod.enqueueRequest("POST", "/api/driver/incidents", payload);
+    await mod.syncQueue();
+
+    expect(apiFetch).toHaveBeenCalledTimes(1);
+    const replayed = JSON.parse(apiFetch.mock.calls[0][1].body);
+    expect(replayed).toEqual(payload);
+  });
 });

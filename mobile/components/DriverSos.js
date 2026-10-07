@@ -258,6 +258,7 @@ export function DriverSos() {
         latitude,
         longitude,
         severity: "Critical",
+        severity_source: "sos",
         incident_date: new Date().toISOString(),
         client_submission_id: clientSubmissionId,
         // The SOS is inherently medical — carry the structured flag so triage

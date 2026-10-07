@@ -47,6 +47,8 @@ last_verified: 2026-09-23
 
 `MOBILE_JWT_SECRET` and the five `SMTP_*`/`EMAIL_FROM` values must be added to the production hosting environment, not exposed through a `NEXT_PUBLIC_` variable. Vercel deployments need them configured for the relevant environment and must be redeployed after adding them. Missing `MOBILE_JWT_SECRET` breaks mobile login; missing SMTP breaks **all** login.
 
+`EMAIL_FROM` must be a complete mailbox value when a display name is wanted, for example `Fleet Ops <same-address-as-SMTP_USER>`. A name by itself (`Fleet Ops`) is not a valid sender mailbox; Gmail can then replace the inbox label with the authenticated account identity. The local development value was corrected to the complete display-name form on 2026-10-02. Production needs the same format in its hosting environment, followed by a redeploy/restart.
+
 ## Two credentials, both total access
 
 `SUPABASE_SERVICE_ROLE_KEY` and `DATABASE_URL` each grant full database access, bypassing RLS. → [[ADR-004 Dual Database Access]] · [[Why RLS Is Not A Boundary]]

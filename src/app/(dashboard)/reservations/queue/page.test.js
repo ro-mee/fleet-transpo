@@ -4,16 +4,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 // The queue's own render path is exercised with the query result as the only
 // state it reads, matching the other dashboard page tests.
-const state = vi.hoisted(() => ({ query: {} }));
+const state = vi.hoisted(() => ({ query: {}, search: "", queryOptions: null }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => state.query,
+  useQuery: (options) => { state.queryOptions = options; return state.query; },
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(""),
+  useSearchParams: () => new URLSearchParams(state.search),
 }));
 // HeroHeader reads the theme; the provider lives in the dashboard layout.
 vi.mock("@/hooks/use-theme", () => ({
@@ -76,6 +76,8 @@ function renderTree() {
 
 beforeEach(() => {
   vi.stubGlobal("React", React);
+  state.search = "";
+  state.queryOptions = null;
   state.query = {
     data: undefined,
     isLoading: true,
@@ -97,18 +99,42 @@ describe("Unified queue — first load", () => {
     for (const tab of rendered) expect(tab.label).toMatch(/— count loading$/);
   });
 
-  it("highlights Today & overdue while Today is what is being fetched", () => {
+  it("highlights Today while Today is what is being fetched", () => {
     const rendered = tabs(renderTree());
     const selected = rendered.filter((tab) => tab.selected);
     expect(selected).toHaveLength(1);
-    expect(selected[0].label).toBe("Today & overdue — count loading");
+    expect(selected[0].label).toBe("Today — count loading");
   });
 });
 
 describe("Unified queue — loaded", () => {
-  it("names the today tab for what its predicate actually selects", () => {
+  it("keeps the dashboard pickup filter on Today and requests the exact filtered set", async () => {
+    state.search = "filter=departing-soon";
+    state.query = {
+      data: {
+        rows: [ROW],
+        total: 2,
+        counts: { tabs: { today: 6, upcoming: 0, assigned: 1, inProgress: 0, completed: 6, cancelled: 9 } },
+      },
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    };
+    const html = renderTree();
+    expect(html).toContain("Unassigned pickups · next 30 min (2)");
+    expect(tabs(html).find((tab) => tab.selected)?.label).toBe("Today — 6 requests");
+
+    await state.queryOptions.queryFn();
+    const { getTransportRequests } = await import("@/services/transport.service");
+    expect(getTransportRequests).toHaveBeenCalledWith(expect.objectContaining({
+      tab: "today",
+      filter: "departing-soon",
+    }));
+  });
+
+  it("shows the short Today label while explaining its scope in the tooltip", () => {
     // QUEUE_TAB_PREDICATES.today is `pickup <= today (Asia/Manila)`, so the tab
-    // holds overdue work as well. The label has to say so.
+    // still holds overdue work even with the short label.
     state.query = {
       data: {
         rows: [ROW],
@@ -121,10 +147,9 @@ describe("Unified queue — loaded", () => {
     };
     const html = renderTree();
     const rendered = tabs(html);
-    expect(rendered.map((tab) => tab.label)).toContain("Today & overdue — 6 requests");
+    expect(rendered.map((tab) => tab.label)).toContain("Today — 6 requests");
     expect(rendered.map((tab) => tab.label)).toContain("Cancelled — 9 requests");
-    // …and no tab still calls itself a bare "Today".
-    expect(rendered.map((tab) => tab.label)).not.toContain("Today — 6 requests");
+    expect(html).toContain("Pickup today or already past");
   });
 
   it("keeps the highlight on the tab whose rows are on screen, not the tab with work", () => {
@@ -145,7 +170,7 @@ describe("Unified queue — loaded", () => {
     expect(html).toContain("RS-G07O");
     const selected = tabs(html).filter((tab) => tab.selected);
     expect(selected).toHaveLength(1);
-    expect(selected[0].label).toBe("Today & overdue — 0 requests");
+    expect(selected[0].label).toBe("Today — 0 requests");
   });
 
   it("reports a genuine zero once the response has landed", () => {
@@ -162,6 +187,6 @@ describe("Unified queue — loaded", () => {
     const html = renderTree();
     expect(html).toContain("(0)");
     expect(html).not.toContain("(…)");
-    expect(html).toContain("Nothing today or overdue");
+    expect(html).toContain("Nothing today");
   });
 });

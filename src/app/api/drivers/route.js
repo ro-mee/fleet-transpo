@@ -10,7 +10,7 @@ import { ROLE_IDS } from "@/lib/constants";
 import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
-import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, isValidLicenseNumber } from "@/lib/drivers/license-eligibility";
+import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, licenseNumberEvidence } from "@/lib/drivers/license-eligibility";
 import { writeAuditRequired } from "@/lib/audit";
 
 const EMPLOYEE_FIELDS = `json_build_object(
@@ -131,10 +131,11 @@ export async function GET(req) {
       idx++;
     }
 
-    // Time-window conflict exclusion: skip drivers already dispatched in the
-    // requested slot. Same half-open overlap rule as the vehicles endpoint.
     const pickupAt = searchParams.get("pickup_at");
     const returnAt = searchParams.get("return_at");
+
+    // Time-window conflict exclusion: skip drivers already dispatched in the
+    // requested slot. Same half-open overlap rule as the vehicles endpoint.
     if (pickupAt) {
       const end = returnAt || pickupAt;
       sql += `
@@ -149,7 +150,14 @@ export async function GET(req) {
       params.push(end, pickupAt);
     }
 
-    if (includeUnlinked) {
+    const includeUnlinkedRows = includeUnlinked
+      && (!status || status === "all" || status === "Incomplete")
+      && (!licenseClass || licenseClass === "all")
+      && !unassigned
+      && !pickupAt
+      && !returnAt;
+
+    if (includeUnlinkedRows) {
       sql += `
         UNION ALL
         SELECT
@@ -188,6 +196,17 @@ export async function GET(req) {
           )
       `;
       params.push(ROLE_IDS.driver);
+
+      if (search && search.trim() !== "") {
+        sql += ` AND (
+          e.first_name ILIKE $${idx} OR
+          e.last_name ILIKE $${idx} OR
+          e.email ILIKE $${idx} OR
+          e.phone ILIKE $${idx}
+        )`;
+        params.push(`%${search.trim()}%`);
+        idx++;
+      }
     }
 
     sql += ` ORDER BY created_at DESC`;
@@ -196,7 +215,7 @@ export async function GET(req) {
     if (!data || !data.length) return ok([]);
     const rowsWithLicenseFormat = data.map((driver) => {
       const { license_number: _licenseNumber, ...safeDriver } = driver;
-      return { ...safeDriver, license_number_valid: isValidLicenseNumber(driver.license_number) };
+      return { ...safeDriver, ...licenseNumberEvidence(driver.license_number) };
     });
 
     // Travel-date, pair-coupled availability: when a pickup_at is given, hide a

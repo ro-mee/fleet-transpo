@@ -35,7 +35,7 @@ beforeEach(() => {
 
 describe("vehicle category audit events", () => {
   it("audits a category create in its transaction", async () => {
-    const req = request({ category_name: "Shuttle", seating_capacity: 14, status: "Active" });
+    const req = request({ category_name: "Shuttle", status: "Active" });
     const response = await POST(req);
 
     expect(response.status).toBe(201);

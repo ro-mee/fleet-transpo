@@ -4,16 +4,22 @@ title: Bugs
 tags: [development, bugs]
 source:
   - (see individual notes)
-last_verified: 2026-09-30
+last_verified: 2026-10-03
 ---
 
 # Bugs
+
+## Test contract drift corrected — 2026-10-03
+
+The repository-wide run exposed five stale assertions across four files. Audit route fixtures still used the retired `system_admin` role; the throttle security assertion expected a one-hit SQL counter after the implementation gained a bounded hit cost; the upload security assertion expected an old driver-create return shape; and two standby tests omitted the `changed` result or mocked an insert without `rowCount`. The tests now assert the current role, capped cost-aware SQL, signed and redacted driver result, and realistic attendance write count. Focused verification passed 164/164; the full suite passed 3,605/3,605 across 313 files. No runtime security or standby behavior was changed by these test corrections.
 
 Open, verified defects. Each links to a full note with root cause and fix.
 
 ## Open
 
 ### Severity 2 — correctness (dispatcher-facing facts)
+
+- ~~**Incident map missing-GPS handling (2026-10-03).**~~ **CLOSED — code and live acceptance passed.** The initial QA found DMM-4210 at q=0,0 even though its reported location was in Metro Manila. The resolver now rejects null/blank/partial coordinate pairs; the registry/detail view identifies missing GPS, the map summary counts incidents omitted for missing GPS, and exact-location links require a complete pair. The retest confirmed the Metro Manila basemap, zero plotted / one missing-GPS active incident, no DMM-4210 marker or exact-location link, and the same state after reload. Resolver tests passed 10/10, ESLint passed, and no incident data was changed. Explicit numeric 0,0 remains valid; raw database fields were not inspected. See [[Incidents]].
 
 - ~~**Copilot UTC-hour prose + server-local duty clock (RS-UZYD, 2026-10-02).**~~ **CLOSED 2026-10-02.** QA on RS-UZYD (Oct 2 5 PM pickup) caught Copilot saying the previous trip ended 7:09 AM against schedule evidence of 3:09 PM with a correct 111-minute gap — an 8-hour split, not a model invention: conflict prose embedded `toISOString()` while the UI renders Manila, and the evidence gave the model only the raw ISO. Same QA found "Any conflicts?" (plural never matched the `\bconflict\b` detector) and "Other options?" (no handler at all) both falling through to the generic summary. Fixed: Manila-formatted conflict prose (`formatManila`, ISO retained in `detail`), per-pair `releaseLocal` projection + prompt rule, plural detector, dedicated other-options answer with exclusions, and the duty clock (`localDayOfWeek`/`localTimeOfDay`, leave-day derivation, day-eligibility bounds) made Manila-explicit instead of server-local. Pinned by 3 new tests (RS-UZYD instant, other-options exclusions, Manila helpers) and re-run under `TZ=UTC`. Full detail: [[AI Advisory]] 2026-10-02 entry and [[Dispatch]] duty-clock entry. Still open from the same QA: noon break-rule and 6 AM/10 PM boundary live setup (reservation carried no driver/substitute). **Same-day follow-up:** the scope gate redirected the UI's own chips ("Why this option?", "Any conflicts?" → out-of-scope redirect) — singular-only `conflict` signal, no bare-`options`/`fixing` signal, plus unrelated-turn context blocking after the QA injection tests. Fixed with a chip allowlist + plural/bare signals + a "What needs fixing?" branch; unrelated-task routing and post-unrelated gating intentionally unchanged. Full detail: [[AI Advisory]] 2026-10-02 follow-up entry. **Environment footgun found during the same QA:** the browser hit a stale `next start` production server (old build, none of the day's fixes), which 404'd live recommendation routes for requests 507/513 even though both rows exist and are Pending. Fixed by killing the stale PID, `npm run build`, fresh `npm start`; verified unauthenticated recommendation now 401s (route served) instead of 404. Rule of thumb: after any Copilot/scheduling change, rebuild + restart before browser QA — hot-reload only applies to `next dev`.
 - **Mobile Map WebView: residual script and marker-title injection paths.** **CODE FIXED 2026-10-02; native acceptance OPEN.** Runtime values now use script-safe serialization and context-specific text/CSS encoding; radar marker labels use `textContent`, and unused raw trip objects are omitted. Generated-document regression tests, lint, and Android Expo export pass. No ADB/device is available here, so Android/iOS WebView smoke checks remain open. See [[Mobile Map WebView and GPS Odometer Safety Implementation Plan]].
@@ -604,6 +610,39 @@ The leaked database password was **rotated on
     of the block `AddressPickerField` was built to stop being copied. All three were
     equally silent. Recording that, because the entry's precision is what would have
     made a partial fix look complete.
+
+- **Driver inspection "Trip not found" on Pre-Shift — STALE PRODUCTION BUILD, redeploy
+  pending (diagnosed 2026-10-03).** Driver 87 (Mateo Reyes) answered the 5-point
+  Pre-Shift and tapped START YOUR SHIFT; the app answered *"Unable to Submit
+  Inspection: Trip not found (HTTP 404)"*. The client is doing the right thing —
+  Pre-Shift posts `trip_id: null`. The phone targets `https://fleet-transpo.vercel.app`
+  (`mobile/.env`), and unauthenticated route probes bracket that deployment at
+  **2026-09-24 → 09-26**: `/api/geo/provinces` (added 09-24) answers 401, while
+  `/api/address/lookup`, `/api/address/geocode`, `/api/vehicle-inspections/problems`
+  (all 09-27) and `/api/settings/security-policy` (09-29) answer Next's HTML 404 —
+  never registered in that build. `f01e9f8e` (09-27) is the commit that gave the
+  server a Pre-Shift branch; before it the handler is `const tripId =
+  Number(body.trip_id ?? null)` → `null` becomes **0**, `Number.isInteger(0)` slips
+  past the 400 guard, `WHERE trip_id = 0` matches nothing → `throw new
+  AuthError("Trip not found", 404)` — the reported error verbatim, produced by a
+  correct request. The same stale route hardcodes `inspection_type = "Pre-Trip"` and
+  `items.length === 7`, so the current app's 3-item Pre-Trip would 400 instead:
+  **no mobile inspection can land against that deployment at all** — corroborated by
+  **0 of 88** `vehicleinspection` rows carrying a `client_submission_id`, which both
+  generations of the mobile route insert.
+  Client-side changes written earlier that day for this thread (route-param
+  normalisation, `mode === "preshift"` wins, `trip_id: null`, dead-trip guard, 404
+  mapping, explicit `mode: "pretrip"` pushes in `trip/[id].js` and `map.js`) were
+  **reverted — those files match HEAD again**; no client change can teach an old
+  server what Pre-Shift is, and the working tree was returned to baseline on request.
+  **Fix: redeploy Vercel from `origin/main` (`488fefde`).** Verify afterwards:
+  `GET /api/vehicle-inspections/problems` flips from HTML 404 to **401**, and the
+  driver's next Pre-Shift writes a `vehicleinspection` row whose
+  `client_submission_id` is non-null. Local `vercel` CLI is authenticated
+  (`ry4nl3369-lab`) but the project is not linked (no `.vercel/`), so the deploy is
+  dashboard- or linked-CLI-triggered. Unrelated live-data change from the same
+  thread: Trip 558 was soft-deleted 2026-10-03, so a Pre-Trip filed against it 404s
+  correctly.
 
 ### Not yet filed as individual notes
 
@@ -4300,4 +4339,12 @@ But `recoveryActionForCheck` mapped every license check to "Renew driver license
 **Follow-up, same day — "okay na ba si Karlo?" was deflected.** A named-driver status question matched no scope signal (no fleet keyword, no follow-up pattern), so the Copilot returned the out-of-scope redirect even mid-conversation about that driver. Fix, three layers: (1) `copilot-intents.js` recognizes person references (`si/ni/kay` + name, `driver <name>`) and bare check-ins (`okay na ba?`, `kamusta?`) as in-scope when fleet history or an active recommendation exists — a cold name with nothing to resolve against still stays out; `verif*` joined the fleet vocabulary. (2) Exclusions now carry `driver_id/driver_name` (engine pairing-failure skips, radar INFEASIBLE rows, advisor projection, conversation projection with driver-scoped recovery). (3) `evidenceSummary` resolves the asked name against checked pairs then exclusions (stop-word-stripped so "Why is Driver Marco unavailable?" still reaches Marco, while "the driver told me he is free" strips to nothing and falls through to the verdict). Trap found while fixing: `String(null)` is `"null"`, so null names matched each other — `nameTokenMatch` now refuses nulls, pinned by test. Full suite 3355/3355 in 267 files.
 
 **Follow-up, same day — the Copilot's "license number is missing" for Karlo was wrong.** After the operator set ABC-1234's required class to B, the Copilot still reported Karlo's license number as missing — but the database row has had `N04-19-013583` all along (verified read-only: number/type/class/expiry all present, only staff verification pending). Root cause: the preparation roster query (`dispatch-recommendation-preparation.service.js`) selected only `driver_id, driver_status, license_expiry, years_of_experience` — every other license field was undefined on the engine's rows, so the eligibility gate read a complete license as missing. (It only surfaced now because a NULL vehicle required class takes the expiry-only path; setting the class switched the full check on.) Fix: the roster now selects `license_number, license_type, license_class, license_verified_at/by/method` — the same columns every other engine-feeding query already loads. Correct state after fix: Karlo × ABC-1234 is blocked only on staff verification ("Verify driver license"); Jack × XYZ 5678 on verification plus the still-NULL vehicle class. Pinned by a roster-column test. Note: the operator's license edit also reset Karlo's verification to NULL (edit clears it by design), so the "Confirm physical card checked" click must come after saving the edit.
+
+## Fixed — 2026-10-02 — Assignments list falsely says license number is missing
+
+The Assignments page called `evaluateDriverLicenseEligibility` on rows from three redacted list APIs. Those APIs intentionally removed `license_number` and returned only `license_number_valid`, so the evaluator saw an empty number and emitted "License number is missing" even for a stored valid number. This affected custodial pairings, substitute coverage, and the driver picker in the pairing/scheduling dialogs. The server write gates continued to read full stored rows.
+
+The redacted responses now add `license_number_present`, and the evaluator uses presence plus the existing validity flag when no number is supplied. It still reports genuinely absent versus malformed numbers separately and keeps the full number out of list responses. Focused tests passed 18/18; changed-source ESLint and diff check passed. The configured live database returned no rows for assignment IDs #33, #32, #31, #30, #29, #26, #21, #20, #19, and #4 in a read-only query, so that environment could not confirm those screenshot records. Other warnings require individual stored-field review; the fix does not assert those fields are complete.
+
+**System Health telemetry truth and SQL review (2026-10-03):** The new health-history code inserted 53 random backdated snapshots when the table was sparse, substituted invented availability/latency values and trend deltas, and displayed an API error rate with a guessed request denominator. Two live PostgreSQL queries also referred to `$2` while callers supplied only one parameter, silently yielding empty latency and push aggregates through catch fallbacks. Removed synthetic seeding and dead dashboard mock arrays, corrected both placeholders, and made missing measurements explicit. History now excludes rows with empty `subsystems` JSON; read-only live inspection found 52 such legacy rows among 58 total. All four telemetry SELECT queries succeeded in a read-only transaction after the fix. Focused tests and touched-file ESLint passed; `db:status` showed migration 142 applied and unchanged, `db:contract` had 0 violations, and the anon probe explicitly refused the snapshot table. No live data was changed by this review. See [[System Health and Reliability]].
 

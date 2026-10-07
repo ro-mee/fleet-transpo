@@ -192,8 +192,10 @@ always sent `sound: "default"`).
 **Scheduler status (2026-09-24):** `.github/workflows/cron-sync.yml` landed —
 `*/5 * * * *` schedule with a 5×60s in-job loop (effective ~1/min) calling
 `POST /api/cron/sync` with `Bearer $CRON_SECRET`, plus one
-`/api/cron/reconcile` per tick. `vercel.json` mirrors both paths for a
-possible Vercel return. **Not yet firing:** needs merge to `main`, repository
+`/api/cron/reconcile` per tick. `vercel.json`'s mirror of both paths was
+**removed 2026-10-03** — Vercel Hobby caps cron at one run/day, so the
+schedules failed deployment; the workflow is the sole caller. **Not yet
+firing:** needs merge to `main`, repository
 secrets (`APP_BASE_URL`, `CRON_SECRET`), and `CRON_SECRET` in HostForge —
 `cron_sync_last_ok` was still **2026-09-06T04:30:43Z** at the 2026-09-24
 re-probe. Operator steps and pass criteria:
@@ -510,8 +512,9 @@ comment, which this does not duplicate); no scheduler was configured, and
 producer was therefore correct code that never executed — the trip start-window
 producer included, dead in the same silent way since 2026-09-09.
 `.github/workflows/cron-sync.yml` is now that caller (`*/5 * * * *` with a 5×60s
-in-job loop for an effective ~1/min, one `/api/cron/reconcile` per tick;
-`vercel.json` mirrors both paths), and it unblocks the start-window producer
+in-job loop for an effective ~1/min, one `/api/cron/reconcile` per tick; its
+`vercel.json` mirror was removed 2026-10-03 — Vercel Hobby caps cron at one
+run/day, so the schedules failed deployment), and it unblocks the start-window producer
 too. Honest limits, all accepted for a capstone: GitHub's schedule is **queued,
 not punctual** and can be skipped on a busy minute; it runs **only on the default
 branch**; and GitHub **disables scheduled workflows after 60 days without

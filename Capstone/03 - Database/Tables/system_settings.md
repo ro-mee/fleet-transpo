@@ -37,11 +37,14 @@ CREATE TABLE system_settings (
 );
 ```
 
-Policy that an operator should be able to change without a deploy is stored as **one JSON document per policy**, keyed by a single string — not as a row per setting and not as columns. Three policies use this shape:
+Policy that an operator should be able to change without a deploy is stored as **one JSON document per policy**, keyed by a single string — not as a row per setting and not as columns. Five policies use this shape:
 
 - **`dispatch_policy`** — dispatcher thresholds, read through `getDispatchPolicy()` (`src/services/dispatch-settings.service.js`, `src/lib/dispatch-policy.js`).
 - **`uvvrp_policy`** — the coding/weekday rule set (`src/lib/uvvrp/uvvrp.service.js`, `src/lib/uvvrp/policy.js`).
 - **`security_policy`** — session + lockout timings, read through `getSecurityPolicy()` (`src/services/security-policy.service.js`, `src/lib/security-policy.js`).
+- **`work_shift_policy`** — fleet operating hours, default shift times, staggered lunch breaks (4 rotating slots: 11:30–12:30, 12:00–1:00, 12:30–1:30, 1:00–2:00), and staggered rest days across the 7 days of the week (`src/lib/work-shift-policy.js`, `src/services/work-shift-policy.service.js`). Managed via `/settings/dispatch` with batch-apply to all active drivers and one-click import into individual driver schedule editors.
+- **`fuel_policy`** — refill, variance, auto-approval, budget, price, and fuel-type controls (`src/lib/fuel/fuel-policy.js`, `src/services/fuel-settings.service.js`). The mobile receipt photo remains mandatory regardless of policy.
+
 
 The remaining keys (`cron_sync_*`, `hotel_location`, `seed:phase4`) are scalars written by code paths that have no UI: `src/lib/system-health.js`, the hotel/NAIA routes, and a seed marker.
 

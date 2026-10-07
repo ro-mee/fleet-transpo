@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
@@ -46,6 +46,53 @@ import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 import { vehicleSchema } from "@/lib/validation/schemas";
 
+// Blank form for a new vehicle. Also the fallback when an edit page mounts
+// before its row is available from the query.
+const STATIC_FORM_VALUES = {
+  plate_number: "",
+  vehicle_name: "",
+  model: "",
+  manufacturer: "",
+  year: new Date().getFullYear(),
+  color: "",
+  fuel_type: "Gasoline",
+  seating_capacity: 4,
+  required_license_class: "",
+  vehicle_status: "Available",
+  purchase_price: undefined,
+  purchase_date: "",
+  insurance_expiry: "",
+  next_service_date: "",
+  next_service_mileage: undefined,
+  service_interval_km: undefined,
+  service_interval_days: undefined,
+};
+
+// Single mapping from a stored vehicle row to form values, shared by the
+// initial `defaultValues` and the reset effect so the two cannot drift.
+function vehicleToFormValues(vehicle) {
+  return {
+    plate_number: vehicle.plate_number || "",
+    vehicle_name: vehicle.vehicle_name || "",
+    model: vehicle.model || "",
+    manufacturer: vehicle.manufacturer || "",
+    year: vehicle.year || new Date().getFullYear(),
+    color: vehicle.color || "",
+    fuel_type: vehicle.fuel_type || "Gasoline",
+    seating_capacity: vehicle.seating_capacity || 4,
+    required_license_class: vehicle.required_license_class?.toUpperCase() || "",
+    category_id: vehicle.category_id || undefined,
+    vehicle_status: vehicle.vehicle_status || "Available",
+    purchase_price: vehicle.purchase_price || undefined,
+    purchase_date: toDateInput(vehicle.purchase_date),
+    insurance_expiry: toDateInput(vehicle.insurance_expiry),
+    next_service_date: toDateInput(vehicle.next_service_date),
+    next_service_mileage: vehicle.next_service_mileage || undefined,
+    service_interval_km: vehicle.service_interval_km || undefined,
+    service_interval_days: vehicle.service_interval_days || undefined,
+  };
+}
+
 export default function VehicleFormPage({ params }) {
   useRequireRole();
   const router = useRouter();
@@ -64,27 +111,42 @@ export default function VehicleFormPage({ params }) {
   // AI Scan State
   const [scanningDocType, setScanningDocType] = useState(null);
 
+  // The queries sit above `useForm` on purpose. "View Vehicle → Edit Details"
+  // arrives with the row already in the react-query cache (the detail page uses
+  // the same `["vehicle", id]` key), so the form can seed its real values on the
+  // very first render instead of painting blank defaults for a frame and waiting
+  // for the reset effect. The `initializedVehicleId` gate covers the cold path.
+  const {
+    data: vehicle,
+    isLoading: isVehicleLoading,
+    refetch: refetchVehicle,
+  } = useQuery({
+    queryKey: ["vehicle", vehicleId],
+    queryFn: () => getVehicle(vehicleId),
+    enabled: !!vehicleId,
+  });
+
+  const {
+    data: categories = [],
+    isLoading: areCategoriesLoading,
+    isError: categoriesFailed,
+    refetch: refetchCategories,
+  } = useQuery({
+    queryKey: ["vehicle-categories"],
+    queryFn: () => getVehicleCategories(),
+  });
+
+  const initialFormValues = useMemo(
+    () => (vehicle ? vehicleToFormValues(vehicle) : null),
+    [vehicle]
+  );
+  const [initializedVehicleId, setInitializedVehicleId] = useState(
+    () => (vehicle ? vehicleId : null)
+  );
+
   const form = useForm({
     resolver: zodResolver(vehicleSchema),
-    defaultValues: {
-      plate_number: "",
-      vehicle_name: "",
-      model: "",
-      manufacturer: "",
-      year: new Date().getFullYear(),
-      color: "",
-      fuel_type: "Gasoline",
-      seating_capacity: 4,
-      required_license_class: "",
-      vehicle_status: "Available",
-      purchase_price: undefined,
-      purchase_date: "",
-      insurance_expiry: "",
-      next_service_date: "",
-      next_service_mileage: undefined,
-      service_interval_km: undefined,
-      service_interval_days: undefined,
-    },
+    defaultValues: initialFormValues ?? STATIC_FORM_VALUES,
   });
 
   // Fill fields from an AI extraction result. A field is only written when it
@@ -161,39 +223,10 @@ export default function VehicleFormPage({ params }) {
     }
   };
 
-  const { data: vehicle } = useQuery({
-    queryKey: ["vehicle", vehicleId],
-    queryFn: () => getVehicle(vehicleId),
-    enabled: !!vehicleId,
-  });
-
-  const { data: categories = [] } = useQuery({
-    queryKey: ["vehicle-categories"],
-    queryFn: () => getVehicleCategories(),
-  });
-
   useEffect(() => {
     if (vehicle) {
-      form.reset({
-        plate_number: vehicle.plate_number || "",
-        vehicle_name: vehicle.vehicle_name || "",
-        model: vehicle.model || "",
-        manufacturer: vehicle.manufacturer || "",
-        year: vehicle.year || new Date().getFullYear(),
-        color: vehicle.color || "",
-        fuel_type: vehicle.fuel_type || "Gasoline",
-        seating_capacity: vehicle.seating_capacity || 4,
-        required_license_class: vehicle.required_license_class?.toUpperCase() || "",
-        category_id: vehicle.category_id || undefined,
-        vehicle_status: vehicle.vehicle_status || "Available",
-        purchase_price: vehicle.purchase_price || undefined,
-        purchase_date: toDateInput(vehicle.purchase_date),
-        insurance_expiry: toDateInput(vehicle.insurance_expiry),
-        next_service_date: toDateInput(vehicle.next_service_date),
-        next_service_mileage: vehicle.next_service_mileage || undefined,
-        service_interval_km: vehicle.service_interval_km || undefined,
-        service_interval_days: vehicle.service_interval_days || undefined,
-      });
+      form.reset(vehicleToFormValues(vehicle));
+      setInitializedVehicleId(vehicleId);
 
       if (Array.isArray(vehicle.documents)) {
         const orCr = vehicle.documents.find((d) => d.document_type === "OR_CR");
@@ -203,7 +236,7 @@ export default function VehicleFormPage({ params }) {
         if (ins) setInsuranceDoc({ document_number: ins.document_number || "", file_url: ins.file_url || "" });
       }
     }
-  }, [vehicle, form]);
+  }, [vehicle, form, vehicleId]);
 
   // ── "Never recorded" vs "failed to prefill" ─────────────────────────────
   //
@@ -319,6 +352,47 @@ export default function VehicleFormPage({ params }) {
       </Button>
     </>
   );
+
+  const editLoadFailed = isEdit && (
+    (!vehicle && !isVehicleLoading) ||
+    (categoriesFailed && categories.length === 0)
+  );
+
+  if (editLoadFailed) {
+    return (
+      <PageEntrance className="w-full">
+        <Card className={cn("mx-auto max-w-xl border-0 rounded-3xl", CARD_SHADOW)}>
+          <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
+            <div>
+              <h1 className="text-lg font-bold text-foreground">Vehicle information could not be loaded</h1>
+              <p className="mt-2 text-sm text-foreground-secondary">Editing is paused so saved vehicle details are not replaced by blank fields.</p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-3">
+              <Button type="button" variant="outline" onClick={() => { refetchVehicle(); refetchCategories(); }}>
+                Retry loading
+              </Button>
+              <Button type="button" onClick={() => router.push(`/fleet/vehicles/${vehicleId}`)}>
+                Back to vehicle
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </PageEntrance>
+    );
+  }
+
+  if (isEdit && (isVehicleLoading || areCategoriesLoading || initializedVehicleId !== vehicleId)) {
+    return (
+      <PageEntrance className="w-full">
+        <Card className={cn("mx-auto max-w-xl border-0 rounded-3xl", CARD_SHADOW)}>
+          <CardContent role="status" className="flex items-center justify-center gap-3 p-8 text-sm font-medium text-foreground-secondary">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading saved vehicle information…
+          </CardContent>
+        </Card>
+      </PageEntrance>
+    );
+  }
 
   return (
     <PageEntrance className="space-y-6 w-full pb-28">

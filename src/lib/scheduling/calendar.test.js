@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DISPATCH_STATUS } from "@/lib/constants";
 import { EVENT_KIND, dispatchToEvent, isPendingReassignment } from "./calendar";
 
@@ -30,6 +30,46 @@ describe("dispatchToEvent tone", () => {
     );
     expect(event.requestId).toBe(42);
     expect(event.guestName).toBe("Ada");
+  });
+});
+
+describe("dispatch urgency markers", () => {
+  const now = new Date("2026-10-03T04:00:00.000Z");
+
+  beforeEach(() => vi.useFakeTimers({ now }));
+  afterEach(() => vi.useRealTimers());
+
+  it("marks assigned past pickups with no recorded departure", () => {
+    const event = dispatchToEvent(mk({
+      vehicle_id: 3,
+      driver_id: 8,
+      scheduled_departure: new Date(+now - 1).toISOString(),
+    }));
+    expect(event.noStartRecorded).toBe(true);
+    expect(event.isStartingSoon).toBe(false);
+  });
+
+  it("includes a departure due now and excludes started or unassigned records", () => {
+    const dueNow = dispatchToEvent(mk({
+      vehicle_id: 3,
+      driver_id: 8,
+      scheduled_departure: now.toISOString(),
+    }));
+    const started = dispatchToEvent(mk({
+      vehicle_id: 3,
+      driver_id: 8,
+      actual_departure: new Date(+now - 1).toISOString(),
+      scheduled_departure: new Date(+now - 1).toISOString(),
+    }));
+    const unassigned = dispatchToEvent(mk({
+      vehicle_id: 3,
+      driver_id: null,
+      scheduled_departure: new Date(+now - 1).toISOString(),
+    }));
+    expect(dueNow.isStartingSoon).toBe(true);
+    expect(dueNow.noStartRecorded).toBe(true);
+    expect(started.noStartRecorded).toBe(false);
+    expect(unassigned.noStartRecorded).toBe(false);
   });
 });
 

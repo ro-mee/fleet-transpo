@@ -52,8 +52,10 @@ export function AiAnalystCard({
   // Fallback date window ({ from, to }) shown when the narrative carries none.
   range = null,
   loading = false,
+  error = null,
   data = null,
   onRegenerate,
+  onRetry,
   isRegenerating = false,
 }) {
   const matchedData = report ? (data?.report === report ? data : null) : data;
@@ -138,6 +140,12 @@ export function AiAnalystCard({
                 <Skeleton className="h-3.5 w-full rounded-md" />
                 <Skeleton className="h-3.5 w-[80%] rounded-md" />
               </div>
+            </div>
+          ) : error ? (
+            <div className="rounded-2xl border border-danger/20 bg-danger-bg/40 p-5" role="alert">
+              <p className="text-sm font-semibold text-foreground">Analysis unavailable</p>
+              <p className="mt-1 text-xs text-foreground-secondary">{error}</p>
+              {onRetry && <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>Try again</Button>}
             </div>
           ) : (
             <div className="relative overflow-hidden rounded-2xl border border-slate-200/60 dark:border-slate-800 bg-[#f8fafd] dark:bg-slate-900/40 p-5 sm:p-6">

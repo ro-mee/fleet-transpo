@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import * as db from "@/lib/db";
 import * as apiUtils from "@/lib/api/utils";
 import * as audit from "@/lib/audit";
@@ -35,6 +35,7 @@ function setup({ driver = DRIVER, vehicle = VEHICLE } = {}) {
   vi.spyOn(db, "query").mockImplementation(async (sql) => {
     if (sql.includes("FROM drivers d")) return { rows: driver ? [driver] : [] };
     if (sql.includes("FROM vehicles WHERE")) return { rows: vehicle ? [vehicle] : [] };
+    if (sql.includes("WHERE a.assignment_id =")) return { rows: [{ assignment_id: 71, driver_id: 7, vehicle_id: 9 }] };
     if (sql.includes("FROM driver_vehicle_assignments")) return { rows: [] };
     if (sql.includes("RETURNING assignment_id")) return { rows: [{ assignment_id: 71 }] };
     return { rows: [] };
@@ -75,5 +76,24 @@ describe("POST /api/driver-assignments license eligibility", () => {
 
     expect(response.status).toBe(201);
     expect(db.withTransaction).toHaveBeenCalledOnce();
+  });
+});
+
+describe("GET /api/driver-assignments license evidence", () => {
+  it("preserves presence and syntax without returning the license number", async () => {
+    vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
+    vi.spyOn(db, "query").mockResolvedValue({ rows: [
+      { assignment_id: 1, ...DRIVER, required_license_class: "B" },
+      { assignment_id: 2, ...DRIVER, license_number: "N04-19-01!583", required_license_class: "B" },
+      { assignment_id: 3, ...DRIVER, license_number: null, required_license_class: "B" },
+    ] });
+
+    const response = await GET(request());
+    const { assignments } = await response.json();
+
+    expect(assignments.map(({ license_number_present, license_number_valid }) =>
+      [license_number_present, license_number_valid]
+    )).toEqual([[true, true], [true, false], [false, false]]);
+    expect(assignments.every((row) => !("license_number" in row))).toBe(true);
   });
 });

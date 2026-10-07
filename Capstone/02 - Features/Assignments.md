@@ -6,7 +6,7 @@ source:
   - src/app/(dashboard)/fleet/assignments/page.js
   - src/app/api/driver-assignments
   - src/app/api/substitute-driver-schedules
-last_verified: 2026-08-26
+last_verified: 2026-10-02
 related: ["[[Driver Management]]", "[[Fleet And Vehicles]]", "[[Dispatch]]"]
 ---
 
@@ -66,6 +66,16 @@ The embedded cards on `fleet/vehicles/[id]` (AssignedVehicleCard + SubstituteDri
 - Substitute picker only lists drivers with **no** assigned vehicle (`getDrivers({ status: "Available", unassigned: 1 })`).
 - PATCH quirk: omitting `effective_until` KEEPS the stored end date (cannot clear to open-ended via edit).
 
+## License warning accuracy — 2026-10-02
+
+The pairing and substitute tables calculate eligibility in the browser from redacted API rows. Their list endpoints, the substitute item endpoint, and the driver picker omit the full license number. They now return `license_number_present` alongside `license_number_valid`; the shared eligibility evaluator uses those flags only when the number itself is absent. This distinguishes a missing number from a malformed one without sending the credential to the browser. Assignment and substitute writes still evaluate the full stored driver row on the server. Other blockers (type, class, expiry, staff review, vehicle required class) are independent.
+
+Focused eligibility and assignment-route tests passed 18/18; changed-source ESLint passed. A read-only query to the configured database returned no rows for the assignment IDs in the reported screenshot, so the stored values for that screenshot could not be confirmed here. No database records or migration changed.
+
 ## Related
 
 [[Driver Management]] · [[Fleet And Vehicles]] · [[Dispatch]] · [[Feature Index]]
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+Fleet custody coverage counts distinct vehicles with an open-ended assignment, intersected with the non-deleted, non-decommissioned fleet used as the denominator. The card shows the assigned/total count and percentage; zero active vehicles displays an em dash. Decommissioned and deleted vehicles are excluded from the matching unassigned-vehicle count. Substitute schedule date checks use the Asia/Manila calendar day. This changes presentation only and does not modify pairing rows.

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { POST, GET } from "./route";
+import { GET, POST } from "./route";
 import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
 
@@ -353,5 +353,27 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
         expect(sql).toContain(`vm.${key}`);
       }
     }
+  });
+});
+
+describe("GET /api/vehicle-maintenance overdue scope", () => {
+  it("marks past scheduled records as overdue without changing their stored status", async () => {
+    const record = { maintenance_id: 17, status: "Scheduled", is_overdue: true };
+    const querySpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("AS is_overdue")) return { rows: [record] };
+      if (sql.includes("AS overdue")) return { rows: [{ total: "2", scheduled: "2", overdue: "1", inProgress: "0", total_cost: "0" }] };
+      if (sql.includes("count(*) AS total")) return { rows: [{ total: "2" }] };
+      return { rows: [] };
+    });
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "fleet_manager" } });
+
+    const response = await GET(new Request("https://fleet.test/api/vehicle-maintenance?page=1&pageSize=10"));
+    const body = await response.json();
+    const listSql = querySpy.mock.calls.find(([sql]) => sql.includes("AS is_overdue"))[0];
+
+    expect(body.counts.overdue).toBe(1);
+    expect(body.rows[0]).toMatchObject({ status: "Scheduled", is_overdue: true });
+    expect(listSql).toContain("NOW() AT TIME ZONE 'Asia/Manila'");
+    expect(listSql).toContain("vm.maintenance_date <");
   });
 });

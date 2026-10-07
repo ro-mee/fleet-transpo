@@ -46,7 +46,11 @@ export async function getAiRecommendations(type = "reservation", params = {}) {
 
 // Report & analytics AI analyst narrative
 export async function getReportNarrative(report, data, range = null, force = false) {
-  return apiFetch("/api/ai/report-narrative", { method: "POST", body: { report, data, range, force } });
+  return apiFetch("/api/ai/report-narrative", {
+    method: "POST",
+    body: { report, data, range, force },
+    signal: AbortSignal.timeout(30000),
+  });
 }
 
 export async function getAiInsights(force = false) {

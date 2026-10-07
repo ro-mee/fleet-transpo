@@ -55,6 +55,7 @@ function eventTooltip(event, conflicts = []) {
   }
   if (event.vip) lines.push("VIP guest");
   if (event.isStartingSoon) lines.push("Starting in less than 30 minutes");
+  if (event.noStartRecorded) lines.push("Pickup time is due; no start recorded");
   lines.push(`${KIND_LABEL[event.kind] || "Event"}: ${event.title}`);
   if (event.guestName) lines.push(`Guest: ${event.guestName} (${event.passengerCount || 1} pax)`);
   if (event.driverDisplayName) lines.push(`Driver: ${event.driverDisplayName}`);
@@ -162,6 +163,11 @@ export function CalendarEvent({
                 {displayEvent.vip && (
                   <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/20 px-1.5 py-0.2 text-[9px] font-bold text-amber-600 dark:text-amber-400">
                     <Sparkles className="w-2.5 h-2.5" /> VIP
+                  </span>
+                )}
+                {displayEvent.noStartRecorded && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-rose-500/15 px-1.5 py-0.2 text-[9px] font-bold text-rose-700 dark:text-rose-300">
+                    <AlertTriangle className="h-2.5 w-2.5" /> No start recorded
                   </span>
                 )}
                 {conflicted && (

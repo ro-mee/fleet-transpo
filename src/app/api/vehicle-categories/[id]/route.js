@@ -11,10 +11,14 @@ const CATEGORY_WRITABLE = [
   "base_rate",
   "per_km_rate",
   "per_hour_rate",
-  "seating_capacity",
   "image_url",
   "status",
 ];
+// Excludes the legacy category seating_capacity column; seats belong to vehicles.
+const CATEGORY_COLUMNS = [
+  "category_id", "category_name", "description", "base_rate", "per_km_rate",
+  "per_hour_rate", "image_url", "status", "created_at", "updated_at", "deleted_at",
+].join(", ");
 
 export async function PUT(req, { params }) {
   try {
@@ -25,7 +29,6 @@ export async function PUT(req, { params }) {
     const errors = validateBody(body, {
       category_name: { maxLength: 100, label: "Category name" },
       description: { maxLength: 500, label: "Description" },
-      seating_capacity: { type: "seating", label: "Seating capacity" },
       status: { maxLength: 30, label: "Status" },
     });
     if (!isValidObject(errors)) {
@@ -46,7 +49,7 @@ export async function PUT(req, { params }) {
       const { rows: before } = await tx.query(`SELECT status FROM vehiclecategories WHERE category_id = $1 AND deleted_at IS NULL FOR UPDATE`, [id]);
       if (!before[0]) return null;
       const { rows } = await tx.query(
-        `UPDATE vehiclecategories SET ${setClause.join(", ")} WHERE category_id = $${values.length} AND deleted_at IS NULL RETURNING *`,
+        `UPDATE vehiclecategories SET ${setClause.join(", ")} WHERE category_id = $${values.length} AND deleted_at IS NULL RETURNING ${CATEGORY_COLUMNS}`,
         values
       );
       if (!rows[0]) return null;

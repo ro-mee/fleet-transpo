@@ -29,6 +29,7 @@ import { incidentTypeLabel, sortCandidateResponders } from "@/lib/incidents/reso
 import { ImageViewer } from "@/components/ui/image-viewer";
 import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { INCIDENT_SEVERITY_REASON_LABELS } from "../../../../shared/incidents/severity.js";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
   loading: () => (
@@ -43,6 +44,11 @@ const SEVERITY_VARIANT = {
   Moderate: "warning",
   Major: "warning",
   Critical: "danger",
+};
+const OVERRIDE_REASON_LABELS = {
+  situation_changed: "The situation changed",
+  answers_missed_context: "The driver missed context in the answers",
+  driver_judgment: "Driver judgment",
 };
 
 // Attribution for a resolved incident: a staff resolve carries a dashboard
@@ -230,6 +236,11 @@ export default function IncidentsPage() {
     return incidents.filter((i) => (i.status || "").toLowerCase() !== "resolved");
   }, [incidents]);
 
+  const plottedIncidentCount = activeIncidents.filter(
+    (i) => i && i.latitude != null && i.longitude != null
+  ).length;
+  const missingGpsIncidentCount = activeIncidents.length - plottedIncidentCount;
+
   // Live rescue units for the map: one blue marker per open incident that has
   // a GPS-tracked fleet responder with a current position.
   const responderMarkers = useMemo(() => {
@@ -296,6 +307,9 @@ export default function IncidentsPage() {
               <MapPin className="w-3 h-3 shrink-0" />
               <span className="min-w-0 truncate"><span className="hidden sm:inline">View on Google Maps</span><span className="sm:hidden">Maps</span></span>
             </a>
+          )}
+          {(row.latitude == null || row.longitude == null) && (
+            <p className="mt-1 text-[11px] font-semibold text-warning-700">GPS fix unavailable</p>
           )}
           {row.description && (
             <p className="break-words text-xs text-foreground-secondary mt-1 line-clamp-2">{row.description}</p>
@@ -594,9 +608,14 @@ export default function IncidentsPage() {
               </div>
               <div>
                 <p className="text-sm font-bold text-foreground">Active Incident Map</p>
-                <p className="text-xs text-foreground-muted font-medium">
-                  {activeIncidents.filter((i) => i && i.latitude != null && i.longitude != null).length} active incidents plotted with GPS coordinates
-                </p>
+                <div className="text-xs text-foreground-muted font-medium">
+                  <p>{plottedIncidentCount} active incidents plotted with GPS coordinates</p>
+                  {missingGpsIncidentCount > 0 && (
+                    <p className="text-warning-700">
+                      {missingGpsIncidentCount} active incident{missingGpsIncidentCount === 1 ? " has" : "s have"} no GPS fix and {missingGpsIncidentCount === 1 ? "is" : "are"} omitted from the map
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
             <Button
@@ -707,12 +726,40 @@ export default function IncidentsPage() {
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Status</span><StatusBadge status={detailIncident.status || "Open"} entity="incident" /></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</span><span className="font-semibold text-foreground">{detailIncident.plate_number || (detailIncident.vehicle_id ? `#${detailIncident.vehicle_id}` : "Not attached")}</span></div>
                 </div>
+                {detailIncident.severity_assessment && (
+                  <div className="space-y-1 rounded-xl border border-border/70 bg-muted/20 px-3 py-2 text-xs">
+                    {detailIncident.severity_assessment.source === "sos" ? (
+                      <p className="font-semibold text-foreground">Direct SOS report · Critical</p>
+                    ) : (
+                      <>
+                        <p className="font-semibold text-foreground">
+                          Recommended: {detailIncident.severity_assessment.recommendedSeverity}
+                        </p>
+                        <p className="text-foreground-secondary">
+                          {INCIDENT_SEVERITY_REASON_LABELS[detailIncident.severity_assessment.reasonCode] || "Recommendation based on the driver's safety answers."}
+                        </p>
+                        {detailIncident.severity_assessment.source === "override" && (
+                          <p className="text-foreground-secondary">
+                            Driver selected {detailIncident.severity_assessment.finalSeverity}
+                            {detailIncident.severity_assessment.overrideReasonCode
+                              ? " · " + (OVERRIDE_REASON_LABELS[detailIncident.severity_assessment.overrideReasonCode] || "Driver override")
+                              : ""}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="grid gap-2 rounded-2xl border border-border/80 bg-surface p-3 text-xs sm:grid-cols-2">
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Reported</span><span className="font-medium text-foreground">{detailIncident.incident_date ? new Date(detailIncident.incident_date).toLocaleString("en-PH") : "—"}</span></div>
                   <div><span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Received</span><span className="font-medium text-foreground">{detailIncident.created_at ? new Date(detailIncident.created_at).toLocaleString("en-PH") : "—"}</span></div>
                   {detailIncident.description && <p className="sm:col-span-2 whitespace-pre-wrap text-foreground-secondary">{detailIncident.description}</p>}
                   {detailIncident.location && <p className="flex items-center gap-1.5 text-foreground-secondary"><MapPin className="h-3.5 w-3.5 text-danger" />{detailIncident.location}</p>}
-                  {detailIncident.latitude != null && detailIncident.longitude != null && <a className="inline-flex items-center gap-1.5 font-semibold text-primary hover:underline" href={`https://www.google.com/maps?q=${detailIncident.latitude},${detailIncident.longitude}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" />Open exact location</a>}
+                  {detailIncident.latitude != null && detailIncident.longitude != null ? (
+                    <a className="inline-flex items-center gap-1.5 font-semibold text-primary hover:underline" href={`https://www.google.com/maps?q=${detailIncident.latitude},${detailIncident.longitude}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" />Open exact location</a>
+                  ) : (
+                    <p className="font-medium text-warning-700">GPS fix unavailable; no exact map location is recorded.</p>
+                  )}
                   {detailIncident.driver_latitude != null && detailIncident.driver_longitude != null && (
                     <p className="sm:col-span-2 flex flex-wrap items-center gap-1.5 text-foreground-secondary">
                       <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
@@ -1129,16 +1176,24 @@ export default function IncidentsPage() {
                                                     <Clock className="h-2.5 w-2.5" /> ~{d.eta_minutes}m ETA
                                                   </span>
                                                 )}
-                                                {d.distance_km != null ? (
-                                                  d.position_fresh ? (
-                                                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                                                      Live GPS
-                                                    </span>
-                                                  ) : (
-                                                    <span className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded">
-                                                      Stale fix
-                                                    </span>
-                                                  )
+                                                {d.position_fresh ? (
+                                                  <span
+                                                    title={d.last_location_update ? `Last fix: ${new Date(d.last_location_update).toLocaleString()}` : undefined}
+                                                    className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded"
+                                                  >
+                                                    Live GPS · {d.location_age_minutes === 0 ? "under 1m" : `${d.location_age_minutes}m ago`}
+                                                  </span>
+                                                ) : d.has_location ? (
+                                                  <span
+                                                    title={d.last_location_update ? `Last fix: ${new Date(d.last_location_update).toLocaleString()}` : undefined}
+                                                    className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded"
+                                                  >
+                                                    {d.location_time_ahead
+                                                      ? "GPS timestamp in future"
+                                                      : d.location_age_minutes != null
+                                                        ? `Stale GPS · ${d.location_age_minutes}m ago`
+                                                        : "GPS time unknown"}
+                                                  </span>
                                                 ) : (
                                                   <span className="text-[10px] text-foreground-muted/60 bg-muted/40 px-1.5 py-0.5 rounded">
                                                     No GPS
@@ -1558,9 +1613,14 @@ export default function IncidentsPage() {
               </div>
               <div>
                 <p className="text-sm font-bold text-foreground">Active Incident Map</p>
-                <p className="text-xs text-foreground-muted font-medium">
-                  {activeIncidents.filter((i) => i && i.latitude != null && i.longitude != null).length} active incidents plotted with GPS coordinates
-                </p>
+                <div className="text-xs text-foreground-muted font-medium">
+                  <p>{plottedIncidentCount} active incidents plotted with GPS coordinates</p>
+                  {missingGpsIncidentCount > 0 && (
+                    <p className="text-warning-700">
+                      {missingGpsIncidentCount} active incident{missingGpsIncidentCount === 1 ? " has" : "s have"} no GPS fix and {missingGpsIncidentCount === 1 ? "is" : "are"} omitted from the map
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
             <Button

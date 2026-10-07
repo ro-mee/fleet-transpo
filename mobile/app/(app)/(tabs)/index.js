@@ -60,7 +60,7 @@ const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirme
   return <>
     {trips.map((trip, i) => <DriverTripCard key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
       offline={offline} nowMs={nowMs} canManage={canManage} busy={busy} preShiftPassed={preShiftPassed}
-      onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview && i === 0} />)}
+      onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview} />)}
     {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
       style={({ pressed }) => [{ minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }, pressed && { opacity: 0.72 }]}>
       <Text style={[type.labelLg, { color: colors.primary }]}>+{extra} more · View Full Schedule</Text>
@@ -489,6 +489,10 @@ export default function Home() {
     [router, activeTrip]
   );
   const goEndDuty = useCallback(() => router.push('/end-duty'), [router]);
+  const goPreShift = useCallback(
+    () => router.push({ pathname: '/inspection', params: { mode: 'preshift' } }),
+    [router]
+  );
   // End Duty leads while the driver is on duty, and only then. It is the one
   // entry here that is time-critical, and — more importantly — the only way out
   // of a shift that ends early. The End Duty card further down this screen is
@@ -507,11 +511,12 @@ export default function Home() {
   // outranks reporting fuel.
   const shortcuts = useMemo(() => [
     ...(duty.checkedIn ? [{ label: 'End Duty', icon: 'time-outline', action: goEndDuty }] : []),
+    { label: 'Pre-Shift', icon: 'clipboard-outline', action: goPreShift },
     { label: 'My Schedule', icon: 'calendar', action: goSchedule },
     { label: 'Activity Log', icon: 'pulse', action: goSubmissions },
     { label: 'Report Incident', icon: 'shield-checkmark', action: goIncidents },
     ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: goFuelReport }] : []),
-  ], [goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel, goEndDuty, duty.checkedIn]);
+  ], [goEndDuty, goPreShift, goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel, duty.checkedIn]);
 
   // Prefetch quick-action destination bundles while Home is idle
   useEffect(() => {
@@ -741,7 +746,7 @@ export default function Home() {
           <AssignmentsHeading onPress={goTrips} title="Upcoming Trips" />
           <UpcomingTripList trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
-            onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!activeTrip} />
+            onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!offline} />
         </>)}
 
       </ScrollView>

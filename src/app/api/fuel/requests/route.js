@@ -24,13 +24,28 @@ import {
   signFuelReceipt,
   signFuelReceiptList,
 } from "@/lib/fuel/receipt-storage";
+import { getFuelPolicy } from "@/services/fuel-settings.service";
 
 const currentAllocationMonth = () => `${toCalendarDay(new Date()).slice(0, 7)}-01`;
 const SELECT_REQUESTS = `
   SELECT r.*, t.trip_status,
          v.plate_number, v.vehicle_name, v.tank_capacity_l, v.fuel_efficiency_kmpl,
-         e.first_name, e.last_name, e.avatar_url, d.face_image_url
+         e.first_name, e.last_name, e.avatar_url, d.face_image_url,
+         receipt_summary.active_receipt_count,
+         receipt_summary.archived_receipt_count,
+         receipt_summary.active_receipt_statuses
     FROM fuelrequests r
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*) FILTER (WHERE f.deleted_at IS NULL)::int AS active_receipt_count,
+        COUNT(*) FILTER (WHERE f.deleted_at IS NOT NULL)::int AS archived_receipt_count,
+        COALESCE(
+          ARRAY_AGG(DISTINCT f.status ORDER BY f.status) FILTER (WHERE f.deleted_at IS NULL),
+          ARRAY[]::varchar[]
+        ) AS active_receipt_statuses
+      FROM fuelrecords f
+      WHERE f.fuel_request_id = r.fuel_request_id
+    ) receipt_summary ON TRUE
     LEFT JOIN trips t ON t.trip_id = r.trip_id
     JOIN vehicles v ON v.vehicle_id = r.vehicle_id
     JOIN drivers d ON d.driver_id = r.driver_id
@@ -108,6 +123,7 @@ export async function POST(req) {
   try {
     const session = await requireDriver(req);
     const body = await parseBody(req);
+    const fuelPolicy = await getFuelPolicy();
     const tripId = body.trip_id == null ? null : Number(body.trip_id);
     const fuelLevel = Number(body.current_fuel_level_percent);
     if (tripId !== null && (!Number.isInteger(tripId) || tripId <= 0)) return err("Invalid trip_id", 400);
@@ -119,9 +135,7 @@ export async function POST(req) {
     if (!isOwnedFuelImageUrl(body.gauge_photo_url, session.user.driverId, "gauge")) {
       return err("The gauge photo is not a valid upload for this driver", 400);
     }
-    // `gauge_photo_url` holds an object key, not a URL (SEC-UPLOAD-003). The
-    // driver is handed a short-lived URL at upload and echoes it back here, so
-    // reduce it to the key on the way in; fail closed if it does not resolve.
+    // Store the owned object key, never an expiring upload URL.
     body.gauge_photo_url = toStoredReceiptRef(body.gauge_photo_url);
     if (!body.gauge_photo_url) {
       return err("The gauge photo is not a valid upload for this driver", 400);
@@ -185,6 +199,7 @@ export async function POST(req) {
       currentFuelLevelPercent: fuelLevel,
       fuelEfficiencyKmpl: vehicle.fuel_efficiency_kmpl,
       oneWayDistanceKm: forecastRows[0].one_way_distance_km,
+      policy: fuelPolicy,
     });
     if (!calculation.needs_refuel || calculation.recommended_liters <= 0) {
       return err("Fuel is sufficient for the next 24 hours and the required reserve", 409);
@@ -218,6 +233,7 @@ export async function POST(req) {
         distanceSinceLastReportKm: distanceRows[0].distance_km,
         efficiencyKmpl: vehicle.fuel_efficiency_kmpl,
         reportedPercent: fuelLevel,
+        policy: fuelPolicy,
       });
     }
 
@@ -235,6 +251,7 @@ export async function POST(req) {
       calculation,
       variance,
       monthlyRemainingLiters: usage.remaining_liters,
+      policy: fuelPolicy,
     });
     const autoAuthorized = policy.within_policy;
     if (autoAuthorized) {
@@ -290,6 +307,7 @@ export async function PUT(req) {
   try {
     const session = await requirePermission(req, "fuel_requests", "review");
     const body = await parseBody(req);
+    const fuelPolicy = await getFuelPolicy();
     const requestId = Number(body.fuel_request_id);
     if (!Number.isInteger(requestId) || requestId <= 0) return err("fuel_request_id is required", 400);
     if (!["Approved", "Rejected"].includes(body.status)) return err("status must be Approved or Rejected", 400);
@@ -340,6 +358,9 @@ export async function PUT(req) {
             `This approval exceeds the vehicle's monthly fuel budget by ${overrun.toFixed(2)} L. Provide an override reason to approve it anyway.`,
             400
           );
+        }
+        if (approvedLiters > usage.remaining_liters && fuelPolicy.budgetEnforcementMode === "strict") {
+          throw new AuthError("The strict fuel budget policy does not allow an over-budget approval", 409);
         }
       }
 

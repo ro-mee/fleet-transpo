@@ -79,6 +79,20 @@ preview/production profiles use the HTTPS deployment URL instead. A stale
 ignored mobile `.env` LAN address was verified to time out while the current
 address returned the API's normal HTTP response.
 
+**Expo dev-client transport log diagnosis (2026-10-02, read-only):** In the
+observed checkout, the ignored `mobile/.env` API address did not match the
+computer's active LAN address. The configured host was unreachable, while
+`/api/health` returned HTTP 200 through loopback and the current LAN address.
+This matches `Network request failed` from the client; it is not evidence of an
+Expo Metro failure. On the Map tab, `loadTrip()` calls
+`GET /api/mobile/driver/trips` on focus and every 15 seconds while focused, then
+logs `Could not load trip for map` when the API wrapper exhausts its one
+transport retry. Device-token registration is independent: a failed
+`POST /api/device-tokens` is queued, and the sync drain retains it on another
+transport failure. Update the ignored LAN URL when the host address changes,
+keep the root Next server running on port 3000, then reload Expo so the public
+URL is re-bundled. The phone's own path was not probed from this host.
+
 ```mermaid
 sequenceDiagram
     participant S1 as Screen A
@@ -422,6 +436,15 @@ In `mobile/components/home/DriverHomeHeader.jsx` and `mobile/app/(app)/(tabs)/pr
 - **Fallback Chain & Failure Tolerance**: Resolves across `avatarUrl || faceImageUrl || license.imageUrl || user.avatarUrl`. If a remote fetch fails or is rejected, `<Image onError={...} />` unmounts the failed overlay, cleanly retaining the clay initials badge without layout shift. In Profile, the edit camera badge remains permanently anchored to the base circle.
 
 ## In-App Guidance & Contextual Coach Marks Subsystem (2026-09-16, implemented & refined)
+
+**Require-cycle diagnosis (2026-10-02, source-confirmed; no code change):** The
+warning path is `coachmarks/index.js` → `CoachMarkProvider.jsx` →
+`CoachMarkOverlay.jsx` → `DriverSos.js` → `coachmarks/index.js`. The provider
+imports the overlay; the overlay imports `triggerDriverSos` from `DriverSos`,
+which imports coach-mark hooks and `CoachMarkTarget` through the `coachmarks`
+barrel. This cycle is separate from API reachability. A narrow cleanup would
+have `DriverSos.js` import those exports from their defining modules, or move
+the SOS handler across that dependency boundary.
 
 Introduced a lightweight, just-in-time contextual guidance subsystem (`mobile/components/coachmarks/` and `mobile/lib/coach-marks.js`) to train drivers directly over live production screens without passive slide tours, simulations, mascots, or gamification:
 - **Core Principles**: "Guidance when needed, not guidance everywhere." "Teach the difficult decision or workflow, not the button the driver already understands." "ONE COACH MARK = ONE EXACT COMPONENT TARGET."

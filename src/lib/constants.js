@@ -1,6 +1,11 @@
 export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "FleetOps";
 export const APP_DESCRIPTION = process.env.NEXT_PUBLIC_APP_DESCRIPTION || "AI-Driven Fleet Transportation Management System";
 
+export const DISPATCH_SERVICE_TYPE = {
+  PASSENGER: "PASSENGER",
+  SUPPLY_DELIVERY: "SUPPLY_DELIVERY",
+};
+
 export const ROLES = {
   ADMIN: "admin",
   FLEET_MANAGER: "fleet_manager",

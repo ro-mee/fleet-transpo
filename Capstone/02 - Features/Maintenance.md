@@ -8,10 +8,14 @@ source:
   - src/app/(dashboard)/maintenance/page.js
   - src/app/api/vehicle-maintenance/[id]/route.js
   - supabase/migrations/114_maintenance_repairer_identity.sql
-last_verified: 2026-09-16
+last_verified: 2026-10-02
 ---
 
 # Feature: Maintenance
+
+## Predictive view zero-state follow-up — 2026-10-02
+
+Read-only live SQL found 37 non-deleted work orders and 22 non-deleted, non-decommissioned vehicles. These are different populations: the predictive endpoint returns one computed assessment per eligible vehicle, while the maintenance register counts work orders. The prediction page previously rendered five zero KPI cards before its query resolved. It now shows a loading skeleton, then the real counters; a successful empty eligible fleet gets an explicit explanation that work orders are counted separately. The existing request-error retry panel remains. The scoring engine and database are unchanged. Component tests, ESLint and production build passed; the deployed default view still needs an authenticated replay.
 
 ## What it does
 
@@ -443,3 +447,9 @@ driver-assignments 500).
 ## Related
 
 [[Fleet And Vehicles]] · [[AI Advisory]] · [[Notifications]] · [[Feature Index]]
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+Maintenance rows now derive `is_overdue` when their stored status is `Scheduled` and `maintenance_date` is before the current Asia/Manila date. The register shows an additional Overdue badge while preserving the stored Scheduled status; the API also returns a global overdue count, and the dashboards surface that count. In-progress and completed work are excluded. No maintenance record or lifecycle state is changed by the clock.
+
+Predictive maintenance is presented as a **Vehicle Service Outlook**. Its description states that scores use service-date urgency and corrective-maintenance history and do not measure physical condition. Rows retain their calendar-only warning and now identify when a 90-day trip sample supports mileage estimates. Focused route and UI regressions pass; the reported QA-0001 row was not checked against live data.

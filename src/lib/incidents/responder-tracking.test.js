@@ -4,6 +4,7 @@ import {
   nextResponderStatus,
   ARRIVED_RADIUS_M,
   sortCandidateResponders,
+  summarizeResponderPosition,
 } from "@/lib/incidents/responder-tracking";
 
 // Two points ~3.4 km apart in Metro Manila (Ayala → MOA-ish straight line).
@@ -45,6 +46,32 @@ describe("computeResponderState", () => {
   it("handles non-integer live traffic ETAs by rounding", () => {
     const r = computeResponderState({ responderPos: RESPONDER, driverPos: DRIVER, etaMinutes: 14.7 });
     expect(r.etaMinutes).toBe(15);
+  });
+});
+
+describe("summarizeResponderPosition", () => {
+  const now = new Date("2026-10-03T04:00:00.000Z");
+
+  it("marks fixes under five minutes fresh and returns their age", () => {
+    expect(summarizeResponderPosition("2026-10-03T03:56:00.000Z", now)).toMatchObject({
+      location_age_minutes: 4,
+      location_time_ahead: false,
+      position_fresh: true,
+    });
+  });
+
+  it("marks old, missing, invalid, and future fixes unusable", () => {
+    expect(summarizeResponderPosition("2026-10-03T03:55:00.000Z", now)).toMatchObject({
+      location_age_minutes: 5,
+      position_fresh: false,
+    });
+    expect(summarizeResponderPosition(null, now).position_fresh).toBe(false);
+    expect(summarizeResponderPosition("invalid", now).location_age_minutes).toBeNull();
+    expect(summarizeResponderPosition("2026-10-03T04:01:00.000Z", now)).toMatchObject({
+      location_age_minutes: null,
+      location_time_ahead: true,
+      position_fresh: false,
+    });
   });
 });
 

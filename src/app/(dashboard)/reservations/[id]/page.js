@@ -408,7 +408,7 @@ export default function ReservationDetailPage() {
                   {r.pickup_datetime ? formatDateTime(r.pickup_datetime) : null}
                 </Field>
                 <Field icon={Users} label="Passengers">{r.passenger_count || 1} Person(s)</Field>
-                <Field icon={Car} label="Vehicle Category">
+                <Field icon={Car} label="Requested Vehicle Category">
                   {r.vehiclecategories?.category_name || r.requested_vehicle_type || "Any Category"}
                 </Field>
                 <Field label="Est. Distance">

@@ -73,7 +73,7 @@ export async function GET(req) {
       SELECT i.incident_id,
              i.vehicle_id,
              i.trip_id, i.incident_type, i.incident_date,
-             i.description, i.location, i.latitude, i.longitude, i.severity, i.status,
+             i.description, i.location, i.latitude, i.longitude, i.severity, i.severity_assessment, i.status,
              i.actions_taken, i.acknowledged_at, i.acknowledged_by,
              i.resolved_at, i.resolved_by, i.grounding_status, i.grounding_error,
              i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,

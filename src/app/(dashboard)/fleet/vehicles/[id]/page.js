@@ -21,12 +21,12 @@ import { useRoleAccess } from "@/hooks/use-role-access";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import {
     ArrowLeft, Pencil, Archive, Truck, Fuel, Gauge,
-    CalendarDays, Wrench, Shield, FileText, ZoomIn, IdCard, ArrowRight,
+    Wrench, Shield, FileText, ZoomIn, IdCard, ArrowRight,
   Car, Tag, Calendar, ShieldAlert, CheckCircle2, FileImage, Sparkles,
-  PhilippinePeso, Hash, Layers, Users, Activity, Camera, Loader2
+  Hash, Layers, Users, Activity, Camera, Loader2
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
-import { formatDate, formatNumber, formatCurrency } from "@/lib/utils";
+import { formatDate, formatNumber } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function VehicleDetailPage() {
@@ -323,16 +323,6 @@ export default function VehicleDetailPage() {
                   <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                     <span className="text-xs font-bold text-foreground-muted uppercase tracking-wider">Fuel Type</span>
                     <span className="text-sm font-semibold text-foreground">{vehicle.fuel_type}</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border/40 bg-muted/5">
-                  <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
-                    <span className="text-xs font-bold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> Purchase Date</span>
-                    <span className="text-sm font-semibold text-foreground">{vehicle.purchase_date ? formatDate(vehicle.purchase_date) : "—"}</span>
-                  </div>
-                  <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
-                    <span className="text-xs font-bold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5"><PhilippinePeso className="w-3.5 h-3.5" /> Purchase Price</span>
-                    <span className="text-sm font-semibold text-foreground">{vehicle.purchase_price ? formatCurrency(vehicle.purchase_price) : "—"}</span>
                   </div>
                 </div>
               </div>

@@ -27,6 +27,10 @@ Verification: focused panel, evidence-drawer, dispatch-decision, and queue-works
 
 After a successful queue assignment, the returned status and resource IDs remain visible over stale list/locked-request data until the same request has a committed or terminal status in the refreshed queue; the selected row remains isolated while Copilot is busy. Assigned/In Progress requests disable recommendation refresh, choices, and assignment controls while allowing read-only questions only when `reservations:recommend` is permitted; Completed/Cancelled requests have no composer. Conversation POSTs preserve auth, validation, and the existing response shape, load the request, then return server-derived status/IDs without recommendation/radar/ranking/proof/LLM work or fresh choices. Missing IDs remain unavailable; client IDs are never assignment truth; Pending behavior is unchanged, and authorized dispatch detail remains the reassignment path. Verification reported 182/182 tests across 10 suites, touched-file ESLint and `git diff --check` passed; production build/browser acceptance remain pending. Commit `21ba8efd` contains the scoped source/test changes; independent review found no Critical/Important issues, with two Minor observations deferred.
 
+## Queue tab label — 2026-10-02
+
+Per the requested shorter copy, the reservation queue tab now displays **Today** and its empty state says **Nothing today**. The underlying Manila-date predicate remains `pickup_datetime <= today`, so overdue requests remain in this work group; the tab tooltip still says "Pickup today or already past." The loading/count accessible names follow the shorter tab label. Verification: all 5 focused queue page tests passed and scoped ESLint passed.
+
 ## Manual Analyze controls removed - 2026-09-15
 
 Removed the remaining Copilot Analyze buttons from its header, empty state and recovery flow. Selecting an option still automatically generates and validates the required queue plan. Recheck reservation now repeats the chosen-pair check when a pair is selected, so stale or failed queue evidence has a recovery path without a separate Analyze action. Seven focused panel/assignment tests and touched-source ESLint passed.
@@ -236,6 +240,8 @@ Four reported queue/request symptoms, all verified against the code and a read-o
 
 `QUEUE_TAB_PREDICATES.today` is `pickup_datetime <= today (Asia/Manila)` — today **or already past**. The vault already documented that as intentional dispatcher work grouping; the tab's bare word "Today" hid it, so a request dated the 15th under "Today (6)" read as a bug. The tab is now **Today & overdue**, with a tooltip and an `aria-label` that spell out the filter, and the empty state reads "Nothing today or overdue".
 
+The 2026-10-02 label request supersedes the visible wording described in the paragraph above; the predicate and tooltip remain as described. See "Queue tab label" above.
+
 The count badge and the highlight were two more honesty defects:
 
 - `counts[id] || 0` rendered `(0)` until the first response landed, which claims an empty queue. Badges now render `(…)` and announce "count loading" while `!countsReady`. `queueTabBadges()` in `src/lib/scheduling/smart-default-tab.js` returns `null` — not `0` — for "not loaded".
@@ -256,3 +262,7 @@ The mutation also invalidated only `["reservations"]`, which matches **no query 
 ### Verification
 
 `src/lib/scheduling/smart-default-tab.test.js` (+9), a new `src/app/(dashboard)/reservations/queue/page.test.js` (5), `src/lib/integration/ingest-outcome.test.js` (5), plus the touched-file ESLint and production build. Full suite 3484 passed / 6 failed, the six being the pre-existing failures already recorded for 2026-10-01.
+
+## Dispatcher next-30-minute pickup filter - 2026-10-03
+
+The queue accepts `filter=departing-soon` alongside its Today tab. The API applies the open-request, missing-vehicle-or-driver, and exact `[NOW(), NOW() + 30 minutes]` pickup predicate before both the row query and total count. The dashboard deep-link therefore opens a paginated view whose rows and count come from the same SQL set. This filter is separate from Today, which still intentionally includes overdue requests in Asia/Manila.

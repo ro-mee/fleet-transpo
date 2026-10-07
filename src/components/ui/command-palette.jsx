@@ -56,6 +56,7 @@ const PAGE_COMMANDS = [
   { href: "/settings/ai/logs", label: "AI Logs" },
   { href: "/settings/number-coding", label: "Number Coding Settings" },
   { href: "/settings/dispatch", label: "Dispatch Policy" },
+  { href: "/settings/fuel", label: "Fuel Policy" },
   // Driver workspace
   { href: "/driver", label: "My Dashboard" },
   { href: "/driver/trips", label: "My Trips" },
