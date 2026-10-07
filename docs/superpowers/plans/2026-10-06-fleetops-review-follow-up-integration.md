@@ -105,10 +105,10 @@ expect(persistStrictRouteEstimate).toHaveBeenCalledWith(
 );
 ```
 - [ ] **Step 2: Verify RED.** Run `npm run test:run -- src/lib/integration/ingest.test.js -t "locks the active service|does not persist a route"`. Expected: current code lacks the service lock and calls strict estimation with `persistRoute: true`.
-- [ ] **Step 3: Add a route-helper unit test.** In `route-resolver.test.js`, add a test named `persists a resolved strict estimate without calling the provider`. Prove a positive estimate creates a route from exact active linked IDs with `allowNameFallback: false`, and prove a non-Manual incomplete route is updated without any provider call. Keep Manual route estimates unchanged.
+- [ ] **Step 3: Add a route-helper unit test.** In `route-resolver.test.js`, add a test named `persists a resolved strict estimate without overwriting existing fields or calling the provider`. Prove a positive estimate creates a route from exact active linked IDs with `allowNameFallback: false`, and prove a non-Manual incomplete route is updated without any provider call. Keep Manual route estimates unchanged.
 
 ```js
-it("persists a resolved strict estimate without calling the provider", async () => {
+it("persists a resolved strict estimate without overwriting existing fields or calling the provider", async () => {
   const db = requestDb({ locations: [HOTEL, NAIA], route: null });
   const linkedRequest = { pickup_location_id: HOTEL.location_id, dropoff_location_id: NAIA.location_id };
   const estimate = { distanceKm: 12.5, durationMin: 30, source: "TomTom" };
@@ -121,13 +121,21 @@ it("persists a resolved strict estimate without calling the provider", async () 
   await persistStrictRouteEstimate(incompleteDb, linkedRequest, estimate);
   expect(incompleteDb.calls.some(({ sql }) => sql.includes("UPDATE routes"))).toBe(true);
 
+  const partialRoute = { ...incompleteRoute, estimated_distance: 7.5, estimated_duration: null };
+  const partialDb = requestDb({ locations: [HOTEL, NAIA], route: partialRoute });
+  await persistStrictRouteEstimate(partialDb, linkedRequest, estimate);
+  const update = partialDb.calls.find(({ sql }) => sql.includes("UPDATE routes"));
+  expect(update.sql).toMatch(/estimated_distance = COALESCE\(estimated_distance, \$1\)/i);
+  expect(update.sql).toMatch(/estimated_duration = COALESCE\(estimated_duration, \$2\)/i);
+  expect(update.sql).toMatch(/AND \(estimated_distance IS NULL OR estimated_duration IS NULL\)/i);
+
   const manualDb = requestDb({ locations: [HOTEL, NAIA], route: { ...incompleteRoute, estimate_source: "Manual" } });
   await persistStrictRouteEstimate(manualDb, linkedRequest, estimate);
   expect(manualDb.calls.some(({ sql }) => sql.includes("UPDATE routes"))).toBe(false);
 });
 ```
 - [ ] **Step 4: Verify helper RED.** Run `npm run test:run -- src/services/route-resolver.test.js -t "persists a resolved strict estimate"`; expected: export/function is missing.
-- [ ] **Step 5: Implement the database-only helper.** Reuse `resolveRouteEndpoints`, `findActiveRoute`, and `resolveRouteForRequest`; validate linked active canonical endpoints before route writes. Update only missing fields on a non-Manual route using the transaction adapter. The helper must contain no TomTom/provider call:
+- [ ] **Step 5: Implement the database-only helper.** Reuse `resolveRouteEndpoints`, `findActiveRoute`, and `resolveRouteForRequest`; validate linked active canonical endpoints before route writes. Update only missing fields on a non-Manual route using `COALESCE`, and include an incomplete-row predicate in the `UPDATE` so a concurrent completion is not overwritten. The helper must contain no TomTom/provider call:
 
 ```js
 export async function persistStrictRouteEstimate(db, request, estimate) {
@@ -162,9 +170,12 @@ export async function persistStrictRouteEstimate(db, request, estimate) {
     || (route.estimated_distance != null && route.estimated_duration != null)) return route;
 
   return db.query(
-    `UPDATE routes SET estimated_distance = $1, estimated_duration = $2,
+    `UPDATE routes SET estimated_distance = COALESCE(estimated_distance, $1),
+       estimated_duration = COALESCE(estimated_duration, $2),
        estimate_source = $3, estimate_updated_at = NOW(), updated_at = NOW()
-     WHERE route_id = $4 AND estimate_source IS DISTINCT FROM 'Manual'`,
+     WHERE route_id = $4
+       AND estimate_source IS DISTINCT FROM 'Manual'
+       AND (estimated_distance IS NULL OR estimated_duration IS NULL)`,
     [distanceKm, durationMin, estimate.source, route.route_id]
   );
 }
