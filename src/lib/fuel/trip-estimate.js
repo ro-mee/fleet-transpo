@@ -7,17 +7,21 @@
  * never a fabricated actual.
  *
  * Decimal handling: litres round to 3 dp, cost to 2 dp (round-half-up via
- * Math.round on scaled integers), and cost derives from the ROUNDED litres so
+ * exact decimal integer ratios), and cost derives from the ROUNDED litres so
  * ledger arithmetic reconciles exactly.
  */
 
-const roundTo = (value, dp) => {
-  const factor = 10 ** dp;
-  return Math.round((value + Number.EPSILON) * factor) / factor;
+const fraction = (value) => {
+  const [mantissa, exponent = "0"] = String(value).toLowerCase().split("e");
+  const [whole, decimals = ""] = mantissa.split(".");
+  const scale = decimals.length - Number(exponent);
+  const numerator = BigInt(whole + decimals);
+  return scale >= 0 ? [numerator, 10n ** BigInt(scale)] : [numerator * 10n ** BigInt(-scale), 1n];
 };
+const halfUp = (numerator, denominator) => (2n * numerator + denominator) / (2n * denominator);
 
 const validKm = (value) => {
-  if (value === null || value === undefined || value === "") return null;
+  if (!["number", "string"].includes(typeof value) || String(value).trim() === "") return null;
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
@@ -43,18 +47,19 @@ export function resolveEstimateDistance({ odometerKm = null, tripDistanceKm = nu
 export function estimateFuelCost({ distanceKm = null, efficiencyKmpl = null, pricePerLiter = null } = {}) {
   const distance = validKm(distanceKm);
   if (distance === null) return { liters: null, cost: null, basis: "unavailable", reason: "no-distance" };
-  const efficiency = efficiencyKmpl === null || efficiencyKmpl === undefined || efficiencyKmpl === ""
-    ? null
-    : Number(efficiencyKmpl);
+  const efficiency = validKm(efficiencyKmpl);
   if (!Number.isFinite(efficiency) || efficiency <= 0) {
     return { liters: null, cost: null, basis: "unavailable", reason: "no-efficiency" };
   }
-  const price = pricePerLiter === null || pricePerLiter === undefined || pricePerLiter === ""
-    ? null
-    : Number(pricePerLiter);
+  const price = validKm(pricePerLiter);
   if (!Number.isFinite(price) || price <= 0) {
     return { liters: null, cost: null, basis: "unavailable", reason: "no-price" };
   }
-  const liters = roundTo(distance / efficiency, 3);
-  return { liters, cost: roundTo(liters * price, 2), basis: "measured", reason: null };
+  const [kmNumerator, kmDenominator] = fraction(distance);
+  const [effNumerator, effDenominator] = fraction(efficiency);
+  const [priceNumerator, priceDenominator] = fraction(price);
+  const milliliters = halfUp(kmNumerator * effDenominator * 1000n, kmDenominator * effNumerator);
+  const cents = halfUp(milliliters * priceNumerator * 100n, 1000n * priceDenominator);
+  if (milliliters > 999999999999n || cents > 999999999999n) return { liters: null, cost: null, basis: "unavailable", reason: "out-of-range" };
+  return { liters: Number(milliliters) / 1000, cost: Number(cents) / 100, basis: "measured", reason: null };
 }

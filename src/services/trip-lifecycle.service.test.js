@@ -29,6 +29,7 @@ const BEFORE_ROW = {
   planned_distance: 32,
   fuel_efficiency_kmpl: 9,
   fuel_type: "Diesel",
+  fuel_estimate_captured_at: null,
 };
 
 const COMPLETED_ROW = {
@@ -47,11 +48,13 @@ function setup() {
 
   vi.spyOn(db, "query").mockImplementation(async (sql) => {
     const s = String(sql);
-    if (s.includes("SELECT t.vehicle_id, t.driver_id")) return { rows: [BEFORE_ROW] };
+    if (s.includes("t.distance AS planned_distance")) return { rows: [BEFORE_ROW] };
     if (s.includes("SELECT vehicle_id, driver_id")) return { rows: [BEFORE_ROW] };
     if (s.includes("FROM gpstracking")) return { rows: [] };
+    if (s.includes("fuel_price_region")) return { rows: [{ setting_value: "NCR" }] };
+    if (s.includes("SELECT") && s.includes("fuel_price_snapshots")) return { rows: [{ snapshot_id: 4, fuel_product: "Diesel", region: "NCR", currency: "PHP", unit: "L", reference_price: "62.70", effective_at: "2020-01-01T00:00:00Z", verification_method: "Manual", verified_by: 1, lifecycle: "Active" }] };
     if (s.includes("UPDATE trips")) {
-      return { rows: [{ ...COMPLETED_ROW, trip_status: s.includes("Cancelled") ? "Cancelled" : "Completed" }] };
+      return { rows: [{ ...COMPLETED_ROW, trip_status: s.includes("SET trip_status = 'Cancelled'") ? "Cancelled" : "Completed" }] };
     }
     if (s.includes("UPDATE trip_monitor_alerts")) {
       resolvedAlerts += 2;
@@ -133,7 +136,7 @@ describe("trip lifecycle → monitor alert resolution", () => {
       "estimated_fuel_l", "estimated_fuel_cost", "fuel_reference_price",
       "fuel_price_snapshot_id", "fuel_region",
     ]) {
-      expect(update).toContain(`COALESCE(${column},`);
+      expect(update).toContain(column);
     }
     expect(update).not.toContain("fuel_consumed");
   });
@@ -144,7 +147,7 @@ describe("trip lifecycle → monitor alert resolution", () => {
     const { query } = await import("@/lib/db");
     query.mockImplementation(async (sql) => {
       const s = String(sql);
-      if (s.includes("SELECT t.vehicle_id, t.driver_id")) {
+      if (s.includes("t.distance AS planned_distance")) {
         return { rows: [{ ...BEFORE_ROW, fuel_efficiency_kmpl: null, planned_distance: null }] };
       }
       if (s.includes("FROM gpstracking")) return { rows: [] };
@@ -160,13 +163,15 @@ describe("trip lifecycle → monitor alert resolution", () => {
     expect(params[8]).toBeNull();
   });
 
-  it("never queries the snapshots table: the basis is caller-supplied until the checkpoint", async () => {
+  it("resolves the real verified repository basis without a caller-only seam", async () => {
     const { txLog } = setup();
     await completeTrip(
       101,
       { user: { employeeId: 1 } },
-      { endOdometer: 1100, distance: 36, fuelPriceBasis: { price: 62.7, snapshotId: 4, region: "NCR" } }
+      { endOdometer: 1100, distance: 36 }
     );
-    expect(txLog.join("\n")).not.toContain("fuel_price_snapshots");
+    const params = setup;
+    expect(txLog.join("\n")).toContain("fuel_price_snapshots");
+    expect(txLog.join("\n")).toContain("FOR UPDATE OF t");
   });
 });

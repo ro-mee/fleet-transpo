@@ -38,7 +38,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { loadEnvLocal } from "./load-env.mjs";
-import { TABLES, VIEWS, CLASSIFICATION, tableNames, viewNames } from "./lib/schema-contract.mjs";
+import { TABLES, PENDING_TABLES, VIEWS, CLASSIFICATION, contractTableNames, viewNames } from "./lib/schema-contract.mjs";
 import { referencedTablesInFile } from "./lib/sql-references.mjs";
 import pg from "pg";
 
@@ -275,7 +275,7 @@ async function main() {
   }
 
   // --- classification -----------------------------------------------------
-  const declaredTables = new Set(tableNames());
+  const declaredTables = new Set(contractTableNames());
   const declaredViews = new Set(viewNames());
   const liveNames = new Set(relations.map((r) => r.name));
 
@@ -299,7 +299,7 @@ async function main() {
     .filter((r) => !onlyTable || r.name === onlyTable)
     .map((r) => {
       const declared =
-        TABLES[r.name]?.classification ?? VIEWS[r.name]?.classification ?? null;
+        TABLES[r.name]?.classification ?? PENDING_TABLES[r.name]?.classification ?? VIEWS[r.name]?.classification ?? null;
       if (!declared) return { name: r.name, kindLabel: r.kind, unclassified: true, violations: [], notes: [] };
       return { name: r.name, unclassified: false, ...judge(r, declared, policiesByTable.get(r.name) ?? []) };
     });

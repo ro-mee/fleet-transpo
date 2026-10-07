@@ -20,6 +20,9 @@ describe("resolveEstimateDistance", () => {
 });
 
 describe("estimateFuelCost", () => {
+  it("rounds exact decimal half-cent ties without floating-point drift", () => {
+    expect(estimateFuelCost({ distanceKm: 1, efficiencyKmpl: 1, pricePerLiter: 10.075 })).toMatchObject({ liters: 1, cost: 10.08 });
+  });
   it("computes 36 km at 9 km/L and PHP 62.70/L as 4.00 L / PHP 250.80", () => {
     const r = estimateFuelCost({ distanceKm: 36, efficiencyKmpl: 9, pricePerLiter: 62.7 });
     expect(r).toMatchObject({ liters: 4, cost: 250.8, basis: "measured" });
@@ -37,6 +40,11 @@ describe("estimateFuelCost", () => {
       expect(r.liters).toBeNull();
       expect(r.cost).toBeNull();
     }
+  });
+  it("never coerces boolean or object inputs into a measured estimate", () => {
+    for (const value of [true, [36], {}]) expect(estimateFuelCost({ distanceKm: value, efficiencyKmpl: 9, pricePerLiter: 62.7 }).reason).toBe("no-distance");
+    for (const value of [true, [9], {}]) expect(estimateFuelCost({ distanceKm: 36, efficiencyKmpl: value, pricePerLiter: 62.7 }).reason).toBe("no-efficiency");
+    for (const value of [true, [62.7], {}]) expect(estimateFuelCost({ distanceKm: 36, efficiencyKmpl: 9, pricePerLiter: value }).reason).toBe("no-price");
   });
 
   it("rounds decimal-safe to 3 dp litres and 2 dp cost", () => {

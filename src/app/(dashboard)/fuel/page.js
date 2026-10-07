@@ -784,6 +784,8 @@ export default function FuelPage() {
         badge="Operations"
         description="Set monthly vehicle limits, approve forecasted replenishment, and verify the receipts that consume each budget."
         actions={
+          <div className="flex flex-wrap gap-2">
+          {can("fuelallocations", "read") ? <Button asChild variant="outline" className={cn("h-10", heroButtonOutlineClass)}><a href="/fuel/reference-prices">Reference prices</a></Button> : null}
           <Button
             variant="outline"
             className={cn("h-10", heroButtonOutlineClass)}
@@ -795,6 +797,7 @@ export default function FuelPage() {
             <Download className={cn("w-4 h-4 mr-2", exporting && "animate-pulse")} />
             {exporting ? "Exporting…" : activeExport.label}
           </Button>
+          </div>
         }
       />
 

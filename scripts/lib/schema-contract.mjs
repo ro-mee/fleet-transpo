@@ -455,11 +455,23 @@ export const VIEWS = Object.freeze({
 /** Every classified table name, sorted. */
 export const tableNames = () => Object.keys(TABLES).sort();
 
+// Reviewed PREPARED objects are deliberately separate from the applied dump.
+// The offline gate verifies each exact migration; the live gate still demands
+// these objects exist with the declared protection before release.
+export const PENDING_TABLES = Object.freeze({
+  fuel_price_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Verified fuel reference prices are server-managed planning context; no public PostgREST access is authorized.",
+    migration: "154_fuel_price_snapshots.sql",
+  },
+});
+export const contractTableNames = () => [...tableNames(), ...Object.keys(PENDING_TABLES)].sort();
+
 /** Every classified view name, sorted. */
 export const viewNames = () => Object.keys(VIEWS).sort();
 
 /** Tables and views together — the set a SQL reference may legally name. */
-export const queryableNames = () => [...tableNames(), ...viewNames()].sort();
+export const queryableNames = () => [...contractTableNames(), ...viewNames()].sort();
 
 /** Tables declared reachable without authentication. None, currently — see the header. */
 export const publicTables = () =>

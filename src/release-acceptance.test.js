@@ -15,6 +15,7 @@ import { evaluateRoadReadiness } from "@/lib/vehicles/readiness";
 import { preTripItemsForLoad } from "@/lib/inspections/checklists";
 import { PRE_TRIP_CARGO_CHECKLIST } from "../mobile/lib/inspection-checklist.js";
 import { priceAt } from "@/lib/fuel/price-policy";
+import { createPriceRepository } from "@/lib/fuel/price-repository";
 import { estimateFuelCost, resolveEstimateDistance } from "@/lib/fuel/trip-estimate";
 import { validateProviderUpdate } from "@/lib/fuel/providers/official-reference";
 import { cargoServiceEnd, CARGO_HANDLING_DEFAULTS } from "@/lib/scheduling/cargo-schedule";
@@ -90,7 +91,7 @@ describe("release acceptance", () => {
     expect(comparePairEvidence(van, truck, { load: { unit: "kg", required: 650 } }).code).toBe("CAPACITY_FIT");
   });
 
-  it("36 km at 9 km/L and PHP 62.70/L estimates 4.00 L / PHP 250.80, receipts independent", () => {
+  it("36 km at 9 km/L and PHP 62.70/L estimates 4.00 L / PHP 250.80, receipts independent", async () => {
     const distance = resolveEstimateDistance({ odometerKm: null, tripDistanceKm: 36, gpsTrailKm: 35 });
     expect(distance).toEqual({ km: 36, provenance: "trip-distance" });
     const fuel = estimateFuelCost({ distanceKm: distance.km, efficiencyKmpl: 9, pricePerLiter: 62.7 });
@@ -98,10 +99,16 @@ describe("release acceptance", () => {
     // A completion stores the snapshot basis, never a link: the snapshot row
     // below is data the completion copies, and later rows cannot move it.
     const rows = [
-      { snapshot_id: 4, fuel_product: "Diesel", region: "NCR", currency: "PHP", unit: "L", reference_price: "62.70", effective_at: "2026-10-01T00:00:00+08:00", verification_method: "Manual", lifecycle: "Active" },
-      { snapshot_id: 5, fuel_product: "Diesel", region: "NCR", currency: "PHP", unit: "L", reference_price: "63.00", effective_at: "2026-11-01T00:00:00+08:00", verification_method: "Manual", lifecycle: "Active" },
+      { snapshot_id: 4, fuel_product: "Diesel", region: "NCR", currency: "PHP", unit: "L", reference_price: "62.70", effective_at: "2026-10-01T00:00:00+08:00", verification_method: "Manual", verified_by: 3, lifecycle: "Active" },
+      { snapshot_id: 5, fuel_product: "Diesel", region: "NCR", currency: "PHP", unit: "L", reference_price: "63.00", effective_at: "2026-11-01T00:00:00+08:00", verification_method: "Manual", verified_by: 3, lifecycle: "Active" },
     ];
     expect(priceAt(rows, { fuelType: "Diesel", region: "NCR", at: "2026-10-05T00:00:00+08:00" })?.snapshot_id).toBe(4);
+    const tx = { query: async (sql) => ({ rows: sql.includes("SELECT * FROM fuel_price_snapshots") ? rows : [] }) };
+    const repository = createPriceRepository({ query: tx.query, withTransaction: (fn) => fn(tx) });
+    const applicable = await repository.applicable({ fuelType: "Diesel", region: "NCR", at: "2026-10-05T00:00:00+08:00" });
+    expect(estimateFuelCost({ distanceKm: 36, efficiencyKmpl: 9, pricePerLiter: applicable.reference_price })).toMatchObject({ liters: 4, cost: 250.8 });
+    // Production completion/capture/retry acceptance runs through the real
+    // PUT handler, service and repository in fuel/completion-path.test.js.
   });
 
   it("provider failure retains the last verified snapshot with a stale warning", () => {

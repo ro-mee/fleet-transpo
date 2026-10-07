@@ -4,7 +4,7 @@ import {
   fetchReferencePrice,
   parseOfficialReference,
 } from "@/lib/fuel/providers/official-reference";
-import { validateSnapshotInput } from "@/lib/fuel/price-policy";
+import { fuelPrices, fuelSchemaError } from "@/lib/fuel/price-repository";
 
 // Official price-provider sync (Release D Task 12).
 //
@@ -14,13 +14,12 @@ import { validateSnapshotInput } from "@/lib/fuel/price-policy";
 // ACTIVATION GATE: no official machine-readable, legally usable source has
 // been identified, so the scheduler stays DISABLED and manual verified
 // snapshots are the only source. The route answers 503 with that fact unless
-// FUEL_PRICE_PROVIDER_ENABLED=1 with an https FUEL_PRICE_SOURCE_URL. Even
-// when enabled, the route only validates into a Pending payload — it never
-// persists (persistence lands with the Task 10 repository at the apply
-// checkpoint) and it never runs inside request/dispatch paths.
+// FUEL_PRICE_PROVIDER_ENABLED=1, FUEL_PRICE_SOURCE_VERIFIED=1 and an HTTPS
+// source approved by the operator. This is a deployment decision, never a
+// trust assertion from provider data. No official source is guessed here.
 
 function activation() {
-  if (process.env.FUEL_PRICE_PROVIDER_ENABLED !== "1") return null;
+  if (process.env.FUEL_PRICE_PROVIDER_ENABLED !== "1" || process.env.FUEL_PRICE_SOURCE_VERIFIED !== "1") return null;
   const id = String(process.env.FUEL_PRICE_SOURCE_ID ?? "").trim();
   const origin = String(process.env.FUEL_PRICE_SOURCE_URL ?? "").trim();
   if (!id || !origin) return null;
@@ -47,6 +46,7 @@ export async function GET(req) {
       }, 503);
     }
 
+    await fuelPrices.activateDue();
     const fetched = await fetchReferencePrice({ sourceUrl: source.origin });
     if (!fetched.ok) {
       return ok({ outcome: "retained", reason: fetched.reason, persisted: false });
@@ -59,17 +59,14 @@ export async function GET(req) {
       return ok({ outcome: "retained", reason: e.message, persisted: false });
     }
 
-    const validated = validateSnapshotInput({
-      ...parsed,
-      verification_method: "Automatic",
-      source_hash: `fetch:${source.id}:${parsed.source_url}`,
-      lifecycle: "Pending",
-    });
-    if (!validated.ok) {
-      return ok({ outcome: "retained", reason: "Announcement failed snapshot validation; last verified snapshot retained.", persisted: false });
+    try {
+      const result = await fuelPrices.record(parsed, { automatic: true });
+      return ok({ outcome: result.duplicate ? "duplicate" : "recorded", snapshot: result.snapshot, persisted: !result.duplicate, source_id: source.id });
+    } catch (error) {
+      if ([400, 409].includes(error.status)) return ok({ outcome: "retained", reason: error.message, persisted: false, source_id: source.id });
+      throw error;
     }
-    return ok({ outcome: "validated-pending", snapshot: validated.value, persisted: false });
   } catch (e) {
-    return handleError(e);
+    return handleError(fuelSchemaError(e));
   }
 }

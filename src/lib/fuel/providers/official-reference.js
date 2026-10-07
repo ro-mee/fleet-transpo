@@ -16,6 +16,8 @@
  * gates are unaffected: persistence lives with the Task 10 repository.
  */
 
+import { rowInstant } from "@/lib/fuel/price-policy";
+
 const ALLOWED_KEYS = new Set([
   "fuel_product",
   "region",
@@ -72,13 +74,13 @@ export function parseOfficialReference(payload, source) {
     if (!Number.isFinite(prior) || prior <= 0) fail("Provider prior price is malformed.");
   }
 
-  const effective = payload.effective_at instanceof Date ? payload.effective_at : new Date(payload.effective_at);
+  const effective = rowInstant(payload.effective_at);
   if (!(effective instanceof Date) || Number.isNaN(effective.getTime())) {
     fail("Provider announcement needs a valid effectivity timestamp.");
   }
   let announced = null;
   if (payload.announced_at !== undefined && payload.announced_at !== null) {
-    announced = payload.announced_at instanceof Date ? payload.announced_at : new Date(payload.announced_at);
+    announced = rowInstant(payload.announced_at);
     if (!(announced instanceof Date) || Number.isNaN(announced.getTime())) fail("Provider announced-at is malformed.");
   }
 
@@ -157,9 +159,14 @@ export async function fetchReferencePrice({ sourceUrl, fetchImpl = fetch, timeou
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(sourceUrl, { signal: controller.signal });
+    const requested = new URL(sourceUrl);
+    if (requested.protocol !== "https:") return { ok: false, reason: "Provider URL must use HTTPS." };
+    const res = await fetchImpl(sourceUrl, { signal: controller.signal, redirect: "error" });
     if (!res || res.ok !== true) {
       return { ok: false, reason: `Provider fetch failed (status ${res?.status ?? "unknown"}): retaining the last verified snapshot.` };
+    }
+    if (res.redirected || (res.url && new URL(res.url).origin !== requested.origin)) {
+      return { ok: false, reason: "Provider response changed origin; retaining the last verified snapshot." };
     }
     const data = await res.json();
     return { ok: true, data };

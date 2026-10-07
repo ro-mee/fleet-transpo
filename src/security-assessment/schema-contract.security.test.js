@@ -32,6 +32,8 @@ import { describe, it, expect } from "vitest";
 // it. One copy, two consumers.
 import {
   TABLES,
+  PENDING_TABLES,
+  contractTableNames,
   VIEWS,
   CLASSIFICATION,
   tableNames,
@@ -119,6 +121,18 @@ const migrationFiles = readdirSync(MIGRATIONS_DIR)
 // ---------------------------------------------------------------------------
 
 describe("SEC-DB-005 the schema contract is well-formed", () => {
+  it("allows prepared SQL only for exact reviewed migration-backed private tables", () => {
+    expect(Object.keys(PENDING_TABLES)).toEqual(["fuel_price_snapshots"]);
+    for (const [name, entry] of Object.entries(PENDING_TABLES)) {
+      expect(entry.classification).toBe(CLASSIFICATION.PRIVATE);
+      expect(entry.migration).toMatch(/^\d{3}_[a-z0-9_]+\.sql$/);
+      const sql = readFileSync(join(MIGRATIONS_DIR, entry.migration), "utf8");
+      expect(sql).toMatch(new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${name}\\s*\\(`, "i"));
+      expect(sql).toMatch(new RegExp(`ALTER TABLE public\\.${name} ENABLE ROW LEVEL SECURITY`, "i"));
+      expect(sql).toMatch(new RegExp(`REVOKE ALL PRIVILEGES ON public\\.${name} FROM anon, authenticated`, "i"));
+      expect(TABLES[name]).toBeUndefined();
+    }
+  });
   it("declares at least one table", () => {
     expect(tableNames().length).toBeGreaterThan(0);
   });
@@ -157,7 +171,7 @@ describe("SEC-DB-005 the schema contract is well-formed", () => {
 describe("SEC-DB-005 every table in the schema carries an access decision", () => {
   it("classifies every CREATE TABLE in the checked-in schema", () => {
     const declared = schemaTables();
-    const contract = new Set(tableNames());
+    const contract = new Set(contractTableNames());
 
     const unclassified = [...declared].filter((t) => !contract.has(t)).sort();
     expect(
@@ -226,7 +240,7 @@ describe("SEC-DB-005 every table in the schema carries an access decision", () =
 describe("SEC-DB-005 the contract covers what the application actually queries", () => {
   it("has an entry for every table referenced by application SQL", () => {
     const referenced = codeTables(appSourceFiles);
-    const contract = new Set([...tableNames(), ...viewNames()]);
+    const contract = new Set([...contractTableNames(), ...viewNames()]);
 
     const missing = [...referenced.keys()].filter((t) => !contract.has(t)).sort();
     expect(
@@ -249,7 +263,7 @@ describe("SEC-DB-005 the contract covers what the application actually queries",
 // ---------------------------------------------------------------------------
 
 describe("SEC-DB-005 no migration removes a structure the contract depends on", () => {
-  const contractTables = new Set(tableNames());
+  const contractTables = new Set(contractTableNames());
 
   const stripComments = (sql) => sql.replace(/--[^\n]*/g, "");
 

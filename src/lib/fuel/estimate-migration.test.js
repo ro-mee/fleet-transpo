@@ -32,6 +32,10 @@ describe("prepared trip-fuel-estimate migration", () => {
     expect(migration).toMatch(/fk_trips_fuel_price_snapshot/i);
     expect(migration).toMatch(/REFERENCES public\.fuel_price_snapshots\s*\(\s*snapshot_id\s*\)/i);
     expect(migration).toMatch(/IF NOT EXISTS[\s\S]*?fk_trips_fuel_price_snapshot|fk_trips_fuel_price_snapshot[\s\S]*?IF NOT EXISTS/i);
+    expect(migration).toContain("conrelid = 'public.trips'::regclass");
+    expect(migration).toContain("confrelid");
+    expect(migration).toContain("convalidated");
+    expect(migration).toContain("information_schema.columns");
   });
 
   it("runs in an explicit transaction", () => {

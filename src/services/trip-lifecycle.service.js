@@ -6,6 +6,7 @@ import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/consta
 import { advanceReservation, findRequestForDispatch } from "@/services/reservation-lifecycle.service";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { resolveEstimateDistance, estimateFuelCost } from "@/lib/fuel/trip-estimate";
+import { fuelPrices, fuelSchemaError } from "@/lib/fuel/price-repository";
 import { trailDistanceKm } from "@/lib/geo/geofence";
 import { resolveMonitorAlerts } from "@/services/live-trip-monitor.service";
 
@@ -24,19 +25,8 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  * @param {object}        [params]
  * @param {number|string} [params.endOdometer]
  * @param {number|string} [params.distance]
- * @param {number|string} [params.startOdometer] optional start reading; when present and
- *                                               real (> 0), distance is derived from it and
- *                                               overrides the supplied distance
- * @param {object|null}   [params.fuelPriceBasis] Task 11 checkpoint seam:
- *                                               { price, snapshotId, region } resolved
- *                                               by the caller from a verified
- *                                               snapshot, or null. The service
- *                                               never queries the snapshots
- *                                               table itself: that table has
- *                                               no access decision until the
- *                                               apply checkpoint registers it,
- *                                               and the schema-contract gate
- *                                               fails the suite otherwise.
+ * @param {number|string} [params.startOdometer] legacy fallback when the locked trip
+ *                                               has no real stored start reading
  * @param {string|null}   [params.completionReason] PR #3: required reason when
  *                                               completing away from the destination
  * @param {boolean}       [params.geofenceOverride] PR #3: deliberate far-from-
@@ -46,122 +36,135 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  *                                               completion time, for the timeline
  * @returns {Promise<object>} the updated trip row
  */
-export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, fuelPriceBasis = null, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
-  const { rows: before } = await query(
-    `SELECT t.vehicle_id, t.driver_id, t.dispatch_id, t.trip_status, t.distance AS planned_distance,
-            v.mileage AS vehicle_mileage, v.fuel_efficiency_kmpl
-       FROM trips t
-       LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL
-      WHERE t.trip_id = $1
-      LIMIT 1`,
-    [tripId]
-  );
-  if (!before[0]) throw new AuthError("Trip not found", 404);
-  if (TERMINAL.has(before[0].trip_status)) {
-    throw new AuthError(`Trip is already ${before[0].trip_status} and cannot be completed.`, 409);
-  }
-  // Narrowed at the boundary first: Number() coerces `true` to 1 and `[]` to
-  // 0, so an untyped body could otherwise pass as a plausible reading.
-  const rawEndOdometer =
-    typeof endOdometer === "number" || typeof endOdometer === "string" ? endOdometer : null;
-  // Validate only when an end reading is actually present. A null/undefined/""
-  // reading is a legitimate distance-only completion — legacy trips often
-  // never recorded a start odometer — so it is skipped rather than rejected:
-  // validateOdometerReading requires a reading and would otherwise 400 the
-  // whole completion. A present reading below current mileage would walk the
-  // odometer backwards and silently defer every due-date on this vehicle.
-  const hasEndOdometer =
-    rawEndOdometer !== null && rawEndOdometer !== "" && rawEndOdometer !== undefined;
-  const odo = hasEndOdometer
-    ? validateOdometerReading({
-        reading: rawEndOdometer,
-        currentMileage: before[0].vehicle_mileage,
-      })
-    : { ok: true, error: null, flagged: false, reason: null };
-  if (!odo.ok) throw new AuthError(odo.error, 400);
-
-  // Distance is derived from the two readings, but only when the start
-  // reading is real. `end - (start || 0)` treats a NULL start as zero, which
-  // turns a 50,000 km end reading into a 50,000 km trip — and trips.distance
-  // is what the 90-day usage window sums to get km/day, so one such row
-  // inflates the burn rate and pulls every service projection forward.
-  // Legacy trips carry NULL or 0 start readings, so this path is reachable.
-  // The route passes startOdometer (body.start_odometer) when it has one.
-  const startOdo = Number(startOdometer);
-  const hasStart = Number.isFinite(startOdo) && startOdo > 0;
-  const derived = hasStart ? Number(rawEndOdometer) - startOdo : null;
-  const suppliedDistance = Number(distance);
-  const dist =
-    derived !== null && derived >= 0
-      ? derived
-      : Number.isFinite(suppliedDistance)
-        ? suppliedDistance
-        : null;
-  // COALESCE keeps whatever distance the trip already had: an unusable
-  // reading must not clear a figure someone already recorded.
-  //
-  // PR #3: the server-derived GPS trail distance fills the gap only when
-  // neither odometer math nor a supplied figure produced one — it never
-  // overrides them, and it is always persisted to gps_distance_km for the
-  // planned-vs-actual story regardless of which figure wins.
-  let gpsTrailKm = null;
-  try {
-    const { rows: trail } = await query(
-      `SELECT latitude, longitude, recorded_at
-         FROM gpstracking
-        WHERE trip_id = $1
-        ORDER BY recorded_at ASC`,
+export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
+  let before;
+  let odo;
+  let completedNow = false;
+  const { rows } = await withTransaction(async (tx) => {
+    const initial = await tx.query(
+      `SELECT t.*, t.distance AS planned_distance,
+              v.mileage AS vehicle_mileage, v.fuel_efficiency_kmpl, v.fuel_type
+         FROM trips t
+         LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL
+        WHERE t.trip_id = $1
+        LIMIT 1 FOR UPDATE OF t`,
       [tripId]
     );
-    gpsTrailKm = trailDistanceKm(trail);
-  } catch {
-    gpsTrailKm = null;
-  }
-  //
-  // Task 11: per-trip estimated fuel/cost snapshot, written once at
-  // completion. Planned is the distance the trip carried into completion;
-  // actual prefers odometer math, then the validated trip distance, then the
-  // GPS trail. The price basis (reference price, snapshot, region) arrives as
-  // an explicit caller-supplied seam: the snapshots table is unreadable here
-  // until the apply checkpoint registers its access decision, so the service
-  // never queries it directly. Columns write COALESCE first-write-wins, so
-  // later price or vehicle edits never rewrite a completed trip's basis, and
-  // receipt pump prices stay independent. A missing basis yields nulls with
-  // no fabricated actual.
-  //
-  // Release hold: the estimate columns exist only after migration 155 (and
-  // the snapshots table after 154) — do not deploy this revision before
-  // both are applied.
-  const plannedKm = before[0]?.planned_distance ?? null;
-  const odoKm = derived !== null && derived >= 0 ? derived : null;
-  const tripKm = Number.isFinite(suppliedDistance)
-    ? suppliedDistance
-    : before[0]?.planned_distance ?? null;
-  const estimateDistance = resolveEstimateDistance({ odometerKm: odoKm, tripDistanceKm: tripKm, gpsTrailKm });
-  const efficiency = before[0]?.fuel_efficiency_kmpl ?? null;
-  const basisPrice = fuelPriceBasis?.price ?? null;
-  const basisSnapshotId = fuelPriceBasis?.snapshotId ?? null;
-  const basisRegion = fuelPriceBasis?.region ?? null;
-  const fuelEstimate = estimateFuelCost({
-    distanceKm: estimateDistance.km,
-    efficiencyKmpl: efficiency,
-    pricePerLiter: basisPrice,
-  });
-  //
-  // actual_duration is derived in the same statement rather than a follow-up
-  // query, so it can never drift from end_time — NOW() is one value per
-  // statement. The CASE leaves trips that never started untouched: a duration
-  // measured from a NULL start_time is a number with nothing behind it, and a
-  // dimension with no data should stay absent rather than read as zero.
-  // GREATEST(0, ...) absorbs clock skew between the two timestamps.
-  //
-  // The trip, its vehicle mileage and its dispatch are the AUTHORITATIVE rows
-  // of this transition — permanent facts that cannot be re-derived later. They
-  // must commit or roll back together, or a crash between them would leave a
-  // trip marked Completed with a stale vehicle mileage and an in-flight
-  // dispatch. The derived statuses (vehicle/driver availability, booking
-  // request) are recomputed on demand and run after COMMIT, best-effort.
-  const { rows } = await withTransaction(async (tx) => {
+    before = initial.rows;
+    if (!before[0]) throw new AuthError("Trip not found", 404);
+    if (before[0].trip_status === "Completed") return { rows: [before[0]] };
+    if (TERMINAL.has(before[0].trip_status)) {
+      throw new AuthError(`Trip is already ${before[0].trip_status} and cannot be completed.`, 409);
+    }
+    // Narrowed at the boundary first: Number() coerces `true` to 1 and `[]` to
+    // 0, so an untyped body could otherwise pass as a plausible reading.
+    if (endOdometer != null && !["number", "string"].includes(typeof endOdometer)) {
+      throw new AuthError("End odometer must be a number of kilometers.", 400);
+    }
+    const rawEndOdometer =
+      typeof endOdometer === "number" || typeof endOdometer === "string" ? endOdometer : null;
+    // Validate only when an end reading is actually present. A null/undefined/""
+    // reading is a legitimate distance-only completion — legacy trips often
+    // never recorded a start odometer — so it is skipped rather than rejected:
+    // validateOdometerReading requires a reading and would otherwise 400 the
+    // whole completion. A present reading below current mileage would walk the
+    // odometer backwards and silently defer every due-date on this vehicle.
+    const hasEndOdometer =
+      rawEndOdometer !== null && rawEndOdometer !== "" && rawEndOdometer !== undefined;
+    odo = hasEndOdometer
+      ? validateOdometerReading({
+          reading: rawEndOdometer,
+          currentMileage: before[0].vehicle_mileage,
+        })
+      : { ok: true, error: null, flagged: false, reason: null };
+    if (!odo.ok) throw new AuthError(odo.error, 400);
+
+    // The locked stored reading is authoritative. Only legacy NULL/zero starts
+    // may use a client fallback; unknown scalar types cannot become kilometers.
+    const storedStart = before[0].start_odometer;
+    const hasStoredStart = storedStart != null && storedStart !== "" && storedStart !== 0 && storedStart !== "0";
+    const rawStart = hasStoredStart ? storedStart : startOdometer;
+    const startPresent = rawStart != null && rawStart !== "";
+    if (startPresent && (!["number", "string"].includes(typeof rawStart) || !Number.isFinite(Number(rawStart)) || Number(rawStart) < 0)) {
+      throw new AuthError("Start odometer must be a nonnegative number of kilometers.", 400);
+    }
+    const startOdo = startPresent ? Number(rawStart) : null;
+    const hasStart = Number.isFinite(startOdo) && startOdo > 0;
+    const derived = hasStart && hasEndOdometer ? Number(rawEndOdometer) - startOdo : null;
+    const suppliedDistance = distance == null || distance === "" ? NaN : Number(distance);
+    if (distance != null && distance !== "" && (!["number", "string"].includes(typeof distance) || !Number.isFinite(suppliedDistance) || suppliedDistance < 0)) {
+      throw new AuthError("Distance must be a nonnegative number of kilometers.", 400);
+    }
+    const dist =
+      derived !== null && derived >= 0
+        ? derived
+        : Number.isFinite(suppliedDistance)
+          ? suppliedDistance
+          : null;
+    // COALESCE keeps whatever distance the trip already had: an unusable
+    // reading must not clear a figure someone already recorded.
+    //
+    // PR #3: the server-derived GPS trail distance fills the gap only when
+    // neither odometer math nor a supplied figure produced one — it never
+    // overrides them, and it is always persisted to gps_distance_km for the
+    // planned-vs-actual story regardless of which figure wins.
+    let gpsTrailKm = null;
+    try {
+      const { rows: trail } = await tx.query(
+        `SELECT latitude, longitude, recorded_at
+           FROM gpstracking
+          WHERE trip_id = $1
+          ORDER BY recorded_at ASC`,
+        [tripId]
+      );
+      gpsTrailKm = trailDistanceKm(trail);
+    } catch {
+      gpsTrailKm = null;
+    }
+    //
+    // Task 11: per-trip estimated fuel/cost snapshot, written once at
+    // completion. Planned is the distance the trip carried into completion;
+    // actual prefers odometer math, then the validated trip distance, then the
+    // GPS trail. Planned route distance never becomes actual by fallback.
+    // The repository resolves a verified price for the configured region inside
+    // this transaction. The trip row lock serializes completion retries, and a
+    // captured-at latch preserves the entire first basis, including unavailable
+    // values, efficiency and separate planned estimates. Receipts remain separate.
+    //
+    // Release hold: the estimate columns exist only after migration 155 (and
+    // the snapshots table after 154) — do not deploy this revision before
+    // both are applied.
+    const plannedKm = before[0]?.planned_distance ?? null;
+    const odoKm = derived !== null && derived >= 0 ? derived : null;
+    const tripKm = Number.isFinite(suppliedDistance) ? suppliedDistance : null;
+    const estimateDistance = resolveEstimateDistance({ odometerKm: odoKm, tripDistanceKm: tripKm, gpsTrailKm });
+    const efficiency = before[0]?.fuel_efficiency_kmpl ?? null;
+    const { rows: settings } = await tx.query("SELECT setting_value FROM system_settings WHERE setting_key = 'fuel_price_region' LIMIT 1");
+    const basisRegion = String(settings[0]?.setting_value ?? "").trim() || null;
+    const capturedAt = new Date();
+    const snapshot = await fuelPrices.applicable({ fuelType: before[0]?.fuel_type, region: basisRegion, at: capturedAt }, tx);
+    const basisPrice = snapshot?.reference_price ?? null;
+    const basisSnapshotId = snapshot?.snapshot_id ?? null;
+    const fuelEstimate = estimateFuelCost({
+      distanceKm: estimateDistance.km,
+      efficiencyKmpl: efficiency,
+      pricePerLiter: basisPrice,
+    });
+    const plannedEstimate = estimateFuelCost({ distanceKm: plannedKm, efficiencyKmpl: efficiency, pricePerLiter: basisPrice });
+    //
+    // actual_duration is derived in the same statement rather than a follow-up
+    // query, so it can never drift from end_time — NOW() is one value per
+    // statement. The CASE leaves trips that never started untouched: a duration
+    // measured from a NULL start_time is a number with nothing behind it, and a
+    // dimension with no data should stay absent rather than read as zero.
+    // GREATEST(0, ...) absorbs clock skew between the two timestamps.
+    //
+    // The trip, its vehicle mileage and its dispatch are the AUTHORITATIVE rows
+    // of this transition — permanent facts that cannot be re-derived later. They
+    // must commit or roll back together, or a crash between them would leave a
+    // trip marked Completed with a stale vehicle mileage and an in-flight
+    // dispatch. The derived statuses (vehicle/driver availability, booking
+    // request) are recomputed on demand and run after COMMIT, best-effort.
     const r = await tx.query(
       `UPDATE trips
           SET trip_status = 'Completed',
@@ -169,20 +172,26 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
               end_odometer = $1,
               distance = COALESCE($2, $4, distance),
               gps_distance_km = COALESCE($4, gps_distance_km),
-              planned_distance_km = COALESCE(planned_distance_km, $5),
-              actual_distance_km = COALESCE(actual_distance_km, $6),
-              distance_provenance = COALESCE(distance_provenance, $7),
-              estimated_fuel_l = COALESCE(estimated_fuel_l, $8),
-              estimated_fuel_cost = COALESCE(estimated_fuel_cost, $9),
-              fuel_reference_price = COALESCE(fuel_reference_price, $10),
-              fuel_price_snapshot_id = COALESCE(fuel_price_snapshot_id, $11),
-              fuel_region = COALESCE(fuel_region, $12),
+              planned_distance_km = $5,
+              actual_distance_km = $6,
+              distance_provenance = $7,
+              estimated_fuel_l = $8,
+              estimated_fuel_cost = $9,
+              fuel_reference_price = $10,
+              fuel_price_snapshot_id = $11,
+              fuel_region = $12,
+              fuel_efficiency_snapshot_kmpl = $13,
+              planned_estimated_fuel_l = $14,
+              planned_estimated_fuel_cost = $15,
+              fuel_estimate_reason = $16,
+              fuel_estimate_captured_at = $17,
               actual_duration = CASE
                 WHEN start_time IS NOT NULL
                   THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (NOW() - start_time)) / 60))::int
                 ELSE actual_duration
               END
-        WHERE trip_id = $3
+        WHERE trip_id = $3 AND trip_status NOT IN ('Completed', 'Cancelled')
+          AND fuel_estimate_captured_at IS NULL
         RETURNING *`,
       [
         rawEndOdometer,
@@ -197,9 +206,15 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
         basisPrice != null ? Number(basisPrice) : null,
         basisSnapshotId,
         basisRegion,
+        efficiency,
+        plannedEstimate.liters,
+        plannedEstimate.cost,
+        fuelEstimate.reason,
+        capturedAt,
       ]
     );
     if (!r.rows[0]) throw new AuthError("Trip not found", 404);
+    completedNow = true;
     const txWrites = [];
     // Feed the odometer back into the vehicle. GREATEST is a second guard
     // beyond the validation above: a late-arriving low reading from a retried
@@ -220,8 +235,9 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
     txWrites.push(resolveMonitorAlerts(tx, tripId, "trip_completed"));
     await Promise.all(txWrites);
     return r;
-  });
+  }).catch((error) => { throw fuelSchemaError(error); });
   if (!rows[0]) throw new AuthError("Trip not found", 404);
+  if (!completedNow) return rows[0];
 
   // Derived statuses — recomputed on demand, so a failure here self-heals on
   // the next sync. Deliberately outside the transaction above.
