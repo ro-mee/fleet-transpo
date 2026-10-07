@@ -22,6 +22,8 @@
 
 ## Release boundaries and dependencies
 
+**Execution checkpoint — 2026-10-07:** Prepared source identity, typed-load/service and location-intake migrations were renumbered from provisional144/145/146 to150/151/152 after authorized live status confirmed recorded supply migrations through149. Their executable SQL is unchanged and they remain unapplied. Historical follow-up plans retain the provisional names; use the current files. Numbering reconciliation does not complete shared supply/request dispatch semantics, a merge, or live-schema acceptance. See `Capstone/07 - Development/FleetOps Migration Reconciliation 2026-10-07.md` for the recorded-origin comparison and remaining gates.
+
 - **Release A: multi-source contract + passenger/cargo data** (Tasks 1–3). Demonstrate both PMS and POS fixture intake, legacy passenger compatibility, updates/cancels, distinct source identity. No live partner.
 - **Release B: safe cargo dispatch** (Tasks 4–7). Demonstrate van/truck capacity, pending commissioning and missing compliance blocks, driver-license mismatch, reassignment/start cannot bypass gates. Feature flag or source/service enablement only after audited baseline data.
 - **Release C: complete cargo driver workflow** (Tasks 8–9). Demonstrate cargo mobile + inspection + state wording + routes; retain current internal state machine.

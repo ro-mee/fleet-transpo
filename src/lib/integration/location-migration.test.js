@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const migrationPath = fileURLToPath(new URL("../../../supabase/migrations/146_location_intake_identity.sql", import.meta.url));
+const migrationPath = fileURLToPath(new URL("../../../supabase/migrations/152_location_intake_identity.sql", import.meta.url));
 const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
 
 const PROPOSAL_COLUMNS = [

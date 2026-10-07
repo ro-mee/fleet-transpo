@@ -1,4 +1,5 @@
--- Prepared only; never applied as part of Task 1. Rollback requires first resolving
+-- Prepared only; renumbered from 144 after the authorized ledger check on 2026-10-07.
+-- Never applied as part of Task 1. Rollback requires first resolving
 -- duplicate external_booking_id values across sources; do not blindly restore old unique.
 -- Keep archived external_booking_id unchanged for existing PMS and other archived rows.
 BEGIN;

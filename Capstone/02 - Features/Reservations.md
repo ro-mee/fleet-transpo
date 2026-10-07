@@ -10,12 +10,14 @@ source:
   - src/services/reservation-lifecycle.service.js
   - src/lib/scheduling/reservation-state.js
   - src/lib/scheduling/priority.js
-  - supabase/migrations/146_location_intake_identity.sql
+  - supabase/migrations/152_location_intake_identity.sql
 last_verified: 2026-10-06
 related: ["[[Dispatch]]", "[[System Boundaries]]"]
 ---
 
 # Feature: Reservations
+
+**Migration checkpoint (2026-10-07):** Provisional passenger/cargo drafts 144/145/146 are now 150/151/152, still unapplied. Historical references below retain their earlier names. Number collisions with applied supply work are resolved; this does not enable request revisions/cancellation or cargo dispatch. The recorded-origin SCM sandbox workflow is separate from this authenticated PMS/POS request path. See [[FleetOps Migration Reconciliation 2026-10-07]] for remaining merge/live/dispatch gates.
 
 ## Manual Analyze controls removed - 2026-09-15
 

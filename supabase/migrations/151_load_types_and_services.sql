@@ -1,6 +1,7 @@
 BEGIN;
 
--- Prepared only: do not apply until 144_transport_source_identity.sql is reconciled,
+-- Prepared only; renumbered from 145 after the authorized ledger check on 2026-10-07.
+-- Do not apply until 150_transport_source_identity.sql is reconciled,
 -- and the migration ledger is rechecked. No live DB writes were performed for Task 2.
 -- Fail atomically rather than silently rewriting historical passenger counts.
 DO $$

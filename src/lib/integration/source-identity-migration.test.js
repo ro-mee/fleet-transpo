@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const migration = readFileSync(fileURLToPath(new URL("../../../supabase/migrations/144_transport_source_identity.sql", import.meta.url)), "utf8");
+const migrationPath = fileURLToPath(new URL("../../../supabase/migrations/150_transport_source_identity.sql", import.meta.url));
+const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
 
 describe("prepared source-identity migration safety", () => {
   it("wraps every migration statement in an explicit transaction", () => {

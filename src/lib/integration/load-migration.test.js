@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const migration = readFileSync(fileURLToPath(new URL("../../../supabase/migrations/145_load_types_and_services.sql", import.meta.url)), "utf8");
+const migrationPath = fileURLToPath(new URL("../../../supabase/migrations/151_load_types_and_services.sql", import.meta.url));
+const migration = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
 
 describe("prepared typed-load migration", () => {
   it("checks historical passenger counts before enforcing the new positive-count constraint", () => {

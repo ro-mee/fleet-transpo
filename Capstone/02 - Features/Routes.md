@@ -19,12 +19,14 @@ source:
   - src/lib/routing/route-cache.js
   - src/lib/scheduling/route-feasibility.js
   - supabase/migrations/076_routes_integrity.sql
-  - supabase/migrations/146_location_intake_identity.sql
+  - supabase/migrations/152_location_intake_identity.sql
 last_verified: 2026-10-06
 related: ["[[Dispatch]]", "[[Trips]]", "[[Reservations]]"]
 ---
 
 # Feature: Canonical Directional Routes & Location Identity
+
+**Migration checkpoint (2026-10-07):** The location identity/proposal draft is now `152_location_intake_identity.sql` (formerly146), after source identity150 and typed-load151. Its SQL behavior is unchanged and it remains unapplied. Recorded supply site mappings reference existing `location_id` values, which this draft preserves; live compatibility is not established by this static comparison. Historical entries below use their original filenames. See [[FleetOps Migration Reconciliation 2026-10-07]].
 
 ## What it does
 

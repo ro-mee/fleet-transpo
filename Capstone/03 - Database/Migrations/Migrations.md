@@ -5,10 +5,14 @@ tags: [database, migrations]
 source:
   - supabase/migrations
   - AGENTS.md
-last_verified: 2026-10-06
+last_verified: 2026-10-07
 ---
 
 # Migrations
+
+## 2026-10-07 — passenger/cargo draft numbering reconciliation (NOT applied)
+
+Current unapplied drafts are `150_transport_source_identity.sql`, `151_load_types_and_services.sql` and `152_location_intake_identity.sql`, renamed from provisional 144/145/146 after an authorized fresh status check showed applied supply history through149. Their executable SQL is unchanged; only names/comments/test paths were updated. Status after renumbering: 140 matching applied local files, 3 pending, 0 changed. Historical sections below retain their dated provisional numbers. No migration apply, schema dump, ledger update/rebaseline, merge or deployment occurred. Numbering is resolved; broader dispatch/runtime/live-schema reconciliation remains held. See [[FleetOps Migration Reconciliation 2026-10-07]] for the inspected recorded-origin baseline, compatibility boundaries, tests and release gates.
 
 ## 2026-10-06 — `146_location_intake_identity.sql` (Fleet location identity + partner proposal storage; prepared, NOT applied)
 

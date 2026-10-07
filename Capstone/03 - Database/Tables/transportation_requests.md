@@ -5,14 +5,16 @@ tags: [database, table, core]
 source:
   - supabase/migrations/016_reservation_module.sql
   - supabase/migrations/012_status_constraints.sql
-  - supabase/migrations/145_load_types_and_services.sql
+  - supabase/migrations/151_load_types_and_services.sql
   - src/lib/integration/ingest.js
-  - supabase/migrations/146_location_intake_identity.sql
+  - supabase/migrations/152_location_intake_identity.sql
   - src/services/reservation-lifecycle.service.js
-last_verified: 2026-10-06
+last_verified: 2026-10-07
 ---
 
 # Table: transportation_requests
+
+**Current migration names (2026-10-07):** Source identity, typed loads and location proposals are now unapplied drafts 150/151/152, formerly 144/145/146. Executable SQL is unchanged. Older numbered references below are historical. Applied supply migrations use separate shipment/inbox/allocation relations; their dispatch discriminator is not this request's load kind. See [[FleetOps Migration Reconciliation 2026-10-07]]. Live schema/data verification and apply remain held.
 
 **The core table of the system.** 15 rows. Every guest transportation request lives here.
 

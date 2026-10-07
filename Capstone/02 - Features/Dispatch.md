@@ -18,6 +18,8 @@ related: ["[[Reservations]]", "[[Trips]]"]
 
 # Feature: Dispatch
 
+**Migration checkpoint (2026-10-07):** Unapplied request drafts are now150/151/152, not provisional144/145/146. Recorded applied supply147/148 use `dispatchschedules.service_type` (`PASSENGER` / `SUPPLY_DELIVERY`) and allocation guards; this is a workflow discriminator, not `transportation_requests.load_type` (`Passenger` / `Cargo`). Numbering reconciliation does not implement shared cargo gates, copy supply dispatch code or bypass allocation triggers. Broader runtime reconciliation remains held. See [[FleetOps Migration Reconciliation 2026-10-07]].
+
 ## Task 5 verification follow-up — mock isolation (2026-10-06)
 
 The order-dependent Dispatch Radar failure came from a prior test queuing a one-time `driverBlockReason` result while asserting the mock was not called; `vi.clearAllMocks()` cleared calls but left that result queued. The test `beforeEach` now resets only `driverBlockReason` and restores its default `null` return. Test-only isolation fix; runtime behavior is unchanged. Verification: Dispatch Radar 26/26; combined Task 4 reader suites 5 files, 86/86; touched ESLint passed. That 311-file / 3,661-test result is the pre-fix baseline; the coordinator's post-fix full-suite run passed 311 files and 3,686/3,686 tests.

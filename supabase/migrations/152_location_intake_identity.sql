@@ -1,3 +1,5 @@
+-- Prepared only; renumbered from 146 after the authorized ledger check on 2026-10-07.
+-- Supply migrations 144-149 are reserved; this file does not change their objects.
 BEGIN;
 
 ALTER TABLE public.locations
