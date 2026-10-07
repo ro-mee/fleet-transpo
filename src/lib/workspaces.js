@@ -67,7 +67,6 @@ export const WORKS = {
             children: [
               { href: "/fleet/vehicles", label: "Fleet & Vehicles" },
               { href: "/drivers", label: "Driver Management" },
-              { href: "/drivers/leave", label: "Leave Management" },
               { href: "/fleet/assignments", label: "Driver Assignments" },
               { href: "/drivers/performance", label: "Driver Performance & Feedback" },
               { href: "/reservations", label: "Reservations" },
@@ -131,7 +130,6 @@ export const WORKS = {
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
-          { href: "/drivers/leave", label: "Leave Management", icon: CalendarCheck },
           { href: "/fleet/assignments", label: "Driver Assignments", icon: UsersRound },
           { href: "/drivers/performance", label: "Driver Performance & Feedback", icon: Gauge },
         ],
@@ -206,7 +204,6 @@ export const WORKS = {
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
-          { href: "/drivers/leave", label: "Leave Management", icon: CalendarCheck },
           { href: "/fleet/assignments", label: "Driver Assignments", icon: ClipboardCheck },
           { href: "/supply-deliveries", label: "Cargo Capability", icon: PackageCheck },
         ],

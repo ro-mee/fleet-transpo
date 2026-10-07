@@ -397,15 +397,16 @@ fleet_manager, with "Use System Default Routine" prefill action), `/drivers/leav
 `/driver/schedule` self-service (view schedule, file/withdraw leave), and the
 "Operating Hours & Driver Shift Policy" card on `/settings/dispatch` (configure fleet shift baseline and batch-apply to all active drivers).
 
-> **Scope note (2026-08-23; updated 2026-10-02):** the Driver Leave Requests
+> **Scope note (2026-08-23; updated 2026-10-07):** the Driver Leave Requests
 > board (`/drivers/leave`) and Document Expiration (`/fleet/documents`) were
 > originally hidden from navigation for the capstone demo. The Leave
-> Management sidebar link has since been restored for `admin` and
-> `fleet_manager`; Document Expiration remains hidden. The routes, APIs, and
-> data remain intact, and the driver's own `/driver/schedule` entry stays
-> visible.
+> Management sidebar link was restored for `admin` and `fleet_manager`, then
+> removed from all staff workspaces on 2026-10-07. The leave page, APIs, data,
+> direct-route permissions, and Fleet Manager dashboard shortcut remain; the
+> driver's own `/driver/schedule` entry stays visible. Document Expiration
+> remains hidden.
 
-> **Leave visibility restoration (2026-10-02; leave review broadened 2026-10-03):** The leave board and
+> **Leave visibility and review history (2026-10-02 to 2026-10-07):** The leave board and
 > weekly schedule controls remain implemented. `/drivers/leave` is permitted
 > for admin, super_admin, and fleet_manager. **Since 2026-10-03 admin reviews
 > leave too** (`driver_leave_requests.update`), alongside fleet_manager and the
@@ -417,12 +418,14 @@ fleet_manager, with "Use System Default Routine" prefill action), `/drivers/leav
 > `/driver/schedule` is driver self-service. There is no separate staff roster
 > calendar.
 >
-> The `Leave Management` sidebar item now appears for `admin` and
-> `fleet_manager` only. Existing page and API permissions are unchanged apart
+> The `Leave Management` sidebar item appeared for `admin` and
+> `fleet_manager` from its 2026-10-02 restoration until its removal on
+> 2026-10-07. The page and API permissions are unchanged apart
 > from the 2026-10-03 review grant: admins and Fleet Managers can both approve
 > or decline, and
 > `super_admin` keeps its existing direct-route permission without a sidebar
-> item in that workspace. Leave approval is consequential: it updates the
+> item in that workspace. The page remains reachable through permitted direct
+> routes, existing dashboard/notification links, and its APIs. Leave approval is consequential: it updates the
 > leave balance and sends overlapping dispatches to Pending Reassignment in
 > the same transaction. Schedule writes replace the driver's full weekly set
 > atomically; that path has no schedule-specific audit call. The current editor
@@ -432,6 +435,8 @@ fleet_manager, with "Use System Default Routine" prefill action), `/drivers/leav
 > comment says dispatchers can review leave, but the matrix, route guard, and
 > page-role list currently deny that action; clarify this if permissions are
 > revisited.
+
+**Staff leave sidebar removal (2026-10-07):** Removed the `/drivers/leave` navigation item from the Super Admin, Admin, and Fleet Manager workspace sidebars. The route entry in `NAV_ROLES`, `/drivers/leave` page, API routes, permission matrix, notification target, Workforce exceptions card, and Fleet Manager dashboard shortcut remain unchanged so current leave functions remain available. The driver's separate “My Schedule & Leave” navigation entry is unchanged. This navigation change does not implement the future HR integration or remove the current local leave workflow.
 
 ## The duty session — Start Duty / End Duty, and its three gates — 2026-09-23
 
@@ -702,3 +707,11 @@ The directory search now builds searchable name and contact values from nested e
 Summary cards and the Drivers report explicitly count **linked driver profiles**. The directory may also include incomplete driver-role accounts. An earlier read-only snapshot found 22 active driver profiles and one unlinked active driver-role employee, so the directory population was 23 while the profile summary was 22. This snapshot predates the defense account cleanup described above; the later controlled roster has ten active defense drivers.
 
 The driver detail lookup intentionally returns the same not-found response for archived and nonexistent IDs. Its unavailable state now explains that the profile may have been archived, deleted, or the link may be out of date. The reported driver #58 is archived and still has one assignment and two fuel-request references. No row was restored or changed. The message helper's focused regression tests pass.
+
+## HR leave ownership and Fleet availability projection — target, 2026-10-07
+
+**Target boundary:** HR owns employee leave requests, decisions, cancellations, balances, and evidence. FleetOps consumes only the minimum effective leave status needed for operational availability and a driver's own status view. Weekly driver work schedules remain Fleet-owned unless separately decided. This is an ownership direction, not an approved HR contract or an active connection.
+
+Current local leave submission, withdrawal, approval, balance updates, and dispatch side effects remain active during integration preparation. `src/services/driver-leave-availability.service.js` now isolates the availability read from the rest of `loadDriverScheduleContext`; the local `driver_leave_requests` table is still the source, preserving the existing behavior. No HR status is currently imported. The preparation plan and synthetic candidate payload are in `docs/plans/hr-leave-availability-readiness-plan.md`.
+
+HR worker identity mapping, status vocabulary, interval/timezone rules, sync method, freshness/outage behavior, privacy scope, and corrections/revocations remain undecided. Do not cut over or disable local writes until HR operates the source or an HR-owned interim handoff exists, records are reconciled, and dispatch-conflict handling is approved. In particular, current approval logic can clear a driver from an in-progress dispatch; that behavior must not be carried into an HR event handler without a separate operational decision.
