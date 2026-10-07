@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { can, hasRole } from "@/lib/auth/permissions";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { toast } from "@/components/ui/toast";
+import { compareSupplyLoadFit } from "@/services/supply-shipment.service";
 import { getSupplySiteMappings, saveSupplySiteMapping } from "@/services/supply-site-mapping.service";
 
 const HANDLING_CAPABILITIES = [
@@ -285,10 +286,7 @@ export default function SupplyDeliveriesPage() {
   });
 
   const fleetLoadFitMutation = useMutation({
-    mutationFn: (shipmentId) => requestJson("/api/supply/shipments/load-fit", {
-      method: "POST",
-      body: JSON.stringify({ shipment_id: shipmentId }),
-    }),
+    mutationFn: compareSupplyLoadFit,
     onMutate: () => setFleetLoadFit(null),
     onSuccess: (result, shipmentId) => {
       if (shipmentId === selectedShipmentRef.current) setFleetLoadFit(result);
