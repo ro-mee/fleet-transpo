@@ -7,6 +7,7 @@ import {
 } from "@/lib/ai/pair-scoring";
 import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
+import { loadRoadReadiness, roadReadinessConflict } from '@/lib/vehicles/readiness-server';
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { evaluateDispatchCandidate, serviceEnd } from '@/services/dispatch-radar.service';
 import { resolveRequestEstimate } from '@/services/route-resolver.service';
@@ -185,9 +186,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     // Typed load fields are authoritative from the stored row, never from the
     // caller — mirroring the passenger_count pin above. A changed weight on a
     // committed pair must re-gate here rather than ride in on stale input.
-    if (rows[0].load_type != null) {
-      request = { ...request, load_type: rows[0].load_type, cargo_weight_kg: rows[0].cargo_weight_kg, cargo_description: rows[0].cargo_description };
-    }
+    request = { ...request, load_type: rows[0].load_type ?? null, cargo_weight_kg: rows[0].cargo_weight_kg ?? null, cargo_description: rows[0].cargo_description ?? null };
   }
   const commitToken = { driverId,vehicleId,requestId:request?.request_id ?? null,...(excludeTripId ? {tripId:excludeTripId} : {}) };
   commitToken.revision = await readDispatchRevision(commitToken);
@@ -211,7 +210,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
          FROM substitute_vehicle_schedules`
     ),
     query(
-      `SELECT vehicle_id, plate_number, vehicle_status,category_id,seating_capacity,operational_use,cargo_capacity_kg,required_license_class
+      `SELECT vehicle_id, plate_number, fleet_asset_code,vehicle_status,category_id,seating_capacity,operational_use,cargo_capacity_kg,required_license_class,commissioning_status
          FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
       [vehicleId]
     ),
@@ -221,7 +220,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   if (!vehicle) return { ok:false,conflict:{ type:'vehicle_missing',severity:'blocking',message:'Vehicle no longer exists.' } };
   if (request?.requested_category_id && Number(vehicle.category_id)!==Number(request.requested_category_id))
     return { ok:false,conflict:{type:'vehicle_category',severity:'blocking',message:'Vehicle does not match the requested class.'} };
-  if (vehicle && !vehicleOperationallyAvailable(vehicle)) {
+  if (vehicle && !vehicleOperationallyAvailable(vehicle, request)) {
     return {
       ok: false,
       conflict: {
@@ -257,6 +256,11 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
         },
       };
     }
+  }
+
+  if (request?.load_type != null) {
+    const readiness = await loadRoadReadiness({vehicleRow:vehicle,pickupAt:request.pickup_datetime ?? now,returnAt:windowEnd,now,query});
+    if (!readiness.ready) return {ok:false, conflict:roadReadinessConflict(readiness)};
   }
 
   const pickupDate = request?.pickup_datetime || now;

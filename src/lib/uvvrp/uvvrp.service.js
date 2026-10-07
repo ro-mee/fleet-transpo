@@ -464,9 +464,9 @@ export async function loadDriverTravelContext(date) {
 }
 
 /** Whether a vehicle can travel on the context date (own docs + paired driver). */
-export function vehicleCanTravel(v, ctx) {
+export function vehicleCanTravel(v, ctx, request) {
   const date = ctx?.date ?? new Date();
-  if (isExpiredOn(v.registration_expiry, date) || isExpiredOn(v.insurance_expiry, date)) return false;
+  if (!["Passenger", "Cargo"].includes(request?.load_type) && (isExpiredOn(v.registration_expiry, date) || isExpiredOn(v.insurance_expiry, date))) return false;
   if (ctx.policy?.enabled && !ctx.exemptVehicleIds?.has?.(v.vehicle_id) && v.plate_number) {
     if (isRestricted(v.plate_number, ctx.policy, date)) return false;
   }

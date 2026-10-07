@@ -23,7 +23,9 @@ export const CARGO_HANDLING_DEFAULTS = {
 /** Total handling minutes for a buffer set (defaults when omitted). */
 export function cargoHandlingMinutes(buffers = {}) {
   const b = { ...CARGO_HANDLING_DEFAULTS, ...buffers };
-  const parts = [b.loadingMin, b.securementMin, b.unloadingMin, b.turnaroundMin].map(Number);
+  const values = [b.loadingMin, b.securementMin, b.unloadingMin, b.turnaroundMin];
+  if (values.some(value => value == null || typeof value === "boolean" || String(value).trim() === "")) return null;
+  const parts = values.map(Number);
   if (!parts.every((n) => Number.isFinite(n) && n >= 0)) return null;
   return parts.reduce((sum, n) => sum + n, 0);
 }
@@ -51,21 +53,8 @@ export function cargoServiceEnd({ pickup, scheduledArrival = null, driveMinutes 
   if (scheduledArrival != null && (!Number.isFinite(arrivalMs) || arrivalMs <= pickupMs)) {
     return { end: null, basis: "invalid-arrival", handlingMin, shortfallMin: 0, provenance };
   }
-  if (Number.isFinite(arrivalMs)) {
-    const driveRaw = driveMinutes === null || driveMinutes === undefined || driveMinutes === "" ? NaN : Number(driveMinutes);
-    const needed =
-      Number.isFinite(driveRaw) && driveRaw >= 0 && handlingMin != null ? driveRaw + handlingMin : null;
-    return {
-      end: new Date(arrivalMs),
-      basis: "scheduled",
-      handlingMin,
-      shortfallMin: needed == null ? 0 : Math.max(0, Math.round((pickupMs + needed * 60_000 - arrivalMs) / 60_000)),
-      provenance,
-    };
-  }
-
-  // No dispatcher-planned end: extend the drive estimate by the handling
-  // buffers. An unknown drive yields no window — never a zero-length one.
+  // A planned end cannot prove that the driving and handling fit without
+  // a drive estimate. An unknown drive yields no window.
   // (Number(null) is 0, so absence is checked before coercion.)
   if (driveMinutes === null || driveMinutes === undefined || driveMinutes === "") {
     return { end: null, basis: "unknown-drive", handlingMin, shortfallMin: 0, provenance };
@@ -74,8 +63,19 @@ export function cargoServiceEnd({ pickup, scheduledArrival = null, driveMinutes 
   if (!Number.isFinite(drive) || drive < 0 || handlingMin == null) {
     return { end: null, basis: "unknown-drive", handlingMin, shortfallMin: 0, provenance };
   }
+  const minimumEnd = pickupMs + (drive + handlingMin) * 60_000;
+  if (Number.isFinite(arrivalMs)) {
+    const shortfallMin = Math.max(0, Math.ceil((minimumEnd - arrivalMs) / 60_000));
+    return {
+      end: new Date(Math.max(arrivalMs, minimumEnd)),
+      basis: shortfallMin > 0 ? "handling-buffered-plan" : "scheduled",
+      handlingMin,
+      shortfallMin,
+      provenance,
+    };
+  }
   return {
-    end: new Date(pickupMs + (drive + handlingMin) * 60_000),
+    end: new Date(minimumEnd),
     basis: "handling-buffered-estimate",
     handlingMin,
     shortfallMin: 0,

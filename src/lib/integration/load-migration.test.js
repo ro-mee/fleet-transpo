@@ -13,12 +13,20 @@ describe("prepared typed-load migration", () => {
     expect(migration).toMatch(/DROP DEFAULT/i);
     expect(migration).toMatch(/DROP NOT NULL/i);
   });
-  it("preflights NULL and nonpositive historical passenger counts before typed-load changes", () => {
+  it("preflights passenger rows without rejecting valid cargo on rerun", () => {
     const preflight = migration.match(/DO \$\$[\s\S]*?passenger_count IS NULL OR passenger_count <= 0[\s\S]*?END \$\$;/i)?.[0] ?? "";
 
     expect(preflight).not.toBe("");
     expect(preflight).toMatch(/RAISE EXCEPTION 'Existing passenger_count requires explicit historical review before typed-load CHECK'/i);
-    expect(migration.indexOf(preflight)).toBeLessThan(migration.indexOf("ALTER TABLE public.service_types"));
+    expect(preflight).toMatch(/load_type IS NULL OR load_type = 'Passenger'/);
+    expect(migration.indexOf('ADD COLUMN IF NOT EXISTS load_type')).toBeLessThan(migration.indexOf(preflight));
+  });
+
+  it('leaves historical load types null and requires explicit typing from new intake', () => {
+    expect(migration).not.toMatch(/load_type varchar\(20\) DEFAULT 'Passenger'/);
+    expect(migration).toMatch(/ALTER COLUMN load_type DROP DEFAULT/);
+    expect(migration).toMatch(/ALTER COLUMN load_type DROP NOT NULL/);
+    expect(migration).toMatch(/load_type IS NULL AND passenger_count/);
   });
 
   it("uses the explicit ASCII whitespace set in both cargo CHECK expressions", () => {

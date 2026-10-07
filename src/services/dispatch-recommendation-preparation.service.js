@@ -79,6 +79,9 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
   // coach must not. Untyped and passenger rows keep the historical seats
   // predicate. Both branches reference migration 153 columns only for typed
   // cargo rows, which cannot exist before that migration is applied.
+  const excludedStatuses = ["Passenger", "Cargo"].includes(request?.load_type)
+    ? NON_DISPATCHABLE_VEHICLE_STATUSES.filter(status => status !== "Registration Expired")
+    : NON_DISPATCHABLE_VEHICLE_STATUSES;
   const isCargo = request?.load_type === "Cargo";
   const loadAmount = isCargo ? Number(request?.cargo_weight_kg) : passengers;
   const capacityPredicate = isCargo
@@ -159,7 +162,7 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
         windowStart,
         windowEnd,
         request?.requested_category_id ?? null,
-        NON_DISPATCHABLE_VEHICLE_STATUSES,
+        excludedStatuses,
       ]
     ).then((r) =>
       r.rows.map((v) => {
@@ -267,7 +270,7 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
         WHERE v.deleted_at IS NULL
           AND ($2::int IS NULL OR v.category_id = $2::int)
           ${prefilterPredicate}`,
-      [loadAmount, requestedCategoryId, NON_DISPATCHABLE_VEHICLE_STATUSES]
+      [loadAmount, requestedCategoryId, excludedStatuses]
     ).then((r) =>
       r.rows.map((v) => ({
         vehicle_id: v.vehicle_id,

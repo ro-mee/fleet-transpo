@@ -201,3 +201,12 @@ describe("fetchCandidates prefiltered", () => {
     expect(String(mainCall[0])).not.toMatch(/cargo_capacity_kg/);
   });
 });
+
+it('admits typed renewed-document candidates past stale registration status but retains hard status exclusions',async()=>{
+ mockDb();
+ await fetchCandidates({...REQUEST,load_type:'Passenger'},TRIP);
+ const main=query.mock.calls.find(([sql])=>sql.includes('WITH usage'));
+ const excluded=query.mock.calls.find(([sql])=>sql.includes('vehicle_status = ANY'));
+ expect(main[1][4]).toEqual(['Under Maintenance','Decommissioned']);
+ expect(excluded[1][2]).toEqual(main[1][4]);
+});

@@ -40,7 +40,7 @@ export function comparePairEvidence(a, b, policy = {}) {
   // overlarge truck when other factors are equal. Safety filters (band) always
   // precede this: an inadequate or unknown capacity never claims a fit, it
   // simply declines the tiebreak and the stable order below decides.
-  const fit = capacityFit(a, b, policy.load);
+  const fit = band(a) === 0 && band(b) === 0 ? capacityFit(a, b, policy.load) : null;
   if (fit) return fit;
   if (known(at) && known(bt) && at !== bt)
     return { order:at-bt,code:'EFFICIENCY',label:'Less transfer time',explanation:'The recorded workload does not distinguish these options; the shorter supported transfer estimate breaks the tie.' };

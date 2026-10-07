@@ -31,6 +31,16 @@ export async function PUT(req, { params }) {
       return err("A vehicle and driver must both be assigned before a trip can start.", 400);
     }
 
+    const { rows: startLoadRows } = await query(
+      `SELECT tr.load_type
+         FROM trips t
+         LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL
+         LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
+        WHERE t.trip_id = $1 LIMIT 1`,
+      [id]
+    );
+    const startLoadType = startLoadRows[0]?.load_type ?? null;
+    const typedLoad = ['Passenger', 'Cargo'].includes(startLoadType);
     let vehicleMileage = null;
     let startVehicle = null;
     if (trip.vehicle_id) {
@@ -42,10 +52,10 @@ export async function PUT(req, { params }) {
       if (!vehicle) return err("Vehicle not found. Trip cannot start.", 404);
       startVehicle = vehicle;
       vehicleMileage = vehicle?.mileage ?? null;
-      if (isExpired(vehicle?.registration_expiry)) {
+      if (!typedLoad && isExpired(vehicle?.registration_expiry)) {
         return err(`Vehicle ${vehicle.plate_number} has an expired registration (${toCalendarDay(vehicle.registration_expiry)}). Trip cannot start.`, 400);
       }
-      if (["Under Maintenance", "Decommissioned", "Registration Expired"].includes(vehicle?.vehicle_status)) {
+      if (["Under Maintenance", "Decommissioned"].includes(vehicle?.vehicle_status) || (!typedLoad && vehicle?.vehicle_status === "Registration Expired")) {
         return err(`Vehicle ${vehicle.plate_number} cannot start a trip (status: ${vehicle.vehicle_status}).`, 400);
       }
     }
@@ -96,15 +106,6 @@ export async function PUT(req, { params }) {
     // The passed checklist must be the trip's own set: a passenger checklist
     // does not clear a cargo trip and vice versa. Legacy rows without a load
     // type keep the passenger set, so existing Passed rows still start.
-    const { rows: startLoadRows } = await query(
-      `SELECT tr.load_type
-         FROM trips t
-         LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL
-         LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
-        WHERE t.trip_id = $1 LIMIT 1`,
-      [id]
-    );
-    const startLoadType = startLoadRows[0]?.load_type ?? null;
     const expectedItems = itemsForType("Pre-Trip", startLoadType);
     const actualItems = Array.isArray(pretrips[0].checklist)
       ? pretrips[0].checklist.map((i) => i?.item_id).filter(Boolean).sort()

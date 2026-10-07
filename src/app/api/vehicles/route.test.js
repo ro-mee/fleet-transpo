@@ -93,6 +93,11 @@ describe("POST /api/vehicles", () => {
     expect(values).toContain(1000);
   });
 
+  it('registers a pending asset without inventing a plate when its asset code is recorded',async()=>{
+    expect((await POST(request({...vehicle,plate_number:null,fleet_asset_code:'FLT-030'}))).status).toBe(201);
+    expect((await POST(request({...vehicle,plate_number:null}))).status).toBe(400);
+  });
+
   it.each([
     [{ operational_use: "Shuttle" }, "unknown operational use"],
     [{ operational_use: "Cargo", cargo_capacity_kg: 0 }, "non-positive capacity"],

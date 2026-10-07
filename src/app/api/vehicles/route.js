@@ -6,7 +6,7 @@ import { SUPPORTED_LICENSE_CLASSES } from "@/lib/drivers/license-eligibility";
 import { OPERATIONAL_USES } from "@/lib/vehicles/readiness-adapter";
 
 const vehicleWriteSchema = {
-  plate_number: { required: true, type: "plate", label: "Plate number", maxLength: 12 },
+  plate_number: { type: "plate", label: "Plate number", maxLength: 12 },
   vehicle_name: { required: true, type: "name", label: "Vehicle type/name", maxLength: 100 },
   model: { maxLength: 100, label: "Model" },
   manufacturer: { maxLength: 100, label: "Make/brand" },
@@ -125,6 +125,9 @@ export async function POST(req) {
 
     // Validate fields before inserting
     const errors = validateBody(vehicleData, vehicleWriteSchema);
+    if (!String(vehicleData.plate_number ?? '').trim() && !String(vehicleData.fleet_asset_code ?? '').trim()) {
+      errors.fleet_asset_code = 'Record a fleet asset code when the official plate is pending.';
+    }
     if (vehicleData.required_license_class && !SUPPORTED_LICENSE_CLASSES.includes(String(vehicleData.required_license_class).trim().toUpperCase())) {
       errors.required_license_class = "Choose a supported required driver license class (B or B1).";
     }

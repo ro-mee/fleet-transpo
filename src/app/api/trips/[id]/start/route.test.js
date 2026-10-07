@@ -14,6 +14,7 @@ import {query} from '@/lib/db';
 import {validatePairAvailability} from '@/services/recommendation.service';
 import {commitDispatchEvidence} from '@/services/dispatch-evidence.service';
 import {PUT} from './route';
+import {findRequestForDispatch} from '@/services/reservation-lifecycle.service';
 const PASSENGER_CHECKLIST = [{item_id:'brakes_tires'},{item_id:'passenger_items'},{item_id:'cabin_ready'}];
 const CARGO_CHECKLIST = [{item_id:'brakes_tires'},{item_id:'cargo_secure'},{item_id:'cabin_ready'}];
 const defaultQuery = (sql) => ({
@@ -34,6 +35,24 @@ it('rechecks the committed pair and excludes only the owned trip, blocking chang
  expect((await run()).status).toBe(409);
  expect(validatePairAvailability).toHaveBeenCalledWith(expect.objectContaining({vehicleId:3,driverId:2,excludeTripId:7,request:expect.objectContaining({dispatch_id:8})}));
  expect(commitDispatchEvidence).not.toHaveBeenCalled();
+});
+
+it('returns the same cargo overload sentence unchanged before starting',async()=>{
+ const message='Vehicle TRK5678 cargo capacity 1000 kg, request needs 1800 kg (over by 800 kg).';
+ query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type:'Cargo'}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}:defaultQuery(sql));
+ validatePairAvailability.mockResolvedValueOnce({ok:false,conflict:{type:'capacity_mismatch',severity:'blocking',message}});
+ const response=await run();
+ expect(response.status).toBe(409);
+ expect((await response.json()).error).toBe(message);
+ expect(commitDispatchEvidence).not.toHaveBeenCalled();
+});
+
+it('keeps a committed legacy request null-classified when starting after the additive migrations',async()=>{
+ findRequestForDispatch.mockResolvedValueOnce({request_id:9,fleet_status:'Assigned',load_type:null,passenger_count:2});
+ const tx={query:vi.fn(async sql=>({rows:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
+ expect((await run()).status).toBe(200);
+ expect(validatePairAvailability).toHaveBeenCalledWith(expect.objectContaining({request:expect.objectContaining({load_type:null,passenger_count:2})}));
 });
 it('commits start under the evidence lock with a compare-and-set trip status',async()=>{
  const token={revision:'current'};
@@ -105,4 +124,17 @@ it('starts a cargo trip whose passed checklist is the cargo set',async()=>{
   const tx={query:vi.fn(async sql=>({rows:sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
   commitDispatchEvidence.mockImplementation(async (_t,write)=>write(tx));
   expect((await run()).status).toBe(200);
+});
+
+it('uses renewed typed document evidence instead of an expired legacy registration projection',async()=>{
+ query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type:'Cargo'}]}:sql.includes('FROM vehicles')?{rows:[{plate_number:'TRK5678',registration_expiry:'2000-01-01',vehicle_status:'Registration Expired',required_license_class:'B'}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}:defaultQuery(sql));
+ const tx={query:vi.fn(async sql=>({rows:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
+ expect((await run()).status).toBe(200);
+ expect(validatePairAvailability).toHaveBeenCalled();
+});
+it('preserves the legacy expired-registration start rejection',async()=>{
+ query.mockImplementation(async sql=>sql.includes('FROM vehicles')?{rows:[{plate_number:'TRK5678',registration_expiry:'2000-01-01',vehicle_status:'Registration Expired',required_license_class:'B'}]}:defaultQuery(sql));
+ expect((await run()).status).toBe(400);
+ expect(validatePairAvailability).not.toHaveBeenCalled();
 });

@@ -30,7 +30,7 @@ describe("prepared vehicle-capabilities migration", () => {
   it("gives fleet asset codes a unique index and rejects a same-named wrong index", () => {
     // CREATE INDEX has no IF NOT EXISTS inside the guard: the DO block checks
     // NOT FOUND first, then creates; a same-named non-unique index raises.
-    expect(migration).toMatch(/IF NOT FOUND THEN[\s\S]*?CREATE UNIQUE INDEX vehicles_fleet_asset_code_uq/i);
+    expect(migration).toMatch(/CREATE UNIQUE INDEX IF NOT EXISTS vehicles_fleet_asset_code_uq/i);
     expect(migration).toMatch(/fleet_asset_code/i);
     expect(migration).toMatch(/indisunique/i);
     expect(migration).toMatch(/RAISE EXCEPTION/i);
@@ -38,6 +38,16 @@ describe("prepared vehicle-capabilities migration", () => {
 
   it("adds document verification audit columns with a bounded status CHECK", () => {
     expect(migration).toMatch(/verification_status[\s\S]*?IN\s*\(\s*'Pending'\s*,\s*'Verified'\s*,\s*'Rejected'\s*\)/i);
+  });
+
+  it('scopes index and exact validated constraint checks to their intended relation', () => {
+    expect(migration).toMatch(/i\.indpred IS NULL/);
+    expect(migration).toMatch(/i\.indkey\[0\] = a\.attnum/);
+    expect(migration).toMatch(/i\.indisready/);
+    expect(migration).toMatch(/constraint_definition IS DISTINCT FROM expected_constraint_definition/);
+    expect(migration).toMatch(/conrelid = 'public\.vehicles'::regclass/);
+    expect(migration).toMatch(/conrelid = 'public\.vehicledocuments'::regclass/);
+    expect(migration).toMatch(/ALTER COLUMN plate_number DROP NOT NULL/);
   });
 
   it("runs in an explicit transaction and never synthesizes plates or compliance evidence", () => {

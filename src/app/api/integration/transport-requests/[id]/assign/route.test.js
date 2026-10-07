@@ -54,6 +54,16 @@ it('blocks assignments when the authoritative license check reports ineligibilit
  expect(advanceReservation).not.toHaveBeenCalled();
  expect(syncDispatchSideEffects).not.toHaveBeenCalled();
 });
+
+it('preserves the shared cargo capacity blocker exactly, including on forced review',async()=>{
+ const message='Vehicle TRK5678 cargo capacity 1000 kg, request needs 1800 kg (over by 800 kg).';
+ validatePairAvailability.mockResolvedValueOnce({ok:false,conflict:{type:'capacity_mismatch',severity:'blocking',message}});
+ const req=new Request('http://localhost/assign',{method:'PUT',body:JSON.stringify({vehicle_id:2,driver_id:3,assignment_source:'detail',force:true,override_reason:'Reviewed the proposed pair'})});
+ const response=await PUT(req,params);
+ expect(response.status).toBe(409);
+ expect((await response.json()).error).toBe(message);
+ expect(advanceReservation).not.toHaveBeenCalled();
+});
 it('rechecks the plan inside the locked commit before writing if state races after the initial check',async()=>{
   const tx={query:vi.fn()};
   commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));

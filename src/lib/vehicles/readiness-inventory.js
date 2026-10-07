@@ -13,10 +13,12 @@
  * `liveGatesDeferred`.
  */
 import { evaluateRoadReadiness } from "./readiness.js";
+import { SUPPORTED_LICENSE_CLASSES } from '../drivers/license-eligibility.js';
 
 export const LIVE_GATES_DEFERRED = ["MAINTENANCE_NOT_CLEARED", "SAFETY_NOT_CLEARED"];
 
 const isBlank = (v) => v === null || v === undefined || String(v).trim() === "";
+const positiveFinite = v=>Number.isFinite(Number(v)) && Number(v) > 0;
 
 /**
  * @param {object} args
@@ -58,7 +60,7 @@ export function summarizeFleetInventory({ rows = [], assignments = [], now } = {
     if (vehicle.operational_use !== "Passenger" && vehicle.operational_use !== "Cargo") missing.operationalUse.push(id);
     if (isBlank(vehicle.plate_number)) missing.plate.push(id);
     if (vehicle.commissioning_status !== "Ready") missing.commissioning.push(id);
-    if (isBlank(vehicle.required_license_class)) missing.licenseClass.push(id);
+    if (!SUPPORTED_LICENSE_CLASSES.includes(vehicle.required_license_class)) missing.licenseClass.push(id);
     if (vehicle.category_id == null) missing.category.push(id);
     if (!pairs.has(Number(id))) missing.pairing.push(id);
 
@@ -70,9 +72,9 @@ export function summarizeFleetInventory({ rows = [], assignments = [], now } = {
     // Usable payload evidence for the declared use. Unclassified legacy stock
     // records no payload expectation, so it is not accused of missing one.
     if (vehicle.operational_use === "Passenger") {
-      if (!(Number(vehicle.seating_capacity) > 0)) missing.payload.push(id);
+      if (!positiveFinite(vehicle.seating_capacity)) missing.payload.push(id);
     } else if (vehicle.operational_use === "Cargo") {
-      if (!(Number(vehicle.cargo_capacity_kg) > 0)) missing.payload.push(id);
+      if (!positiveFinite(vehicle.cargo_capacity_kg)) missing.payload.push(id);
     }
 
     // Cohort membership: the pure road-readiness contract with the two live
@@ -91,14 +93,20 @@ export function summarizeFleetInventory({ rows = [], assignments = [], now } = {
       ref
     );
     const staticBlockers = readiness.blockers.filter((c) => !LIVE_GATES_DEFERRED.includes(c));
-    for (const code of staticBlockers) blockedReasons[code] = (blockedReasons[code] ?? 0) + 1;
-
+    if (isBlank(vehicle.fleet_asset_code)) staticBlockers.push('ASSET_CODE_MISSING');
+    if (isBlank(vehicle.required_license_class)) staticBlockers.push('LICENSE_CLASS_MISSING');
+    else if (!SUPPORTED_LICENSE_CLASSES.includes(vehicle.required_license_class)) staticBlockers.push('LICENSE_CLASS_UNSUPPORTED');
+    if (vehicle.category_id == null) staticBlockers.push('CATEGORY_MISSING');
     const capacityRecorded =
       vehicle.operational_use === "Passenger"
-        ? Number(vehicle.seating_capacity) > 0
+        ? positiveFinite(vehicle.seating_capacity)
         : vehicle.operational_use === "Cargo"
-          ? Number(vehicle.cargo_capacity_kg) > 0
+          ? positiveFinite(vehicle.cargo_capacity_kg)
           : false;
+    if (!['Passenger','Cargo'].includes(vehicle.operational_use)) staticBlockers.push('OPERATIONAL_USE_MISSING');
+    else if (!capacityRecorded) staticBlockers.push('CAPACITY_MISSING');
+    if (!pairs.has(Number(id))) staticBlockers.push('PAIRING_MISSING');
+    for (const code of staticBlockers) blockedReasons[code] = (blockedReasons[code] ?? 0) + 1;
 
     if (staticBlockers.length === 0 && capacityRecorded && pairs.has(Number(id))) {
       if (vehicle.operational_use === "Cargo") cargoCohort.push(id);

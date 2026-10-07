@@ -45,14 +45,16 @@ import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 import { vehicleSchema } from "@/lib/validation/schemas";
+import { apiFetch } from '@/lib/api/client';
 
 export default function VehicleFormPage({ params }) {
-  useRequireRole();
+  const { role } = useRequireRole();
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEdit = params?.id;
   const vehicleId = isEdit ? Number(params.id) : null;
   const [submitError, setSubmitError] = useState("");
+  const [verificationConfirmed, setVerificationConfirmed] = useState(false);
 
   // Document File & URL states
   const [orCrDoc, setOrCrDoc] = useState({ file_url: "", document_number: "" });
@@ -83,6 +85,7 @@ export default function VehicleFormPage({ params }) {
       purchase_price: undefined,
       purchase_date: "",
       insurance_expiry: "",
+      registration_expiry: "",
       next_service_date: "",
       next_service_mileage: undefined,
       service_interval_km: undefined,
@@ -194,7 +197,8 @@ export default function VehicleFormPage({ params }) {
         vehicle_status: vehicle.vehicle_status || "Available",
         purchase_price: vehicle.purchase_price || undefined,
         purchase_date: toDateInput(vehicle.purchase_date),
-        insurance_expiry: toDateInput(vehicle.insurance_expiry),
+        insurance_expiry: toDateInput(vehicle.documents?.find(d=>d.document_type === 'Insurance')?.expiry_date ?? vehicle.insurance_expiry),
+        registration_expiry: toDateInput(vehicle.documents?.find(d=>d.document_type === 'OR_CR')?.expiry_date),
         next_service_date: toDateInput(vehicle.next_service_date),
         next_service_mileage: vehicle.next_service_mileage || undefined,
         service_interval_km: vehicle.service_interval_km || undefined,
@@ -254,6 +258,17 @@ export default function VehicleFormPage({ params }) {
     onError: (err) => toast.error(err.message),
   });
 
+  const commissionMutation = useMutation({
+    mutationFn:()=>apiFetch(`/api/vehicles/${vehicleId}/commission`,{method:'POST',body:{confirm:true,document_ids:(vehicle?.documents ?? []).filter(d=>['OR_CR','Insurance'].includes(d.document_type)).map(d=>Number(d.document_id))}}),
+    onSuccess:()=>{
+      toast.success('Saved documents verified and vehicle commissioned');
+      setVerificationConfirmed(false);
+      queryClient.invalidateQueries({queryKey:['vehicle',vehicleId]});
+      queryClient.invalidateQueries({queryKey:['vehicles']});
+    },
+    onError:error=>toast.error(error.message),
+  });
+
   const handleFileUpload = (e, setter, documentType) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -275,14 +290,15 @@ export default function VehicleFormPage({ params }) {
     if (orCrDoc.file_url || orCrDoc.document_number) {
       documentsPayload.push({
         document_type: "OR_CR",
-        document_number: orCrDoc.document_number || "OR-CR-UNSPECIFIED",
+        document_number: orCrDoc.document_number || null,
         file_url: orCrDoc.file_url || null,
+        expiry_date: data.registration_expiry || null,
       });
     }
     if (insuranceDoc.file_url || insuranceDoc.document_number || data.insurance_expiry) {
       documentsPayload.push({
         document_type: "Insurance",
-        document_number: insuranceDoc.document_number || "INS-POLICY-UNSPECIFIED",
+        document_number: insuranceDoc.document_number || null,
         file_url: insuranceDoc.file_url || null,
         // The API's only expiry key is expiry_date — issue_date/expiration_date
         // were silently dropped, leaving Insurance rows without an expiry.
@@ -291,6 +307,7 @@ export default function VehicleFormPage({ params }) {
     }
 
     const payload = { ...data, documents: documentsPayload };
+    if (data.operational_use === 'Cargo') payload.seating_capacity = null;
     if (isEdit) {
       updateMutation.mutate({ id: vehicleId, data: payload });
     } else {
@@ -341,6 +358,16 @@ export default function VehicleFormPage({ params }) {
       />
       <StickyActionBar>{formActions}</StickyActionBar>
 
+      {isEdit && ['admin','super_admin'].includes(role) && (
+        <Card>
+          <CardHeader><CardTitle>Verify documents and commission</CardTitle><CardDescription>Commissioning: {vehicle?.commissioning_status ?? 'Pending'}. Save changes first, then check the saved scans, document numbers, registration class and expiry dates against the official records.</CardDescription></CardHeader>
+          <CardContent className="space-y-3">
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={verificationConfirmed} onChange={event=>setVerificationConfirmed(event.target.checked)} />I checked both saved official documents and the vehicle classification.</label>
+            <Button type="button" disabled={!verificationConfirmed || commissionMutation.isPending || form.formState.isDirty || orCrDoc.file_url !== (vehicle?.documents?.find(d=>d.document_type === 'OR_CR')?.file_url ?? '') || orCrDoc.document_number !== (vehicle?.documents?.find(d=>d.document_type === 'OR_CR')?.document_number ?? '') || insuranceDoc.file_url !== (vehicle?.documents?.find(d=>d.document_type === 'Insurance')?.file_url ?? '') || insuranceDoc.document_number !== (vehicle?.documents?.find(d=>d.document_type === 'Insurance')?.document_number ?? '')} onClick={()=>commissionMutation.mutate()}>Verify documents and commission</Button>
+          </CardContent>
+        </Card>
+      )}
+
       {submitError && (
         <div className="p-4 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger flex items-center gap-2">
           <ShieldAlert className="w-5 h-5 text-danger shrink-0" />
@@ -367,7 +394,7 @@ export default function VehicleFormPage({ params }) {
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
-                  <FloatingField label="Plate No." icon={Car} required error={form.formState.errors.plate_number?.message}>
+                  <FloatingField label="Plate No." icon={Car} error={form.formState.errors.plate_number?.message}>
                     <input
                       id="plate_number"
                       {...form.register("plate_number")}
@@ -375,6 +402,7 @@ export default function VehicleFormPage({ params }) {
                       className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data uppercase"
                     />
                   </FloatingField>
+                  <p className="text-xs text-foreground-muted">If the official plate is pending, leave it blank and record a fleet asset code. Road dispatch stays blocked until the official documents are verified.</p>
 
                   <FloatingField label="Vehicle Type / Name" icon={Tag} required error={form.formState.errors.vehicle_name?.message}>
                     <input
@@ -633,7 +661,7 @@ export default function VehicleFormPage({ params }) {
                       id="insurance_expiry"
                       label="Insurance Policy Expiry"
                       value={form.watch("insurance_expiry")}
-                      onChange={(val) => form.setValue("insurance_expiry", val)}
+                      onChange={(val) => form.setValue("insurance_expiry", val, {shouldDirty:true})}
                     />
                     <p className="text-[11px] text-foreground-muted mt-1.5">
                       Expired documents are allowed — status will reflect compliance risk.
@@ -725,6 +753,7 @@ export default function VehicleFormPage({ params }) {
                       onChange={(e) => setOrCrDoc((prev) => ({ ...prev, document_number: e.target.value }))}
                       className="h-9 text-xs rounded-xl"
                     />
+                    <DatePicker id="registration_expiry" label="OR/CR Registration Expiry" value={form.watch('registration_expiry')} onChange={value=>form.setValue('registration_expiry',value,{shouldDirty:true})} />
                   </div>
                 </div>
 

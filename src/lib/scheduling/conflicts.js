@@ -3,6 +3,7 @@ import { isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
 import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
+import { loadRoadReadiness, roadReadinessConflict } from '@/lib/vehicles/readiness-server';
 import { getUvvrpPolicy, getExemptVehicleIds } from "@/lib/uvvrp/uvvrp.service";
 import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
 import { resolveSubstituteForDate, resolveVehiclePairing, vehicleOperationallyAvailable } from "@/lib/ai/pair-scoring";
@@ -274,7 +275,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
   }
 
   if (vehicle) {
-    if (isExpiredOn(vehicle.registration_expiry, request.pickup_datetime)) {
+    if (request?.load_type == null && isExpiredOn(vehicle.registration_expiry, request.pickup_datetime)) {
       findings.push({
         type: CONFLICT_TYPE.REGISTRATION_EXPIRED,
         severity: SEVERITY.BLOCKING,
@@ -282,7 +283,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
         detail: { vehicle_id: vehicle.vehicle_id },
       });
     }
-    if (isExpiredOn(vehicle.insurance_expiry, request.pickup_datetime)) {
+    if (request?.load_type == null && isExpiredOn(vehicle.insurance_expiry, request.pickup_datetime)) {
       findings.push({
         type: CONFLICT_TYPE.INSURANCE_EXPIRED,
         severity: SEVERITY.BLOCKING,
@@ -298,7 +299,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
         detail: { vehicle_id: vehicle.vehicle_id, weekday: uvvrp.weekday, plate_digit: uvvrp.digit, response: uvvrp.response },
       });
     }
-    if ((vehicle.seating_capacity || 0) > 0 && vehicle.seating_capacity < passengers) {
+    if (request?.load_type == null && (vehicle.seating_capacity || 0) > 0 && vehicle.seating_capacity < passengers) {
       findings.push({
         type: CONFLICT_TYPE.CAPACITY_MISMATCH,
         severity: SEVERITY.BLOCKING,
@@ -312,7 +313,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
     // skip the typed gate; typed rows fail closed on unknown load, use, or
     // capacity. The finding type stays CAPACITY_MISMATCH — the stable code UI,
     // logs, Copilot evidence and tests key on — with the evaluator code inside.
-    if (request?.load_type === "Passenger" || request?.load_type === "Cargo") {
+    if (request?.load_type != null) {
       const verdict = evaluateVehicleCapacity(request, vehicle);
       if (!verdict.eligible) {
         findings.push({
@@ -517,7 +518,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     // 6. Vehicle registration + 7. capacity.
     vehicleId
       ? query(
-          `SELECT vehicle_id, plate_number, category_id, seating_capacity, operational_use, cargo_capacity_kg, registration_expiry, insurance_expiry, vehicle_status,fuel_level,next_service_date,required_license_class
+          `SELECT vehicle_id, plate_number, fleet_asset_code,category_id, seating_capacity, operational_use, cargo_capacity_kg, commissioning_status, registration_expiry, insurance_expiry, vehicle_status,fuel_level,next_service_date,required_license_class
              FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
           [vehicleId]
         )
@@ -662,7 +663,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     activePairs:assignments, activeSubstitutes:substitutes, driverById:new Map(pairingDrivers.map(d => [d.driver_id,d])),
     scheduleContext:await loadDriverScheduleContext(ids), requiredLicenseClass:vehicleRow?.required_license_class });
   if (!pairing.ok || Number(pairing.driver?.driver_id) !== Number(driverId)) findings.push({type:'pairing',severity:'blocking',message:pairing.reason || 'This is not the effective designated or substitute pair.'});
-  if (vehicleRow && !vehicleOperationallyAvailable(vehicleRow)) findings.push({type:'vehicle_status',severity:'blocking',message:`Vehicle is ${vehicleRow.vehicle_status}.`});
+  if (vehicleRow && !vehicleOperationallyAvailable(vehicleRow, request)) findings.push({type:'vehicle_status',severity:'blocking',message:`Vehicle is ${vehicleRow.vehicle_status}.`});
   if (request.requested_category_id && Number(vehicleRow?.category_id)!==Number(request.requested_category_id)) findings.push({type:'category',severity:'blocking',message:'Vehicle does not match the requested class.'});
   for (const incident of incidents) if (shouldGroundVehicle({incidentType:incident.incident_type,severity:incident.severity,vehicleId}))
     findings.push({type:'incident',severity:'blocking',message:`Vehicle is restricted by incident #${incident.incident_id}.`,detail:{incident_id:incident.incident_id}});
@@ -671,21 +672,27 @@ export async function detectRequestConflicts(request, opts = {}) {
   // historical seats check so existing evidence labels never change.
   const typedLoad = request.load_type === "Passenger" || request.load_type === "Cargo";
   const capacityVerdict = typedLoad ? evaluateVehicleCapacity(request, vehicleRow ?? {}) : null;
+  const road = request.load_type != null ? await loadRoadReadiness({vehicleRow:vehicleRow ?? {},pickupAt:pickup,returnAt:request.scheduled_arrival,now:new Date(),query}) : null;
+  if (road && !road.ready) findings.push(roadReadinessConflict(road));
   const known = [
-    ['request','Request requirements',validDate(pickup) && Number.isInteger(Number(request.passenger_count)) && Number(request.passenger_count)>0 && validDate(request.scheduled_arrival)],
+    ['request','Request requirements',validDate(pickup) && validDate(request.scheduled_arrival) && (request.load_type === 'Cargo'
+      ? Number.isFinite(Number(request.cargo_weight_kg)) && Number(request.cargo_weight_kg) > 0 && typeof request.cargo_description === 'string' && request.cargo_description.trim().length > 0
+      : Number.isInteger(Number(request.passenger_count)) && Number(request.passenger_count) > 0)],
     typedLoad
       ? ['capacity','Load capacity',capacityVerdict.eligible]
       : ['capacity','Seating capacity',Number(vehicleRow?.seating_capacity)>0],
-    ['registration','Vehicle registration',validDate(vehicleRow?.registration_expiry)],
-    ['insurance','Vehicle insurance',validDate(vehicleRow?.insurance_expiry)],
+    ['registration','Vehicle registration',road ? !road.blockers.some(c=>c.startsWith('OR_CR_') || c.startsWith('REGISTRATION_')) : validDate(vehicleRow?.registration_expiry)],
+    ['insurance','Vehicle insurance',road ? !road.blockers.some(c=>c.startsWith('INSURANCE_')) : validDate(vehicleRow?.insurance_expiry)],
     ['license','Driver license',validDate(driverRow?.license_expiry)],
     ['pairing','Effective driver and vehicle pairing',pairing.ok && Number(pairing.driver?.driver_id)===Number(driverId)],
     ['schedule','Duty, leave and resource schedule',!!driverRow && !!vehicleRow && validDate(pickup) && validDate(request.scheduled_arrival)],
     ['maintenance','Service-window maintenance',validDate(pickup) && validDate(request.scheduled_arrival)],
     ['incidents','Blocking incident check',!!vehicleRow],
   ];
+  if (road) known.push(['road_readiness','Verified road readiness',road.ready]);
   if (request.requested_vehicle_type && !request.requested_category_id) known.push(['category','Requested vehicle class',false]);
   const types = {capacity:['capacity_mismatch'],registration:['registration_expired'],insurance:['insurance_expired'],license:['license_expired','driver_license_ineligible'],pairing:['pairing'],schedule:['driver_unavailable','driver_conflict','vehicle_conflict','vehicle_status'],maintenance:['maintenance_conflict'],incidents:['incident'],category:['category']};
+  types.road_readiness = ['road_readiness'];
   if (request.requested_category_id) known.push(['category','Requested vehicle class',!!vehicleRow?.category_id]);
   return { conflicts:findings, checks:known.map(([id,label,present]) => {
     const blocked = findings.find(f => f.severity==='blocking' && types[id]?.includes(f.type));

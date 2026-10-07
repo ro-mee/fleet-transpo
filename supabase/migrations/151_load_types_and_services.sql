@@ -3,12 +3,26 @@ BEGIN;
 -- Prepared only; renumbered from 145 after the authorized ledger check on 2026-10-07.
 -- Do not apply until 150_transport_source_identity.sql is reconciled,
 -- and the migration ledger is rechecked. No live DB writes were performed for Task 2.
+-- Existing requests remain explicitly legacy (NULL load_type). New intake writes Passenger/Cargo.
+ALTER TABLE public.transportation_requests
+  ADD COLUMN IF NOT EXISTS load_type varchar(20),
+  ADD COLUMN IF NOT EXISTS cargo_weight_kg numeric(12, 3),
+  ADD COLUMN IF NOT EXISTS cargo_description text,
+  ADD COLUMN IF NOT EXISTS source_department text;
+
+ALTER TABLE public.transportation_requests
+  ALTER COLUMN passenger_count DROP DEFAULT,
+  ALTER COLUMN passenger_count DROP NOT NULL,
+  ALTER COLUMN load_type DROP DEFAULT,
+  ALTER COLUMN load_type DROP NOT NULL;
+
 -- Fail atomically rather than silently rewriting historical passenger counts.
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM public.transportation_requests
-    WHERE passenger_count IS NULL OR passenger_count <= 0
+    WHERE (load_type IS NULL OR load_type = 'Passenger')
+      AND (passenger_count IS NULL OR passenger_count <= 0)
   ) THEN
     RAISE EXCEPTION 'Existing passenger_count requires explicit historical review before typed-load CHECK';
   END IF;
@@ -132,17 +146,6 @@ UPDATE public.service_types SET status = 'Inactive', updated_at = now()
  WHERE service_name IN ('Staff Transport', 'Employee Transport', 'Hotel Shuttle', 'Guest Shuttle')
    AND status IS DISTINCT FROM 'Inactive';
 
-ALTER TABLE public.transportation_requests
-  ADD COLUMN IF NOT EXISTS load_type varchar(20) DEFAULT 'Passenger',
-  ADD COLUMN IF NOT EXISTS cargo_weight_kg numeric(12, 3),
-  ADD COLUMN IF NOT EXISTS cargo_description text,
-  ADD COLUMN IF NOT EXISTS source_department text;
-
-ALTER TABLE public.transportation_requests
-  ALTER COLUMN passenger_count DROP DEFAULT,
-  ALTER COLUMN passenger_count DROP NOT NULL,
-  ALTER COLUMN load_type SET NOT NULL;
-
 -- PostgreSQL NUMERIC NaN compares greater than ordinary numbers; > 0 alone
 -- cannot prove a usable cargo weight when direct DB writers bypass the API.
 DO $$
@@ -157,10 +160,13 @@ BEGIN
    WITH NO DATA;
   ALTER TABLE pg_temp._expected_transport_typed_load
     ADD CONSTRAINT _expected_transport_typed_load_check CHECK (
-      (load_type = 'Passenger' AND passenger_count IS NOT NULL AND passenger_count > 0
+      (load_type IS NULL AND passenger_count IS NOT NULL AND passenger_count > 0
         AND cargo_weight_kg IS NULL AND cargo_description IS NULL)
       OR
-      (load_type = 'Cargo' AND passenger_count IS NULL
+      (load_type IS NOT NULL AND load_type = 'Passenger' AND passenger_count IS NOT NULL AND passenger_count > 0
+        AND cargo_weight_kg IS NULL AND cargo_description IS NULL)
+      OR
+      (load_type IS NOT NULL AND load_type = 'Cargo' AND passenger_count IS NULL
         AND cargo_weight_kg IS NOT NULL AND cargo_weight_kg > 0
         AND cargo_weight_kg <> 'NaN'::numeric
         AND cargo_description IS NOT NULL AND btrim(cargo_description, E' \t\n\r\f' || chr(11)) <> '')
@@ -179,10 +185,13 @@ BEGIN
   IF constraint_definition IS NULL THEN
     ALTER TABLE public.transportation_requests
       ADD CONSTRAINT chk_transport_typed_load CHECK (
-        (load_type = 'Passenger' AND passenger_count IS NOT NULL AND passenger_count > 0
+        (load_type IS NULL AND passenger_count IS NOT NULL AND passenger_count > 0
+        AND cargo_weight_kg IS NULL AND cargo_description IS NULL)
+      OR
+      (load_type IS NOT NULL AND load_type = 'Passenger' AND passenger_count IS NOT NULL AND passenger_count > 0
           AND cargo_weight_kg IS NULL AND cargo_description IS NULL)
         OR
-        (load_type = 'Cargo' AND passenger_count IS NULL
+        (load_type IS NOT NULL AND load_type = 'Cargo' AND passenger_count IS NULL
           AND cargo_weight_kg IS NOT NULL AND cargo_weight_kg > 0
           AND cargo_weight_kg <> 'NaN'::numeric
           AND cargo_description IS NOT NULL AND btrim(cargo_description, E' \t\n\r\f' || chr(11)) <> '')
@@ -193,7 +202,7 @@ BEGIN
   END IF;
 END $$;
 
--- Existing rows are passenger rows; no historical passenger is silently converted to cargo.
+-- No historical request is silently enrolled into the typed fleet readiness gate.
 COMMENT ON COLUMN public.transportation_requests.load_type IS
   'Explicit Passenger or Cargo request kind; not inferred from vehicle type text.';
 

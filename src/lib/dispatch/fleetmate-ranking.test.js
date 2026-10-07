@@ -16,6 +16,12 @@ const POLICY = DEFAULT_DISPATCH_POLICY; // efficiencyTieMinutes: 10
 const ranked = (vehicle_id, over = {}) => makePair({ vehicle_id, driver_id: vehicle_id, ...over });
 const order = (a, b) => comparePairEvidence(a, b, POLICY);
 
+it('does not award capacity fit or claim safety clearance to two unverified options',()=>{
+ const a=unverifiedPair([], {vehicle_id:1,capacityValue:1000});
+ const b=unverifiedPair([], {vehicle_id:2,capacityValue:2500});
+ expect(comparePairEvidence(a,b,{...POLICY,load:{unit:'kg',required:650}}).code).not.toBe('CAPACITY_FIT');
+});
+
 describe('J. Ranking hierarchy', () => {
   it('FM-RANK-001 an unassignable pair is ranked below a confirmable one, however fast it travels', () => {
     const blocked = blockedPair({ maintenance: 'Vehicle is under Preventive Maintenance during this window.' }, {

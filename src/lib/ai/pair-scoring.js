@@ -228,9 +228,12 @@ export const NON_DISPATCHABLE_VEHICLE_STATUSES = [
 const NON_DISPATCHABLE_SET = new Set(NON_DISPATCHABLE_VEHICLE_STATUSES);
 
 /** Whether a vehicle's own status permits dispatch at all (Reserved does). */
-export function vehicleOperationallyAvailable(vehicle) {
+export function vehicleOperationallyAvailable(vehicle, request) {
   const status = vehicle?.vehicle_status;
   if (!status) return true;
+  // Typed requests use verified document evidence in the road-readiness gate.
+  // This cached label reflects the legacy expiry column, not those documents.
+  if (status === VEHICLE_STATUS.REGISTRATION_EXPIRED && ["Passenger", "Cargo"].includes(request?.load_type)) return true;
   return !NON_DISPATCHABLE_SET.has(status);
 }
 
@@ -658,7 +661,7 @@ export function buildFleetPairRecommendations({
     }
 
     // A restriction on the vehicle itself outranks any driver being free.
-    if (!vehicleOperationallyAvailable(vehicle)) {
+    if (!vehicleOperationallyAvailable(vehicle, request)) {
       skipped.push({
         vehicle_id: vehicle.vehicle_id,
         plate: vehicle.plate_number,

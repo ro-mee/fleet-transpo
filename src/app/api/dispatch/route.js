@@ -78,6 +78,9 @@ export async function POST(req) {
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
+    if (body.scheduled_arrival && new Date(body.scheduled_arrival) <= new Date(body.scheduled_departure)) {
+      return err("Scheduled arrival must be after scheduled departure.", 400);
+    }
 
     const allowRadarReview = typeof body.override_reason === 'string' && body.override_reason.trim().length > 0;
     const allowedKeys = new Set([
@@ -92,6 +95,8 @@ export async function POST(req) {
     if (requestId) body.request_id = requestId;
     else delete body.request_id;
 
+    // Typed requests use verified documents in the shared gate; legacy rows retain expiry checks.
+    const typedRequest = transportRequest?.load_type != null;
     if (body.vehicle_id) {
       const { rows: vehicles } = await query(
         `SELECT vehicle_id, plate_number, registration_expiry, insurance_expiry, vehicle_status FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
@@ -100,13 +105,13 @@ export async function POST(req) {
       const vehicle = vehicles[0];
       if (!vehicle) return err("Vehicle not found", 404);
       const vehicleTravelExpired = (expiry) => (body.scheduled_departure ? isExpiredOn(expiry, body.scheduled_departure) : isExpired(expiry));
-      if (vehicleTravelExpired(vehicle.registration_expiry)) {
+      if (!typedRequest && vehicleTravelExpired(vehicle.registration_expiry)) {
         return err(`Vehicle ${vehicle.plate_number} registration ${isExpired(vehicle.registration_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.registration_expiry)}) before this trip.`, 400);
       }
-      if (vehicleTravelExpired(vehicle.insurance_expiry)) {
+      if (!typedRequest && vehicleTravelExpired(vehicle.insurance_expiry)) {
         return err(`Vehicle ${vehicle.plate_number} insurance ${isExpired(vehicle.insurance_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.insurance_expiry)}) before this trip.`, 400);
       }
-      if (["Under Maintenance", "Decommissioned", "Registration Expired"].includes(vehicle.vehicle_status)) {
+      if (!typedRequest && ["Under Maintenance", "Decommissioned", "Registration Expired"].includes(vehicle.vehicle_status)) {
         return err(`Vehicle ${vehicle.plate_number} cannot be dispatched (status: ${vehicle.vehicle_status}).`, 400);
       }
 
@@ -122,7 +127,7 @@ export async function POST(req) {
       }
     }
 
-    if (body.driver_id) {
+    if (body.driver_id && !typedRequest) {
       const { rows: drivers } = await query(
         `SELECT d.driver_id, d.license_expiry, d.driver_status, e.first_name, e.last_name FROM drivers d LEFT JOIN employees e ON d.employee_id = e.employee_id WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
         [body.driver_id]
@@ -154,12 +159,12 @@ export async function POST(req) {
       });
       if (!pairCheck.ok) {
         return err(
-          `${pairCheck.conflict.message} Assign the designated driver, or release the pairing first.`,
+          pairCheck.conflict.message,
           409
         );
       }
       dispatchEvidence = pairCheck.commitToken;
-      if (!body.scheduled_arrival && pairCheck.serviceEnd) body.scheduled_arrival = pairCheck.serviceEnd;
+      if (pairCheck.serviceEnd) body.scheduled_arrival = pairCheck.serviceEnd;
     }
 
     // Block double-booking: reject if this vehicle or driver already has an

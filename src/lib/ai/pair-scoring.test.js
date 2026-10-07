@@ -767,3 +767,13 @@ describe("dayScope (today-overview interpretation)", () => {
     expect(r.duty_window).toEqual({ start: "06:00:00", end: "22:00:00" });
   });
 });
+
+it('defers typed registration projection to authoritative documents while preserving hard statuses and legacy behavior',()=>{
+ const expired=mkVehicle({vehicle_status:VEHICLE_STATUS.REGISTRATION_EXPIRED});
+ expect(vehicleOperationallyAvailable(expired,{load_type:'Cargo'})).toBe(true);
+ expect(vehicleOperationallyAvailable(expired,{load_type:'Passenger'})).toBe(true);
+ expect(vehicleOperationallyAvailable(expired,{load_type:null})).toBe(false);
+ expect(vehicleOperationallyAvailable(expired,{load_type:''})).toBe(false);
+ expect(vehicleOperationallyAvailable(mkVehicle({vehicle_status:VEHICLE_STATUS.UNDER_MAINTENANCE}),{load_type:'Cargo'})).toBe(false);
+ expect(vehicleOperationallyAvailable(mkVehicle({vehicle_status:VEHICLE_STATUS.DECOMMISSIONED}),{load_type:'Cargo'})).toBe(false);
+});

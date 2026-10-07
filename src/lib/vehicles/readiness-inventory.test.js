@@ -111,6 +111,20 @@ describe("summarizeFleetInventory", () => {
     expect(report.missing.pairing).toEqual([1]);
   });
 
+  it.each([['fleet_asset_code', 'ASSET_CODE_MISSING'], ['required_license_class', 'LICENSE_CLASS_MISSING'], ['category_id', 'CATEGORY_MISSING']])('excludes a vehicle with missing %s even when documents and pairing pass', (field, code) => {
+    const report = summarizeFleetInventory({ rows: [row({ [field]: null })], assignments: [{ vehicle_id: 1, driver_id: 7 }], now: NOW });
+    expect(report.passengerCohort).toEqual([]);
+    expect(report.blockedReasons[code]).toBe(1);
+  });
+
+  it('does not enroll an unsupported license class or non-finite capacity',()=>{
+    const report=summarizeFleetInventory({rows:[row({required_license_class:'C'}),row({vehicle_id:2,operational_use:'Cargo',cargo_capacity_kg:Infinity})],assignments:[{vehicle_id:1,driver_id:7},{vehicle_id:2,driver_id:8}],now:NOW});
+    expect(report.passengerCohort).toEqual([]);
+    expect(report.cargoCohort).toEqual([]);
+    expect(report.blockedReasons.LICENSE_CLASS_UNSUPPORTED).toBe(1);
+    expect(report.blockedReasons.CAPACITY_MISSING).toBe(1);
+  });
+
   it("audit script stays read-only: no write statement may ever appear in it", () => {
     const scriptPath = fileURLToPath(new URL("../../../scripts/audit-fleet-readiness.mjs", import.meta.url));
     expect(existsSync(scriptPath)).toBe(true);

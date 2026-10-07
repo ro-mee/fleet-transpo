@@ -119,11 +119,11 @@ export function serviceEnd(request, estimate) {
   // Cargo bookings include handling (loading, securement, unloading,
   // turnaround) rather than treating the drive ETA as the full window. A null
   // arrival extends the estimate instead of collapsing to a zero-length
-  // booking; an explicit dispatcher-planned arrival still wins.
+  // booking; an explicit plan is preserved only when it includes all handling.
   if (request?.load_type === "Cargo") {
     const computed = cargoServiceEnd({
-      pickup: Number.isFinite(pickup) ? new Date(pickup) : null,
-      scheduledArrival: Number.isFinite(explicit) && explicit > pickup ? new Date(explicit) : null,
+      pickup: request?.pickup_datetime != null && Number.isFinite(pickup) ? new Date(pickup) : null,
+      scheduledArrival: request?.scheduled_arrival ?? null,
       driveMinutes: duration,
     });
     return computed.end;

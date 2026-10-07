@@ -116,6 +116,12 @@ describe("Vehicle edit form — category and license class", () => {
 });
 
 describe("Vehicle form — operational use and capacity", () => {
+  it('offers explicit saved-document commissioning on the admin edit form with honest pending-plate copy',()=>{
+    const html=render({vehicle_id:37,plate_number:null,fleet_asset_code:'FLT-037',documents:[]});
+    expect(html).toContain('Verify documents and commission');
+    expect(html).toContain('official plate is pending');
+    expect(html).toContain('OR/CR Registration Expiry');
+  });
   it("shows seats for unclassified stock and offers the cargo branch", () => {
     // Static render never runs the reset effect, so the form sits at its
     // defaults (operational_use ""): legacy rows keep the passenger layout.

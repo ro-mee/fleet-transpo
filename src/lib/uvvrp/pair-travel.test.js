@@ -96,3 +96,13 @@ describe("driverCanTravel", () => {
     expect(driverCanTravel({ ...VALID_DRIVER, license_class: "B1" }, ctx)).toBe(false);
   });
 });
+
+it('keeps coding and driver safety checks when typed callers already checked verified road documents',()=>{
+ const expired={...VALID_VEHICLE,registration_expiry:'2000-01-01',insurance_expiry:'2000-01-01'};
+ expect(vehicleCanTravel(expired,baseCtx,{load_type:'Cargo'})).toBe(true);
+ expect(vehicleCanTravel(expired,baseCtx,{load_type:null})).toBe(false);
+ const driverCtx={...baseCtx,pairings:[{vehicle_id:1,driver_id:5}],driverById:new Map([[5,{...VALID_DRIVER,driver_status:'Suspended'}]])};
+ expect(vehicleCanTravel(expired,driverCtx,{load_type:'Cargo'})).toBe(false);
+ const codingCtx={...baseCtx,policy:{enabled:true,response:'block',weekdayRestrictions:{Monday:[4]}}};
+ expect(vehicleCanTravel(expired,codingCtx,{load_type:'Cargo'})).toBe(false);
+});

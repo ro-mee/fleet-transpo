@@ -108,4 +108,14 @@ describe("vehicle update and archive audit events", () => {
     const badRes = await PUT(badReq, { params: Promise.resolve({ id: "29" }) });
     expect(badRes.status).toBe(400);
   });
+
+  it('invalidates document attestation when saved evidence changes, preserving it when unchanged',async()=>{
+    tx.query.mockImplementation(async sql=>({rows:sql.includes('SELECT vehicle_status')?[{vehicle_status:'Available'}]:sql.includes('SELECT document_id')?[{document_id:3}]:sql.includes('UPDATE vehicles')?[{vehicle_id:29,vehicle_status:'Available'}]:[]}));
+    const response=await PUT(request('PUT',{vehicle_name:'Toyota Hiace',documents:[{document_type:'OR_CR',document_number:'NEW',file_url:'/new.pdf',expiry_date:'2028-01-01'}]}),{params:Promise.resolve({id:'29'})});
+    expect(response.status).toBe(200);
+    const sql=tx.query.mock.calls.find(([sql])=>sql.includes('UPDATE vehicledocuments'))[0];
+    expect(sql).toMatch(/verification_status = CASE WHEN[\s\S]*IS DISTINCT FROM[\s\S]*THEN 'Pending' ELSE verification_status END/);
+    expect(sql).toMatch(/verified_by = CASE WHEN[\s\S]*THEN NULL ELSE verified_by END/);
+    expect(sql).toMatch(/verified_at = CASE WHEN[\s\S]*THEN NULL ELSE verified_at END/);
+  });
 });

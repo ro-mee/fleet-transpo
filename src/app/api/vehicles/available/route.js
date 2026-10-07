@@ -3,6 +3,7 @@ import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
+import { loadRoadReadiness } from "@/lib/vehicles/readiness-server";
 
 export async function GET(req) {
   try {
@@ -24,7 +25,10 @@ export async function GET(req) {
     // (`vehicleCanTravel`: coding/UVVRP, registration/insurance, paired driver).
     const pickupAt = searchParams.get("pickup_at");
     const returnAt = searchParams.get("return_at");
-    const statuses = pickupAt ? `ARRAY['Available','Reserved','In Use']` : `ARRAY['Available']`;
+    const operational_use = searchParams.get("operational_use");
+    const min_cargo_kg = searchParams.get("min_cargo_kg");
+    const loadType = min_cargo_kg ? "Cargo" : ["Passenger", "Cargo"].includes(operational_use) ? operational_use : null;
+    const statuses = loadType ? `ARRAY['Available','Reserved','In Use','Registration Expired']` : pickupAt ? `ARRAY['Available','Reserved','In Use']` : `ARRAY['Available']`;
 
     let sql = `SELECT v.*, row_to_json(vc.*) as vehiclecategories
                FROM vehicles v
@@ -42,12 +46,10 @@ export async function GET(req) {
     // Typed capacity search (Task 5): filter by declared operational use, or by
     // a minimum usable cargo payload. Both predicates reference migration 153
     // columns — do not deploy this revision before that migration is applied.
-    const operational_use = searchParams.get("operational_use");
     if (operational_use && ["Passenger", "Cargo"].includes(operational_use)) {
       sql += ` AND v.operational_use = $${idx++}`; params.push(operational_use);
     }
 
-    const min_cargo_kg = searchParams.get("min_cargo_kg");
     if (min_cargo_kg) {
       sql += ` AND v.operational_use = 'Cargo' AND v.cargo_capacity_kg >= $${idx++}`; params.push(+min_cargo_kg);
     }
@@ -104,7 +106,14 @@ export async function GET(req) {
     // that date (coding, registration/insurance) OR its paired driver cannot.
     const codingDate = pickupAt ? new Date(pickupAt) : new Date();
     const ctx = await loadVehicleTravelContext(codingDate);
-    const available = (rows || []).filter((v) => vehicleCanTravel(v, ctx));
+    const available = [];
+    for (const v of rows || []) {
+      if (loadType) {
+        const road = await loadRoadReadiness({vehicleRow:v,pickupAt:pickupAt ?? codingDate,returnAt,now:new Date(),query});
+        if (!road.ready) continue;
+      }
+      if (vehicleCanTravel(v, ctx, loadType ? {load_type:loadType} : undefined)) available.push(v);
+    }
 
     // Work-schedule / leave blocking for the pair. The effective driver is the
     // custodian, or the substitute covering the date (loadVehicleTravelContext

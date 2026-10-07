@@ -6,6 +6,7 @@ export async function readDispatchRevision({ driverId, vehicleId, requestId = nu
   const { rows } = await db.query(`SELECT md5(jsonb_build_object(
     'driver',(SELECT to_jsonb(d) FROM drivers d WHERE driver_id=$1),
     'vehicle',(SELECT to_jsonb(v) FROM vehicles v WHERE vehicle_id=$2),
+    'documents',(SELECT jsonb_agg(to_jsonb(d) ORDER BY document_id) FROM vehicledocuments d WHERE vehicle_id=$2),
     'tripGps',(SELECT to_jsonb(g) FROM gpstracking g WHERE g.trip_id=$4 AND g.vehicle_id=$2 ORDER BY g.recorded_at DESC,g.tracking_id DESC LIMIT 1),
     'maintenance',(SELECT jsonb_agg(to_jsonb(m) ORDER BY maintenance_id) FROM vehiclemaintenance m WHERE vehicle_id=$2),
     'routes',(SELECT jsonb_agg(to_jsonb(r) ORDER BY route_id) FROM routes r),
@@ -36,7 +37,7 @@ export async function commitDispatchEvidence(token, write) {
     await tx.query(`LOCK TABLE drivers,vehicles,vehiclecategories,dispatchschedules,driver_vehicle_assignments,
       substitute_vehicle_schedules,driver_work_schedules,driver_leave_requests,driverattendance,
       driver_consents,employees,mobile_refresh_tokens,trips,driverincidents,transportation_requests,
-      routes,locations,vehiclemaintenance,system_settings,gpstracking
+      routes,locations,vehiclemaintenance,vehicledocuments,system_settings,gpstracking
       IN SHARE ROW EXCLUSIVE MODE`);
     if (!Number.isFinite(new Date(token.expiresAt).getTime()) || new Date(token.expiresAt).getTime() <= Date.now() || await readDispatchRevision(token,tx) !== token.revision)
       throw new AuthError('Dispatch evidence changed. Refresh and review this pair again.',409,'STALE_DISPATCH_EVIDENCE');

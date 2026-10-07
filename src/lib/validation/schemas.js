@@ -54,9 +54,9 @@ export const vehicleSchema = z.object({
   plate_number: z
     .string()
     .trim()
-    .min(1, "Plate number is required.")
-    .refine(isPlateNumberPH, "Please enter a valid Philippine plate number (e.g. ABC-1234).")
-    .transform((v) => v.toUpperCase()),
+    .refine((v)=>v === '' || isPlateNumberPH(v), "Please enter a valid Philippine plate number (e.g. ABC-1234).")
+    .transform((v) => v.toUpperCase())
+    .default(''),
   vehicle_name: requiredString("Vehicle type/name").refine(
     (v) => PATTERNS.NAME.test(v.trim()),
     "Vehicle type/name must contain only letters."
@@ -106,6 +106,7 @@ export const vehicleSchema = z.object({
   ),
   purchase_date: dateString("Purchase date"),
   insurance_expiry: dateString("Insurance expiry"),
+  registration_expiry: dateString("Registration expiry"),
   next_service_date: dateString("Next service date"),
   next_service_mileage: z.preprocess(
     (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
@@ -128,6 +129,9 @@ export const vehicleSchema = z.object({
       .optional()
   ),
 }).superRefine((v, ctx) => {
+  if (!v.plate_number && !String(v.fleet_asset_code ?? '').trim()) {
+    ctx.addIssue({code:'custom',path:['fleet_asset_code'],message:'Record a fleet asset code when the official plate is pending.'});
+  }
   // Cargo capacity belongs to cargo operation only; a Passenger row carrying
   // kilograms is a data-entry error the API also rejects. Capacity stays
   // optional on Cargo rows here — the dispatch gate, not the registry, fails

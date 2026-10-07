@@ -164,7 +164,16 @@ export async function PUT(req, { params }) {
     const effVehicleId = body.vehicle_id !== undefined ? body.vehicle_id : before[0]?.vehicle_id;
     const effDriverId = body.driver_id !== undefined ? body.driver_id : before[0]?.driver_id;
     const effDeparture = body.scheduled_departure !== undefined ? body.scheduled_departure : before[0]?.scheduled_departure;
-    const effArrival = body.scheduled_arrival !== undefined ? body.scheduled_arrival : before[0]?.scheduled_arrival;
+    let effArrival = body.scheduled_arrival !== undefined ? body.scheduled_arrival : before[0]?.scheduled_arrival;
+    if ((body.scheduled_departure !== undefined || body.scheduled_arrival !== undefined)
+      && effDeparture && effArrival && new Date(effArrival) <= new Date(effDeparture)) {
+      return err("Scheduled arrival must be after scheduled departure.", 400);
+    }
+
+    const { rows: requestRows } = before[0]?.request_id
+      ? await query('SELECT load_type FROM transportation_requests WHERE request_id=$1 AND deleted_at IS NULL', [before[0].request_id])
+      : { rows: [] };
+    const typedRequest = requestRows[0]?.load_type != null;
 
     if (effVehicleId) {
       const { rows: vehicles } = await query(
@@ -175,13 +184,13 @@ export async function PUT(req, { params }) {
       const vehicle = vehicles[0];
       if (!vehicle) return err("Vehicle not found", 400);
       const vehicleTravelExpired = (expiry) => (effDeparture ? isExpiredOn(expiry, effDeparture) : isExpired(expiry));
-      if (vehicleTravelExpired(vehicle.registration_expiry)) {
+      if (!typedRequest && vehicleTravelExpired(vehicle.registration_expiry)) {
         return err(`Vehicle ${vehicle.plate_number} registration ${isExpired(vehicle.registration_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.registration_expiry)}) before this trip.`, 400);
       }
-      if (vehicleTravelExpired(vehicle.insurance_expiry)) {
+      if (!typedRequest && vehicleTravelExpired(vehicle.insurance_expiry)) {
         return err(`Vehicle ${vehicle.plate_number} insurance ${isExpired(vehicle.insurance_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.insurance_expiry)}) before this trip.`, 400);
       }
-      if (NON_DISPATCHABLE_VEHICLE.includes(vehicle.vehicle_status)) {
+      if (!typedRequest && NON_DISPATCHABLE_VEHICLE.includes(vehicle.vehicle_status)) {
         return err(`Vehicle ${vehicle.plate_number} cannot be dispatched (status: ${vehicle.vehicle_status}).`, 400);
       }
 
@@ -197,7 +206,7 @@ export async function PUT(req, { params }) {
       }
     }
 
-    if (effDriverId) {
+    if (effDriverId && !typedRequest) {
       const { rows: drivers } = await query(
         `SELECT d.driver_id, d.license_expiry, d.driver_status, e.first_name, e.last_name
            FROM drivers d LEFT JOIN employees e ON d.employee_id = e.employee_id
@@ -212,23 +221,6 @@ export async function PUT(req, { params }) {
       });
       if (dutyCheck.unavailable) {
         return err(dutyCheck.reason || "Driver is unavailable for this work window.", 400);
-      }
-    }
-
-    // Block double-booking on edit: reject if the effective vehicle or driver
-    // already has an overlapping active dispatch (excluding this one).
-    if ((effVehicleId || effDriverId) && effDeparture) {
-      const conflicts = await findDispatchConflicts({
-        vehicleId: effVehicleId || null,
-        driverId: effDriverId || null,
-        departure: effDeparture,
-        arrival: effArrival || null,
-        excludeId: id,
-      });
-      if (conflicts.length > 0) {
-        const c = conflicts[0];
-        const who = c.vehicle_id && c.vehicle_id === effVehicleId ? "vehicle" : "driver";
-        return err(`This ${who} is already dispatched (${c.dispatch_number || `#${c.dispatch_id}`}) during that time window.`, 409);
       }
     }
 
@@ -247,15 +239,33 @@ export async function PUT(req, { params }) {
       });
       if (!pairCheck.ok) {
         return err(
-          `${pairCheck.conflict.message} Assign the designated driver, or release the pairing first.`,
+          pairCheck.conflict.message,
           409
         );
       }
       dispatchEvidence = pairCheck.commitToken;
-      if (!effArrival && pairCheck.serviceEnd) {
+      if (pairCheck.serviceEnd) {
+        effArrival = pairCheck.serviceEnd;
         const arrivalIndex = columns.indexOf('scheduled_arrival');
         if (arrivalIndex >= 0) values[arrivalIndex] = pairCheck.serviceEnd;
         else { columns.push('scheduled_arrival'); values.push(pairCheck.serviceEnd); }
+      }
+    }
+
+    // Block double-booking on edit: reject if the effective vehicle or driver
+    // already has an overlapping active dispatch (excluding this one).
+    if ((effVehicleId || effDriverId) && effDeparture) {
+      const conflicts = await findDispatchConflicts({
+        vehicleId: effVehicleId || null,
+        driverId: effDriverId || null,
+        departure: effDeparture,
+        arrival: effArrival || null,
+        excludeId: id,
+      });
+      if (conflicts.length > 0) {
+        const c = conflicts[0];
+        const who = c.vehicle_id && c.vehicle_id === effVehicleId ? "vehicle" : "driver";
+        return err(`This ${who} is already dispatched (${c.dispatch_number || `#${c.dispatch_id}`}) during that time window.`, 409);
       }
     }
 

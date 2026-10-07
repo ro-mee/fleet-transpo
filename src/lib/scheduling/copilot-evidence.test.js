@@ -33,3 +33,21 @@ it('protects maintenance beginning on the next service day, using an exclusive s
  expect(evaluateRequestConflicts(trip,{vehicle,maintenance}).some(c=>c.type==='maintenance_conflict')).toBe(true);
  expect(evaluateRequestConflicts({...trip,scheduled_arrival:'2026-09-16T00:00:00+08:00'},{vehicle,maintenance}).some(c=>c.type==='maintenance_conflict')).toBe(false);
 });
+
+it('verifies cargo request requirements without a passenger count', async () => {
+ vehicle = {...vehicle, operational_use:'Cargo', cargo_capacity_kg:1000};
+ const result = await detectRequestConflicts({...request, load_type:'Cargo', passenger_count:null, cargo_weight_kg:650, cargo_description:'Rice'}, {includeEvidence:true, strict:true});
+ expect(result.checks.find(c=>c.id==='request').status).toBe('verified');
+});
+
+it('returns fully verified real cargo checks with complete stored evidence',async()=>{
+ const cargo={...request,load_type:'Cargo',passenger_count:null,cargo_weight_kg:650,cargo_description:'Rice',pickup_datetime:'2027-02-01T10:00:00+08:00',scheduled_arrival:'2027-02-01T13:00:00+08:00'};
+ vehicle={...vehicle,vehicle_status:'Registration Expired',registration_expiry:'2000-01-01',insurance_expiry:'2000-01-01',fleet_asset_code:'FLT-002',category_id:1,required_license_class:'B',commissioning_status:'Ready',operational_use:'Cargo',cargo_capacity_kg:1000};
+ const driver={driver_id:3,driver_status:'Available',license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2028-01-01',license_verified_at:'2026-09-01T00:00:00Z',license_verified_by:8,license_verification_method:'physical_card',_schedule_load:0};
+ const docs=['OR_CR','Insurance'].map(document_type=>({document_type,verification_status:'Verified',verified_by:8,verified_at:'2026-09-01T00:00:00Z',expiry_date:'2028-01-01'}));
+ query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles WHERE')?[vehicle]:sql.includes('FROM drivers d')?[driver]:sql.includes('FROM vehicledocuments')?docs:sql.includes('FROM driver_vehicle_assignments a')?[{vehicle_id:2,driver_id:3}]:[]}));
+ const result=await detectRequestConflicts(cargo,{includeEvidence:true,strict:true});
+ expect(result.checks).toEqual(expect.arrayContaining([expect.objectContaining({id:'road_readiness',status:'verified'}),expect.objectContaining({id:'capacity',status:'verified'}),expect.objectContaining({id:'request',status:'verified'})]));
+ expect(result.checks.every(c=>c.status === 'verified')).toBe(true);
+ expect(query.mock.calls.find(([sql])=>sql.includes('FROM vehicles WHERE'))[0]).toContain('fleet_asset_code');
+});

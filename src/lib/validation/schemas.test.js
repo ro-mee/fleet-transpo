@@ -63,6 +63,10 @@ describe("driver license form validation", () => {
 
 describe("vehicle driver-class form validation", () => {
   const vehicle = { plate_number: "ABC-1234", vehicle_name: "Van", required_license_class: "B1" };
+  it('accepts a pending plate only with an asset code',()=>{
+    expect(vehicleSchema.safeParse({...vehicle,plate_number:'',fleet_asset_code:'FLT-007'}).success).toBe(true);
+    expect(vehicleSchema.safeParse({...vehicle,plate_number:''}).success).toBe(false);
+  });
   it("requires a currently supported required driver class", () => {
     expect(vehicleSchema.safeParse(vehicle).success).toBe(true);
     expect(vehicleSchema.safeParse({ ...vehicle, required_license_class: "C" }).success).toBe(false);

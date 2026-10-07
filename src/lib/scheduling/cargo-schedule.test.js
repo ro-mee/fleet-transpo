@@ -32,24 +32,41 @@ describe("cargo booking schedule", () => {
     expect(noDrive.basis).toBe("unknown-drive");
   });
 
-  it("respects a dispatcher-planned arrival and reports a tight window", () => {
+  it("preserves ample plans and extends short plans to include all handling", () => {
     const roomy = cargoServiceEnd({ pickup: PICKUP, scheduledArrival: "2026-10-08T06:00:00Z", driveMinutes: 60 });
     expect(roomy.end?.toISOString()).toBe("2026-10-08T06:00:00.000Z");
     expect(roomy.basis).toBe("scheduled");
     expect(roomy.shortfallMin).toBe(0);
 
     const tight = cargoServiceEnd({ pickup: PICKUP, scheduledArrival: "2026-10-08T04:00:00Z", driveMinutes: 60 });
-    expect(tight.end?.toISOString()).toBe("2026-10-08T04:00:00.000Z");
+    expect(tight.end?.toISOString()).toBe("2026-10-08T04:30:00.000Z");
+    expect(tight.basis).toBe("handling-buffered-plan");
     expect(tight.shortfallMin).toBe(30);
   });
 
-  it("fails open on invalid input instead of inventing a window", () => {
+  it("fails closed on invalid input instead of inventing a window", () => {
     expect(cargoServiceEnd({ pickup: "not-a-date", scheduledArrival: null, driveMinutes: 60 }).end).toBeNull();
     expect(cargoServiceEnd({ pickup: null, scheduledArrival: null, driveMinutes: 60 }).basis).toBe("unknown-pickup");
     // An arrival at or before pickup is not a window at all.
     const r = cargoServiceEnd({ pickup: PICKUP, scheduledArrival: PICKUP, driveMinutes: 60 });
     expect(r.end).toBeNull();
     expect(r.basis).toBe("invalid-arrival");
+  });
+
+  it("does not treat an explicit arrival as proof of unknown driving time", () => {
+    const r = cargoServiceEnd({ pickup: PICKUP, scheduledArrival: "2026-10-08T06:00:00Z", driveMinutes: null });
+    expect(r.end).toBeNull();
+    expect(r.basis).toBe("unknown-drive");
+  });
+
+  it("does not accept invalid buffers just because an explicit arrival exists", () => {
+    expect(cargoServiceEnd({ pickup: PICKUP, scheduledArrival: "2026-10-08T06:00:00Z", driveMinutes: 60,
+      buffers: { loadingMin: NaN } }).end).toBeNull();
+  });
+
+  it.each([null, "", " "])("does not turn an unknown handling buffer %s into zero", (loadingMin) => {
+    expect(cargoHandlingMinutes({ loadingMin })).toBeNull();
+    expect(cargoServiceEnd({ pickup: PICKUP, driveMinutes: 60, buffers: { loadingMin } }).end).toBeNull();
   });
 
   it("accepts configured buffers with provenance instead of the defaults", () => {
