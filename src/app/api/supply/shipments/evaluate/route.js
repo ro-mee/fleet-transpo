@@ -20,6 +20,7 @@ export async function POST(req) {
     return ok({
       shipment_id: parsed.data.shipment_id,
       vehicle_id: parsed.data.vehicle_id,
+      assignment_eligibility: "NOT_EVALUATED",
       evaluation: evaluateSupplyLoad(input.manifest, input.profile),
     });
   } catch (error) {

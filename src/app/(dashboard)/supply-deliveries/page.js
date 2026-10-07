@@ -2,14 +2,20 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, ClipboardCheck, MapPin, PackageCheck, RefreshCw, Scale, ShieldCheck, Truck } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ClipboardCheck, Clock, MapPin, PackageCheck, RefreshCw, Scale, ShieldCheck, Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { HeroHeader } from "@/components/ui/hero-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { can, hasRole } from "@/lib/auth/permissions";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { compareSupplyLoadFit } from "@/services/supply-shipment.service";
 import { getSupplySiteMappings, saveSupplySiteMapping } from "@/services/supply-site-mapping.service";
@@ -34,6 +40,27 @@ const PROFILE_FIELDS = [
   ["opening_length_m", "Opening length", "m"],
   ["opening_width_m", "Opening width", "m"],
   ["opening_height_m", "Opening height", "m"],
+];
+
+const PROFILE_FIELD_LIMITS = {
+  rated_payload_kg: 1000000,
+  gross_vehicle_weight_limit_kg: 1000000,
+  operating_mass_kg: 1000000,
+  operational_reserve_kg: 1000000,
+  usable_volume_m3: 10000,
+  compartment_length_m: 100,
+  compartment_width_m: 100,
+  compartment_height_m: 100,
+  opening_length_m: 100,
+  opening_width_m: 100,
+  opening_height_m: 100,
+};
+const PROFILE_ERROR_KEYS = [
+  ...PROFILE_FIELDS.map(([key]) => key),
+  "temperature_min_c",
+  "temperature_max_c",
+  "verification_reference",
+  "verification_valid_until",
 ];
 
 const blankProfile = {
@@ -103,6 +130,103 @@ function syntheticEvent() {
   };
 }
 
+function nextUtcDate() {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function isCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function validateProfile(form) {
+  const errors = {};
+  for (const [key, label] of PROFILE_FIELDS) {
+    const raw = form[key].trim();
+    const max = PROFILE_FIELD_LIMITS[key];
+    if (!raw) {
+      errors[key] = `${label} is required when enabling supply delivery.`;
+      continue;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      errors[key] = `${label} must be a valid number.`;
+    } else if (key === "operational_reserve_kg" ? value < 0 : value <= 0) {
+      errors[key] = key === "operational_reserve_kg" ? "Must be zero or greater." : "Must be greater than zero.";
+    } else if (value > max) {
+      errors[key] = `Must be ${max.toLocaleString("en-PH")} or less.`;
+    }
+  }
+
+  const grossWeight = Number(form.gross_vehicle_weight_limit_kg);
+  const operatingMass = Number(form.operating_mass_kg);
+  if (
+    form.gross_vehicle_weight_limit_kg !== "" && form.operating_mass_kg !== "" &&
+    Number.isFinite(grossWeight) && Number.isFinite(operatingMass) && grossWeight <= operatingMass &&
+    !errors.gross_vehicle_weight_limit_kg
+  ) {
+    errors.gross_vehicle_weight_limit_kg = "Gross vehicle weight must exceed operating mass.";
+  }
+
+  for (const [key, label] of [["temperature_min_c", "Minimum temperature"], ["temperature_max_c", "Maximum temperature"]]) {
+    const raw = form[key].trim();
+    if (!raw) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < -80 || value > 80) {
+      errors[key] = `${label} must be between -80 and 80 °C.`;
+    }
+  }
+  const minTemperature = Number(form.temperature_min_c);
+  const maxTemperature = Number(form.temperature_max_c);
+  if (
+    form.temperature_min_c !== "" && form.temperature_max_c !== "" &&
+    Number.isFinite(minTemperature) && Number.isFinite(maxTemperature) && minTemperature > maxTemperature &&
+    !errors.temperature_max_c
+  ) {
+    errors.temperature_max_c = "Maximum temperature must not be below minimum temperature.";
+  }
+
+  const reference = form.verification_reference.trim();
+  if (reference.length < 3) errors.verification_reference = "Use at least 3 non-space characters.";
+  else if (reference.length > 255) errors.verification_reference = "Use no more than 255 characters.";
+
+  const validUntil = form.verification_valid_until;
+  if (!validUntil) errors.verification_valid_until = "Verification expiry is required when enabling supply delivery.";
+  else if (!isCalendarDate(validUntil)) errors.verification_valid_until = "Enter a real calendar date.";
+  else if (validUntil <= new Date().toISOString().slice(0, 10)) {
+    errors.verification_valid_until = "Verification must remain valid beyond today (UTC).";
+  }
+
+  return errors;
+}
+
+function profileInputId(key) {
+  if (key === "temperature_min_c") return "cargo-temperature-min";
+  if (key === "temperature_max_c") return "cargo-temperature-max";
+  if (key === "verification_reference") return "cargo-verification-reference";
+  if (key === "verification_valid_until") return "cargo-verification-valid-until";
+  return `cargo-${key}`;
+}
+
+function focusProfileErrors(errors) {
+  const firstKey = Object.keys(errors)[0];
+  if (firstKey) requestAnimationFrame(() => document.getElementById(profileInputId(firstKey))?.focus());
+}
+
+function recordedAt(value) {
+  const date = new Date(value);
+  if (!value || !Number.isFinite(date.getTime())) return "time unavailable";
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 async function requestJson(url, options) {
   const response = await fetch(url, {
     ...options,
@@ -112,6 +236,7 @@ async function requestJson(url, options) {
   if (!response.ok) {
     const error = new Error(body.error || "The request could not be completed.");
     error.status = response.status;
+    error.errors = body.errors && typeof body.errors === "object" ? body.errors : null;
     throw error;
   }
   return body;
@@ -132,6 +257,22 @@ function numberText(value, maximumFractionDigits = 2) {
   return new Intl.NumberFormat("en-PH", { maximumFractionDigits }).format(Number(value));
 }
 
+function locationCoordinates(mapping) {
+  if (
+    mapping.latitude == null || mapping.longitude == null ||
+    String(mapping.latitude).trim() === "" || String(mapping.longitude).trim() === ""
+  ) return null;
+
+  const latitude = Number(mapping.latitude);
+  const longitude = Number(mapping.longitude);
+  if (
+    !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+    !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+  ) return null;
+
+  return [latitude, longitude];
+}
+
 function deliveryWindow(shipment) {
   try {
     const timeZone = shipment.requested_timezone || "Asia/Manila";
@@ -148,30 +289,42 @@ function deliveryWindow(shipment) {
   }
 }
 
+function readableStatus(status) {
+  return String(status || "Unknown")
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
 function checkTone(status) {
   if (status === "PASS") return "border-success/25 bg-success/10 text-success-800 dark:text-success-200";
   if (status === "BLOCK") return "border-danger/25 bg-danger/10 text-danger-800 dark:text-rose-200";
   return "border-warning/30 bg-warning/10 text-amber-800 dark:text-amber-200";
 }
 
-function Field({ id, label, unit, value, onChange, type = "number", required = false, min, step = "any" }) {
+function Field({ id, label, unit, value, onChange, type = "number", required = false, min, max, minLength, maxLength, error, step = "any" }) {
   return (
-    <label htmlFor={id} className="block min-w-0 space-y-1.5">
-      <span className="flex items-baseline justify-between gap-2 text-xs font-medium text-foreground-secondary">
+    <div className="min-w-0 space-y-1.5">
+      <Label htmlFor={id} className="flex items-baseline justify-between gap-2 text-xs font-medium text-foreground-secondary">
         <span>{label}{required ? <span className="text-danger"> *</span> : null}</span>
         {unit ? <span className="text-[11px] text-foreground-muted">{unit}</span> : null}
-      </span>
-      <input
+      </Label>
+      <Input
         id={id}
         type={type}
         value={value}
         min={min}
+        max={max}
+        minLength={minLength}
+        maxLength={maxLength}
         step={type === "number" ? step : undefined}
         required={required}
+        invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
         onChange={onChange}
-        className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
       />
-    </label>
+      {error && <span id={`${id}-error`} className="block text-xs text-danger-800 dark:text-rose-200">{error}</span>}
+    </div>
   );
 }
 
@@ -185,6 +338,7 @@ export default function SupplyDeliveriesPage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [profileVehicleId, setProfileVehicleId] = useState("");
   const [profileForm, setProfileForm] = useState({ ...blankProfile });
+  const [profileErrors, setProfileErrors] = useState({});
   const [importJson, setImportJson] = useState("");
   const [importError, setImportError] = useState("");
   const [evaluation, setEvaluation] = useState(null);
@@ -228,8 +382,14 @@ export default function SupplyDeliveriesPage() {
   const selectedShipment = shipments.find((item) => item.supply_shipment_id === selectedShipmentId) ?? shipments[0] ?? null;
   const selectedVehicle = profiles.find((item) => String(item.vehicle_id) === selectedVehicleId) ?? null;
   const profileVehicle = profiles.find((item) => String(item.vehicle_id) === profileVehicleId) ?? null;
-  const selectedShipmentRef = useRef("");
-  selectedShipmentRef.current = selectedShipment?.supply_shipment_id ?? "";
+  const evaluationSelectionRef = useRef({ shipmentId: null, vehicleId: null });
+  evaluationSelectionRef.current = {
+    shipmentId: selectedShipmentId || selectedShipment?.supply_shipment_id || null,
+    vehicleId: selectedVehicleId ? Number(selectedVehicleId) : null,
+    shipmentsUpdatedAt: shipmentsQuery.dataUpdatedAt,
+    profilesUpdatedAt: profilesQuery.dataUpdatedAt,
+  };
+  const hydratedProfileVehicleRef = useRef("");
   const visibleFleetLoadFit = fleetLoadFit?.shipment_id === selectedShipment?.supply_shipment_id ? fleetLoadFit : null;
   const siteMappingKeyIsValid = siteTargets.some((item) => item.key === siteMappingKey);
   const effectiveSiteMappingKey = siteMappingKeyIsValid ? siteMappingKey : siteTargets[0]?.key || "";
@@ -252,13 +412,44 @@ export default function SupplyDeliveriesPage() {
   }, [selectedShipmentId, shipments]);
 
   useEffect(() => {
-    if (!selectedVehicleId && profiles[0]) setSelectedVehicleId(String(profiles[0].vehicle_id));
-    if (!profileVehicleId && profiles[0]) setProfileVehicleId(String(profiles[0].vehicle_id));
-  }, [profiles, selectedVehicleId, profileVehicleId]);
+    if (!profilesQuery.isSuccess) return;
+    if (profiles.length === 0) {
+      if (selectedVehicleId) setSelectedVehicleId("");
+      if (profileVehicleId) {
+        setProfileVehicleId("");
+        setProfileErrors({});
+      }
+      return;
+    }
+
+    const firstVehicleId = String(profiles[0].vehicle_id);
+    if (!profiles.some((item) => String(item.vehicle_id) === selectedVehicleId)) {
+      setSelectedVehicleId(firstVehicleId);
+    }
+    if (!profiles.some((item) => String(item.vehicle_id) === profileVehicleId)) {
+      setProfileVehicleId(firstVehicleId);
+    }
+  }, [profiles, profilesQuery.isSuccess, selectedVehicleId, profileVehicleId]);
 
   useEffect(() => {
+    if (!profilesQuery.isSuccess) return;
+    if (!profileVehicleId) {
+      setProfileForm({ ...blankProfile });
+      setProfileErrors({});
+      hydratedProfileVehicleRef.current = "";
+      return;
+    }
+    if (hydratedProfileVehicleRef.current === profileVehicleId) return;
+
     setProfileForm(profileToForm(profileVehicle));
-  }, [profileVehicleId, profiles]);
+    setProfileErrors({});
+    hydratedProfileVehicleRef.current = profileVehicleId;
+  }, [profileVehicleId, profileVehicle, profilesQuery.isSuccess]);
+
+  useEffect(() => {
+    setEvaluation(null);
+    setFleetLoadFit(null);
+  }, [shipmentsQuery.dataUpdatedAt, profilesQuery.dataUpdatedAt]);
 
   const importMutation = useMutation({
     mutationFn: (event) => requestJson("/api/supply/sandbox/transport-requests", {
@@ -277,19 +468,45 @@ export default function SupplyDeliveriesPage() {
   });
 
   const evaluationMutation = useMutation({
-    mutationFn: () => requestJson("/api/supply/shipments/evaluate", {
+    mutationFn: ({ shipmentId, vehicleId }) => requestJson("/api/supply/shipments/evaluate", {
       method: "POST",
-      body: JSON.stringify({ shipment_id: selectedShipment?.supply_shipment_id, vehicle_id: Number(selectedVehicleId) }),
+      body: JSON.stringify({ shipment_id: shipmentId, vehicle_id: vehicleId }),
     }),
-    onSuccess: (result) => setEvaluation(result.evaluation),
-    onError: (error) => toast.error(error.message),
+    onMutate: () => setEvaluation(null),
+    onSuccess: (result, request) => {
+      const currentSelection = evaluationSelectionRef.current;
+      if (
+        request.shipmentId !== currentSelection.shipmentId ||
+        request.vehicleId !== currentSelection.vehicleId ||
+        request.shipmentsUpdatedAt !== currentSelection.shipmentsUpdatedAt ||
+        request.profilesUpdatedAt !== currentSelection.profilesUpdatedAt ||
+        result.shipment_id !== request.shipmentId ||
+        Number(result.vehicle_id) !== request.vehicleId
+      ) return;
+      setEvaluation({ ...result.evaluation, assignment_eligibility: result.assignment_eligibility });
+    },
+    onError: (error, request) => {
+      const currentSelection = evaluationSelectionRef.current;
+      if (
+        request.shipmentId === currentSelection.shipmentId &&
+        request.vehicleId === currentSelection.vehicleId &&
+        request.shipmentsUpdatedAt === currentSelection.shipmentsUpdatedAt &&
+        request.profilesUpdatedAt === currentSelection.profilesUpdatedAt
+      ) toast.error(error.message);
+    },
   });
 
   const fleetLoadFitMutation = useMutation({
-    mutationFn: compareSupplyLoadFit,
+    mutationFn: ({ shipmentId }) => compareSupplyLoadFit(shipmentId),
     onMutate: () => setFleetLoadFit(null),
-    onSuccess: (result, shipmentId) => {
-      if (shipmentId === selectedShipmentRef.current) setFleetLoadFit(result);
+    onSuccess: (result, request) => {
+      const currentSelection = evaluationSelectionRef.current;
+      if (
+        request.shipmentId === currentSelection.shipmentId &&
+        request.shipmentsUpdatedAt === currentSelection.shipmentsUpdatedAt &&
+        request.profilesUpdatedAt === currentSelection.profilesUpdatedAt &&
+        result.shipment_id === request.shipmentId
+      ) setFleetLoadFit(result);
     },
   });
 
@@ -300,11 +517,19 @@ export default function SupplyDeliveriesPage() {
     }),
     onSuccess: () => {
       toast.success("Vehicle cargo profile saved");
+      setProfileErrors({});
       queryClient.invalidateQueries({ queryKey: ["supply-cargo-profiles"] });
       setEvaluation(null);
       setFleetLoadFit(null);
     },
-    onError: (error) => toast.error(error.message),
+    onError: (error) => {
+      const fieldErrors = error.errors && typeof error.errors === "object"
+        ? Object.fromEntries(Object.entries(error.errors).filter(([key, message]) => PROFILE_ERROR_KEYS.includes(key) && typeof message === "string"))
+        : {};
+      setProfileErrors(fieldErrors);
+      focusProfileErrors(fieldErrors);
+      toast.error(error.message);
+    },
   });
 
   const siteMappingMutation = useMutation({
@@ -316,14 +541,45 @@ export default function SupplyDeliveriesPage() {
     onError: (error) => toast.error(error.message),
   });
 
+  const currentEvaluationError = evaluationMutation.isError &&
+    evaluationMutation.variables?.shipmentId === evaluationSelectionRef.current.shipmentId &&
+    evaluationMutation.variables?.vehicleId === evaluationSelectionRef.current.vehicleId &&
+    evaluationMutation.variables?.shipmentsUpdatedAt === evaluationSelectionRef.current.shipmentsUpdatedAt &&
+    evaluationMutation.variables?.profilesUpdatedAt === evaluationSelectionRef.current.profilesUpdatedAt
+    ? evaluationMutation.error.message
+    : null;
+  const currentFleetLoadFitError = fleetLoadFitMutation.isError &&
+    fleetLoadFitMutation.variables?.shipmentId === evaluationSelectionRef.current.shipmentId &&
+    fleetLoadFitMutation.variables?.shipmentsUpdatedAt === evaluationSelectionRef.current.shipmentsUpdatedAt &&
+    fleetLoadFitMutation.variables?.profilesUpdatedAt === evaluationSelectionRef.current.profilesUpdatedAt
+    ? fleetLoadFitMutation.error.message
+    : null;
+
   const queueSummary = useMemo(() => ({
     total: shipments.length,
     ready: shipments.filter((item) => item.status === "READY_FOR_PLANNING").length,
     waiting: shipments.filter((item) => item.status === "WAITING_FOR_PICKUP").length,
   }), [shipments]);
+  const isRefreshingPageData = shipmentsQuery.isFetching || profilesQuery.isFetching ||
+    (canImportSandbox && siteMappingsQuery.isFetching);
+  const requestCountsUnavailable = shipmentsQuery.isLoading || (shipmentsQuery.isError && !shipmentsQuery.data);
 
   function setProfileField(key, value) {
     setProfileForm((current) => ({ ...current, [key]: value }));
+    setProfileErrors((current) => {
+      if (key === "supports_supply_delivery" && !value) return {};
+      const next = { ...current };
+      delete next[key];
+      if (
+        (key === "gross_vehicle_weight_limit_kg" || key === "operating_mass_kg") &&
+        next.gross_vehicle_weight_limit_kg === "Gross vehicle weight must exceed operating mass."
+      ) delete next.gross_vehicle_weight_limit_kg;
+      if (
+        (key === "temperature_min_c" || key === "temperature_max_c") &&
+        next.temperature_max_c === "Maximum temperature must not be below minimum temperature."
+      ) delete next.temperature_max_c;
+      return next;
+    });
   }
 
   function toggleCapability(code) {
@@ -350,8 +606,15 @@ export default function SupplyDeliveriesPage() {
 
   function submitProfile(event) {
     event.preventDefault();
+    setProfileErrors({});
     if (!profileForm.supports_supply_delivery) {
       profileMutation.mutate({ vehicle_id: Number(profileVehicleId), supports_supply_delivery: false });
+      return;
+    }
+    const errors = validateProfile(profileForm);
+    if (Object.keys(errors).length > 0) {
+      setProfileErrors(errors);
+      focusProfileErrors(errors);
       return;
     }
     const numericFields = PROFILE_FIELDS.map(([key]) => key).concat(["temperature_min_c", "temperature_max_c"]);
@@ -371,6 +634,16 @@ export default function SupplyDeliveriesPage() {
     });
   }
 
+  function refreshPageData() {
+    setEvaluation(null);
+    setFleetLoadFit(null);
+    evaluationMutation.reset();
+    fleetLoadFitMutation.reset();
+    void shipmentsQuery.refetch();
+    void profilesQuery.refetch();
+    if (canImportSandbox) void siteMappingsQuery.refetch();
+  }
+
   return (
     <div className="space-y-6">
       <HeroHeader
@@ -379,11 +652,8 @@ export default function SupplyDeliveriesPage() {
         badge="Sandbox"
         description="Inspect approved transport snapshots and measure physical load fit."
         actions={(
-          <Button variant="outline" onClick={() => {
-            shipmentsQuery.refetch();
-            profilesQuery.refetch();
-          }} disabled={shipmentsQuery.isRefetching || profilesQuery.isRefetching}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${shipmentsQuery.isRefetching || profilesQuery.isRefetching ? "animate-spin" : ""}`} />
+          <Button type="button" variant="outline" className={cn("h-10", heroButtonOutlineClass)} onClick={refreshPageData} disabled={isRefreshingPageData}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshingPageData ? "animate-spin motion-reduce:animate-none" : ""}`} aria-hidden="true" />
             Refresh
           </Button>
         )}
@@ -399,27 +669,22 @@ export default function SupplyDeliveriesPage() {
         </div>
       </div>
 
-      <section className="grid gap-3 sm:grid-cols-3" aria-label="Supply request counts">
-        {[
-          ["All requests", queueSummary.total],
-          ["Ready for planning", queueSummary.ready],
-          ["Waiting for pickup", queueSummary.waiting],
-        ].map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between rounded-2xl border border-border bg-surface px-4 py-3">
-            <span className="text-sm text-foreground-secondary">{label}</span>
-            <span className="font-data text-lg font-semibold tabular-nums text-foreground">{value}</span>
-          </div>
-        ))}
+      <section aria-label="Supply request counts">
+        <StatGrid cols={3}>
+          <StatCard icon={PackageCheck} label="All requests" value={requestCountsUnavailable ? "—" : queueSummary.total} trend="Imported sandbox snapshots" tone="primary" />
+          <StatCard icon={CheckCircle2} label="Ready for planning" value={requestCountsUnavailable ? "—" : queueSummary.ready} trend="Source status: ready for planning" tone={queueSummary.ready ? "success" : "neutral"} />
+          <StatCard icon={Clock} label="Waiting for pickup" value={requestCountsUnavailable ? "—" : queueSummary.waiting} trend="Source status: waiting for pickup" tone={queueSummary.waiting ? "warning" : "neutral"} />
+        </StatGrid>
       </section>
 
       <div className="grid items-start gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card>
-          <CardHeader className="flex-row items-center justify-between gap-4">
+        <Card className="overflow-hidden rounded-3xl">
+          <CardHeader className="flex-row items-center justify-between gap-4 border-b border-border/60 bg-muted/20 px-5 py-4">
             <div>
               <CardTitle>Transport requests</CardTitle>
               <p className="mt-1 text-xs text-foreground-secondary">Source approvals and manifest revisions retained as received.</p>
             </div>
-            <Badge variant="outline">{shipments.length} total</Badge>
+              <Badge variant="outline" className="font-data tabular-nums">{shipments.length} total</Badge>
           </CardHeader>
           <CardContent>
             {shipmentsQuery.isLoading ? (
@@ -431,11 +696,20 @@ export default function SupplyDeliveriesPage() {
                 Could not load supply requests. Use Refresh to retry.
               </div>
             ) : shipments.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border px-5 py-8 text-center">
-                <PackageCheck className="mx-auto h-6 w-6 text-foreground-muted" aria-hidden="true" />
-                <p className="mt-3 text-sm font-medium text-foreground">No SCM snapshots received</p>
-                <p className="mx-auto mt-1 max-w-md text-sm text-foreground-secondary">An administrator can import a synthetic sandbox event below when the server sandbox flag is enabled.</p>
-              </div>
+              <EmptyState
+                icon={PackageCheck}
+                title="No shipment snapshots yet"
+                description={canImportSandbox
+                  ? "Import a synthetic sandbox event to review a sample shipment."
+                  : "Ask an administrator to import a synthetic sandbox event for review."}
+                variant="first-run"
+                size="compact"
+                action={canImportSandbox && (
+                  <Button asChild variant="outline">
+                    <a href="#supply-sandbox-import">Open sandbox import</a>
+                  </Button>
+                )}
+              />
             ) : (
               <div className="divide-y divide-border">
                 {shipments.map((shipment) => {
@@ -445,20 +719,26 @@ export default function SupplyDeliveriesPage() {
                       key={shipment.supply_shipment_id}
                       type="button"
                       aria-pressed={active}
-                      onClick={() => { setSelectedShipmentId(shipment.supply_shipment_id); setEvaluation(null); setFleetLoadFit(null); }}
-                      className={`grid w-full gap-3 rounded-xl px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2 sm:grid-cols-[minmax(0,1fr)_auto] ${active ? "bg-info/5" : "hover:bg-muted/40"}`}
+                      onClick={() => {
+                        setSelectedShipmentId(shipment.supply_shipment_id);
+                        setEvaluation(null);
+                        setFleetLoadFit(null);
+                        evaluationMutation.reset();
+                        fleetLoadFitMutation.reset();
+                      }}
+                      className={`grid w-full gap-3 rounded-xl border px-3 py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2 sm:grid-cols-[minmax(0,1fr)_auto] ${active ? "border-info/25 bg-info/5" : "border-transparent hover:border-border/60 hover:bg-muted/40"}`}
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-foreground">{shipment.external_request_id}</span>
+                          <span className="break-all font-data text-sm font-semibold tabular-nums text-foreground">{shipment.external_request_id}</span>
                           <Badge variant="outline" className="font-data tabular-nums">Rev {shipment.current_manifest_revision}</Badge>
                         </div>
-                        <p className="mt-1 text-sm text-foreground-secondary">{shipment.pickup_site_id} <span aria-hidden="true">→</span> {shipment.delivery_site_id}</p>
+                        <p className="mt-1 break-all text-sm text-foreground-secondary"><span className="font-data">{shipment.pickup_site_id}</span> <span aria-hidden="true">→</span> <span className="font-data">{shipment.delivery_site_id}</span></p>
                         <p className="mt-1 text-xs text-foreground-muted">{deliveryWindow(shipment)}</p>
                       </div>
-                      <div className="flex items-end justify-between gap-4 sm:flex-col sm:items-end sm:justify-center">
-                        <span className="text-xs font-semibold text-foreground-secondary">{shipment.status.replaceAll("_", " ")}</span>
-                        <span className="font-data text-xs tabular-nums text-foreground-secondary">
+                      <div className="flex min-w-0 items-end justify-between gap-4 sm:flex-col sm:items-end sm:justify-center">
+                        <Badge variant="outline" className="capitalize">{readableStatus(shipment.status)}</Badge>
+                        <span className="break-words text-right font-data text-xs tabular-nums text-foreground-secondary">
                           {numberText(shipment.package_count, 0)} pkgs · {numberText(shipment.gross_weight_kg)} kg · {numberText(shipment.nominal_volume_m3)} m³
                         </span>
                       </div>
@@ -470,38 +750,109 @@ export default function SupplyDeliveriesPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-              <CardTitle>Cargo fit check</CardTitle>
-              <p className="text-xs text-foreground-secondary">Checks manifest readiness and measured fit. Trip-specific load, driver, documents and shared schedule checks are not included.</p>
+        <Card className="overflow-hidden rounded-3xl">
+          <CardHeader className="flex-row items-start justify-between gap-3 border-b border-border/60 bg-muted/20 px-5 py-4">
+            <div className="min-w-0">
+              <CardTitle className="text-[15px] tracking-tight">Cargo fit check</CardTitle>
+              <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">Checks manifest readiness and measured fit. Trip-specific load, driver, documents and shared schedule checks are not included.</p>
+            </div>
+            <Badge variant="outline" className="shrink-0">Measurement only</Badge>
           </CardHeader>
           <CardContent className="space-y-4">
+            {shipmentsQuery.isLoading || profilesQuery.isLoading ? (
+              <div className="space-y-3" aria-busy="true" aria-label="Loading requests and vehicles">
+                <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
+                <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
+                <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
+              </div>
+            ) : shipmentsQuery.isError || profilesQuery.isError ? (
+              <div className="flex flex-col items-start gap-3 rounded-xl border border-danger/25 bg-danger/10 p-4 text-sm text-danger-800 dark:text-rose-200" role="alert">
+                <p>
+                  {shipmentsQuery.isError && profilesQuery.isError
+                    ? "Shipment and vehicle data could not be loaded."
+                    : shipmentsQuery.isError
+                      ? "Shipment data could not be loaded."
+                      : "Vehicle data could not be loaded."} Use retry to try again.
+                </p>
+                <Button type="button" variant="outline" onClick={refreshPageData}>
+                  <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Try again
+                </Button>
+              </div>
+            ) : shipments.length === 0 ? (
+              <EmptyState
+                icon={PackageCheck}
+                title="No shipment to measure"
+                description="Import a synthetic sandbox snapshot before running a load check."
+                variant="first-run"
+                size="compact"
+              />
+            ) : profiles.length === 0 ? (
+              <EmptyState
+                icon={Truck}
+                title="No fleet vehicles available"
+                description="Add a vehicle in Fleet before checking measured load fit."
+                variant="first-run"
+                size="compact"
+              />
+            ) : (
+              <div className="space-y-4">
             <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary">
               <span>Supply request</span>
-              <select
+              <Select
                 value={selectedShipment?.supply_shipment_id ?? ""}
-                onChange={(event) => { setSelectedShipmentId(event.target.value); setEvaluation(null); setFleetLoadFit(null); }}
-                className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
+                onValueChange={(value) => {
+                  setSelectedShipmentId(value);
+                  setEvaluation(null);
+                  setFleetLoadFit(null);
+                  evaluationMutation.reset();
+                  fleetLoadFitMutation.reset();
+                }}
               >
-                {shipments.map((shipment) => <option key={shipment.supply_shipment_id} value={shipment.supply_shipment_id}>{shipment.external_request_id} · rev {shipment.current_manifest_revision}</option>)}
-              </select>
+                <SelectTrigger className="h-10 text-sm">
+                  <SelectValue className="min-w-0 truncate" placeholder="Select a supply request" />
+                </SelectTrigger>
+                <SelectContent>
+                  {shipments.map((shipment) => (
+                    <SelectItem key={shipment.supply_shipment_id} value={String(shipment.supply_shipment_id)}>
+                      {shipment.external_request_id} · rev {shipment.current_manifest_revision}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
             <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary">
               <span>Vehicle</span>
-              <select
+              <Select
                 value={selectedVehicleId}
-                onChange={(event) => { setSelectedVehicleId(event.target.value); setEvaluation(null); }}
-                className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
+                onValueChange={(value) => {
+                  setSelectedVehicleId(value);
+                  setEvaluation(null);
+                  evaluationMutation.reset();
+                }}
               >
-                <option value="">Select a fleet vehicle</option>
-                {profiles.map((vehicle) => <option key={vehicle.vehicle_id} value={vehicle.vehicle_id}>{vehicle.plate_number} · {vehicle.vehicle_name}</option>)}
-              </select>
+                <SelectTrigger className="h-10 text-sm">
+                  <SelectValue className="min-w-0 truncate" placeholder="Select a fleet vehicle" />
+                </SelectTrigger>
+                <SelectContent>
+                  {profiles.map((vehicle) => (
+                    <SelectItem key={vehicle.vehicle_id} value={String(vehicle.vehicle_id)}>
+                      {vehicle.plate_number} · {vehicle.vehicle_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {selectedVehicle && <span className="block text-[11px] text-foreground-muted">Cargo profile: {selectedVehicle.supports_supply_delivery ? "enabled" : "not enabled"} · vehicle state: {selectedVehicle.vehicle_status}</span>}
             </label>
             <Button
               className="w-full"
-              disabled={!selectedShipment || !selectedVehicleId || evaluationMutation.isPending}
-              onClick={() => evaluationMutation.mutate()}
+              disabled={!selectedShipment || !selectedVehicle || evaluationMutation.isPending}
+              onClick={() => evaluationMutation.mutate({
+                shipmentId: selectedShipment.supply_shipment_id,
+                vehicleId: Number(selectedVehicleId),
+                shipmentsUpdatedAt: shipmentsQuery.dataUpdatedAt,
+                profilesUpdatedAt: profilesQuery.dataUpdatedAt,
+              })}
             >
               <Scale className="mr-2 h-4 w-4" aria-hidden="true" />
               {evaluationMutation.isPending ? "Checking measurements…" : "Check load fit"}
@@ -511,19 +862,30 @@ export default function SupplyDeliveriesPage() {
               variant="outline"
               className="w-full"
               disabled={!selectedShipment || profilesQuery.isLoading || profiles.length === 0 || fleetLoadFitMutation.isPending}
-              onClick={() => fleetLoadFitMutation.mutate(selectedShipment.supply_shipment_id)}
+              onClick={() => fleetLoadFitMutation.mutate({
+                shipmentId: selectedShipment.supply_shipment_id,
+                shipmentsUpdatedAt: shipmentsQuery.dataUpdatedAt,
+                profilesUpdatedAt: profilesQuery.dataUpdatedAt,
+              })}
             >
               <Truck className="mr-2 h-4 w-4" aria-hidden="true" />
               {fleetLoadFitMutation.isPending ? "Comparing fleet measurements…" : "Compare load fit across fleet"}
             </Button>
 
-            {evaluationMutation.isError && <p role="alert" className="text-sm text-danger-800 dark:text-rose-200">{evaluationMutation.error.message}</p>}
-            {fleetLoadFitMutation.isError && <p role="alert" className="text-sm text-danger-800 dark:text-rose-200">{fleetLoadFitMutation.error.message}</p>}
+            {currentEvaluationError && <p role="alert" className="text-sm text-danger-800 dark:text-rose-200">{currentEvaluationError}</p>}
+            {currentFleetLoadFitError && <p role="alert" className="text-sm text-danger-800 dark:text-rose-200">{currentFleetLoadFitError}</p>}
             {evaluation && (
               <div className="space-y-3 border-t border-border pt-4" aria-live="polite">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-foreground">{evaluation.load_checks_pass ? "Load checks pass" : "Load checks blocked"}</p>
-                  <Badge variant="outline">{evaluation.load_checks_pass ? "PASS" : "BLOCKED"}</Badge>
+                  <p className="text-sm font-semibold text-foreground">{evaluation.load_checks_pass ? "Measured-load checks pass" : "Measured-load checks blocked"}</p>
+                  <Badge variant="outline">{evaluation.load_checks_pass ? "MEASURED PASS" : "MEASURED BLOCKED"}</Badge>
+                </div>
+                <div className="space-y-1 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold">Assignment not evaluated</p>
+                    <Badge variant="outline">{evaluation.assignment_eligibility || "NOT_EVALUATED"}</Badge>
+                  </div>
+                  <p className="leading-relaxed">{evaluation.limitations?.join(" ") || "This measurement pre-screen does not determine assignment eligibility."}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="rounded-xl bg-muted/50 p-3"><span className="text-foreground-secondary">Gross weight</span><p className="mt-1 font-data font-semibold tabular-nums">{numberText(evaluation.totals.gross_weight_kg)} kg</p></div>
@@ -599,16 +961,26 @@ export default function SupplyDeliveriesPage() {
                 )}
               </section>
             )}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid items-start gap-6 xl:grid-cols-2">
-        {canImportSandbox && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Import approved sandbox event</CardTitle>
-              <p className="text-xs text-foreground-secondary">Admin-only, non-production, and disabled unless SUPPLY_SCM_SANDBOX_ENABLED=true. Contract v1 accepts package weight in kg and dimensions in metres.</p>
+      {canImportSandbox && (
+        <section className="space-y-4" aria-labelledby="supply-sandbox-tools-title">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 id="supply-sandbox-tools-title" className="text-base font-semibold tracking-tight text-foreground">Sandbox setup</h2>
+              <p className="mt-1 text-xs text-foreground-secondary">Admin tools for sample shipment data and its Fleet site mappings.</p>
+            </div>
+            <Badge variant="outline">Admin tools</Badge>
+          </div>
+          <div className="grid items-start gap-6 xl:grid-cols-2">
+            <Card id="supply-sandbox-import" className="overflow-hidden rounded-3xl">
+            <CardHeader className="border-b border-border/60 bg-muted/20 px-5 py-4">
+              <CardTitle className="text-[15px] tracking-tight">Import approved sandbox event</CardTitle>
+              <p className="text-xs text-foreground-secondary">Admin-only. Available only in non-production when sandbox import is enabled. Event weights use kilograms and dimensions use metres.</p>
             </CardHeader>
             <CardContent>
               <form className="space-y-3" onSubmit={submitSandboxImport}>
@@ -618,13 +990,13 @@ export default function SupplyDeliveriesPage() {
                   onChange={(event) => { setImportJson(event.target.value); setImportError(""); }}
                   rows={9}
                   spellCheck={false}
-                  placeholder="Paste a version 1.0 SCM sandbox event…"
+                  placeholder="Paste a version 1.0 synthetic sandbox event…"
                   className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2.5 font-mono text-xs leading-relaxed text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
                 />
                 {importError && <p className="text-sm text-danger-800 dark:text-rose-200" role="alert">{importError}</p>}
                 <div className="flex flex-wrap justify-between gap-2">
-                  <Button type="button" variant="outline" onClick={() => setImportJson(JSON.stringify(syntheticEvent(), null, 2))}>
-                    Use synthetic example
+                  <Button type="button" variant="outline" onClick={() => { setImportJson(JSON.stringify(syntheticEvent(), null, 2)); setImportError(""); }}>
+                    Use sample event
                   </Button>
                   <Button type="submit" disabled={!importJson.trim() || importMutation.isPending}>
                     <ClipboardCheck className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -634,19 +1006,20 @@ export default function SupplyDeliveriesPage() {
               </form>
             </CardContent>
           </Card>
-        )}
 
-        {canImportSandbox && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Map SCM sites to Fleet locations</CardTitle>
+          <Card className="overflow-hidden rounded-3xl">
+            <CardHeader className="border-b border-border/60 bg-muted/20 px-5 py-4">
+              <CardTitle className="text-[15px] tracking-tight">Map sandbox sites to Fleet locations</CardTitle>
               <p className="text-xs text-foreground-secondary">
                 Match sandbox pickup and delivery IDs to active Fleet locations with a stored address and coordinates. Review the location before saving; this does not look up or guess locations.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
               {siteMappingsQuery.isLoading ? (
-                <p className="text-sm text-foreground-secondary" role="status">Loading site mappings and Fleet locations…</p>
+                <div className="space-y-3" aria-busy="true" aria-label="Loading site mappings and Fleet locations">
+                  <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
+                  <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
+                </div>
               ) : siteMappingsQuery.isError ? (
                 <div className="space-y-3">
                   <p className="text-sm text-danger-800 dark:text-rose-200" role="alert">Site mappings could not be loaded. Refresh to try again.</p>
@@ -669,11 +1042,9 @@ export default function SupplyDeliveriesPage() {
                     <form className="space-y-3" onSubmit={submitSiteMapping}>
                       <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary" htmlFor="site-mapping-target">
                         <span>Sandbox SCM site</span>
-                        <select
-                          id="site-mapping-target"
+                        <Select
                           value={effectiveSiteMappingKey}
-                          onChange={(event) => {
-                            const targetKey = event.target.value;
+                          onValueChange={(targetKey) => {
                             setSiteMappingKey(targetKey);
                             const target = siteTargets.find((item) => item.key === targetKey);
                             const savedMapping = siteMappings.find((item) => item.source_organization_id === target?.source_organization_id && item.external_site_id === target?.external_site_id);
@@ -681,30 +1052,37 @@ export default function SupplyDeliveriesPage() {
                             setSiteMappingLocationId(locationId ? String(locationId) : "");
                           }}
                           required
-                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
                         >
-                          {siteTargets.map((target) => (
-                            <option key={target.key} value={target.key}>
-                              {target.source_organization_id} · {target.external_site_id} ({target.stops.join(" / ")})
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger id="site-mapping-target" className="h-10 text-sm">
+                            <SelectValue className="min-w-0 truncate" placeholder="Select a sandbox SCM site" />
+                          </SelectTrigger>
+                          <SelectContent className="max-w-[min(90vw,36rem)]">
+                            {siteTargets.map((target) => (
+                              <SelectItem key={target.key} value={target.key} className="min-w-0 whitespace-normal break-words leading-5">
+                                {target.source_organization_id} · {target.external_site_id} ({target.stops.join(" / ")})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </label>
                       <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary" htmlFor="site-mapping-location">
                         <span>Fleet location</span>
-                        <select
-                          id="site-mapping-location"
+                        <Select
                           value={effectiveSiteMappingLocationId}
-                          onChange={(event) => setSiteMappingLocationId(event.target.value)}
+                          onValueChange={setSiteMappingLocationId}
                           required
-                          className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2"
                         >
-                          {fleetLocations.map((location) => (
-                            <option key={location.location_id} value={location.location_id}>
-                              {location.name} · {location.address}
-                            </option>
-                          ))}
-                        </select>
+                          <SelectTrigger id="site-mapping-location" className="h-10 text-sm">
+                            <SelectValue className="min-w-0 truncate" placeholder="Select a Fleet location" />
+                          </SelectTrigger>
+                          <SelectContent className="max-w-[min(90vw,36rem)]">
+                            {fleetLocations.map((location) => (
+                              <SelectItem key={location.location_id} value={String(location.location_id)} className="min-w-0 whitespace-normal break-words leading-5">
+                                {location.name} · {location.address}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </label>
                       <div className="flex justify-end">
                         <Button type="submit" disabled={!effectiveSiteMappingKey || !effectiveSiteMappingLocationId || siteMappingMutation.isPending}>
@@ -720,15 +1098,17 @@ export default function SupplyDeliveriesPage() {
                       <h3 className="text-sm font-semibold text-foreground">Saved sandbox mappings</h3>
                       <ul className="mt-3 divide-y divide-border">
                         {siteMappings.map((mapping) => {
-                          const mappingActive = mapping.is_active && mapping.location_is_active;
-                          const coordinates = [mapping.latitude, mapping.longitude].map(Number);
-                          const hasCoordinates = coordinates.every(Number.isFinite);
+                          const coordinates = locationCoordinates(mapping);
+                          const mappingActive = mapping.is_active &&
+                            mapping.location_is_active &&
+                            Boolean(mapping.location_address?.trim()) &&
+                            coordinates !== null;
                           return (
                             <li key={mapping.supply_site_mapping_id} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
                               <div className="min-w-0">
                                 <p className="break-all text-sm font-medium text-foreground">{mapping.external_site_id}</p>
                                 <p className="break-all text-xs text-foreground-secondary">{mapping.source_organization_id}</p>
-                                <p className="mt-1 text-xs text-foreground-secondary">{mapping.location_name} · {hasCoordinates ? coordinates.map((value) => value.toFixed(5)).join(", ") : "Coordinates unavailable"}</p>
+                                <p className="mt-1 text-xs text-foreground-secondary">{mapping.location_name} · {coordinates ? coordinates.map((value) => value.toFixed(5)).join(", ") : "Coordinates unavailable"}</p>
                               </div>
                               <Badge variant={mappingActive ? "success" : "warning"}>{mappingActive ? "Active" : "Unavailable"}</Badge>
                             </li>
@@ -741,57 +1121,113 @@ export default function SupplyDeliveriesPage() {
               )}
             </CardContent>
           </Card>
-        )}
+          </div>
+        </section>
+      )}
 
-        {canManageProfiles && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Vehicle cargo capability</CardTitle>
+      {canManageProfiles && (
+        <Card className="overflow-hidden rounded-3xl">
+            <CardHeader className="border-b border-border/60 bg-muted/20 px-5 py-4">
+              <CardTitle className="text-[15px] tracking-tight">Vehicle cargo capability</CardTitle>
               <p className="text-xs text-foreground-secondary">Only enable a vehicle when each measurement and its verification reference are confirmed by Fleet.</p>
             </CardHeader>
             <CardContent>
-              {profilesQuery.isError ? (
-                <p className="text-sm text-danger-800 dark:text-rose-200" role="alert">Cargo profiles could not be loaded. Refresh and try again.</p>
+              {profilesQuery.isLoading ? (
+                <div className="space-y-3" aria-busy="true" aria-label="Loading fleet vehicles">
+                  <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
+                  <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
+                </div>
+              ) : profilesQuery.isError ? (
+                <div className="flex flex-col items-start gap-3" role="alert">
+                  <p className="text-sm text-danger-800 dark:text-rose-200">Fleet vehicles could not be loaded.</p>
+                  <Button type="button" variant="outline" onClick={refreshPageData}>
+                    <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                    Try again
+                  </Button>
+                </div>
+              ) : profiles.length === 0 ? (
+                <EmptyState
+                  icon={Truck}
+                  title="No vehicles to configure"
+                  description="Add a fleet vehicle before recording its cargo capabilities."
+                  variant="first-run"
+                  size="compact"
+                />
               ) : (
-                <form className="space-y-4" onSubmit={submitProfile}>
+                <form className="space-y-4" onSubmit={submitProfile} noValidate>
                   <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary">
                     <span>Vehicle</span>
-                    <select value={profileVehicleId} onChange={(event) => setProfileVehicleId(event.target.value)} required className="h-10 w-full rounded-xl border border-border bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-info focus-visible:ring-offset-2">
-                      <option value="">Select a vehicle</option>
-                      {profiles.map((vehicle) => <option key={vehicle.vehicle_id} value={vehicle.vehicle_id}>{vehicle.plate_number} · {vehicle.vehicle_name}</option>)}
-                    </select>
+                    <Select value={profileVehicleId} onValueChange={(value) => { setProfileErrors({}); setProfileVehicleId(value); }} required>
+                      <SelectTrigger className="h-10 text-sm">
+                        <SelectValue className="min-w-0 truncate" placeholder="Select a vehicle" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {profiles.map((vehicle) => (
+                          <SelectItem key={vehicle.vehicle_id} value={String(vehicle.vehicle_id)}>
+                            {vehicle.plate_number} · {vehicle.vehicle_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </label>
                   <label className="flex items-start gap-3 rounded-xl border border-border p-3 text-sm">
                     <input type="checkbox" checked={profileForm.supports_supply_delivery} onChange={(event) => setProfileField("supports_supply_delivery", event.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
                     <span><span className="font-medium text-foreground">Enable supply delivery</span><span className="mt-0.5 block text-xs text-foreground-secondary">Requires current measured capacity and verification. Passenger vehicles are not enabled automatically.</span></span>
                   </label>
                   {profileForm.supports_supply_delivery && (
-                    <>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {PROFILE_FIELDS.map(([key, label, unit]) => (
-                          <Field key={key} id={`cargo-${key}`} label={label} unit={unit} required value={profileForm[key]} onChange={(event) => setProfileField(key, event.target.value)} min="0" />
-                        ))}
-                        <Field id="cargo-temperature-min" label="Temperature minimum" unit="°C" value={profileForm.temperature_min_c} onChange={(event) => setProfileField("temperature_min_c", event.target.value)} />
-                        <Field id="cargo-temperature-max" label="Temperature maximum" unit="°C" value={profileForm.temperature_max_c} onChange={(event) => setProfileField("temperature_max_c", event.target.value)} />
-                      </div>
-                      <div className="space-y-2">
-                        <p className="text-xs font-medium text-foreground-secondary">Verified handling capabilities</p>
-                        <div className="flex flex-wrap gap-x-4 gap-y-2">
-                          {HANDLING_CAPABILITIES.map(([code, label]) => (
-                            <label key={code} className="inline-flex items-center gap-2 text-xs text-foreground">
-                              <input type="checkbox" checked={profileForm.handling_capabilities.includes(code)} onChange={() => toggleCapability(code)} className="h-4 w-4 accent-primary" />
-                              {label}
-                            </label>
+                    <div className="space-y-5">
+                      <fieldset className="min-w-0 space-y-3">
+                        <legend className="text-sm font-semibold text-foreground">Capacity measurements</legend>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {PROFILE_FIELDS.slice(0, 5).map(([key, label, unit]) => (
+                            <Field key={key} id={`cargo-${key}`} label={label} unit={unit} required value={profileForm[key]} onChange={(event) => setProfileField(key, event.target.value)} min="0" max={PROFILE_FIELD_LIMITS[key]} error={profileErrors[key]} />
                           ))}
                         </div>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <Field id="cargo-verification-reference" label="Verification reference" type="text" required value={profileForm.verification_reference} onChange={(event) => setProfileField("verification_reference", event.target.value)} />
-                        <Field id="cargo-verification-valid-until" label="Verification valid until" type="date" required value={profileForm.verification_valid_until} onChange={(event) => setProfileField("verification_valid_until", event.target.value)} />
-                      </div>
-                    </>
+                      </fieldset>
+                      <fieldset className="min-w-0 space-y-3 border-t border-border/70 pt-4">
+                        <legend className="text-sm font-semibold text-foreground">Compartment dimensions</legend>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {PROFILE_FIELDS.slice(5).map(([key, label, unit]) => (
+                            <Field key={key} id={`cargo-${key}`} label={label} unit={unit} required value={profileForm[key]} onChange={(event) => setProfileField(key, event.target.value)} min="0" max={PROFILE_FIELD_LIMITS[key]} error={profileErrors[key]} />
+                          ))}
+                        </div>
+                      </fieldset>
+                      <fieldset className="min-w-0 space-y-3 border-t border-border/70 pt-4">
+                        <legend className="text-sm font-semibold text-foreground">Temperature and handling</legend>
+                        <p className="text-xs text-foreground-secondary">Temperature limits are optional. Leave both blank when no temperature range is recorded.</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Field id="cargo-temperature-min" label="Temperature minimum" unit="°C" value={profileForm.temperature_min_c} onChange={(event) => setProfileField("temperature_min_c", event.target.value)} min="-80" max="80" error={profileErrors.temperature_min_c} />
+                          <Field id="cargo-temperature-max" label="Temperature maximum" unit="°C" value={profileForm.temperature_max_c} onChange={(event) => setProfileField("temperature_max_c", event.target.value)} min="-80" max="80" error={profileErrors.temperature_max_c} />
+                        </div>
+                        <div className="space-y-2 pt-1">
+                          <p className="text-xs font-medium text-foreground-secondary">Handling capabilities</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-2">
+                            {HANDLING_CAPABILITIES.map(([code, label]) => (
+                              <label key={code} className="inline-flex min-h-8 items-center gap-2 text-xs text-foreground">
+                                <input type="checkbox" checked={profileForm.handling_capabilities.includes(code)} onChange={() => toggleCapability(code)} className="h-4 w-4 accent-primary" />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </fieldset>
+                      <fieldset className="min-w-0 space-y-3 border-t border-border/70 pt-4">
+                        <legend className="text-sm font-semibold text-foreground">Verification record</legend>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Field id="cargo-verification-reference" label="Verification reference" type="text" required minLength={3} maxLength={255} value={profileForm.verification_reference} onChange={(event) => setProfileField("verification_reference", event.target.value)} error={profileErrors.verification_reference} />
+                          <Field id="cargo-verification-valid-until" label="Verification valid until" type="date" required min={nextUtcDate()} value={profileForm.verification_valid_until} onChange={(event) => setProfileField("verification_valid_until", event.target.value)} error={profileErrors.verification_valid_until} />
+                        </div>
+                      </fieldset>
+                    </div>
                   )}
-                  {profileVehicle?.supports_supply_delivery && <p className="flex items-center gap-2 text-xs text-success-800 dark:text-emerald-200"><ShieldCheck className="h-4 w-4" aria-hidden="true" /> Verified {new Date(profileVehicle.verified_at).toLocaleDateString("en-PH")} · ref {profileVehicle.verification_reference}</p>}
+                  {profileVehicle?.supports_supply_delivery && (
+                    <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-foreground-secondary">
+                      <p className="font-medium text-foreground">
+                        Latest recorded save: {profileVehicle.verified_by == null || profileVehicle.verified_by === "" ? "employee ID unavailable" : `employee ID ${profileVehicle.verified_by}`} · {recordedAt(profileVehicle.verified_at)} · Reference: {profileVehicle.verification_reference || "unavailable"}
+                      </p>
+                      <p className="mt-1">This record shows who saved the profile and when. It is not a separate compliance approval.</p>
+                    </div>
+                  )}
                   <div className="flex justify-end">
                     <Button type="submit" disabled={!profileVehicleId || profileMutation.isPending}>
                       <Truck className="mr-2 h-4 w-4" aria-hidden="true" />
@@ -803,8 +1239,6 @@ export default function SupplyDeliveriesPage() {
             </CardContent>
           </Card>
         )}
-      </div>
-
       <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground-muted">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         Shipment snapshots are separate from passenger bookings. This capability check does not reserve a driver or vehicle, and trip completion cannot create a receiving or inventory event.
