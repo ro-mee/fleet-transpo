@@ -190,6 +190,10 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "SCM transport-request snapshots, destination windows and shipment lifecycle; contains operational locations.",
   },
+  supply_dispatch_allocations: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Private link between an immutable SCM manifest revision and a shared Fleet dispatch; includes assignment history.",
+  },
   supply_manifest_revisions: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Immutable approved SCM manifest snapshots and package measurements.",

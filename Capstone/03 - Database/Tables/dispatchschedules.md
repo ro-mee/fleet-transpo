@@ -6,6 +6,7 @@ source:
   - supabase/migrations/012_status_constraints.sql
   - supabase/migrations/023_dispatch_overlap_guard.sql
   - supabase/migrations/147_dispatch_service_type.sql
+  - supabase/migrations/148_supply_dispatch_allocations.sql
   - src/lib/scheduling/dispatch-state.js
 last_verified: 2026-10-07
 ---
@@ -73,7 +74,9 @@ Transitions are **rank monotonicity**, not adjacency — you may skip forward, n
 
 ## Supply delivery work classification — 2026-10-07
 
-Migration `147_dispatch_service_type.sql` adds a checked `service_type` discriminator to this shared resource reservation. Request-linked legacy rows are backfilled as `PASSENGER`; unlinked historical rows stay NULL rather than receiving an assumed purpose. New writes default to `PASSENGER`. The current general dispatch API stamps `PASSENGER` and rejects an explicit `SUPPLY_DELIVERY` request until the shipment allocation workflow exists. No cargo dispatch or allocation is created by this migration.
+Migration `147_dispatch_service_type.sql` adds a checked `service_type` discriminator to this shared resource reservation. Request-linked legacy rows are backfilled as `PASSENGER`; unlinked historical rows stay NULL rather than receiving an assumed purpose. New writes default to `PASSENGER`. The current general dispatch API stamps `PASSENGER` and rejects an explicit `SUPPLY_DELIVERY` request.
+
+Migration `148_supply_dispatch_allocations.sql` adds a private allocation bridge to a shipment and exact manifest revision. Deferred consistency triggers require a cargo dispatch and its allocation to be committed together, with no passenger request and the current manifest revision. One shipment may have only one `ASSIGNED` allocation, and one dispatch may be allocated only once; ended allocation history remains. These constraints do not add a cargo assignment API or create dispatches/trips.
 
 ## Related
 
