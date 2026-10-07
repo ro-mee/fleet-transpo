@@ -290,6 +290,14 @@ Save one Petron and one Skyewin/Shell scan against an active trip, then verify t
 
 **Verification.** `trip-estimate.test.js` (5) + `estimate-migration.test.js` (3) + `trip-lifecycle.service.test.js` (4: snapshot arithmetic 36/9/62.70, first-write-wins columns, nulls-never-zeros, existing alert resolution untouched).
 
+## Provider adapter — Task 12, 2026-10-07 (validation only; scheduler disabled)
+
+`src/lib/fuel/providers/official-reference.js` (pure, no table names): `parseOfficialReference` enforces the fixture shape, rejects unknown fields (format drift), non-https/off-origin URLs, and unregistered sources — untrusted data cannot self-verify. `validateProviderUpdate` accepts sane announcements as `Pending`, rejects 10x jumps (620 from 62) as implausible, and treats repeats as duplicates, never second rows. `fetchReferencePrice` fails closed on 403/429/timeout/malformed bodies so the last verified snapshot is retained.
+
+`GET /api/cron/fuel-prices` uses the shared `CRON_SECRET` convention and answers **503 disabled** until `FUEL_PRICE_PROVIDER_ENABLED=1` with an https source — no official source is verified, so manual snapshots remain the only source. When enabled it validates into a `Pending` payload without persisting (persistence + once-only activation belong to the Task 10 repository at the apply checkpoint) and never runs in request/dispatch paths.
+
+**Verification.** `official-reference.test.js` (7) + `fuel-prices/route.test.js` (4). No live calls, no migration, no schedule created (a whole-schedule migration would leave no `schema.sql` trace, so none was written).
+
 ## Export exports the view you are looking at — 2026-10-01 (implemented)
 
 The header **Export CSV** button always exported fuel **receipt claims**, whichever of the three views (Registry / Monthly Budget / Permits) was on screen — and it did it wrong. `getFuelRecords` answers in paginated mode with an envelope, `{ rows, total, counts }`, and that object was handed straight to `exportToCSV`, which tests `data?.length` — `undefined` on an object — and returns `{ count: 0 }` without writing a file. Clicking Export with **45 permits** visible produced no download and a toast reading *"Exported undefined records"*.
