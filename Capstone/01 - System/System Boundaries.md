@@ -16,6 +16,14 @@ last_verified: 2026-10-07
 
 # System Boundaries
 
+## Task 1 update snapshot validation — 2026-10-07
+
+The shared envelope normalizer now validates v2 `update` requests using the same complete typed snapshot contract as `create`; it no longer discards corrections as `request: null`. Authenticated source and envelope request ID override nested identity claims. Passenger/cargo checks, normalized dates/priority, canonical code format and bounded review-only proposals apply. Partial patches are not accepted. This validates a message only: it does not store a revision or authorize a Fleet transition.
+
+Both entry routes remain create-only. Valid updates/cancels still receive the existing unsupported-revision response (push 409; pull skipped/rejected with `SOURCE_REVISION_UNSUPPORTED`). Invalid updates now receive push 400; pull treats them as malformed items, increments skipped only, and continues. No request, dispatch, trip, endpoint or history changes. Cancel behavior is unchanged. Durable revision/event storage and committed-trip dispatcher review remain outstanding. **User decision, 2026-10-07:** hold a newer revision until missing earlier revisions arrive; do not silently skip them. Durable enforcement/reconciliation is not implemented yet.
+
+Verification: contract RED observed 10 expected failures; route RED observed three expected failures after restoring the old normalizer; focused GREEN passed 10 files / 122 tests. Full suite passed 313 files / 3,739 tests; strict lint passed. No schema, live database, connector or deployment changes. Migration drafts 150/151/152 remain unapplied.
+
 **Migration reconciliation checkpoint (2026-10-07):** Current unapplied passenger/cargo drafts are150/151/152, renamed from provisional144/145/146 after an authorized ledger check showed recorded supply history through149. Executable SQL is unchanged. Recorded-origin supply work uses a separate SCM sandbox shipment/inbox/allocation path; it is not a live PMS/POS adapter. Naming is reconciled, but broader shared dispatch/load/runtime and live-schema acceptance remain held. Earlier dated statements below keep their historical numbers. See [[FleetOps Migration Reconciliation 2026-10-07]].
 
 ## Fleet is a sub-system — CONFIRMED

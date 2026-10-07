@@ -119,8 +119,15 @@ describe("authenticated integration POST", () => {
       expect(res.status).toBe(409);
     }
     const legacyUpdate = await send({ contract_version: 2, external_request_id: "123", external_revision: 2, event_id: "evt-old-shape", event_kind: "update", request: payload }, "pos-secret");
-    expect(legacyUpdate.status).toBe(409);
+    expect(legacyUpdate.status).toBe(400);
     expect(ingestRequest).not.toHaveBeenCalled();
+  });
+  it("rejects an invalid typed correction before the unsupported-revision gate", async () => {
+    vi.stubEnv("POS_WEBHOOK_SECRET", "pos-secret");
+    const res = await send({ contract_version: 2, external_request_id: "123", external_revision: 2, event_id: "invalid-update", event_kind: "update", request: { ...typedPayload, passenger_count: 0 } }, "pos-secret");
+    expect(res.status).toBe(400);
+    expect(ingestRequest).not.toHaveBeenCalled();
+    expect(writeAudit).not.toHaveBeenCalled();
   });
   it("returns 409 when a source retries a deleted request ID", async () => {
     vi.stubEnv("BOOKING_WEBHOOK_SECRET", "pms-secret");

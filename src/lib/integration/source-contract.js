@@ -28,9 +28,9 @@ export function normalizeInboundEnvelope(raw, authenticatedSource) {
   }
   const parsed = v2.parse(raw);
   if (parsed.event_kind !== "cancel" && !parsed.request) throw new Error("request is required");
-  // Unsupported revisions are rejected by the route; do not impose create-only
-  // shape on an update that the server deliberately does not process.
-  const request = parsed.event_kind === "create"
+  // Updates carry the same complete typed snapshot as creates, not an unchecked
+  // partial patch. Validation does not authorize persistence or a Fleet transition.
+  const request = parsed.event_kind !== "cancel"
     ? parseV2TransportationRequest({ ...parsed.request, external_booking_id: parsed.external_request_id, source_system })
     : null;
   return { ...parsed, source_system, request };

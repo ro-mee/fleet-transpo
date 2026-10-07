@@ -13,6 +13,50 @@ const v2Create = (value) => normalizeInboundEnvelope({
 }, "PMS").request;
 
 describe("authenticated inbound source contract", () => {
+  it("normalizes a complete passenger correction using authenticated identity", () => {
+    const out = normalizeInboundEnvelope({
+      contract_version: 2, external_request_id: " request-123 ", external_revision: 2,
+      event_id: "correction-2", event_kind: "update", source_system: "PMS",
+      request: { ...typedRequest, external_booking_id: "forged-id", source_system: "PMS", passenger_count: 4, priority: "Normal" },
+    }, "POS");
+    expect(out).toMatchObject({
+      source_system: "POS", external_request_id: " request-123 ", external_revision: 2,
+      event_id: "correction-2", event_kind: "update",
+      request: { external_booking_id: " request-123 ", source_system: "POS", passenger_count: 4, load_type: "Passenger", priority: "Medium", pickup_datetime: "2026-10-05T02:00:00.000Z" },
+    });
+  });
+
+  it("retains normalized cargo correction details and review-only endpoint proposals", () => {
+    const out = normalizeInboundEnvelope({
+      contract_version: 2, external_request_id: "cargo-123", external_revision: 3,
+      event_id: "correction-3", event_kind: "update",
+      request: { ...request, load_type: "Cargo", service_code: "HOTEL_SUPPLY_TRANSFER", cargo_weight_kg: 900, cargo_description: "  Linen  ", passenger_count: 0,
+        pickup_location_code: "74DD0286-7124-4123-AE99-6896C82348CB",
+        dropoff_location_proposal: { address: "  Service gate  ", latitude: 14.5, longitude: 121 } },
+    }, "PMS");
+    expect(out.request).toMatchObject({
+      passenger_count: null, cargo_weight_kg: 900, cargo_description: "Linen",
+      pickup_location_code: "74dd0286-7124-4123-ae99-6896c82348cb",
+      dropoff_location_proposal: { address: "Service gate", latitude: 14.5, longitude: 121 },
+    });
+  });
+
+  it.each([
+    { ...typedRequest, passenger_count: 0 },
+    { ...typedRequest, passenger_count: undefined },
+    { ...typedRequest, service_code: "HOTEL_SUPPLY_TRANSFER" },
+    { ...typedRequest, pickup_location_code: "unverified-place" },
+    { ...typedRequest, dropoff_location_proposal: { latitude: 14.5 } },
+    { ...request, load_type: "Cargo", service_code: "RESTAURANT_SUPPLY_PICKUP", cargo_weight_kg: -1, cargo_description: "Produce" },
+    { ...request, load_type: "Cargo", service_code: "RESTAURANT_SUPPLY_PICKUP", cargo_weight_kg: 650, cargo_description: "" },
+    { passenger_count: 4 },
+  ])("rejects invalid or partial correction snapshots: %o", (correction) => {
+    expect(() => normalizeInboundEnvelope({
+      contract_version: 2, external_request_id: "123", external_revision: 2,
+      event_id: "update-2", event_kind: "update", request: correction,
+    }, "POS")).toThrow();
+  });
+
   it("maps legacy PMS booking IDs without trusting a forged source", () => {
     const out = normalizeInboundEnvelope({ ...request, external_booking_id: "123", source_system: "POS" }, "PMS");
     expect(out).toMatchObject({ contract_version: 1, source_system: "PMS", external_request_id: "123", external_revision: 1, event_kind: "create" });

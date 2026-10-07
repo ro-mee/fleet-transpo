@@ -11,6 +11,10 @@ last_verified: 2026-10-07
 
 # Request Lifecycle
 
+## Partner correction validation checkpoint — 2026-10-07
+
+V2 updates now retain and validate a complete passenger/cargo request snapshot with authenticated identity, normalized date/priority and checked location-code/proposal shape. Partial patches and malformed snapshots reject. This is boundary validation only: push still refuses valid updates/cancels with 409; pull still counts valid unsupported revisions as skipped/rejected. Invalid updates return push 400 or pull malformed-item skipped-only; subsequent items continue. No Fleet request, dispatch, trip or route history changes. The user chose to hold newer revisions until missing versions arrive; durable events/revisions, enforcement and committed-trip dispatcher review remain Task 1 work. Focused integration tests passed 10 files / 122 tests after observed contract/route RED; full suite passed 313 files / 3,739 tests and strict lint passed. See [[System Boundaries]].
+
 The end-to-end path of one guest transport request, and **the three state machines it passes through**. This is the note to read if you only read one workflow note.
 
 ## The chain

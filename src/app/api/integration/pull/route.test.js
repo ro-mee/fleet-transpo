@@ -122,3 +122,18 @@ it("reports unsupported v2 revisions and continues through the batch", async () 
   });
   expect(ingestRequest).toHaveBeenCalledTimes(1);
 });
+
+it("skips an invalid correction without ingesting it or losing the following create", async () => {
+  getGateway.mockReturnValue({
+    name: "mock",
+    fetchPendingRequests: async () => [
+      { ...MOCK_INCOMING[0], external_revision: 2, event_kind: "update", request: { ...MOCK_INCOMING[0].request, cargo_weight_kg: -1 } },
+      MOCK_INCOMING[1],
+    ],
+  });
+  const response = await POST(new Request("http://localhost/api/integration/pull", { method: "POST" }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ ingested: 1, skipped: 1, rejected: 0, rejectionCodes: {} });
+  expect(ingestRequest).toHaveBeenCalledTimes(1);
+  expect(ingestRequest.mock.calls[0][0]).toMatchObject({ external_booking_id: "pms-passenger", source_system: "PMS" });
+});
