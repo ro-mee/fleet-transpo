@@ -8,13 +8,16 @@ source:
   - src/services/reservation-lifecycle.service.js
   - src/lib/scheduling/reservation-state.js
   - src/lib/scheduling/priority.js
-last_verified: 2026-09-08
+  - src/components/reservations/ai-recommendation-panel.jsx
+  - src/components/reservations/historic-recommendation-summary.jsx
+  - src/lib/dispatch/decision.js
+last_verified: 2026-10-02
 related: ["[[Dispatch]]", "[[System Boundaries]]"]
 ---
 
 # Feature: Reservations
 
-## Dispatch Copilot audit correction wave — 2026-10-07 (adversarial review fixes, uncommitted)
+## Dispatch Copilot audit correction wave — 2026-10-07 (adversarial review fixes, `bafd6c5a`)
 
 Thirteen concrete defects from the adversarial re-review are fixed without new scope: undeclared `Button size="xs"` + sub-44px Recheck/Change/Retry controls now use declared `size="sm"` with `min-h-[44px]`; committed-trip status icons move from `*-600` to `*-700` inks with the idle In Progress pulse removed (contrast test now pins both); blocked inspector rows no longer promise a missing Review button (note points to conversation Review Evidence); trip-details missing status falls back to optimistic Assigned, never terminal Completed; queue distance drops the m/km heuristic (km contract per routes page, NaN-safe); hero actions stack full-width below `sm`; decision dock region loses its extra tab stop; committed suggestions shrink to the status-only question the route actually answers; Reset also gates on pending selection revalidation. Verification: focused 13-file set GREEN (68 + 73 + 68 + 24 across four runs, incl. updated hero/dock/suggestion pins), touched-file ESLint `--max-warnings 0` clean, `git diff --check` clean; full `npm run test:run` 3662/3668 with the same 6 pre-existing-on-main unrelated failures (standby ×2, upload-storage, auth-session, no-legacy-role, driver-assignments — none in touched paths); production build not re-run here (missing `NEXT_PUBLIC_SUPABASE_URL` env; Task 9's build stands). Browser acceptance stays PENDING.
 
@@ -29,6 +32,19 @@ After a successful queue assignment, the returned status and resource IDs stay v
 ## Dispatch Copilot audit follow-up: saved-selection Recheck — 2026-10-02
 
 When a dispatcher rechecks a saved pair, the panel invalidates the old check, refetches recommendation evidence first, and rederives by saved pair key from the fresh response. A prior request error/incomplete snapshot is recoverable only if the refreshed evidence is complete and the pair remains selectable. Failed/incomplete refreshed evidence or a missing, blocked, unavailable, or cleared selection never reuses the old check. In queue mode, successful reanalysis still triggers a post-analysis recommendation refetch; a queue proposal marked incomplete remains non-current, while saved selection can be cleared after analysis failure. Verification: 74/74 focused Task 2 tests, touched-file ESLint and `git diff --check` pass. Post-fix review found no Critical/Important issues and scoped source/test commit `8d4f19e8` is complete. One Minor duplicate-control finding spans two edge-state combinations and is deferred to final whole-branch review; production build and authenticated browser acceptance remain for Tasks 9–10.
+## Dispatch Copilot audit remediation — Task 2 (2026-10-02)
+
+Reservation recommendation and queue-proposal states distinguish current, incomplete, failed, and historic evidence. A queue proposal with `candidateEvaluationComplete: false` is not offered as a current option even if its outcome says `VERIFIED`; the request panel suppresses its option/chat/selection/confirmation context, offers queue reanalysis, and the shared confirmation policy independently rejects incomplete proposals. Queue counts and reservation-table badges classify incomplete evaluations as `Not evaluated`. Explicit Recheck invalidates old selection-check state, refreshes request evidence first, and only proceeds to queue reanalysis/checking if the selected pair remains current and selectable; queue mode retains the post-analysis refetch. A successful fresh response can recover a prior request-error/incomplete snapshot; failed/incomplete refreshed evidence or a missing, blocked, or unavailable pair cannot reuse the prior check. Plan-error states preserve the non-mutating saved-selection clear action without duplication when request evidence also fails. For first-load/incomplete recommendation data, free-text chat is disabled so the conversation endpoint cannot expose a separate evaluation while the panel is unknown. Failed refreshes retain cached facts only in a visibly historic, read-only summary.
+
+Verification: focused panel, evidence-drawer, dispatch-decision, and queue-workspace suites passed 74/74; touched-file ESLint and `git diff --check` passed. Post-fix review found no Critical/Important regressions and scoped source/test commit `8d4f19e8` is complete. One Minor duplicate-control finding spans two edge-state combinations and is deferred to final whole-branch review; full browser/build checks remain pending.
+
+## Dispatch Copilot audit follow-up: committed lifecycle display — 2026-10-02
+
+After a successful queue assignment, the returned status and resource IDs remain visible over stale list/locked-request data until the same request has a committed or terminal status in the refreshed queue; the selected row remains isolated while Copilot is busy. Assigned/In Progress requests disable recommendation refresh, choices, and assignment controls while allowing read-only questions only when `reservations:recommend` is permitted; Completed/Cancelled requests have no composer. Conversation POSTs preserve auth, validation, and the existing response shape, load the request, then return server-derived status/IDs without recommendation/radar/ranking/proof/LLM work or fresh choices. Missing IDs remain unavailable; client IDs are never assignment truth; Pending behavior is unchanged, and authorized dispatch detail remains the reassignment path. Verification reported 182/182 tests across 10 suites, touched-file ESLint and `git diff --check` passed; production build/browser acceptance remain pending. Commit `21ba8efd` contains the scoped source/test changes; independent review found no Critical/Important issues, with two Minor observations deferred.
+
+## Queue tab label — 2026-10-02
+
+Per the requested shorter copy, the reservation queue tab now displays **Today** and its empty state says **Nothing today**. The underlying Manila-date predicate remains `pickup_datetime <= today`, so overdue requests remain in this work group; the tab tooltip still says "Pickup today or already past." The loading/count accessible names follow the shorter tab label. Verification: all 5 focused queue page tests passed and scoped ESLint passed.
 
 ## Manual Analyze controls removed - 2026-09-15
 
@@ -239,6 +255,8 @@ Four reported queue/request symptoms, all verified against the code and a read-o
 
 `QUEUE_TAB_PREDICATES.today` is `pickup_datetime <= today (Asia/Manila)` — today **or already past**. The vault already documented that as intentional dispatcher work grouping; the tab's bare word "Today" hid it, so a request dated the 15th under "Today (6)" read as a bug. The tab is now **Today & overdue**, with a tooltip and an `aria-label` that spell out the filter, and the empty state reads "Nothing today or overdue".
 
+The 2026-10-02 label request supersedes the visible wording described in the paragraph above; the predicate and tooltip remain as described. See "Queue tab label" above.
+
 The count badge and the highlight were two more honesty defects:
 
 - `counts[id] || 0` rendered `(0)` until the first response landed, which claims an empty queue. Badges now render `(…)` and announce "count loading" while `!countsReady`. `queueTabBadges()` in `src/lib/scheduling/smart-default-tab.js` returns `null` — not `0` — for "not loaded".
@@ -259,3 +277,7 @@ The mutation also invalidated only `["reservations"]`, which matches **no query 
 ### Verification
 
 `src/lib/scheduling/smart-default-tab.test.js` (+9), a new `src/app/(dashboard)/reservations/queue/page.test.js` (5), `src/lib/integration/ingest-outcome.test.js` (5), plus the touched-file ESLint and production build. Full suite 3484 passed / 6 failed, the six being the pre-existing failures already recorded for 2026-10-01.
+
+## Dispatcher next-30-minute pickup filter - 2026-10-03
+
+The queue accepts `filter=departing-soon` alongside its Today tab. The API applies the open-request, missing-vehicle-or-driver, and exact `[NOW(), NOW() + 30 minutes]` pickup predicate before both the row query and total count. The dashboard deep-link therefore opens a paginated view whose rows and count come from the same SQL set. This filter is separate from Today, which still intentionally includes overdue requests in Asia/Manila.

@@ -597,8 +597,8 @@ export const COACH_MARK_MILESTONES = {
       {
         id: "tour.incident.submit",
         targetId: "incident.submit",
-        title: "4. Send Emergency Report",
-        body: "Tap Send Emergency Report to practice sending the alert. In tutorial mode, no real incident is sent.",
+        title: "4. Send Incident Report",
+        body: "Tap Send Incident Report to preview the report flow. In tutorial mode, no real incident is sent.",
         actionText: "Tap Submit",
         canSkip: true,
         interaction: "passthrough",

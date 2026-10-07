@@ -15,8 +15,9 @@
 #   - GitHub disables scheduled workflows after 60 days without repository
 #     activity, so a quiet repo stops reminding anyone.
 # A production deployment wants a real cron (platform cron, systemd timer, or a
-# hosted scheduler) with the same secret and URL. vercel.json carries the same
-# two paths for if/when the app returns to Vercel (per-minute needs Pro).
+# hosted scheduler) with the same secret and URL. vercel.json cron schedules
+# were removed 2026-10-03 — Vercel Hobby caps cron at one run per day, so
+# "* * * * *" failed deployment. A return to Vercel needs Pro for per-minute.
 #
 # Required repository secrets: APP_BASE_URL (public origin, no trailing slash),
 # CRON_SECRET (same value as the app's production CRON_SECRET env var).

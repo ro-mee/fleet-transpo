@@ -41,7 +41,7 @@ export async function GET(req, props) {
     const { rows } = await query(
       `SELECT i.incident_id, i.driver_id, i.vehicle_id, i.trip_id, i.incident_type,
               i.incident_date, i.description, i.location, i.latitude, i.longitude,
-              i.severity, i.status, i.actions_taken, i.created_at, i.updated_at,
+              i.severity, i.severity_assessment, i.status, i.actions_taken, i.created_at, i.updated_at,
               i.acknowledged_at, i.acknowledged_by, i.resolved_at, i.resolved_by,
               i.grounding_status, i.grounding_completed_at, i.grounding_error,
               i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,

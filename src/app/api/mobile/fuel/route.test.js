@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   requireDriver: vi.fn(async () => ({ user: { employeeId: 8, driverId: 4 } })),
   writeAudit: vi.fn(async () => ({ log_id: 1 })),
   signFuelReceipt: vi.fn(async (row) => row),
+  getFuelPolicy: vi.fn(async () => ({ maxPricePerLiter: 120, strictFuelTypeMatching: false })),
+  fuelTypeMismatch: vi.fn(() => false),
+  computeFuelFlags: vi.fn(() => ({})),
 }));
 
 vi.mock("@/lib/db", () => ({ query: mocks.query, withTransaction: mocks.withTransaction }));
@@ -14,6 +17,7 @@ vi.mock("@/lib/api/utils", async () => {
   return { ...actual, requireDriver: mocks.requireDriver };
 });
 vi.mock("@/lib/audit", () => ({ writeAudit: mocks.writeAudit }));
+vi.mock("@/services/fuel-settings.service", () => ({ getFuelPolicy: mocks.getFuelPolicy }));
 vi.mock("@/lib/fuel/receipt-storage", () => ({
   isOwnedFuelReceiptUrl: vi.fn(() => true),
   toStoredReceiptRef: vi.fn(() => "4/receipt.jpg"),
@@ -23,10 +27,10 @@ vi.mock("@/lib/fuel/request-policy", () => ({
   ACTIVE_FUEL_TRIP_STATUSES: ["In Progress"],
   fuelFulfillmentError: vi.fn(() => null),
   fuelTankCapacityError: vi.fn(() => null),
-  fuelTypeMismatch: vi.fn(() => false),
+  fuelTypeMismatch: mocks.fuelTypeMismatch,
 }));
 vi.mock("@/lib/fuel/transaction-integrity", () => ({
-  computeFuelFlags: vi.fn(() => ({})),
+  computeFuelFlags: mocks.computeFuelFlags,
   detectDuplicateReceipt: vi.fn(async () => ({ exact: false, possible: false })),
 }));
 
@@ -55,6 +59,8 @@ function request() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.getFuelPolicy.mockResolvedValue({ maxPricePerLiter: 120, strictFuelTypeMatching: false });
+  mocks.fuelTypeMismatch.mockReturnValue(false);
   duplicateRecord = null;
   mocks.query.mockResolvedValue({ rows: [{ trip_id: 90, vehicle_id: 33, fuel_type: "Diesel", mileage: 1200, tank_capacity_l: 80, fuel_level: 20 }] });
   tx = {
@@ -87,5 +93,16 @@ describe("POST /api/mobile/fuel audit idempotency", () => {
     const retry = await POST(request());
     expect(retry.status).toBe(201);
     expect(mocks.writeAudit).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the configured price ceiling and rejects a strict fuel type mismatch", async () => {
+    mocks.getFuelPolicy.mockResolvedValue({ maxPricePerLiter: 95, strictFuelTypeMatching: false });
+    expect((await POST(request())).status).toBe(201);
+    expect(mocks.computeFuelFlags).toHaveBeenCalledWith(expect.objectContaining({ maxPricePerLiter: 95 }));
+
+    mocks.getFuelPolicy.mockResolvedValue({ maxPricePerLiter: 95, strictFuelTypeMatching: true });
+    mocks.fuelTypeMismatch.mockReturnValue(true);
+    expect((await POST(request())).status).toBe(409);
+    expect(mocks.withTransaction).toHaveBeenCalledTimes(1);
   });
 });

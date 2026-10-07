@@ -1,7 +1,8 @@
 import { apiFetch } from "@/lib/api/client";
 
-export async function getSystemHealth() {
-  return apiFetch("/api/system/health");
+export async function getSystemHealth(timeframe = "24h") {
+  const query = timeframe ? `?timeframe=${encodeURIComponent(timeframe)}` : "";
+  return apiFetch(`/api/system/health${query}`);
 }
 
 export async function retryPushDelivery() {

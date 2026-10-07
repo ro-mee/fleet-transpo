@@ -20,4 +20,18 @@ describe("getNotificationHref", () => {
     expect(getNotificationHref({ reference_type: "leave_request", reference_id: 1 }, "driver"))
       .toBe("/driver/schedule");
   });
+
+  it("resolves a mechanic vehicle tap to null — no /mechanic/vehicles/:id route exists", () => {
+    // Mark-read fallback, matching the file's null convention: a tap must
+    // fall through to marking read instead of triggering a guard redirect.
+    expect(getNotificationHref({ reference_type: "vehicle", reference_id: 7 }, "mechanic"))
+      .toBeNull();
+  });
+
+  it("rejects cross-role explicit links instead of bypassing the guard", () => {
+    expect(getNotificationHref({ reference_type: "maintenance", reference_id: 5, link: "/fleet/vehicles/5" }, "mechanic"))
+      .toBeNull();
+    expect(getNotificationHref({ reference_type: "mechanic_maintenance", reference_id: 5, link: "/mechanic/work-orders/5" }, "mechanic"))
+      .toBe("/mechanic/work-orders/5");
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getAppErrors, getAppError } from "@/services/errors.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +28,10 @@ import {
   RotateCcw,
   Download,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   MonitorSmartphone,
   Server,
   Smartphone,
@@ -79,27 +83,55 @@ export default function SystemErrorsPage() {
   const [expanded, setExpanded] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["app-errors", applied],
     queryFn: () => getAppErrors({ ...applied, limit: 200 }),
   });
 
-  const groups = data?.groups ?? [];
+  const groups = useMemo(() => data?.groups ?? [], [data?.groups]);
   const total = data?.total ?? 0;
   const occurrences = groups.reduce((sum, g) => sum + (Number(g.occurrences) || 0), 0);
   const latest = groups.length
     ? groups.reduce((a, b) => (new Date(a.last_seen) > new Date(b.last_seen) ? a : b)).last_seen
     : null;
 
+  const totalGroups = groups.length;
+  const pageCount = Math.max(1, Math.ceil(totalGroups / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), pageCount);
+
+  const visibleStart = totalGroups ? (safeCurrentPage - 1) * pageSize + 1 : 0;
+  const visibleEnd = Math.min(safeCurrentPage * pageSize, totalGroups);
+
+  const paginatedGroups = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return groups.slice(start, start + pageSize);
+  }, [groups, safeCurrentPage, pageSize]);
+
+  const pageNumbers = useMemo(() => {
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+
+    const pages = new Set([1, pageCount, safeCurrentPage - 1, safeCurrentPage, safeCurrentPage + 1]);
+    const orderedPages = [...pages].filter((page) => page >= 1 && page <= pageCount).sort((a, b) => a - b);
+
+    return orderedPages.flatMap((page, index) => {
+      const previousPage = orderedPages[index - 1];
+      return index && page - previousPage > 1 ? ["ellipsis-" + page, page] : [page];
+    });
+  }, [pageCount, safeCurrentPage]);
+
   const applyFilters = () => {
     setApplied({ ...filters });
     setExpanded(null);
+    setCurrentPage(1);
   };
   const resetFilters = () => {
     setFilters({ source: "", from: "", to: "" });
     setApplied({});
     setExpanded(null);
+    setCurrentPage(1);
   };
 
   const [groupEvents, setGroupEvents] = useState({});
@@ -236,8 +268,30 @@ export default function SystemErrorsPage() {
       </Card>
 
       <Card className="rounded-3xl border-border/70 overflow-hidden">
-        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between gap-4 flex-wrap">
           <CardTitle className="text-sm font-bold">Occurrences by fingerprint</CardTitle>
+          {totalGroups > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-foreground-muted font-medium">Per page:</span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(val) => {
+                  setPageSize(Number(val));
+                  setCurrentPage(1);
+                  setExpanded(null);
+                }}
+              >
+                <SelectTrigger className="h-8 w-20 rounded-xl text-xs bg-surface border border-border/80 text-foreground px-2.5 font-semibold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
@@ -262,86 +316,176 @@ export default function SystemErrorsPage() {
               size="compact"
             />
           ) : (
-            <div className="divide-y divide-border/60">
-              {groups.map((g) => {
-                const fp = g.fingerprint;
-                const isOpen = expanded === fp;
-                const ge = groupEvents[fp];
-                const sampleSource = String(fp).split("|")[0];
-                const meta = sourceMeta(sampleSource);
-                const SourceIcon = meta.icon;
-                return (
-                  <div key={fp}>
-                    <button
-                      onClick={() => toggleGroup(fp)}
-                      className="w-full px-6 py-4 hover:bg-muted/40 transition-all flex items-center gap-3.5 text-left cursor-pointer"
-                    >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background">
-                        <SourceIcon className="h-4 w-4 text-foreground-secondary" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2 flex-wrap">
-                          <Badge className={cn("rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0 border", meta.badge)}>
-                            {meta.label}
-                          </Badge>
-                          <Badge variant="secondary" className="rounded-full px-3 py-0.5 text-[10px] font-bold tabular-nums shrink-0">
-                            {g.occurrences} occurrence{g.occurrences === 1 ? "" : "s"}
-                          </Badge>
+            <>
+              <div className="divide-y divide-border/60">
+                {paginatedGroups.map((g) => {
+                  const fp = g.fingerprint;
+                  const isOpen = expanded === fp;
+                  const ge = groupEvents[fp];
+                  const sampleSource = String(fp).split("|")[0];
+                  const meta = sourceMeta(sampleSource);
+                  const SourceIcon = meta.icon;
+                  return (
+                    <div key={fp}>
+                      <button
+                        onClick={() => toggleGroup(fp)}
+                        className="w-full px-6 py-4 hover:bg-muted/40 transition-all flex items-center gap-3.5 text-left cursor-pointer"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background">
+                          <SourceIcon className="h-4 w-4 text-foreground-secondary" />
                         </span>
-                        <span className="mt-1 block truncate text-sm font-semibold text-foreground tracking-tight">
-                          {g.sample || fp}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-2 flex-wrap">
+                            <Badge className={cn("rounded-full px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0 border", meta.badge)}>
+                              {meta.label}
+                            </Badge>
+                            <Badge variant="secondary" className="rounded-full px-3 py-0.5 text-[10px] font-bold tabular-nums shrink-0">
+                              {g.occurrences} occurrence{g.occurrences === 1 ? "" : "s"}
+                            </Badge>
+                          </span>
+                          <span className="mt-1 block truncate text-sm font-semibold text-foreground tracking-tight">
+                            {g.sample || fp}
+                          </span>
+                          <span className="mt-0.5 flex items-center gap-1.5 text-xs text-foreground-muted">
+                            <Clock className="h-3 w-3" />
+                            First {formatTime(g.first_seen)} · Last {formatTime(g.last_seen)}
+                          </span>
                         </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-xs text-foreground-muted">
-                          <Clock className="h-3 w-3" />
-                          First {formatTime(g.first_seen)} · Last {formatTime(g.last_seen)}
-                        </span>
-                      </span>
-                      <ChevronDown className={cn("h-4 w-4 shrink-0 text-foreground-muted transition-transform", isOpen && "rotate-180")} />
-                    </button>
-                    {isOpen && (
-                      <div className="border-t border-border/60 bg-muted/20 px-6 py-3 space-y-2">
-                        {!ge || ge.loading ? (
-                          <div className="space-y-2 py-1">
-                            <Skeleton className="h-12 w-full rounded-xl" />
-                            <Skeleton className="h-12 w-full rounded-xl" />
-                          </div>
-                        ) : ge.failed ? (
-                          <p className="text-xs text-danger font-medium py-2">
-                            Could not load events.{" "}
-                            <button onClick={() => toggleGroup(fp)} className="underline cursor-pointer">Retry</button>
-                          </p>
-                        ) : ge.rows.length === 0 ? (
-                          <p className="text-xs text-foreground-muted py-2">No events in this window.</p>
-                        ) : (
-                          ge.rows.map((ev) => (
-                            <div key={ev.error_id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface px-4 py-2.5">
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-semibold text-foreground">{ev.message}</p>
-                                <p className="mt-0.5 text-[11px] text-foreground-muted font-data">
-                                  {formatTime(ev.created_at)}
-                                  {ev.route ? ` · ${ev.route}` : ""}
-                                  {ev.reporter_email ? ` · ${ev.reporter_email}` : ""}
-                                </p>
-                              </div>
-                              {ev.has_stack ? (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openDetail(ev.error_id)}
-                                  className="rounded-full h-8 px-3.5 text-[11px] font-semibold shrink-0 cursor-pointer"
-                                >
-                                  Stack
-                                </Button>
-                              ) : null}
+                        <ChevronDown className={cn("h-4 w-4 shrink-0 text-foreground-muted transition-transform", isOpen && "rotate-180")} />
+                      </button>
+                      {isOpen && (
+                        <div className="border-t border-border/60 bg-muted/20 px-6 py-3 space-y-2">
+                          {!ge || ge.loading ? (
+                            <div className="space-y-2 py-1">
+                              <Skeleton className="h-12 w-full rounded-xl" />
+                              <Skeleton className="h-12 w-full rounded-xl" />
                             </div>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                          ) : ge.failed ? (
+                            <p className="text-xs text-danger font-medium py-2">
+                              Could not load events.{" "}
+                              <button onClick={() => toggleGroup(fp)} className="underline cursor-pointer">Retry</button>
+                            </p>
+                          ) : ge.rows.length === 0 ? (
+                            <p className="text-xs text-foreground-muted py-2">No events in this window.</p>
+                          ) : (
+                            ge.rows.map((ev) => (
+                              <div key={ev.error_id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-surface px-4 py-2.5">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-[13px] font-semibold text-foreground">{ev.message}</p>
+                                  <p className="mt-0.5 text-[11px] text-foreground-muted font-data">
+                                    {formatTime(ev.created_at)}
+                                    {ev.route ? ` · ${ev.route}` : ""}
+                                    {ev.reporter_email ? ` · ${ev.reporter_email}` : ""}
+                                  </p>
+                                </div>
+                                {ev.has_stack ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => openDetail(ev.error_id)}
+                                    className="rounded-full h-8 px-3.5 text-[11px] font-semibold shrink-0 cursor-pointer"
+                                  >
+                                    Stack
+                                  </Button>
+                                ) : null}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* ── Pagination Footer ── */}
+              {totalGroups > 0 && (
+                <div className="flex flex-col gap-3 px-6 py-4 border-t border-border/60 bg-surface sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-xs font-semibold text-foreground-secondary">
+                    Showing <span className="font-bold text-foreground">{visibleStart}–{visibleEnd}</span> of <span className="font-bold text-foreground">{totalGroups}</span> error groups
+                  </span>
+                  {pageCount > 1 && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">
+                        Page {safeCurrentPage} of {pageCount}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="First page"
+                        onClick={() => {
+                          setCurrentPage(1);
+                          setExpanded(null);
+                        }}
+                        disabled={safeCurrentPage === 1}
+                        className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                      >
+                        <ChevronsLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Previous page"
+                        onClick={() => {
+                          setCurrentPage((p) => Math.max(1, p - 1));
+                          setExpanded(null);
+                        }}
+                        disabled={safeCurrentPage === 1}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      {pageNumbers.map((p) => {
+                        if (typeof p === "string") {
+                          return <span key={p} className="px-1 text-xs text-foreground-muted">…</span>;
+                        }
+                        const isActive = safeCurrentPage === p;
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => {
+                              setCurrentPage(p);
+                              setExpanded(null);
+                            }}
+                            className={cn(
+                              "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                              isActive
+                                ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
+                                : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
+                            )}
+                          >
+                            {p}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        aria-label="Next page"
+                        onClick={() => {
+                          setCurrentPage((p) => Math.min(pageCount, p + 1));
+                          setExpanded(null);
+                        }}
+                        disabled={safeCurrentPage === pageCount}
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Last page"
+                        onClick={() => {
+                          setCurrentPage(pageCount);
+                          setExpanded(null);
+                        }}
+                        disabled={safeCurrentPage === pageCount}
+                        className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                      >
+                        <ChevronsRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

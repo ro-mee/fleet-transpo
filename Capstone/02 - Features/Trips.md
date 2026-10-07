@@ -18,6 +18,10 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Dispatcher vehicle field labels — 2026-10-03
+
+Trip detail labels `vehicles.model` as **Model** and `vehicles.vehicle_name` as **Vehicle type/name**, matching the Fleet vehicle form's “Vehicle Type / Name” field. This avoids implying that `vehicle_name` is an individual unit identifier. It does not change vehicle data; any disputed master value still requires confirmation from its owner. The dispatcher live-use follow-up uses vehicle 37 (`model=Hiace`, `vehicle_name=SUV`) as the example. See [[Dispatcher Live Use-Case Remediation Plan]].
+
 ## What it does
 
 Records what actually happened: start odometer, GPS positions, arrival, completion odometer.
@@ -170,6 +174,10 @@ Introduced status-aware empty states across the Driver Companion Trips tab (`mob
   - `mobile/lib/duty-empty-states.test.js` (7 tests passing)
   - `mobile/lib/trips-empty-state.test.js` (4 tests passing)
   - ESLint clean on all touched files.
+
+## Dispatcher no-start signal - 2026-10-03
+
+`PRE_START_TRIP_STATUSES` in `src/lib/scheduling/trip-state.js` is the shared list of statuses supported by the mobile accept-and-start flow. The start-window notification scan now includes assigned trips in those statuses, so a driver who has not yet accepted can still trigger the existing overdue driver/dispatcher alert at `latest_start` (scheduled pickup). Dashboard, Calendar, and Trip detail also show a derived due/no-start warning. These signals never change stored trip or dispatch state.
 
 ## Related
 

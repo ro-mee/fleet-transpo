@@ -16,7 +16,8 @@ import {
 } from "@/lib/dispatch-policy";
 import { cn } from "@/lib/utils";
 import { HeroHeader } from "@/components/ui/hero-header";
-import { Send, TriangleAlert, Timer, Star, Plus, X } from "lucide-react";
+import { Send, TriangleAlert, Timer, Star, Plus, X, Clock } from "lucide-react";
+import { WorkShiftPolicyCard } from "@/components/settings/work-shift-policy-card";
 
 // Dispatch policy editor.
 //
@@ -288,21 +289,33 @@ export default function DispatchSettingsPage() {
   });
 
   return (
-    <div className="space-y-6 pb-12 w-full select-none">
+    <div className="space-y-8 pb-12 w-full select-none">
       <HeroHeader
         icon={Send}
         title="Dispatch Settings"
-        badge="Queue & Alerts"
-        description="Priority thresholds for the transportation queue and departure warnings for unassigned dispatches."
+        badge="Queue & Operating Hours"
+        description="Configure organizational shift operating hours, queue priority thresholds, and departure warnings."
       />
 
-      {isLoading ? (
-        <p className="p-6 text-sm text-foreground-muted">Loading policy…</p>
-      ) : (
-        // A failed GET still gets an editor seeded with the defaults, so an
-        // admin can write a fresh policy rather than staring at a blank page.
-        <PolicyForm policy={policy || DEFAULT_DISPATCH_POLICY} queryClient={queryClient} />
-      )}
+      {/* Fleet Operating Hours & Shift Baseline */}
+      <WorkShiftPolicyCard />
+
+      <div className="pt-2 border-t border-border/40">
+        <div className="mb-4">
+          <h3 className="text-sm font-black uppercase tracking-wider text-foreground-secondary">
+            Queue &amp; Departure Alerts
+          </h3>
+          <p className="text-xs text-foreground-muted mt-0.5">
+            Operational priority levels and unassigned dispatch alerts.
+          </p>
+        </div>
+
+        {isLoading ? (
+          <p className="p-6 text-sm text-foreground-muted">Loading policy…</p>
+        ) : (
+          <PolicyForm policy={policy || DEFAULT_DISPATCH_POLICY} queryClient={queryClient} />
+        )}
+      </div>
     </div>
   );
 }

@@ -187,8 +187,7 @@ export default function ReservationsPage() {
         cell: (info) => {
           const st = info.getValue();
           const r = info.row.original;
-          const label =
-            st?.service_name || r.vehiclecategories?.category_name || r.requested_vehicle_type;
+          const label = st?.service_name || "Transfer";
           return label ? (
             <span className="flex items-center gap-1.5 text-xs font-medium text-foreground-secondary">
               <Building className="h-3.5 w-3.5 text-foreground-muted" />
@@ -315,7 +314,7 @@ export default function ReservationsPage() {
         { label: "Pickup", key: "pickup_datetime" },
         { label: "Passengers", key: "passenger_count" },
         { label: "Priority", key: "priority" },
-        { label: "Service", accessor: (r) => r.service_types?.service_name || r.vehiclecategories?.category_name || r.requested_vehicle_type || "" },
+        { label: "Service", accessor: (r) => r.service_types?.service_name || "Transfer" },
         { label: "Vehicle", accessor: (r) => r.vehicles?.plate_number || "" },
         {
           label: "Driver",

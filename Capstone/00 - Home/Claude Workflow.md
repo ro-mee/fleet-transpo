@@ -4,7 +4,7 @@ title: Claude Workflow
 tags: [workflow, process, ai]
 source:
   - (this vault)
-last_verified: 2026-08-11
+last_verified: 2026-10-01
 ---
 
 # Claude Workflow
@@ -83,6 +83,10 @@ That is deliberate — the vault holds *understanding*, and understanding can't 
 | **After a Roadmap phase** | Update [[Current State]], [[Bugs]], [[Roadmap]]; write a [[Journal Index]] milestone if your understanding changed | 15 min |
 
 **The one non-negotiable:** [[Current State]] must be true. Everything else can lag a little; that note is what you and Claude both read first, so a stale line there propagates into every decision made afterwards.
+
+### Local Impeccable tooling stays out of Git — 2026-10-01
+
+The root `.impeccable/` directory (config/cache/design state) was already ignored and was never tracked. The GitHub-hosted copy — `.github/skills/impeccable/`, the four `.github/agents/impeccable-*.agent.md` files, and `.github/hooks/impeccable.json` — has now been removed from Git's index and added to `.gitignore` (**153 tracked paths**). `git rm --cached` was used so local files stay on disk; in-progress local changes remain available but ignored. Verified: zero tracked Impeccable paths remain, the local SKILL.md still exists, and no unrelated paths were staged. The removal reaches GitHub only after the staged deletions and `.gitignore` change are committed and pushed. Use named paths when committing; don't stage unrelated concurrent work.
 
 ### The failure this vault already caught
 

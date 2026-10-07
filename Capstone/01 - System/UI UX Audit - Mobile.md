@@ -372,10 +372,10 @@ Source-level audit of every modal-like surface in `mobile/`, requested as "analy
 | Odometer (Home) | `app/(app)/(tabs)/index.js:681` |
 | Logout confirm / photo sheet | `app/(app)/(tabs)/profile.js:296`, `:335` |
 | Odometer (Vehicle) | `app/(app)/(tabs)/vehicle.js:269` |
-| **Fake modals:** tour-success overlays | `app/(app)/inspection.js:594`, `app/(app)/incidents.js:599`; incidents success state `incidents.js:643` |
+| **Fake modals:** tour-success overlays | `app/(app)/inspection.js:878`, `app/(app)/incidents.js:885`; incident report-success state `incidents.js:930` |
 | Coach-mark overlay system | `components/coachmarks/CoachMarkOverlay.jsx` + `CoachMarkTooltip.jsx` + `CoachMarkProvider.jsx` |
 
-No expo-router `presentation: "modal"` routes exist. `accessibilityViewIsModal` appears exactly once in the whole app: `CoachMarkSimulationPanel.jsx:30`.
+No expo-router `presentation: "modal"` routes exist. `accessibilityViewIsModal` appears twice: `CoachMarkSimulationPanel.jsx:30` and the typed Critical confirmation in `app/(app)/incidents.js:850`.
 
 ### HIGH
 
@@ -386,7 +386,7 @@ No expo-router `presentation: "modal"` routes exist. `accessibilityViewIsModal` 
 
 ### MEDIUM
 
-5. **Fake modals are plain `absoluteFill` Views, not RN Modals** � `inspection.js:594`, `incidents.js:599`, `incidents.js:643`. Consequences: Android back pops/navigates the screen while the overlay is still up; no accessibility modality (TalkBack reads through to the content behind); no `onRequestClose` at all. Overlay zIndex also inconsistent (999 in inspection vs 100 in incidents).
+5. **Three existing fake modals are plain `absoluteFill` Views, not RN Modals** � `inspection.js:878`, `incidents.js:885`, `incidents.js:930`. Consequences: Android back pops/navigates the screen while the overlay is still up; no accessibility modality (TalkBack reads through to the content behind); no `onRequestClose` at all. Overlay zIndex also inconsistent (999 in inspection vs 100 in incidents).
 6. **Pre-trip prompt is an escape-less trap on iOS** � `MapIntroPractice.jsx:424` has a single CTA (`:447-463`, pushes `/inspection`), a backdrop that is a plain `View` (no tap-dismiss, `:430`), and `onRequestClose` (`:428`) which is Android-only. On iOS the only way out is to navigate into the inspection screen.
 7. **`statusBarTranslucent` on only 2 of 13 modals** � `AppAlert.js:146` and `profile.js:339` only. The other 11 leave the Android status bar undimmed and the modal window starting below it: a visible bright seam above every dialog, most jarring on the `license.js` black image viewer (`viewerContainer` at `:334`).
 8. **AppAlert dismissal/overflow quirks** � Android back runs `dismiss(null)` (`:147`), closing even destructive-confirm alerts without any button action; the message body has no `maxHeight`/scroll (only `maxWidth: 290`, `:348-356`) so very long server messages can push the button row off small screens (the `centred` container at `:264` has no scroll); button labels are `numberOfLines={1}` (`:237`) so a long label truncates instead of wrapping.
@@ -451,6 +451,10 @@ Rebuilt the two-step driver onboarding flow (`mobile/app/consent.js` and `mobile
 - ESLint `--max-warnings 0` on all components and screens (`mobile/components/onboarding/`, `mobile/app/consent.js`, `mobile/app/permissions.js`) exits 0 with 0 errors / 0 warnings.
 - Unit tests (`npx vitest run mobile/lib`): **36 files / 403 tests PASS** (includes `theme-scale.test.js`, `import-contract.test.js`, and all mobile test suites).
 - Dark and light mode token verification: Theme-adaptive background fills, card borders, typography contrast (>7:1 on dark mode CTA text and status badges), and glow drop shadows.
+
+## 2026-10-03 — Guided incident severity dialog
+
+The typed Critical confirmation in mobile/app/(app)/incidents.js is a React Native Modal with accessibilityViewIsModal, statusBarTranslucent, and onRequestClose, so Android Back closes the dialog and returns to the form. This adds a native modal for the Critical confirmation; the three existing tutorial/report-success absoluteFill overlays listed above remain unchanged. The new form and dialog compiled in the Android Expo export, but TalkBack, VoiceOver, and small-device layout still need manual acceptance.
 
 ---
 

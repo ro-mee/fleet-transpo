@@ -39,17 +39,38 @@ const DRIVER_ROUTES = {
   duty: () => `/driver`,
 };
 
+const MECHANIC_ROUTES = {
+  maintenance: (id) => `/mechanic/work-orders/${id}`,
+  mechanic_maintenance: (id) => `/mechanic/work-orders/${id}`,
+  incident: () => `/mechanic/problems`,
+  // No /mechanic/vehicles/:id route exists — resolve to null so a tap falls
+  // back to marking read instead of triggering a guard redirect loop.
+  vehicle: () => null,
+};
+
 /** @param {object} notification notification row (reference_type, reference_id, link) */
 export function getNotificationHref(notification = {}, role) {
   const { reference_type: type, reference_id: id, link } = notification;
 
-  if (typeof link === "string" && link.startsWith("/")) return link;
+  // Explicit links are validated against the caller's role — an unscoped
+  // passthrough would send a mechanic into staff routes (or vice versa)
+  // and trigger the guard redirect loop the null convention avoids.
+  if (typeof link === "string" && link.startsWith("/")) {
+    if (role === "mechanic") return link.startsWith("/mechanic/") || link === "/notifications" ? link : null;
+    if (role === "driver") return link.startsWith("/driver") ? link : null;
+    return getRequiredRolesForPath(link).includes(role) ? link : null;
+  }
 
   if (!type || id == null) return null;
 
   if (role === "driver") {
     return DRIVER_ROUTES[type] ? DRIVER_ROUTES[type]() : null;
   }
+
+  // Mechanic-audience rows MUST be written with reference_type
+  // "mechanic_maintenance" so staff taps on the same WO keep resolving to
+  // /fleet/vehicles/:id.
+  if (role === "mechanic") return MECHANIC_ROUTES[type] ? MECHANIC_ROUTES[type](id) : null;
 
   const build = STAFF_ROUTES[type];
   if (!build) return null;

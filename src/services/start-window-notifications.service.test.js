@@ -2,7 +2,7 @@
 // (src/services/start-window-notifications.service.js).
 //
 // Contracts pinned (implementation plan §15, every scenario):
-// - Driver Accepted ONLY is eligible (the scan SQL enforces it);
+// - assigned pre-start statuses are eligible; started/cancelled statuses are not;
 // - three thresholds with the right tier: window open (quiet Warning /
 //   heads-up channel), departure due (loud Alert / default), overdue
 //   (driver + dispatcher staff copy; management/super_admin never);
@@ -117,15 +117,24 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("loadEligibleTrips — Driver Accepted only", () => {
-  it("scans only Driver Accepted, never the earlier lifecycle states", async () => {
+describe("loadEligibleTrips — assigned pre-start trips", () => {
+  it("scans every mobile-startable pre-start status and excludes started/terminal states", async () => {
     const fn = mockQuery();
     await loadEligibleTrips();
     const sql = String(fn.mock.calls[0][0]);
-    expect(sql).toContain("trip_status = 'Driver Accepted'");
-    // The pre-acceptance states must not appear as eligibility branches.
-    expect(sql).not.toContain("'Driver Assigned'");
-    expect(sql).not.toContain("'Dispatched'");
+    expect(sql).toContain("trip_status = ANY($1::text[])");
+    expect(fn.mock.calls[0][1][0]).toEqual([
+      "Pending",
+      "Approved",
+      "Vehicle Assigned",
+      "Driver Assigned",
+      "Dispatched",
+      "Assigned",
+      "Driver Accepted",
+    ]);
+    expect(fn.mock.calls[0][1][0]).not.toContain("Trip Started");
+    expect(fn.mock.calls[0][1][0]).not.toContain("Completed");
+    expect(fn.mock.calls[0][1][0]).not.toContain("Cancelled");
   });
 
   it("a trip that started or was cancelled between scans is invisible to the scan", async () => {
@@ -135,7 +144,7 @@ describe("loadEligibleTrips — Driver Accepted only", () => {
     const out = await syncStartWindowNotifications({ now: NOW, fetchImpl: FETCH_FAIL });
     expect(out).toEqual({ created: 0, pushes_attempted: 0, skipped: 0, errors: 0, stale_locations: 0 });
     const scanSql = fn.mock.calls.map((c) => String(c[0])).find((s) => s.includes("FROM trips t"));
-    expect(scanSql).toContain("trip_status = 'Driver Accepted'");
+    expect(scanSql).toContain("trip_status = ANY($1::text[])");
   });
 });
 

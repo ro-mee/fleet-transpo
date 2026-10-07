@@ -719,7 +719,8 @@ describe('SEC-UPLOAD-006 — the license scan writes a public-style URL for a pr
     // it at the API boundary. Missing one would leave that surface binding a
     // bare key to an <img src>.
     expect(read('app/api/drivers/route.js')).toMatch(/signDriverMediaList\(filtered\)/);
-    expect(read('app/api/drivers/route.js')).toMatch(/return ok\(await signDriverMedia\(rows\[0\]\), 201\)/);
+    expect(read('app/api/drivers/route.js')).toMatch(/const created = await signDriverMedia\(rows\[0\]\)/);
+    expect(read('app/api/drivers/route.js')).toMatch(/return ok\(safeCreated, 201\)/);
     expect(read('app/api/drivers/[id]/route.js')).toMatch(/await signDriverMedia\(\{/);
     expect(read('app/api/auth/profile/route.js')).toMatch(/await signDriverMedia\(raw\)/);
     expect(read('app/api/driver/me/route.js')).toMatch(/await signDriverMedia\(driver\)/);

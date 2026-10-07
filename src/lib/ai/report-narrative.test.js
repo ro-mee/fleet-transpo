@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isDemoPayload,
+  hasNoFleetTripActivity,
   isValidReportPayload,
   isNarrativeForRange,
   isNarrativeForReport,
@@ -20,6 +21,30 @@ describe("report-narrative: demo guard", () => {
   it("does not flag real payloads", () => {
     expect(isDemoPayload({ utilization: 82 })).toBe(false);
     expect(isDemoPayload({ demo: false })).toBe(false);
+  });
+});
+
+describe("report-narrative: empty fleet activity", () => {
+  it("detects an explicit zero trip count only for the fleet report", () => {
+    expect(hasNoFleetTripActivity("fleet", { totalTrips: 0 })).toBe(true);
+    expect(hasNoFleetTripActivity("fleet", { totalTrips: "0" })).toBe(true);
+    expect(hasNoFleetTripActivity("fleet", { utilization: 0 })).toBe(false);
+    expect(hasNoFleetTripActivity("drivers", { totalTrips: 0 })).toBe(false);
+    expect(hasNoFleetTripActivity("fleet", { totalTrips: null })).toBe(false);
+  });
+
+  it("reports the observed empty window without inferring its cause", () => {
+    const output = deterministicNarrative("fleet", {
+      utilization: 0,
+      totalTrips: 0,
+      totalDistance: 0,
+      byVehicle: [{ trips: 0 }],
+    });
+
+    expect(output.narrative).toContain("No trip records appear in the selected report window");
+    expect(output.narrative).toContain("do not establish why activity is absent");
+    expect(`${output.narrative} ${output.actions.join(" ")}`).not.toContain("outage");
+    expect(output.flag).toBe(FLAG.WATCH);
   });
 });
 

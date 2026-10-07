@@ -11,6 +11,10 @@ const CATEGORY = {
   vehicle: { label: "Vehicle", chipClass: "bg-info/10 text-info" },
   driver: { label: "Driver", chipClass: "bg-info/10 text-info" },
   maintenance: { label: "Maintenance", chipClass: "bg-warning/10 text-warning" },
+  // Mechanic-audience work-order rows (Task 5 fan-out): same queue, same chip
+  // as staff maintenance — the reference_type differs only so taps resolve to
+  // the mechanic workspace instead of /fleet/vehicles/:id.
+  mechanic_maintenance: { label: "Maintenance", chipClass: "bg-warning/10 text-warning" },
   document: { label: "Document", chipClass: "bg-warning/10 text-warning" },
   uvvrp: { label: "UVVRP", chipClass: "bg-primary/10 text-primary" },
   leave_request: { label: "Leave", chipClass: "bg-secondary/10 text-secondary" },

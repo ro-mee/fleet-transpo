@@ -4,6 +4,22 @@ export function toDateInput(value, fallback = "") {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : fallback;
 }
 
+/** Manila calendar day for an instant, kept separate from date-only normalization. */
+export function manilaDateKey(value = new Date()) {
+  if (value == null) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = Object.fromEntries(parts.map(({ type, value: partValue }) => [type, partValue]));
+  return `${part.year}-${part.month}-${part.day}`;
+}
+
 /**
  * Normalize a value to a local "YYYY-MM-DD" calendar day.
  *

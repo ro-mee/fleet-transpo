@@ -59,4 +59,24 @@ describe("GET /api/vehicle-inspections/problems", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(listVehicleProblems).not.toHaveBeenCalled();
   });
+
+  // Task 4 — a mechanic sees only problems linked (via source_inspection_id)
+  // to their own assigned, non-archived work orders. Staff calls stay
+  // byte-identical (no assignee key), so the suite above keeps passing.
+  it("scopes the queue to the mechanic's own work orders", async () => {
+    requirePermission.mockResolvedValue({ user: { role: "mechanic", employeeId: 77 } });
+    listVehicleProblems.mockResolvedValue({ items: [], counts: { reportedUntracked: 0, failedUntracked: 0, tracked: 0 } });
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(listVehicleProblems).toHaveBeenCalledWith({ limit: 100, offset: 0, assignedMechanicId: 77 });
+  });
+
+  it("scopes scope=count the same way, without pulling rows", async () => {
+    requirePermission.mockResolvedValue({ user: { role: "mechanic", employeeId: 77 } });
+    countProblemCounts.mockResolvedValue({ reportedUntracked: 1, failedUntracked: 0, tracked: 2 });
+    const res = await GET(req("http://test/api/vehicle-inspections/problems?scope=count"));
+    expect(res.status).toBe(200);
+    expect(countProblemCounts).toHaveBeenCalledWith({ assignedMechanicId: 77 });
+    expect(listVehicleProblems).not.toHaveBeenCalled();
+  });
 });

@@ -23,6 +23,37 @@ export const POSITION_FRESH_MS = 5 * 60_000;
 /** Only re-notify the driver when the ETA moves at least this much. */
 export const ETA_NOTIFY_DELTA_MIN = 5;
 
+/** Summarize a candidate fix using the same freshness limit as automation. */
+export function summarizeResponderPosition(locationAt, now = Date.now()) {
+  if (locationAt == null) {
+    return {
+      last_location_update: null,
+      location_age_minutes: null,
+      location_time_ahead: false,
+      position_fresh: false,
+    };
+  }
+
+  const updatedAt = new Date(locationAt).getTime();
+  const nowMs = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  if (!Number.isFinite(updatedAt) || !Number.isFinite(nowMs)) {
+    return {
+      last_location_update: locationAt,
+      location_age_minutes: null,
+      location_time_ahead: false,
+      position_fresh: false,
+    };
+  }
+
+  const ageMs = nowMs - updatedAt;
+  return {
+    last_location_update: locationAt,
+    location_age_minutes: ageMs >= 0 ? Math.floor(ageMs / 60_000) : null,
+    location_time_ahead: ageMs < 0,
+    position_fresh: ageMs >= 0 && ageMs < POSITION_FRESH_MS,
+  };
+}
+
 const OVERSEER_ROLES = ["fleet_manager", "admin"];
 
 export { sortCandidateResponders } from "./resolution";

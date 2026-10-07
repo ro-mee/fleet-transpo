@@ -25,14 +25,18 @@ import {
   ShieldCheck,
   Bug,
   UserCog,
-  KeyRound,
   ClipboardList,
+  ClipboardCheck,
+  ChartColumnIncreasing,
   Gauge,
   Database,
   Navigation,
   AlertTriangle,
   Fingerprint,
   Activity,
+  ListTodo,
+  Layers,
+  PackageCheck,
 } from "lucide-react";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 
@@ -54,19 +58,38 @@ export const WORKS = {
     nav: [
       ...overview("/dashboard", "System Dashboard", LayoutDashboard),
       {
-        label: "Security & Access",
+        label: "Operations",
         items: [
           {
-            href: "/settings/users",
-            label: "User Management",
-            icon: UserCog,
+            href: "/operations",
+            label: "Operations",
+            icon: Layers,
             children: [
-              { href: "/settings/users", label: "All Users" },
-              { href: "/settings/users?view=privileged", label: "Privileged Accounts" },
-              { href: "/settings/users/new", label: "Add User" },
+              { href: "/fleet/vehicles", label: "Fleet & Vehicles" },
+              { href: "/drivers", label: "Driver Management" },
+              { href: "/fleet/assignments", label: "Driver Assignments" },
+              { href: "/drivers/performance", label: "Driver Performance & Feedback" },
+              { href: "/reservations", label: "Reservations" },
+              { href: "/reservations/queue", label: "Request Queue" },
+              { href: "/dispatch/calendar", label: "Dispatch" },
+              { href: "/supply-deliveries", label: "Supply Deliveries" },
+              { href: "/trips", label: "Trips" },
+              { href: "/routes", label: "Routes" },
+              { href: "/incidents", label: "Incidents" },
+              { href: "/fuel", label: "Fuel Management" },
+              { href: "/maintenance", label: "Maintenance" },
+              { href: "/tracking/live-map", label: "Live GPS Tracking" },
+              { href: "/uvvrp", label: "Number Coding" },
+              { href: "/reports", label: "Reports" },
+              { href: "/analytics", label: "Analytics" },
             ],
           },
-          { href: "/settings/security-center", label: "Security Center", icon: Fingerprint },
+        ],
+      },
+      {
+        label: "Security & Access",
+        items: [
+          { href: "/settings/users", label: "User Management", icon: UserCog },
           { href: "/system/audit", label: "Audit Logs", icon: ShieldCheck },
         ],
       },
@@ -75,13 +98,12 @@ export const WORKS = {
         items: [
           { href: "/system/health", label: "System Health", icon: Activity },
           { href: "/system/errors", label: "Error Monitoring", icon: Bug },
-          { href: "/settings/ai/logs", label: "AI & Automation Logs", icon: Database },
+          { href: "/settings/ai/logs", label: "AI Logs", icon: Database },
         ],
       },
       {
         label: "Platform",
         items: [
-          { href: "/settings/api", label: "API & Integrations", icon: KeyRound },
           { href: "/settings/ai", label: "AI Providers", icon: Brain },
           { href: "/settings/general", label: "System Configuration", icon: Settings },
         ],
@@ -90,20 +112,8 @@ export const WORKS = {
         label: "Policies",
         items: [
           { href: "/settings/dispatch", label: "Dispatch Policy", icon: Send },
+          { href: "/settings/fuel", label: "Fuel Policy", icon: Fuel },
           { href: "/settings/number-coding", label: "Number Coding Policy", icon: CalendarCheck },
-        ],
-      },
-      {
-        label: "Oversight",
-        items: [
-          { href: "/uvvrp", label: "Coding Board", icon: MapPin },
-          { href: "/reports", label: "Reports & Analytics", icon: BarChart3 },
-        ],
-      },
-      {
-        label: "Account",
-        items: [
-          { href: "/settings/profile", label: "Profile", icon: UserCog },
         ],
       },
     ],
@@ -120,7 +130,6 @@ export const WORKS = {
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
-          { href: "/drivers/leave", label: "Leave Management", icon: CalendarCheck },
           { href: "/fleet/assignments", label: "Driver Assignments", icon: UsersRound },
           { href: "/drivers/performance", label: "Driver Performance & Feedback", icon: Gauge },
         ],
@@ -131,6 +140,7 @@ export const WORKS = {
           { href: "/reservations", label: "Reservations", icon: CalendarCheck },
           { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
           { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
+          { href: "/supply-deliveries", label: "Supply Deliveries", icon: PackageCheck },
           { href: "/trips", label: "Trips", icon: ClipboardList },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
@@ -159,7 +169,6 @@ export const WORKS = {
         items: [
           { href: "/reports", label: "Reports", icon: BarChart3 },
           { href: "/analytics", label: "Analytics", icon: BarChart3 },
-          { href: "/ai/insights", label: "AI Insights", icon: Brain },
         ],
       },
       {
@@ -175,6 +184,7 @@ export const WORKS = {
               { href: "/settings/users/new", label: "Add User" },
               { href: "/settings/number-coding", label: "Number Coding" },
               { href: "/settings/dispatch", label: "Dispatch Policy" },
+              { href: "/settings/fuel", label: "Fuel Policy" },
               { href: "/notifications/templates", label: "Notification Templates" },
             ],
           },
@@ -194,18 +204,19 @@ export const WORKS = {
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
-          { href: "/drivers/leave", label: "Leave Management", icon: CalendarCheck },
-          { href: "/fleet/assignments", label: "Driver Assignments", icon: UsersRound },
+          { href: "/fleet/assignments", label: "Driver Assignments", icon: ClipboardCheck },
+          { href: "/supply-deliveries", label: "Cargo Capability", icon: PackageCheck },
         ],
       },
       {
         label: "Operations",
         items: [
           { href: "/maintenance", label: "Maintenance", icon: Wrench },
-          { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Wrench },
-          { href: "/maintenance/problems", label: "Problem Queue", icon: Wrench },
+          { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Activity },
+          { href: "/maintenance/problems", label: "Problem Queue", icon: ListTodo },
           { href: "/fuel", label: "Fuel Monitoring", icon: Fuel },
-          { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
+          { href: "/fuel/analytics", label: "Fuel Analytics", icon: ChartColumnIncreasing },
+          { href: "/settings/fuel", label: "Fuel Policy", icon: Fuel },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
@@ -232,6 +243,7 @@ export const WORKS = {
         items: [
           { href: "/reservations/queue", label: "Reservation Queue", icon: Inbox },
           { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
+          { href: "/supply-deliveries", label: "Supply Deliveries", icon: PackageCheck },
           { href: "/dispatch/availability", label: "Resource Availability", icon: Users },
           { href: "/trips", label: "Trips", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
@@ -303,7 +315,6 @@ export const WORKS = {
       {
         label: "Strategic Monitoring",
         items: [
-          { href: "/ai/insights", label: "AI Insights", icon: Brain },
           { href: "/reservations", label: "Reservations Register", icon: CalendarCheck },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
@@ -311,9 +322,29 @@ export const WORKS = {
       },
     ],
   },
+  mechanic: {
+    name: "Mechanic Workshop",
+    tagline: "Assigned repairs, findings and handover.",
+    accent: "warning",
+    home: "/mechanic",
+    nav: [
+      ...overview("/mechanic", "My Line", LayoutDashboard),
+      { label: "Maintenance", items: [
+        { href: "/mechanic/work-orders", label: "My Work Orders", icon: Wrench },
+        { href: "/mechanic/problems", label: "Problem Queue", icon: AlertTriangle },
+        { href: "/mechanic/history", label: "History", icon: ClipboardList },
+      ]},
+      { label: "Account", items: [
+        { href: "/settings/profile", label: "Profile", icon: UserCog },
+      ]},
+    ],
+  },
 };
 
 export function getWorkspace(role) {
   const normalized = normalizeRoleName(role);
-  return WORKS[normalized] || WORKS.admin;
+  if (WORKS[normalized]) return WORKS[normalized];
+  return { name: "No Access", tagline: "Contact your administrator.", accent: "neutral",
+    home: "/settings/profile",
+    nav: [{ label: "Account", items: [{ href: "/settings/profile", label: "Profile", icon: UserCog }] }] };
 }

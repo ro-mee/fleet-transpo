@@ -260,6 +260,15 @@ export async function GET(req) {
     if (sp.get("filter") === "reassignment") {
       where += ` AND ds.dispatch_status = 'Pending Reassignment'`;
     }
+    // Exact dashboard urgency set: open, unassigned requests scheduled from
+    // now through the next 30 minutes. Kept in SQL so the count and every page
+    // of the queue represent the same records.
+    if (sp.get("filter") === "departing-soon") {
+      where += ` AND ${QUEUE_NON_TERMINAL_NOT}
+                 AND (tr.vehicle_id IS NULL OR tr.driver_id IS NULL)
+                 AND tr.pickup_datetime >= NOW()
+                 AND tr.pickup_datetime <= NOW() + INTERVAL '30 minutes'`;
+    }
 
     // Free-text search across the fields a dispatcher would actually type.
     const search = sp.get("search");

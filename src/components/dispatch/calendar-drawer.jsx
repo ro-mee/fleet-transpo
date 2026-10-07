@@ -177,6 +177,13 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
             </div>
           )}
 
+          {currentEvent.noStartRecorded && (
+            <div className="flex items-center gap-2 rounded-2xl bg-rose-500/10 px-4 py-3 text-xs font-semibold text-rose-700 ring-1 ring-inset ring-rose-500/25 dark:text-rose-300">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>Pickup time is due and no trip start is recorded. The dispatch remains scheduled for review.</span>
+            </div>
+          )}
+
           {/* Pending reassignment callout — broken commitment, act now */}
           {isDispatch && currentEvent.status === "Pending Reassignment" && (
             <div className="flex items-center gap-2 rounded-2xl bg-rose-500/10 px-4 py-3 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-500/25 dark:text-rose-400">

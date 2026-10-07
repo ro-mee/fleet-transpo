@@ -45,6 +45,11 @@ next-env.d.ts
 .agents/skills
 .codex/
 .impeccable/
+# Impeccable GitHub integration is local tooling, not application source.
+# Keep the checkout on disk, but do not track its skill bundle/agents/hooks.
+/.github/skills/impeccable/
+/.github/agents/impeccable-*.agent.md
+/.github/hooks/impeccable.json
 skills-lock.json
 stitch_fleetops_driver_companion/
 

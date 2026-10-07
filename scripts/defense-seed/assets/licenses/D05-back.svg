@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="650" viewBox="0 0 1000 650" role="img" aria-label="DEMO SAMPLE NOT VALID">
+<rect width="1000" height="650" fill="#f4f7f7"/><rect x="24" y="24" width="952" height="602" rx="22" fill="white" stroke="#114a66" stroke-width="4"/>
+<rect x="24" y="24" width="952" height="134" rx="20" fill="#114a66"/><text x="52" y="90" fill="white" font-size="35" font-weight="700" font-family="Arial, sans-serif">DRIVER SAMPLE — REVERSE</text>
+<text x="52" y="132" fill="#e4eef2" font-size="21" font-family="Arial, sans-serif">Fictional training card · Back</text><text x="52" y="225" fill="#16344b" font-size="26" font-family="Arial, sans-serif">Name: Rafael Mendoza</text>
+<text x="52" y="277" fill="#16344b" font-size="26" font-family="Arial, sans-serif">Sample no.: DEMO-PH-05-2026</text>
+<text x="52" y="329" fill="#16344b" font-size="26" font-family="Arial, sans-serif">Class: B B1</text>
+<text x="52" y="381" fill="#16344b" font-size="26" font-family="Arial, sans-serif">Address: Metro Manila — DEMO ADDRESS</text>
+<g transform="translate(150 415) rotate(-16)"><text x="0" y="0" fill="#b52626" fill-opacity="0.22" font-size="79" font-weight="800" font-family="Arial, sans-serif">DEMO · SAMPLE · NOT VALID</text></g>
+<rect x="45" y="556" width="910" height="48" fill="#fce9e7"/><text x="62" y="588" fill="#8e1f1b" font-size="23" font-weight="700" font-family="Arial, sans-serif">DEMO / SAMPLE / NOT VALID · No official barcode · No government or insurer affiliation</text>
+</svg>

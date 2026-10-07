@@ -1,4 +1,5 @@
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 import { listVehicleProblems, countProblemCounts, PROBLEM_QUEUE_LIMIT } from "@/lib/inspections/problem-queue";
 
 // The office's vehicle problem queue. Read-only; resolving a row is
@@ -24,16 +25,21 @@ function boundedInt(raw, fallback, { min = 0, max } = {}) {
 
 export async function GET(req) {
   try {
-    await requirePermission(req, "maintenance", "read");
+    const session = await requirePermission(req, "maintenance", "read");
+    // Task 4 — mechanics see only problems linked to their own assigned,
+    // non-archived work orders. Staff pass no assignee key (byte-identical).
+    const scope = normalizeRoleName(session?.user?.role) === "mechanic"
+      ? { assignedMechanicId: session.user.employeeId }
+      : {};
 
     const params = new URL(req.url).searchParams;
     if (params.get("scope") === "count") {
-      return ok({ counts: await countProblemCounts() });
+      return ok({ counts: await countProblemCounts(scope) });
     }
 
     const limit = boundedInt(params.get("limit"), MAX_LIMIT, { min: 1, max: MAX_LIMIT });
     const offset = boundedInt(params.get("offset"), 0, { min: 0 });
-    return ok(await listVehicleProblems({ limit, offset }));
+    return ok(await listVehicleProblems({ limit, offset, ...scope }));
   } catch (error) {
     return handleError(error);
   }

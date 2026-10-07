@@ -2,30 +2,25 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// Pins the vercel.json cron contract: every scheduled path must map to a real
-// route handler, or deploying to Vercel would 404 on a schedule nobody notices
-// until the heartbeat goes stale again (the exact failure mode this file's
-// sibling workflow exists to prevent).
+// vercel.json cron schedules were REMOVED 2026-10-03: Vercel Hobby only allows
+// one cron run per day, so "* * * * *" / "*/5 * * * *" failed deployment. The
+// real caller is .github/workflows/cron-sync.yml (*/5 min + 5x60s loop).
+// This file pins that contract: no vercel.json crons may come back on a Hobby
+// plan, and the routes the workflow hits must stay on disk.
 const REQUIRED_PATHS = ["/api/cron/sync", "/api/cron/reconcile"];
 
-function readVercelJson() {
-  const root = fileURLToPath(new URL("../vercel.json", import.meta.url));
-  return JSON.parse(readFileSync(root, "utf8"));
-}
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 function routeFileFor(cronPath) {
-  const root = fileURLToPath(new URL("..", import.meta.url));
   return `${root}/src/app${cronPath}/route.js`;
 }
 
-describe("vercel.json crons", () => {
-  it("declares both cron endpoints on the schedules the routes document", () => {
-    const config = readVercelJson();
-    expect(Array.isArray(config.crons)).toBe(true);
-
-    const byPath = Object.fromEntries(config.crons.map((c) => [c.path, c.schedule]));
-    expect(byPath["/api/cron/sync"]).toBe("* * * * *");
-    expect(byPath["/api/cron/reconcile"]).toBe("*/5 * * * *");
+describe("cron wiring", () => {
+  it("declares no vercel.json crons (Vercel Hobby caps at one run per day)", () => {
+    const file = `${root}/vercel.json`;
+    if (!existsSync(file)) return;
+    const config = JSON.parse(readFileSync(file, "utf8"));
+    expect(config.crons ?? []).toEqual([]);
   });
 
   it.each(REQUIRED_PATHS)("cron path %s has a route handler on disk", (cronPath) => {
@@ -33,9 +28,9 @@ describe("vercel.json crons", () => {
     expect(existsSync(file), `missing route for cron path ${cronPath}: ${file}`).toBe(true);
   });
 
-  it("keeps the required paths in sync with what vercel.json schedules", () => {
-    const config = readVercelJson();
-    const paths = config.crons.map((c) => c.path).sort();
-    expect(paths).toEqual([...REQUIRED_PATHS].sort());
+  it("GitHub Actions workflow drives both cron endpoints", () => {
+    const yml = readFileSync(`${root}/.github/workflows/cron-sync.yml`, "utf8");
+    expect(yml).toContain('cron: "*/5 * * * *"');
+    for (const p of REQUIRED_PATHS) expect(yml).toContain(p);
   });
 });

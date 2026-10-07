@@ -11,9 +11,10 @@ last_verified: 2026-09-23
 
 # RBAC
 
-Role-based access control, **entirely in application code**. Six roles.
+Role-based access control, **entirely in application code**. Seven roles
+(the six below plus `mechanic`, registered 2026-10-06).
 
-## The six roles — CONFIRMED (live `roles` table, 2026-09-01; canonical rename P1 2026-09-22)
+## The seven roles — CONFIRMED (live `roles` table, 2026-09-01; canonical rename P1 2026-09-22; `mechanic` row id 10 added by migration 143, 2026-10-06)
 
 | id | name | Landing | Scope |
 |---|---|---|---|
@@ -23,6 +24,7 @@ Role-based access control, **entirely in application code**. Six roles.
 | 4 | `driver` | `/driver` | Own trips only |
 | 7 | `management` | `/dashboard` | Read + analytics; **explicitly denied lifecycle verbs** |
 | 9 | `admin` | `/dashboard` | Admin operations |
+| 10 | `mechanic` | `/mechanic` | Assigned repairs only — own queue, evidence, handover; cannot approve completion |
 
 P1 compat window (2026-09-22, uncommitted): code canonical is `super_admin`
 (`src/lib/auth/role-names.js` `normalizeRoleName()` maps legacy `system_admin`
@@ -42,10 +44,27 @@ fail closed in `canMutateAccount()`, and `SEC-RBAC-004`
 (`no-legacy-role.security.test.js`) fails the suite if the retired name
 reappears anywhere under `src/` or `scripts/`.
 - Privilege hierarchy (`src/lib/auth/privilege.js`): super_admin assigns
-  super_admin/admin/fleet_manager/dispatcher/management; admin assigns only
-  fleet_manager/dispatcher/management; driver via Drivers Directory only.
-  Target protection covers enable/disable AND credential reset: admin targets
+  super_admin/admin/fleet_manager/dispatcher/management/mechanic; admin assigns
+  fleet_manager/dispatcher/management/mechanic; fleet_manager assigns nothing;
+  driver accounts stay in the Drivers Directory (never created from the staff
+  account screens); mechanic accounts are staff-created like the other staff
+  roles. Target protection covers enable/disable AND credential reset: admin targets
   are Super Admin-only (no Admin→Admin disable/reset).
+- Mechanic matrix row (`MATRIX.mechanic`, 2026-10-06, corrected 2026-10-07): vehicles/read,
+  incidents read-only (`acknowledge`/`resolve`/`route_to_maintenance` explicitly
+  false), maintenance read+update, predictive_maintenance/read, notifications
+  read/update/delete, device_tokens create/delete, search/read explicitly
+  false (`/api/search` returns reservations/dispatches/drivers/vehicles with
+  no per-entity check), employees/read,
+  system read/update explicitly false. Assignee scoping enforced in-route:
+  `/api/incidents` filters to incidents linked to own assigned WOs,
+  `/api/ai/predictive-maintenance` filters to assigned vehicles,
+  `/api/vehicle-inspections/problems` filters to linked assigned WOs.
+  Nav keys: `/mechanic`,
+  `/mechanic/work-orders`, `/mechanic/problems`, `/mechanic/history`
+  (mechanic-only; `/mechanic/work-orders/[id]` inherits by prefix match).
+  Unknown-role fallback is least-privilege "No Access" (`/settings/profile`),
+  not the old fail-open admin workspace.
 - Sensitive split: `ai_settings` and `system` matrix entries are super_admin-only;
   `/settings/api`, `/settings/ai`, `/settings/ai/logs`, `/system/*` nav are
   super_admin-only; `/api/settings/connectors` moved to `system.read`;
@@ -84,6 +103,22 @@ reappears anywhere under `src/` or `scripts/`.
   `workspaces.js` as unused. Verified: `lint:ci` clean, `test:run` 242 files /
   3167 tests green (`system-errors-access.test.js` reads this nav;
   `privilege.test.js` pins `NAV_ROLES`).
+- Workspace: System Console sidebar trimmed again (2026-10-03, nav only,
+  nothing deleted). `WORKS.super_admin.nav` no longer lists **Profile**
+  (`/settings/profile` — its Account group is removed entirely, as Profile was
+  its only item) or **Security Center** (`/settings/security-center`, Security
+  & Access). User Management and Audit Logs stay in Security & Access, so the
+  trim does not touch the super_admin tooling. `NAV_ROLES` is unchanged, so
+  both routes remain reachable by URL and direct navigation — the same
+  sidebar-only pattern as the 2026-09-28 trim above and `/tracking/history` /
+  `/fleet/documents`. `Fingerprint` and `UserCog` are still imported (used by
+  Driver Attendance and User Management respectively), so no import cleanup was
+  needed. Verified: `npx eslint src/lib/workspaces.js` clean and
+  `system-errors-access.test.js` 5/5 (it reads this nav).
+- Workspace: Super Admin Operations Navigation Reorganization & AI Insights Nav Removal (2026-10-03, nav organization only, no RBAC or permission changes).
+  Reorganized `WORKS.super_admin.nav` so that **Operations** is the single collapsible dropdown navigation item, grouping all 17 fleet and operational modules in one place (`/fleet/vehicles`, `/drivers`, `/drivers/leave`, `/fleet/assignments`, `/drivers/performance`, `/reservations`, `/reservations/queue`, `/dispatch/calendar`, `/trips`, `/routes`, `/incidents`, `/fuel`, `/maintenance`, `/tracking/live-map`, `/uvvrp`, `/reports`, `/analytics`). Removed **AI Insights** (`/ai/insights`) from navigation across all role workspaces (`super_admin`, `admin`, `management`). User Management (`/settings/users`) flattened into a standalone item (no dropdowns outside Operations). Redundant Oversight group removed. Route permissions and authorization matrices remain completely unchanged (`NAV_ROLES` and API route guards for `/ai/insights` still active for direct/command-palette navigation; `NAV_ROLES["/operations"] = ["super_admin"]` registered for strict route-contract parity).
+  Verified: `super-admin-nav.test.js` (7/7), `system-errors-access.test.js` (5/5), scoped ESLint 0 errors 0 warnings.
+- Workspace follow-up (2026-10-03, sidebar only): removed **API & Integrations** (`/settings/api`) from the Super Admin Platform group. Route permissions are unchanged; the page remains available through direct URL and the command palette.
 - Historical note: journal entries predating 2026-09-22 that say `system_admin`
   refer to role_id 1, now `super_admin`. Old migration files unchanged.
 - Display-name leftovers fixed 2026-09-23 (hygiene pass): `ROLE_COLORS` in
@@ -96,7 +131,7 @@ reappears anywhere under `src/` or `scripts/`.
 
 The gaps at 5, 6, 8 are the three hospitality roles removed by `028_remove_front_desk_roles.sql`.
 
-The live table contains these six roles and 15 active accounts: 1 system admin, 1 admin, 3 fleet managers, 2 dispatchers, 7 drivers, and 1 management account. `docs/rbac-model.md` describes the same role set and now cites the actual removed-role migration filename `028`.
+The live table contains these seven roles and 15 active staff accounts (2026-09-01 census: 1 system admin, 1 admin, 3 fleet managers, 2 dispatchers, 7 drivers, and 1 management account) plus the Task 7 demo mechanic (`mechanic.demo@fleetops.test`, planted by `scripts/seed-mechanic-demo.mjs`). `docs/rbac-model.md` describes the same role set and now cites the actual removed-role migration filename `028`.
 
 `scripts/verify-rbac.mjs` currently passes **72 checks**, but only exercises seven reservation/dispatch lifecycle routes. It does not prove the whole API matrix.
 
@@ -229,6 +264,10 @@ Verification after the worktree audit: `npm run lint:ci`, `npm run build`,
 retained suite runs with Vitest's `--configLoader runner` workaround at 474/474 across 43 files.
 The integration-ingest fixture allows the route-resolver lookup and still
 verifies that `integration_log` errors remain best-effort.
+
+## Dispatcher pairing workflow presentation - 2026-10-03
+
+Dispatchers retain read access to pairing and substitute information where it explains dispatch availability. In the Fleet Assignments page, the Matchmaking Assistant (including pair-staging controls) is only rendered when `driver_assignments:create` is allowed. Availability uses “View pairing” / “View substitute schedule” labels for read-only users. An isolated route-level authorization test now invokes all five pairing/substitute write handlers using the actual permission helper: Dispatcher receives 403 before database or audit calls, and Fleet Manager is permitted by the matrix for each action. This verifies the code boundary; it does not replace an HTTP replay using a live Dispatcher cookie.
 
 ## Related
 

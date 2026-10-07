@@ -22,10 +22,14 @@ import {
   CalendarDays,
   CheckCircle2,
   XCircle,
-  Clock4
+  Clock4,
+  Sparkles,
 } from "lucide-react";
 import { getDriverWorkSchedule, saveDriverWorkSchedule, getDriverLeaveRequests } from "@/services/driver.service";
 import { DAY_NAMES } from "@/lib/scheduling/driver-schedule";
+import { getWorkShiftPolicy } from "@/services/settings.service";
+import { DEFAULT_WORK_SHIFT_POLICY, DEFAULT_BREAK_SLOTS } from "@/lib/work-shift-policy";
+import { cn } from "@/lib/utils";
 
 const DOW_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
@@ -84,10 +88,36 @@ export function WorkScheduleCard({ driverId, canEdit = false }) {
     setEditing(true);
   };
 
-  const patchDay = (dow, field, value) =>
-    setDraft((prev) => prev.map((d) => ({ ...d, [field]: value })));
+  const patchDay = (_dow, field, value) =>
+    setDraft((prev) =>
+      prev.map((d) => (d.is_rest_day ? d : { ...d, [field]: value }))
+    );
   const setRest = (dow, rest) =>
     setDraft((prev) => prev.map((d) => (Number(d.day_of_week) === dow ? { ...d, is_rest_day: rest } : d)));
+
+  const applySystemDefault = async () => {
+    try {
+      const policy = await getWorkShiftPolicy().catch(() => DEFAULT_WORK_SHIFT_POLICY);
+      const workingSet = new Set(policy.workingDays || [1, 2, 3, 4, 5, 6]);
+      setDraft((prev) =>
+        prev.map((d) => {
+          const dow = Number(d.day_of_week);
+          const isWorking = workingSet.has(dow);
+          return {
+            ...d,
+            is_rest_day: !isWorking,
+            shift_start: isWorking ? (policy.shiftStart?.slice(0, 5) || "06:00") : "00:00",
+            shift_end: isWorking ? (policy.shiftEnd?.slice(0, 5) || "22:00") : "00:00",
+            break_start: isWorking && policy.breakStart ? policy.breakStart.slice(0, 5) : null,
+            break_end: isWorking && policy.breakEnd ? policy.breakEnd.slice(0, 5) : null,
+          };
+        })
+      );
+      toast.success("Applied system default shift routine");
+    } catch {
+      toast.error("Could not load default shift policy");
+    }
+  };
 
   const leave = leaveQ.data ?? [];
 
@@ -261,8 +291,8 @@ export function WorkScheduleCard({ driverId, canEdit = false }) {
               <div className="flex-1 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-sm font-bold text-foreground">Working Days</h3>
-                    <p className="text-xs text-foreground-muted">Toggle rest days for the week.</p>
+                    <h3 className="text-sm font-bold text-foreground">Working Days &amp; Shifts</h3>
+                    <p className="text-xs text-foreground-muted">Configure shifts and rest days for each day of the week.</p>
                   </div>
                 </div>
                 
@@ -286,13 +316,20 @@ export function WorkScheduleCard({ driverId, canEdit = false }) {
                           }`}>
                             <span className="text-[11px] font-black">{DAY_NAMES[day.day_of_week].slice(0, 3)}</span>
                           </div>
-                          <span className="text-sm font-bold text-foreground">{DAY_NAMES[day.day_of_week]}</span>
+                          <div>
+                            <span className="text-sm font-bold text-foreground block">{DAY_NAMES[day.day_of_week]}</span>
+                            <span className="text-[10px] text-foreground-muted">
+                              {isRest
+                                ? "Rest Day"
+                                : `${fmtTime(day.shift_start)} – ${fmtTime(day.shift_end)}${day.break_start ? ` (lunch ${fmtTime(day.break_start)})` : ""}`}
+                            </span>
+                          </div>
                         </div>
                         
                         <button
                           type="button"
                           onClick={() => setRest(day.day_of_week, !isRest)}
-                          className={`relative inline-flex h-7 items-center rounded-full border px-2.5 text-[10px] font-bold transition-all shadow-sm ${
+                          className={`relative inline-flex h-7 items-center rounded-full border px-2.5 text-[10px] font-bold transition-all shadow-sm cursor-pointer ${
                             isRest 
                               ? "bg-amber-100 border-amber-300 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/60 dark:border-amber-700 dark:text-amber-300" 
                               : "bg-surface border-border/80 text-foreground-secondary hover:text-foreground hover:bg-muted"
@@ -310,17 +347,81 @@ export function WorkScheduleCard({ driverId, canEdit = false }) {
               </div>
 
               {/* Right Panel: Global Schedule Configuration */}
-              <div className="w-full lg:w-[320px] xl:w-[360px] shrink-0">
+              <div className="w-full lg:w-[340px] xl:w-[380px] shrink-0">
                 <div className="bg-muted/10 border border-border/50 rounded-[20px] p-5 space-y-5 sticky top-0">
-                  <div>
-                    <h3 className="text-sm font-bold text-foreground">Schedule Configuration</h3>
-                    <p className="text-[11px] text-foreground-muted mt-0.5">Applies to all working days.</p>
+                  <div className="space-y-2">
+                    <div>
+                      <h3 className="text-sm font-bold text-foreground">Schedule Configuration</h3>
+                      <p className="text-[11px] text-foreground-muted mt-0.5">Quickly assign hours, lunch break, or rest day.</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={applySystemDefault}
+                      className="w-full h-8 text-[11px] font-bold rounded-xl border-primary/30 text-primary hover:bg-primary/5 shadow-xs"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 mr-1.5 text-primary" /> Use System Default Routine
+                    </Button>
+                  </div>
+
+                  {/* 1-Click Rest Day Selector */}
+                  <div className="space-y-2 pt-1 border-t border-border/40">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider flex items-center gap-1">
+                        <CalendarDays className="w-3 h-3 text-primary" /> Assign Single Rest Day
+                      </span>
+                      <span className="text-[10px] text-foreground-muted">1-click day off</span>
+                    </div>
+                    <div className="grid grid-cols-7 gap-1">
+                      {DOW_ORDER.map((dow) => {
+                        const dayDraft = draft.find((d) => Number(d.day_of_week) === dow);
+                        const isRest = Boolean(dayDraft?.is_rest_day);
+                        const dayName = DAY_NAMES[dow].slice(0, 3);
+                        return (
+                          <button
+                            key={dow}
+                            type="button"
+                            onClick={() => {
+                              setDraft((prev) => {
+                                const activeDay = prev.find((d) => !d.is_rest_day) || prev[0] || {};
+                                const shiftStart = activeDay.shift_start || "06:00";
+                                const shiftEnd = activeDay.shift_end || "22:00";
+                                const breakStart = activeDay.break_start || "12:00";
+                                const breakEnd = activeDay.break_end || "13:00";
+                                return prev.map((d) => {
+                                  const matches = Number(d.day_of_week) === dow;
+                                  return {
+                                    ...d,
+                                    is_rest_day: matches,
+                                    shift_start: matches ? "00:00" : shiftStart,
+                                    shift_end: matches ? "00:00" : shiftEnd,
+                                    break_start: matches ? null : breakStart,
+                                    break_end: matches ? null : breakEnd,
+                                  };
+                                });
+                              });
+                              toast.info(`Rest day set to ${DAY_NAMES[dow]}`);
+                            }}
+                            className={cn(
+                              "py-1.5 px-0.5 rounded-lg text-center font-bold text-[10px] border transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5",
+                              isRest
+                                ? "bg-amber-100 border-amber-400 text-amber-800 dark:bg-amber-950/60 dark:border-amber-700 dark:text-amber-300 shadow-2xs font-black"
+                                : "bg-surface border-border/70 text-foreground-secondary hover:border-primary/40 hover:text-foreground"
+                            )}
+                          >
+                            <span>{dayName}</span>
+                            <span className="text-[8px] opacity-80">{isRest ? "OFF" : "WORK"}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                   
                   {(() => {
                     const activeDay = draft.find(d => !d.is_rest_day) || draft[0] || {};
                     return (
-                      <div className="space-y-5">
+                      <div className="space-y-5 pt-1 border-t border-border/40">
                         {/* Shift Hours */}
                         <div className="space-y-3">
                           <div className="flex items-center gap-1.5 text-xs font-bold text-foreground-secondary uppercase tracking-wider">
@@ -367,6 +468,35 @@ export function WorkScheduleCard({ driverId, canEdit = false }) {
                                 value={activeDay.break_end || ""} 
                                 onChange={(val) => patchDay(null, "break_end", val)} 
                               />
+                            </div>
+                          </div>
+
+                          {/* Quick Lunch Break Presets */}
+                          <div className="space-y-1.5 pt-1">
+                            <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider">
+                              Lunch Presets (Staggered Options)
+                            </span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {DEFAULT_BREAK_SLOTS.map((slot) => (
+                                <button
+                                  key={slot.breakStart}
+                                  type="button"
+                                  onClick={() => {
+                                    setDraft((prev) =>
+                                      prev.map((d) => d.is_rest_day ? d : ({
+                                        ...d,
+                                        break_start: slot.breakStart,
+                                        break_end: slot.breakEnd,
+                                      }))
+                                    );
+                                    toast.info(`Break set to ${slot.label}`);
+                                  }}
+                                  className="h-7 text-[10px] font-bold rounded-lg border border-border/80 bg-surface hover:bg-muted text-foreground px-2 flex items-center justify-start truncate cursor-pointer transition-colors shadow-2xs"
+                                >
+                                  <Coffee className="w-2.5 h-2.5 mr-1 text-amber-500 shrink-0" />
+                                  <span className="truncate">{slot.breakStart}–{slot.breakEnd}</span>
+                                </button>
+                              ))}
                             </div>
                           </div>
                         </div>

@@ -60,6 +60,13 @@ export function isValidLicenseNumber(value) {
   return normalized.length > 0 && normalized.length <= 30 && LICENSE_NUMBER_PATTERN.test(normalized);
 }
 
+export function licenseNumberEvidence(value) {
+  return {
+    license_number_present: typeof value === "string" && value.trim().length > 0,
+    license_number_valid: isValidLicenseNumber(value),
+  };
+}
+
 export function normalizeLicenseType(value) {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
@@ -128,6 +135,9 @@ export function evaluateDriverLicenseEligibility(driver, vehicle, reference = ne
   const reasons = [];
   const number = typeof driver?.license_number === "string" ? driver.license_number.trim() : "";
   const numberIsMasked = number.startsWith("********");
+  const numberIsValid = number
+    ? (numberIsMasked ? driver?.license_number_valid === true : isValidLicenseNumber(number))
+    : driver?.license_number_valid === true;
   const type = normalizeLicenseType(driver?.license_type);
   const classes = normalizeLicenseClasses(driver?.license_class);
   const expiryDay = licenseCalendarDay(driver?.license_expiry);
@@ -136,8 +146,8 @@ export function evaluateDriverLicenseEligibility(driver, vehicle, reference = ne
     ? vehicle.required_license_class.trim().toUpperCase()
     : "";
 
-  if (!number) reasons.push("License number is missing.");
-  else if (numberIsMasked ? driver?.license_number_valid !== true : !isValidLicenseNumber(number)) {
+  if (!number && driver?.license_number_present !== true) reasons.push("License number is missing.");
+  else if (!numberIsValid) {
     reasons.push("License number is malformed.");
   }
 

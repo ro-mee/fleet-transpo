@@ -39,11 +39,11 @@ const QUEUE_SQL = `
     LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
     LEFT JOIN drivers d ON d.driver_id = i.driver_id
     LEFT JOIN employees e ON e.employee_id = d.employee_id
-    LEFT JOIN vehiclemaintenance wo
-           ON wo.source_inspection_id = i.inspection_id
-          AND wo.deleted_at IS NULL
-   WHERE i.status = 'Failed'
-      OR (i.inspection_type = 'Post-Shift' AND i.status = 'Reported')
+     LEFT JOIN vehiclemaintenance wo
+            ON wo.source_inspection_id = i.inspection_id
+           AND wo.deleted_at IS NULL
+   WHERE (i.status = 'Failed'
+      OR (i.inspection_type = 'Post-Shift' AND i.status = 'Reported'))
    ORDER BY i.inspection_date DESC, i.inspection_id DESC
    LIMIT $1 OFFSET $2
 `;
@@ -67,9 +67,33 @@ const COUNT_SQL = `
     LEFT JOIN vehiclemaintenance wo
            ON wo.source_inspection_id = i.inspection_id
           AND wo.deleted_at IS NULL
-   WHERE i.status = 'Failed'
-      OR (i.inspection_type = 'Post-Shift' AND i.status = 'Reported')
+   WHERE (i.status = 'Failed'
+      OR (i.inspection_type = 'Post-Shift' AND i.status = 'Reported'))
 `;
+
+/**
+ * Task 4 — mechanic scoping: only problems whose linked work order (via
+ * source_inspection_id) is assigned to the mechanic and not archived. A
+ * problem with no live linked order is invisible to the mechanic — it is
+ * nobody's assignment. Staff keep the unscoped statements byte-identical.
+ *
+ * The base WHEREs above are parenthesised so the appended AND binds the whole
+ * bucket predicate: without the parens `A OR B AND EXISTS` would parse as
+ * `A OR (B AND EXISTS)` and leak every Failed row to all mechanics.
+ */
+const mechanicExists = (param) => `AND EXISTS (
+       SELECT 1 FROM vehiclemaintenance vm
+        WHERE vm.source_inspection_id = i.inspection_id
+          AND vm.assigned_mechanic_id = ${param}
+          AND vm.deleted_at IS NULL
+     )`;
+
+const QUEUE_MECHANIC_SQL = QUEUE_SQL.replace(
+  "ORDER BY i.inspection_date DESC",
+  `${mechanicExists("$3")}\n   ORDER BY i.inspection_date DESC`
+);
+
+const COUNT_MECHANIC_SQL = `${COUNT_SQL}\n   ${mechanicExists("$1")}`;
 
 /**
  * A reported defect is "untracked" only while no live repair ticket exists.
@@ -141,8 +165,12 @@ function shape(row) {
   };
 }
 
-export async function listVehicleProblems({ limit = PROBLEM_QUEUE_LIMIT, offset = 0 } = {}) {
-  const { rows } = await query(QUEUE_SQL, [limit, offset]);
+export async function listVehicleProblems({ limit = PROBLEM_QUEUE_LIMIT, offset = 0, assignedMechanicId = null } = {}) {
+  const scoped = assignedMechanicId != null;
+  const { rows } = await query(
+    scoped ? QUEUE_MECHANIC_SQL : QUEUE_SQL,
+    scoped ? [limit, offset, assignedMechanicId] : [limit, offset]
+  );
   const items = rows.map(shape);
   return {
     items,
@@ -154,8 +182,12 @@ export async function listVehicleProblems({ limit = PROBLEM_QUEUE_LIMIT, offset 
   };
 }
 
-export async function countProblemCounts() {
-  const { rows } = await query(COUNT_SQL);
+export async function countProblemCounts({ assignedMechanicId = null } = {}) {
+  const scoped = assignedMechanicId != null;
+  const { rows } = await query(
+    scoped ? COUNT_MECHANIC_SQL : COUNT_SQL,
+    scoped ? [assignedMechanicId] : []
+  );
   const row = rows[0] ?? {};
   return {
     reportedUntracked: row.reported_untracked ?? 0,

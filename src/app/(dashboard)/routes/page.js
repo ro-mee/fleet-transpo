@@ -234,6 +234,11 @@ export default function RoutesPage() {
   });
 
   const routes = useMemo(() => routesQuery.data || [], [routesQuery.data]);
+  const existingActiveRoute = !editingRoute && selectedOrigin && selectedDestination
+    ? routes.find((route) => route.status === "Active"
+      && Number(route.origin_location_id) === Number(selectedOrigin.location_id)
+      && Number(route.destination_location_id) === Number(selectedDestination.location_id))
+    : null;
   const visibleRoutes = useMemo(() => routes.filter((route) => {
     if (statusFilter !== "all" && route.status !== statusFilter) return false;
     if (qualityFilter === "ready" && !route.is_navigation_ready) return false;
@@ -337,6 +342,17 @@ export default function RoutesPage() {
     }));
   }
 
+  function handleManualEstimate(field, value) {
+    setFormData((previous) => {
+      const other = field === "estimated_distance" ? previous.estimated_duration : previous.estimated_distance;
+      return {
+        ...previous,
+        [field]: value,
+        estimate_source: value !== "" || other !== "" ? "Manual" : "",
+      };
+    });
+  }
+
   const statCards = useMemo(() => [
     {
       label: "Active Routes",
@@ -436,6 +452,10 @@ export default function RoutesPage() {
   function submitForm(event) {
     event.preventDefault();
     setFormError(null);
+    if (existingActiveRoute) {
+      setFormError("An active route already exists for this direction. Choose another pair or open the existing route.");
+      return;
+    }
     const submissionData = {
       ...formData,
       route_name: formData.route_name.trim() || routeNameFor(selectedOrigin, selectedDestination),
@@ -641,7 +661,7 @@ export default function RoutesPage() {
         <DialogContent className="max-w-xl w-[95vw] max-h-[calc(100dvh-2rem)] flex flex-col">
           <DialogHeader className="shrink-0">
             <DialogTitle>{editingRoute ? "Edit route" : "Add route"}</DialogTitle>
-          <DialogDescription>Choose existing canonical locations. A valid pair gets a TomTom baseline automatically; create or verify endpoints in Location Management first.</DialogDescription>
+          <DialogDescription>Choose existing canonical locations. TomTom estimates are added when available; otherwise enter distance and travel time manually below.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submitForm} className="min-h-0 overflow-y-auto space-y-4 p-6 pt-5">
             <div className="space-y-1.5"><Label htmlFor="route_name">Route name</Label><Input id="route_name" value={formData.route_name} onChange={(event) => setFormData((previous) => ({ ...previous, route_name: event.target.value }))} ref={registerField("route_name")} invalid={fieldError("route_name").invalid} placeholder="Hotel → NAIA Terminal 1 - Arrivals" maxLength={150} />{fieldError("route_name").error && <p className="text-xs text-danger">{fieldError("route_name").error}</p>}</div>
@@ -677,19 +697,20 @@ export default function RoutesPage() {
                 <span><strong className="font-data">{previewForCurrent.travelTimeMin} min</strong> travel time</span>
                 <Button type="button" variant="outline" size="sm" className="ml-auto h-8" onClick={applyPreview}>Use estimate</Button>
               </div>}
-              {!previewLoading && !previewForCurrent && previewNotice && <p className="mt-2 text-xs text-warning-700">{previewNotice}</p>}
+              {!previewLoading && !previewForCurrent && previewNotice && <p className="mt-2 text-xs text-warning-700">{previewNotice}{selectedOrigin?.location_id !== selectedDestination?.location_id && " You can enter a manual distance and travel time below."}</p>}
             </div>}
+            {existingActiveRoute && <p className="rounded-xl bg-warning-bg p-3 text-xs text-warning-700" role="alert">An active route already exists for this direction: {existingActiveRoute.route_name}. Choose another pair or open that route from the registry.</p>}
             {!editingRoute && canCreate && <div className="space-y-1">
               <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground-secondary">
                 <input type="checkbox" className="h-4 w-4 rounded border-border accent-primary" checked={Boolean(formData.also_create_return_route)} onChange={(event) => setFormData((previous) => ({ ...previous, also_create_return_route: event.target.checked }))} />
                 Also create the reverse route
               </label>
-              {formData.also_create_return_route && <p className="ml-6 text-xs text-foreground-muted">The reverse direction is saved separately and receives its own TomTom estimate.</p>}
+              {formData.also_create_return_route && <p className="ml-6 text-xs text-foreground-muted">The reverse direction is saved separately and tries its own TomTom estimate; it may have no estimate when TomTom is unavailable.</p>}
             </div>}
-            <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="estimated_distance">Estimated distance (km)</Label><Input id="estimated_distance" type="number" min="0.01" step="0.01" value={formData.estimated_distance} onChange={(event) => setFormData((previous) => ({ ...previous, estimated_distance: event.target.value }))} placeholder="Optional" /></div><div className="space-y-1.5"><Label htmlFor="estimated_duration">Estimated travel time (minutes)</Label><Input id="estimated_duration" type="number" min="1" step="1" value={formData.estimated_duration} onChange={(event) => setFormData((previous) => ({ ...previous, estimated_duration: event.target.value }))} placeholder="Optional" /></div></div>
+            <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="estimated_distance">Estimated distance (km)</Label><Input id="estimated_distance" type="number" min="0.01" step="0.01" value={formData.estimated_distance} onChange={(event) => handleManualEstimate("estimated_distance", event.target.value)} placeholder="Optional" /></div><div className="space-y-1.5"><Label htmlFor="estimated_duration">Estimated travel time (minutes)</Label><Input id="estimated_duration" type="number" min="1" step="1" value={formData.estimated_duration} onChange={(event) => handleManualEstimate("estimated_duration", event.target.value)} placeholder="Optional" /></div></div>
             <div className="grid gap-4 sm:grid-cols-2"><div className="space-y-1.5"><Label htmlFor="estimate_source">Estimate source</Label><Select value={formData.estimate_source || "none"} onValueChange={(value) => setFormData((previous) => ({ ...previous, estimate_source: value === "none" ? "" : value }))}><SelectTrigger id="estimate_source"><SelectValue placeholder="Source" /></SelectTrigger><SelectContent><SelectItem value="none">Not recorded</SelectItem><SelectItem value="Manual">Manual</SelectItem><SelectItem value="TomTom">TomTom</SelectItem><SelectItem value="Legacy / Unknown">Legacy / Unknown</SelectItem></SelectContent></Select></div>{editingRoute && <div className="space-y-1.5"><Label htmlFor="route_status">Status</Label><Select value={formData.status} onValueChange={(value) => setFormData((previous) => ({ ...previous, status: value }))}><SelectTrigger id="route_status"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Active">Active</SelectItem><SelectItem value="Inactive">Inactive</SelectItem></SelectContent></Select></div>}</div>
             {formError && <p role="alert" className="text-sm font-semibold text-danger">{formError}</p>}
-            <DialogFooter className="-mx-6 -mb-6 border-t border-border/60"><Button type="button" variant="outline" onClick={() => setEditorOpen(false)}>Cancel</Button><Button type="submit" disabled={saveMutation.isPending}>{saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingRoute ? "Save changes" : "Create route"}</Button></DialogFooter>
+            <DialogFooter className="-mx-6 -mb-6 border-t border-border/60"><Button type="button" variant="outline" onClick={() => setEditorOpen(false)}>Cancel</Button><Button type="submit" disabled={saveMutation.isPending || Boolean(existingActiveRoute)}>{saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{editingRoute ? "Save changes" : "Create route"}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>

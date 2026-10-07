@@ -45,6 +45,7 @@ Each note answers: what it does, why it exists, how it works, which files, which
 | Driver consent & visibility | ✅ | [[Driver Consent]] |
 | Driver Academy & In-App Guide | ✅ mandatory interactive training gate | [[Driver In-App Guide]] |
 | Reports & analytics | ✅ separate role-guarded pages; honest empty-state cleanup WIP | [[Reports]] |
+| System health & reliability | ✅ 9 technical subsystems, real telemetry graphs, dual-engine metrics | [[System Health and Reliability]] |
 
 Legend: ✅ exercised · ⚠ works with a known problem · ⚪ built but zero rows
 

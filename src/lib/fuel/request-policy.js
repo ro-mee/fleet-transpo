@@ -13,6 +13,8 @@ export const CURRENT_FUEL_TRIP_STATUSES = [
   "En Route", "Drop-off", "Arrived", "In Progress",
 ];
 
+import { mergeFuelPolicy } from "./fuel-policy";
+
 const round2 = (value) => Number(Number(value).toFixed(2));
 
 export function calculateFuelRecommendation({
@@ -20,7 +22,9 @@ export function calculateFuelRecommendation({
   currentFuelLevelPercent,
   fuelEfficiencyKmpl,
   oneWayDistanceKm,
+  policy,
 }) {
+  const pol = mergeFuelPolicy(policy);
   const tank = Number(tankCapacityL);
   const level = Number(currentFuelLevelPercent);
   const efficiency = Number(fuelEfficiencyKmpl);
@@ -32,11 +36,13 @@ export function calculateFuelRecommendation({
   const currentLiters = tank * (level / 100);
   const forecastDistanceKm = oneWayDistance * 2;
   const forecastConsumptionLiters = forecastDistanceKm / efficiency;
-  const reserveLiters = tank * 0.1;
+  const reserveLiters = tank * (pol.reserveBufferPercent / 100);
   const minimumSafeLiters = Math.max(0, forecastConsumptionLiters + reserveLiters - currentLiters);
   const projectedRemainingLiters = currentLiters - forecastConsumptionLiters;
   const needsRefuel = projectedRemainingLiters < reserveLiters;
-  const targetLiters = Math.min(tank, Math.max(tank * 0.9, forecastConsumptionLiters + reserveLiters));
+  const maxCapLiters = tank * (pol.maxFillCapPercent / 100);
+  const preferredTargetLiters = tank * (pol.preferredTargetPercent / 100);
+  const targetLiters = Math.min(maxCapLiters, Math.max(preferredTargetLiters, forecastConsumptionLiters + reserveLiters));
   const recommendedLiters = needsRefuel ? Math.max(0, targetLiters - currentLiters) : 0;
 
   return {
@@ -75,6 +81,7 @@ export function assessFuelVariance({
   distanceSinceLastReportKm,
   efficiencyKmpl,
   reportedPercent,
+  policy,
 }) {
   const empty = { expected_liters: null, variance_liters: null, variance_detected: false };
   const tank = Number(tankCapacityL);
@@ -87,9 +94,11 @@ export function assessFuelVariance({
   const distance = Math.max(0, Number(distanceSinceLastReportKm) || 0);
   if (!Number.isFinite(lastLiters) || !Number.isFinite(reportedLiters)) return empty;
 
+  const pol = mergeFuelPolicy(policy);
   const expectedLiters = Math.max(0, lastLiters - distance / efficiency);
   const varianceLiters = expectedLiters - reportedLiters;
-  const varianceDetected = varianceLiters > tank * 0.15;
+  const thresholdLiters = tank * (pol.varianceThresholdPercent / 100);
+  const varianceDetected = pol.enableVarianceAlerts ? varianceLiters > thresholdLiters : false;
 
   return {
     expected_liters: round2(expectedLiters),
@@ -98,11 +107,18 @@ export function assessFuelVariance({
   };
 }
 
-export function evaluateFuelPolicy({ calculation, variance, monthlyRemainingLiters }) {
+export function evaluateFuelPolicy({ calculation, variance, monthlyRemainingLiters, policy }) {
+  const pol = mergeFuelPolicy(policy);
   const reasons = [];
   const recommended = Number(calculation?.recommended_liters);
   if (!Number.isFinite(recommended) || recommended <= 0) {
     reasons.push("No refill recommendation is active");
+  }
+  if (!pol.autoApprovalEnabled) {
+    reasons.push("Automatic fuel request approval is disabled by fleet policy");
+  }
+  if (pol.autoApprovalMaxLiters && recommended > pol.autoApprovalMaxLiters) {
+    reasons.push(`The recommended refill volume (${recommended} L) exceeds the policy auto-approval limit of ${pol.autoApprovalMaxLiters} L`);
   }
   if (variance?.variance_detected) {
     reasons.push("Fuel variance was detected in the reported level");

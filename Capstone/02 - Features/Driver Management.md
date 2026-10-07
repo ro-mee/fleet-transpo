@@ -15,17 +15,21 @@ source:
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-09-30
+last_verified: 2026-10-03
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
 # Feature: Driver Management
 
+**Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old operational data was cleaned, and ten new intended defense drivers were seeded. The live driver roster contains exactly those ten profiles and ten active driver-role accounts; the 23 old driver employees and six retired driver profiles were later hard-deleted by exact FK-checked cleanup. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
+
 ## What it does
 
-Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. 23 drivers.
+Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. The current defense roster contains 10 drivers (D01–D10).
 
 ## Driver license eligibility — 2026-09-27
+
+**Redacted roster evidence (2026-10-02):** The driver list and assignment/substitute APIs deliberately omit `license_number`. They now include separate presence and syntax-validity booleans so the client-side assignment warnings do not call a stored number "missing." The full number remains unavailable on these list responses; server-side assignment checks continue to read the stored number. A present number may still be malformed or fail the separate type, class, expiry, staff-review, and vehicle-class checks. See [[Assignments]].
 
 Driver create/edit requires a syntactically valid license number, a separate exact expiry
 date, an explicit type, and a supported LTO class. Student Permits are rejected for fleet
@@ -44,6 +48,8 @@ When an operator clears an existing nullable value, the form now sends `null` fo
 Verification: source review confirmed the edit form's invalid-submit path, nullable `PUT /api/drivers/[id]` mappings, and license media field. Automated tests were not run from this remote-file editing session.
 
 **Edit reopening and save confirmation, 2026-09-30:** The reported Sex, LTO code, and type did persist for driver 19, but the edit form could reopen from a stale TanStack Query row. Its one-time form seed then ignored the fresh response. The edit page now fetches on mount and waits for that fetch before seeding or showing the form. The detail API returns license expiry and birthdate as date-only strings; a PostgreSQL `DATE` serialized as a UTC timestamp had also put the previous day into the edit form. The edit form sends Sex explicitly, and the API and page compare submitted Sex, class, and type with persisted values before reporting success. These changes apply to the shared edit path for all drivers. See [[Bugs]] for live-row evidence and verification limits.
+
+**Front license scan preview fix & driver profile enrichment (2026-10-03):** Fixed a presentation defect on `/drivers/[id]` (`src/app/(dashboard)/drivers/[id]/page.js`) where `licenseImage` previously defaulted to `driver.face_image_url || emp.avatar_url || driver.license_image_url`. This caused the "Front of License" document card in Tab 4 to render the driver's face portrait instead of the actual front license scan. Separated the header avatar (`driverPhoto = driver.face_image_url || emp.avatar_url`) from the license card scan (`licenseImage = driver.license_image_url`). Populated the 10 demo drivers with complete Philippine phone numbers, birthdates, sex, emergency contacts, and residential addresses in `employees` and `drivers`. Reclassified the 5 MPVs (Toyota Zenix, Toyota Alphard, and 3 Toyota Innovas) to `required_license_class = 'B'` (Category M1, ≤8 passenger seats) in both live database and `scripts/defense-seed/writer.mjs`, correcting the previous seed formula `v.seats >= 6 ? "B1" : "B"` to `v.seats > 8 ? "B1" : "B"`. Verified with Vitest suites and ESLint.
 
 The driver detail readiness card now requires a recorded staff license review along with a current expiry date, available status, and no active trip. It shows expiry and review as separate checks; an expiry date alone is not called an active license. A passing card says "Basic checks passed" because vehicle code compatibility is determined at assignment and trip start.
 
@@ -341,14 +347,43 @@ Rules:
   (`!(pickup >= shift_start && returnAt <= shift_end)`) → block; half-open break
   overlap (`break_start < returnAt && break_end > pickup`) → block.
 - **Leave lifecycle**: driver files via `POST /api/driver/leave` (self, Pending);
-  fleet manager approves/declines via `PATCH /api/driver-leave-requests/[id]`
+  admin or fleet manager approves/declines via
+  `PATCH /api/driver-leave-requests/[id]`
   (409 if an overlapping request is already Approved). Driver withdraws Pending
   via `DELETE /api/driver/leave`. Only **Approved** leave blocks assignment.
+  *(Admin gained `update` on 2026-10-03 — previously review was fleet_manager
+  only, so leave stalled whenever the fleet manager was unavailable.)*
 - **Server TZ is Asia/Manila.** `localDayOfWeek`/`localTimeOfDay` use Date local
   getters, consistent with the `toCalendarDay` convention.
 - Backfilled **49 rows** (drivers 1, 2, 19, 20, 21, 22, 26 × 7 days, 06:00–22:00,
   break 12:00–13:00, no rest days) so live enforcement could be verified without
   inventing a rest-day policy.
+
+### Staggered lunch breaks & staggered rest days — IMPLEMENTED 2026-10-03
+
+To prevent fleet unavailability during lunch hours and avoid dead days where all drivers are off on Sunday, organizational shift policies and individual schedule tooling support automated staggering:
+
+1. **Staggered lunch breaks across drivers (`staggerBreaks`):**
+   - Rotating slots (`src/lib/work-shift-policy.js` `DEFAULT_BREAK_SLOTS`):
+     - Slot 1: `11:30–12:30` (Early Lunch)
+     - Slot 2: `12:00–13:00` (Standard Lunch)
+     - Slot 3: `12:30–13:30` (Mid Lunch)
+     - Slot 4: `13:00–14:00` (Late Lunch)
+   - When active, batch application (`applyWorkShiftPolicyToDrivers`) assigns drivers round-robin across the 4 slots (`driverIndex % 4`). If one driver is taking lunch between 12:00 PM and 1:00 PM, other drivers on slots 1, 3, or 4 remain available to catch bookings.
+2. **Staggered rest days across drivers (`staggerRestDays`):**
+   - Rotates days off across all 7 weekdays (`driverIndex % 7`):
+     - Driver 0 rests on Sunday (day 0)
+     - Driver 1 rests on Monday (day 1)
+     - Driver 2 rests on Tuesday (day 2)
+     - Driver 3 rests on Wednesday (day 3)
+     - Driver 4 rests on Thursday (day 4)
+     - Driver 5 rests on Friday (day 5)
+     - Driver 6 rests on Saturday (day 6)
+   - Guarantees continuous 7-day vehicle readiness and coverage across the entire operating week.
+3. **Driver schedule editor enhancements (`src/components/drivers/work-schedule-card.jsx`):**
+   - **Quick lunch presets:** 4 preset buttons in the right panel set `break_start` and `break_end` for all working days in one click.
+   - **1-Click single rest day assigner:** 7-day button grid (`Sun` through `Sat`) instantly designates that day as the rest day and activates all other 6 days as working days with the driver's current shift hours.
+   - **System default prefill:** "Use System Default Routine" queries `/api/settings/work-shift` and pre-populates operating hours.
 
 Enforcement surfaces: `GET /api/drivers` (windowed), `GET /api/vehicles/available`
 (windowed, effective driver from `ctx.pairings`), `pair-scoring.js`
@@ -358,33 +393,39 @@ the transport-request recommendation route, `conflicts.js` (DRIVER_UNAVAILABLE),
 `trips/[id]/start` gate, and the dispatch calendar probe.
 
 UI: `WorkScheduleCard` on the driver detail page (schedule editor gated
-fleet_manager), `/drivers/leave` review board (fleet_manager approves),
-`/driver/schedule` self-service (view schedule, file/withdraw leave).
+fleet_manager, with "Use System Default Routine" prefill action), `/drivers/leave` review board (admin and fleet_manager approve),
+`/driver/schedule` self-service (view schedule, file/withdraw leave), and the
+"Operating Hours & Driver Shift Policy" card on `/settings/dispatch` (configure fleet shift baseline and batch-apply to all active drivers).
 
-> **Scope note (2026-08-23; updated 2026-10-02):** the Driver Leave Requests
+> **Scope note (2026-08-23; updated 2026-10-07):** the Driver Leave Requests
 > board (`/drivers/leave`) and Document Expiration (`/fleet/documents`) were
 > originally hidden from navigation for the capstone demo. The Leave
-> Management sidebar link has since been restored for `admin` and
-> `fleet_manager`; Document Expiration remains hidden. The routes, APIs, and
-> data remain intact, and the driver's own `/driver/schedule` entry stays
-> visible.
+> Management sidebar link was restored for `admin` and `fleet_manager`, then
+> removed from all staff workspaces on 2026-10-07. The leave page, APIs, data,
+> direct-route permissions, and Fleet Manager dashboard shortcut remain; the
+> driver's own `/driver/schedule` entry stays visible. Document Expiration
+> remains hidden.
 
-> **Leave visibility restoration (2026-10-02):** The leave board and
+> **Leave visibility and review history (2026-10-02 to 2026-10-07):** The leave board and
 > weekly schedule controls remain implemented. `/drivers/leave` is permitted
-> for admin, super_admin, and fleet_manager, but ordinary admin has read-only
-> leave/schedule permissions; fleet_manager owns review and schedule writes,
-> with super_admin override. The Workforce exceptions card and Leave coverage
+> for admin, super_admin, and fleet_manager. **Since 2026-10-03 admin reviews
+> leave too** (`driver_leave_requests.update`), alongside fleet_manager and the
+> super_admin override; admin's weekly-schedule access stays read-only and
+> remains fleet_manager-owned. The Workforce exceptions card and Leave coverage
 > shortcut are in the Fleet Manager dashboard, not the Admin dashboard; the
 > admin dashboard does not fetch leave or substitute-schedule data. The
 > WorkScheduleCard remains on each driver's detail page, while
 > `/driver/schedule` is driver self-service. There is no separate staff roster
 > calendar.
 >
-> The `Leave Management` sidebar item now appears for `admin` and
-> `fleet_manager` only. Existing page and API permissions are unchanged:
-> admins can view requests, Fleet Managers can review them, and
+> The `Leave Management` sidebar item appeared for `admin` and
+> `fleet_manager` from its 2026-10-02 restoration until its removal on
+> 2026-10-07. The page and API permissions are unchanged apart
+> from the 2026-10-03 review grant: admins and Fleet Managers can both approve
+> or decline, and
 > `super_admin` keeps its existing direct-route permission without a sidebar
-> item in that workspace. Leave approval is consequential: it updates the
+> item in that workspace. The page remains reachable through permitted direct
+> routes, existing dashboard/notification links, and its APIs. Leave approval is consequential: it updates the
 > leave balance and sends overlapping dispatches to Pending Reassignment in
 > the same transaction. Schedule writes replace the driver's full weekly set
 > atomically; that path has no schedule-specific audit call. The current editor
@@ -394,6 +435,8 @@ fleet_manager), `/drivers/leave` review board (fleet_manager approves),
 > comment says dispatchers can review leave, but the matrix, route guard, and
 > page-role list currently deny that action; clarify this if permissions are
 > revisited.
+
+**Staff leave sidebar removal (2026-10-07):** Removed the `/drivers/leave` navigation item from the Super Admin, Admin, and Fleet Manager workspace sidebars. The route entry in `NAV_ROLES`, `/drivers/leave` page, API routes, permission matrix, notification target, Workforce exceptions card, and Fleet Manager dashboard shortcut remain unchanged so current leave functions remain available. The driver's separate “My Schedule & Leave” navigation entry is unchanged. This navigation change does not implement the future HR integration or remove the current local leave workflow.
 
 ## The duty session — Start Duty / End Duty, and its three gates — 2026-09-23
 
@@ -648,3 +691,27 @@ Reported as *"All Time shows 0 completed trips while shorter periods show 4"*. I
 Completed trips by `end_time` without the driver join: 6 all-time vs 4 for 30 days. So All Time already contains every shorter window, and `resolvePresetRange("all")` spans the epoch to `2100-01-01` at both ends.
 
 What *was* worth pinning is the invariant, now covered by tests: `resolvePresetRange("all")` must contain `30d`/`90d`/`year`; the page must render the server's `totalCompletedTrips` unchanged (it must never re-derive a total for the `all` preset); and every `getDriverPerformanceReport` query must keep the same half-open `end_time >= $1::date AND < ($2::date + 1)` predicate so widening `$1/$2` can only add rows. The genuine cross-report inconsistency — different reports windowing on different date columns (`start_time` for fleet utilisation, `end_time` here, `maintenance_date` for maintenance, `created_at` for request volume) — is named in [[Reports]] rather than papered over.
+
+## Defense account roster cleanup — 2026-10-03
+
+The live defense roster now has exactly ten active driver accounts (D01–D10). The guarded old-account cleanup removed 54 already-deleted no-role harness accounts, then the exact hard-delete workflow removed all 23 retired pre-defense driver employees and six linked retired driver profiles. Audit rows were preserved with detached nullable actor links; no unrelated staff, role, or defense rows were deleted. The ten defense logins use the approved name-based Gmail mapping; password hashes were preserved and account versions were bumped during rotation. Their schedules use distributed rest days and staggered lunch windows within 06:00–22:00. See [[Defense Demo Data Implementation Plan]] for the digests and recovery snapshots.
+
+A subsequent request proposes direct `firstname.lastname@gmail.com` logins for D04–D10, including D04 `nico.bautista@gmail.com`. The read-only exact-ID plan reports no database collision. The seven standalone inboxes are not recorded as owned in local OTP configuration, so the live plus-alias logins remain in place pending inbox confirmation. `scripts/defense-seed/direct-driver-emails.mjs` provides guarded apply, verify, and rollback without changing D01–D03 or passwords.
+
+Read-only driver-ID check on 2026-10-03: `drivers` contains exactly ten rows, all active, with numeric `driver_id` values 87–96. IDs 1–10 are vacant, but 18 live foreign-key constraints reference `drivers`; changing the primary keys requires an exact transactional rekey of every related row and the defense seed ledger. D01–D10 are semantic scenario labels rather than current database primary keys. No IDs were changed during this check.
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+The directory search now builds searchable name and contact values from nested employee data, including phone numbers. The API applies the same partial, case-insensitive name/contact search to linked drivers and incomplete driver accounts; status or license filters keep incomplete accounts out when those fields do not exist for them. A failed directory request has a visible retry state and is not presented as a confirmed zero-match result.
+
+Summary cards and the Drivers report explicitly count **linked driver profiles**. The directory may also include incomplete driver-role accounts. An earlier read-only snapshot found 22 active driver profiles and one unlinked active driver-role employee, so the directory population was 23 while the profile summary was 22. This snapshot predates the defense account cleanup described above; the later controlled roster has ten active defense drivers.
+
+The driver detail lookup intentionally returns the same not-found response for archived and nonexistent IDs. Its unavailable state now explains that the profile may have been archived, deleted, or the link may be out of date. The reported driver #58 is archived and still has one assignment and two fuel-request references. No row was restored or changed. The message helper's focused regression tests pass.
+
+## HR leave ownership and Fleet availability projection — target, 2026-10-07
+
+**Target boundary:** HR owns employee leave requests, decisions, cancellations, balances, and evidence. FleetOps consumes only the minimum effective leave status needed for operational availability and a driver's own status view. Weekly driver work schedules remain Fleet-owned unless separately decided. This is an ownership direction, not an approved HR contract or an active connection.
+
+Current local leave submission, withdrawal, approval, balance updates, and dispatch side effects remain active during integration preparation. `src/services/driver-leave-availability.service.js` now isolates the availability read from the rest of `loadDriverScheduleContext`; the local `driver_leave_requests` table is still the source, preserving the existing behavior. No HR status is currently imported. The preparation plan and synthetic candidate payload are in `docs/plans/hr-leave-availability-readiness-plan.md`.
+
+HR worker identity mapping, status vocabulary, interval/timezone rules, sync method, freshness/outage behavior, privacy scope, and corrections/revocations remain undecided. Do not cut over or disable local writes until HR operates the source or an HR-owned interim handoff exists, records are reconciled, and dispatch-conflict handling is approved. In particular, current approval logic can clear a driver from an in-progress dispatch; that behavior must not be carried into an HR event handler without a separate operational decision.

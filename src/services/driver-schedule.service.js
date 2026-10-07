@@ -8,6 +8,7 @@
 // never per driver, to keep the query count flat.
 import { query, withTransaction } from "@/lib/db";
 import { writeAuditRequired } from "@/lib/audit";
+import { loadDriverLeaveAvailability } from "@/services/driver-leave-availability.service";
 
 /** Approved-leave + work-schedule context for a set of driver ids. */
 export async function loadDriverScheduleContext(driverIds) {
@@ -22,12 +23,7 @@ export async function loadDriverScheduleContext(driverIds) {
         ORDER BY day_of_week`,
       [ids]
     ),
-    query(
-      `SELECT leave_request_id, driver_id, start_date, end_date, start_time, end_time, leave_type, status
-         FROM driver_leave_requests
-        WHERE driver_id = ANY($1) AND status IN ('Approved', 'Pending')`,
-      [ids]
-    ),
+    loadDriverLeaveAvailability(ids),
   ]);
 
   const schedules = new Map();
@@ -38,7 +34,7 @@ export async function loadDriverScheduleContext(driverIds) {
   }
 
   const leave = new Map();
-  for (const row of leaveRows.rows) {
+  for (const row of leaveRows) {
     const id = Number(row.driver_id);
     if (!leave.has(id)) leave.set(id, []);
     leave.get(id).push(row);
