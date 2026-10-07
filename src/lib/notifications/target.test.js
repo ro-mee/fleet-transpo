@@ -27,4 +27,11 @@ describe("getNotificationHref", () => {
     expect(getNotificationHref({ reference_type: "vehicle", reference_id: 7 }, "mechanic"))
       .toBeNull();
   });
+
+  it("rejects cross-role explicit links instead of bypassing the guard", () => {
+    expect(getNotificationHref({ reference_type: "maintenance", reference_id: 5, link: "/fleet/vehicles/5" }, "mechanic"))
+      .toBeNull();
+    expect(getNotificationHref({ reference_type: "mechanic_maintenance", reference_id: 5, link: "/mechanic/work-orders/5" }, "mechanic"))
+      .toBe("/mechanic/work-orders/5");
+  });
 });

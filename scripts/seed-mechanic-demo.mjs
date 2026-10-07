@@ -349,12 +349,22 @@ async function cmdDown(pool) {
 
     // Notifications the due-soon trigger wrote in response to the inserts.
     // Matched on the exact reference ids, so nothing else is touched.
+    // Incident-reporter rows (PUT fan-out with reference_id = incident_id)
+    // cannot arise from seed inserts (seed WOs carry no source_incident_id),
+    // so the WO-id sweep is complete for what `up` creates.
     if (ids.workOrders?.length) {
       const n = await client.query(
         `DELETE FROM notifications WHERE reference_type IN ('maintenance','mechanic_maintenance') AND reference_id = ANY($1::int[])`,
         [ids.workOrders]
       );
       if (n.rowCount) console.log(`  ${String(n.rowCount).padStart(6)}  notifications (maintenance)`);
+      // Defensive: push_outbox rows share reference_type/reference_id.
+      // Seed inserts never call sendPush, so this is normally a no-op.
+      const p = await client.query(
+        `DELETE FROM push_outbox WHERE reference_type IN ('maintenance','mechanic_maintenance') AND reference_id = ANY($1::int[])`,
+        [ids.workOrders]
+      );
+      if (p.rowCount) console.log(`  ${String(p.rowCount).padStart(6)}  push_outbox (maintenance)`);
     }
     if (ids.workOrders?.length) {
       const w = await client.query(

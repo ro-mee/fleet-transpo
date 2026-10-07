@@ -12,12 +12,12 @@ import { normalizeRoleName } from "@/lib/auth/role-names";
 
 const SUMMARY_COUNTS_SQL = `
   SELECT
-    COUNT(*) AS assigned,
+    COUNT(*) FILTER (WHERE vm.status IN ('Scheduled', 'In Progress', 'Pending Inspection')) AS assigned,
     COUNT(*) FILTER (WHERE vm.status = 'In Progress') AS "inProgress",
     COUNT(*) FILTER (WHERE vm.status = 'Pending Inspection') AS "waitingApproval",
     COUNT(*) FILTER (WHERE vm.priority IN ('High', 'Emergency') AND vm.status IN ('Scheduled', 'In Progress')) AS urgent,
-    COUNT(*) FILTER (WHERE vm.status IN ('Scheduled', 'In Progress') AND vm.maintenance_date < CURRENT_DATE) AS overdue
-    FROM vehiclemaintenance vm
+    COUNT(*) FILTER (WHERE vm.status IN ('Scheduled', 'In Progress', 'Pending Inspection') AND vm.maintenance_date < CURRENT_DATE) AS overdue
+     FROM vehiclemaintenance vm
    WHERE vm.deleted_at IS NULL
      AND vm.assigned_mechanic_id = $1
 `;

@@ -15,8 +15,8 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 
 // History — Completed/Cancelled rows assigned to the mechanic. Cost is a
 // READ-ONLY display here (never an input): the mechanic never writes it.
-// Parts cells read "Not recorded": the lean projection carries no
-// parts_replaced column (same read-contract follow-up as the detail timeline).
+// Parts render from the lean projection (parts_replaced); only rows without
+// parts data read "Not recorded".
 const HISTORY_STATUSES = new Set(["Completed", "Cancelled"]);
 
 export default function MechanicHistoryPage() {
@@ -109,9 +109,11 @@ export default function MechanicHistoryPage() {
                           </td>
                           <td
                             className="px-4 py-3 text-foreground-muted"
-                            title="Parts data is not included in this view"
+                            title={Array.isArray(row.parts_replaced) && row.parts_replaced.length ? row.parts_replaced.join(", ") : "Parts data is not included in this view"}
                           >
-                            Not recorded
+                            {Array.isArray(row.parts_replaced) && row.parts_replaced.length
+                              ? row.parts_replaced.join(", ")
+                              : (typeof row.parts_replaced === "string" && row.parts_replaced.trim() ? row.parts_replaced : "Not recorded")}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 font-data font-semibold tabular-nums text-foreground">
                             {row.cost != null ? formatCurrency(row.cost) : "—"}

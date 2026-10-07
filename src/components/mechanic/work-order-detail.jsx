@@ -28,8 +28,8 @@ import { useIsDesktop } from "./use-is-desktop";
 // evidence keys (diagnosis, parts_replaced, labor_hours, rejection_reason,
 // completed_date), so milestones render real stamps where present and
 // "Not recorded" where a stamp is absent (never a guessed timestamp). The
-// evidence form still opens blank for entry; a scoped single-record read is
-// the follow-up.
+// evidence form opens prefilled from the row so the mechanic edits what is
+// already recorded; a scoped single-record read is the follow-up.
 
 const MILESTONES = ["Assigned", "Started", "Submitted"];
 
@@ -37,6 +37,8 @@ function milestoneIndex(status) {
   if (status === "Scheduled") return 0;
   if (status === "In Progress") return 1;
   if (status === "Pending Inspection" || status === "Completed") return 2;
+  // Cancelled is terminal without progress: only Assigned reads as done.
+  if (status === "Cancelled") return 0;
   return 0;
 }
 
@@ -45,7 +47,8 @@ function Timeline({ workOrder }) {
   const stamps = {
     Assigned: workOrder.assigned_at ?? null,
     Started: workOrder.repair_started_at ?? null,
-    // completed_date rides the lean projection; the exact repair stamp does not.
+    // Prefer the exact repair stamp; fall back to completed_date for
+    // staff-direct completions that leave repair_completed_at NULL.
     Submitted: workOrder.repair_completed_at ?? workOrder.completed_date ?? null,
   };
   return (

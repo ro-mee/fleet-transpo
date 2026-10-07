@@ -52,7 +52,14 @@ const MECHANIC_ROUTES = {
 export function getNotificationHref(notification = {}, role) {
   const { reference_type: type, reference_id: id, link } = notification;
 
-  if (typeof link === "string" && link.startsWith("/")) return link;
+  // Explicit links are validated against the caller's role — an unscoped
+  // passthrough would send a mechanic into staff routes (or vice versa)
+  // and trigger the guard redirect loop the null convention avoids.
+  if (typeof link === "string" && link.startsWith("/")) {
+    if (role === "mechanic") return link.startsWith("/mechanic/") || link === "/notifications" ? link : null;
+    if (role === "driver") return link.startsWith("/driver") ? link : null;
+    return getRequiredRolesForPath(link).includes(role) ? link : null;
+  }
 
   if (!type || id == null) return null;
 

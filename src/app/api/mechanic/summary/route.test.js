@@ -65,7 +65,7 @@ function stubSummary({ queueRows = [WO(), WO({ maintenance_id: 6, status: "Sched
         }],
       };
     }
-    if (/COUNT\(\*\)\s+AS\s+assigned/.test(String(sql))) {
+    if (/AS\s+assigned/.test(String(sql))) {
       return { rows: [{ assigned: "3", inProgress: "1", waitingApproval: "1", urgent: "2", overdue: "1" }] };
     }
     return { rows: queueRows };
@@ -174,10 +174,13 @@ describe("GET /api/mechanic/summary (Task 4)", () => {
     expect(res.status).toBe(200);
     const countsSql = query.mock.calls
       .map(([sql]) => String(sql))
-      .find((sql) => /COUNT\(\*\)\s+AS\s+assigned/.test(sql));
+      .find((sql) => /AS\s+assigned/.test(sql));
     expect(countsSql).toBeDefined();
     expect(countsSql).toContain("vm.status = 'Pending Inspection'");
     expect(countsSql).not.toContain("repair_completed_by");
+    // Assigned counts only actionable work — terminal Completed/Cancelled
+    // rows never inflate the Today's Line EmptyState gate.
+    expect(countsSql).toContain("'Scheduled', 'In Progress', 'Pending Inspection'");
   });
 
   it("refuses an unauthenticated caller without querying", async () => {
