@@ -14,6 +14,7 @@ import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/Offlin
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { SkeletonCard } from "../../../components/ui";
 import { ClayCard, ClayBadge, ClayTile, ClayButton } from '../../../components/clay';
+import { isCargoLoad, loadTitle } from '../../../lib/load-presentation';
 
 function getStatusTone(status) {
   if (["Completed"].includes(status)) return "success";
@@ -72,8 +73,8 @@ function TripItem({ trip, onPress }) {
         </View>
       </View>
 
-      {/* Footer info */}
-      {(trip.vehicle_plate || trip.passenger_name) ? (
+      {/* Footer info — cargo rows name the consignment, never a guest. */}
+      {(trip.vehicle_plate || trip.passenger_name || isCargoLoad(trip)) ? (
         <View style={[styles.tripFooter, { borderTopColor: colors.outlineVariant + '40' }]}>
           {trip.vehicle_plate ? (
             <View style={styles.tripMeta}>
@@ -83,7 +84,14 @@ function TripItem({ trip, onPress }) {
               </Text>
             </View>
           ) : null}
-          {trip.passenger_name ? (
+          {isCargoLoad(trip) ? (
+            <View style={styles.tripMeta}>
+              <Ionicons name="cube-outline" size={15} color={colors.onSurfaceVariant} />
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>
+                {loadTitle(trip)}
+              </Text>
+            </View>
+          ) : trip.passenger_name ? (
             <View style={styles.tripMeta}>
               <Ionicons name="person-outline" size={15} color={colors.onSurfaceVariant} />
               <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>

@@ -16,6 +16,15 @@ describe("trips-query live-map projection", () => {
     expect(TRIPS_SELECT).toContain("service_name");
   });
 
+  it("projects typed load signals for cargo presentation copy", () => {
+    // Operational consignment facts only — guest PII stays out (see below).
+    // These columns exist only after migration 151: reads against a
+    // pre-migration database fail, so do not deploy before it is applied.
+    for (const field of ["load_type", "cargo_weight_kg", "cargo_description"]) {
+      expect(TRIPS_SELECT).toContain(field);
+    }
+  });
+
   it("does not widen guest PII into the trips views", () => {
     for (const field of ["guest_name", "guest_phone", "guest_email", "booking_reference", "special_requests"]) {
       expect(TRIPS_SELECT).not.toContain(field);

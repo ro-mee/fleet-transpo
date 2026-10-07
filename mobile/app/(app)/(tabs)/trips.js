@@ -22,6 +22,7 @@ import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/Offlin
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-state";
 import { groupTrips, bucketTone, OPEN_BUCKETS, PRE_START, preTripChipLabel } from "../../../lib/trips-queue";
+import { isCargoLoad, loadTitle, loadSubtitle } from "../../../lib/load-presentation";
 import RouteTimeline from "../../../components/RouteTimeline";
 import RadarPulse from "../../../components/RadarPulse";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
@@ -73,11 +74,16 @@ const TripCard = memo(function TripCard({ trip, display, router, colors, type })
         <View style={styles.metaLeft}>
           <Ionicons name="person-outline" size={16} color={colors.onSurfaceVariant} />
           <Text style={[type.supporting, { color: colors.onSurface, flexShrink: 1 }]}>
-            {trip?.passenger_name ? String(trip.passenger_name) : trip?.passenger_count != null ? "Passengers" : "Passenger not listed"}
+            {isCargoLoad(trip) ? loadTitle(trip) : trip?.passenger_name ? String(trip.passenger_name) : trip?.passenger_count != null ? "Passengers" : "Passenger not listed"}
           </Text>
-          {Number(trip?.passenger_count) > 1 ? (
-            <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>· {trip.passenger_count} pax</Text>
-          ) : null}
+          {(() => {
+            const subtitle = isCargoLoad(trip)
+              ? loadSubtitle(trip)
+              : Number(trip?.passenger_count) > 1 ? `${trip.passenger_count} pax` : null;
+            return subtitle ? (
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>{isCargoLoad(trip) ? subtitle : `· ${subtitle}`}</Text>
+            ) : null;
+          })()}
         </View>
         {trip?.vehicle_plate ? (
           <View style={[styles.plateChip, { backgroundColor: colors.surfaceContainerHigh }]}>

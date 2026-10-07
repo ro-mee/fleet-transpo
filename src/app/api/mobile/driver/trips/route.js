@@ -122,6 +122,13 @@ export async function GET(req) {
               ds.scheduled_departure AS departure_time,
               tr.guest_name AS passenger_name,
               tr.passenger_count,
+              tr.load_type,
+              tr.cargo_weight_kg,
+              tr.cargo_description,
+              st.service_code,
+              st.service_name,
+              v.operational_use,
+              v.cargo_capacity_kg,
               tr.booking_reference,
               tr.special_requests,
               tr.external_create_fingerprint AS _external_create_fingerprint,
@@ -146,6 +153,7 @@ export async function GET(req) {
          LEFT JOIN locations dl ON dl.location_id = r.destination_location_id
          LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
          LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+         LEFT JOIN service_types st ON st.service_type_id = tr.service_type_id
          LEFT JOIN locations pickup_registry ON pickup_registry.location_id = tr.pickup_location_id
          LEFT JOIN locations dropoff_registry ON dropoff_registry.location_id = tr.dropoff_location_id
         WHERE t.driver_id = $1 AND t.deleted_at IS NULL

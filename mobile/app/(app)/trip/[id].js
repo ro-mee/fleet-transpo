@@ -14,6 +14,7 @@ import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
+import { isCargoLoad, loadTitle, loadSubtitle } from "../../../lib/load-presentation";
 import { usePreShift } from "../../../lib/use-pre-shift";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
@@ -327,6 +328,13 @@ export default function TripDetailsScreen() {
     : null;
   const endMs = completionTime(trip);
   const pax = passengerSummary(trip);
+  // Cargo rows name the consignment in kilograms — never a guest name and
+  // never a "Passengers: 0" fabrication. Passenger rendering is unchanged.
+  const isCargo = isCargoLoad(trip);
+  const loadName = isCargo ? loadTitle(trip) : pax.name || "Passenger not listed";
+  const loadCount = isCargo
+    ? loadSubtitle(trip)
+    : pax.count != null ? `${pax.count} ${pax.count === 1 ? "passenger" : "passengers"}` : "Passenger count not listed";
   const tone = tripStatusTone(trip.trip_status);
 
   return (
@@ -523,19 +531,23 @@ export default function TripDetailsScreen() {
         </ClayCard>
 
         {/* Passenger — supplied facts only, no VIP tier, no call action (the
-            API has no phone field for this trip). */}
+            API has no phone field for this trip). Cargo rows name the
+            consignment in kilograms instead; a missing weight renders no
+            count line rather than a fabricated zero. */}
         <ClayCard style={styles.card}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="person-outline" size={16} color={colors.primary} />
-            <Text style={[type.label, { letterSpacing: 0.6 }]}>PASSENGER</Text>
+            <Text style={[type.label, { letterSpacing: 0.6 }]}>{isCargo ? "CARGO" : "PASSENGER"}</Text>
           </View>
           <View style={styles.paxRow}>
             <Ionicons name="people-outline" size={18} color={colors.onSurfaceVariant} />
             <View style={{ flexShrink: 1 }}>
-              <Text style={type.cardTitle}>{pax.name || "Passenger not listed"}</Text>
-              <Text style={type.supporting}>
-                {pax.count != null ? `${pax.count} ${pax.count === 1 ? "passenger" : "passengers"}` : "Passenger count not listed"}
-              </Text>
+              <Text style={type.cardTitle}>{loadName}</Text>
+              {loadCount != null ? (
+                <Text style={type.supporting}>
+                  {loadCount}
+                </Text>
+              ) : null}
             </View>
           </View>
         </ClayCard>

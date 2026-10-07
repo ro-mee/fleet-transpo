@@ -32,6 +32,7 @@ import {
 } from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
+import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel } from "../../../lib/load-presentation";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -244,7 +245,7 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
       list.push({
         id: `trip_${t.trip_id}`,
         type: 'assignment',
-        title: t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer'),
+        title: isCargoLoad(t) ? `${loadTitle(t)} (${t.origin || 'Pickup'})` : t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer'),
         subtitle: t.destination ? `To ${t.destination}` : 'Scheduled Dispatch',
         priority: isEmergency ? 'emergency' : 'normal',
         lat: tLat,
@@ -2114,7 +2115,9 @@ export default function MapTab() {
                     ) : (
                       <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
                         <Text style={[type.cardTitle, { color: colors.primary }]}>
-                          {activeTrip.passenger_count || 1} {activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}
+                          {isCargoLoad(activeTrip)
+                            ? loadSubtitle(activeTrip) || 'Cargo consignment'
+                            : `${activeTrip.passenger_count || 1} ${activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}`}
                         </Text>
                         <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
                           {isState2 ? 'Waiting at pickup' : 'Ready for drop-off'}
@@ -2477,24 +2480,32 @@ export default function MapTab() {
             pointerEvents={isExpanded ? 'auto' : 'none'}
             contentContainerStyle={{ paddingBottom: 24, gap: 16 }}
           >
-            {/* Passenger Card */}
+            {/* Passenger Card — cargo rows name the consignment in kilograms,
+                never a guest name or a fabricated count. */}
             <View style={[styles.detailCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
               <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant }]}>
                 <Ionicons name="person" size={16} color={colors.onSurfaceVariant} />
-                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>Passenger Info</Text>
+                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>{isCargoLoad(activeTrip) ? 'Cargo Info' : 'Passenger Info'}</Text>
               </View>
               <View style={styles.cardBody}>
                 <View style={[styles.avatar, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
                   <Text style={[styles.avatarText, { color: colors.onSurface }]}>
-                    {(activeTrip.passenger_name || 'G')[0].toUpperCase()}
+                    {(isCargoLoad(activeTrip) ? loadTitle(activeTrip) : (activeTrip.passenger_name || 'G'))[0].toUpperCase()}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.detailTitle, { color: colors.onSurface }]}>{activeTrip.passenger_name || 'Guest'}</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                    <Ionicons name="people" size={14} color={colors.outline} />
-                    <Text style={[styles.detailSub, { color: colors.outline }]}>{activeTrip.passenger_count || 1} Pax</Text>
-                  </View>
+                  <Text style={[styles.detailTitle, { color: colors.onSurface }]}>{isCargoLoad(activeTrip) ? loadTitle(activeTrip) : (activeTrip.passenger_name || 'Guest')}</Text>
+                  {(() => {
+                    const sub = isCargoLoad(activeTrip)
+                      ? loadSubtitle(activeTrip)
+                      : `${activeTrip.passenger_count || 1} Pax`;
+                    return sub ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                        <Ionicons name="people" size={14} color={colors.outline} />
+                        <Text style={[styles.detailSub, { color: colors.outline }]}>{sub}</Text>
+                      </View>
+                    ) : null;
+                  })()}
                 </View>
                 <Pressable
                   style={({ pressed }) => [

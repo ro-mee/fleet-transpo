@@ -253,7 +253,8 @@ describe("GET /api/mobile/driver/trips — endpoint coordinate fallback", () => 
     expect(row.estimated_duration).toBeNull();
   });
 
-  it("retains v2 estimates when both request-linked active points are usable", async () => {
+    it("retains v2 estimates when both request-linked active points are usable", async () => {
+
     vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
     mockQuery([tripRow({
       estimated_distance: 88,
@@ -278,5 +279,47 @@ describe("GET /api/mobile/driver/trips — endpoint coordinate fallback", () => 
 
     expect(row.estimated_distance).toBe(88);
     expect(row.estimated_duration).toBe(120);
+  });
+
+  it("projects typed load, service and vehicle capability fields for cargo presentation", async () => {
+    // Task 8: the card/detail copy (consignment, kilograms, capability) reads
+    // these columns. They exist only after migrations 151/153 — do not deploy
+    // this revision before those migrations are applied.
+    vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+    const query = mockQuery([tripRow({
+      load_type: "Cargo",
+      passenger_count: null,
+      cargo_weight_kg: 650,
+      cargo_description: "Restaurant vegetables",
+      service_code: "RESTAURANT_SUPPLY_PICKUP",
+      service_name: "Restaurant Supply Pickup",
+      operational_use: "Cargo",
+      cargo_capacity_kg: 1000,
+    })]);
+
+    const res = await GET(mockReq());
+    const row = (await res.json())[0];
+
+    expect(row.load_type).toBe("Cargo");
+    expect(row.passenger_count).toBeNull();
+    expect(row.cargo_weight_kg).toBe(650);
+    expect(row.cargo_description).toBe("Restaurant vegetables");
+    expect(row.service_code).toBe("RESTAURANT_SUPPLY_PICKUP");
+    expect(row.operational_use).toBe("Cargo");
+    expect(row.cargo_capacity_kg).toBe(1000);
+
+    const tripSelect = query.mock.calls.find(([sql]) => sql.includes("FROM trips t"))?.[0] ?? "";
+    for (const column of [
+      "tr.load_type",
+      "tr.cargo_weight_kg",
+      "tr.cargo_description",
+      "st.service_code",
+      "st.service_name",
+      "v.operational_use",
+      "v.cargo_capacity_kg",
+    ]) {
+      expect(tripSelect).toContain(column);
+    }
+    expect(tripSelect).toContain("LEFT JOIN service_types st ON st.service_type_id = tr.service_type_id");
   });
 });

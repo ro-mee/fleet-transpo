@@ -8,6 +8,7 @@ import { homeTripAction } from '../../lib/home-trips';
 import { statusColorForTone, tripStatusTone, fonts } from '../../lib/theme';
 import { moderateScale } from '../../lib/scaling';
 import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
+import { isCargoLoad, loadSubtitle, tripStatusLabel } from '../../lib/load-presentation.js';
 import { homeMaterials as clayMaterials } from './materials';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
@@ -245,7 +246,7 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
       </View>
       {trip ? <View style={[s.status, pillEdges, { backgroundColor: sc.bg }]}>
         <View style={[s.statusDot, { backgroundColor: sc.fg }]} />
-        <Text style={[type.caption, { color: sc.fg }]}>{trip.trip_status}</Text>
+        <Text style={[type.caption, { color: sc.fg }]}>{tripStatusLabel(trip.trip_status, trip.load_type)}</Text>
       </View> : null}
     </View>
     {!trip ? <View style={[s.empty, { flexDirection: 'row', alignItems: 'center', gap: 12 }, isCurrent && { gap: 14, minHeight: 90 }]}>
@@ -307,7 +308,15 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
               </View>
             </View>
           </View>)}
-          {trip.passenger_count != null ? <View style={s.row}><Ionicons name="people" size={16} color={accent} /><Text style={type.supporting}>{trip.passenger_count} {Number(trip.passenger_count) === 1 ? 'passenger' : 'passengers'}</Text></View> : null}
+          {/* Cargo rows show kilograms, never a guest count; a missing weight
+              renders nothing rather than a fabricated zero. */}
+          {(() => {
+            if (isCargoLoad(trip)) {
+              const subtitle = loadSubtitle(trip);
+              return subtitle ? <View style={s.row}><Ionicons name="cube" size={16} color={accent} /><Text style={type.supporting}>{subtitle}</Text></View> : null;
+            }
+            return trip.passenger_count != null ? <View style={s.row}><Ionicons name="people" size={16} color={accent} /><Text style={type.supporting}>{trip.passenger_count} {Number(trip.passenger_count) === 1 ? 'passenger' : 'passengers'}</Text></View> : null;
+          })()}
         </View>
         <View style={horizontal ? { width: '42%', gap: 12 } : { gap: 12 }}>
           {/* ponytail: one interactive route preview on Home; secondary cards stay static until native polyline rendering exists. */}

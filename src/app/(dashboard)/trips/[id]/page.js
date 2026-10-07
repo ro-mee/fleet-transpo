@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { PhaseRail } from "@/components/ui/phase-rail";
 import { TRIP_STATUS as T } from "@/lib/constants";
+import { tripStatusLabel } from "@/lib/trips/load-presentation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,12 @@ const TRIP_CHAIN = [
   { key: T.DROP_OFF, label: T.DROP_OFF },
   { key: T.COMPLETED, label: T.COMPLETED },
 ];
+
+// Display labels for the rail. Cargo maps the two load-conditioned states
+// ("Cargo Loaded" / "At Delivery"); the DB state keys never change.
+function chainLabel(entry, loadType) {
+  return tripStatusLabel(entry.label, loadType);
+}
 
 export default function TripDetailPage() {
   useRequireRole();
@@ -234,7 +241,7 @@ export default function TripDetailPage() {
             </div>
           )}
           <PhaseRail
-            steps={TRIP_CHAIN}
+            steps={TRIP_CHAIN.map((s) => ({ ...s, label: chainLabel(s, trip?.transportation_requests?.load_type) }))}
             status={trip.trip_status}
             fallbackNote="This trip uses an older status vocabulary."
           />

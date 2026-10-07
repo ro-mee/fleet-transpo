@@ -142,13 +142,17 @@ function corridorEndpointsFor(trip, monitorRow = null) {
 }
 
 // Phase sentence for the selected mission — one operational line from the
-// shared resolver, never raw status alone.
+// shared resolver, never raw status alone. Cargo missions name the load
+// handoff ("Cargo loaded"); the DB state behind the sentence never changes.
 function phaseSentenceFor(trip, mapTarget) {
   if (!trip) return null;
   if (mapTarget.kind === "pickup") return "Heading to pickup";
   if (mapTarget.kind === "destination") {
     const s = trip.trip_status;
-    if (s === "Passenger Onboard" || s === "En Route" || s === "In Progress") return "Guest onboard — heading to destination";
+    const cargo = trip.load_type === "Cargo" || trip.transportation_requests?.load_type === "Cargo";
+    if (s === "Passenger Onboard" || s === "En Route" || s === "In Progress") {
+      return cargo ? "Cargo loaded — heading to delivery" : "Guest onboard — heading to destination";
+    }
     return "Heading to destination";
   }
   return "Preparing trip";
