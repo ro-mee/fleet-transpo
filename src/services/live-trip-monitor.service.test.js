@@ -456,6 +456,50 @@ describe("evaluateLiveTripMonitor — full mode", () => {
     });
   });
 
+  it("keeps a v2 zero-coordinate target through live ETA and corridor evaluation", async () => {
+    clearRouteCache();
+    clearMonitorSnapshots();
+    clearTripGeofenceCache();
+    fetchTomTomRoute.mockResolvedValue({
+      durationMin: 8,
+      trafficDelayMin: 0,
+      coordinates: [[0.0005, 0], [0, 0]],
+    });
+    const trip = tripRow({
+      external_create_fingerprint: "v2-zero",
+      pickup_location_id: 111,
+      dropoff_location_id: 222,
+      gps_pings: [ping([0.0005, 0])],
+    });
+    const requestTargets = {
+      trip_id: 101, dispatch_id: 55, route_id: 1,
+      origin: "Partner pickup", destination: "Partner drop-off",
+      external_create_fingerprint: "v2-zero", pickup_location_id: 111, dropoff_location_id: 222,
+      _pickup_registry_location_id: 111, _pickup_registry_name: "Equator Harbor",
+      _pickup_registry_is_active: true, _pickup_registry_retired_at: null,
+      _pickup_registry_latitude: "0", _pickup_registry_longitude: "0",
+      _dropoff_registry_location_id: 222, _dropoff_registry_name: "Harbor Warehouse",
+      _dropoff_registry_is_active: true, _dropoff_registry_retired_at: null,
+      _dropoff_registry_latitude: "0.01", _dropoff_registry_longitude: "0.01",
+    };
+    const db = makeDb([
+      ["FROM trips t", (sql) => ({ rows: sql.includes("pickup_registry.location_id AS _pickup_registry_location_id") ? [requestTargets] : [trip] })],
+      ["FROM routes r", () => ({ rows: [ROUTE_LOCATIONS_ROW] })],
+    ]);
+    const result = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+    expect(result.endpointTargets.pickup).toMatchObject({ lat: 0, lng: 0, source: "canonical_registry" });
+    expect(result.liveEta).not.toBeNull();
+    expect(result.offRoute.distanceM).not.toBeNull();
+
+    trip.gps_pings = [ping([0, 0])];
+    clearRouteCache();
+    clearMonitorSnapshots();
+    clearTripGeofenceCache();
+    const invalidGps = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+    expect(invalidGps.liveEta).toBeNull();
+    expect(invalidGps.offRoute.distanceM).toBeNull();
+  });
+
   it("a trip with no GPS becomes UNKNOWN and raises a gps_unavailable alert", async () => {
     libQuery.mockImplementation(async () => ({ rows: [{ employee_id: 3 }] }));
     const { db, table } = fullDb({ trips: [tripRow({ gps_pings: [] })] });

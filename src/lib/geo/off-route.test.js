@@ -50,6 +50,17 @@ describe("distanceToPolylineM", () => {
     expect(distanceToPolylineM(NEAR, [[14.5, 120.99]])).toBeNull();
     expect(distanceToPolylineM(null, ROUTE)).toBeNull();
   });
+
+  it("allows a zero route point only with the target-scoped option", () => {
+    const points = [[0.0005, 0], [0, 0]];
+    expect(distanceToPolylineM({ lat: 0.0005, lng: 0 }, points)).toBeNull();
+    expect(distanceToPolylineM(
+      { lat: 0.0005, lng: 0 }, points, { allowZeroRoutePoints: true }
+    )).toBe(0);
+    expect(evaluateOffRoute({
+      position: { lat: 0, lng: 0 }, routePoints: points, allowZeroRoutePoints: true,
+    }).state).toBe("unknown");
+  });
 });
 
 describe("evaluateOffRoute", () => {

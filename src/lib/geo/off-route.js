@@ -56,7 +56,7 @@ function toPoint(value) {
  * @param {Array<[number,number]>} points  [[lat, lng], ...] route polyline
  * @returns {number|null} metres, rounded; null when inputs are unusable
  */
-export function distanceToPolylineM(position, points) {
+export function distanceToPolylineM(position, points, { allowZeroRoutePoints = false } = {}) {
   const p = toPoint(position);
   if (!p || !Array.isArray(points) || points.length < 2) return null;
 
@@ -75,7 +75,7 @@ export function distanceToPolylineM(position, points) {
     const bLat = Number(points[i][0]);
     const bLng = Number(points[i][1]);
     if (![aLat, aLng, bLat, bLng].every(Number.isFinite)) continue;
-    if ((aLat === 0 && aLng === 0) || (bLat === 0 && bLng === 0)) continue;
+    if (!allowZeroRoutePoints && ((aLat === 0 && aLng === 0) || (bLat === 0 && bLng === 0))) continue;
 
     const ax = aLng * mPerDegLng;
     const ay = aLat * mPerDegLat;
@@ -148,6 +148,7 @@ export function evaluateOffRoute({
   accuracyM = null,
   gpsFresh = true,
   routePoints = null,
+  allowZeroRoutePoints = false,
   recentPings = [],
   previousState = null,
   now = Date.now(),
@@ -160,7 +161,7 @@ export function evaluateOffRoute({
     return { state: "unknown", distanceM: null, offStreak: 0, onStreak: 0, reason: "No route geometry for the active leg." };
   }
 
-  const distanceM = distanceToPolylineM(pos, routePoints);
+  const distanceM = distanceToPolylineM(pos, routePoints, { allowZeroRoutePoints });
   if (distanceM == null) {
     return { state: "unknown", distanceM: null, offStreak: 0, onStreak: 0, reason: "Route geometry is unusable." };
   }
@@ -179,7 +180,7 @@ export function evaluateOffRoute({
   ];
   for (const ping of candidates) {
     if (!validObservation(ping, now)) break;
-    const d = distanceToPolylineM(ping, routePoints);
+    const d = distanceToPolylineM(ping, routePoints, { allowZeroRoutePoints });
     if (d == null) break;
     observations.push(d);
   }

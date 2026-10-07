@@ -105,12 +105,12 @@ function toNumberOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function toLatLngArray(value) {
+function toLatLngArray(value, { allowZeroZero = false } = {}) {
   const lat = toNumberOrNull(value?.lat ?? value?.[0] ?? value?.latitude);
   const lng = toNumberOrNull(value?.lng ?? value?.[1] ?? value?.longitude);
   if (lat == null || lng == null) return null;
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  if (lat === 0 && lng === 0) return null;
+  if (lat === 0 && lng === 0 && !allowZeroZero) return null;
   return [lat, lng];
 }
 
@@ -136,7 +136,9 @@ function setSnapshot(tripId, kind, value) {
 }
 
 function targetKeyOf(target) {
-  const p = toLatLngArray(target);
+  const p = toLatLngArray(target, {
+    allowZeroZero: target?.source === "canonical_registry",
+  });
   return p ? `${p[0].toFixed(4)},${p[1].toFixed(4)}` : null;
 }
 
@@ -147,7 +149,9 @@ function targetKeyOf(target) {
  */
 async function resolveLegRoute(origin, destination, { departAt } = {}) {
   const o = toLatLngArray(origin);
-  const d = toLatLngArray(destination);
+  const d = toLatLngArray(destination, {
+    allowZeroZero: destination?.source === "canonical_registry",
+  });
   if (!o || !d) return { minutes: null, trafficDelayMin: null, coordinates: null, provenance: "unknown" };
   const cacheOpts = { departAt, maxAlternatives: 0 };
   try {
@@ -435,6 +439,7 @@ async function evaluateTripRow(db, trip, {
         accuracyM: toNumberOrNull(latest?.accuracy),
         gpsFresh: gpsHealth === "fresh" || gpsHealth === "delayed",
         routePoints: corridor.points,
+        allowZeroRoutePoints: target.source === "canonical_registry",
         recentPings: pings.slice(1)
           .map((p) => pingToObservation(p, nowMs))
           .filter(Boolean),
