@@ -22,7 +22,7 @@ Adds `locations.location_code UUID NOT NULL DEFAULT uuid_generate_v4()` and back
 
 Migrations 144 and 145 have explicit `BEGIN`/`COMMIT` boundaries. Migration 145 preflights `passenger_count IS NULL OR passenger_count <= 0` before typed-load DDL, requires `i.indisready` on the service-code unique index, and adds each named load CHECK only when absent. If present, each full PostgreSQL-deparsed definition must exactly match a scratch constraint and be validated; mismatched or unvalidated constraints raise rather than being dropped or replaced. Both its expected and production cargo checks use `btrim(cargo_description, E' \t\n\r\f' || chr(11))`, explicitly trimming ASCII space, tab, line feed, carriage return, form feed, and vertical tab. Candidate migration 146 rejects address values made only of SQL ASCII whitespace and retains the paired-coordinate proposal case.
 
-Offline verification: `npm run db:check` accepted 143 migration files. No `db:status`, live catalog query, apply, or schema dump was run in this correction wave. Migrations 144/145/146 remain subject to the existing reconciliation and explicit-approval hold; this does not claim live schema state.
+Offline verification: `npm run db:check` accepted 143 migration files; the final migration/source contract group passed 30/30. No `db:status`, live catalog query, apply, or schema dump was run in this correction wave. Migrations 144/145/146 remain subject to the existing reconciliation and explicit-approval hold; this does not claim live schema state.
 
 ## 2026-09-29 — `139_driver_punctuality.sql` (Driver Punctuality, Task 1 of 9)
 
