@@ -83,4 +83,29 @@ describe("vehicle update and archive audit events", () => {
     expect(rolledBack).toBe(true);
     expect(committed).toBe(false);
   });
+
+  it("writes capability fields on update but never commissioning status", async () => {
+    const okReq = request("PUT", {
+      plate_number: "ABC-1234",
+      vehicle_name: "Isuzu Elf",
+      required_license_class: "B",
+      fleet_asset_code: "flt-008",
+      operational_use: "Cargo",
+      cargo_capacity_kg: 1500,
+    });
+    const okRes = await PUT(okReq, { params: Promise.resolve({ id: "29" }) });
+    expect(okRes.status).toBe(200);
+    const updateCall = tx.query.mock.calls.find(([sql]) => sql.startsWith("UPDATE vehicles SET"));
+    expect(updateCall[0]).toMatch(/fleet_asset_code/);
+    expect(updateCall[1]).toContain("FLT-008");
+
+    const badReq = request("PUT", {
+      plate_number: "ABC-1234",
+      vehicle_name: "Isuzu Elf",
+      required_license_class: "B",
+      commissioning_status: "Ready",
+    });
+    const badRes = await PUT(badReq, { params: Promise.resolve({ id: "29" }) });
+    expect(badRes.status).toBe(400);
+  });
 });

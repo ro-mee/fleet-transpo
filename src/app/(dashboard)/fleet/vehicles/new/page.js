@@ -75,6 +75,9 @@ export default function VehicleFormPage({ params }) {
       color: "",
       fuel_type: "Gasoline",
       seating_capacity: 4,
+      fleet_asset_code: "",
+      operational_use: "",
+      cargo_capacity_kg: undefined,
       required_license_class: "",
       vehicle_status: "Available",
       purchase_price: undefined,
@@ -183,6 +186,9 @@ export default function VehicleFormPage({ params }) {
         color: vehicle.color || "",
         fuel_type: vehicle.fuel_type || "Gasoline",
         seating_capacity: vehicle.seating_capacity || 4,
+        fleet_asset_code: vehicle.fleet_asset_code || "",
+        operational_use: vehicle.operational_use || "",
+        cargo_capacity_kg: vehicle.cargo_capacity_kg ?? undefined,
         required_license_class: vehicle.required_license_class?.toUpperCase() || "",
         category_id: vehicle.category_id || undefined,
         vehicle_status: vehicle.vehicle_status || "Available",
@@ -221,6 +227,9 @@ export default function VehicleFormPage({ params }) {
 
   const watchedPlate = form.watch("plate_number"); // eslint-disable-line react-hooks/incompatible-library -- RHF watch subscription is the documented pattern; compiler memo-skip is acceptable here
   const ltoSchedule = calculateLtoRenewalSchedule(watchedPlate || "");
+  // Drives the seats-vs-kilograms conditional below. Empty (legacy rows) keeps
+  // the passenger layout, so unclassified stock renders exactly as before.
+  const watchedOperationalUse = form.watch("operational_use");
 
   const createMutation = useMutation({
     mutationFn: createVehicle,
@@ -487,6 +496,39 @@ export default function VehicleFormPage({ params }) {
                     />
                   </FloatingField>
 
+                  <FloatingField label="Fleet Asset Code" icon={Tag}>
+                    <input
+                      id="fleet_asset_code"
+                      {...form.register("fleet_asset_code")}
+                      placeholder="FLT-001"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data"
+                    />
+                  </FloatingField>
+
+                  <Controller
+                    control={form.control}
+                    name="operational_use"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="Operational Use"
+                        icon={Tag}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Select use"
+                        hint={
+                          !field.value
+                            ? "Unclassified stock keeps the passenger layout until inventoried."
+                            : undefined
+                        }
+                        error={form.formState.errors.operational_use?.message}
+                      >
+                        <SelectItem value="Passenger">Passenger — seats determine capacity</SelectItem>
+                        <SelectItem value="Cargo">Cargo — usable payload (kg) determines capacity</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
+
+                  {watchedOperationalUse !== "Cargo" ? (
                   <FloatingField label="Passenger Capacity" icon={Tag}>
                     <input
                       id="seating_capacity"
@@ -496,6 +538,18 @@ export default function VehicleFormPage({ params }) {
                       className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data"
                     />
                   </FloatingField>
+                  ) : (
+                  <FloatingField label="Cargo Capacity (kg)" icon={Tag}>
+                    <input
+                      id="cargo_capacity_kg"
+                      type="number"
+                      step="0.001"
+                      {...form.register("cargo_capacity_kg")}
+                      placeholder="1000"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data"
+                    />
+                  </FloatingField>
+                  )}
 
                   <Controller
                     control={form.control}

@@ -114,3 +114,18 @@ describe("Vehicle edit form — category and license class", () => {
     expect(html).not.toContain("Not recorded");
   });
 });
+
+describe("Vehicle form — operational use and capacity", () => {
+  it("shows seats for unclassified stock and offers the cargo branch", () => {
+    // Static render never runs the reset effect, so the form sits at its
+    // defaults (operational_use ""): legacy rows keep the passenger layout.
+    const html = render({ vehicle_id: 37, plate_number: "ABC-1234", vehicle_name: "SUV", category_id: null, required_license_class: null });
+    expect(html).toContain("Operational Use");
+    expect(html).toContain("Fleet Asset Code");
+    expect(html).toContain("Passenger Capacity");
+    expect(html).toContain("Unclassified stock keeps the passenger layout until inventoried.");
+    // The kilograms field appears only after Cargo is chosen (client state a
+    // static render cannot simulate), never alongside seats.
+    expect(html).not.toContain("Cargo Capacity (kg)");
+  });
+});

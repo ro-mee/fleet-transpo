@@ -19,6 +19,7 @@ import {
   isValidLicenseNumber,
   SUPPORTED_LICENSE_CLASSES,
 } from "@/lib/drivers/license-eligibility";
+import { OPERATIONAL_USES } from "@/lib/vehicles/readiness-adapter";
 
 const requiredString = (label, opts = {}) =>
   z
@@ -83,6 +84,22 @@ export const vehicleSchema = z.object({
     .refine((value) => SUPPORTED_LICENSE_CLASSES.includes(value), "Choose a supported required driver license class."),
   category_id: coerceId("Vehicle category"),
   vehicle_status: z.string().default("Available"),
+  fleet_asset_code: z
+    .string()
+    .trim()
+    .max(50, "Fleet asset code must be at most 50 characters.")
+    .optional()
+    .or(z.literal("")),
+  operational_use: z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(""))
+    .refine((v) => !v || OPERATIONAL_USES.includes(v), "Operational use must be Passenger or Cargo."),
+  cargo_capacity_kg: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
+    z.number().positive("Cargo capacity must be greater than 0.").optional()
+  ),
   purchase_price: z.preprocess(
     (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
     z.number().min(0, "Purchase price must be a positive number.").optional()
@@ -110,6 +127,18 @@ export const vehicleSchema = z.object({
       .min(1, "Service interval (days) must be at least 1. Leave it blank to skip time-based prediction.")
       .optional()
   ),
+}).superRefine((v, ctx) => {
+  // Cargo capacity belongs to cargo operation only; a Passenger row carrying
+  // kilograms is a data-entry error the API also rejects. Capacity stays
+  // optional on Cargo rows here — the dispatch gate, not the registry, fails
+  // closed when a cargo vehicle's usable payload is unknown.
+  if (v.operational_use === "Passenger" && v.cargo_capacity_kg != null) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["cargo_capacity_kg"],
+      message: "Passenger vehicles do not carry a cargo capacity.",
+    });
+  }
 });
 
 export const driverSchema = z.object({

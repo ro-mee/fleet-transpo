@@ -3,6 +3,7 @@ import { requirePermission, parseBody, ok, errValidation, handleError } from "@/
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
 import { writeAuditRequired } from "@/lib/audit";
 import { SUPPORTED_LICENSE_CLASSES } from "@/lib/drivers/license-eligibility";
+import { OPERATIONAL_USES } from "@/lib/vehicles/readiness-adapter";
 
 const vehicleWriteSchema = {
   plate_number: { required: true, type: "plate", label: "Plate number", maxLength: 12 },
@@ -12,6 +13,9 @@ const vehicleWriteSchema = {
   year: { type: "year", label: "Year model" },
   color: { maxLength: 50, label: "Color" },
   seating_capacity: { type: "seating", label: "Passenger capacity" },
+  fleet_asset_code: { maxLength: 50, label: "Fleet asset code" },
+  operational_use: { maxLength: 20, label: "Operational use" },
+  cargo_capacity_kg: { type: "positiveNumber", label: "Cargo capacity (kg)" },
   category_id: { type: "id", label: "Vehicle category" },
   required_license_class: { required: true, maxLength: 10, label: "Required driver license class" },
   purchase_price: { type: "positiveNumber", label: "Purchase price" },
@@ -55,6 +59,9 @@ const WRITABLE_COLUMNS = [
   "year",
   "color",
   "seating_capacity",
+  "fleet_asset_code",
+  "operational_use",
+  "cargo_capacity_kg",
   "category_id",
   "required_license_class",
   "purchase_price",
@@ -121,11 +128,30 @@ export async function POST(req) {
     if (vehicleData.required_license_class && !SUPPORTED_LICENSE_CLASSES.includes(String(vehicleData.required_license_class).trim().toUpperCase())) {
       errors.required_license_class = "Choose a supported required driver license class (B or B1).";
     }
+    // commissioning_status is server-owned (verification flow attests Ready);
+    // a client write must never set or clear it.
+    if ("commissioning_status" in vehicleData) {
+      errors.commissioning_status = "Commissioning status is set by verification, not by vehicle create.";
+    }
+    if (vehicleData.operational_use && !OPERATIONAL_USES.includes(String(vehicleData.operational_use).trim())) {
+      errors.operational_use = "Operational use must be Passenger or Cargo.";
+    }
+    const capacity = vehicleData.cargo_capacity_kg;
+    if (capacity !== undefined && capacity !== null && capacity !== "") {
+      const kg = Number(capacity);
+      if (!Number.isFinite(kg) || kg <= 0) {
+        errors.cargo_capacity_kg = "Cargo capacity (kg) must be greater than 0.";
+      } else if (String(vehicleData.operational_use || "").trim() === "Passenger") {
+        errors.cargo_capacity_kg = "Passenger vehicles do not carry a cargo capacity.";
+      }
+    }
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
 
     if (vehicleData.plate_number) vehicleData.plate_number = normalizePlate(vehicleData.plate_number);
+    if (vehicleData.fleet_asset_code) vehicleData.fleet_asset_code = String(vehicleData.fleet_asset_code).trim().toUpperCase();
+    if (vehicleData.operational_use) vehicleData.operational_use = String(vehicleData.operational_use).trim();
     if (vehicleData.vehicle_name) vehicleData.vehicle_name = toVehicleTitleCase(vehicleData.vehicle_name);
     if (vehicleData.manufacturer) vehicleData.manufacturer = toVehicleTitleCase(vehicleData.manufacturer);
     if (vehicleData.required_license_class) vehicleData.required_license_class = String(vehicleData.required_license_class).trim().toUpperCase();

@@ -74,4 +74,35 @@ describe("POST /api/vehicles", () => {
     expect(rolledBack).toBe(true);
     expect(committed).toBe(false);
   });
+
+  it("writes normalized capability fields for a cargo vehicle", async () => {
+    const response = await POST(request({
+      ...vehicle,
+      fleet_asset_code: "  flt-007 ",
+      operational_use: "Cargo",
+      cargo_capacity_kg: 1000,
+    }));
+
+    expect(response.status).toBe(201);
+    const [sql, values] = tx.query.mock.calls[0];
+    expect(sql).toMatch(/fleet_asset_code/);
+    expect(sql).toMatch(/operational_use/);
+    expect(sql).toMatch(/cargo_capacity_kg/);
+    expect(values).toContain("FLT-007");
+    expect(values).toContain("Cargo");
+    expect(values).toContain(1000);
+  });
+
+  it.each([
+    [{ operational_use: "Shuttle" }, "unknown operational use"],
+    [{ operational_use: "Cargo", cargo_capacity_kg: 0 }, "non-positive capacity"],
+    [{ operational_use: "Cargo", cargo_capacity_kg: -50 }, "negative capacity"],
+    [{ operational_use: "Passenger", cargo_capacity_kg: 500 }, "capacity on a passenger vehicle"],
+    [{ commissioning_status: "Ready" }, "client-set commissioning status"],
+  ])("rejects %s (%s)", async (patch) => {
+    const response = await POST(request({ ...vehicle, ...patch }));
+
+    expect(response.status).toBe(400);
+    expect(committed).toBe(false);
+  });
 });
