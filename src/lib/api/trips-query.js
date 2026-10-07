@@ -29,6 +29,8 @@
  */
 export const TRIPS_SELECT = `
   t.*,
+  fp.source_url AS fuel_price_source_url, fp.effective_at AS fuel_price_effective_at,
+  fp.verification_method AS fuel_price_verification_method,
   row_to_json(v.*) AS vehicles,
   CASE WHEN d.driver_id IS NULL THEN NULL ELSE
     json_build_object(
@@ -87,6 +89,7 @@ export const TRIPS_SELECT = `
  */
 export const TRIPS_JOINS = `
   FROM trips t
+  LEFT JOIN fuel_price_snapshots fp ON fp.snapshot_id = t.fuel_price_snapshot_id
   LEFT JOIN vehicles v   ON t.vehicle_id = v.vehicle_id
   LEFT JOIN drivers d    ON t.driver_id = d.driver_id
   LEFT JOIN employees de ON d.employee_id = de.employee_id
@@ -115,6 +118,15 @@ export const TRIPS_LIST_SELECT = `
   t.trip_id, t.trip_status, t.start_time, t.end_time, t.created_at,
   t.distance, t.actual_duration, t.notes, t.vehicle_id, t.driver_id,
   t.dispatch_id, t.route_id,
+  fp.source_url AS fuel_price_source_url, fp.effective_at AS fuel_price_effective_at,
+  fp.verification_method AS fuel_price_verification_method,
+  t.planned_distance_km, t.actual_distance_km, t.distance_provenance,
+  t.estimated_fuel_l, t.estimated_fuel_cost, t.fuel_reference_price, t.fuel_price_snapshot_id, t.fuel_region,
+  t.planned_estimated_fuel_l, t.planned_estimated_fuel_cost, t.fuel_efficiency_snapshot_kmpl, t.fuel_estimate_reason,
+  CASE WHEN tr.request_id IS NULL THEN NULL ELSE json_build_object(
+    'load_type', tr.load_type, 'cargo_description', tr.cargo_description, 'cargo_weight_kg', tr.cargo_weight_kg,
+    'service_code', st.service_code, 'service_name', st.service_name
+  ) END AS transportation_requests,
   json_build_object(
     'plate_number',  v.plate_number,
     'vehicle_name',  v.vehicle_name

@@ -14,6 +14,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
+import { TRIP_SERVICE_OPTIONS } from "@/lib/trips/filters";
+import { tripStatusLabel } from "@/lib/trips/load-presentation";
 import { getTripPerformanceWorkbook } from "@/services/report.service";
 import { formatTime, formatDuration } from "@/lib/utils";
 import { Route, Play, Download, Truck, Users, Clock, CheckCircle2, MapPin, TriangleAlert, Navigation } from "lucide-react";
@@ -26,6 +28,7 @@ const columnHelper = createColumnHelper();
 export default function TripsPage() {
   useRequireRole();
   const router = useRouter();
+  const [serviceFilter, setServiceFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
@@ -49,13 +52,14 @@ export default function TripsPage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["trips", { page, pageSize, status: statusFilter, search, sort }],
+    queryKey: ["trips", { page, pageSize, status: statusFilter, service: serviceFilter, search, sort }],
     queryFn: () =>
       getTrips({
         page,
         pageSize,
         status: statusFilter !== "all" ? statusFilter : undefined,
         search: search || undefined,
+        service: serviceFilter || undefined,
         sort: sort[0]?.id,
         sortDir: sort[0]?.desc ? "desc" : "asc",
       }),
@@ -220,9 +224,22 @@ export default function TripsPage() {
           );
         },
       }),
+      columnHelper.accessor(row => row.transportation_requests?.service_name, {
+        id: "service", header: "Service / load",
+        cell: info => <div><p>{info.getValue() || "Service not recorded"}</p>{info.row.original.transportation_requests?.load_type === "Cargo" && <p className="text-xs text-foreground-secondary">{info.row.original.transportation_requests.cargo_description || "Cargo description not recorded"} · {info.row.original.transportation_requests.cargo_weight_kg == null ? "Weight unavailable" : `${info.row.original.transportation_requests.cargo_weight_kg} kg`}</p>}</div>,
+      }),
+      columnHelper.accessor("planned_distance_km", { header: "Planned km", cell: info => info.getValue() ?? "—" }),
+      columnHelper.accessor("actual_distance_km", { header: "Actual km", cell: info => info.getValue() ?? "—" }),
+      columnHelper.accessor("estimated_fuel_l", { header: "Actual estimated fuel (L)", cell: info => info.getValue() ?? "Unavailable" }),
+      columnHelper.accessor("estimated_fuel_cost", { header: "Actual estimated cost (PHP)", cell: info => info.getValue() ?? "Unavailable" }),
+      columnHelper.accessor("planned_estimated_fuel_l", { header: "Planned estimated fuel (L)", cell: info => info.getValue() ?? "Unavailable" }),
+      columnHelper.accessor("planned_estimated_fuel_cost", { header: "Planned estimated cost (PHP)", cell: info => info.getValue() ?? "Unavailable" }),
+      columnHelper.accessor("fuel_price_effective_at", { header: "Price effective at", cell: info => info.getValue() ? new Intl.DateTimeFormat("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" }).format(new Date(info.getValue())) : "Unavailable" }),
+      columnHelper.accessor("fuel_reference_price", { header: "Reference price (PHP/L)", cell: info => info.getValue() ?? "Unavailable" }),
+      columnHelper.accessor("fuel_price_source_url", { header: "Price source", cell: info => info.getValue() || "Unavailable" }),
       columnHelper.accessor("trip_status", {
         header: "Status",
-        cell: (info) => <StatusBadge status={info.getValue()} entity="trip" className="rounded-full px-3 py-1 text-xs font-bold" />,
+        cell: (info) => <StatusBadge status={tripStatusLabel(info.getValue(), info.row.original.transportation_requests?.load_type)} entity="trip" className="rounded-full px-3 py-1 text-xs font-bold" />,
       }),
     ],
     []
@@ -233,7 +250,7 @@ export default function TripsPage() {
 
   const handleExport = async () => {
     try {
-      const all = await getTrips();
+      const all = await getTrips({ service: serviceFilter || undefined, status: statusFilter === "all" ? undefined : statusFilter, search: search || undefined });
       exportToCSV(all?.rows || [], "trips", [
         { label: "ID", key: "trip_id" },
         { label: "Vehicle", accessor: (t) => t.vehicles?.plate_number || "" },
@@ -250,6 +267,16 @@ export default function TripsPage() {
         { label: "Duration (min)", key: "actual_duration" },
         { label: "Status", key: "trip_status" },
         { label: "Notes", key: "notes" },
+        { label: "Service", accessor: t => t.transportation_requests?.service_code || "" },
+        { label: "Planned km", key: "planned_distance_km" },
+        { label: "Actual km", key: "actual_distance_km" },
+        { label: "Planned estimated fuel (L)", key: "planned_estimated_fuel_l" },
+        { label: "Planned estimated cost (PHP)", key: "planned_estimated_fuel_cost" },
+        { label: "Actual estimated fuel (L)", key: "estimated_fuel_l" },
+        { label: "Actual estimated cost (PHP)", key: "estimated_fuel_cost" },
+        { label: "Price source", key: "fuel_price_source_url" },
+        { label: "Price effective at", key: "fuel_price_effective_at" },
+        { label: "Reference price (PHP/L)", key: "fuel_reference_price" },
       ]);
     } catch {
       /* keep current page data on export failure */
@@ -258,7 +285,7 @@ export default function TripsPage() {
 
   const handleExcelExport = async () => {
     try {
-      const result = await getTripPerformanceWorkbook();
+      const result = await getTripPerformanceWorkbook(null, null, { service: serviceFilter || undefined, status: statusFilter === "all" ? undefined : statusFilter, search: search || undefined });
       downloadBlob(result.blob, result.filename);
     } catch {
       // Keep the existing raw CSV export as the fallback path.
@@ -337,6 +364,7 @@ export default function TripsPage() {
         }
       />
 
+      <label className="flex items-center gap-3 text-sm">Service<select aria-label="Service" className="rounded-xl border border-border bg-surface p-2" value={serviceFilter} onChange={event => { setServiceFilter(event.target.value); setPage(1); }}><option value="">All services</option>{TRIP_SERVICE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {(() => {
           const t = TONE_MAP.primary;

@@ -210,7 +210,7 @@ export default function TripDetailPage() {
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back
             </Button>
-            <StatusBadge status={trip.trip_status} entity="trip" className="text-xs px-3 py-1 font-semibold" />
+            <StatusBadge status={tripStatusLabel(trip.trip_status, trip.transportation_requests?.load_type)} entity="trip" className="text-xs px-3 py-1 font-semibold" />
           </div>
         }
       />

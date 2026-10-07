@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
+import { TRIPS_SELECT, TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 
 // Live-map operational projection: priority/VIP/service signals ride the
 // shared trips read path (projection only — no schema change). Guest PII
@@ -29,5 +29,11 @@ describe("trips-query live-map projection", () => {
     for (const field of ["guest_name", "guest_phone", "guest_email", "booking_reference", "special_requests"]) {
       expect(TRIPS_SELECT).not.toContain(field);
     }
+  });
+  it("keeps cargo and captured estimate/source fields in the paginated screen projection", () => {
+    for (const field of ["load_type", "cargo_weight_kg", "cargo_description", "service_code", "planned_distance_km", "actual_distance_km", "estimated_fuel_l", "estimated_fuel_cost", "planned_estimated_fuel_l", "planned_estimated_fuel_cost", "fuel_reference_price", "fuel_price_source_url", "fuel_price_effective_at", "fuel_estimate_reason"]) {
+      expect(TRIPS_LIST_SELECT).toContain(field);
+    }
+    expect(TRIPS_JOINS).toContain("LEFT JOIN fuel_price_snapshots fp ON fp.snapshot_id = t.fuel_price_snapshot_id");
   });
 });

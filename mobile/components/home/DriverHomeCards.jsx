@@ -8,7 +8,7 @@ import { homeTripAction } from '../../lib/home-trips';
 import { statusColorForTone, tripStatusTone, fonts } from '../../lib/theme';
 import { moderateScale } from '../../lib/scaling';
 import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
-import { isCargoLoad, loadSubtitle, tripStatusLabel } from '../../lib/load-presentation.js';
+import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel } from '../../lib/load-presentation.js';
 import { homeMaterials as clayMaterials } from './materials';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
@@ -313,7 +313,7 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
           {(() => {
             if (isCargoLoad(trip)) {
               const subtitle = loadSubtitle(trip);
-              return subtitle ? <View style={s.row}><Ionicons name="cube" size={16} color={accent} /><Text style={type.supporting}>{subtitle}</Text></View> : null;
+              return <View style={s.row}><Ionicons name="cube" size={16} color={accent} /><Text style={type.supporting}>{loadTitle(trip)}{subtitle ? ` · ${subtitle}` : ""}</Text></View>;
             }
             return trip.passenger_count != null ? <View style={s.row}><Ionicons name="people" size={16} color={accent} /><Text style={type.supporting}>{trip.passenger_count} {Number(trip.passenger_count) === 1 ? 'passenger' : 'passengers'}</Text></View> : null;
           })()}

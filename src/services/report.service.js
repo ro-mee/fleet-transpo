@@ -63,8 +63,12 @@ export function getAnalyticsWorkbook(from, to) {
   return getWorkbook(`/api/reports/analytics/excel${buildQuery({ from, to })}`, `fleet-analytics-${from}-to-${to}.xlsx`);
 }
 
-export function getTripPerformanceWorkbook(from, to) {
-  return getWorkbook(`/api/reports/trip-performance/excel${buildQuery({ from, to })}`, `trip-performance-${from || "all"}-to-${to || "time"}.xlsx`);
+export function getTripPerformanceReport(from, to, filters = {}) {
+  return apiFetch(`/api/reports/trip-performance${buildQuery({ from, to, ...filters })}`);
+}
+
+export function getTripPerformanceWorkbook(from, to, filters = {}) {
+  return getWorkbook(`/api/reports/trip-performance/excel${buildQuery({ from, to, ...filters })}`, `trip-performance-${from || "all"}-to-${to || "time"}.xlsx`);
 }
 
 export function getIncidentWorkbook(from, to) {

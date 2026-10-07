@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getAnalyticsWorkbook, getFleetUtilizationWorkbook } from "@/services/report.service";
+import { getTripPerformanceReport, getTripPerformanceWorkbook } from "@/services/report.service";
+import { getTrips } from "@/services/trip.service";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -18,6 +20,19 @@ function response({ ok = true, status = 200, type = XLSX_MIME, body = "xlsx-byte
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it("sends the same service, status and search choices to visible rows, JSON and Excel", async () => {
+  const fetch = vi.fn(async path => path.includes("/excel") ? response({}) : Response.json({ rows: [] }));
+  vi.stubGlobal("fetch", fetch);
+  const filters = { service: "HOTEL_SUPPLY_TRANSFER", status: "Completed", search: "DEMO" };
+  await getTrips(filters);
+  await getTripPerformanceReport(null, null, filters);
+  await getTripPerformanceWorkbook(null, null, filters);
+  for (const [path] of fetch.mock.calls) {
+    const params = new URL(path, "http://localhost").searchParams;
+    expect(Object.fromEntries(params)).toEqual(filters);
+  }
 });
 
 describe("report.service workbook downloads", () => {

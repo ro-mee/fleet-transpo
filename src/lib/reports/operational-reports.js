@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { toCalendarDay } from "@/lib/dates";
 import { TRIPS_JOINS, TRIPS_SELECT } from "@/lib/api/trips-query";
+import { appendTripFilters } from "@/lib/trips/filters";
 import { SERVICE_CODES } from "@/lib/integration/contracts";
 
 export const DEFAULT_REPORT_FROM = "1970-01-01";
@@ -469,7 +470,7 @@ export async function getFinancialSummary(from = DEFAULT_REPORT_FROM, to = DEFAU
 }
 
 /** Workbook-only Trip Performance/Register payload for the existing Trips export. */
-export async function getTripPerformanceReport(from, to, { serviceCode = null } = {}) {
+export async function getTripPerformanceReport(from, to, { serviceCode = null, status = null, search = null } = {}) {
   const hasRange = from && to;
   const conditions = ["t.deleted_at IS NULL"];
   const params = [];
@@ -486,9 +487,8 @@ export async function getTripPerformanceReport(from, to, { serviceCode = null } 
       throw new Error(`Unknown service code '${serviceCode}'. Use one of: ${SERVICE_CODES.join(", ")}.`);
     }
     serviceFilter = String(serviceCode);
-    params.push(serviceFilter);
-    conditions.push(`st.service_code = $${params.length}`);
   }
+  appendTripFilters(conditions, params, { serviceCode: serviceFilter, status, search });
   const { rows } = await query(`SELECT ${TRIPS_SELECT} ${TRIPS_JOINS} WHERE ${conditions.join(" AND ")} ORDER BY t.start_time DESC NULLS LAST, t.trip_id DESC`, params);
   const trips = rows || [];
   const statusMap = new Map();
@@ -522,6 +522,11 @@ export async function getTripPerformanceReport(from, to, { serviceCode = null } 
     return {
       ...trip,
       fuel_estimate: {
+        planned_estimated_fuel_l: trip.planned_estimated_fuel_l == null ? null : Number(trip.planned_estimated_fuel_l),
+        planned_estimated_fuel_cost_php: trip.planned_estimated_fuel_cost == null ? null : Number(trip.planned_estimated_fuel_cost),
+        unavailable_reason: trip.fuel_estimate_reason ?? null,
+        distance_provenance: trip.distance_provenance ?? null,
+        efficiency_snapshot_kmpl: trip.fuel_efficiency_snapshot_kmpl ?? null,
         planned_distance_km: plannedKm,
         actual_distance_km: actualKm,
         distance_delta_km: plannedKm != null && actualKm != null ? actualKm - plannedKm : null,
@@ -529,7 +534,7 @@ export async function getTripPerformanceReport(from, to, { serviceCode = null } 
         estimated_fuel_cost_php: cost,
         reference_price_php_per_l: price,
         price_source: trip.fuel_price_snapshot_id != null
-          ? { snapshot_id: trip.fuel_price_snapshot_id, region: trip.fuel_region ?? null }
+          ? { snapshot_id: trip.fuel_price_snapshot_id, region: trip.fuel_region ?? null, source_url: trip.fuel_price_source_url ?? null, effective_at: trip.fuel_price_effective_at ?? null, verification_method: trip.fuel_price_verification_method ?? null }
           : null,
         basis: liters != null && cost != null ? "estimated-actual" : "unavailable",
       },

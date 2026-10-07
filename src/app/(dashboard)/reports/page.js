@@ -581,6 +581,10 @@ function FleetReport({ query, data }) {
 
   return (
     <>
+      <Panel title="Cargo payload utilization" description="Declared weight divided by verified usable capacity for completed cargo trips. Unknown capacity is omitted." icon={Gauge}>
+        <p className="mb-3 font-data text-sm">{report.cargoUtilization?.average_pct == null ? "No measured cargo capacity in this period" : `${report.cargoUtilization.average_pct}% average payload utilization`}</p>
+        {!!report.cargoUtilization?.byTrip?.length && <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><th>Trip</th><th>Plate</th><th>Declared kg</th><th>Usable capacity kg</th><th>Utilization</th></tr></thead><tbody>{report.cargoUtilization.byTrip.map(row => <tr key={row.trip_id}><td>#{row.trip_id}</td><td>{row.plate || "Unknown plate"}</td><td>{Number(row.weight_kg).toLocaleString()}</td><td>{Number(row.capacity_kg).toLocaleString()}</td><td>{row.utilization_pct}%</td></tr>)}</tbody></table></div>}
+      </Panel>
       <StatGrid cols={3}>
         <StatCard
           icon={Gauge}

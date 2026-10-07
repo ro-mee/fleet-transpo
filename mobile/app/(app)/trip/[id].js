@@ -14,7 +14,7 @@ import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
-import { isCargoLoad, loadTitle, loadSubtitle } from "../../../lib/load-presentation";
+import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel } from "../../../lib/load-presentation";
 import { usePreShift } from "../../../lib/use-pre-shift";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
@@ -352,7 +352,7 @@ export default function TripDetailsScreen() {
         <ClayCard style={styles.card}>
           <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
             <ClayBadge
-              text={String(trip.trip_status).toUpperCase()}
+              text={String(tripStatusLabel(trip.trip_status, trip.load_type)).toUpperCase()}
               tone={tone}
             />
             <Text style={[type.caption, { color: colors.primary }]}>Trip #{String(id)}</Text>

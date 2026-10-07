@@ -32,7 +32,7 @@ import {
 } from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
-import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel } from "../../../lib/load-presentation";
+import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel } from "../../../lib/load-presentation";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -2198,10 +2198,7 @@ export default function MapTab() {
                   (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
                   (isPending || isDriverAccepted) && preTripDone && !windowOpen ? `OPENS AT ${new Date(earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}` :
                   (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
-                  isState1 ? "ARRIVED AT PICKUP" :
-                  isState2 ? "PICKED UP GUEST" :
-                  isState3 ? "ARRIVED AT DESTINATION" :
-                  isState4 ? "DROPPED OFF GUEST" : "SWIPE TO CONFIRM"
+                  tripActionLabel(activeTrip.trip_status, activeTrip.load_type)
                 }
                 disabled={(isPending || isDriverAccepted) && preTripDone && !windowOpen}
                 busy={inFlight}
@@ -2507,7 +2504,7 @@ export default function MapTab() {
                     ) : null;
                   })()}
                 </View>
-                <Pressable
+                {!isCargoLoad(activeTrip) && <Pressable
                   style={({ pressed }) => [
                     styles.iconButton,
                     mats.clayTile,
@@ -2532,7 +2529,7 @@ export default function MapTab() {
                   hitSlop={8}
                 >
                   <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
-                </Pressable>
+                </Pressable>}
               </View>
             </View>
 
@@ -2554,7 +2551,7 @@ export default function MapTab() {
                     return (
                       <View style={[styles.statusBadge, { backgroundColor: sc.bg, flexDirection: 'row', alignItems: 'center', gap: 5 }]}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sc.dot }} />
-                        <Text style={[styles.statusBadgeText, { color: sc.fg }]}>{activeTrip.trip_status}</Text>
+                        <Text style={[styles.statusBadgeText, { color: sc.fg }]}>{tripStatusLabel(activeTrip.trip_status, activeTrip.load_type)}</Text>
                       </View>
                     );
                   })()}

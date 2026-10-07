@@ -47,3 +47,10 @@ export function tripStatusLabel(tripStatus, loadType) {
   }
   return tripStatus;
 }
+
+/** Load-aware swipe copy; internal transitions remain unchanged. */
+export function tripActionLabel(status, loadType) {
+  if (status === "At Pickup") return loadType === "Cargo" ? "CARGO LOADED" : "PICKED UP GUEST";
+  if (["Drop-off", "Arrived", "In Progress"].includes(status)) return loadType === "Cargo" ? "CARGO DELIVERED" : "DROPPED OFF GUEST";
+  return status === "Trip Started" ? "ARRIVED AT PICKUP" : ["Passenger Onboard", "En Route"].includes(status) ? "ARRIVED AT DESTINATION" : "SWIPE TO CONFIRM";
+}

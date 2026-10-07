@@ -1,3 +1,4 @@
+import { validateServiceCode } from "@/lib/trips/filters";
 import { requirePermission, err, handleError } from "@/lib/api/utils";
 import { getTripPerformanceReport, validateReportRange } from "@/lib/reports/operational-reports";
 import { buildTripPerformanceWorkbook } from "@/lib/reports/remaining-workbooks";
@@ -19,12 +20,9 @@ export async function GET(req) {
     // the same selector the JSON surface uses, so the workbook cannot drift
     // from what the dispatcher filtered on screen.
     const service = params.get("service") || null;
-    let report;
-    try {
-      report = await getTripPerformanceReport(from, to, { serviceCode: service });
-    } catch (e) {
-      return err(e.message, 400);
-    }
+    const serviceError = validateServiceCode(service);
+    if (serviceError) return err(serviceError, 400);
+    const report = await getTripPerformanceReport(from, to, { serviceCode: service, status: params.get("status") || null, search: params.get("search") || null });
     return xlsxResponse(await buildTripPerformanceWorkbook(report, { from, to }), `trip-performance-${from || "all"}-to-${to || "time"}.xlsx`);
   } catch (error) {
     return handleError(error);

@@ -1,3 +1,4 @@
+import { appendTripFilters, validateServiceCode } from "@/lib/trips/filters";
 import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
@@ -81,6 +82,14 @@ export async function GET(req) {
     const did = sp.get("driver_id"); if (did) { base += ` AND t.driver_id = $${idx++}`; params.push(+did); }
     const fd = sp.get("from_date"); if (fd) { base += ` AND t.start_time >= $${idx++}`; params.push(fd); }
     const td = sp.get("to_date"); if (td) { base += ` AND t.start_time <= $${idx++}`; params.push(td); }
+
+    const serviceCode = sp.get("service");
+    const serviceError = validateServiceCode(serviceCode);
+    if (serviceError) return err(serviceError, 400);
+    const conditions = [];
+    appendTripFilters(conditions, params, { serviceCode });
+    idx = params.length + 1;
+    if (conditions.length) base += ` AND ${conditions.join(" AND ")}`;
 
     if (status) {
       if (status === "Active") {

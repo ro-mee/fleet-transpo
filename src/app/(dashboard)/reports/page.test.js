@@ -242,3 +242,12 @@ describe("Reports — Drivers tab", () => {
     expect(rowCells(html, "Juan Dela Cruz")).toEqual(["Juan Dela Cruz", "3", "—", "0", "0"]);
   });
 });
+
+ describe("Cargo payload utilization", () => {
+ it("renders measured capacity and never invents zero for missing capacity", () => {
+ state.queries["report-fleet"] = query({ utilization: 0, totalTrips: 2, totalDistance: 36, byVehicle: [], cargoUtilization: { trips: 1, average_pct: 65, byTrip: [{ trip_id: 701, plate: "TRK-DEMO", weight_kg: 650, capacity_kg: 1000, utilization_pct: 65 }] } });
+ vi.stubGlobal("window", { location: { search: "?report=fleet", pathname: "/reports" }, history: { replaceState: vi.fn() } });
+ const html = renderToStaticMarkup(React.createElement(TooltipProvider, null, React.createElement(ReportsPage)));
+ expect(html).toContain("Cargo payload utilization"); expect(html).toContain("65%"); expect(html).toContain("TRK-DEMO"); expect(html).toContain("650"); expect(html).toContain("1,000");
+ });
+ });

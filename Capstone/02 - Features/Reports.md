@@ -260,3 +260,14 @@ The tester confirmed the browser download-start messages; the actual recent file
 - analytics workbook: valid XLSX; Summary/Analysis/Trends/Vehicle Activity/Driver Leaderboard; 4 trips, 13.31 km; missing efficiency/punctuality shown as Insufficient data.
 
 This closes the file-content portion structurally and at aggregate-data level. It is not a pixel-level Excel/LibreOffice visual review. → [[Manual Functional Testing Follow-up Audit]]
+
+
+## Passenger/cargo report review corrections — 2026-10-08 (prepared, not deployed)
+
+The Trips register now exposes the five canonical service choices and sends the same service, status and search filters to its paginated rows, raw CSV and Excel export. A new permission-guarded JSON trip-performance endpoint uses the same report selector as Excel. Unknown service codes return 400 before a database query; database failures remain server errors, rather than being mislabeled as invalid filters. Pagination is excluded from exports so the full matching view is exported.
+
+Both full and lean trip projections preserve typed cargo facts and the completion-captured fuel basis. The screen and workbook label planned versus actual distance, planned estimated fuel/cost, actual estimated fuel/cost, reference PHP/L, the price source URL and effectivity. Missing row values remain unavailable. The source is reached by the recorded snapshot ID; it is not replaced with today's price. The Excel detail sheet retains all 28 supplied columns, including Service; the earlier suspected truncation was not reproduced and is not claimed as a fixed defect.
+
+Fleet Reports now shows cargo payload utilization separately from fleet in-use utilization. The matching Cargo Utilization worksheet exports completed trips with known positive declared kg and usable capacity only. 650/1000 is displayed as 65% and stored in Excel as 0.65 with a percentage format. Unknown capacity is omitted; it does not become 0%.
+
+Verification: 13 focused suites / 71 tests passed, including actual JSON and XLSX route execution for all five service codes, real selector-to-workbook generation and ExcelJS decoding, and server-rendered Trips/Fleet report screens. Production-file lint passed. Database calls and authorization boundaries were replaced in offline tests; the selector and workbook were not replaced. No live DB, browser authentication, native-device or deployment acceptance is claimed. Shared trip reads now require migrations 150–155, including the snapshot table/estimate columns: keep deployment held until the existing migration/contract gates and isolated fixture QA are completed. Typed-demo ledger preparation and its unexecuted isolated QA are documented by the rollout closeout; no fixture was planted here.

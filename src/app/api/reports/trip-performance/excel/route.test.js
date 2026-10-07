@@ -26,7 +26,7 @@ describe("GET /api/reports/trip-performance/excel", () => {
     const res = await call("?from=2026-10-01&to=2026-10-07&service=RESTAURANT_SUPPLY_PICKUP");
     expect(res.status).toBe(200);
     expect(getTripPerformanceReport).toHaveBeenCalledWith("2026-10-01", "2026-10-07", {
-      serviceCode: "RESTAURANT_SUPPLY_PICKUP",
+      serviceCode: "RESTAURANT_SUPPLY_PICKUP", status: null, search: null,
     });
     expect(buildTripPerformanceWorkbook).toHaveBeenCalledWith(
       { totalTrips: 0, trips: [] },

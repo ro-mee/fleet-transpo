@@ -66,7 +66,7 @@ describe("trip fuel estimate labels", () => {
   it("labels planned, actual, delta, fuel, cost and price source explicitly", async () => {
     query.mockResolvedValueOnce({ rows: [tripRow()] });
     const report = await getTripPerformanceReport("2026-10-01", "2026-10-07", {});
-    expect(report.trips[0].fuel_estimate).toEqual({
+    expect(report.trips[0].fuel_estimate).toMatchObject({
       planned_distance_km: 32,
       actual_distance_km: 36,
       distance_delta_km: 4,

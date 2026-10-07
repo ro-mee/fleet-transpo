@@ -14,7 +14,7 @@ import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/Offlin
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { SkeletonCard } from "../../../components/ui";
 import { ClayCard, ClayBadge, ClayTile, ClayButton } from '../../../components/clay';
-import { isCargoLoad, loadTitle } from '../../../lib/load-presentation';
+import { isCargoLoad, loadTitle, tripStatusLabel } from '../../../lib/load-presentation';
 
 function getStatusTone(status) {
   if (["Completed"].includes(status)) return "success";
@@ -40,7 +40,7 @@ function TripItem({ trip, onPress }) {
     <ClayCard
       onPress={() => onPress(trip)}
       variant="standard"
-      accessibilityLabel={`Trip #${trip.trip_id}: ${trip.origin || "Origin"} to ${trip.destination || "Destination"}, status ${trip.trip_status}`}
+      accessibilityLabel={`Trip #${trip.trip_id}: ${trip.origin || "Origin"} to ${trip.destination || "Destination"}, status ${tripStatusLabel(trip.trip_status, trip.load_type)}`}
       style={styles.cardSpacing}
     >
       {/* Header row */}
@@ -53,7 +53,7 @@ function TripItem({ trip, onPress }) {
             {depTime}
           </Text>
         </View>
-        <ClayBadge label={trip.trip_status} tone={tone} statusDot size="sm" />
+        <ClayBadge label={tripStatusLabel(trip.trip_status, trip.load_type)} tone={tone} statusDot size="sm" />
       </View>
 
       {/* Route */}
