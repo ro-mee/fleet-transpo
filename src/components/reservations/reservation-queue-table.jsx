@@ -440,7 +440,7 @@ export function ReservationQueueTable({
 export function ReservationQueueTableSkeleton({ viewMode = "list" }) {
   if (viewMode === "grid") {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 motion-safe:animate-pulse">
+      <div className="grid grid-cols-1 @sm:grid-cols-2 gap-3.5 motion-safe:animate-pulse">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
@@ -483,11 +483,11 @@ export function ReservationQueueTableSkeleton({ viewMode = "list" }) {
               <div className="w-24 h-3 bg-muted rounded" />
             </div>
           </div>
-          <div className="hidden sm:block space-y-1.5">
+          <div className="hidden @sm:block space-y-1.5">
             <div className="w-20 h-3.5 bg-muted rounded" />
             <div className="w-16 h-3 bg-muted rounded" />
           </div>
-          <div className="hidden md:block space-y-1.5 flex-1 max-w-xs">
+          <div className="hidden @md:block space-y-1.5 flex-1 max-w-xs">
             <div className="w-48 h-3.5 bg-muted rounded" />
             <div className="w-36 h-3 bg-muted rounded" />
           </div>

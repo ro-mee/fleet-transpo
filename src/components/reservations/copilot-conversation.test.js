@@ -148,6 +148,15 @@ it('keeps committed-trip chat read-only and sends no client assignment evidence'
   expect(body).not.toHaveProperty('displayedOptions');
   expect(body).not.toHaveProperty('baseline');
 });
+it('renders no composer markup for a completed (terminal) trip and renders it for an active one',()=>{
+  const terminalHtml=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:16,completed:true,hasPair:false}));
+  expect(terminalHtml).not.toContain('<form');
+  expect(terminalHtml).not.toContain('copilot-question');
+  expect(terminalHtml).not.toContain('Send message');
+  const activeHtml=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:17,completed:false,hasPair:false}));
+  expect(activeHtml).toContain('<form');
+  expect(activeHtml).toContain('copilot-question');
+});
 it('mounts the current decision once after the log and before the composer through long Q&A and pruning',()=>{
  const selectedPair={vehicleId:3,driverId:4};
  const messages=[
@@ -219,8 +228,9 @@ it('offers a keyboard-operable jump to latest when a reply arrives during paused
  expect(jump).not.toBeNull();
  expect(jump.props.type).toBe('button');
  expect(renderToStaticMarkup(nextTree)).toContain('New reply — jump to latest');
- jump.props.onClick();
- expect(renderToStaticMarkup(conversationTree(props))).not.toContain('New reply — jump to latest');
+  jump.props.onClick();
+  expect(log.props.ref.current.scrollTop).toBe(900);
+  expect(renderToStaticMarkup(conversationTree(props))).not.toContain('New reply — jump to latest');
 });
 it('resolves clearance for the selected pair and offers eligibility review',()=>{
   const selectedPair={vehicleId:3,driverId:4};
@@ -484,6 +494,9 @@ it('never interpolates unsafe ids into recovery routes',()=>{
   expect(recoveryHref({record:'request',id:'502;DROP'})).toBeNull();
   expect(recoveryHref({record:'request',id:NaN})).toBeNull();
 });
+it('falls back to the drivers directory for a DRIVER_UNAVAILABLE block with no driver id',()=>{
+  expect(recoveryHref({record:'schedule',code:'DRIVER_UNAVAILABLE',id:null})).toBe('/drivers');
+});
 
 it('renders recovery links only for routes the role may access',()=>{
   const actions=[
@@ -505,6 +518,28 @@ it('renders recovery links only for routes the role may access',()=>{
   expect(deniedHtml).not.toContain('<a ');
   expect(deniedHtml).toContain('Check maintenance record');
   expect(deniedHtml).toContain('Renew driver license');
+});
+it('gives an allowed recovery anchor a 44px target',()=>{
+  setReservationMessages(63,[{role:'assistant',content:'Blocked.',at:1,recoveryActions:[
+    {code:'MAINTENANCE_CONFLICT',label:'Check maintenance record',record:'maintenance',id:21},
+  ]}]);
+  accessState.canAccess=()=>true;
+  hookState.slots=[];hookState.cursor=0;
+  const html=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:63,hasPair:true}));
+  const anchor=html.match(/<a\b[^>]*href="\/maintenance"[^>]*>/)?.[0] ?? '';
+  expect(anchor).toContain('min-h-[44px]');
+});
+it('fails closed when the role checker itself is unavailable',()=>{
+  const actions=[
+    {code:'LICENSE_EXPIRED',label:'Renew driver license',record:'driver',id:4},
+  ];
+  setReservationMessages(62,[{role:'assistant',content:'Blocked.',at:1,recoveryActions:actions}]);
+  accessState.canAccess=undefined;
+  hookState.slots=[];hookState.cursor=0;
+  const html=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:62,hasPair:true}));
+  expect(html).not.toContain('href="/drivers/4"');
+  expect(html).not.toContain('<a ');
+  expect(html).toContain('Renew driver license');
 });
 
 it('never links a pairing schedule block to a driver record',()=>{

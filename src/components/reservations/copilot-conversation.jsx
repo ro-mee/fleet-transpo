@@ -581,7 +581,7 @@ export function CopilotConversation({
                           const openable = href && typeof canAccess === "function" ? canAccess(href) : false;
                           return openable ? (
                             <a key={`${action.code}-${idx}`} href={href}
-                              className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary">
+                              className="inline-flex min-h-[44px] items-center rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary">
                               {label}
                             </a>
                           ) : (

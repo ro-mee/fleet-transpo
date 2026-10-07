@@ -14,7 +14,7 @@ const FRAMES = {
 // construction and need no reduced-motion source swap. Repeated instances are
 // decorative by default; the single header identity keeps its accessible name
 // through `label` — no other caller passes one.
-export function CopilotAvatar({ size = "sm", decorative = true, label = null, className = null }) {
+export function CopilotAvatar({ size = "sm", decorative = true, label = null, className = "" }) {
   return (
     <span
       className={cn(

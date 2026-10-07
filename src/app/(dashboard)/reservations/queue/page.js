@@ -546,7 +546,7 @@ export default function UnifiedQueuePage() {
 
           {/* Compact Pagination Controls */}
           {pageCount > 1 && (
-            <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface px-6 py-4 sm:flex-row sm:items-center sm:justify-between shadow-xs">
+            <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface px-6 py-4 @sm:flex-row @sm:items-center @sm:justify-between shadow-xs">
               <span className="text-xs font-semibold text-foreground-secondary">
                 Showing{" "}
                 <span className="font-bold text-foreground">
@@ -555,14 +555,14 @@ export default function UnifiedQueuePage() {
                 of <span className="font-bold text-foreground">{total}</span> entries
               </span>
               <div className="flex items-center gap-1.5">
-                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">
+                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted @sm:inline">
                   Page {page} of {pageCount}
                 </span>
                 <button
                   aria-label="First page"
                   onClick={() => setPage(1)}
                   disabled={page === 1}
-                  className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors @sm:flex"
                 >
                   <ChevronsLeft className="w-3.5 h-3.5" />
                 </button>

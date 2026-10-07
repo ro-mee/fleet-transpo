@@ -277,6 +277,30 @@ describe("announced loading and failure (P2-10)", () => {
     expect(pulses.length).toBe(safe.length);
   });
 
+  it("keys the grid skeleton to the queue container like the loaded grid", () => {
+    const skeleton = renderToStaticMarkup(
+      React.createElement(ReservationQueueTableSkeleton, { viewMode: "grid" })
+    );
+    expect(skeleton).toContain("@sm:grid-cols-2");
+    expect(skeleton).not.toMatch(/(^|["\s])sm:grid-cols-2/);
+  });
+
+  it("keys list-skeleton segments and pagination to the queue container, not the viewport", () => {
+    const skeleton = renderToStaticMarkup(
+      React.createElement(ReservationQueueTableSkeleton, {})
+    );
+    expect(skeleton).toContain("hidden @sm:block");
+    expect(skeleton).toContain("hidden @md:block");
+    expect(skeleton).not.toMatch(/hidden sm:block/);
+    expect(skeleton).not.toMatch(/hidden md:block/);
+    const many = Array.from({ length: 26 }, (_, i) => ({ ...SHORT_REQUEST, request_id: 1000 + i }));
+    readyQuery(many);
+    const queueHtml = renderPage();
+    expect(queueHtml).toContain("First page");
+    expect(queueHtml).toContain("@sm:flex-row");
+    expect(queueHtml).toContain("@sm:inline");
+  });
+
   it("announces queue failure with an honest alert", () => {
     errorQuery();
     const queueHtml = renderPage();

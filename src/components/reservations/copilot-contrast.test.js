@@ -8,6 +8,7 @@ vi.mock('@tanstack/react-query', () => ({ useMutation: () => ({ isPending: false
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn(async () => ({ answer: 'Checked' })) }));
 
 import { CopilotConversation, setReservationMessages, clearAllReservationMessages } from './copilot-conversation';
+import { CopilotAvatar } from './copilot-avatar';
 import { CopilotOptionFlow } from './copilot-option-flow';
 import { ComparisonCard } from './evidence-drawer';
 
@@ -79,6 +80,16 @@ it('renders the transcript with AA ink, static avatars, and no idle motion', () 
     .map((match) => match[0]);
   expect(avatars.length).toBeGreaterThan(0);
   for (const avatar of avatars) expect(avatar).toMatch(/alt=""/);
+});
+
+it('renders the avatar with a string class list and no null token by default', () => {
+  const html = renderToStaticMarkup(React.createElement(CopilotAvatar, {}));
+  expect(html).not.toContain('null');
+  expect(html).toMatch(/alt=""/);
+  const named = renderToStaticMarkup(
+    React.createElement(CopilotAvatar, { decorative: false, label: 'Dispatch Copilot Avatar' })
+  );
+  expect(named).toContain('alt="Dispatch Copilot Avatar"');
 });
 
 it('keeps exactly one named Copilot identity and no looping avatar asset', () => {

@@ -1040,7 +1040,7 @@ export function AiRecommendationPanel({
                 {selectionChangeButton}
               </CopilotStateMessage>
             )}
-            {!assignmentClosed && queueProposalIncomplete && !planError && (
+            {!assignmentClosed && !query.isError && queueProposalIncomplete && !planError && (
               <CopilotStateMessage
                 role="status"
                 tone="warning"

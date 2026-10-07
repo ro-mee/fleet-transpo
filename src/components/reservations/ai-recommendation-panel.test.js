@@ -475,7 +475,22 @@ it('does not invent a verification requirement when the evaluation has no exclus
      planError:'queue network',
      onReanalyze:vi.fn(),
    });
-   expect(html.match(/Change selection/g)).toHaveLength(1);
+    expect(html.match(/Change selection/g)).toHaveLength(1);
+  });
+  it('renders only one saved-selection clear action when the request fails and the queue proposal is incomplete without a plan error',()=>{
+    state.selection={key:'1:2',pinnedKeys:['1:2','3:4']};
+    state.query={
+      data:{evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:a,candidates:[a,b]}},
+      isError:true,
+      error:new Error('recommendation network'),
+      refetch:vi.fn(),
+    };
+    const html=render({
+      queueMode:true,
+      planProposal:{pair:b,outcome:'VERIFIED',candidateEvaluationComplete:false},
+      onReanalyze:vi.fn(),
+    });
+    expect(html.match(/Change selection/g)).toHaveLength(1);
   });
   it('shows committed Assigned status over a stale Scheduled request on the first post-success render',()=>{
     const html=renderToStaticMarkup(React.createElement(CopilotTripDetailsBubble,{
