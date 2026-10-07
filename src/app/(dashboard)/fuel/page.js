@@ -1049,8 +1049,8 @@ export default function FuelPage() {
       />
 
       <Dialog open={!!reviewRequest} onOpenChange={(open) => !open && setReviewRequest(null)}>
-        <DialogContent className="max-w-2xl w-[95vw] md:w-[640px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
-          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+        <DialogContent className="max-w-2xl w-[95vw] md:w-[640px] max-h-[calc(100dvh-2rem)] flex flex-col p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
                 <FileText className="h-5 w-5" />
@@ -1072,7 +1072,7 @@ export default function FuelPage() {
           </div>
 
           {reviewRequest ? (
-            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            <div className="min-h-0 flex-1 p-6 space-y-4 overflow-y-auto">
               {/* Driver & Trip Info Card */}
               <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
                 <div className="rounded-xl bg-surface p-3.5 border border-border/50 flex flex-wrap items-center justify-between gap-3 text-xs">

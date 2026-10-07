@@ -331,3 +331,7 @@ A later read-only snapshot of the same project (02:59 Manila) found 22 fulfilled
 `DELETE /api/fuel/[id]` now locks an active record, soft-deletes it, and writes a required `fuelrecords` audit event in the same transaction. The event captures the actor, timestamp, previous status, and linked permit ID without logging receipt contents or free-text notes. If the audit write fails, the archive rolls back. The existing endpoint remains reason-free; this adds future attribution but cannot explain historical archives.
 
 **Verification.** The latest focused run passed 14 tests across four files, including archive success, already-archived behavior, and rollback when required audit logging fails. Changed route/helper paths passed ESLint and `git diff --check`. No live row or migration was changed.
+
+### Fuel request review dialog viewport fit - 2026-10-07
+
+The review dialog previously capped only its content body at `75vh`, while the header and action row sat outside that cap. On shorter viewports, the combined dialog exceeded its available height and `overflow-hidden` clipped the approval buttons. The dialog now caps its full height to `100dvh - 2rem`, keeps the header and footer intact, and scrolls only the content body. Source diff reviewed; no automated or browser verification was run.
