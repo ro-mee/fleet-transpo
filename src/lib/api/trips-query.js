@@ -74,6 +74,7 @@ export const TRIPS_SELECT = `
       'is_emergency',       tr.is_emergency,
       'derived_priority',   tr.derived_priority,
       'service_type_id',    tr.service_type_id,
+      'service_code',       st.service_code,
       'service_name',       st.service_name
     )
   END AS transportation_requests

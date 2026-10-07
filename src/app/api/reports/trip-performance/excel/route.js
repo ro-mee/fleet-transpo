@@ -15,7 +15,17 @@ export async function GET(req) {
     if ((from && !to) || (!from && to)) return err("from and to must be provided together", 400);
     const rangeError = from && to ? validateReportRange(from, to) : null;
     if (rangeError) return err(rangeError, 400);
-    return xlsxResponse(await buildTripPerformanceWorkbook(await getTripPerformanceReport(from, to), { from, to }), `trip-performance-${from || "all"}-to-${to || "time"}.xlsx`);
+    // Export equals the visible filtered view: the same service filter feeds
+    // the same selector the JSON surface uses, so the workbook cannot drift
+    // from what the dispatcher filtered on screen.
+    const service = params.get("service") || null;
+    let report;
+    try {
+      report = await getTripPerformanceReport(from, to, { serviceCode: service });
+    } catch (e) {
+      return err(e.message, 400);
+    }
+    return xlsxResponse(await buildTripPerformanceWorkbook(report, { from, to }), `trip-performance-${from || "all"}-to-${to || "time"}.xlsx`);
   } catch (error) {
     return handleError(error);
   }

@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { toCalendarDay } from "@/lib/dates";
 import { TRIPS_JOINS, TRIPS_SELECT } from "@/lib/api/trips-query";
+import { SERVICE_CODES } from "@/lib/integration/contracts";
 
 export const DEFAULT_REPORT_FROM = "1970-01-01";
 export const DEFAULT_REPORT_TO = "2100-01-01";
@@ -87,12 +88,15 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
               t.customer_rating, t.smooth_driving_score, t.cost_per_km,
               t.total_cost, row_to_json(v.*) AS vehicles,
               CONCAT_WS(' ', e.first_name, e.last_name) AS driver_name,
-              r.route_name, r.origin, r.destination
+              r.route_name, r.origin, r.destination,
+              tr.load_type, tr.cargo_weight_kg, v.cargo_capacity_kg
          FROM trips t
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
          LEFT JOIN drivers d ON d.driver_id = t.driver_id
          LEFT JOIN employees e ON e.employee_id = d.employee_id
          LEFT JOIN routes r ON r.route_id = t.route_id
+         LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL
+         LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
         WHERE t.deleted_at IS NULL
           AND t.start_time >= $1::date
           AND t.start_time < ($2::date + 1)
@@ -135,18 +139,45 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
 
   const active = (vehicles || []).filter((vehicle) => vehicle.vehicle_status === "In Use").length;
   const totalDistance = (trips || []).reduce((sum, trip) => sum + number(trip.distance), 0);
+  // Cargo payload utilization (Task 13): per completed cargo trip, declared
+  // weight over usable capacity. Trips with unknown weight or capacity are
+  // omitted, never zero-filled. The load columns exist only after migrations
+  // 151/153 — do not deploy before both are applied.
+  const cargoTrips = [];
+  for (const trip of trips || []) {
+    if (trip.load_type !== "Cargo" || trip.trip_status !== "Completed") continue;
+    const weight = Number(trip.cargo_weight_kg);
+    const capacity = Number(trip.cargo_capacity_kg);
+    if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(capacity) || capacity <= 0) continue;
+    cargoTrips.push({
+      trip_id: trip.trip_id,
+      vehicle_id: trip.vehicle_id,
+      plate: trip.vehicles?.plate_number || "Unknown",
+      weight_kg: weight,
+      capacity_kg: capacity,
+      utilization_pct: Math.round((weight / capacity) * 1000) / 10,
+    });
+  }
+  const cargoUtilization = {
+    trips: cargoTrips.length,
+    average_pct: cargoTrips.length
+      ? Math.round((cargoTrips.reduce((s, t) => s + t.weight_kg / t.capacity_kg, 0) / cargoTrips.length) * 1000) / 10
+      : null,
+    byTrip: cargoTrips.sort((a, b) => b.utilization_pct - a.utilization_pct),
+  };
   return {
     utilization: vehicles?.length ? Math.round((active / vehicles.length) * 100) : 0,
     vehiclesInUse: active,
     fleetSize: (vehicles || []).length,
     totalTrips: (trips || []).length,
     totalDistance: round(totalDistance),
+    cargoUtilization,
     byVehicle: [...vehicleMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => b.distance - a.distance || b.trips - a.trips),
     vehicleRoster: vehicles || [],
     statusBreakdown: [...statusMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => b.trips - a.trips),
     monthlyData: [...monthMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => a.month.localeCompare(b.month)),
     trips: trips || [],
-    methodology: "Current in-use rate = vehicles currently marked In Use divided by the non-deleted vehicle roster. Activity totals use every trip record in the selected start-time window; trip status is shown so users can distinguish completed from in-progress or cancelled activity.",
+    methodology: "Current in-use rate = vehicles currently marked In Use divided by the non-deleted vehicle roster. Activity totals use every trip record in the selected start-time window; trip status is shown so users can distinguish completed from in-progress or cancelled activity. Cargo payload utilization averages declared weight over usable capacity across completed cargo trips with both figures known; trips with unknown weight or capacity are omitted, never zero-filled.",
   };
 }
 
@@ -438,11 +469,27 @@ export async function getFinancialSummary(from = DEFAULT_REPORT_FROM, to = DEFAU
 }
 
 /** Workbook-only Trip Performance/Register payload for the existing Trips export. */
-export async function getTripPerformanceReport(from, to) {
+export async function getTripPerformanceReport(from, to, { serviceCode = null } = {}) {
   const hasRange = from && to;
-  const rangeSql = hasRange ? " AND t.start_time >= $1::date AND t.start_time < ($2::date + 1)" : "";
-  const params = hasRange ? [from, to] : [];
-  const { rows } = await query(`SELECT ${TRIPS_SELECT} ${TRIPS_JOINS} WHERE t.deleted_at IS NULL${rangeSql} ORDER BY t.start_time DESC NULLS LAST, t.trip_id DESC`, params);
+  const conditions = ["t.deleted_at IS NULL"];
+  const params = [];
+  if (hasRange) {
+    params.push(from, to);
+    conditions.push(`t.start_time >= $${params.length - 1}::date AND t.start_time < ($${params.length}::date + 1)`);
+  }
+  // Service filter (Task 13): one of the five canonical codes. Unknown codes
+  // 400 rather than silently returning every service. The service_code column
+  // exists only after migration 151 — do not deploy before it is applied.
+  let serviceFilter = null;
+  if (serviceCode !== null && serviceCode !== undefined && serviceCode !== "") {
+    if (!SERVICE_CODES.includes(String(serviceCode))) {
+      throw new Error(`Unknown service code '${serviceCode}'. Use one of: ${SERVICE_CODES.join(", ")}.`);
+    }
+    serviceFilter = String(serviceCode);
+    params.push(serviceFilter);
+    conditions.push(`st.service_code = $${params.length}`);
+  }
+  const { rows } = await query(`SELECT ${TRIPS_SELECT} ${TRIPS_JOINS} WHERE ${conditions.join(" AND ")} ORDER BY t.start_time DESC NULLS LAST, t.trip_id DESC`, params);
   const trips = rows || [];
   const statusMap = new Map();
   const monthMap = new Map();
@@ -462,6 +509,33 @@ export async function getTripPerformanceReport(from, to) {
   }
   const completed = trips.filter((trip) => trip.trip_status === "Completed");
   const distance = trips.reduce((sum, trip) => sum + number(trip.distance), 0);
+  // Explicitly labeled estimate arithmetic (Task 13): planned vs estimated
+  // actual distance, estimated fuel and cost, and the price source behind
+  // each figure. Estimated means basis-captured-at-completion, never measured
+  // burn; trips without a basis are listed as unavailable, never zero.
+  const withEstimates = trips.map((trip) => {
+    const plannedKm = trip.planned_distance_km == null ? null : Number(trip.planned_distance_km);
+    const actualKm = trip.actual_distance_km == null ? null : Number(trip.actual_distance_km);
+    const liters = trip.estimated_fuel_l == null ? null : Number(trip.estimated_fuel_l);
+    const cost = trip.estimated_fuel_cost == null ? null : Number(trip.estimated_fuel_cost);
+    const price = trip.fuel_reference_price == null ? null : Number(trip.fuel_reference_price);
+    return {
+      ...trip,
+      fuel_estimate: {
+        planned_distance_km: plannedKm,
+        actual_distance_km: actualKm,
+        distance_delta_km: plannedKm != null && actualKm != null ? actualKm - plannedKm : null,
+        estimated_fuel_l: liters,
+        estimated_fuel_cost_php: cost,
+        reference_price_php_per_l: price,
+        price_source: trip.fuel_price_snapshot_id != null
+          ? { snapshot_id: trip.fuel_price_snapshot_id, region: trip.fuel_region ?? null }
+          : null,
+        basis: liters != null && cost != null ? "estimated-actual" : "unavailable",
+      },
+    };
+  });
+  const estimatedTrips = withEstimates.filter((t) => t.fuel_estimate.basis === "estimated-actual");
   return {
     totalTrips: trips.length,
     completedTrips: completed.length,
@@ -470,10 +544,17 @@ export async function getTripPerformanceReport(from, to) {
     totalDistance: round(distance),
     completionRate: trips.length ? completed.length / trips.length : null,
     averageDistance: trips.length ? distance / trips.length : null,
+    serviceCode: serviceFilter,
+    fuelEstimates: {
+      estimatedTrips: estimatedTrips.length,
+      totalEstimatedLiters: round(estimatedTrips.reduce((s, t) => s + t.fuel_estimate.estimated_fuel_l, 0)),
+      totalEstimatedCostPhp: round(estimatedTrips.reduce((s, t) => s + t.fuel_estimate.estimated_fuel_cost_php, 0)),
+      unavailableTrips: withEstimates.length - estimatedTrips.length,
+    },
     statusBreakdown: [...statusMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => b.trips - a.trips),
     monthlyData: [...monthMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => a.month.localeCompare(b.month)),
-    trips,
-    methodology: "Trip register rows are non-deleted trips. Summary rates and averages are derived from those same rows; no trip is counted as completed unless its stored status is Completed.",
+    trips: withEstimates,
+    methodology: "Trip register rows are non-deleted trips. Summary rates and averages are derived from those same rows; no trip is counted as completed unless its stored status is Completed. Fuel figures are labeled estimates from the completion-captured basis (planned vs actual distance, reference price + snapshot source); trips without a basis are unavailable, never zero. A service_code filter narrows to one canonical service.",
   };
 }
 

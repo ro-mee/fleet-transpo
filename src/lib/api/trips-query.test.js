@@ -20,7 +20,7 @@ describe("trips-query live-map projection", () => {
     // Operational consignment facts only — guest PII stays out (see below).
     // These columns exist only after migration 151: reads against a
     // pre-migration database fail, so do not deploy before it is applied.
-    for (const field of ["load_type", "cargo_weight_kg", "cargo_description"]) {
+    for (const field of ["load_type", "cargo_weight_kg", "cargo_description", "service_code"]) {
       expect(TRIPS_SELECT).toContain(field);
     }
   });

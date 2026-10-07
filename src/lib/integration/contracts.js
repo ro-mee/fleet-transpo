@@ -139,6 +139,16 @@ const SERVICE_LOAD = {
   HOTEL_SUPPLY_TRANSFER: "Cargo",
 };
 
+/**
+ * Canonical service codes and their declared load kinds (Task 13 reports and
+ * filters read these; the ingest boundary owns the CHECK behind them).
+ */
+export const SERVICE_CODES = Object.freeze(Object.keys(SERVICE_LOAD));
+
+export function serviceLoadFor(code) {
+  return SERVICE_LOAD[String(code ?? "").trim()] ?? null;
+}
+
 // Partner proposals are bounded review data; only opaque codes can resolve a
 // request FK, and proposal coordinates never become routing inputs.
 const LocationCodeSchema = z.string().uuid().transform((value) => value.toLowerCase()).nullable().optional();
