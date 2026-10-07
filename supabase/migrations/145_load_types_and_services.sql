@@ -1,3 +1,5 @@
+BEGIN;
+
 -- Prepared only: do not apply until 144_transport_source_identity.sql is reconciled,
 -- and the migration ledger is rechecked. No live DB writes were performed for Task 2.
 -- Fail atomically rather than silently rewriting historical passenger counts.
@@ -5,9 +7,9 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM public.transportation_requests
-    WHERE passenger_count <= 0
+    WHERE passenger_count IS NULL OR passenger_count <= 0
   ) THEN
-    RAISE EXCEPTION 'Existing passenger_count <= 0 requires explicit historical review before typed-load CHECK';
+    RAISE EXCEPTION 'Existing passenger_count requires explicit historical review before typed-load CHECK';
   END IF;
 END $$;
 
@@ -29,7 +31,7 @@ BEGIN
     JOIN pg_attribute a ON a.attrelid = tbl.oid AND a.attname = 'service_code'
     WHERE ns.nspname = 'public' AND tbl.relname = 'service_types'
       AND idx.relname = 'service_types_service_code_unique'
-      AND i.indisunique AND i.indisvalid AND i.indnkeyatts = 1
+      AND i.indisunique AND i.indisvalid AND i.indisready AND i.indnkeyatts = 1
       AND i.indnatts = 1 AND i.indpred IS NULL AND i.indexprs IS NULL
       AND i.indkey[0] = a.attnum
   ) THEN
@@ -160,7 +162,7 @@ BEGIN
       (load_type = 'Cargo' AND passenger_count IS NULL
         AND cargo_weight_kg IS NOT NULL AND cargo_weight_kg > 0
         AND cargo_weight_kg <> 'NaN'::numeric
-        AND cargo_description IS NOT NULL AND btrim(cargo_description) <> '')
+        AND cargo_description IS NOT NULL AND btrim(cargo_description, E' \t\n\r\f' || chr(11)) <> '')
     );
   SELECT pg_get_constraintdef(oid)
     INTO expected_constraint_definition
@@ -182,7 +184,7 @@ BEGIN
         (load_type = 'Cargo' AND passenger_count IS NULL
           AND cargo_weight_kg IS NOT NULL AND cargo_weight_kg > 0
           AND cargo_weight_kg <> 'NaN'::numeric
-          AND cargo_description IS NOT NULL AND btrim(cargo_description) <> '')
+          AND cargo_description IS NOT NULL AND btrim(cargo_description, E' \t\n\r\f' || chr(11)) <> '')
       );
   ELSIF constraint_definition IS DISTINCT FROM expected_constraint_definition
      OR constraint_is_valid IS DISTINCT FROM TRUE THEN
@@ -193,3 +195,5 @@ END $$;
 -- Existing rows are passenger rows; no historical passenger is silently converted to cargo.
 COMMENT ON COLUMN public.transportation_requests.load_type IS
   'Explicit Passenger or Cargo request kind; not inferred from vehicle type text.';
+
+COMMIT;

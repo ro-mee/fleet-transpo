@@ -12,8 +12,30 @@ describe("prepared typed-load migration", () => {
     expect(migration).toMatch(/DROP DEFAULT/i);
     expect(migration).toMatch(/DROP NOT NULL/i);
   });
+  it("preflights NULL and nonpositive historical passenger counts before typed-load changes", () => {
+    const preflight = migration.match(/DO \$\$[\s\S]*?passenger_count IS NULL OR passenger_count <= 0[\s\S]*?END \$\$;/i)?.[0] ?? "";
+
+    expect(preflight).not.toBe("");
+    expect(preflight).toMatch(/RAISE EXCEPTION 'Existing passenger_count requires explicit historical review before typed-load CHECK'/i);
+    expect(migration.indexOf(preflight)).toBeLessThan(migration.indexOf("ALTER TABLE public.service_types"));
+  });
+
+  it("uses the explicit ASCII whitespace set in both cargo CHECK expressions", () => {
+    const cargoTrim = "btrim(cargo_description, E' \\t\\n\\r\\f' || chr(11))";
+
+    expect(migration.split(cargoTrim)).toHaveLength(3);
+  });
+
+  it("requires a ready service-code index and explicit transaction boundaries", () => {
+    expect(migration).toMatch(/i\.indisready/i);
+
+    const uncommented = migration.replace(/^\s*--.*$/gm, "").trim();
+    expect(uncommented).toMatch(/^BEGIN;/i);
+    expect(uncommented).toMatch(/COMMIT;$/i);
+  });
+
   it("enforces cargo weight and description with nullable passenger count", () => {
-    expect(migration).toMatch(/load_type\s*=\s*'Cargo'[\s\S]*?passenger_count IS NULL[\s\S]*?cargo_weight_kg\s*>\s*0[\s\S]*?btrim\(cargo_description\)/i);
+    expect(migration).toMatch(/load_type\s*=\s*'Cargo'[\s\S]*?passenger_count IS NULL[\s\S]*?cargo_weight_kg\s*>\s*0[\s\S]*?btrim\(cargo_description,/i);
     // PostgreSQL NUMERIC NaN compares greater than every ordinary number.
     expect(migration).toMatch(/cargo_weight_kg\s*<>\s*'NaN'::numeric/i);
   });

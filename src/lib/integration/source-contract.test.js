@@ -103,6 +103,12 @@ describe("authenticated inbound source contract", () => {
       .toMatchObject({ pickup_location_proposal: { latitude: -90, longitude: 180 } });
   });
 
+  it("rejects ASCII-whitespace-only proposal addresses", () => {
+    for (const address of ["\t", "\n", "\r", "\f", "\v", " \t\n\r\f\v ", "\t\n\r\f\u000b "]) {
+      expect(() => v2Create({ ...typedRequest, pickup_location_proposal: { address } })).toThrow();
+    }
+  });
+
   it("rejects a partial proposal coordinate pair", () => {
     expect(() => v2Create({ ...typedRequest, pickup_location_proposal: { latitude: 14.5 } })).toThrow();
   });
