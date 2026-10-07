@@ -7,6 +7,7 @@ import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/consta
 import { advanceReservation, findRequestForDispatch } from "@/services/reservation-lifecycle.service";
 import { isExpired, toCalendarDay } from "@/lib/dates";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
+import { itemsForType } from "@/lib/inspections/checklists";
 import { writeAudit } from "@/lib/audit";
 import { resolveStartWindow } from "@/lib/scheduling/start-window";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
@@ -79,7 +80,7 @@ export async function PUT(req, { params }) {
     // scoping already excludes those rows; this says so rather than relying on
     // the reader to notice.
     const { rows: pretrips } = await query(
-      `SELECT i.inspection_id, i.status
+      `SELECT i.inspection_id, i.status, i.checklist
          FROM vehicleinspection i
          JOIN trips t ON t.trip_id = i.trip_id
         WHERE i.trip_id = $1
@@ -91,6 +92,30 @@ export async function PUT(req, { params }) {
     );
     if (!pretrips[0] || pretrips[0].status !== "Passed") {
       return err("Pre-trip inspection is required before starting this trip. Complete the checklist in the app first.", 400);
+    }
+    // The passed checklist must be the trip's own set: a passenger checklist
+    // does not clear a cargo trip and vice versa. Legacy rows without a load
+    // type keep the passenger set, so existing Passed rows still start.
+    const { rows: startLoadRows } = await query(
+      `SELECT tr.load_type
+         FROM trips t
+         LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL
+         LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
+        WHERE t.trip_id = $1 LIMIT 1`,
+      [id]
+    );
+    const startLoadType = startLoadRows[0]?.load_type ?? null;
+    const expectedItems = itemsForType("Pre-Trip", startLoadType);
+    const actualItems = Array.isArray(pretrips[0].checklist)
+      ? pretrips[0].checklist.map((i) => i?.item_id).filter(Boolean).sort()
+      : [];
+    if (expectedItems.slice().sort().join(",") !== actualItems.join(",")) {
+      return err(
+        startLoadType === "Cargo"
+          ? "This cargo trip needs a passed cargo Pre-Trip inspection (cargo-secure check). Complete it in the app first."
+          : "The pre-trip inspection does not match this trip. Complete the checklist in the app first.",
+        400
+      );
     }
 
     // Departure-window gate. The driver may not start before the recommended

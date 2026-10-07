@@ -63,15 +63,18 @@ export async function POST(req) {
     let vehicleId = null;
     let plateNumber = null;
     let tripIdForInsert = null;
+    let tripLoadType = null;
 
     if (inspectionType === "Pre-Trip") {
       if (!Number.isInteger(tripId) || tripId <= 0) {
         return err("trip_id is required for a Pre-Trip inspection", 400);
       }
       const { rows: trips } = await query(
-        `SELECT t.trip_id, t.vehicle_id, v.plate_number
+        `SELECT t.trip_id, t.vehicle_id, v.plate_number, tr.load_type
            FROM trips t
            LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
+           LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+           LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
           WHERE t.trip_id = $1 AND t.driver_id = $2 AND t.deleted_at IS NULL
             AND t.trip_status = ANY($3::text[]) LIMIT 1`,
         [tripId, session.user.driverId, PRE_START_TRIP_STATUSES]
@@ -84,6 +87,10 @@ export async function POST(req) {
       vehicleId = trip.vehicle_id;
       plateNumber = trip.plate_number;
       tripIdForInsert = tripId;
+      // The trip's load decides which Pre-Trip set is valid: cargo rows check
+      // securing and must never carry the passenger-items question. Legacy
+      // rows without a load type keep the passenger set.
+      tripLoadType = trip.load_type ?? null;
     } else {
       if (tripId !== null) {
         return err("Pre-Shift inspections must not include trip_id", 400);
@@ -129,7 +136,7 @@ export async function POST(req) {
     // bad-checklist request against someone else's trip still 404s rather than
     // confirming the trip exists. The inspection_type and client_submission_id
     // checks stay up front — they need no DB round trip and cannot leak anything.
-    const checklistResult = validateChecklist(inspectionType, items);
+    const checklistResult = validateChecklist(inspectionType, items, { loadType: tripLoadType });
     if (!checklistResult.ok) return err(checklistResult.error, 400);
 
     const failures = items.filter((i) => i.status === "FAIL");
@@ -139,7 +146,7 @@ export async function POST(req) {
       status: item.status,
       remarks: item.remarks || "",
     }));
-    const blockingItemIds = blockingItemIdsForType(inspectionType);
+    const blockingItemIds = blockingItemIdsForType(inspectionType, tripLoadType);
     const blockingFailures = failures.filter((f) => blockingItemIds.includes(f.item_id));
     const isBlockingFailure = blockingFailures.length > 0;
     const inspectionStatus = isBlockingFailure ? "Failed" : "Passed";

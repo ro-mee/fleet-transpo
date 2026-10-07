@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  PRE_SHIFT_CHECKLIST, PRE_TRIP_CHECKLIST, checklistForMode, inspectionTypeForMode,
+  PRE_SHIFT_CHECKLIST, PRE_TRIP_CHECKLIST, PRE_TRIP_CARGO_CHECKLIST,
+  checklistForMode, inspectionTypeForMode, preTripChecklistForLoad,
 } from "./inspection-checklist";
 import { QUICK_PASS_FAILED_ID } from "./inspection-tour";
 
@@ -48,5 +49,23 @@ describe("inspection-checklist", () => {
     expect(checklistForMode(undefined)).toBe(PRE_SHIFT_CHECKLIST);
     expect(inspectionTypeForMode("pretrip")).toBe("Pre-Trip");
     expect(inspectionTypeForMode("preshift")).toBe("Pre-Shift");
+  });
+
+  it("cargo Pre-Trip checks securing with identical server ids and no passenger question", () => {
+    expect(PRE_TRIP_CARGO_CHECKLIST.map((i) => i.id)).toEqual(["brakes_tires", "cargo_secure", "cabin_ready"]);
+    expect(preTripChecklistForLoad("Cargo")).toBe(PRE_TRIP_CARGO_CHECKLIST);
+    expect(preTripChecklistForLoad("Passenger")).toBe(PRE_TRIP_CHECKLIST);
+    expect(preTripChecklistForLoad(null)).toBe(PRE_TRIP_CHECKLIST);
+    expect(checklistForMode("pretrip", "Cargo")).toBe(PRE_TRIP_CARGO_CHECKLIST);
+    expect(checklistForMode("pretrip", "Passenger")).toBe(PRE_TRIP_CHECKLIST);
+    expect(checklistForMode("pretrip")).toBe(PRE_TRIP_CHECKLIST);
+    // Server item ids must stay in step: the API rejects anything outside the
+    // type's set, so these ids mirror src/lib/inspections/checklists.js.
+    expect(PRE_TRIP_CARGO_CHECKLIST.map((i) => i.id)).toEqual(["brakes_tires", "cargo_secure", "cabin_ready"]);
+    const secure = PRE_TRIP_CARGO_CHECKLIST.find((i) => i.id === "cargo_secure");
+    expect(secure).toMatchObject({ passLabel: "CARGO SECURE", failLabel: "NOT SECURE", findingTone: "safety" });
+    expect(secure.question).toBeTruthy();
+    expect(secure.icon).toBeTruthy();
+    expect(secure.shortTitle).toBeTruthy();
   });
 });

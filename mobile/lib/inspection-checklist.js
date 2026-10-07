@@ -61,8 +61,7 @@ export const PRE_SHIFT_CHECKLIST = [
   },
 ];
 
-export const PRE_TRIP_CHECKLIST = [
-  {
+export const PRE_TRIP_CHECKLIST = [  {
     id: "brakes_tires",
     section: "Safety",
     shortTitle: "Brakes & Tires",
@@ -106,8 +105,58 @@ export const PRE_TRIP_CHECKLIST = [
   },
 ];
 
-export function checklistForMode(mode) {
-  return mode === "pretrip" ? PRE_TRIP_CHECKLIST : PRE_SHIFT_CHECKLIST;
+export const PRE_TRIP_CARGO_CHECKLIST = [
+  {
+    id: "brakes_tires",
+    section: "Safety",
+    shortTitle: "Brakes & Tires",
+    icon: "disc-outline",
+    findingTone: "safety",
+    label: "Safety (Brakes & Tires)",
+    question: "Are the brakes working properly and the tires in safe condition?",
+    passLabel: "SAFE",
+    failLabel: "ISSUE FOUND",
+    remarksPrompt: "Please describe the brake or tire issue.",
+  },
+  {
+    id: "cargo_secure",
+    section: "Cargo Secure",
+    shortTitle: "Cargo Secured",
+    icon: "cube-outline",
+    findingTone: "safety",
+    label: "Cargo Secured Check",
+    question: "Is the consignment loaded, secured against shifting, and safe to transport?",
+    passLabel: "CARGO SECURE",
+    failLabel: "NOT SECURE",
+    remarksPrompt: "Describe what is unsecured (e.g., loose straps, shifting crates).",
+  },
+  {
+    id: "cabin_ready",
+    section: "CABIN READY?",
+    shortTitle: "Cabin Readiness",
+    icon: "sparkles-outline",
+    findingTone: "readiness",
+    label: "Cabin Ready Acknowledgment",
+    kind: "acknowledgment",
+    passLabel: "CABIN READY",
+    buttonLabel: "✓ CABIN READY",
+    reminders: [
+      "The cabin is clean and tidy",
+      "The air conditioning is working",
+      "There are no unpleasant odors",
+      "Freshen the cabin if needed",
+    ],
+    supportingText: "Make sure the vehicle is comfortable and presentable for the next passenger.",
+  },
+];
+
+export function preTripChecklistForLoad(loadType) {
+  return loadType === "Cargo" ? PRE_TRIP_CARGO_CHECKLIST : PRE_TRIP_CHECKLIST;
+}
+
+export function checklistForMode(mode, loadType = null) {
+  if (mode === "pretrip") return preTripChecklistForLoad(loadType);
+  return PRE_SHIFT_CHECKLIST;
 }
 
 export function inspectionTypeForMode(mode) {

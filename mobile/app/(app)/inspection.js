@@ -29,6 +29,7 @@ import {
 import {
   PRE_SHIFT_CHECKLIST,
   PRE_TRIP_CHECKLIST,
+  PRE_TRIP_CARGO_CHECKLIST,
   checklistForMode,
   inspectionTypeForMode,
 } from "../../lib/inspection-checklist";
@@ -49,19 +50,6 @@ export default function PreShiftInspection() {
     ? "preshift"
     : "pretrip";
   const inspectionType = inspectionTypeForMode(screenMode);
-  const CHECKLIST = useMemo(() => checklistForMode(screenMode), [screenMode]);
-
-  // Seeded with all possible items so answers are preserved across mode toggles.
-  const [statuses, setStatuses] = useState(() => {
-    const initial = {};
-    for (const item of [...PRE_SHIFT_CHECKLIST, ...PRE_TRIP_CHECKLIST]) {
-      initial[item.id] = null;
-    }
-    return initial;
-  });
-  const [remarks, setRemarks] = useState({});
-  const [submitting, setSubmitting] = useState(false);
-  const [clientSubmissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const [tripContext, setTripContext] = useState(() =>
     isTour
       ? {
@@ -71,6 +59,23 @@ export default function PreShiftInspection() {
         }
       : null
   );
+  // Cargo trips check securing instead of passenger items. The trip context
+  // arrives after the first render, so the checklist follows it — the submit
+  // payload is built from this same array and the server re-validates the set.
+  const tripLoadType = tripContext?.load_type ?? null;
+  const CHECKLIST = useMemo(() => checklistForMode(screenMode, tripLoadType), [screenMode, tripLoadType]);
+
+  // Seeded with all possible items so answers are preserved across mode toggles.
+  const [statuses, setStatuses] = useState(() => {
+    const initial = {};
+    for (const item of [...PRE_SHIFT_CHECKLIST, ...PRE_TRIP_CHECKLIST, ...PRE_TRIP_CARGO_CHECKLIST]) {
+      initial[item.id] = null;
+    }
+    return initial;
+  });
+  const [remarks, setRemarks] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [clientSubmissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const [showTourSuccessModal, setShowTourSuccessModal] = useState(false);
 
   useEffect(() => {
@@ -244,6 +249,16 @@ export default function PreShiftInspection() {
           AppAlert.alert(
             "Safety Issue Reported",
             "Pre-trip check saved. A safety issue was reported on brakes/tires — dispatch has been notified. Trip departure remains blocked until resolved.",
+            [{ text: "Done", onPress: () => router.back() }]
+          );
+          return;
+        }
+        // An unsecured consignment blocks departure exactly like a brake fault;
+        // only cargo checklists carry this item, so passenger rows never land here.
+        if (statuses.cargo_secure === "FAIL") {
+          AppAlert.alert(
+            "Cargo Not Secured",
+            "Pre-trip check saved. The consignment was reported not secured — dispatch has been notified. Trip departure remains blocked until the load is secured.",
             [{ text: "Done", onPress: () => router.back() }]
           );
           return;

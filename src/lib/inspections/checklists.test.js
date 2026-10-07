@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  INSPECTION_TYPES, PRE_SHIFT_ITEMS, PRE_TRIP_ITEMS, CRITICAL_ITEM_IDS,
+  INSPECTION_TYPES, PRE_SHIFT_ITEMS, PRE_TRIP_ITEMS, PRE_TRIP_CARGO_ITEMS, CRITICAL_ITEM_IDS,
   itemsForType, isChecklistType, validateChecklist, validatePostShift,
-  failedItemsFrom,
+  failedItemsFrom, preTripItemsForLoad, blockingItemIdsForType,
 } from "./checklists";
 
 const items = (ids, status = "PASS", remarks = "") =>
@@ -99,6 +99,46 @@ describe("checklists", () => {
     expect(validateChecklist("Pre-Trip", items(PRE_TRIP_ITEMS).map((i, idx) =>
       idx === 0 ? { ...i, status: "MAYBE" } : i)).ok).toBe(false);
     expect(validateChecklist("Pre-Trip", null).ok).toBe(false);
+  });
+});
+
+describe("cargo Pre-Trip", () => {
+  const cargoItems = (status = "PASS", remarks = "") =>
+    PRE_TRIP_CARGO_ITEMS.map((item_id) => ({ item_id, label: item_id, status, remarks }));
+
+  it("demands cargo_secure and never the passenger-items question", () => {
+    expect(PRE_TRIP_CARGO_ITEMS).toEqual(["brakes_tires", "cargo_secure", "cabin_ready"]);
+    expect(preTripItemsForLoad("Cargo")).toEqual(PRE_TRIP_CARGO_ITEMS);
+    expect(preTripItemsForLoad("Passenger")).toEqual(PRE_TRIP_ITEMS);
+    expect(preTripItemsForLoad(null)).toEqual(PRE_TRIP_ITEMS);
+    expect(itemsForType("Pre-Trip", "Cargo")).toEqual(PRE_TRIP_CARGO_ITEMS);
+    expect(itemsForType("Pre-Trip")).toEqual(PRE_TRIP_ITEMS);
+    expect(blockingItemIdsForType("Pre-Trip", "Cargo")).toEqual(["brakes_tires", "cargo_secure"]);
+    expect(blockingItemIdsForType("Pre-Trip")).toEqual(["brakes_tires"]);
+  });
+
+  it("accepts a complete cargo checklist and rejects the passenger set for cargo", () => {
+    expect(validateChecklist("Pre-Trip", cargoItems(), { loadType: "Cargo" })).toEqual({ ok: true });
+    expect(validateChecklist("Pre-Trip", items(PRE_TRIP_ITEMS), { loadType: "Cargo" }).ok).toBe(false);
+    expect(validateChecklist("Pre-Trip", items(PRE_TRIP_ITEMS), { loadType: "Cargo" }).error)
+      .toMatch(/passenger_items does not apply to cargo/);
+  });
+
+  it("blocks server start on a cargo-secure failure with remarks enforced", () => {
+    const failed = cargoItems().map((i) =>
+      i.item_id === "cargo_secure" ? { ...i, status: "FAIL", remarks: "" } : i
+    );
+    expect(validateChecklist("Pre-Trip", failed, { loadType: "Cargo" }).ok).toBe(false);
+    const remarked = cargoItems().map((i) =>
+      i.item_id === "cargo_secure" ? { ...i, status: "FAIL", remarks: "strap loose" } : i
+    );
+    expect(validateChecklist("Pre-Trip", remarked, { loadType: "Cargo" })).toEqual({ ok: true });
+  });
+
+  it("keeps passenger Pre-Trip, Pre-Shift and Post-Shift unchanged", () => {
+    expect(validateChecklist("Pre-Trip", items(PRE_TRIP_ITEMS), { loadType: "Passenger" })).toEqual({ ok: true });
+    expect(validateChecklist("Pre-Trip", items(PRE_TRIP_ITEMS))).toEqual({ ok: true });
+    expect(validateChecklist("Pre-Shift", items(PRE_SHIFT_ITEMS), { loadType: "Cargo" })).toEqual({ ok: true });
   });
 });
 

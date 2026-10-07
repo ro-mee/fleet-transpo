@@ -19,7 +19,7 @@ import { query } from "@/lib/db";
 import { requireDriver, parseBody } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { setDuty } from "@/services/standby.service";
-import { PRE_SHIFT_ITEMS as FULL_IDS, PRE_TRIP_ITEMS as QUICK_IDS } from "@/lib/inspections/checklists";
+import { PRE_SHIFT_ITEMS as FULL_IDS, PRE_TRIP_ITEMS as QUICK_IDS, PRE_TRIP_CARGO_ITEMS as CARGO_IDS } from "@/lib/inspections/checklists";
 import { POST, GET } from "./route";
 
 // The ids are imported rather than hand-copied so the route test cannot drift
@@ -210,6 +210,38 @@ describe("POST /api/mobile/driver/inspections — Pre-Trip", () => {
     expect(params.findings).toContain("passenger_items");
     expect(notifCall()[1][1]).toBe("Inspection Findings (Pre-Trip)");
     expect(notifCall()[1][2]).toMatch(/reported findings during Pre-Trip check/);
+  });
+  it("accepts the cargo-secure set for a cargo trip and rejects the passenger set", async () => {
+    query.mockImplementation(async (sql) =>
+      sql.includes("t.trip_id = $1")
+        ? { rows: [{ trip_id: 7, vehicle_id: 3, plate_number: "TRK-9", load_type: "Cargo" }] }
+        : defaultQuery(sql)
+    );
+    parseBody.mockResolvedValue(baseBody({ items: build(CARGO_IDS) }));
+    const res = await post();
+    expect(res.status).toBe(201);
+    expect(getInsertParams(insertCall()).status).toBe("Passed");
+
+    parseBody.mockResolvedValue(baseBody({ items: build(QUICK_IDS) }));
+    const bad = await post();
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/passenger_items does not apply to cargo/);
+  });
+  it("FAIL on cargo_secure inserts Failed + High severity and blocks departure", async () => {
+    query.mockImplementation(async (sql) =>
+      sql.includes("t.trip_id = $1")
+        ? { rows: [{ trip_id: 7, vehicle_id: 3, plate_number: "TRK-9", load_type: "Cargo" }] }
+        : defaultQuery(sql)
+    );
+    parseBody.mockResolvedValue(baseBody({
+      items: build(CARGO_IDS, { cargo_secure: { status: "FAIL", remarks: "strap loose" } }),
+    }));
+    const res = await post();
+    expect(res.status).toBe(201);
+    const params = getInsertParams(insertCall());
+    expect(params.status).toBe("Failed");
+    expect(params.severity).toBe("High");
+    expect(params.findings).toContain("cargo_secure");
   });
   it("404s a trip the driver does not own", async () => {
     query.mockImplementation(async (sql) =>

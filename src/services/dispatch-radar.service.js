@@ -14,6 +14,7 @@ import { toCalendarDay } from '@/lib/dates';
 import { dispatchDecision } from '@/lib/dispatch/decision';
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { rankDispatchPairs } from '@/lib/dispatch/recommendation-ranking';
+import { cargoServiceEnd } from '@/lib/scheduling/cargo-schedule';
 
 const unknown = reason => ({ verdict: 'UNKNOWN', reasons: [reason] });
 const minutes = value => value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) <= 0 ? null : Number(value);
@@ -115,6 +116,18 @@ export function serviceEnd(request, estimate) {
   const explicit = request?.scheduled_arrival ? new Date(request.scheduled_arrival).getTime() : NaN;
   const durationValue = estimate?.durationMin ?? (isV2Request(request) ? null : request?.estimated_duration);
   const duration = minutes(durationValue);
+  // Cargo bookings include handling (loading, securement, unloading,
+  // turnaround) rather than treating the drive ETA as the full window. A null
+  // arrival extends the estimate instead of collapsing to a zero-length
+  // booking; an explicit dispatcher-planned arrival still wins.
+  if (request?.load_type === "Cargo") {
+    const computed = cargoServiceEnd({
+      pickup: Number.isFinite(pickup) ? new Date(pickup) : null,
+      scheduledArrival: Number.isFinite(explicit) && explicit > pickup ? new Date(explicit) : null,
+      driveMinutes: duration,
+    });
+    return computed.end;
+  }
   return Number.isFinite(explicit) && explicit > pickup ? new Date(explicit) :
     Number.isFinite(pickup) && duration != null ? new Date(pickup + duration * 60_000) : null;
 }

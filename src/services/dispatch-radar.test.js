@@ -35,6 +35,19 @@ it("retains the legacy duration fallback for v1", () => {
   expect(serviceEnd({ ...request, pickup_datetime: pickup, estimated_duration: 30 }, { durationMin: null }))
     .toEqual(new Date(new Date(pickup).getTime() + 30 * 60_000));
 });
+it("extends a cargo window by handling buffers instead of the bare drive ETA", () => {
+  const pickup = "2026-10-06T10:00:00+08:00";
+  // 60 min drive + 90 min default handling, no planned arrival.
+  expect(serviceEnd({ ...request, load_type: "Cargo", pickup_datetime: pickup }, { durationMin: 60 }))
+    .toEqual(new Date(new Date(pickup).getTime() + 150 * 60_000));
+  // A dispatcher-planned arrival still wins.
+  const arrival = new Date(new Date(pickup).getTime() + 240 * 60_000).toISOString();
+  expect(serviceEnd({ ...request, load_type: "Cargo", pickup_datetime: pickup, scheduled_arrival: arrival }, { durationMin: 60 }))
+    .toEqual(new Date(arrival));
+  // Passenger rows keep the bare drive ETA.
+  expect(serviceEnd({ ...request, load_type: "Passenger", pickup_datetime: pickup }, { durationMin: 60 }))
+    .toEqual(new Date(new Date(pickup).getTime() + 60 * 60_000));
+});
 it('attaches the Manila duty window behind the shift verdict, null without a row',async()=>{
   const friday = new Date('2026-10-02T09:00:00.000Z'); // 5 PM Manila Friday
   loadDriverScheduleContext.mockResolvedValue({ schedules: new Map([[1, new Map([[5, {

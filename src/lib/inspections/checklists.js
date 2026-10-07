@@ -3,14 +3,18 @@
 //
 // Three types share the vehicleinspection table:
 //   "Pre-Shift"  — the full 5-point vehicle safety baseline, once daily before duty.
-//   "Pre-Trip"   — trip-scoped readiness: brakes/tires safety, passenger check, and cabin acknowledgment.
+//   "Pre-Trip"   — trip-scoped readiness: brakes/tires safety, passenger check
+//                  or cargo-secure (by load), and cabin acknowledgment.
 //   "Post-Shift" — the End Duty report: one question and free text, no items.
 //
 // Pre-Shift covers 5 roadworthiness checks (sounds, lights, dashboard, steering, brakes_tires);
 // any failure fails the baseline and blocks Start Duty.
 //
-// Pre-Trip confirms brakes/tires (hard gate blocking trip departure), passenger belongings check
-// (non-blocking finding), and cabin ready acknowledgment.
+// Pre-Trip confirms brakes/tires (hard gate blocking trip departure), then
+// EITHER the passenger belongings check (non-blocking finding) OR the
+// cargo-secure check (hard gate blocking trip departure) depending on the
+// trip's load — a cargo Pre-Trip never asks the passenger-items question —
+// plus the cabin ready acknowledgment.
 //
 // Post-Shift is validated by validatePostShift.
 //
@@ -40,11 +44,18 @@ export const PRE_SHIFT_ITEMS = [
 
 export const PRE_TRIP_ITEMS = ["brakes_tires", "passenger_items", "cabin_ready"];
 
+// Cargo Pre-Trip: the securing check replaces the passenger-items question.
+// A cargo_secure FAIL is a hard gate — an unsecured consignment must not
+// depart — while passenger_items stays a non-blocking finding on its own set.
+export const PRE_TRIP_CARGO_ITEMS = ["brakes_tires", "cargo_secure", "cabin_ready"];
+
 export const PRE_SHIFT_BLOCKING_ITEMS = [
   "sounds", "lights", "dashboard", "steering", "brakes_tires",
 ];
 
 export const PRE_TRIP_BLOCKING_ITEMS = ["brakes_tires"];
+
+export const PRE_TRIP_CARGO_BLOCKING_ITEMS = ["brakes_tires", "cargo_secure"];
 
 export const NON_BLOCKING_PRE_TRIP_ITEMS = ["passenger_items"];
 
@@ -55,15 +66,20 @@ export const CRITICAL_ITEM_IDS = [
   "sounds", "lights", "dashboard", "steering", "brakes_tires",
 ];
 
-export function blockingItemIdsForType(type) {
+export function blockingItemIdsForType(type, loadType = null) {
   if (type === "Pre-Shift") return PRE_SHIFT_BLOCKING_ITEMS;
-  if (type === "Pre-Trip") return PRE_TRIP_BLOCKING_ITEMS;
+  if (type === "Pre-Trip") return loadType === "Cargo" ? PRE_TRIP_CARGO_BLOCKING_ITEMS : PRE_TRIP_BLOCKING_ITEMS;
   return [];
 }
 
-export function itemsForType(type) {
+/** Pre-Trip item set for a load: cargo rows check securing, all others check passenger items. */
+export function preTripItemsForLoad(loadType) {
+  return loadType === "Cargo" ? PRE_TRIP_CARGO_ITEMS : PRE_TRIP_ITEMS;
+}
+
+export function itemsForType(type, loadType = null) {
   if (type === "Pre-Shift") return PRE_SHIFT_ITEMS;
-  if (type === "Pre-Trip") return PRE_TRIP_ITEMS;
+  if (type === "Pre-Trip") return preTripItemsForLoad(loadType);
   return null;
 }
 
@@ -105,7 +121,7 @@ export function failedItemsFrom(checklist) {
  * Count + set-membership + no-duplicates together mean every expected id is
  * present exactly once, without needing a separate "missing item" check.
  */
-export function validateChecklist(type, items) {
+export function validateChecklist(type, items, { loadType = null } = {}) {
   if (!INSPECTION_TYPES.includes(type)) {
     return { ok: false, error: "inspection_type must be Pre-Shift, Pre-Trip or Post-Shift" };
   }
@@ -115,7 +131,12 @@ export function validateChecklist(type, items) {
     // that was never meant to exist.
     return { ok: false, error: "Post-Shift carries no checklist — send a report instead" };
   }
-  const expected = itemsForType(type);
+  // A cargo Pre-Trip carrying the passenger question is the wrong checklist
+  // for the trip, not merely a wrong id — say so before the generic set check.
+  if (type === "Pre-Trip" && loadType === "Cargo" && Array.isArray(items) && items.some((i) => i?.item_id === "passenger_items")) {
+    return { ok: false, error: "passenger_items does not apply to cargo trips — complete the cargo-secure check instead" };
+  }
+  const expected = itemsForType(type, loadType);
   if (!Array.isArray(items) || !items.length) {
     return { ok: false, error: "items is required and must not be empty" };
   }

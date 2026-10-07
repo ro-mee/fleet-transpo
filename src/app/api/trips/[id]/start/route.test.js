@@ -14,9 +14,12 @@ import {query} from '@/lib/db';
 import {validatePairAvailability} from '@/services/recommendation.service';
 import {commitDispatchEvidence} from '@/services/dispatch-evidence.service';
 import {PUT} from './route';
+const PASSENGER_CHECKLIST = [{item_id:'brakes_tires'},{item_id:'passenger_items'},{item_id:'cabin_ready'}];
+const CARGO_CHECKLIST = [{item_id:'brakes_tires'},{item_id:'cargo_secure'},{item_id:'cabin_ready'}];
 const defaultQuery = (sql) => ({
   rows: sql.includes('FROM dispatchschedules') ? [{dispatch_id:8,driver_id:2,vehicle_id:3,scheduled_departure:new Date(Date.now()+15*60_000).toISOString()}]
-    :sql.includes('FROM vehicleinspection') ? [{status:'Passed'}]
+    :sql.includes('FROM vehicleinspection') ? [{status:'Passed',checklist:PASSENGER_CHECKLIST}]
+    :sql.includes('tr.load_type') ? [{load_type:null}]
     :sql.includes('FROM vehicles') ? [{registration_expiry:'2099-01-01',vehicle_status:'Available',required_license_class:'B'}]
     :sql.includes('FROM drivers') ? [{license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2099-01-01',license_verified_at:'2026-09-27T10:00:00+08:00',license_verified_by:1,license_verification_method:'physical_card',driver_status:'Available'}]:[],
 });
@@ -79,10 +82,27 @@ it('blocks trip start when the staff license review is missing',async()=>{
  expect((await response.json()).error).toMatch(/not been verified/i);
 });
 it('scopes the gate to this trip AND inspection_type Pre-Trip (a Pre-Shift row can never satisfy it)',async()=>{
- const tx={query:vi.fn(async sql=>({rows:sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
- commitDispatchEvidence.mockImplementation(async (_t,write)=>write(tx));
- expect((await run()).status).toBe(200);
- const gate=query.mock.calls.find((c)=>c[0].includes('FROM vehicleinspection'));
- expect(gate[0]).toContain('i.trip_id = $1');
- expect(gate[0]).toContain("i.inspection_type = 'Pre-Trip'");
+  const tx={query:vi.fn(async sql=>({rows:sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+  commitDispatchEvidence.mockImplementation(async (_t,write)=>write(tx));
+  expect((await run()).status).toBe(200);
+  const gate=query.mock.calls.find((c)=>c[0].includes('FROM vehicleinspection'));
+  expect(gate[0]).toContain('i.trip_id = $1');
+  expect(gate[0]).toContain("i.inspection_type = 'Pre-Trip'");
+});
+it('blocks a cargo trip whose passed checklist is the passenger set',async()=>{
+  query.mockImplementation(async sql=>
+    sql.includes('tr.load_type') ? {rows:[{load_type:'Cargo'}]} : defaultQuery(sql));
+  const response=await run();
+  expect(response.status).toBe(400);
+  expect((await response.json()).error).toMatch(/cargo Pre-Trip inspection/);
+  expect(commitDispatchEvidence).not.toHaveBeenCalled();
+});
+it('starts a cargo trip whose passed checklist is the cargo set',async()=>{
+  query.mockImplementation(async sql=>
+    sql.includes('tr.load_type') ? {rows:[{load_type:'Cargo'}]}
+    :sql.includes('FROM vehicleinspection') ? {rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}
+    :defaultQuery(sql));
+  const tx={query:vi.fn(async sql=>({rows:sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+  commitDispatchEvidence.mockImplementation(async (_t,write)=>write(tx));
+  expect((await run()).status).toBe(200);
 });
