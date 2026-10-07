@@ -1,6 +1,16 @@
 # FleetOps demo fixtures and P1 isolation — Task 13, 2026-10-07 (planned)
 
-**Status: plan only. No seed was run.** `scripts/seed-demo.mjs` already runs opt-in (`status | plan | up | down`) with a ledger-scoped `down` that deletes only what `up` inserted, preserving real identities — that mechanism is reused unchanged. Extending its scenarios with typed cargo rows is checkpoint work: the fixture inserts would reference migrations 150–155 columns, which do not exist live, so no seed run is authorized before the apply checkpoint and an isolated-DB `plan`/`up`/`down` verification.
+**Status: typed intake preparation implemented 2026-10-08; no seed was run.** The existing quarter-data runner `scripts/seed-demo.mjs` remains unchanged. `scripts/seed-typed-demo.mjs` accepts explicitly supplied typed intake fixtures and uses its own exact-ID ledger. It does not create vehicles, drivers, compliance evidence, capacity, coordinates, fuel prices or completed trips. The full matrix below still needs authorized isolated-database and device acceptance after the migration checkpoint.
+
+## Opt-in typed intake runner
+
+`node scripts/seed-typed-demo.mjs plan <manifest.json>` validates a manifest and prints the supplied request fields. Planning does not load environment files or connect to a database. The manifest must declare `isolated: true` and a nonempty `requests` array. Each row supplies a canonical service code, matching PMS/Passenger or POS/Cargo source/load, `external_request_id`, pickup/dropoff text and an offset-qualified pickup timestamp. Passenger rows require a positive count; cargo rows require a positive declared weight and description and omit guest/passenger fields. Duplicate source/request identities and unknown services are rejected. No example identity is copied into the live fleet.
+
+`up <manifest.json>` and `down` require explicit `FLEETOPS_TYPED_DEMO_ISOLATED=true` and a dedicated `TYPED_DEMO_DATABASE_URL` pointing to localhost and a database whose name ends in `_demo`. They never read the production `DATABASE_URL`. These commands remain unexecuted and must wait for the migration and isolated-data approval checkpoint.
+
+`up` requires the existing migrated active service catalog, inserts only the supplied requests, and records their IDs under `system_settings['seed:passenger-cargo-v1']` in the same transaction. A database advisory lock prevents concurrent duplicate runs. `down` locks and removes only those IDs; if dispatch has used a fixture, it refuses removal for an explicit review of its child records. Fleet identities and odometers are never modified. The separate runner deliberately prepares intake only; it does not pretend that the start, completion, pricing or negative-readiness scenarios below have been exercised live.
+
+Verification: `src/lib/integration/typed-demo.test.js` passes five offline cases covering deterministic supplied inputs, invalid/missing declarations, atomic ledger writes, missing-catalog rollback and exact-ID removal/use refusal. The database substitute checks the real helper's SQL; it is not a live apply/seed verification.
 
 ## Required demo matrix (acceptance fixtures for Task 14)
 

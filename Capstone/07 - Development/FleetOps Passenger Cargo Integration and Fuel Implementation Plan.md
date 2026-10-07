@@ -1,6 +1,6 @@
 # FleetOps Passenger/Cargo Integration and Fuel — Implementation Baseline
 
-**Status: Tasks 1–14 implemented as prepared code on isolated `feat/passenger-cargo` (2026-10-05 → 2026-10-07); acceptance suite `src/release-acceptance.test.js` green; full suite 331 files / 3,879 tests green. NOT deployed: migrations 150–155 unapplied (user holds live apply for separate authorization/staging), so no live behavior is claimed. Remaining gates before release: concurrent Hotel/POS reconciliation + merge, authorized apply checkpoint (`db:up`, `db:dump`, `verify:anon`, `db:contract`, catalog/real-query checks), Task 10 repository/API/UI + snapshot contract registration, production build env (`NEXT_PUBLIC_SUPABASE_URL`), device/browser acceptance, and the isolated-DB seed run. A concurrent Hotel/POS integration plan on `main` overlaps the request schema/ingest/gateway and reserves version 144; reconcile code plus migration ordering before merge. The plan itself is not proof of end-to-end behavior.**
+**Status: Tasks 1–13 prepared on isolated `feat/passenger-cargo`; the 2026-10-07 review defects have a verified offline correction patch on 2026-10-08. See [[FleetOps Passenger Cargo Review Fixes 2026-10-08]] for verification and current scope. NOT deployed: migrations 150–155 remain unapplied and no live behavior is claimed. Manual price repository/API/UI and explicit pending snapshot classification are now implemented offline. Remaining release gates: concurrent Hotel/POS reconciliation, authorized migration apply/dump, live RLS/grants/anon/FK/catalog/real-query verification, legitimate production-build configuration, browser/device acceptance and isolated demo reversal. Automatic provider publication stays disabled until an approved source is verified. Task 1 remains create-only; revisions/cancellations are not advertised as supported.**
 
 Full task-by-task implementation plan: `docs/superpowers/plans/2026-10-05-fleetops-passenger-cargo-integration-and-fuel.md`.
 
@@ -25,3 +25,17 @@ FleetOps receives requests from external hotel/restaurant subsystems. The target
 ## Planning verification
 
 Cross-checked current repository notes for Reservations, Dispatch, Trips, Vehicles, Routes, Fuel and System Boundaries; inspected existing contract, ingest, package scripts, generated schema, and target file paths. No tests, migrations, source edits or live integration calls were run as part of planning. Existing `SYSTEM.md` had unrelated uncommitted changes; those must remain intact.
+
+
+## Expanded schema release hold after review corrections (2026-10-08)
+
+The global hold covers **every** read/write introduced by drafts 150–155, including passenger reads through shared trip projections. Do not deploy only the UI or individual endpoints ahead of those migrations.
+
+- **150/151:** typed intake/source identities, ingest/pull/push/idempotency, request assignment and snapshot reads, canonical service lookups and load fields, mobile inspection submission and trip start. Historical rows keep `load_type = NULL`; the draft does not rewrite them into Passenger.
+- **152:** location-code create/update/list/lookup and intake location reconciliation.
+- **153:** vehicle capability onboarding/updates, audited commissioning, availability searches, shared final pair gate, recommendation/queue/conflict evidence, cohort audit and typed cargo capacity. Road evidence includes saved verified documents and server-owned maintenance/incidents.
+- **154:** manual reference-price GET/POST/PATCH, pending/active interval transitions, enabled provider persistence, completion repository lookups and the price-provenance join in shared trip/report queries. The new table has an explicit exact-file pending access decision; the live contract still fails when it is missing or unprotected.
+- **155:** atomic completion capture and all shared trip/report projections that name planned/actual fuel fields. The common joins now also require **154**, so `/api/trips`, trip detail/active/latest-location feeds, driver trip reads and JSON/Excel report consumers share this hold.
+- **150/151 demo preparation:** the opt-in local typed intake runner references prepared request fields and the canonical service catalog. It has not been run. Full dispatch/start/completion/price/device demo acceptance remains separate.
+
+Generated `schema.sql` remains untouched. Migration text, pure fixtures and fake-database tests prove local code behavior only; they do not prove PostgreSQL application/rerun, live policy/grants or successful production compilation.
