@@ -84,6 +84,12 @@ export function CopilotTripDetailsBubble({
 
   const guestName = selectedRequest?.guest_name;
   const passengerCount = selectedRequest?.passenger_count;
+  // Web labels the load explicitly (Task 6): cargo rows name the consignment
+  // and its kilograms, never a guest name or a "0 passengers" fabrication.
+  const loadType = selectedRequest?.load_type;
+  const isCargoLoad = loadType === "Cargo";
+  const cargoWeightKg = Number(selectedRequest?.cargo_weight_kg);
+  const cargoDescription = String(selectedRequest?.cargo_description ?? "").trim();
   const categoryName =
     selectedRequest?.vehiclecategories?.category_name ||
     selectedRequest?.service_types?.service_name ||
@@ -259,23 +265,32 @@ export function CopilotTripDetailsBubble({
                   vehiclePlate || driverName ? "grid-cols-2" : "grid-cols-1"
                 )}
               >
-                {/* Guest Mini Card */}
+                {/* Guest Mini Card (cargo rows name the consignment instead) */}
                 <div className="rounded-lg border border-border/50 bg-background/50 dark:bg-background/20 p-2.5 space-y-1">
                   <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-foreground-muted">
                     <UserRound className="size-3 text-foreground-muted" />
-                    <span>Guest</span>
+                    <span>{isCargoLoad ? "Cargo" : "Guest"}</span>
                   </div>
                   <p className="text-xs font-semibold text-foreground truncate">
-                    {guestName || "Guest"}
+                    {isCargoLoad ? cargoDescription || "Cargo consignment" : guestName || "Guest"}
                   </p>
-                  {passengerCount != null && (
-                    <p className="text-[11px] text-foreground-secondary flex items-center gap-1">
-                      <Users className="size-3 text-foreground-muted shrink-0" />
-                      <span>
-                        {passengerCount} passenger
-                        {passengerCount === 1 ? "" : "s"}
-                      </span>
-                    </p>
+                  {isCargoLoad ? (
+                    Number.isFinite(cargoWeightKg) && cargoWeightKg > 0 && (
+                      <p className="text-[11px] text-foreground-secondary flex items-center gap-1">
+                        <Users className="size-3 text-foreground-muted shrink-0" />
+                        <span>{cargoWeightKg} kg declared</span>
+                      </p>
+                    )
+                  ) : (
+                    passengerCount != null && (
+                      <p className="text-[11px] text-foreground-secondary flex items-center gap-1">
+                        <Users className="size-3 text-foreground-muted shrink-0" />
+                        <span>
+                          {passengerCount} passenger
+                          {passengerCount === 1 ? "" : "s"}
+                        </span>
+                      </p>
+                    )
                   )}
                 </div>
 

@@ -1,4 +1,5 @@
 import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
+import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
 import { buildFleetPairRecommendations, vehicleOperationallyAvailable, daysUntil } from "@/lib/ai/pair-scoring";
 import { estimateFuel } from "@/lib/geo/distance";
 import { estimateForRequest } from "@/services/route-resolver.service";
@@ -34,16 +35,29 @@ function driverName(driver) {
  */
 export function vehicleRisks(vehicle, request) {
   const risks = [];
-  const passengers = Number(request?.passenger_count) || 1;
-  const seats = Number(vehicle?.seating_capacity) || 0;
+  // Typed cargo rows reason in kilograms through the shared Task 5 gate — the
+  // seats check below is meaningless for them. Every other fail-closed code
+  // already carries its own gate message; no advisory guess is added here.
+  if (request?.load_type === "Cargo") {
+    const verdict = evaluateVehicleCapacity(request, vehicle ?? {});
+    if (verdict.code === "OVER_CAPACITY") {
+      risks.push({
+        level: "high",
+        message: formatCapacityBlocker(verdict, `Vehicle ${vehicle?.plate_number || (vehicle?.vehicle_id != null ? `#${vehicle.vehicle_id}` : "Unknown")}`),
+      });
+    }
+  } else {
+    const passengers = Number(request?.passenger_count) || 1;
+    const seats = Number(vehicle?.seating_capacity) || 0;
 
-  if (seats > 0 && seats < passengers) {
-    risks.push({
-      level: "high",
-      message: `Seats ${seats} but ${passengers} passengers expected.`,
-    });
-  } else if (seats > 0 && seats === passengers) {
-    risks.push({ level: "low", message: "Exactly at capacity — no room for extra luggage." });
+    if (seats > 0 && seats < passengers) {
+      risks.push({
+        level: "high",
+        message: `Seats ${seats} but ${passengers} passengers expected.`,
+      });
+    } else if (seats > 0 && seats === passengers) {
+      risks.push({ level: "low", message: "Exactly at capacity — no room for extra luggage." });
+    }
   }
 
   const fuel = vehicle?.fuel_level == null ? NaN : Number(vehicle.fuel_level);

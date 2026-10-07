@@ -160,4 +160,29 @@ describe('J. Ranking hierarchy', () => {
     expect(evidence.pairs[1].canChoose).toBe(false);
     expect(evidenceSummary(evidence, 'Why is SMALL 02 blocked?')).toContain('too small');
   });
+
+  it('FM-RANK-014 a right-sized cargo van outranks an overlarge truck when all else is equal', () => {
+    const slack = { usableSlackMinutes: 60, transferMinutes: 10, gapMinutes: 80, preparationMinutes: 10 };
+    const van = ranked(2, { scheduleEvidence: slack, capacityValue: 1000 });
+    const truck = ranked(5, { scheduleEvidence: slack, capacityValue: 2500 });
+    const load = { unit: 'kg', required: 650 };
+    const loadedPolicy = { ...POLICY, load };
+    expect(comparePairEvidence(van, truck, loadedPolicy)).toMatchObject({ code: 'CAPACITY_FIT', order: 1000 - 650 - (2500 - 650) });
+    expect(rankDispatchPairs([truck, van], { ...POLICY, load }).map(p => p.vehicle_id)).toEqual([2, 5]);
+    expect(rankDispatchPairs([truck, van], { ...POLICY, load })[0].decisionEvidence.code).toBe('CAPACITY_FIT');
+  });
+
+  it('FM-RANK-015 capacity fit never overturns safety, timing, or workload', () => {
+    const slack = { usableSlackMinutes: 60, transferMinutes: 10, gapMinutes: 80, preparationMinutes: 10 };
+    const load = { unit: 'kg', required: 650 };
+    // Blocked stays below clean however right-sized.
+    const blocked = blockedPair({ capacity: 'Vehicle TRK 9 cargo capacity 1000 kg, request needs 1800 kg (over by 800 kg).' }, { vehicle_id: 2, driver_id: 2, scheduleEvidence: slack, capacityValue: 1000 });
+    const clean = ranked(5, { scheduleEvidence: slack, capacityValue: 2500 });
+    expect(order(clean, blocked).code).toBe('RELIABILITY');
+    // Unknown capacity declines the tiebreak: stable id order decides.
+    const unknown = ranked(1, { scheduleEvidence: slack });
+    const known = ranked(2, { scheduleEvidence: slack, capacityValue: 1000 });
+    expect(order(unknown, known).code).toBe('SCHEDULE_FIT');
+    expect(rankDispatchPairs([known, unknown], { ...POLICY, load }).map(p => p.vehicle_id)).toEqual([1, 2]);
+  });
 });

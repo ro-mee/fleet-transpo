@@ -14,6 +14,8 @@ it('rejects unsupported fields and invalid values', async () => {
   expect((await call({ scenario: { route: 'x' } })).status).toBe(400);
   expect((await call({ scenario: { passenger_count: 99 } })).status).toBe(400);
   expect((await call({ scenario: { pickup_datetime: 'not-a-date' } })).status).toBe(400);
+  expect((await call({ scenario: { cargo_weight_kg: -5 } })).status).toBe(400);
+  expect((await call({ scenario: { cargo_weight_kg: 'heavy' } })).status).toBe(400);
   expect((await call({ scenario: {} })).status).toBe(400);
   expect(prepareDispatchRecommendation).not.toHaveBeenCalled();
 });
@@ -28,4 +30,15 @@ it('evaluates the in-memory overlay without mutation or assignability', async ()
   expect(overlay.pickup_datetime).toBe('2026-09-16T11:00:00.000Z');
   expect(overlay.passenger_count).toBe(4);
   expect(prepareDispatchRecommendation.mock.calls[0][1]).toMatchObject({ persistRoute: false });
+});
+it('overlays only the simulated cargo weight, leaving every other field untouched', async () => {
+  const data = await (await call({ scenario: { cargo_weight_kg: 900 } })).json();
+  expect(data.interpreted.cargoWeightKg).toBe(900);
+  const overlay = prepareDispatchRecommendation.mock.calls[0][0];
+  expect(overlay.cargo_weight_kg).toBe(900);
+  // Nothing else on the request was rewritten for the simulation.
+  expect(overlay.pickup_datetime).toBe('2026-09-16T10:00:00+08:00');
+  expect(overlay.passenger_count).toBe(2);
+  expect(data.actual.cargoWeightKg).toBeNull();
+  expect(data.assignable).toBe(false);
 });

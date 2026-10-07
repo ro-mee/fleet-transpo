@@ -19,8 +19,7 @@ const unknown = reason => ({ verdict: 'UNKNOWN', reasons: [reason] });
 const minutes = value => value == null || value === '' || !Number.isFinite(Number(value)) || Number(value) <= 0 ? null : Number(value);
 // The driver's Manila duty row for the pickup weekday, projected as plain
 // facts for Copilot policy answers. Null unless a real non-rest row exists.
-function dutyWindowForPair(dutyCtx, driverId, pickupMs) {
-  const day = localDayOfWeek(new Date(pickupMs));
+function dutyWindowForPair(dutyCtx, driverId, pickupMs) {  const day = localDayOfWeek(new Date(pickupMs));
   const row = day == null ? null : dutyCtx?.schedules?.get(Number(driverId))?.get(day) ?? null;
   if (!row || row.is_rest_day) return null;
   if (row.shift_start == null || row.shift_end == null) return null;
@@ -320,6 +319,29 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
   return result;
 }
 
+/**
+ * Capacity-fit ranking input (Task 6). Derives the request's load requirement
+ * and each candidate's usable capacity from rows the engine already holds —
+ * never from model prose — so the comparator, not the narrator, decides order.
+ * Pairs without measurable adequate capacity simply decline the tiebreak.
+ */
+function withCapacityPolicy(policy, request, candidates) {
+  const load =
+    request?.load_type === "Cargo"
+      ? { unit: "kg", required: Number(request?.cargo_weight_kg) }
+      : request?.load_type === "Passenger"
+        ? { unit: "passengers", required: Number(request?.passenger_count) }
+        : null;
+  if (!load || !Number.isFinite(load.required) || load.required <= 0) return policy;
+  for (const pair of candidates ?? []) {
+    const v = pair?.vehicle ?? {};
+    const raw = load.unit === "kg" ? v.cargo_capacity_kg ?? pair?.cargo_capacity_kg : v.seating_capacity ?? pair?.seating_capacity;
+    const cap = Number(raw);
+    if (Number.isFinite(cap) && cap > 0) pair.capacityValue = cap;
+  }
+  return { ...policy, load };
+}
+
 export async function applyDispatchRadar({ request, estimate, recommendation, now = new Date(), includePosition = false }) {
   const policy = await getDispatchPolicy();
   recommendation.policyVersion = LOCATION_POLICY_VERSION;
@@ -360,7 +382,7 @@ export async function applyDispatchRadar({ request, estimate, recommendation, no
     if (pair.driver) { pair.driver.dispatchContext = pair.dispatchContext; pair.driver.readiness = pair.readiness; }
     if (pair.vehicle) pair.vehicle.readiness = pair.readiness;
   }
-  rankDispatchPairs(candidates, policy);
+  rankDispatchPairs(candidates, withCapacityPolicy(policy, request, candidates));
   const safe = candidates.filter(c => c.feasibility?.verdict !== 'INFEASIBLE');
   const blocked = candidates.filter(c => c.feasibility?.verdict === 'INFEASIBLE');
   recommendation.pair.recommended = safe[0] ?? null;

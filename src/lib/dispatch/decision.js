@@ -55,6 +55,16 @@ function recoveryForCheckId(id, ctx = {}) {
   }
 }
 
+// A typed cargo block already states required, capacity and excess in the
+// recorded message (the Task 5 gate's sentence). Repeat those exact figures
+// as the hint so the Copilot narrates measured evidence instead of asking the
+// model to determine eligibility. Seats rows keep the historical hint.
+function cargoOverloadHint(message) {
+  const m = /cargo capacity ([\d.,]+) kg, request needs ([\d.,]+) kg \(over by ([\d.,]+) kg\)/i.exec(String(message ?? ''));
+  if (!m) return null;
+  return `Overweight by ${m[3]} kg — the request needs ${m[2]} kg and this vehicle carries ${m[1]} kg. Choose a cargo vehicle with a larger usable payload.`;
+}
+
 // Map one authoritative check to a single advisory recovery action.
 // Never classifies by display prose: check.id decides, message is evidence only.
 // Exception: the license check carries several distinct failures in its message
@@ -63,6 +73,13 @@ export function recoveryActionForCheck(check = {}, ctx = {}) {
   if (!check || (check.status !== 'blocking' && check.status !== 'missing')) return null;
   if (check.id === 'license') return { ...licenseRecovery(check.message, ctx), status: check.status, message: check.message ?? null };
   const base = recoveryForCheckId(check.id, ctx);
+  // The overload figures are recorded evidence, not prose to classify by: the
+  // check id already decided this is a capacity block, and the message only
+  // supplies the measured numbers for the hint.
+  if (check.id === 'capacity') {
+    const hint = cargoOverloadHint(check.message);
+    if (hint) return { ...base, label: 'Needs a larger cargo vehicle', hint, status: check.status, message: check.message ?? null };
+  }
   return { ...base, status: check.status, message: check.message ?? null };
 }
 
@@ -94,6 +111,11 @@ export function sortRecoveryActions(actions = []) {
 export function recoveryActionForExclusion(exclusion = {}, ctx = {}) {
   const reason = String(exclusion?.reason ?? '');
   const vehicleId = exclusion?.vehicleId ?? ctx.vehicleId ?? null;
+  // Deterministic cargo overload (Task 6): the prefilter reason already states
+  // required, capacity and excess, so the recovery repeats those figures. The
+  // check id decided the code; the message only supplies measured numbers.
+  const cargoHint = cargoOverloadHint(reason);
+  if (cargoHint) return { code: RECOVERY_CODES.CAPACITY_MISMATCH, fix: 'choice', label: 'Needs a larger cargo vehicle', record: 'request', id: ctx.requestId ?? null, hint: cargoHint, vehicleId };
   if (/too small for/i.test(reason)) return { code: RECOVERY_CODES.CAPACITY_MISMATCH, fix: 'choice', label: 'Needs a larger vehicle', record: 'request', id: ctx.requestId ?? null, hint: 'Too small for this party; choose a larger vehicle class.', vehicleId };
   if (/insurance/i.test(reason)) return { code: RECOVERY_CODES.INSURANCE_EXPIRED, fix: 'record', label: 'Renew vehicle insurance', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };
   if (/registration/i.test(reason)) return { code: RECOVERY_CODES.REGISTRATION_EXPIRED, fix: 'record', label: 'Renew vehicle registration', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };

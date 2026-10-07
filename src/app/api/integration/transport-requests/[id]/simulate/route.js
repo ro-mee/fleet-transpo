@@ -4,9 +4,9 @@ import { runReservationSimulation } from '@/services/dispatch-simulate.service';
 import { rateLimit } from '@/lib/rate-limit';
 
 // Phase 3 — read-only what-if simulation. Allowlisted scenario only:
-// proposed pickup date/time and passenger count. The real reservation is
-// never written; no assignment token is issued; simulated options are not
-// assignable (canChoose is stripped).
+// proposed pickup date/time, passenger count, and cargo weight (Task 6).
+// The real reservation is never written; no assignment token is issued;
+// simulated options are not assignable (canChoose is stripped).
 export async function POST(req, { params }) {
   try {
     const session = await requirePermission(req, 'reservations', 'read');

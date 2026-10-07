@@ -6,6 +6,7 @@ import { evaluateDispatchCandidate } from '@/services/dispatch-radar.service';
 import { resolveRequestEstimate } from '@/services/route-resolver.service';
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { comparePairEvidence } from '@/lib/dispatch/recommendation-ranking';
+import { evaluateVehicleCapacity } from '@/lib/scheduling/load-capacity';
 
 // Scoped evidence resolvers (Phase B1). Every query selects explicit
 // display-safe columns only (allowlist at SQL level) and is scoped to the
@@ -129,7 +130,32 @@ export async function resolveCompliance(db, { vehicleId, driverId, bookingDate, 
   return { verdict: expired ? 'blocked' : 'clear', subject: 'driver', bookingDate, ...item, items: [item] };
 }
 
-export async function resolveCapacity(db, { vehicleId, passengerCount }) {
+export async function resolveCapacity(db, { vehicleId, passengerCount, loadType, cargoWeightKg }) {
+  // Typed rows resolve through the shared Task 5 gate so the drawer, the
+  // queue chip and the commit 409 report one verdict. Untyped rows keep the
+  // exact historical seats evidence. The capability columns exist only after
+  // migration 153; typed rows cannot exist before it is applied.
+  if (loadType === "Passenger" || loadType === "Cargo") {
+    const { rows } = await db.query(
+      `SELECT plate_number, seating_capacity, operational_use, cargo_capacity_kg FROM vehicles WHERE vehicle_id=$1 AND deleted_at IS NULL`, [vehicleId]);
+    if (!rows[0]) throw new Error('Record not found.');
+    const verdict = evaluateVehicleCapacity(
+      { load_type: loadType, passenger_count: passengerCount ?? null, cargo_weight_kg: cargoWeightKg ?? null },
+      rows[0]
+    );
+    const weight = Number(cargoWeightKg);
+    const payload = rows[0].cargo_capacity_kg == null ? null : Number(rows[0].cargo_capacity_kg);
+    return {
+      verdict: verdict.eligible ? 'clear' : 'blocked', plate: rows[0].plate_number,
+      requestedSeats: loadType === "Passenger" ? Number(passengerCount) : null,
+      passengerCount: passengerCount == null ? null : Number(passengerCount),
+      recordedSeats: rows[0].seating_capacity == null ? null : Number(rows[0].seating_capacity),
+      loadType, requiredKg: loadType === "Cargo" && Number.isFinite(weight) ? weight : null,
+      recordedKg: payload,
+      capacityCode: verdict.code,
+      result: verdict.eligible ? 'Eligible' : 'Not eligible',
+    };
+  }
   const { rows } = await db.query(
     `SELECT plate_number, seating_capacity FROM vehicles WHERE vehicle_id=$1 AND deleted_at IS NULL`, [vehicleId]);
   if (!rows[0]) throw new Error('Record not found.');

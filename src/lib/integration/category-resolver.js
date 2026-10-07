@@ -126,3 +126,31 @@ export async function resolveVehicleCategory(...candidates) {
 
   return miss;
 }
+
+/**
+ * Candidate-class hint for typed v2 rows (Task 6).
+ *
+ * A canonical service code selects the vehicle CLASS through the same
+ * closed category table — never through free-text keyword inference, and
+ * never as a capacity decision. Measured weight decides capacity downstream
+ * in the Task 5 gate; this helper only answers "which fleet class".
+ *
+ * @param {string} serviceCode one of the five canonical codes (or nullish)
+ * @returns {Promise<{categoryId: number|null, categoryName: string|null, matchedOn: string|null}>}
+ */
+const SERVICE_CODE_HINTS = {
+  GUEST_TRANSPORT: "guest transfer",
+  VIP_GUEST_TRANSPORT: "vip executive",
+  RESTAURANT_SUPPLY_PICKUP: "cargo logistics",
+  RESTAURANT_FOOD_DELIVERY: "cargo logistics",
+  HOTEL_SUPPLY_TRANSFER: "cargo logistics",
+};
+
+export async function resolveServiceCategory(serviceCode) {
+  const miss = { categoryId: null, categoryName: null, matchedOn: null };
+  const hint = SERVICE_CODE_HINTS[String(serviceCode ?? "").trim()];
+  if (!hint) return miss;
+  const resolved = await resolveVehicleCategory(hint);
+  if (resolved.categoryId == null) return miss;
+  return { ...resolved, matchedOn: "service_code" };
+}

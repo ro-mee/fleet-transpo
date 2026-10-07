@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { buildDispatchRecommendation } from "@/lib/ai/dispatch-advisor";
 import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
+import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
 import { estimateEfficiency } from "@/lib/ai/rule-engine";
 import { predictVehicle } from "@/lib/ai/predictive-maintenance";
 import { estimateFuel } from "@/lib/geo/distance";
@@ -49,10 +50,20 @@ export async function loadServiceDateWorkload(driverIds, pickupAt) {
  * seats check runs first, so a too-small vehicle reports capacity even when
  * its status would also disqualify it.
  */
-export function prefilterReason(vehicle, passengers) {
-  const seats = Number(vehicle?.seating_capacity) || 0;
-  if (seats > 0 && seats < passengers) {
-    return `Seats ${seats} — too small for ${passengers} passenger(s).`;
+export function prefilterReason(vehicle, passengers, request = null) {
+  // Typed rows explain through the shared Task 5 gate, so the exclusion reason
+  // and the commit 409 can never disagree. Untyped rows keep the exact
+  // historical seats wording.
+  if (request?.load_type === "Passenger" || request?.load_type === "Cargo") {
+    const verdict = evaluateVehicleCapacity(request, vehicle ?? {});
+    if (!verdict.eligible) {
+      return formatCapacityBlocker(verdict, `Vehicle ${vehicle?.plate_number || (vehicle?.vehicle_id != null ? `#${vehicle.vehicle_id}` : "Unknown")}`);
+    }
+  } else {
+    const seats = Number(vehicle?.seating_capacity) || 0;
+    if (seats > 0 && seats < passengers) {
+      return `Seats ${seats} — too small for ${passengers} passenger(s).`;
+    }
   }
   if (vehicle?.vehicle_status) {
     return `Vehicle status is ${vehicle.vehicle_status}.`;
@@ -63,6 +74,22 @@ export function prefilterReason(vehicle, passengers) {
 export async function fetchCandidates(request, trip = estimateForRequest(request)) {
   const passengers = Number(request?.passenger_count) || 1;
   const requestedCategoryId = request?.requested_category_id ?? null;
+  // Typed cargo rows filter on usable payload, never on seats: a 2-seat cargo
+  // van must survive the prefilter for a 900 kg consignment, and a passenger
+  // coach must not. Untyped and passenger rows keep the historical seats
+  // predicate. Both branches reference migration 153 columns only for typed
+  // cargo rows, which cannot exist before that migration is applied.
+  const isCargo = request?.load_type === "Cargo";
+  const loadAmount = isCargo ? Number(request?.cargo_weight_kg) : passengers;
+  const capacityPredicate = isCargo
+    ? `AND (v.operational_use = 'Cargo' AND (v.cargo_capacity_kg IS NULL OR v.cargo_capacity_kg >= $1::numeric))`
+    : `AND (v.seating_capacity IS NULL OR v.seating_capacity >= $1::int)`;
+  const prefilterPredicate = isCargo
+    ? `AND (v.vehicle_status = ANY($3::text[])
+            OR v.operational_use IS DISTINCT FROM 'Cargo'
+            OR (v.cargo_capacity_kg IS NOT NULL AND v.cargo_capacity_kg < $1::numeric))`
+    : `AND (v.vehicle_status = ANY($3::text[])
+            OR (v.seating_capacity IS NOT NULL AND v.seating_capacity < $1::int))`;
 
   // Same trip estimate the advisor uses, so fuel burn and schedule windows agree.
   const windowStart = request?.pickup_datetime ? new Date(request.pickup_datetime).toISOString() : null;
@@ -123,12 +150,12 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
          LEFT JOIN vehiclecategories vc ON v.category_id = vc.category_id
          LEFT JOIN usage   u ON u.vehicle_id = v.vehicle_id
          LEFT JOIN history h ON h.vehicle_id = v.vehicle_id
-        WHERE v.deleted_at IS NULL
+         WHERE v.deleted_at IS NULL
           AND v.vehicle_status <> ALL($5::text[])
-          AND (v.seating_capacity IS NULL OR v.seating_capacity >= $1::int)
+          ${capacityPredicate}
           AND ($4::int IS NULL OR v.category_id = $4::int)`,
       [
-        passengers,
+        loadAmount,
         windowStart,
         windowEnd,
         request?.requested_category_id ?? null,
@@ -235,18 +262,17 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
     // silently shrinking `considered`. Same category scope as the main query;
     // soft-deleted rows stay hidden — a gone vehicle is not an explanation.
     query(
-      `SELECT v.vehicle_id, v.plate_number, v.vehicle_status, v.seating_capacity
+      `SELECT v.vehicle_id, v.plate_number, v.vehicle_status, v.seating_capacity, v.operational_use, v.cargo_capacity_kg
          FROM vehicles v
         WHERE v.deleted_at IS NULL
           AND ($2::int IS NULL OR v.category_id = $2::int)
-          AND (v.vehicle_status = ANY($3::text[])
-            OR (v.seating_capacity IS NOT NULL AND v.seating_capacity < $1::int))`,
-      [passengers, requestedCategoryId, NON_DISPATCHABLE_VEHICLE_STATUSES]
+          ${prefilterPredicate}`,
+      [loadAmount, requestedCategoryId, NON_DISPATCHABLE_VEHICLE_STATUSES]
     ).then((r) =>
       r.rows.map((v) => ({
         vehicle_id: v.vehicle_id,
         plate: v.plate_number,
-        reason: prefilterReason(v, passengers),
+        reason: prefilterReason(v, passengers, request),
         prefiltered: true,
       }))
     ),

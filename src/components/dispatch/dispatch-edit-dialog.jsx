@@ -19,6 +19,7 @@ import { getDriverAssignments } from "@/services/driver-assignment.service";
 import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { formatDateTime } from "@/lib/utils";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
+import { evaluateVehicleCapacity } from "@/lib/scheduling/load-capacity";
 import { Save, Shuffle, UserCheck, CheckCircle2, Search, Users, AlertCircle, CarFront } from "lucide-react";
 
 const TITLES = {
@@ -32,7 +33,15 @@ const TITLES = {
 function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
   const departure = dispatch?.scheduled_departure;
   const returnAt = dispatch?.scheduled_arrival || null;
-  const passengers = Number(dispatch?.transportation_requests?.passenger_count) || 1;
+  const linkedRequest = dispatch?.transportation_requests ?? {};
+  // Typed cargo rows filter and label in kilograms through the shared gate;
+  // every other row keeps the exact historical seats behavior. This filtering
+  // is advisory only — the server re-validates the pair on PATCH and a
+  // structured 409 renders through ConflictBlock below.
+  const isCargoRequest = linkedRequest.load_type === "Cargo";
+  const passengers = Number(linkedRequest.passenger_count) || 1;
+  const cargoKg = Number(linkedRequest.cargo_weight_kg);
+  const cargoRequirement = isCargoRequest && Number.isFinite(cargoKg) && cargoKg > 0 ? cargoKg : null;
 
   const [selection, setSelection] = useState(() =>
     dispatch?.vehicle_id || dispatch?.driver_id
@@ -41,14 +50,16 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
   );
   const [searchQuery, setSearchQuery] = useState("");
 
+  const availabilityFilters = departure
+    ? { pickup_at: departure, ...(returnAt ? { return_at: returnAt } : {}) }
+    : {};
+  if (cargoRequirement != null) {
+    availabilityFilters.operational_use = "Cargo";
+    availabilityFilters.min_cargo_kg = cargoRequirement;
+  }
   const { data: vehicles = [], isLoading: loadingVehicles } = useQuery({
-    queryKey: ["available-vehicles", departure],
-    queryFn: () =>
-      getAvailableVehicles(
-        departure
-          ? { pickup_at: departure, ...(returnAt ? { return_at: returnAt } : {}) }
-          : {}
-      ),
+    queryKey: ["available-vehicles", departure, cargoRequirement],
+    queryFn: () => getAvailableVehicles(availabilityFilters),
   });
   // Availability is decided by the endpoint's time-window overlap + license/
   // pairing checks, NOT by the driver_status label. A custodian on a trip now
@@ -70,6 +81,23 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
   const seatsTooFew = (v) => {
     const seats = Number(v?.seating_capacity) || 0;
     return seats > 0 && seats < passengers;
+  };
+
+  // Client-side offer filter mirroring the server gate. Cargo rows ask the
+  // shared evaluator; all other rows keep the seats check. Advisory only.
+  const loadTooHeavy = (v) => {
+    if (!isCargoRequest || cargoRequirement == null) return seatsTooFew(v);
+    return !evaluateVehicleCapacity(linkedRequest, v ?? {}).eligible;
+  };
+
+  // Per-option capacity chip: kilograms for cargo operation, seats otherwise.
+  // Never renders a fabricated "0 seats" for a cargo vehicle.
+  const capacityChip = (v) => {
+    if (v?.operational_use === "Cargo" || isCargoRequest) {
+      const kg = Number(v?.cargo_capacity_kg);
+      return Number.isFinite(kg) && kg > 0 ? `${kg} kg payload` : null;
+    }
+    return v?.seating_capacity ? `${v.seating_capacity} seats` : null;
   };
 
   // Substitute coverage (032) for the departure date. A substitute may only
@@ -97,7 +125,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
 
   const eligible = (vehicleId, driverId) => {
     const v = vById.get(vehicleId);
-    return Boolean(v && onDuty.has(driverId) && !seatsTooFew(v));
+    return Boolean(v && onDuty.has(driverId) && !loadTooHeavy(v));
   };
 
   const assigned = pairingData?.assignments ?? [];
@@ -118,7 +146,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
         driverId: a.driver_id,
         plateNumber: v.plate_number,
         model: v.model || "Standard Vehicle",
-        seats: v.seating_capacity,
+        capacityLabel: capacityChip(v),
         driverName,
         substitute: false,
         scheduleWarning: d?.schedule_warning,
@@ -148,7 +176,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
         driverId: s.substitute_driver_id,
         plateNumber: v.plate_number,
         model: v.model || "Standard Vehicle",
-        seats: v.seating_capacity,
+        capacityLabel: capacityChip(v),
         driverName,
         substitute: true,
         scheduleWarning: d?.schedule_warning,
@@ -184,7 +212,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
       driverId: Number(did),
       plateNumber: v?.plate_number || `Vehicle #${vid}`,
       model: v?.model || "Current vehicle",
-      seats: v?.seating_capacity ?? undefined,
+      capacityLabel: capacityChip(v),
       driverName: currentDriverName,
       substitute: false,
       scheduleWarning: d?.schedule_warning,
@@ -225,11 +253,18 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
           <label className="text-xs font-bold uppercase tracking-wider text-foreground-secondary">
             Select Custodial Pair (Vehicle &amp; Driver)
           </label>
-          {passengers > 1 && (
+          {isCargoRequest && cargoRequirement != null ? (
             <Badge variant="outline" className="gap-1 text-[11px] font-semibold text-primary">
               <Users className="w-3 h-3" />
-              Min. {passengers} Seats Required
+              Min. {cargoRequirement} kg Required
             </Badge>
+          ) : (
+            passengers > 1 && (
+              <Badge variant="outline" className="gap-1 text-[11px] font-semibold text-primary">
+                <Users className="w-3 h-3" />
+                Min. {passengers} Seats Required
+              </Badge>
+            )
           )}
         </div>
 
@@ -282,9 +317,9 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
                       <span className="text-xs font-bold text-foreground truncate max-w-[180px]">
                         {o.model}
                       </span>
-                      {o.seats && (
+                      {o.capacityLabel && (
                         <span className="text-[11px] font-semibold text-foreground-muted bg-muted/60 px-2 py-0.5 rounded-full">
-                          {o.seats} seats
+                          {o.capacityLabel}
                         </span>
                       )}
                       {o.substitute && (

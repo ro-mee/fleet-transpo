@@ -32,7 +32,7 @@ export const EVIDENCE_ALLOWLISTS = {
   [EVIDENCE_TYPES.MAINTENANCE]: ['plate', 'maintenanceId', 'type', 'status', 'maintenanceDate', 'availability', 'sourceModule', 'verdict'],
   [EVIDENCE_TYPES.INCIDENT]: ['incidentId', 'type', 'severity', 'status', 'incidentDate', 'sourceModule', 'verdict'],
   [EVIDENCE_TYPES.COMPLIANCE]: ['subject', 'subjectName', 'field', 'expiry', 'bookingDate', 'status', 'items', 'sourceModule', 'verdict'],
-  [EVIDENCE_TYPES.CAPACITY]: ['plate', 'requestedSeats', 'passengerCount', 'recordedSeats', 'result', 'sourceModule', 'verdict'],
+  [EVIDENCE_TYPES.CAPACITY]: ['plate', 'requestedSeats', 'passengerCount', 'recordedSeats', 'loadType', 'requiredKg', 'recordedKg', 'capacityCode', 'result', 'sourceModule', 'verdict'],
   [EVIDENCE_TYPES.PAIRING]: ['plate', 'driverName', 'pairingState', 'effectiveDate', 'sourceModule', 'verdict'],
   [EVIDENCE_TYPES.VEHICLE_STATUS]: ['plate', 'status', 'finding', 'sourceModule', 'verdict'],
   [EVIDENCE_TYPES.GPS]: ['health', 'observedAt', 'horizon', 'etaMinutes', 'etaValid', 'sourceModule', 'verdict'],

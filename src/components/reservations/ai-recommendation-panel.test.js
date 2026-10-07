@@ -199,3 +199,25 @@ it('presents trip details in a CopilotBubble without recommendation options when
   expect(html).not.toContain('eligible option found for this reservation.');
   expect(html).not.toContain('Choose Option 1');
 });
+it('labels a cargo load explicitly and never renders guest or zero-passenger copy',()=>{
+  const cargoReq={
+    request_id:3,
+    fleet_status:'Completed',
+    load_type:'Cargo',
+    passenger_count:null,
+    cargo_weight_kg:650,
+    cargo_description:'Restaurant vegetables',
+    guest_name:'Ghost Guest',
+    pickup_location:'Market',
+    dropoff_location:'Hotel Kitchen',
+    pickup_datetime:'2026-09-15T08:00:00Z',
+    vehicles:{plate_number:'TRK-5678',model:'Isuzu Elf'},
+    drivers:{first_name:'Juan',last_name:'Dela Cruz',driver_id:12},
+  };
+  const html=render({selectedRequest:cargoReq});
+  expect(html).toContain('Cargo');
+  expect(html).toContain('Restaurant vegetables');
+  expect(html).toContain('650 kg declared');
+  expect(html).not.toContain('Ghost Guest');
+  expect(html).not.toContain('passenger');
+});

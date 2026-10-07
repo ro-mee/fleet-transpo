@@ -111,3 +111,22 @@ it('routes license failures to the fix they actually need',()=>{
   expect(exclusionClass.record).toBe('vehicle');
   expect(exclusionClass.id).toBe(3);
 });
+it('narrates a cargo overload with the recorded required, capacity and excess',()=>{
+  const message = 'Vehicle TRK 9 cargo capacity 1000 kg, request needs 1400 kg (over by 400 kg).';
+  const fromCheck = recoveryActionForCheck(
+    {id:'capacity',status:'blocking',message},
+    {requestId:502,vehicleId:9});
+  expect(fromCheck).toMatchObject({code:'CAPACITY_MISMATCH',label:'Needs a larger cargo vehicle',record:'request'});
+  expect(fromCheck.hint).toContain('400 kg');
+  expect(fromCheck.hint).toContain('1400 kg');
+  expect(fromCheck.hint).toContain('1000 kg');
+  const fromExclusion = recoveryActionForExclusion({reason:message,vehicleId:9},{requestId:502});
+  expect(fromExclusion).toMatchObject({code:'CAPACITY_MISMATCH',label:'Needs a larger cargo vehicle'});
+  expect(fromExclusion.hint).toBe(fromCheck.hint);
+  // Seats rows keep the historical recovery untouched.
+  const seats = recoveryActionForCheck(
+    {id:'capacity',status:'blocking',message:'Vehicle seats 4, request needs 7.'},
+    {requestId:502,vehicleId:2});
+  expect(seats).toMatchObject({code:'CAPACITY_MISMATCH',label:'Needs a larger vehicle'});
+  expect(seats.hint).toBe('This pair is too small; choose a larger vehicle class.');
+});

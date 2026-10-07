@@ -89,6 +89,16 @@ describe("prefilterReason", () => {
       "Excluded before evaluation."
     );
   });
+  it("explains cargo exclusions in kilograms with required, capacity and excess", () => {
+    const request = { load_type: "Cargo", passenger_count: null, cargo_weight_kg: 1400, cargo_description: "Rice" };
+    expect(
+      prefilterReason({ vehicle_id: 9, plate_number: "TRK 9", operational_use: "Cargo", cargo_capacity_kg: 1000 }, 1, request)
+    ).toBe("Vehicle TRK 9 cargo capacity 1000 kg, request needs 1400 kg (over by 400 kg).");
+    // A passenger coach never reaches the payload comparison: use mismatch, not seats.
+    expect(
+      prefilterReason({ vehicle_id: 10, plate_number: "BUS 10", operational_use: "Passenger", seating_capacity: 49 }, 1, request)
+    ).toMatch(/not a cargo vehicle/);
+  });
 });
 
 describe("fetchCandidates prefiltered", () => {
@@ -159,5 +169,35 @@ describe("fetchCandidates prefiltered", () => {
       String(c[0]).includes("vehicle_status = ANY")
     );
     expect(String(prefilterCall[0])).toContain("deleted_at IS NULL");
+  });
+
+  it("filters typed cargo candidates on usable payload, never on seats", async () => {
+    mockDb();
+    const cargoRequest = {
+      ...REQUEST,
+      load_type: "Cargo",
+      passenger_count: null,
+      cargo_weight_kg: 900,
+      cargo_description: "Vegetables",
+    };
+    await fetchCandidates(cargoRequest, TRIP);
+    const mainCall = query.mock.calls.find((c) => String(c[0]).includes("WITH usage"));
+    expect(String(mainCall[0])).toMatch(/operational_use = 'Cargo'/);
+    expect(String(mainCall[0])).toMatch(/cargo_capacity_kg >= \$1::numeric/);
+    expect(String(mainCall[0])).not.toMatch(/seating_capacity >=/);
+    expect(mainCall[1][0]).toBe(900);
+    const prefilterCall = query.mock.calls.find((c) =>
+      String(c[0]).includes("vehicle_status = ANY")
+    );
+    expect(String(prefilterCall[0])).toMatch(/operational_use IS DISTINCT FROM 'Cargo'/);
+    expect(String(prefilterCall[0])).toMatch(/v\.operational_use, v\.cargo_capacity_kg/);
+  });
+
+  it("keeps the seats prefilter for untyped requests", async () => {
+    mockDb();
+    await fetchCandidates(REQUEST, TRIP);
+    const mainCall = query.mock.calls.find((c) => String(c[0]).includes("WITH usage"));
+    expect(String(mainCall[0])).toMatch(/seating_capacity >= \$1::int/);
+    expect(String(mainCall[0])).not.toMatch(/cargo_capacity_kg/);
   });
 });

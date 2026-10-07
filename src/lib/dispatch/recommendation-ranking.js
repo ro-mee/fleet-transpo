@@ -1,6 +1,22 @@
 // Evidence decides the band; unused buffer above SAFE has no further bonus.
 export const pairIdentity = p => `${p?.vehicle_id}:${p?.driver_id}`;
 const known = n => n != null && Number.isFinite(Number(n));
+// Excess usable capacity above the request's requirement. Only an adequate,
+// positively-known capacity counts: pairs the engine already blocked (band 4)
+// never reach the comparator as winners, and an unknown capacity must not
+// outrank a measured one by pretending to be small.
+const capacityExcess = (p, load) => {
+  if (!load || !Number.isFinite(Number(load.required)) || Number(load.required) <= 0) return null;
+  const cap = Number(p?.capacityValue);
+  if (!Number.isFinite(cap) || cap <= 0 || cap < Number(load.required)) return null;
+  return cap - Number(load.required);
+};
+const capacityFit = (a, b, load) => {
+  const excessA = capacityExcess(a, load), excessB = capacityExcess(b, load);
+  if (excessA == null || excessB == null || excessA === excessB) return null;
+  const unit = load?.unit === 'kg' ? 'payload' : 'seats';
+  return { order: excessA - excessB, code: 'CAPACITY_FIT', label: 'Right-sized capacity', explanation: `Both options cleared every safety gate with comparable timing; the smaller adequate ${unit} is listed first so right-sized capacity is not passed over for excess.` };
+};
 const band = p => (p?.hardConflicts?.some(c=>!c.reviewable) || p?.checks?.some(c=>c.status==='blocking') || p?.dispatchContext?.reasonCode==='STANDBY_NOT_VERIFIED') ? 4
   : p?.evaluated === false ? 3 : (!p?.checks?.length || p.checks.some(c=>c.status==='missing')) ? 2
     : p?.feasibility?.verdict === 'SAFE' && (p?.advisories?.length || p?.readiness !== 'VERIFIED') ? 1
@@ -19,6 +35,13 @@ export function comparePairEvidence(a, b, policy = {}) {
     const load = aw.totalTrips - bw.totalTrips || (known(aw.serviceMinutes) && known(bw.serviceMinutes) ? aw.serviceMinutes - bw.serviceMinutes : 0);
     if (load) return { order: load, code: 'WORKLOAD', label: 'Better workload balance', explanation: 'Both options have sufficient timing margins. Extra unused buffer adds little benefit, so the lighter recorded service-date workload decides.' };
   }
+  // Capacity fit (Task 6): among options that cleared every safety gate with
+  // comparable timing, the smaller adequate capacity wins — a light van over an
+  // overlarge truck when other factors are equal. Safety filters (band) always
+  // precede this: an inadequate or unknown capacity never claims a fit, it
+  // simply declines the tiebreak and the stable order below decides.
+  const fit = capacityFit(a, b, policy.load);
+  if (fit) return fit;
   if (known(at) && known(bt) && at !== bt)
     return { order:at-bt,code:'EFFICIENCY',label:'Less transfer time',explanation:'The recorded workload does not distinguish these options; the shorter supported transfer estimate breaks the tie.' };
   const standing = Number(a.reason_type !== 'designated') - Number(b.reason_type !== 'designated');
