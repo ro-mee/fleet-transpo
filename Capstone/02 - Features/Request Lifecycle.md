@@ -6,7 +6,7 @@ source:
   - src/lib/integration/
   - src/lib/reservations/
   - src/lib/scheduling/
-last_verified: 2026-08-11
+last_verified: 2026-10-07
 ---
 
 # Request Lifecycle
@@ -87,6 +87,10 @@ So the left half (ingest → request) has 149 `integration_log` rows and 15 requ
 The recent synthetic request's integration history contains processed `SCHEDULED` and `CANCELLED` payloads, but the runtime uses `BOOKING_GATEWAY=mock` and has no Booking API URL. “Processed” therefore means the mock accepted the event; no external Booking system received it.
 
 **Fixed the same day — the message now reports the real hand-off.** `emitTransportStatus()` returns `{ delivered, gateway, reason? }` (gateway name resolved before the early return, so an un-booked request reports `no-external-booking-id` rather than a bare false); `advanceReservation()` returns `bookingNotify` instead of discarding the result; the cancel route returns `{ ...request, booking_notify }`; and the client-safe `describeBookingNotify()` (`src/lib/integration/booking-notify.js`) turns that into one sentence, checking **mock before delivered** so Fleet's own stub can never read as a notification. Both cancel dialogs now say the notice is *queued* and that whether it leaves Fleet depends on the gateway being connected; both toasts report the actual result. Real external proof still requires a connected HTTP gateway plus Booking-side correlation/audit. → [[Manual Functional Testing Follow-up Audit]]
+
+## Source-specific outbound handoff — 2026-10-07
+
+PMS and POS status replies/retries now select separate adapters by durable source identity. An explicit positive delivery ACK is required before a log row is processed; negative/missing ACKs remain retryable. Unknown sources are never sent through PMS as a fallback. Retry preserves the recorded event ID/status/time. If an outbound log cannot be written, Fleet does not send and the notification message says it was not queued; staff follow-up is required. No HTTP partner is connected and mock acceptance remains local only. Focused tests passed 131/131 after regression RED. See [[System Boundaries]] and [[integration_log]] for remaining Task 1 and migration release holds.
 
 ## Related
 

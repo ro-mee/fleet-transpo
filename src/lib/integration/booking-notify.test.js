@@ -7,6 +7,11 @@ import { describeBookingNotify } from "@/lib/integration/booking-notify";
 // report what the outbound leg actually did, and never let the mock's
 // `delivered: true` read as delivery.
 describe("describeBookingNotify", () => {
+  it("does not promise a queued retry when the delivery log could not be written", () => {
+    const message = describeBookingNotify({ delivered: false, gateway: "none", reason: "delivery-log-unavailable" });
+    expect(message).toContain("not queued");
+    expect(message).not.toContain("stays queued");
+  });
   it("calls out MOCK mode even though the mock reports delivered", () => {
     const message = describeBookingNotify({ delivered: true, gateway: "mock" });
     expect(message).toContain("MOCK");

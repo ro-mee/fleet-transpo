@@ -1,6 +1,6 @@
 # FleetOps road-readiness contract — design
 
-**Status:** User approved the bounded contract-first slice on 2026-10-06; written-spec review is pending before implementation.
+**Status:** UNAPPROVED REFERENCE ONLY. Retained at the user's request on 2026-10-07. This detour is outside the approved passenger/cargo integration plan and must not be used as implementation authority. The earlier approval wording below is superseded; unresolved review findings remain, and no runtime code was written from this document.
 
 ## Context and decisions
 

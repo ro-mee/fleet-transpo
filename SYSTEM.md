@@ -944,6 +944,8 @@ The machinery (kept, plus the actual state counts):
 > closes the loop and releases the resources.
 
 ### 4.4 Booking integration (anti-corruption layer)
+
+**Task 1 outbound checkpoint — 2026-10-07:** Status emission/reconciliation now choose independent source-bound PMS/POS adapters (`BOOKING_*` for PMS; `POS_GATEWAY` / `POS_API_URL` / `POS_API_KEY` for POS). Unsupported sources/modes do not fall back to PMS. An event must receive a durable log ID before sending and an explicit positive delivery ACK before processing; negative/missing ACKs remain failed. Retry preserves stored event identity/status/time and refuses inconsistent/missing identity, with only the documented historical `fleet`/PMS compatibility mapping. A log-write failure prevents sending and is reported as not queued. The HTTP gateways remain unconnected; mocks mean local acceptance only. Focused TDD checks passed 131 tests; final full suite passed 313 files / 3,727 tests, strict repository lint passed, route-auth passed 294/294 and offline migration check accepted 143 files. See `Capstone/07 - Development/FleetOps Task 1 Outbound Integration Checkpoint.md` for scoped review and remaining work. Task 1 remains partial pending durable inbound revision/update/cancel/review semantics and further delivery guarantees. Migrations 144/145/146 remain unapplied. The road-readiness detour is retained as an explicitly unapproved reference at the user's request and must not guide implementation.
 The external **Booking** subsystem owns guest data + approval. Fleet:
 - Depends only on `src/lib/integration/booking-gateway.js`, never on Booking's
   database. `BOOKING_GATEWAY=mock` (default) serves canned requests shaped exactly

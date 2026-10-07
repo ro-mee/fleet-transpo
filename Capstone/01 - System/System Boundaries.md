@@ -11,7 +11,7 @@ source:
   - src/app/api/integration/pull/route.js
   - src/lib/integration/category-resolver.js
   - docs/architecture/sub-system-integration.md
-last_verified: 2026-10-06
+last_verified: 2026-10-07
 ---
 
 # System Boundaries
@@ -141,6 +141,14 @@ Proposals persist in dedicated request JSONB fields for review only. They never 
 V2 estimates, mobile, geofence, feasibility/reposition, and recommendation paths are strict: they use only explicit request-linked active Fleet points, without name, gazetteer, dynamic hotel, seed, route endpoint, or proposal-coordinate fallback. Incomplete links/coordinates remain null/unknown. Legacy PMS v1 behavior remains compatible. V2 is create-only; source revision and update/cancel semantics are incomplete.
 
 Release hold: candidate migration 146 remains unapplied, and migrations 144/145/146 must be reconciled with concurrent main Hotel/POS work before merge. Applying any migration requires explicit approval. No live schema/RLS verification is claimed, and this does not imply PMS/POS connectivity.
+
+## Task 1 outbound routing and positive ACK checkpoint — 2026-10-07
+
+`emitTransportStatus` and `reconcileFailedDeliveries` now select a gateway from the stored source identity. PMS uses `BOOKING_GATEWAY` / `BOOKING_API_URL` / `BOOKING_API_KEY`; POS uses separate `POS_GATEWAY` / `POS_API_URL` / `POS_API_KEY`. Each defaults independently to mock. Unknown sources or gateway modes fail closed without falling back to PMS. Source-bound mock adapters also reject events from another source. The no-argument pull gateway retains its existing mixed-source mock fixtures. HTTP adapters remain explicit unconnected stubs; this is not proof of PMS/POS delivery.
+
+An outbound event must have a durable integration-log ID before sending. Only an explicit `delivered: true` acknowledgement can mark it processed. Negative/missing acknowledgements stay failed and retryable. A failed/ID-less insert prevents sending and the UI reports that it was not queued. Retry validates the stored payload and source, preserving the original event ID, request identity, status and occurrence time rather than rebuilding from the current request. Known historical `fleet` log rows with absent/PMS payload source route as PMS; missing or conflicting identity remains failed. Newly emitted legacy requests record PMS consistently in the log and payload. Archived source identifiers remain valid contract data but cannot be delivered until a source adapter is registered.
+
+This closes a bounded outbound part of main-plan Task 1, not Task 1 or Release A as a whole. Durable inbound event deduplication, request revisions/updates/cancellations, committed-trip review and partner reconciliation remain outstanding. Existing retry endpoints are unchanged; no scheduler or connector was activated. New schema work requires the plan's migration-ledger numbering checkpoint, which is not authorized in this session. Migrations 144/145/146 remain unapplied and held for concurrent-main reconciliation. Verification: regression RED observed, then focused integration/pull/transition checks passed 12 files / 131 tests; final regression evidence is recorded in the implementation checkpoint note and SYSTEM.md.
 
 ## Related
 

@@ -5,7 +5,7 @@ tags: [database, table, integration, audit]
 source:
   - src/lib/integration/booking-gateway.js
   - src/lib/integration/status-map.js
-last_verified: 2026-08-11
+last_verified: 2026-10-07
 ---
 
 # Table: integration_log
@@ -40,11 +40,11 @@ This is a deliberate availability choice: the parent system being down must not 
 
 So all 149 rows are mock-gateway traffic. The audit machinery is real and working; the far end is not connected.
 
-## What's missing — INFERRED
+## Current retry implementation — checked 2026-10-07
 
-There is **no reconciliation job**. Nothing scans for `status='failed'` or long-stale `pending` rows and retries them. The data to do it is all here; the process isn't written.
+`reconcileFailedDeliveries` scans outbound `pending`/`failed` rows in log-ID order. The existing protected `/api/cron/reconcile` and super-admin health retry endpoint call it; this session did not activate or verify an external scheduler. Retry uses each row's source-specific PMS/POS gateway, not one gateway for the entire batch. A payload/row source conflict or missing identity remains failed. The documented historical `fleet` + absent/PMS payload source is treated as PMS.
 
-**TODO:** a periodic retry/alert over `integration_log WHERE status <> 'processed'` is the obvious next step before this boundary goes live.
+The stored event is retried with its original ID/status/time. Only `delivered === true` marks it processed; false or missing delivery ACKs remain failed. Emission stops before gateway invocation if the log insert fails or returns no ID. This preserves the log-before-send ordering, but the original Fleet transition and log insert are still separate operations: a log outage requires staff follow-up and is not a durable automatic outbox. No new schema, per-request outbound sequence, inbound event ledger, atomic transition/outbox, concurrency claim or real partner ACK proof is established. HTTP gateways remain unconnected; mock processed rows are local acceptance only. Focused integration/pull/transition checks passed 131 tests after observed RED regressions.
 
 ## Related
 

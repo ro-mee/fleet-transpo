@@ -85,30 +85,35 @@ const MOCK_REQUESTS = [
 ];
 
 class MockBookingGateway {
-  constructor() {
+  constructor(sourceIdentity = null) {
     this.name = "mock";
+    this.sourceIdentity = sourceIdentity;
   }
 
   async fetchPendingRequests() {
     // Return copies so callers can't mutate the canned source.
-    return MOCK_REQUESTS.map((r) => ({ ...r, ...(r.request ? { request: { ...r.request } } : {}) }));
+    return MOCK_REQUESTS.filter((r) => !this.sourceIdentity || r.source_system === this.sourceIdentity)
+      .map((r) => ({ ...r, ...(r.request ? { request: { ...r.request } } : {}) }));
   }
 
   async acknowledgeStatus(event) {
     // Validate we're emitting a well-formed event even in mock mode, so a
     // contract regression is caught during development, not at integration time.
     TransportStatusEventSchema.parse(event);
+    if (this.sourceIdentity && event.source_system !== this.sourceIdentity) {
+      throw new Error("Outbound event source does not match gateway source.");
+    }
     console.info(`[MockBookingGateway] status ack: ${event.external_booking_id} -> ${event.status}`);
     return { delivered: true };
   }
 }
 
 class HttpBookingGateway {
-  constructor() {
+  constructor(sourceIdentity = "PMS") {
     this.name = "http";
-    this.sourceIdentity = "PMS";
-    this.baseUrl = process.env.BOOKING_API_URL || "";
-    this.apiKey = process.env.BOOKING_API_KEY || "";
+    this.sourceIdentity = sourceIdentity;
+    this.baseUrl = (sourceIdentity === "POS" ? process.env.POS_API_URL : process.env.BOOKING_API_URL) || "";
+    this.apiKey = (sourceIdentity === "POS" ? process.env.POS_API_KEY : process.env.BOOKING_API_KEY) || "";
   }
 
   async fetchPendingRequests() {
@@ -127,21 +132,29 @@ class HttpBookingGateway {
   }
 }
 
-let instance;
+const instances = new Map();
 
 /**
  * Resolve the active gateway from BOOKING_GATEWAY (defaults to mock).
  * Cached for the lifetime of the server process.
  * @returns {MockBookingGateway | HttpBookingGateway}
  */
-export function getBookingGateway() {
-  if (instance) return instance;
-  const mode = (process.env.BOOKING_GATEWAY || "mock").toLowerCase();
-  instance = mode === "http" ? new HttpBookingGateway() : new MockBookingGateway();
-  return instance;
+export function getBookingGateway(sourceIdentity = null) {
+  if (sourceIdentity != null && sourceIdentity !== "PMS" && sourceIdentity !== "POS") {
+    throw new Error("Unsupported outbound source; no gateway is registered.");
+  }
+  const key = sourceIdentity ?? "legacy-pull";
+  if (instances.has(key)) return instances.get(key);
+  const mode = ((sourceIdentity === "POS" ? process.env.POS_GATEWAY : process.env.BOOKING_GATEWAY) || "mock").toLowerCase();
+  if (mode !== "mock" && mode !== "http") throw new Error("Unsupported gateway mode.");
+  const gateway = mode === "http"
+    ? new HttpBookingGateway(sourceIdentity ?? "PMS")
+    : new MockBookingGateway(sourceIdentity);
+  instances.set(key, gateway);
+  return gateway;
 }
 
 // Test/reset hook (e.g. when env changes between requests in dev).
 export function _resetBookingGateway() {
-  instance = undefined;
+  instances.clear();
 }

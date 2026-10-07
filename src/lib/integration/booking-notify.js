@@ -24,6 +24,9 @@ export function describeBookingNotify(bookingNotify) {
     // A hand-created local request has nobody on the Booking side to tell.
     return "This request has no Booking reference, so there was no external system to notify.";
   }
+  if (bookingNotify.reason === "delivery-log-unavailable") {
+    return "The notification was not queued or sent because the integration log could not be written. Staff follow-up is needed.";
+  }
   if (bookingNotify.gateway === "mock") {
     // Checked before `delivered`: the mock resolves successfully, and reporting
     // that as a notification would be the exact overclaim this fixes.

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { query } from "@/lib/db";
 import { getBookingGateway } from "@/lib/integration/booking-gateway";
 import { toExternalStatus } from "@/lib/integration/status-map";
+import { TransportStatusEventSchema } from "@/lib/integration/contracts";
 
 // Outbound status delivery: Fleet -> Booking.
 //
@@ -34,12 +35,10 @@ function nowIso() {
  *   Fleet cannot keep.
  */
 export async function emitTransportStatus(request, extra = {}) {
-  const gateway = getBookingGateway();
-
   if (!request?.external_booking_id) {
     // Nothing to correlate on the Booking side — this request didn't originate
     // from an external booking, so there's nobody to notify.
-    return { delivered: false, gateway: gateway.name, reason: "no-external-booking-id" };
+    return { delivered: false, gateway: "none", reason: "no-external-booking-id" };
   }
 
   const fleetStatus = extra.fleetStatus || request.fleet_status;
@@ -65,7 +64,7 @@ export async function emitTransportStatus(request, extra = {}) {
        VALUES ('outbound', $1, $2, 'transportation_request', $3, $4, $5, 'pending')
        RETURNING log_id`,
       [
-        request.source_system || "fleet",
+        event.source_system,
         `status_${event.status.toLowerCase()}`,
         request.request_id ?? null,
         request.external_booking_id,
@@ -75,17 +74,23 @@ export async function emitTransportStatus(request, extra = {}) {
     logId = rows[0]?.log_id ?? null;
   } catch (e) {
     console.warn("emitTransportStatus: failed to write integration_log:", e?.message || e);
+    return { delivered: false, gateway: "none", reason: "delivery-log-unavailable" };
   }
+  if (logId == null) return { delivered: false, gateway: "none", reason: "delivery-log-unavailable" };
 
+  let gateway;
   try {
+    TransportStatusEventSchema.parse(event);
+    gateway = getBookingGateway(event.source_system);
     const result = await gateway.acknowledgeStatus(event);
+    if (result?.delivered !== true) throw new Error("Gateway did not acknowledge delivery.");
     if (logId != null) {
       await query(
         `UPDATE integration_log SET status = 'processed', processed_at = NOW() WHERE log_id = $1`,
         [logId]
       );
     }
-    return { delivered: result?.delivered ?? true, gateway: gateway.name };
+    return { delivered: true, gateway: gateway.name };
   } catch (e) {
     console.warn("emitTransportStatus: delivery failed:", e?.message || e);
     if (logId != null) {
@@ -94,7 +99,7 @@ export async function emitTransportStatus(request, extra = {}) {
         [String(e?.message || e).slice(0, 1000), logId]
       ).catch(() => {});
     }
-    return { delivered: false, gateway: gateway.name, reason: "delivery-failed" };
+    return { delivered: false, gateway: gateway?.name ?? "none", reason: "delivery-failed" };
   }
 }
 
@@ -112,7 +117,7 @@ export async function emitTransportStatus(request, extra = {}) {
 // on external_booking_id, so it does not belong here).
 export async function reconcileFailedDeliveries({ max = 50 } = {}) {
   const { rows: stuck } = await query(
-    `SELECT log_id, payload, error_message
+    `SELECT log_id, source_system, payload, error_message
        FROM integration_log
       WHERE direction = 'outbound'
         AND status IN ('pending', 'failed')
@@ -121,7 +126,6 @@ export async function reconcileFailedDeliveries({ max = 50 } = {}) {
     [max]
   );
 
-  const gateway = getBookingGateway();
   const results = [];
   for (const row of stuck) {
     if (!row.payload || typeof row.payload !== "object") {
@@ -129,12 +133,23 @@ export async function reconcileFailedDeliveries({ max = 50 } = {}) {
       continue;
     }
     try {
-      const result = await gateway.acknowledgeStatus(row.payload);
+      TransportStatusEventSchema.parse(row.payload);
+      // Historical emitter rows used 'fleet' when source_system was absent;
+      // their payloads are PMS v1, with or without the later PMS source field.
+      const source = row.source_system === "fleet" && (!row.payload.source_system || row.payload.source_system === "PMS")
+        ? "PMS" : row.source_system;
+      if (!source) throw new Error("Outbound integration log source is missing.");
+      if (row.payload.source_system && row.payload.source_system !== source) {
+        throw new Error("Outbound payload source differs from integration log source.");
+      }
+      const gateway = getBookingGateway(source);
+      const result = await gateway.acknowledgeStatus({ ...row.payload, source_system: source });
+      if (result?.delivered !== true) throw new Error("Gateway did not acknowledge delivery.");
       await query(
         `UPDATE integration_log SET status = 'processed', processed_at = NOW(), error_message = NULL WHERE log_id = $1`,
         [row.log_id]
       );
-      results.push({ logId: row.log_id, delivered: result?.delivered ?? true });
+      results.push({ logId: row.log_id, delivered: true, gateway: gateway.name });
     } catch (e) {
       const message = String(e?.message || e).slice(0, 1000);
       await query(
@@ -146,7 +161,8 @@ export async function reconcileFailedDeliveries({ max = 50 } = {}) {
   }
 
   return {
-    gateway: gateway.name,
+    gateway: results.length && results.every((r) => r.gateway === results[0].gateway) && results[0].gateway
+      ? results[0].gateway : "mixed-or-unavailable",
     retried: stuck.length,
     delivered: results.filter((r) => r.delivered).length,
     stillFailed: results.filter((r) => !r.delivered).length,
