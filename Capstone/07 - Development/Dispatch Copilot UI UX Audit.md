@@ -1,7 +1,7 @@
 # Dispatch Copilot UI/UX Audit
 
 **Date:** 2026-10-02  
-**Status:** 25-finding remediation complete for Tasks 1–9 on `fix/dispatch-copilot-ui-audit` (commits `2ccaf752`, `b7a570d5`/`df4e8c4b`/`8d4f19e8`, `21ba8efd`, `6553c5b3`, `32d7ed95`, `2812cea8`, `aee8cf2b`, `388412cf`, `2bf9639c`); independent reviews approved with no Critical/Important findings. Authenticated browser acceptance is PENDING — no visual pass is claimed; see Final acceptance below<br>
+**Status:** 25-finding remediation complete for Tasks 1–9 on `fix/dispatch-copilot-ui-audit` (commits `2ccaf752`, `b7a570d5`/`df4e8c4b`/`8d4f19e8`, `21ba8efd`, `6553c5b3`, `32d7ed95`, `2812cea8`, `aee8cf2b`, `388412cf`, `2bf9639c`) plus deferred-minor triage wave `84124d7f` (2026-10-08); independent reviews approved with no Critical/Important findings. Authenticated browser acceptance is PENDING — no visual pass is claimed and **no merge is authorized** until it runs; see Final acceptance below<br>
 **Scope:** The reservation queue, persistent desktop workstation, responsive drawer, recommendation and option states, selected-pair review, conversation UI, evidence drawers, and assigned/in-progress/completed/cancelled terminal presentation.
 
 ## Method and limits
@@ -395,11 +395,19 @@ The user approved `docs/superpowers/plans/2026-10-02-dispatch-copilot-ui-audit-r
 - Authenticated visual acceptance has never run on this branch: reflow at 1280/1366/1920/390px, 200% zoom, light/dark readability, keyboard/focus behavior, and premium-craft polish are asserted by tests and static math only.
 - Dark info contrast (4.52) holds the 4.5 floor by a thin margin under the deterministic formula.
 - The 6 unrelated-module failures pre-existing on `main` remain open outside this branch's scope (recorded in the Task 9 report).
-- Deferred-minor backlog, verbatim:
-- Task 2: Minor duplicate-control cases spanning two edge-state combinations.
-- Task 3: render-level terminal-composer regression gap; expected 409/403 security-test stderr.
-- Task 4: paused-follow scrollTop assertion gap.
-- Task 6: recovery anchor 44px miss; grid skeleton sm: vs @sm: remnant + viewport-keyed filter/pagination remnants; fragile React-mock + em-dash filter tests; 3 pre-existing reservations-domain failures now FIXED by Task 9 (do not list as open).
-- Task 7: drawer Vehicle #0 edge; DRIVER_UNAVAILABLE null-id /drivers fallback acceptance; missing canAccess-undefined test case.
-- Task 8: className=null default; label-fallback second-identity risk; dark info 4.52 thin margin.
-- 6 unrelated-module failures pre-existing on main (standby ×2, upload-storage, auth-session, no-legacy-role, driver-assignments) — recorded, not this branch's scope.
+- Deferred-minor backlog, triaged 2026-10-08 in `84124d7f` (each fix RED-first, mutation-proven unless noted):
+- Task 2: FIXED — incomplete-proposal slot yields to the query-error slot (`!query.isError`), closing the second edge combo; both combos pinned.
+- Task 3: render-level terminal-composer pin added (completed → no form/textarea/send; active → form present); 409/403 stderr verified absent (33/33 pristine output).
+- Task 4: paused-follow scrollTop assertion added (jump sets scrollTop = scrollHeight).
+- Task 6: grid + list skeleton segments and pagination keyed to `@sm:`/`@md:` container like loaded rows (RED-first); view-toggle labels stay viewport-keyed by design (full-width bar); React-hook test mock stays (deterministic across reruns, documented in-test).
+- Task 7: drawer Vehicle #0 already pinned; DRIVER_UNAVAILABLE null-id `/drivers` fallback accepted and pinned; canAccess-undefined fail-closed pinned.
+- Task 8: avatar className default `null` → `""` (pinned); single named identity already pinned; dark-info 4.52 ACCEPTED (holds the AA floor, copilot text uses -700 inks; global token change out of branch scope).
+- 6 unrelated-module failures pre-existing on main (standby ×2, upload-storage, auth-session, no-legacy-role, driver-assignments) — recorded, not this branch's scope; triage commit touches only 9 reservations/queue files, none shared with those suites.
+
+## Final verification — triage wave, 2026-10-08 (branch HEAD `84124d7f`, before main-sync)
+
+- Focused suites GREEN: reservations components 172/172 (incl. 8 new triage pins), integration transport-requests 72/72, conversation route 33/33 pristine.
+- Full `npm run test:run`: 3670/3676 — the 6 failures are exactly the pre-existing unrelated modules above.
+- `npm run lint:ci` exit 0; `git diff --check` clean; `npm run verify:auth` 294/294.
+- Build: webpack compile-check build succeeds with a placeholder CSP origin (Turbopack refuses the worktree's symlinked `node_modules`; no `.env`/real Supabase URL exists in this environment). This proves the branch compiles — it is NOT a shippable production build, which still needs the real `NEXT_PUBLIC_SUPABASE_URL` and a rerun.
+- Browser acceptance: still PENDING and still the merge gate — no Playwright/Puppeteer/Chrome/test session exists here, so no visual claim is made. **Hold decision: no merge into `main` until an authorized dispatcher browser pass runs.**
