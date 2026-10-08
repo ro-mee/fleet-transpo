@@ -78,4 +78,25 @@ describe("returnTo open-redirect protection", () => {
     const adminRoute = getAndClearReturnTo("admin");
     expect(adminRoute).toBe("/dashboard");
   });
+
+  it("falls back to the workshop for mechanic role when no return path is stored", () => {
+    const defaultRoute = getAndClearReturnTo("mechanic");
+    expect(defaultRoute).toBe("/mechanic");
+  });
+
+  it("restricts mechanics to workshop routes, overriding foreign dashboard routes", () => {
+    saveReturnTo("/dashboard");
+    const mechanicRoute = getAndClearReturnTo("mechanic");
+    expect(mechanicRoute).toBe("/mechanic");
+
+    saveReturnTo("/mechanic/work-orders");
+    const allowedMechanicRoute = getAndClearReturnTo("mechanic");
+    expect(allowedMechanicRoute).toBe("/mechanic/work-orders");
+  });
+
+  it("prevents non-mechanics from being redirected into the workshop", () => {
+    saveReturnTo("/mechanic");
+    const adminRoute = getAndClearReturnTo("admin");
+    expect(adminRoute).toBe("/dashboard");
+  });
 });

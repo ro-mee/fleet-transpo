@@ -43,7 +43,11 @@ export function useRequireRole() {
     }
     if (missingRole) return;
     if (!isAuthorized) {
-      router.replace(role === 'driver' ? '/driver' : '/dashboard');
+      // Denied roles land on their own home, never on a page that denies
+      // them again: sending a mechanic to /dashboard (staff-only) shows the
+      // restricted panel and bounces to the same page. Mirrors the driver
+      // precedent below in return-to.js.
+      router.replace(role === 'driver' ? '/driver' : role === 'mechanic' ? '/mechanic' : '/dashboard');
     }
   }, [loading, isOpenRoute, employee, missingRole, isAuthorized, router, role]);
 

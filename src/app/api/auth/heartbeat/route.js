@@ -2,7 +2,15 @@ import { requireAuth, ok, handleError, AuthError, absoluteTtlSecondsOf } from "@
 import { query } from "@/lib/db";
 import { IDLE_TIMEOUT_SECONDS, WEB_SESSION_TTL_SECONDS } from "@/lib/auth/session-policy";
 
-const DASHBOARD_ROLES = ["super_admin", "admin", "fleet_manager", "dispatcher", "management"];
+/**
+ * Roles holding a web session. The heartbeat is role-agnostic session
+ * infrastructure — it only reads and slides the caller's OWN session row —
+ * so every role with a web workspace belongs here. `mechanic` (id 10,
+ * `/mechanic`) and `driver` (`/driver`) were missing, which 403'd their
+ * heartbeats: console spam plus a `last_seen_at` that never slides, so an
+ * active mechanic/driver is idle-logged-out anyway.
+ */
+const DASHBOARD_ROLES = ["super_admin", "admin", "fleet_manager", "dispatcher", "management", "driver", "mechanic"];
 
 /**
  * GET /api/auth/heartbeat

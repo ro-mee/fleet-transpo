@@ -75,7 +75,8 @@ export function saveReturnTo(path = null) {
  * Retrieves and clears the saved returnTo path, falling back to role dashboard.
  */
 export function getAndClearReturnTo(role = null) {
-  const defaultRoute = role === "driver" ? "/driver" : "/dashboard";
+  const defaultRoute =
+    role === "driver" ? "/driver" : role === "mechanic" ? "/mechanic" : "/dashboard";
   const storage = getStorage();
   if (!storage) return defaultRoute;
 
@@ -86,7 +87,15 @@ export function getAndClearReturnTo(role = null) {
       if (role === "driver") {
         return saved.startsWith("/driver") ? saved : "/driver";
       }
+      // Mechanic mirror of the driver rule above: a mechanic keeps only
+      // /mechanic targets, and nobody else is sent into the workshop.
+      if (role === "mechanic") {
+        return saved.startsWith("/mechanic") ? saved : "/mechanic";
+      }
       if (saved.startsWith("/driver")) {
+        return "/dashboard";
+      }
+      if (saved.startsWith("/mechanic")) {
         return "/dashboard";
       }
       return saved;
