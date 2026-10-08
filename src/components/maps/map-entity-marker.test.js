@@ -6,8 +6,10 @@
 // its phase color), a stale-GPS marker is never overridden ("No signal" is
 // already the honest telemetry verdict), and rescue/incident markers are
 // untouched (their severity vocabularies are their own).
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, it, expect } from "vitest";
-import { resolveMarkerConfig } from "./map-entity-marker";
+import { resolveMarkerConfig, MinimalMapLegend, IncidentMapLegend } from "./map-entity-marker";
 
 const TRIP = {
   trip_id: 101,
@@ -64,3 +66,34 @@ describe("resolveMarkerConfig monitor risk accent", () => {
     expect(incident).toMatchObject({ type: "incident", tone: "rose" });
   });
 });
+
+describe("Map Legends", () => {
+  it("MinimalMapLegend renders default fleet vehicle status indications", () => {
+    const html = renderToStaticMarkup(React.createElement(MinimalMapLegend));
+    expect(html).toContain("Active trip");
+    expect(html).toContain("At pickup");
+    expect(html).toContain("Available / idle");
+    expect(html).toContain("Maintenance");
+    expect(html).toContain("Incident");
+  });
+
+  it("MinimalMapLegend accepts custom items", () => {
+    const customItems = [
+      { label: "Custom Status", dotColor: "#123456", shape: "circle" },
+    ];
+    const html = renderToStaticMarkup(React.createElement(MinimalMapLegend, { items: customItems }));
+    expect(html).toContain("Custom Status");
+    expect(html).not.toContain("Active trip");
+  });
+
+  it("IncidentMapLegend renders incident indications and excludes fleet vehicle statuses", () => {
+    const html = renderToStaticMarkup(React.createElement(IncidentMapLegend));
+    expect(html).toContain("Critical incident");
+    expect(html).toContain("Moderate incident");
+    expect(html).toContain("Rescue responder");
+    expect(html).not.toContain("Active trip");
+    expect(html).not.toContain("At pickup");
+    expect(html).not.toContain("Available / idle");
+  });
+});
+

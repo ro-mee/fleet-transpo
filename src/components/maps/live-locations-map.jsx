@@ -369,7 +369,7 @@ export default function LiveLocationsMap({
   const activeTile = MAP_STYLES[mapStyle] || MAP_STYLES.street;
 
   return (
-    <div className="relative h-full w-full select-none">
+    <div className="relative h-full w-full select-none isolate">
       <MapContainer
         center={center}
         zoom={13}

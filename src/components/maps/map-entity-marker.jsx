@@ -420,14 +420,15 @@ export function MapEntityMarker({
 // 5. Minimal Map Legend Component (Section 9)
 // ---------------------------------------------------------------------------
 
-export function MinimalMapLegend({ className }) {
-  const items = [
+export function MinimalMapLegend({ className, items }) {
+  const defaultItems = [
     { label: "Active trip", dotColor: "#10b981", shape: "circle" },
     { label: "At pickup", dotColor: "#2563eb", shape: "circle" },
     { label: "Available / idle", dotColor: "#64748b", shape: "circle" },
     { label: "Maintenance", dotColor: "#ef4444", shape: "circle" },
     { label: "Incident", dotColor: "#ef4444", shape: "triangle" },
   ];
+  const list = items || defaultItems;
 
   return (
     <div
@@ -436,7 +437,7 @@ export function MinimalMapLegend({ className }) {
         className
       )}
     >
-      {items.map((item) => (
+      {list.map((item) => (
         <div key={item.label} className="flex items-center gap-1.5 shrink-0">
           {item.shape === "triangle" ? (
             <span
@@ -457,3 +458,14 @@ export function MinimalMapLegend({ className }) {
     </div>
   );
 }
+
+export function IncidentMapLegend({ className }) {
+  const items = [
+    { label: "Critical incident", dotColor: "#f43f5e", shape: "circle" },
+    { label: "Moderate incident", dotColor: "#f59e0b", shape: "circle" },
+    { label: "Rescue responder", dotColor: "#3b82f6", shape: "circle" },
+  ];
+
+  return <MinimalMapLegend className={className} items={items} />;
+}
+
