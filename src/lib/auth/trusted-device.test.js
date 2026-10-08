@@ -43,7 +43,7 @@ describe("trusted web device tokens", () => {
     // browser would be mailed a code it does not need — and, worse, an SMTP
     // outage would sign out devices that had already proved themselves.
     const issueIndex = authSource.indexOf("await issueLoginChallenge({");
-    const trustedGuardIndex = authSource.indexOf("if (!trustedDevice) {");
+    const trustedGuardIndex = authSource.indexOf("if (!trustedDevice && !isDevOtpBypassEnabled()) {");
 
     expect(issueIndex).toBeGreaterThan(-1);
     expect(trustedGuardIndex).toBeGreaterThan(-1);
