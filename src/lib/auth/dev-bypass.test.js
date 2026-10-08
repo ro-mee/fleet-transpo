@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { isDevOtpBypassEnabled } from "./dev-bypass";
 
 describe("isDevOtpBypassEnabled", () => {
@@ -16,4 +17,10 @@ describe("isDevOtpBypassEnabled", () => {
   it("is inert in production even with the flag set", () => {
     expect(isDevOtpBypassEnabled({ DEV_BYPASS_OTP: "1", NODE_ENV: "production" })).toBe(false);
   });
+});
+
+it("auth.js gates the bypass behind isDevOtpBypassEnabled", () => {
+  const src = readFileSync("src/lib/auth.js", "utf8");
+  expect(src).toContain("isDevOtpBypassEnabled");
+  expect(src).toContain("mfa_bypassed_dev");
 });

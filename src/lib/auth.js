@@ -21,6 +21,7 @@ import {
   warmSecurityPolicy,
 } from "@/services/security-policy.service";
 import { hashTrustedDeviceToken, trustedDeviceTokenFromCookieHeader } from "@/lib/auth/trusted-device";
+import { isDevOtpBypassEnabled } from "@/lib/auth/dev-bypass";
 import { signedUrlFor, isResolvableMediaRef } from "@/lib/storage/object-refs";
 import { AVATAR_BUCKETS } from "@/lib/drivers/media";
 import { normalizeRoleName } from "@/lib/auth/role-names";
@@ -149,7 +150,18 @@ export const authOptions = {
           }
         }
 
-        if (!trustedDevice) {
+        // Dev-only testing bypass (never fires in production — see dev-bypass.js).
+        // Test logins stay visible via the mfa_bypassed_dev audit row.
+        if (!trustedDevice && isDevOtpBypassEnabled()) {
+          await writeAudit(auditReq, null, {
+            action: "mfa_bypassed_dev",
+            resource: "authentication",
+            resourceId: employee.employee_id,
+            newValues: { channel: "web" },
+          });
+        }
+
+        if (!trustedDevice && !isDevOtpBypassEnabled()) {
           // Fail closed, before any code is issued. An undeliverable address is
           // not a factor, and "let this one through" would make the gate
           // decorative. A routable address that belongs to a stranger is worse
