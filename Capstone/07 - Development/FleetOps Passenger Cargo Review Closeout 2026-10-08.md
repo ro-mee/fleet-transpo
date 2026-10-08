@@ -60,3 +60,8 @@ Main preservation checks include a working production build of all mechanic page
 ## Documented acceptance deferrals
 
 Real browser download/screen rendering, native driver device acceptance, legitimate fleet commissioning/cohort admission, and a full operational isolated-demo walkthrough remain acceptance work. Row-backed selectors/workbooks and actual component tests do not claim those manual checks. Task 1 remains a bounded create/replay integration: updates, cancellations and durable source revision lifecycle are outside this closure. Provider publication stays disabled pending the live-source acceptance above. These deferrals do not leave the enumerated P0/P1 code defects silently open.
+## Merged into main — 2026-10-08
+
+At the user's explicit request, the clean main checkout fast-forwarded from `11191bb0` to the verified feature commit `7dd775e5`. There were no new merge conflicts. Main now contains the complete reviewed passenger/cargo work, applied-schema artifact and existing mechanic/supply/defense implementation. The feature branch remains available.
+
+The first main-checkout test run found one defense media checksum failure caused by 63 existing Windows CRLF SVG files. Each file was converted to LF only after proving that its resulting SHA-256 exactly matched the unchanged manifest. Refreshing the asset index produced no committed asset-content difference. The full main regression then passed 385 files / 4,381 tests, with the 16 opt-in database tests skipped, in 62.25 seconds (exit 0). Their separate enabled database proof remains recorded above. No deployment or remote push was performed as part of this local merge.
