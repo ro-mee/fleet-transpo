@@ -4,6 +4,8 @@ import { useMutation } from "@tanstack/react-query";
 import { Send, LoaderCircle, RotateCcw } from "lucide-react";
 import { formatDateTime, cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client";
+import { useRoleAccess } from "@/hooks/use-role-access";
+import { CopilotAvatar } from "./copilot-avatar";
 import { EvidenceDrawer, buildInspectorRows } from "./evidence-drawer";
 
 // Latest comparison proof from assistant messages. Exported for tests.
@@ -58,14 +60,35 @@ function readStoredMemoryMap() {
   }
 }
 
-function recoveryHref(action) {
-  if (!action || action.record == null) return null;
-  const id = action.id;
+// Allowlisted recovery destinations (P1-08). Every target below is a route
+// verified on disk under src/app/(dashboard): the fleet vehicle detail and
+// directory, the driver detail and directory, the maintenance directory, and
+// the reservation detail. IDs interpolate only when they are finite positive
+// integers. The maintenance page reads no vehicle filter, so that record
+// resolves to the directory; a schedule block resolves to a driver page only
+// for DRIVER_UNAVAILABLE (which carries the driver id) — pairing blocks
+// carry the vehicle id and must never interpolate into a driver route.
+// The caller additionally gates every href through useRoleAccess; a null or
+// unauthorized target renders as guidance text, never as a link.
+function toSafeRecordId(value) {
+  if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : null;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+export function recoveryHref(action) {
+  if (!action || typeof action !== "object" || action.record == null) return null;
+  const id = toSafeRecordId(action.id);
   switch (action.record) {
-    case 'vehicle': return id != null ? `/vehicles/${id}` : '/vehicles';
+    case 'vehicle': return id != null ? `/fleet/vehicles/${id}` : '/fleet/vehicles';
     case 'driver': return id != null ? `/drivers/${id}` : '/drivers';
-    case 'maintenance': return id != null ? `/maintenance?vehicleId=${id}` : '/maintenance';
-    case 'schedule': return id != null ? `/schedules?driverId=${id}` : '/schedules';
+    case 'maintenance': return '/maintenance';
+    case 'schedule':
+      if (action.code !== 'DRIVER_UNAVAILABLE') return null;
+      return id != null ? `/drivers/${id}` : '/drivers';
     case 'request': return id != null ? `/reservations/${id}` : null;
     default: return null;
   }
@@ -243,29 +266,63 @@ export function CopilotConversation({
   displayedOptions = [],
   disabled = false,
   completed = false,
+  readOnlyCommitted = false,
   children,
   reply,
-  selectedReply,
+  decisionDock,
+  onResetDecision,
+  resetDisabled = false,
   onCommand,
   planStatus = null,
 }) {
   const [messages, setMessages] = useState(() => getReservationMessages(requestId));
   const [draft, setDraft] = useState("");
+  const [newReplyAvailable, setNewReplyAvailable] = useState(false);
   // Open evidence proof (server-signed ref). The drawer is a pure read view:
   // opening it fetches one point-in-time snapshot and never validates.
   const [evidenceProof, setEvidenceProof] = useState(null);
+  const [nestedEvidenceProof, setNestedEvidenceProof] = useState(null);
+  const evidenceOpenerRef = useRef(null);
+  const nestedEvidenceOpenerRef = useRef(null);
+  const nestedProofCloseFocusRef = useRef(null);
+  const openEvidence = (event, proof) => {
+    evidenceOpenerRef.current = event.currentTarget;
+    setNestedEvidenceProof(null);
+    setEvidenceProof(proof);
+  };
+  const closeEvidence = () => {
+    nestedProofCloseFocusRef.current = evidenceOpenerRef.current;
+    setNestedEvidenceProof(null);
+    setEvidenceProof(null);
+  };
+  const closeNestedEvidence = () => {
+    nestedProofCloseFocusRef.current = nestedEvidenceOpenerRef.current;
+    setNestedEvidenceProof(null);
+  };
   const log = useRef(null);
   const follow = useRef(true);
+  const lastObservedMessage = useRef(messages.at(-1) ?? null);
   const sending = useRef(false);
-  const currentSelection = useRef(selectedPair);
-  useEffect(() => { currentSelection.current = selectedPair; }, [selectedPair]);
+  const currentPair = readOnlyCommitted ? null : selectedPair;
+  const currentSelection = useRef(currentPair);
+  // Permission-aware recovery links: a null or unauthorized target renders
+  // as plain guidance text, never as a link. Fail closed when no checker.
+  const { canAccess } = useRoleAccess() ?? {};
+  useEffect(() => { currentSelection.current = currentPair; }, [currentPair]);
 
   // The panel keys this component by requestId; switching reservations resets local state.
   // Sync state across module updates for this specific reservation
   useEffect(() => {
-    const onSync = (map, updatedKey) => {
+    const onSync = (_map, updatedKey) => {
       if (!updatedKey || updatedKey === String(requestId)) {
-        setMessages(getReservationMessages(requestId));
+        const nextMessages = getReservationMessages(requestId);
+        const latestMessage = nextMessages.at(-1) ?? null;
+        if (!follow.current && latestMessage !== lastObservedMessage.current && latestMessage?.role === "assistant") {
+          setNewReplyAvailable(true);
+        }
+        if (!updatedKey) setNewReplyAvailable(false);
+        lastObservedMessage.current = latestMessage;
+        setMessages(nextMessages);
       }
     };
     memoryListeners.add(onSync);
@@ -281,13 +338,19 @@ export function CopilotConversation({
   const send = useMutation({
     mutationFn: ({ message, history, requestId: targetId, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, displayedOptions: options }) => {
       let baseline = null;
-      try { baseline = window.sessionStorage.getItem(`fleetops_dispatch_baseline_${targetId}`); } catch { baseline = null; }
+      if (!readOnlyCommitted) {
+        try { baseline = window.sessionStorage.getItem(`fleetops_dispatch_baseline_${targetId}`); } catch { baseline = null; }
+      }
+      const assignmentContext = readOnlyCommitted ? {} : {
+        planToken: token,
+        selectedPair: selection,
+        displayedEvaluatedAt: viewedAt,
+        ...(options ? {displayedOptions:options} : {}),
+        ...(baseline ? {baseline} : {}),
+      };
       return apiFetch(
         `/api/integration/transport-requests/${targetId}/conversation`,
-        {
-          method: "POST",
-          body: { message, history, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, ...(options ? {displayedOptions:options} : {}), ...(baseline ? {baseline} : {}) },
-        }
+        { method: "POST", body: { message, history, ...assignmentContext } }
       );
     },
     onMutate: ({ message, requestId: targetId, selectedPair: selection, selectedPairLabel: selectionLabel, displayedEvaluatedAt: viewedAt }) => {
@@ -296,9 +359,9 @@ export function CopilotConversation({
         content: message,
         at: Date.now(),
         requestId: targetId,
-        selectedPair: selection,
-        selectedPairLabel: selectionLabel,
-        displayedEvaluatedAt: viewedAt,
+        selectedPair: readOnlyCommitted ? null : selection,
+        selectedPairLabel: readOnlyCommitted ? null : selectionLabel,
+        displayedEvaluatedAt: readOnlyCommitted ? null : viewedAt,
         reservationNumber: currentRef,
         guestName: currentGuest,
       };
@@ -317,13 +380,14 @@ export function CopilotConversation({
         content: response.answer + prompt,
         at: Date.now(),
         requestId: targetId,
-        selectedPair: selection,
-        selectedPairLabel: selectionLabel,
-        displayedEvaluatedAt: viewedAt,
+        selectedPair: readOnlyCommitted ? null : selection,
+        selectedPairLabel: readOnlyCommitted ? null : selectionLabel,
+        displayedEvaluatedAt: readOnlyCommitted ? null : viewedAt,
         reservationNumber: currentRef,
         guestName: currentGuest,
       };
       setReservationMessages(targetId, (previous) => [...previous.slice(-29), assistantMsg]);
+      if (String(targetId) === String(requestId) && !follow.current) setNewReplyAvailable(true);
     },
     onError: (_error, { message }) => setDraft(message),
     onSettled: () => {
@@ -335,11 +399,12 @@ export function CopilotConversation({
     if (follow.current && log.current) {
       log.current.scrollTop = log.current.scrollHeight;
     }
-  }, [messages, send.isPending, reply, selectedReply, children]);
+  }, [messages, send.isPending, reply, decisionDock, children]);
 
   const submit = (message) => {
     if (!message.trim() || sending.current || disabled) return;
     follow.current = true;
+    setNewReplyAvailable(false);
     const commandResult = onCommand?.(message);
     if (commandResult) {
       if (!commandResult.handled) setReservationMessages(requestId, previous => [...previous.slice(-28),
@@ -352,34 +417,46 @@ export function CopilotConversation({
     follow.current = true;
     send.mutate({
       requestId,
-      planToken,
-      selectedPair,
-      selectedPairLabel,
-      displayedEvaluatedAt,
-      displayedOptions,
+      planToken: readOnlyCommitted ? null : planToken,
+      selectedPair: currentPair,
+      selectedPairLabel: readOnlyCommitted ? null : selectedPairLabel,
+      displayedEvaluatedAt: readOnlyCommitted ? null : displayedEvaluatedAt,
+      displayedOptions: readOnlyCommitted ? [] : displayedOptions,
       message: message.trim(),
       history: messages
         .slice(-8)
         .map(({ role, content, selectedPair: pastPair }) => ({
           role,
-          content: `${pastPair ? `[Asked about vehicle #${pastPair.vehicleId} / driver #${pastPair.driverId}] ` : ''}${content}`.slice(0, 2000),
+          content: `${!readOnlyCommitted && pastPair ? `[Asked about vehicle #${pastPair.vehicleId} / driver #${pastPair.driverId}] ` : ''}${content}`.slice(0, 2000),
         })),
     });
   };
 
-  const clearMemory = () => {
-    clearReservationMessages(requestId);
+  const resetCopilot = () => {
+    if (resetDisabled || send.isPending) return;
+    if (onResetDecision) onResetDecision();
+    else clearReservationSelection(requestId);
+    setMessages([]);
+    setReservationMessages(requestId, []);
+    follow.current = true;
+    setNewReplyAvailable(false);
   };
 
-  const suggestions = hasPair
-    ? ["Why this option?", "Any conflicts?", "Other options?"]
-    : ["Why no match?", "What needs fixing?", "Other options?"];
+  const jumpToLatest = () => {
+    follow.current = true;
+    setNewReplyAvailable(false);
+    if (log.current) log.current.scrollTop = log.current.scrollHeight;
+  };
 
-  // Keep the live review at its selection turn, never after subsequent Q&A.
-  // If memory was cleared/pruned, retain the review above the remaining messages.
-  const selectionTurn = selectedPair ? messages.findLastIndex(m =>
-    m.action === 'select-pair' && m.selectedPair?.vehicleId === selectedPair.vehicleId &&
-    m.selectedPair?.driverId === selectedPair.driverId) : -1;
+  // Committed trips get a status-only route response (server lifecycle + IDs,
+  // no ranking/proof/LLM). Suggestions must not promise details or next-step
+  // answers the route does not provide; trip details render in the decision
+  // bubble from the reservation record instead.
+  const suggestions = readOnlyCommitted
+    ? ["What is the current trip status?"]
+    : hasPair
+      ? ["Why this option?", "Any conflicts?", "Other options?"]
+      : ["Why no match?", "What needs fixing?", "Other options?"];
 
   return (
     <section
@@ -398,19 +475,36 @@ export function CopilotConversation({
             {currentGuest ? ` · ${currentGuest}` : ""}
           </span>
         </div>
-        {messages.length > 0 && (
+        {(messages.length > 0 || currentPair) && (
           <button
             type="button"
-            disabled={send.isPending}
-            onClick={clearMemory}
-            className="text-xs text-foreground-muted hover:text-danger hover:bg-hover px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer select-none"
-            title="Clear conversation for this reservation"
+            disabled={resetDisabled || send.isPending}
+            onClick={resetCopilot}
+            className="text-xs text-foreground-muted hover:text-danger-700 hover:bg-hover px-2 min-h-[44px] rounded flex items-center gap-1 transition-colors cursor-pointer select-none focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed"
+            title={resetDisabled ? "Wait for the assignment outcome before resetting Copilot." : send.isPending ? "Wait for the current Copilot reply before resetting." : "Reset Copilot conversation and selected pair for this reservation"}
           >
             <RotateCcw className="w-2.5 h-2.5" />
-            Clear memory
+            Reset Copilot
           </button>
         )}
       </div>
+      {readOnlyCommitted && (
+        <p role="note" className="border-b border-border/60 bg-muted/10 px-3 py-1.5 text-[11px] text-foreground-secondary">
+          Earlier conversation is history; current trip details come from this reservation record.
+        </p>
+      )}
+
+      {newReplyAvailable && (
+        <div className="flex shrink-0 justify-end border-b border-border bg-muted/20 px-3 py-1.5">
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            className="rounded-lg border border-border bg-surface px-2.5 min-h-[44px] text-xs font-medium text-foreground hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            New reply — jump to latest
+          </button>
+        </div>
+      )}
 
       {/* ── Message Log ── */}
       <div
@@ -422,20 +516,14 @@ export function CopilotConversation({
         onScroll={() => {
           const el = log.current;
           follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+          if (follow.current) setNewReplyAvailable(false);
         }}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-3 p-3"
       >
-        {children}
-        {selectionTurn === -1 && selectedReply}
+        {!readOnlyCommitted && children}
         {messages.length === 0 && !children && !reply && (
           <div className="flex items-start gap-2 max-w-[95%]">
-            <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
-              <img
-                src="/images/copilot-avatar-blinking.gif"
-                alt="Copilot"
-                className="w-full h-full object-cover select-none pointer-events-none"
-              />
-            </div>
+            <CopilotAvatar size="xs" className="mt-0.5" />
             <div className="rounded-xl rounded-tl-sm border border-border bg-surface px-3 py-2 text-sm leading-relaxed shadow-xs">
               I can help you understand this reservation and compare options. What would you like to know?
             </div>
@@ -457,19 +545,13 @@ export function CopilotConversation({
                   )}
                 >
                   {m.role === "assistant" && (
-                    <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
-                      <img
-                        src="/images/copilot-avatar-blinking.gif"
-                        alt="Copilot"
-                        className="w-full h-full object-cover select-none pointer-events-none"
-                      />
-                    </div>
+                    <CopilotAvatar size="xs" className="mt-0.5" />
                   )}
                   <div
                     className={cn(
                       "rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words",
                       m.role === "user"
-                        ? "rounded-br-sm bg-info-bg text-info"
+                        ? "rounded-br-sm bg-info-bg text-info-700"
                         : "rounded-tl-sm border border-border bg-surface text-foreground shadow-xs"
                     )}
                   >
@@ -482,23 +564,24 @@ export function CopilotConversation({
                         Chat is temporarily unavailable. These are the recorded findings.
                       </p>
                     )}
-                    {m.role === "assistant" && Array.isArray(m.recoveryActions) && m.recoveryActions.length > 0 && (
+                    {!readOnlyCommitted && m.role === "assistant" && Array.isArray(m.recoveryActions) && m.recoveryActions.length > 0 && (
                       <span className="mt-2 flex flex-wrap gap-1.5">
                         {m.recoveryActions.slice(0, 2).map((action, idx) => {
                           if (action.proof?.ref) {
                             return (
                               <button key={`${action.code}-${idx}`} type="button"
-                                onClick={() => setEvidenceProof({ kind: "proof", type: action.proof.type, ref: action.proof.ref })}
-                                className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer">
+                                onClick={event => openEvidence(event, { kind: "proof", type: action.proof.type, ref: action.proof.ref })}
+                                className="rounded-lg border border-border px-2.5 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer">
                                 Review Evidence
                               </button>
                             );
                           }
                           const href = recoveryHref(action);
                           const label = action.label || 'Check record';
-                          return href ? (
+                          const openable = href && typeof canAccess === "function" ? canAccess(href) : false;
+                          return openable ? (
                             <a key={`${action.code}-${idx}`} href={href}
-                              className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary">
+                              className="inline-flex min-h-[44px] items-center rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary">
                               {label}
                             </a>
                           ) : (
@@ -525,7 +608,7 @@ export function CopilotConversation({
                     Asked about {m.selectedPairLabel || `vehicle #${m.selectedPair.vehicleId} / driver #${m.selectedPair.driverId}`}
                   </p>
                 )}
-                {m.evaluatedAt && (
+                {!readOnlyCommitted && m.evaluatedAt && (
                   <details className="mt-1 max-w-[90%] pl-8 text-[11px] text-foreground-secondary">
                     <summary className="cursor-pointer">Evidence details</summary>
                     <p>
@@ -535,19 +618,12 @@ export function CopilotConversation({
                   </details>
                 )}
               </div>
-          {i === selectionTurn && selectedReply}
           </Fragment>
         ))}
 
         {send.isPending && (
           <div role="status" className="flex items-center gap-2 max-w-[95%]">
-            <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs animate-pulse">
-              <img
-                src="/images/copilot-avatar-blinking.gif"
-                alt="Copilot"
-                className="w-full h-full object-cover select-none pointer-events-none"
-              />
-            </div>
+            <CopilotAvatar size="xs" />
             <div className="flex items-center gap-2 rounded-xl rounded-tl-sm border border-border bg-surface px-3 py-2 text-xs text-foreground-secondary">
               <LoaderCircle
                 className="h-3.5 w-3.5 motion-safe:animate-spin text-primary"
@@ -558,28 +634,28 @@ export function CopilotConversation({
           </div>
         )}
         {reply}
-        {!completed && !selectedPair && displayedOptions.length > 0 && !send.isPending && messages.length === 0 && <p className="pl-8 text-sm text-foreground-secondary">{displayedOptions.length === 2 ? 'Which would you like to choose: Option 1 or Option 2?' : 'Would you like to choose Option 1?'}</p>}
-        {!completed && !selectedPair && messages.length > 0 && !send.isPending && <div className="flex flex-wrap gap-2 pl-8">
+        {!readOnlyCommitted && !completed && !currentPair && displayedOptions.length > 0 && !send.isPending && messages.length === 0 && <p className="pl-8 text-sm text-foreground-secondary">{displayedOptions.length === 2 ? 'Which would you like to choose: Option 1 or Option 2?' : 'Would you like to choose Option 1?'}</p>}
+        {!readOnlyCommitted && !completed && !currentPair && messages.length > 0 && !send.isPending && <div className="flex flex-wrap gap-2 pl-8">
           {displayedOptions.map((option,index)=><button key={`${option.vehicleId}:${option.driverId}`} type="button" disabled={disabled}
-            onClick={()=>submit(`Option ${index+1}`)} className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">Choose Option {index+1}</button>)}
+            onClick={()=>submit(`Option ${index+1}`)} className="rounded-lg border border-border px-3 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">Choose Option {index+1}</button>)}
         </div>}
-        {!completed && !send.isPending && (() => {
-          const clearanceInfo = latestClearanceFor(messages, selectedPair);
+        {!readOnlyCommitted && !completed && !send.isPending && (() => {
+          const clearanceInfo = latestClearanceFor(messages, currentPair);
           const comparison = latestComparisonFor(messages);
           if (!clearanceInfo && !comparison) return null;
           return (
             <div className="flex flex-wrap gap-2 pl-8">
               {clearanceInfo && (
                 <button type="button" disabled={disabled}
-                  onClick={() => setEvidenceProof({ kind: "inspector", ...clearanceInfo })}
-                  className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  onClick={event => openEvidence(event, { kind: "inspector", ...clearanceInfo })}
+                  className="rounded-lg border border-border px-3 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
                   Review eligibility
                 </button>
               )}
               {comparison && (
                 <button type="button" disabled={disabled}
-                  onClick={() => setEvidenceProof({ kind: "proof", type: comparison.type, ref: comparison.ref })}
-                  className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  onClick={event => openEvidence(event, { kind: "proof", type: comparison.type, ref: comparison.ref })}
+                  className="rounded-lg border border-border px-3 min-h-[44px] text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
                   Compare options
                 </button>
               )}
@@ -587,6 +663,19 @@ export function CopilotConversation({
           );
         })()}
       </div>
+
+      {decisionDock && (
+        <div
+          role="region"
+          aria-label="Current dispatch decision"
+          className="min-h-0 max-h-[min(40vh,20rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-border bg-surface p-3 scroll-py-2"
+        >
+          <p aria-hidden="true" className="mb-2 text-[11px] font-bold uppercase tracking-wider text-foreground-secondary">
+            Current decision
+          </p>
+          {decisionDock}
+        </div>
+      )}
 
       {/* ── Action Suggestions & Composer ── */}
       {!completed && <div className="shrink-0 border-t border-border bg-surface p-3 space-y-2">
@@ -597,14 +686,14 @@ export function CopilotConversation({
               type="button"
               disabled={disabled || send.isPending}
               onClick={() => submit(question)}
-              className="rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+              className="rounded-lg border border-border bg-surface px-2.5 min-h-[44px] text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
             >
               {question}
             </button>
           ))}
         </div>
         {send.isError && (
-          <p role="alert" className="text-xs text-danger">
+          <p role="alert" className="text-xs text-danger-700">
             I couldn&apos;t get an answer. {send.error.message} Your question is ready to resend.
           </p>
         )}
@@ -646,14 +735,14 @@ export function CopilotConversation({
               type="submit"
               aria-label="Send message"
               disabled={disabled || send.isPending || !draft.trim()}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-40 cursor-pointer"
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-40 cursor-pointer"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
         </form>
       </div>}
-      {evidenceProof && evidenceProof.kind === "inspector" ? (
+      {evidenceProof?.kind === "inspector" && (
         <EvidenceDrawer
           key="inspector"
           requestId={requestId}
@@ -664,20 +753,40 @@ export function CopilotConversation({
             rows: buildInspectorRows(evidenceProof.clearance, evidenceProof.meta),
           }}
           planStatus={planStatus}
-          onClose={() => setEvidenceProof(null)}
-          onReviewProof={(proof) => setEvidenceProof({ kind: "proof", type: proof.type, ref: proof.ref, backTo: evidenceProof })}
+          openerRef={evidenceOpenerRef}
+          onClose={closeEvidence}
+          onReviewProof={(proof, reviewTrigger) => {
+            nestedEvidenceOpenerRef.current = reviewTrigger;
+            nestedProofCloseFocusRef.current = reviewTrigger;
+            setNestedEvidenceProof({ kind: "proof", type: proof.type, ref: proof.ref });
+          }}
         />
-      ) : evidenceProof ? (
+      )}
+      {evidenceProof?.kind === "proof" && (
         <EvidenceDrawer
           key={evidenceProof.ref}
           requestId={requestId}
           proof={evidenceProof}
-          backTo={evidenceProof.backTo ?? null}
           planStatus={planStatus}
-          onClose={() => setEvidenceProof(null)}
-          onBack={evidenceProof.backTo ? () => setEvidenceProof(evidenceProof.backTo) : undefined}
+          openerRef={evidenceOpenerRef}
+          onClose={closeEvidence}
         />
-      ) : null}
+      )}
+      {evidenceProof?.kind === "inspector" && nestedEvidenceProof && (
+        <EvidenceDrawer
+          key={nestedEvidenceProof.ref}
+          requestId={requestId}
+          proof={nestedEvidenceProof}
+          backTo={evidenceProof}
+          planStatus={planStatus}
+          nested
+          openerRef={nestedEvidenceOpenerRef}
+          closeFocusRef={nestedProofCloseFocusRef}
+          onClose={closeNestedEvidence}
+          onCloseAll={closeEvidence}
+          onBack={closeNestedEvidence}
+        />
+      )}
     </section>
   );
 }

@@ -46,9 +46,9 @@ describe('L. Evidence Drawer renders the narrated evidence', () => {
     expect(pair.checks.map(c => c.id)).toEqual(pair.clearance.map(c => c.checkId).filter(id => id !== 'leave'));
     // State mapping: verified -> clear, blocking -> blocked, missing -> verify.
     const rows = buildInspectorRows(pair.clearance, pair.clearanceMeta);
-    expect(rows.find(r => r.label === 'Service-window maintenance')).toMatchObject({ state: 'blocked', note: 'See exclusion proof' });
+    expect(rows.find(r => r.label === 'Service-window maintenance')).toMatchObject({ state: 'blocked', note: 'Blocked — see Review Evidence in the conversation for the exclusion detail' });
     expect(rows.find(r => r.label === 'Seating capacity')).toMatchObject({ state: 'clear', note: 'No blocking issue found' });
-    expect(html).toContain('See exclusion proof');
+    expect(html).toContain('Blocked — see Review Evidence in the conversation for the exclusion detail');
 
     const unverified = handoff([unverifiedPair(['maintenance'])]);
     expect(buildInspectorRows(unverified.pairs[0].clearance, unverified.pairs[0].clearanceMeta).find(r => r.label === 'Service-window maintenance'))
@@ -122,10 +122,13 @@ describe('L. Evidence Drawer renders the narrated evidence', () => {
       .toMatchObject({ label: 'GPS Health', state: 'verify', note: 'Unknown' });
   });
 
-  it('FM-DRAW-004 the inspector keeps locked eligibility copy and no assignment language', () => {
+  it('FM-DRAW-004 the inspector keeps the Task-2 truth-boundary eligibility copy (eligible ONLY on the evaluated evidence) and no assignment language', () => {
     const evidence = handoff([makePair({ vehicle_id: 4, driver_id: 4, vehicle: { plate_number: 'ABC 1234' }, driver: { driver_name: 'Ana Reyes' } })]);
     const html = inspector(evidence.pairs[0]);
-    expect(html).toContain('Eligible based on the evaluated server evidence');
+    // The `only` scoping is the deliberate Task 2 truth-boundary narrowing:
+    // eligibility is bounded to the evaluated server evidence, never a general
+    // fitness claim. The test follows the implementation, not the reverse.
+    expect(html).toContain('Eligible based only on the evaluated server evidence');
     expect(html).toContain('Evaluation horizon: FUTURE');
     expect(html).toContain('Ana Reyes + ABC 1234');
     expect(html).not.toMatch(/definitely|guarantee|all clear|therefore assign|assign now|confirm/i);

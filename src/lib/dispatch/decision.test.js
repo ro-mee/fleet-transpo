@@ -44,7 +44,13 @@ it('requires a current verified independent queue proposal and does not gate ind
  // invalidation, the signed token and the server stay authoritative instead.
  expect(dispatchConfirmation({...ready,queue:{...queue,validation:{isSuccess:true,isFetching:true}}}).canSubmit).toBe(true);
 });
-it('does not let queue validation hide stale or failed recommendation evidence',()=>{
+it('rejects confirmation for a VERIFIED queue proposal with incomplete candidate evaluation',()=>{
+  const result=dispatchConfirmation({...ready,queue:{...queue,proposal:{outcome:'VERIFIED',candidateEvaluationComplete:false}}});
+  expect(result.canSubmit).toBe(false);
+  expect(result.recovery).toBe('analyze');
+  expect(result.message).toMatch(/incomplete/i);
+});
+ it('does not let queue validation hide stale or failed recommendation evidence',()=>{
  const unavailable = 'Current evidence is unavailable or expired. Recheck this reservation.';
  expect(dispatchConfirmation({...ready,error:true,queue:{...queue,validation:{isSuccess:false}}}).message).toBe(unavailable);
  expect(dispatchConfirmation({...ready,decision:{...ready.decision,stale:true},queue:{...queue,validation:{isSuccess:false}}}).message).toBe(unavailable);

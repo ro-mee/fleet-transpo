@@ -71,6 +71,15 @@ const ENTITY_MAPS = {
     completed: "success",
     cancelled: "secondary",
   },
+  // Queue Copilot presentation states only; eligibility stays in the dispatch decision layer.
+  copilot: {
+    ready: "success",
+    "review required": "warning",
+    "needs verification": "warning",
+    blocked: "danger",
+    waiting: "info",
+    "not evaluated": "secondary",
+  },
   fuel: {
     pending: "warning",
     approved: "success",

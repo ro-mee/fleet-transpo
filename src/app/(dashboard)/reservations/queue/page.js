@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef, useCallback, useSyncExternalStore } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import { useWorkspaceAside } from "@/hooks/use-workspace-aside";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -10,6 +11,7 @@ import {
   ReservationQueueTableSkeleton,
 } from "@/components/reservations/reservation-queue-table";
 import { DispatchPlanPanel } from "@/components/reservations/dispatch-plan-panel";
+import { CopilotAvatar } from "@/components/reservations/copilot-avatar";
 import { useDispatchPlan } from "@/hooks/use-dispatch-plan";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
@@ -45,6 +47,19 @@ import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 const REFETCH_MS = 30_000;
+
+export function resolveCommittedRequest({ selectedRequest, committedSuccessForId, freshSelectedRequest }) {
+  if (!committedSuccessForId) return selectedRequest;
+  if (!freshSelectedRequest) return committedSuccessForId;
+
+  if (Number(freshSelectedRequest.request_id) !== Number(committedSuccessForId.request_id)) {
+    return committedSuccessForId;
+  }
+  const freshStateMatches = ['Assigned', 'In Progress', 'Completed', 'Cancelled']
+    .includes(freshSelectedRequest.fleet_status);
+
+  return freshStateMatches ? freshSelectedRequest : committedSuccessForId;
+}
 
 // `label` is the visible tab name, `plainLabel` the same name in running text
 // (the empty state reads "Nothing <plainLabel>"), and `description` spells out
@@ -92,16 +107,6 @@ const TAB_META = {
   },
 };
 
-const desktopQuery = "(min-width: 1280px)";
-const subscribeDesktop = notify => {
-  const mq=window.matchMedia(desktopQuery);
-  mq.addEventListener("change",notify);
-  return ()=>mq.removeEventListener("change",notify);
-};
-function useIsDesktop() {
-  return useSyncExternalStore(subscribeDesktop,()=>window.matchMedia(desktopQuery).matches,()=>true);
-}
-
 export default function UnifiedQueuePage() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -110,7 +115,13 @@ export default function UnifiedQueuePage() {
   const departingSoonFilter = searchParams.get("filter") === "departing-soon";
   const queueFilter = departingSoonFilter ? "departing-soon" : reassignmentFilter ? "reassignment" : null;
   const { can } = useRoleAccess();
-  const isDesktop = useIsDesktop();
+  // Side-by-side vs drawer keys off the measured workspace *content* width
+  // (1120px = 460 aside + 24 gap + 636 queue), not the viewport: with the
+  // expanded 240px sidebar a 1280px viewport leaves only ~992px usable, which
+  // crushes the queue beside the Copilot. First render is false on server and
+  // client alike so hydration agrees; the observer upgrades after mount.
+  const workspaceRef = useRef(null);
+  const isDesktop = useWorkspaceAside(workspaceRef);
   const [lockedRequest,setLockedRequest] = useState(null);
   const [completedRequest,setCompletedRequest] = useState(null);
 
@@ -138,6 +149,8 @@ export default function UnifiedQueuePage() {
   const [selectedRequestId, setSelectedRequestId] = useState(null);
 
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const mobileDrawerOpenerRef = useRef(null);
+  const mobileOpenTriggerRef = useRef(null);
   const [viewMode, setViewMode] = useState("list");
 
   // Dispatch copilot shared plan hook
@@ -222,21 +235,37 @@ export default function UnifiedQueuePage() {
     setSelectedRequestId(requests[0].request_id);
   }
 
+  const freshSelectedRequest = useMemo(() => {
+    if (!selectedRequestId) return requests[0] || null;
+    return requests.find((r) => Number(r.request_id) === Number(selectedRequestId)) || null;
+  }, [requests, selectedRequestId]);
+
   const selectedRequest = useMemo(() => {
     if (lockedRequest) return lockedRequest;
-    if (!selectedRequestId) return requests[0] || null;
-    return (
-      requests.find((r) => Number(r.request_id) === Number(selectedRequestId)) ||
-      (Number(completedRequest?.request_id) === Number(selectedRequestId) ? completedRequest : null)
-    );
-  }, [requests, selectedRequestId, lockedRequest, completedRequest]);
+    return freshSelectedRequest ||
+      (Number(completedRequest?.request_id) === Number(selectedRequestId) ? completedRequest : null);
+  }, [freshSelectedRequest, selectedRequestId, lockedRequest, completedRequest]);
 
-  const handleCopilotBusy=useCallback(busy=>setLockedRequest(busy ? selectedRequest : null),[selectedRequest]);
+  const committedSuccessForId = Number(completedRequest?.request_id) === Number(selectedRequestId)
+    ? completedRequest
+    : null;
+  const displayedRequest = resolveCommittedRequest({
+    selectedRequest,
+    committedSuccessForId,
+    freshSelectedRequest,
+  });
+
+  const handleCopilotBusy=useCallback(busy=>setLockedRequest(busy ? displayedRequest : null),[displayedRequest]);
 
   const handleSelectRow = (r) => {
     if (lockedRequest) return;
     setSelectedRequestId(r.request_id);
-    if (!isDesktop) setIsMobileDrawerOpen(true);
+    if (!isDesktop) {
+      const activeElement = typeof document !== "undefined" ? document.activeElement : null;
+      const rowOpener = activeElement?.hasAttribute?.("aria-pressed") ? activeElement : null;
+      mobileDrawerOpenerRef.current = rowOpener ?? mobileOpenTriggerRef.current;
+      setIsMobileDrawerOpen(true);
+    }
   };
 
   // Pagination page numbers
@@ -298,24 +327,26 @@ export default function UnifiedQueuePage() {
         badge="Operations"
         description="Every request and committed dispatch in one place — auto-sorted by urgency."
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-2 min-w-0 w-full sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             {!isDesktop && selectedRequest && (
               <Button
+                ref={mobileOpenTriggerRef}
                 variant="outline"
                 size="sm"
-                onClick={() => setIsMobileDrawerOpen(true)}
-                className="h-9 rounded-xl text-xs font-semibold pl-2"
+                onClick={event => {
+                  mobileDrawerOpenerRef.current = event.currentTarget;
+                  setIsMobileDrawerOpen(true);
+                }}
+                className="min-h-[44px] rounded-xl text-xs font-semibold pl-2 w-full sm:w-auto max-w-full"
               >
-                <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 mr-1.5 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-                  <img src="/images/copilot-avatar-blinking.gif" alt="Copilot" className="w-full h-full object-cover select-none pointer-events-none" />
-                </div>
+                <CopilotAvatar size="xxs" className="mr-1.5" />
                 Open Copilot
               </Button>
             )}
             <Button
               variant="outline"
               size="sm"
-              className="h-9 rounded-xl text-xs font-semibold"
+              className="min-h-[44px] rounded-xl text-xs font-semibold w-full sm:w-auto max-w-full"
               asChild
             >
               <Link href="/dispatch/calendar">
@@ -324,7 +355,7 @@ export default function UnifiedQueuePage() {
               </Link>
             </Button>
             <Button
-              className={cn(heroButtonPrimaryClass)}
+              className={cn(heroButtonPrimaryClass, "min-h-[44px] w-full sm:w-auto max-w-full")}
               onClick={() => pullMutation.mutate()}
               disabled={pullMutation.isPending}
             >
@@ -335,14 +366,17 @@ export default function UnifiedQueuePage() {
         }
       />
 
-      {/* ── Filters & Search Row (Preserved Lifecycle Tabs) ── */}
+      {/* ── Filters & Search Row (Preserved Lifecycle Filters) ── */}
       <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface p-3.5 sm:flex-row sm:items-center sm:justify-between shadow-xs">
-        <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Queue sections">
+        {/* Labelled filter-button group (not ARIA tabs): these switch between
+            filtered queues rather than tabpanels, so they expose aria-pressed
+            instead of the tablist/tab/aria-selected contract. */}
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Queue sections">
           {reassignmentFilter && (
             <button
               type="button"
               onClick={() => router.replace("/reservations/queue")}
-              className="inline-flex items-center gap-1.5 px-3 h-8 rounded-full text-xs font-bold border border-red-500/40 bg-red-100/90 text-red-900 dark:bg-red-950/60 dark:text-red-200 cursor-pointer transition-colors hover:bg-red-200/90 dark:hover:bg-red-900/60"
+              className="inline-flex items-center gap-1.5 px-3 min-h-[44px] rounded-full text-xs font-bold border border-red-500/40 bg-red-100/90 text-red-900 dark:bg-red-950/60 dark:text-red-200 cursor-pointer transition-colors hover:bg-red-200/90 dark:hover:bg-red-900/60"
               title="Clear reassignment filter"
             >
               <TriangleAlert className="w-3.5 h-3.5" aria-hidden="true" />
@@ -374,8 +408,7 @@ export default function UnifiedQueuePage() {
               <button
                 key={id}
                 type="button"
-                role="tab"
-                aria-selected={active}
+                aria-pressed={active}
                 aria-label={
                   countsReady
                     ? `${meta.label} — ${badge} request${badge === 1 ? "" : "s"}`
@@ -384,7 +417,7 @@ export default function UnifiedQueuePage() {
                 title={meta.description}
                 onClick={() => pickTab(id)}
                 className={cn(
-                  "inline-flex items-center gap-2 px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer",
+                  "inline-flex items-center gap-2 px-4 min-h-[44px] rounded-full text-xs font-bold border transition-all cursor-pointer",
                   active
                     ? "bg-primary text-white dark:text-slate-950 border-primary shadow-xs"
                     : "bg-surface border-border/60 text-foreground-secondary hover:border-primary/40 hover:text-foreground"
@@ -407,7 +440,7 @@ export default function UnifiedQueuePage() {
               aria-hidden="true"
             />
             <input
-              className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface border border-border/80 text-xs font-medium text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 transition-colors"
+              className="w-full min-h-[44px] pl-9 pr-3 rounded-xl bg-surface border border-border/80 text-xs font-medium text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 transition-colors"
               placeholder="Guest, reference, location…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -425,7 +458,7 @@ export default function UnifiedQueuePage() {
               type="button"
               onClick={() => setViewMode("list")}
               className={cn(
-                "px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
+                "px-2.5 py-1 min-h-[44px] rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
                 viewMode === "list"
                   ? "bg-surface text-foreground shadow-2xs font-bold border border-border/60"
                   : "text-foreground-muted hover:text-foreground"
@@ -441,7 +474,7 @@ export default function UnifiedQueuePage() {
               type="button"
               onClick={() => setViewMode("grid")}
               className={cn(
-                "px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
+                "px-2.5 py-1 min-h-[44px] rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer",
                 viewMode === "grid"
                   ? "bg-surface text-foreground shadow-2xs font-bold border border-border/60"
                   : "text-foreground-muted hover:text-foreground"
@@ -458,11 +491,16 @@ export default function UnifiedQueuePage() {
       </div>
 
       {/* ── Two-Column Main Workspace (Queue on Left, Persistent Copilot on Right) ── */}
-      <div className="flex flex-col xl:flex-row items-start gap-6">
+      {/* Stacking and the aside/drawer decision key off the measured content
+          width (useWorkspaceAside), never the viewport: the observer watches
+          this container, and the queue column below is the @container the
+          rows respond to. Selection lives in page state, so crossing the
+          threshold never loses the selected request. */}
+      <div ref={workspaceRef} className={cn("flex items-start gap-6 min-w-0", isDesktop ? "flex-row" : "flex-col")}>
         {/* LEFT COLUMN: Queue Content */}
-        <div className="flex-1 w-full min-w-0 space-y-4">
+        <div className="flex-1 w-full min-w-0 space-y-4 @container" aria-busy={isLoading}>
           {isError ? (
-            <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
+            <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4" role="alert">
               <div className="flex items-start gap-3">
                 <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" aria-hidden="true" />
                 <div>
@@ -475,7 +513,10 @@ export default function UnifiedQueuePage() {
               </div>
             </div>
           ) : isLoading ? (
-            <ReservationQueueTableSkeleton viewMode={viewMode} />
+            <>
+              <p role="status" className="sr-only">Loading transportation requests…</p>
+              <ReservationQueueTableSkeleton viewMode={viewMode} />
+            </>
           ) : requests.length === 0 ? (
             <div className="rounded-3xl border border-border bg-surface">
               <EmptyState
@@ -500,12 +541,13 @@ export default function UnifiedQueuePage() {
                     <Button
                       variant="outline"
                       size="sm"
+                      className="min-h-[44px]"
                       onClick={() => departingSoonFilter ? router.replace("/reservations/queue") : setSearch("")}
                     >
                       {departingSoonFilter ? "Clear pickup filter" : "Clear search"}
                     </Button>
                   ) : (
-                    <Button size="sm" onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
+                    <Button size="sm" className="min-h-[44px]" onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
                       <DownloadCloud className="w-4 h-4 mr-2" />
                       Pull from Booking
                     </Button>
@@ -529,7 +571,7 @@ export default function UnifiedQueuePage() {
 
           {/* Compact Pagination Controls */}
           {pageCount > 1 && (
-            <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface px-6 py-4 sm:flex-row sm:items-center sm:justify-between shadow-xs">
+            <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface px-6 py-4 @sm:flex-row @sm:items-center @sm:justify-between shadow-xs">
               <span className="text-xs font-semibold text-foreground-secondary">
                 Showing{" "}
                 <span className="font-bold text-foreground">
@@ -538,14 +580,14 @@ export default function UnifiedQueuePage() {
                 of <span className="font-bold text-foreground">{total}</span> entries
               </span>
               <div className="flex items-center gap-1.5">
-                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">
+                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted @sm:inline">
                   Page {page} of {pageCount}
                 </span>
                 <button
                   aria-label="First page"
                   onClick={() => setPage(1)}
                   disabled={page === 1}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors @sm:flex"
                 >
                   <ChevronsLeft className="w-3.5 h-3.5" />
                 </button>
@@ -553,7 +595,7 @@ export default function UnifiedQueuePage() {
                   aria-label="Previous page"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
@@ -567,7 +609,7 @@ export default function UnifiedQueuePage() {
                       key={pg}
                       onClick={() => setPage(pg)}
                       className={cn(
-                        "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                        "flex min-h-[44px] min-w-[44px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
                         pg === page
                           ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
                           : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
@@ -581,7 +623,7 @@ export default function UnifiedQueuePage() {
                   aria-label="Next page"
                   onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
                   disabled={page === pageCount}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
@@ -589,7 +631,7 @@ export default function UnifiedQueuePage() {
                   aria-label="Last page"
                   onClick={() => setPage(pageCount)}
                   disabled={page === pageCount}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  className="hidden min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
                 >
                   <ChevronsRight className="w-3.5 h-3.5" />
                 </button>
@@ -601,17 +643,20 @@ export default function UnifiedQueuePage() {
         {/* RIGHT COLUMN: Persistent Aside (Desktop) or Drawer (Mobile/Tablet) */}
         {permissions.recommend && (
           <DispatchPlanPanel
-            selectedRequest={selectedRequest}
+            selectedRequest={displayedRequest}
             onBusyChange={handleCopilotBusy}
             canAssign={permissions.assign}
             onAssigned={(result) => {
-              setCompletedRequest({...selectedRequest,...result,fleet_status:"Assigned"});
+              setCompletedRequest({...displayedRequest,...result,fleet_status:"Assigned"});
               invalidate();
               planHook.setStale(true);
             }}
             planHook={planHook}
             isDesktop={isDesktop}
             isMobileDrawerOpen={isMobileDrawerOpen}
+            isBusy={Boolean(lockedRequest)}
+            mobileOpenerRef={mobileDrawerOpenerRef}
+            mobileFallbackRef={mobileOpenTriggerRef}
             onCloseMobileDrawer={() => { if (!lockedRequest) setIsMobileDrawerOpen(false); }}
           />
         )}

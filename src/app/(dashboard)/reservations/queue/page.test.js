@@ -44,7 +44,7 @@ vi.mock("@/services/transport.service", () => ({
 // Classic-runtime JSX reaches for a global React at import time (the toast
 // module builds an icon map at module scope), so the global goes in first.
 vi.stubGlobal("React", React);
-const { default: UnifiedQueuePage } = await import("./page");
+const { default: UnifiedQueuePage, resolveCommittedRequest } = await import("./page");
 const { TooltipProvider } = await import("@/components/ui/tooltip");
 
 const ROW = {
@@ -58,14 +58,18 @@ const ROW = {
   passenger_count: 2,
 };
 
-// The tab buttons are the only elements carrying role="tab" before the
-// list/grid switcher (which is aria-pressed, not a tablist). Attribute values
-// come back HTML-escaped from the static render, so `&amp;` is decoded.
+// The queue-section filter buttons are a labelled filter-button group
+// (aria-pressed), not ARIA tabs: they switch filtered queues rather than
+// tabpanels. The list/grid switcher also uses aria-pressed, so only buttons
+// whose accessible name carries the "Label — count" shape are collected.
+// Attribute values come back HTML-escaped, so `&amp;` is decoded.
 function tabs(html) {
-  return [...html.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map((match) => ({
-    label: (match[0].match(/aria-label="([^"]*)"/)?.[1] ?? "").replace(/&amp;/g, "&"),
-    selected: /aria-selected="true"/.test(match[0]),
-  }));
+  return [...html.matchAll(/<button[^>]*aria-pressed="[^"]*"[^>]*>/g)]
+    .map((match) => ({
+      label: (match[0].match(/aria-label="([^"]*)"/)?.[1] ?? "").replace(/&amp;/g, "&"),
+      selected: /aria-pressed="true"/.test(match[0]),
+    }))
+    .filter(({ label }) => label.includes("—"));
 }
 
 function renderTree() {
@@ -99,6 +103,15 @@ describe("Unified queue — first load", () => {
     for (const tab of rendered) expect(tab.label).toMatch(/— count loading$/);
   });
 
+  it("exposes the sections as a filter-button group without tab semantics", () => {
+    const html = renderTree();
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Queue sections"');
+    expect(html).not.toContain('role="tablist"');
+    expect(html).not.toContain('role="tab"');
+    expect(html).not.toContain("aria-selected");
+  });
+
   it("highlights Today while Today is what is being fetched", () => {
     const rendered = tabs(renderTree());
     const selected = rendered.filter((tab) => tab.selected);
@@ -108,6 +121,32 @@ describe("Unified queue — first load", () => {
 });
 
 describe("Unified queue — loaded", () => {
+  it("holds the successful assignment over stale list and locked copies until matching server state arrives", () => {
+    expect(resolveCommittedRequest).toBeTypeOf("function");
+    if (typeof resolveCommittedRequest !== "function") return;
+    const committed = { ...ROW, fleet_status: "Assigned", vehicle_id: 11, driver_id: 12 };
+    const staleLocked = { ...ROW, fleet_status: "Scheduled", vehicle_id: null, driver_id: null };
+    expect(resolveCommittedRequest({
+      selectedRequest: staleLocked,
+      committedSuccessForId: committed,
+      freshSelectedRequest: staleLocked,
+    })).toBe(committed);
+
+    const matchingFresh = { ...ROW, fleet_status: "Assigned", vehicle_id: 11, driver_id: 12 };
+    expect(resolveCommittedRequest({
+      selectedRequest: staleLocked,
+      committedSuccessForId: committed,
+      freshSelectedRequest: matchingFresh,
+    })).toBe(matchingFresh);
+
+    const anotherLockedRow = { ...ROW, request_id: 502, fleet_status: "Pending" };
+    expect(resolveCommittedRequest({
+      selectedRequest: anotherLockedRow,
+      committedSuccessForId: null,
+      freshSelectedRequest: anotherLockedRow,
+    })).toBe(anotherLockedRow);
+  });
+
   it("keeps the dashboard pickup filter on Today and requests the exact filtered set", async () => {
     state.search = "filter=departing-soon";
     state.query = {
