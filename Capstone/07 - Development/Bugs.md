@@ -4359,3 +4359,17 @@ The redacted responses now add `license_number_present`, and the evaluator uses 
 
 **System Health telemetry truth and SQL review (2026-10-03):** The new health-history code inserted 53 random backdated snapshots when the table was sparse, substituted invented availability/latency values and trend deltas, and displayed an API error rate with a guessed request denominator. Two live PostgreSQL queries also referred to `$2` while callers supplied only one parameter, silently yielding empty latency and push aggregates through catch fallbacks. Removed synthetic seeding and dead dashboard mock arrays, corrected both placeholders, and made missing measurements explicit. History now excludes rows with empty `subsystems` JSON; read-only live inspection found 52 such legacy rows among 58 total. All four telemetry SELECT queries succeeded in a read-only transaction after the fix. Focused tests and touched-file ESLint passed; `db:status` showed migration 142 applied and unchanged, `db:contract` had 0 violations, and the anon probe explicitly refused the snapshot table. No live data was changed by this review. See [[System Health and Reliability]].
 
+
+## Mechanic-connected audit (2026-10-08, read-only, no fix yet)
+
+Full-role audit (API x UI x incident-chain) after the first real mechanic sign-in. Verified by code read plus live read-only queries; nothing written.
+
+**Confirmed gaps:**
+
+1. **Unscoped incident detail for mechanics (G1).** `GET /api/incidents` filters to incidents linked to the caller's own assigned WOs (`incidents/route.js:25-28`), but `GET /api/incidents/[id]` checks only `incidents/read` + confidential (`[id]/route.js:35,100-107`) — no assignment check. A mechanic guessing an id reads any non-confidential report with photos, linked maintenance and live driver/responder positions.
+2. **Unscoped rescue-mission feed (G2).** `GET /api/incidents/responders/active` guards only `incidents/read` (`responders/active/route.js:12`) and returns every open rescue mission with live positions to an assignee-scoped role.
+3. **Auto-created Emergency WOs are always unassigned and invisible.** Incident/inspection auto-creation never sets `assigned_mechanic_id` (`incidents/maintenance.js:54-61`, `inspections/maintenance.js:104-107`); every mechanic read filters on it, and manual POST cannot set it either (`vehicle-maintenance/route.js:20-40` omits the column). Live now: 1 Scheduled + 2 In Progress unassigned WOs sit ownerless with no re-page, SLA or unassigned-state escalation. Unassign (Y to NULL), pure Cancel and unassigned-archive are likewise silent (`[id]/route.js:345-346` require a non-null after-assignee).
+4. **Test account sees an empty queue.** mechanic@gmail.com (employee 135) holds zero assigned WOs live; the 3 demo WOs belong to login-less employee 134. Reassign or seed WOs to 135 before workshop testing.
+5. **CommandPalette search 403s for mechanics** (`command-palette.jsx:96-102` fires `GET /api/search`, explicitly denied at `permissions.js:349-352`); palette also lists zero `/mechanic/*` pages. Minor: RoleDashboard has a mechanic config with no query/branch (blank body if ever rendered), `summary.upcoming` is a hardcoded `[]`, predictive_maintenance grant unused by any mechanic UI.
+
+Non-gaps (deliberate): mobile driver-only login reject, search deny (anti-enumeration), notifications self-only, PUT whitelist == client whitelist, transition maps agree, four-eyes completion guard, cost visible-but-not-editable.
