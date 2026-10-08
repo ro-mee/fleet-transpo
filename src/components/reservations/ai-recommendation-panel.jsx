@@ -937,7 +937,7 @@ export function AiRecommendationPanel({
         <div className="p-4 border-b border-border/80 bg-muted/20 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
-              <div className="relative">
+              <div className="relative inline-flex shrink-0">
                 <CopilotAvatar size="md" decorative={false} label="Dispatch Copilot Avatar" />
                 <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-surface" aria-hidden="true" />
               </div>

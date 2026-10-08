@@ -552,3 +552,13 @@ it('never links a pairing schedule block to a driver record',()=>{
   expect(html).not.toContain('<a ');
   expect(html).toContain('Check substitute schedule');
 });
+
+it('renders a profile avatar and aligned timestamp for user messages',()=>{
+  setReservationMessages(70,[{role:'user',content:'Why no match?',at:1728346920000}]);
+  hookState.slots=[];hookState.cursor=0;
+  const html=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:70,hasPair:true}));
+  expect(html).toContain('Why no match?');
+  expect(html).toContain('pr-8');
+  expect(html).toContain('rounded-full border border-primary/30');
+});
+

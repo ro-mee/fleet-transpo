@@ -18,7 +18,7 @@ export function CopilotAvatar({ size = "sm", decorative = true, label = null, cl
   return (
     <span
       className={cn(
-        "relative shrink-0 overflow-hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 shadow-2xs",
+        "relative inline-flex items-center justify-center shrink-0 overflow-hidden rounded-full border border-emerald-500/30 bg-emerald-500/10 shadow-2xs",
         FRAMES[size] ?? FRAMES.sm,
         className
       )}

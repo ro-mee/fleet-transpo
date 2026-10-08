@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Send, LoaderCircle, RotateCcw } from "lucide-react";
-import { formatDateTime, cn } from "@/lib/utils";
+import { formatDateTime, cn, getInitials } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { CopilotAvatar } from "./copilot-avatar";
@@ -307,7 +307,18 @@ export function CopilotConversation({
   const currentSelection = useRef(currentPair);
   // Permission-aware recovery links: a null or unauthorized target renders
   // as plain guidance text, never as a link. Fail closed when no checker.
-  const { canAccess } = useRoleAccess() ?? {};
+  const { canAccess, user, employee } = useRoleAccess() ?? {};
+  const userFullName = employee
+    ? `${employee.first_name || ""} ${employee.last_name || ""}`.trim()
+    : user?.name || "";
+  const userAvatarUrl =
+    employee?.avatar_url ||
+    employee?.photo_url ||
+    employee?.face_image_url ||
+    employee?.image ||
+    user?.image ||
+    null;
+  const userInitials = userFullName ? getInitials(userFullName) : "U";
   useEffect(() => { currentSelection.current = currentPair; }, [currentPair]);
 
   // The panel keys this component by requestId; switching reservations resets local state.
@@ -540,12 +551,24 @@ export function CopilotConversation({
           >
                 <div
                   className={cn(
-                    "flex items-start gap-2 max-w-[95%]",
-                    m.role === "user" && "justify-end flex-row-reverse"
+                    "flex gap-2 max-w-[95%]",
+                    m.role === "user" ? "items-center justify-end flex-row-reverse" : "items-start"
                   )}
                 >
                   {m.role === "assistant" && (
                     <CopilotAvatar size="xs" className="mt-0.5" />
+                  )}
+                  {m.role === "user" && (
+                    <span
+                      className="relative inline-flex items-center justify-center shrink-0 size-6 rounded-full border border-primary/30 bg-primary/10 text-[10px] font-semibold text-primary select-none self-center shadow-2xs overflow-hidden"
+                      aria-hidden="true"
+                    >
+                      {userAvatarUrl ? (
+                        <img src={userAvatarUrl} alt="" className="h-full w-full object-cover select-none pointer-events-none" />
+                      ) : (
+                        userInitials || "U"
+                      )}
+                    </span>
                   )}
                   <div
                     className={cn(
@@ -598,7 +621,7 @@ export function CopilotConversation({
                   dateTime={new Date(m.at).toISOString()}
                   className={cn(
                     "mt-1 px-1 text-[11px] text-foreground-secondary",
-                    m.role === "assistant" && "pl-8"
+                    m.role === "assistant" ? "pl-8" : "pr-8"
                   )}
                 >
                   {clock(m.at)}
@@ -608,15 +631,7 @@ export function CopilotConversation({
                     Asked about {m.selectedPairLabel || `vehicle #${m.selectedPair.vehicleId} / driver #${m.selectedPair.driverId}`}
                   </p>
                 )}
-                {!readOnlyCommitted && m.evaluatedAt && (
-                  <details className="mt-1 max-w-[90%] pl-8 text-[11px] text-foreground-secondary">
-                    <summary className="cursor-pointer">Evidence details</summary>
-                    <p>
-                      Checked {formatDateTime(m.evaluatedAt)}. Recheck the decision card before confirming.
-                    </p>
-                    {m.coverage && <p>Context includes {m.coverage.pairs.included} of {m.coverage.pairs.total} candidate pairs and {m.coverage.exclusions.included} of {m.coverage.exclusions.total} exclusions in this evaluation.</p>}
-                  </details>
-                )}
+
               </div>
           </Fragment>
         ))}
