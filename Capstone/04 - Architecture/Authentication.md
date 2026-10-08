@@ -605,6 +605,13 @@ that file is which accounts are unreachable on their face.
   filtering, and revocation; the IP address is display metadata only and is
   never a device/session deduplication key.
 
+Dev-only bypass for manual web testing (2026-10-08): `DEV_BYPASS_OTP=1` skips the web OTP gate
+when `NODE_ENV !== "production"` (`isDevOtpBypassEnabled()` in `src/lib/auth/dev-bypass.js`,
+branch in `src/lib/auth.js` `authorize()`), writing an `mfa_bypassed_dev` audit row (resource
+`authentication`, channel `web`) so test logins stay visible. The mobile login route is untouched,
+and production ignores the flag unconditionally (fail closed). The flag is documented in
+`.env.local.example` (gitignored, local-only).
+
 ## Session idle timeout and expiration UX — CONFIRMED (2026-09-02, revised 2026-09-18, policy made configurable 2026-09-29)
 
 - **Idle timeout**: **5 minutes** (`last_seen_at + 300s`) *by default*. Migration `089_session_idle_timeout.sql` added `web_sessions.idle_timeout_seconds` defaulting to `3600`; migration `113_session_idle_timeout_5min.sql` lowers the column default to `300`. Since 2026-09-29 the value an operator configures is `security_policy.idleTimeoutSeconds` (`60–3600`), written into **new** sessions at creation — see "Configurable security & session policy" below.
