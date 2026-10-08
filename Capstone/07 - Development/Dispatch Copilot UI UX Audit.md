@@ -411,3 +411,11 @@ The user approved `docs/superpowers/plans/2026-10-02-dispatch-copilot-ui-audit-r
 - `npm run lint:ci` exit 0; `git diff --check` clean; `npm run verify:auth` 294/294.
 - Build: webpack compile-check build succeeds with a placeholder CSP origin (Turbopack refuses the worktree's symlinked `node_modules`; no `.env`/real Supabase URL exists in this environment). This proves the branch compiles — it is NOT a shippable production build, which still needs the real `NEXT_PUBLIC_SUPABASE_URL` and a rerun.
 - Browser acceptance: still PENDING and still the merge gate — no Playwright/Puppeteer/Chrome/test session exists here, so no visual claim is made. **Hold decision: no merge into `main` until an authorized dispatcher browser pass runs.**
+
+## Post-sync verification — main `efbcd190` merged in (`9fe3930e`), 2026-10-08
+
+- 6 conflicts resolved by union (queue page + tests, AI Advisory, Reservations, audit note, SYSTEM.md); branch's stale long-label tab tests retired (superseded by main's short-Today copy); one duplicate highlights assertion folded.
+- Full `npm run test:run`: 3911/3914 — the 3 failures (mobile coach-marks tutorial, super-admin-nav 17-route order, defense-seed writer mapping) each reproduce on clean `main`, so the sync introduces zero new failures. Main's own evolution already fixed 3 of the 6 previously recorded unrelated failures.
+- Touched-file ESLint clean; full `lint:ci` reports 16 warnings, all inside main's `supply-deliveries/page.js` (untouched by this branch, out of scope).
+- `verify:auth` 309/309, `db:check` 149 valid, `git diff --check` clean, webpack compile-check build succeeds (placeholder CSP origin; real-URL prod build still required).
+- Branch state: synced, verified, still held for browser acceptance only.
