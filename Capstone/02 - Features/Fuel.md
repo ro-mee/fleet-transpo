@@ -270,6 +270,8 @@ Save one Petron and one Skyewin/Shell scan against an active trip, then verify t
 
 ## Verified reference-price workflow — review fixes, 2026-10-08 (prepared; live apply held)
 
+**Historical checkpoint:** the prepared/unapplied status in the reference-price, atomic-snapshot and provider sections below is superseded by the current database closeout recorded under **Fuel database closeout**. It remains here as the original review evidence, not the current migration verdict.
+
 The fuel console links to `/fuel/reference-prices`. Staff with `fuelallocations.read` can review product, region, PHP/L price, effectivity, source, verifier and lifecycle. Only staff with `fuelallocations.update` can record a manual verified price or choose the estimate region. The API obtains the verifier from the signed-in employee; submitted verifier, method and lifecycle cannot grant authority. Manual verification requires checking the dated publication. The form labels Manila time and converts it to an explicit `+08:00` instant.
 
 `src/lib/fuel/price-repository.js` owns real server SQL. It validates scalar PHP/L prices with two-decimal storage, required source URLs, real calendar dates and explicit timezones, Manual verifier identity and Automatic ingestion hash. A transaction and advisory lock serialize publication. Exact repeats return the existing snapshot; conflicting same-effectivity prices require a new later correction with provenance. Consecutive implausible adjustments are held for review. Future rows remain Pending; an atomic effectivity transition promotes the current row and retains previous rows as Historical. Repeating activation leaves prices and provenance unchanged.
@@ -296,7 +298,25 @@ The enabled pipeline activates already verified due announcements, fetches witho
 
 The final odometer/latest-announcement follow-up reproduced four failures before fixes: omitted stored start used supplied distance, boolean legacy start was accepted, an older automatic announcement bypassed the stale gate, and nonnumeric end readings silently completed. The real completion/cron/repository/service tests then passed (4 files, 24 tests), including stored-start precedence, numeric-string legacy readings, missing actual distance, and serialized first capture.
 
-**Release holds:** all draft migrations remain unapplied. Deployment remains held until authorized migration status/reconciliation, apply in filename order, generated schema dump, anon probe, live contract/grant/FK/index/catalog checks and real query verification. Manual browser/device acceptance, legitimate production build configuration, official-source clearance and its stale-warning policy remain external gates. Missing fuel relations/columns return a clear 503 pending-schema error; the API never claims an unapplied feature is ready.
+### Closeout evidence harness
+
+The strengthened offline completion test runs the real ownership, geofence, status, audit, reservation, completion and price repository modules, replacing only identity and external DB/Supabase boundaries. Manual region selection and price creation flow into the real completion route: snapshot 44, signed-in verifier 3, 36 km / 9 km/L / PHP 62.70 produces 4 L / PHP 250.80. A paused capture interleaves a retry and preserves the whole first basis. GPS actual distance remains separate from the 32 km plan. UTC and Manila effectivity boundaries and redirect refusal/changed-origin responses have explicit assertions. The focused closeout run passed 29 tests across five files.
+
+`src/lib/fuel/postgres-closeout.test.js` is opt-in with `FLEETOPS_REVIEW_DB_TEST=1`. It prepares a guarded random private review schema, clones live column types without production defaults, sequences, triggers or foreign keys, and inserts fixture trip/request/vehicle/manual-price rows. It checks persisted completion rows, GPS versus plan, and two real PostgreSQL clients using `pg_blocking_pids` to establish row-lock overlap. Mutation targets are allowlisted; the search path excludes public. Cleanup verifies the exact generated schema, its owner and allowed fixture tables before dropping it. Production constraints, grants and RLS remain separate live-catalog evidence. Without the flag, all three database tests are skipped and no connection is made. Preparation/skip validation is not a successful live run; its result must be recorded after the authorized parent run.
+
+The first authorized database attempt exposed fixture mismatches: bigint IDs arrive as strings, and CTAS did not copy the audit index required by `ON CONFLICT (event_key) WHERE event_key IS NOT NULL`. The fixture now compares exact ID text and creates that exact partial unique index in its private schema. Assertions require two persisted manual-workflow audit entries and one completion audit entry even under concurrent retry, so logged audit failures cannot count as successful evidence. These fixture corrections passed lint and whitespace checks; the parent owns the enabled rerun and final live verdict.
+
+The next authorized attempt passed persisted manual snapshot/completion evidence. Its GPS fixture represented an 11 km jump in one minute, correctly rejected by the real trail helper's speed guard; it now spans 30 minutes with a preceding trip start. Blocking observation now uses `pg_backend_pid()` inside each transaction rather than the pooler's client ID. Every adapter query, fixture query and transaction uses `BEGIN` with `SET LOCAL search_path` and bounded local timeouts, then commits or rolls back. The adapter checks its actual schema before each query. No session search-path setting survives to a pooled backend's next user. Final GPS/concurrency success still requires the parent's enabled rerun.
+
+### Fuel database closeout — 2026-10-08
+
+The authorized parent checkpoint applied migrations 150–155 through the repository runner, refreshed the generated schema and reported a clean database contract (77 relations, zero findings). This supersedes the earlier statement that fuel migrations 154/155 were only drafts. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]] for the shared closeout and remaining release decisions.
+
+The enabled isolated PostgreSQL fuel suite passed all three tests (full fuel run: 19.39 seconds). Real manual region/price routes persisted snapshot 44 with verifier 3; the real completion route persisted 36 km, 9 km/L, PHP 62.70/L, 4.000 L and PHP 250.80, with separate planned estimates. A realistic 30-minute GPS trail persisted approximately 11.1 km actual distance while keeping the 32 km plan. Two distinct PostgreSQL backend IDs overlapped: `pg_blocking_pids` showed the second completion waiting for the first trip-row lock. Both calls returned the same first distance, efficiency, reference price, snapshot, region, planned/actual costs, unavailable reason and capture time. One completion audit event persisted under retry. No application service or repository was mocked; identity and the Supabase status lookup remained external fixture boundaries.
+
+Fixtures used a generated private schema and transaction-local settings only. Production business rows, production sequences and official provider sources were not changed. The fixture copied current live column types and explicit indexes needed by exercised SQL; it did not reproduce production triggers, foreign keys, RLS or grants. Those remain separate catalog evidence. The cleanup dropped the exact verified fixture schema, explicitly queried the catalog to confirm its absence, and ended its pool.
+
+**Remaining gates:** browser/device acceptance and release decisions belong to the shared closeout; the final configured production build passed. Official-source clearance and its stale-warning policy remain external; automatic ingestion stays disabled until explicitly configured. Missing fuel relations/columns still return a clear 503 pending-schema error for an unprepared environment.
 
 ## Export exports the view you are looking at — 2026-10-01 (implemented)
 
@@ -316,4 +336,52 @@ Confirmed against live on 2026-10-01: `fuelrequests` = **45** rows, `fuelrecords
 
 The old `pageSize: total` call was also an unbounded single query; the paged walk replaces it.
 
+## Fleet Manager live-use remediation - 2026-10-03
+
+`GET /api/fuel/requests` now includes active and archived receipt counts plus the statuses of active receipts for each permit. The Permits table shows whether the linked receipt is approved, pending, completed, rejected, archived, or missing, and whether it is eligible for Fuel Analytics. Fulfilled remains the permit lifecycle state; it does not promise that a receipt is currently active or approved. Fuel Analytics includes non-deleted `Approved` fuel records only.
+
+An earlier read-only snapshot (about 02:04 Manila) of the documented live project found 24 fulfilled permits: 21 had archived receipts only and 3 had active receipts (2 Approved, 1 Pending). It counted 12 active Approved fuel records. A later same-day snapshot differed; see the archive audit follow-up below. No permits or receipts were modified. The receipt-state helper and route response tests passed.
+
 **Verification.** `src/lib/export.test.js` (8 tests) — including the root-cause pin that `exportToCSV` refuses a paginated envelope and reports `count: 0` — and `src/lib/fuel/export-targets.test.js` (7 tests), which asserts the 45-permit case explicitly: the permits view must call the permits endpoint, must not touch `getFuelRecords`, and must carry the active status/search filter through every page of the registry walk.
+
+## Fuel Governance & Policy Engine — 2026-10-03 (implemented & verified)
+
+Refueling planning, pilferage detection, and auto-authorization previously relied on hard-coded constants (10% reserve, 90% target fill, 15% variance threshold, and 60 L auto-approval). These are now centralized in an audited, configurable policy engine stored in `system_settings` under setting key `fuel_policy`:
+
+| Policy Key | Default | Allowed Range | Description |
+|---|---|---|---|
+| `reserveBufferPercent` | `10` | 5% – 40% | Safety floor retained in tank before mandatory refill is recommended |
+| `preferredTargetPercent` | `90` | 40% – 100% | Operating refill target to minimize repeated pump visits |
+| `maxFillCapPercent` | `100` | 80% – 100% | Physical tank upper bound accounting for thermal expansion |
+| `varianceThresholdPercent` | `15` | 5% – 40% | Mileage vs gauge discrepancy triggering an anomaly alert |
+| `enableVarianceAlerts` | `true` | boolean | Toggles pilferage & consumption variance detection |
+| `autoApprovalEnabled` | `true` | boolean | Toggles instant auto-authorization engine |
+| `autoApprovalMaxLiters` | `60` | 10 – 200 L | Liter ceiling above which requests require Fleet Manager review |
+| `budgetEnforcementMode` | `"warning"` | `"warning"` \| `"strict"` | Warning permits manager override with reason; Strict hard blocks |
+| `maxPricePerLiter` | `120` | ₱40 – ₱200 / L | Receipts exceeding this ceiling trigger anomaly warning |
+| `strictFuelTypeMatching` | `false` | boolean | Strictly block claims where receipt fuel type conflicts with engine |
+
+### Architecture & Touchpoints
+
+- **Pure Policy Definition:** `src/lib/fuel/fuel-policy.js` provides `DEFAULT_FUEL_POLICY`, `FUEL_POLICY_RANGES`, `mergeFuelPolicy()`, and `validateFuelPolicy()`.
+- **Database Storage:** `src/services/fuel-settings.service.js` reads/writes `system_settings` using `fuel_policy` key, preventing any breaking table migration.
+- **REST Endpoints:** `GET` / `PUT /api/settings/fuel` (`src/app/api/settings/fuel/route.js`) with RBAC guard (`requirePermission(req, "fuel_settings", ...)`), parameter allowlist, and audit logging (`writeAudit`).
+- **Core Decision Logic:** `src/lib/fuel/request-policy.js` accepts optional `policy` in `calculateFuelRecommendation()`, `assessFuelVariance()`, and `evaluateFuelPolicy()`.
+- **Request Creation Integration:** `src/app/api/fuel/requests/route.js` fetches the active policy and injects it into all calculations and auto-authorization evaluations.
+- **Approval and receipt integration:** Strict budget mode blocks manager over-budget approvals even with an override reason. Mobile receipt submission uses the configured price ceiling for anomaly flags and blocks a known fuel-type mismatch when strict matching is enabled. Gauge photos on requests and receipt photos on claims remain mandatory in the mobile flow; neither is exposed as a configurable toggle.
+- **UI Management Console:** `src/app/(dashboard)/settings/fuel/page.js` provides a modern settings console with HeroHeader, 5 KPI stat cards, an interactive Three-Value Tank Visualizer, Refueling & Planning Thresholds, Pilferage & Variance Detection, Auto-Authorization Engine, Cost & Budget Governance, and action buttons.
+- **Navigation & Access:** Added to `NAV_ROLES["/settings/fuel"]` and `MATRIX.fuel_settings` for `admin`, `super_admin`, and `fleet_manager` (`src/lib/auth/permissions.js`), workspace sidebars (`src/lib/workspaces.js`), and Command Palette (`src/components/ui/command-palette.jsx`).
+
+**Verification.** Policy, request, and mobile receipt suites passed in the 3,605-test full run; `npm run lint:ci`, `npm run verify:auth`, and `npm run db:check` passed. The new settings reject non-boolean switches and a target fill above the tank cap.
+
+### Receipt archive audit follow-up - 2026-10-03
+
+A later read-only snapshot of the same project (02:59 Manila) found 22 fulfilled permits: 21 with archived receipts only, 1 with an active linked receipt, and none without a linked receipt. Across `fuelrecords`, 49 of 50 records were soft-deleted (20 with status `Approved`, 29 `Pending`); none had a matching `fuelrecords` audit event. The actor and reason for those historical archives cannot be recovered. Counts differed from the earlier same-day snapshot, so each is timestamped evidence rather than a stable total. Both snapshots predate the controlled defense data cleanup and must not be treated as current counts.
+
+`DELETE /api/fuel/[id]` now locks an active record, soft-deletes it, and writes a required `fuelrecords` audit event in the same transaction. The event captures the actor, timestamp, previous status, and linked permit ID without logging receipt contents or free-text notes. If the audit write fails, the archive rolls back. The existing endpoint remains reason-free; this adds future attribution but cannot explain historical archives.
+
+**Verification.** The latest focused run passed 14 tests across four files, including archive success, already-archived behavior, and rollback when required audit logging fails. Changed route/helper paths passed ESLint and `git diff --check`. No live row or migration was changed.
+
+### Fuel request review dialog viewport fit - 2026-10-07
+
+The dialog already capped its full height to `100dvh - 2rem`, but the root used `overflow-hidden` while only the body scrolled. The action row sat outside that body scroll area, so a tall dialog could clip the buttons at the viewport edge. The dialog root now owns vertical scrolling, and the header and action row stick to its top and bottom edges. The footer wraps at narrow widths and keeps each button at its natural width. No automated or browser verification was run.

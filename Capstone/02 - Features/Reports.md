@@ -6,10 +6,26 @@ source:
   - src/app/api/reports
   - src/app/(dashboard)/reports
   - src/app/(dashboard)/analytics
-last_verified: 2026-08-31
+last_verified: 2026-10-02
 ---
 
 # Feature: Reports
+
+## Defense dataset reconciliation — 2026-10-03
+
+The old business rows were removed or retired before the corrected defense reseed. `npm run seed:defense:verify:contamination` compares all 26 monitored operational tables with the defense ownership ledger and calls the live Fleet, Financial, Maintenance, Fuel Consumption, Fleet Cost, and Driver Performance report handlers over 2026-09-03 through 2026-10-02. Independent SQL agrees on 30 completed trips, 362.90 km, 372 L, PHP 23,808 fuel, and PHP 20,400 maintenance, with no active business rows outside the seed. System/security/reference rows and unrelated unprovenanced Storage files remain preserved and are not counted in those reports. See `[[Defense Demo Data Implementation Plan]]`.
+
+The AI analyst cache required a separate pass: 103 pre-reseed narratives and one post-reseed Analytics narrative that falsely claimed zero activity were removed by exact ID. `seed:defense:cache:plan` is read-only and `seed:defense:cache:cleanup` is digest-guarded. The final contamination check rejects narratives predating the corrected seed and Analytics zero-activity copy that contradicts completed trips in its range. Provider settings, templates, and logs remain intact.
+
+Seed-owned row snapshots were reconciled after routine system updates to vehicle timestamps, request timestamps/Future priority, and the expired-license driver's suspension. The review was restricted to those exact fields and had no outside FK references; live seed status returned `complete` afterward.
+
+Old notification and failed push evidence was also reviewed by typed reference to removed or retired business entities. The exact-ID cleanup removed only those matching rows; current defense notices, security/UVVRP notices, and audit/auth/session evidence were preserved. A second read-only evidence plan found no stale typed links.
+
+## Admin QA follow-up — 2026-10-02
+
+The AI analyst on `/reports` no longer keeps “Generating analysis” after a settled error or an empty/unmatched narrative. The narrative fetch has a 30-second client timeout and no automatic retry; the card shows an error and a manual retry without consuming the regenerate budget. If the report query itself fails, the card and export area say why exports are unavailable. Export enablement still follows the report data query alone, so an AI failure does not disable a valid report export. A genuinely empty narrative shows the neutral no-analysis state.
+
+Read-only live checks returned a valid Fleet report payload for October 1–2 (22 roster vehicles, zero trips in that window) and a cached Fleet narrative row for that same range with nonempty text. These checks do not reproduce the tester's browser request sequence; authenticated deployed acceptance remains pending. Focused tests, changed-file ESLint and the production build passed.
 
 ## What it does
 
@@ -271,3 +287,13 @@ Both full and lean trip projections preserve typed cargo facts and the completio
 Fleet Reports now shows cargo payload utilization separately from fleet in-use utilization. The matching Cargo Utilization worksheet exports completed trips with known positive declared kg and usable capacity only. 650/1000 is displayed as 65% and stored in Excel as 0.65 with a percentage format. Unknown capacity is omitted; it does not become 0%.
 
 Verification: 13 focused suites / 71 tests passed, including actual JSON and XLSX route execution for all five service codes, real selector-to-workbook generation and ExcelJS decoding, and server-rendered Trips/Fleet report screens. Production-file lint passed. Database calls and authorization boundaries were replaced in offline tests; the selector and workbook were not replaced. No live DB, browser authentication, native-device or deployment acceptance is claimed. Shared trip reads now require migrations 150–155, including the snapshot table/estimate columns: keep deployment held until the existing migration/contract gates and isolated fixture QA are completed. Typed-demo ledger preparation and its unexecuted isolated QA are documented by the rollout closeout; no fixture was planted here.
+
+## Fleet Manager live-use remediation - 2026-10-03
+
+An explicitly zero-trip Fleet report window now gets a deterministic, descriptive narrative and skips both the language model and the 24-hour narrative cache. The wording reports only that no trip records appear in the selected window and does not infer an outage or cause. Non-empty report behavior is unchanged. The Drivers report count now says **linked driver profiles**, matching its source population; the directory can additionally show incomplete driver accounts.
+
+The maintenance report query was left unchanged pending a trace of QA-0001 against the correct database and report range. Focused narrative and report-route regressions pass; the deployed browser flow and the reported production rows remain unverified. See [[Fleet Manager Live Use-Case Remediation Plan]].
+
+## Supply delivery report boundary audit - 2026-10-07
+
+Migration 147 adds `dispatchschedules.service_type`. `getFleetUtilizationReport()`, `getDriverPerformanceReport()` and the Trip Performance workbook now exclude typed `SUPPLY_DELIVERY` trips while retaining legacy NULL rows to preserve historical totals. Driver Performance remains grounded in passenger pickup evidence (`at_pickup_at` against dispatch departure or Booking pickup time). Fleet Cost, Financial Summary and Fuel Consumption remain fleet-wide and may include work from every service. Live read-only SQL confirmed the passenger filters and found no current cargo trips. Cargo-specific KPIs and reports are still absent; implement those before enabling cargo assignment.

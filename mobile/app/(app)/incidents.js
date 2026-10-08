@@ -1,6 +1,6 @@
 import { moderateScale } from '../../lib/scaling';
 import { useState, useEffect, useRef } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, InteractionManager } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, InteractionManager, Modal } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
@@ -16,6 +16,11 @@ import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
 import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from '../../components/coachmarks';
+import {
+  INCIDENT_SEVERITY_REASON_LABELS,
+  INCIDENT_SEVERITY_RULE_VERSION,
+  recommendIncidentSeverity,
+} from "../../../shared/incidents/severity.js";
 
 const INCIDENT_TYPES = [
   { id: "breakdown", label: "Vehicle Breakdown", icon: "car" },
@@ -37,6 +42,35 @@ const ASSISTANCE_OPTIONS = [
   "Fuel",
 ];
 
+const SEVERITY_LEVELS = ["Minor", "Moderate", "Major", "Critical"];
+const OVERRIDE_REASONS = [
+  { value: "situation_changed", label: "The situation changed" },
+  { value: "answers_missed_context", label: "I missed context in my answers" },
+  { value: "driver_judgment", label: "My judgment is different" },
+];
+const LEVEL_HELP = {
+  Minor: "No current danger or trip disruption was reported.",
+  Moderate: "The trip is affected, but no immediate danger was reported.",
+  Major: "Urgent review is needed because safety is unclear or a hazard was reported.",
+  Critical: "You reported someone is in immediate danger.",
+};
+const IMMEDIATE_QUESTION = {
+  breakdown: "Is anyone in immediate danger, including from a vehicle hazard in traffic?",
+  accident: "Does anyone need emergency help or face an immediate danger now?",
+  weather: "Does the weather create an immediate danger to people or traffic now?",
+  cargo: "Does the cargo create an immediate danger to people or traffic right now?",
+  medical: "Does anyone need emergency medical help right now?",
+  other: "Is anyone in immediate danger right now?",
+};
+const RISK_QUESTION = {
+  breakdown: "Does the vehicle create a hazard for people or traffic?",
+  accident: "Is there still a hazard for people or traffic?",
+  weather: "Is there a current hazard to other road users?",
+  cargo: "Is there a current hazard to people or traffic?",
+  medical: "Is anyone else or traffic at risk right now?",
+  other: "Is anyone else or traffic at risk right now?",
+};
+
 export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -53,7 +87,17 @@ export default function IncidentsScreen() {
 
   const [type, setType] = useState(null);
   const [description, setDescription] = useState("");
-  const [severity, setSeverity] = useState("medium");
+  const [severityAnswers, setSeverityAnswers] = useState({
+    immediateDanger: "",
+    vehicleSafety: "",
+    tripImpact: "",
+    hazardToOthers: "",
+  });
+  const [severityOverride, setSeverityOverride] = useState(null);
+  const [overrideReason, setOverrideReason] = useState(null);
+  const [lowerCriticalConfirmed, setLowerCriticalConfirmed] = useState(false);
+  const [showSeverityChoices, setShowSeverityChoices] = useState(false);
+  const [showCriticalConfirm, setShowCriticalConfirm] = useState(false);
   const [assistance, setAssistance] = useState([]);
   const [expense, setExpense] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -65,6 +109,8 @@ export default function IncidentsScreen() {
   const [vehiclePlate, setVehiclePlate] = useState("");
   const [photos, setPhotos] = useState([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const recommendation = recommendIncidentSeverity(severityAnswers);
+  const finalSeverity = severityOverride || recommendation?.severity || null;
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -162,7 +208,15 @@ export default function IncidentsScreen() {
       prev.includes(option) ? prev.filter((o) => o !== option) : [...prev, option]
     );
   };
-  const handleSubmit = async () => {
+  const updateSeverityAnswer = (key, value) => {
+    setSeverityAnswers((previous) => ({ ...previous, [key]: value }));
+    setSeverityOverride(null);
+    setOverrideReason(null);
+    setLowerCriticalConfirmed(false);
+    setShowSeverityChoices(false);
+    setShowCriticalConfirm(false);
+  };
+  const handleSubmit = async (criticalConfirmed = false) => {
     if (!type) {
       AppAlert.alert("Incident Type Required", "Please select the category of the incident before submitting.");
       return;
@@ -170,6 +224,18 @@ export default function IncidentsScreen() {
     if (isTour) {
       notifyInteraction?.("incident.submit");
       setShowTourSuccessModal(true);
+      return;
+    }
+    if (!recommendation || !finalSeverity) {
+      AppAlert.alert("Safety questions required", "Answer each safety and trip question to get a severity recommendation.");
+      return;
+    }
+    if (severityOverride && !overrideReason) {
+      AppAlert.alert("Reason required", "Choose why you changed the recommended severity.");
+      return;
+    }
+    if (recommendation.severity === "Critical" && finalSeverity !== "Critical" && !lowerCriticalConfirmed) {
+      AppAlert.alert("Recheck immediate danger", "Confirm that you rechecked the immediate danger answer before choosing a lower severity.");
       return;
     }
     if (!description.trim()) {
@@ -183,6 +249,10 @@ export default function IncidentsScreen() {
         AppAlert.alert("Invalid Expense", "Enter the amount you spent as a positive number, or leave it blank.");
         return;
       }
+    }
+    if (finalSeverity === "Critical" && !criticalConfirmed) {
+      setShowCriticalConfirm(true);
+      return;
     }
     try {
       setSubmitting(true);
@@ -254,7 +324,15 @@ export default function IncidentsScreen() {
         location: gpsLocation,
         latitude: lat,
         longitude: lng,
-        severity: ({ low: "Minor", medium: "Moderate", high: "Major", critical: "Critical" }[severity] || "Minor"),
+        severity: finalSeverity,
+        severity_assessment: {
+          version: INCIDENT_SEVERITY_RULE_VERSION,
+          answers: severityAnswers,
+          override_reason_code: severityOverride ? overrideReason : null,
+          critical_confirmed: finalSeverity === "Critical" && criticalConfirmed,
+          lower_severity_confirmed:
+            recommendation.severity === "Critical" && finalSeverity !== "Critical",
+        },
         incident_date: new Date().toISOString(),
         client_submission_id: clientSubmissionId,
         assistance_needed: assistance.length ? assistance : null,
@@ -287,24 +365,24 @@ export default function IncidentsScreen() {
       <View
         style={[
           styles.topBar,
-          { backgroundColor: colors.errorContainer, paddingTop: insets.top },
+          { backgroundColor: colors.primaryContainer, paddingTop: insets.top },
         ]}
       >
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.closeBtn}>
-          <Ionicons name="arrow-back" size={24} color={colors.onErrorContainer} />
+          <Ionicons name="arrow-back" size={24} color={colors.onPrimaryContainer} />
         </Pressable>
-        <Text style={[styles.topBarTitle, { color: colors.onErrorContainer }]}>
+        <Text style={[styles.topBarTitle, { color: colors.onPrimaryContainer }]}>
           Report Incident
         </Text>
-        <Ionicons name="warning" size={22} color={colors.onErrorContainer} />
+        <Ionicons name="document-text-outline" size={22} color={colors.onPrimaryContainer} />
       </View>
 
-      {/* Emergency Banner */}
+      {/* Incident guidance */}
       <CoachMarkTarget id="incident.banner" targetId="incident.banner" radius={10} padding={6}>
-        <View style={[styles.emergencyBanner, { backgroundColor: colors.error }]}>
-          <Ionicons name="radio-outline" size={16} color={colors.onError} />
-          <Text style={[styles.emergencyText, { color: colors.onError }]}>
-            Fleet Coordinator will be notified immediately upon submission.
+        <View style={[styles.emergencyBanner, { backgroundColor: colors.surfaceContainerHigh }]}>
+          <Ionicons name="information-circle-outline" size={17} color={colors.primary} />
+          <Text style={[styles.emergencyText, { color: colors.onSurfaceVariant }]}>
+            This form records an incident for dispatch review. Use SOS or call emergency services if someone needs immediate help.
           </Text>
         </View>
       </CoachMarkTarget>
@@ -348,29 +426,47 @@ export default function IncidentsScreen() {
                   <ClayCard
                     key={t.id}
                     onPress={() => {
+                      if (type !== t.id) {
+                        setSeverityAnswers({
+                          immediateDanger: "",
+                          vehicleSafety: "",
+                          tripImpact: "",
+                          hazardToOthers: "",
+                        });
+                        setSeverityOverride(null);
+                        setOverrideReason(null);
+                        setLowerCriticalConfirmed(false);
+                        setShowSeverityChoices(false);
+                        setShowCriticalConfirm(false);
+                      }
                       setType(t.id);
                       if (isTour) {
                         setDescription("Flat tire on right rear wheel, vehicle safely parked on shoulder.");
                         setAssistance(["Tow Truck"]);
-                        setSeverity("medium");
+                        setSeverityAnswers({
+                          immediateDanger: "no",
+                          vehicleSafety: "safe",
+                          tripImpact: "delayed",
+                          hazardToOthers: "no",
+                        });
                         setPhotos([{ uri: "https://images.unsplash.com/photo-1578844251758-2f71da64c96f?w=400&q=80", mimeType: "image/jpeg" }]);
                       }
                       notifyInteraction?.("incident.category", t.id);
                     }}
                     style={[
                       styles.typeCard,
-                      selected && { backgroundColor: colors.errorContainer, borderColor: colors.error },
+                      selected && { backgroundColor: colors.primaryContainer, borderColor: colors.primary },
                     ]}
                   >
                     <ClayTile
                       icon={t.icon}
                       size={38}
-                      style={{ backgroundColor: selected ? colors.error + '20' : undefined }}
+                      style={{ backgroundColor: selected ? colors.primary + '20' : undefined }}
                     />
                     <Text
                       style={[
                         styles.typeCardText,
-                        { color: selected ? colors.onErrorContainer : colors.onSurface },
+                        { color: selected ? colors.onPrimaryContainer : colors.onSurface },
                       ]}
                     >
                       {t.label}
@@ -382,52 +478,199 @@ export default function IncidentsScreen() {
           </CoachMarkTarget>
         </View>
 
-        {/* Severity */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Severity Level</Text>
-          <View style={styles.severityRow}>
-            {["low", "medium", "high", "critical"].map((s) => {
-              const selected = severity === s;
-              const c =
-                s === "low"
-                  ? colors.secondary
-                  : s === "medium"
-                  ? colors.warning
-                  : colors.error;
-              return (
+        {/* Guided severity questions */}
+        {type ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Check the situation</Text>
+            <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+              Your answers recommend a level. Choose “Unsure” if you cannot tell.
+            </Text>
+            {[
+              {
+                key: "immediateDanger",
+                title: "Immediate danger",
+                prompt: IMMEDIATE_QUESTION[type] || IMMEDIATE_QUESTION.other,
+                options: [
+                  { value: "yes", label: "Yes" },
+                  { value: "no", label: "No" },
+                  { value: "unsure", label: "Unsure" },
+                ],
+              },
+              {
+                key: "vehicleSafety",
+                title: "Vehicle safety",
+                prompt: "If this involves a vehicle, can it be moved safely?",
+                options: [
+                  { value: "safe", label: "Yes, safe" },
+                  { value: "unsafe", label: "No, stop" },
+                  { value: "unsure", label: "Unsure" },
+                  { value: "not_applicable", label: "Not applicable" },
+                ],
+              },
+              {
+                key: "tripImpact",
+                title: "Trip impact",
+                prompt: "How is the trip affected?",
+                options: [
+                  { value: "none", label: "Not affected" },
+                  { value: "delayed", label: "Delayed" },
+                  { value: "stopped", label: "Stopped" },
+                ],
+              },
+              {
+                key: "hazardToOthers",
+                title: "People and traffic",
+                prompt: RISK_QUESTION[type] || RISK_QUESTION.other,
+                options: [
+                  { value: "yes", label: "Yes" },
+                  { value: "no", label: "No" },
+                  { value: "unsure", label: "Unsure" },
+                  { value: "not_applicable", label: "Not applicable" },
+                ],
+              },
+            ].map((question) => (
+              <View key={question.key} style={styles.guidedQuestion}>
+                <Text style={[styles.guidedQuestionTitle, { color: colors.onSurface }]}>{question.title}</Text>
+                <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>{question.prompt}</Text>
+                <View style={styles.answerGrid}>
+                  {question.options.map((option) => {
+                    const selected = severityAnswers[question.key] === option.value;
+                    return (
+                      <Pressable
+                        key={option.value}
+                        onPress={() => updateSeverityAnswer(question.key, option.value)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
+                        style={[
+                          styles.answerOption,
+                          {
+                            backgroundColor: selected ? colors.primaryContainer : colors.surfaceContainerLow,
+                            borderColor: selected ? colors.primary : colors.outlineVariant + "70",
+                          },
+                        ]}
+                      >
+                        <Text style={{ color: selected ? colors.onPrimaryContainer : colors.onSurface, fontFamily: fonts.bodySemiBold, fontSize: 13 }}>
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+
+            {recommendation ? (
+              <ClayCard style={[styles.recommendationCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + "70" }]}>
+                <Text style={[styles.recommendationEyebrow, { color: colors.onSurfaceVariant }]}>RECOMMENDED SEVERITY</Text>
+                <View style={styles.recommendationHeading}>
+                  <Text style={[styles.recommendationLevel, { color: recommendation.severity === "Critical" ? colors.error : recommendation.severity === "Major" ? colors.warning : colors.primary }]}>
+                    {recommendation.severity}
+                  </Text>
+                  {finalSeverity !== recommendation.severity && (
+                    <Text style={[styles.overrideTag, { color: colors.onSurfaceVariant }]}>Your level: {finalSeverity} · driver override</Text>
+                  )}
+                </View>
+                <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+                  {INCIDENT_SEVERITY_REASON_LABELS[recommendation.reasonCode]}
+                </Text>
+                <Text style={[styles.levelHelp, { color: colors.onSurface }]}>
+                  {finalSeverity === recommendation.severity
+                    ? LEVEL_HELP[recommendation.severity]
+                    : "Your selected level: " + LEVEL_HELP[finalSeverity]}
+                </Text>
                 <Pressable
-                  key={s}
-                  onPress={() => setSeverity(s)}
-                  style={({ pressed }) => [
-                    styles.severityBtn,
-                    raised,
-                    {
-                      backgroundColor: selected ? c : colors.surfaceContainerLow,
-                      borderColor: selected ? c : 'transparent',
-                      transform: [{ scale: pressed ? 0.97 : 1 }],
-                      opacity: pressed ? 0.9 : 1,
-                    },
-                  ]}
+                  onPress={() => setShowSeverityChoices((visible) => !visible)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: showSeverityChoices }}
+                  style={styles.changeSeverityButton}
                 >
-                  <Text
-                    style={[
-                      styles.severityText,
-                      {
-                        color: selected
-                          ? "#FFFFFF"
-                          : colors.onSurface,
-                      },
-                    ]}
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                  >
-                    {s.toUpperCase()}
+                  <Text style={{ color: colors.primary, fontFamily: fonts.bodySemiBold, fontSize: 14 }}>
+                    {showSeverityChoices ? "Keep recommendation" : "Change severity"}
                   </Text>
                 </Pressable>
-              );
-            })}
+                {showSeverityChoices && (
+                  <View style={styles.answerGrid}>
+                    {SEVERITY_LEVELS.map((level) => {
+                      const selected = finalSeverity === level;
+                      return (
+                        <Pressable
+                          key={level}
+                          onPress={() => {
+                            setSeverityOverride(level === recommendation.severity ? null : level);
+                            setOverrideReason(null);
+                            setLowerCriticalConfirmed(false);
+                          }}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected }}
+                          style={[
+                            styles.answerOption,
+                            {
+                              backgroundColor: selected ? colors.primaryContainer : colors.surface,
+                              borderColor: selected ? colors.primary : colors.outlineVariant + "70",
+                            },
+                          ]}
+                        >
+                          <Text style={{ color: selected ? colors.onPrimaryContainer : colors.onSurface, fontFamily: fonts.bodySemiBold, fontSize: 13 }}>
+                            {level}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+                {severityOverride && severityOverride !== recommendation.severity && (
+                  <View style={styles.overrideSection}>
+                    <Text style={[styles.guidedQuestionTitle, { color: colors.onSurface }]}>Why did you change it?</Text>
+                    {OVERRIDE_REASONS.map((reason) => {
+                      const selected = overrideReason === reason.value;
+                      return (
+                        <Pressable
+                          key={reason.value}
+                          onPress={() => setOverrideReason(reason.value)}
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected }}
+                          style={styles.overrideReason}
+                        >
+                          <Ionicons name={selected ? "radio-button-on" : "radio-button-off"} size={19} color={selected ? colors.primary : colors.onSurfaceVariant} />
+                          <Text style={{ color: colors.onSurface, fontFamily: fonts.body, fontSize: 13, flex: 1 }}>{reason.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+                {recommendation.severity === "Critical" && finalSeverity !== "Critical" && (
+                  <Pressable
+                    onPress={() => setLowerCriticalConfirmed((confirmed) => !confirmed)}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: lowerCriticalConfirmed }}
+                    style={styles.lowerCriticalCheck}
+                  >
+                    <Ionicons name={lowerCriticalConfirmed ? "checkbox" : "square-outline"} size={20} color={lowerCriticalConfirmed ? colors.primary : colors.onSurfaceVariant} />
+                    <Text style={{ color: colors.onSurface, fontFamily: fonts.body, fontSize: 13, flex: 1 }}>
+                      I rechecked: nobody is in immediate danger right now.
+                    </Text>
+                  </Pressable>
+                )}
+                {((vehicleId && (finalSeverity === "Major" || finalSeverity === "Critical")) || type === "breakdown") && (
+                  <Text style={[styles.operationalNote, { color: colors.onSurfaceVariant }]}>
+                    {type === "breakdown"
+                      ? "A breakdown report may pause the vehicle for maintenance."
+                      : "Fleet may keep the assigned vehicle out of service while safety is checked."}
+                  </Text>
+                )}
+              </ClayCard>
+            ) : (
+              <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+                Answer all four questions to see the recommendation.
+              </Text>
+            )}
           </View>
-        </View>
+        ) : (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Severity guidance</Text>
+            <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>Choose an incident category to answer a few safety questions and get a recommendation.</Text>
+          </View>
+        )}
 
         {/* Location (Auto) */}
         <View style={styles.section}>
@@ -437,7 +680,7 @@ export default function IncidentsScreen() {
           <ClayCard style={[styles.locationCard, { padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
             <ClayTile icon="location" size={38} />
             <Text style={{ flex: 1, color: colors.onSurfaceVariant, fontSize: 13, fontFamily: fonts.body, lineHeight: 18 }}>
-              Your exact GPS coordinates are automatically tagged to this report for rapid response.
+              Your coordinates are included when location permission and a GPS fix are available.
             </Text>
           </ClayCard>
         </View>
@@ -583,10 +826,10 @@ export default function IncidentsScreen() {
       >
         <CoachMarkTarget id="incident.submit" targetId="incident.submit" radius={16} padding={6}>
           <ClayButton
-            label={uploadingPhotos ? "Uploading Photos..." : submitting ? "Sending Alert..." : "Send Emergency Report"}
-            variant="danger"
+            label={uploadingPhotos ? "Uploading Photos..." : submitting ? "Submitting Report..." : "Send Incident Report"}
+            variant="primary"
             size="lg"
-            icon="radio"
+            icon="send"
             iconPosition="right"
             disabled={submitting}
             loading={submitting || uploadingPhotos}
@@ -594,6 +837,48 @@ export default function IncidentsScreen() {
           />
         </CoachMarkTarget>
       </View>
+
+      <Modal
+        visible={showCriticalConfirm}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setShowCriticalConfirm(false)}
+      >
+        <View accessibilityViewIsModal style={styles.confirmBackdrop}>
+          <ClayCard
+            style={[styles.confirmCard, { backgroundColor: colors.surface }]}
+          >
+            <Ionicons name="warning" size={34} color={colors.error} />
+            <Text style={[styles.confirmTitle, { color: colors.onSurface }]}>Send as Critical?</Text>
+            <Text style={[styles.confirmCopy, { color: colors.onSurfaceVariant }]}>
+              Critical marks this as an immediate emergency for dispatch. If someone needs help now, use SOS or call emergency services.
+            </Text>
+            <Text style={[styles.confirmBasis, { color: colors.onSurface }]}>
+              Your answers: {INCIDENT_SEVERITY_REASON_LABELS[recommendation?.reasonCode]}
+            </Text>
+            <ClayButton
+              label="Confirm and send Critical report"
+              variant="danger"
+              size="lg"
+              onPress={() => {
+                setShowCriticalConfirm(false);
+                handleSubmit(true);
+              }}
+              style={{ width: "100%", marginTop: 8 }}
+            />
+            <Pressable
+              onPress={() => setShowCriticalConfirm(false)}
+              accessibilityRole="button"
+              style={styles.reviewAnswersButton}
+            >
+              <Text style={{ color: colors.primary, fontFamily: fonts.bodySemiBold, fontSize: 14 }}>
+                Review answers
+              </Text>
+            </Pressable>
+          </ClayCard>
+        </View>
+      </Modal>
 
       {/* Tour Mode Success Modal */}
       {showTourSuccessModal && (
@@ -603,13 +888,13 @@ export default function IncidentsScreen() {
               <Ionicons name="shield-checkmark" size={36} color={colors.primary} />
             </View>
             <Text style={{ fontFamily: fonts.displayBold, fontSize: 20, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 4, textAlign: 'center' }}>
-              Emergency Report Sent
+              Incident Report Preview
             </Text>
             <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 13, color: colors.primary, marginBottom: 12, textAlign: 'center' }}>
               TUTORIAL SIMULATION
             </Text>
             <Text style={{ fontFamily: fonts.body, fontSize: 14, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 20, lineHeight: 20 }}>
-              Fleet dispatch has received your vehicle information and live GPS coordinates. In a real emergency, assistance is deployed immediately.
+              This is a practice report only. In a real immediate emergency, use SOS or call emergency services.
             </Text>
             <View style={{ width: '100%', backgroundColor: colors.surfaceContainerLow, borderRadius: 12, padding: 14, marginBottom: 20, gap: 8 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
@@ -700,6 +985,42 @@ const styles = StyleSheet.create({
   section: { gap: 8 },
   sectionTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold, letterSpacing: -0.2 },
   sectionSub: { fontSize: 13, fontFamily: fonts.body },
+  guidedQuestion: { gap: 7, marginTop: 8 },
+  guidedQuestionTitle: { fontSize: 14, fontFamily: fonts.bodySemiBold },
+  answerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+  answerOption: {
+    minWidth: "47%",
+    flexGrow: 1,
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  recommendationCard: { padding: 16, gap: 8, borderWidth: 1, borderRadius: 16 },
+  recommendationEyebrow: { fontSize: 10, fontFamily: fonts.bodySemiBold, letterSpacing: 0.7 },
+  recommendationHeading: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10 },
+  recommendationLevel: { fontSize: 23, fontFamily: fonts.displayBold },
+  overrideTag: { fontSize: 12, fontFamily: fonts.bodyMedium },
+  levelHelp: { fontSize: 13, fontFamily: fonts.body, lineHeight: 19 },
+  changeSeverityButton: { alignSelf: "flex-start", minHeight: 42, justifyContent: "center", paddingRight: 12 },
+  overrideSection: { gap: 4, marginTop: 4 },
+  overrideReason: { flexDirection: "row", alignItems: "center", gap: 9, minHeight: 40 },
+  lowerCriticalCheck: { flexDirection: "row", alignItems: "center", gap: 9, paddingTop: 8 },
+  operationalNote: { fontSize: 12, fontFamily: fonts.body, lineHeight: 17, paddingTop: 8 },
+  confirmBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  confirmCard: { width: "100%", maxWidth: 420, padding: 24, alignItems: "center", gap: 12 },
+  confirmTitle: { fontSize: 21, fontFamily: fonts.displayBold, textAlign: "center" },
+  confirmCopy: { fontSize: 14, fontFamily: fonts.body, lineHeight: 20, textAlign: "center" },
+  confirmBasis: { fontSize: 13, fontFamily: fonts.bodySemiBold, lineHeight: 19, textAlign: "center" },
+  reviewAnswersButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: 12 },
   typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   typeCard: {
     width: "48%",

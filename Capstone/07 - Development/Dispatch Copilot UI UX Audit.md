@@ -1,7 +1,7 @@
 # Dispatch Copilot UI/UX Audit
 
 **Date:** 2026-10-02  
-**Status:** Source-complete; authenticated browser acceptance remains pending  
+**Status:** Approved remediation in progress; Tasks 1–3 committed and independently reviewed; Task 2 has one Minor duplicate-control finding spanning two edge states, and Task 3 has two Minor observations deferred to final review; Tasks 4–10, production build, and authenticated browser acceptance remain pending<br>
 **Scope:** The reservation queue, persistent desktop workstation, responsive drawer, recommendation and option states, selected-pair review, conversation UI, evidence drawers, and assigned/in-progress/completed/cancelled terminal presentation.
 
 ## Method and limits
@@ -364,6 +364,6 @@ You can ask me to run these one at a time, all at once, or in any order you pref
 
 Re-run `$impeccable audit` after fixes to see the score improve.
 
-## Proposed implementation plan — 2026-10-02
+## Approved implementation plan and progress — 2026-10-02
 
-`docs/superpowers/plans/2026-10-02-dispatch-copilot-ui-audit-remediation.md` maps all 25 findings to ten test-first tasks. It preserves FleetOps’ established design and server assignment safeguards, puts decision truth before visual polish, and requires authenticated desktop/mobile/zoom acceptance. This is a proposal awaiting user approval; no application UI behavior was changed as part of planning.
+The user approved the 10-task, test-first remediation plan on 2026-10-02. Work remains isolated in branch `fix/dispatch-copilot-ui-audit`; no merge is authorized. Task 1 is committed as `2ccaf752`; Task 2's base, inspector-fix, and scoped follow-up commits are `b7a570d5`, `df4e8c4b`, and `8d4f19e8`. Task 2 review found no Critical/Important regressions; one Minor duplicate-control finding spanning two edge states is deferred. Task 2 Round 4 buckets incomplete proposals as `Not evaluated`, makes Recheck refetch and rederive by saved key before queue checking, permits fresh recovery only when evidence remains current, and retains saved-selection clearing on plan errors. Focused Task 2 verification is 74/74 with touched-file ESLint and `git diff --check` passing. Task 3 is committed as `21ba8efd`: the first post-assignment render prefers the server's committed status/pair over stale queue copies, active trips have permission-gated read-only conversation, and terminal trips remain composer-closed. The generic recommendation route now has a narrow server-derived, no-ranking/proof/LLM lifecycle response for committed requests; Pending behavior is preserved. Task 3 verification is 182/182 across 10 focused suites, touched-file ESLint and `git diff --check` passed, and independent review found no Critical/Important issues. Two Task 3 Minor observations (render-level terminal-composer assertion and expected 409/403 test stderr) are deferred to final whole-branch triage. Tasks 4–10, production build, and authenticated browser acceptance remain pending.

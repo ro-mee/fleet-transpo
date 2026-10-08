@@ -213,6 +213,37 @@ describe("Reports — Fleet tab (no fabricated activity)", () => {
     expect(html).toContain("12%");
     expect(html).toContain("Top 2");
   });
+
+  it("ends the analysis skeleton when the narrative request fails while report exports stay available", () => {
+    state.queries["report-narrative"] = {
+      data: undefined, isLoading: false, isFetching: false, isError: true,
+      error: new Error("Narrative request failed"), refetch: vi.fn(),
+    };
+    const html = renderFleet({ ...query(EMPTY_FLEET), isSuccess: true });
+    expect(html).toContain("Analysis unavailable");
+    expect(html).not.toContain("Generating analysis for Fleet Utilization");
+    expect(html).toContain("Export Fleet Excel");
+  });
+
+  it("explains why exports are disabled when the report request fails", () => {
+    const html = renderFleet({
+      data: undefined, isLoading: false, isError: true,
+      error: new Error("Report request failed"), refetch: vi.fn(),
+    });
+    expect(html).toContain("Export unavailable while the report cannot load");
+    expect(html).not.toContain("Generating analysis for Fleet Utilization");
+  });
+
+  it("shows an honest no-analysis state when the narrative response has no text", () => {
+    state.queries["report-narrative"] = {
+      data: { report: "fleet", narrative: null, mode: "no-data" },
+      isLoading: false, isFetching: false, isError: false, isSuccess: true,
+      refetch: vi.fn(),
+    };
+    const html = renderFleet({ ...query(EMPTY_FLEET), isSuccess: true });
+    expect(html).toContain("No analysis available for this report");
+    expect(html).not.toContain("Generating analysis for Fleet Utilization");
+  });
 });
 
 describe("Reports — Drivers tab", () => {

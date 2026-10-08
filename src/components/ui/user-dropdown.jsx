@@ -10,7 +10,6 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { getInitials, cn } from "@/lib/utils";
 import { SIDEBAR_MODES, useSidebar } from "@/hooks/use-sidebar";
 import {
@@ -22,19 +21,23 @@ import {
   PanelLeft,
   Check,
   ChevronRight,
-  ShieldCheck,
-  CarFront,
-  Clock,
-  Calendar,
-  Ban,
 } from "lucide-react";
 
-function formatRole(role) {
+export function formatRole(role) {
   if (!role) return "User";
   return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function UserDropdown({ employee, signOut, side = "bottom", align = "end", children, chevron, triggerClassName }) {
+export function UserDropdown({
+  employee,
+  signOut,
+  side = "bottom",
+  align = "end",
+  children,
+  chevron,
+  triggerClassName,
+  showDetails = false,
+}) {
   const [open, setOpen] = useState(false);
   const [behaviorOpen, setBehaviorOpen] = useState(false);
   const router = useRouter();
@@ -45,37 +48,35 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
   const name = employee
     ? `${employee.first_name} ${employee.last_name}`
     : "Fleet Administrator";
-  const email = employee?.email || "admin@fleet.com";
   const role = employee?.roles?.role_name || "admin";
-  const isDriver = role === "driver";
-  const statusText = isDriver ? employee?.driver_status || "Available" : employee?.status || "Active";
   const avatarUrl = employee?.face_image_url || employee?.avatar_url || employee?.image || employee?.image_url || null;
-
-  let statusColor = "text-success";
-  let statusBg = "bg-success";
-  let StatusIcon = ShieldCheck;
-
-  if (statusText === "On Trip") {
-    statusColor = "text-warning";
-    statusBg = "bg-warning";
-    StatusIcon = CarFront;
-  } else if (statusText === "Off Duty" || statusText === "Inactive") {
-    statusColor = "text-foreground-muted";
-    statusBg = "bg-foreground-muted";
-    StatusIcon = Clock;
-  } else if (statusText === "On Leave") {
-    statusColor = "text-foreground-muted";
-    statusBg = "bg-foreground-muted";
-    StatusIcon = Calendar;
-  } else if (statusText === "Suspended") {
-    statusColor = "text-danger";
-    statusBg = "bg-danger";
-    StatusIcon = Ban;
-  }
 
   const ChevronIcon = chevron === "up" ? ChevronUp : ChevronDown;
 
-  const defaultContent = (
+  const defaultContent = showDetails ? (
+    <div className="flex items-center gap-2.5 min-w-0">
+      <Avatar className="h-8 w-8 shrink-0">
+        {avatarUrl ? (
+          <AvatarImage
+            src={avatarUrl}
+            alt={name}
+            className="object-cover"
+          />
+        ) : null}
+        <AvatarFallback className="bg-hover text-foreground-secondary text-xs font-semibold">
+          {employee ? getInitials(name) : "FF"}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex flex-col text-left min-w-0">
+        <span className="text-xs font-semibold text-foreground truncate max-w-[130px] leading-tight">
+          {name}
+        </span>
+        <span className="text-[11px] text-foreground-muted truncate max-w-[130px] leading-tight">
+          {formatRole(role)}
+        </span>
+      </div>
+    </div>
+  ) : (
     <Avatar className="h-7 w-7">
       {avatarUrl ? (
         <AvatarImage
@@ -115,8 +116,11 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
-            "flex items-center gap-1.5 outline-none cursor-pointer transition-colors duration-150",
-            open && "bg-hover rounded-md",
+            "flex items-center gap-2 outline-none cursor-pointer transition-colors duration-150 select-none",
+            showDetails
+              ? "px-2 py-1 -mr-1 rounded-lg hover:bg-hover active:bg-hover/80"
+              : "hover:bg-hover rounded-md",
+            open && "bg-hover",
             triggerClassName
           )}
         >
@@ -124,7 +128,7 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
           {chevron && (
             <ChevronIcon
               className={cn(
-                "h-4 w-4 text-foreground-muted transition-transform duration-150 flex-shrink-0",
+                "h-3.5 w-3.5 text-foreground-muted transition-transform duration-150 flex-shrink-0",
                 open && "rotate-180"
               )}
             />
@@ -135,46 +139,8 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
       <DropdownMenuContent
         side={side}
         align={align}
-        className="w-64 rounded-xl p-2 border border-border/80 bg-surface shadow-xl space-y-1 select-none"
+        className="w-56 rounded-xl p-1.5 border border-border/80 bg-surface shadow-xl space-y-0.5 select-none"
       >
-        {/* ── USER PROFILE HEADER (MATCHES SIDE NAV NORMAL TEXT) ── */}
-        <div className="p-3 rounded-lg bg-hover/40 border border-border/60 flex items-center gap-3">
-          <div className="relative shrink-0">
-            <Avatar className="h-9 w-9">
-              {avatarUrl ? (
-                <AvatarImage
-                  src={avatarUrl}
-                  alt={name}
-                  className="object-cover"
-                />
-              ) : null}
-              <AvatarFallback className="bg-hover text-foreground-secondary text-xs font-medium">
-                {employee ? getInitials(name) : "FF"}
-              </AvatarFallback>
-            </Avatar>
-            <span className={cn("absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full ring-2 ring-surface", statusBg)} />
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-foreground truncate leading-snug">
-              {name}
-            </p>
-            <p className="text-xs text-foreground-muted truncate mt-0.5">
-              {email}
-            </p>
-            <div className="flex items-center gap-1.5 mt-1.5">
-              <Badge variant="outline" className="text-[11px] font-medium px-2 py-0">
-                {formatRole(role)}
-              </Badge>
-              <span className={cn("text-[11px] font-medium inline-flex items-center gap-1", statusColor)}>
-                <StatusIcon className="w-3 h-3" /> {statusText}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <DropdownMenuSeparator className="my-1 bg-border/60" />
-
         {/* ── MENU ITEMS (EXACT SAME TEXT STYLE AS SIDE NAV) ── */}
         <div className="space-y-0.5">
           <DropdownMenuItem

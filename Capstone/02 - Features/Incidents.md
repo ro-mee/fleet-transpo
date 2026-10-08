@@ -29,6 +29,11 @@ source:
   - src/app/api/driver/responder/location/route.js
   - src/app/api/driver/responder/arrived/route.js
   - src/lib/incidents/responder-tracking.js
+  - shared/incidents/severity.js
+  - src/lib/incidents/severity.test.js
+  - src/app/api/driver/incidents/route.test.js
+  - mobile/metro.config.js
+  - supabase/migrations/141_driverincident_severity_assessment.sql
   - mobile/lib/tracking.js
   - src/components/maps/incident-map.jsx
   - supabase/migrations/062_driverincidents_resolution_integrity.sql
@@ -38,10 +43,20 @@ source:
   - supabase/migrations/086_incident_maintenance_grounding_backfill.sql
   - supabase/migrations/101_incident_response_tracking.sql
   - supabase/migrations/102_incident_responder_tracking.sql
-last_verified: 2026-09-04
+last_verified: 2026-10-03
 ---
 
 # Feature: Incidents
+
+## Guided driver severity recommendation — implemented locally 2026-10-03
+
+The typed mobile report asks four coded safety/impact questions and shows a versioned recommendation with its reason. Drivers can select any of the four existing severity values; a changed value requires a short reason, and choosing below a Critical recommendation requires an explicit recheck of immediate danger. A typed Critical report opens a native confirmation dialog. The separate SOS sender still submits direct Critical and records SOS provenance.
+
+shared/incidents/severity.js is the single deterministic rule source for Expo and Next.js. An affirmative immediate-danger answer recommends Critical. An unsure immediate-danger answer, unsafe/uncertain vehicle, or yes/unsure road hazard recommends Major. A stopped or delayed trip without a stronger safety signal recommends Moderate. Otherwise it recommends Minor. Category, assistance chips, and free-text descriptions do not classify severity.
+
+The API recomputes recommendations, validates answer and reason codes, and stores the coded assessment in nullable driverincidents.severity_assessment (migration 141). Existing severity-only requests remain accepted with NULL provenance; no prior records were backfilled. Staff list/detail APIs expose the assessment, and the detail view shows recommendation basis and any driver override. Offline replay retains the complete assessment and existing submission ID. The old immediate-notification banner was replaced with accurate dispatch/SOS guidance; the driver help and tutorial copy were updated.
+
+Verification on 2026-10-03: shared classifier and route tests, plus offline replay tests passed; touched-source ESLint passed; Expo Android export passed; migration 141 applied, db:status reports 141 on-disk migrations applied / 0 pending / 0 changed, db:dump refreshed schema.sql, and db:contract reports 0 violations across 68 live relations. During final verification, the live database also exposed `system_health_snapshots`; its RLS is enabled with no anon policy, and `verify:anon` received an explicit refusal. `db:status` lists its ledger migration, `142_system_health_telemetry.sql`, as missing from disk; this unrelated source gap remains to be reconciled. Android/iOS screen-reader and device acceptance have not been performed. This implementation remains local application code; no app deployment occurred. See [[Incident Severity Guidance Implementation Plan]] for the exact rule table and acceptance boundary.
 
 ## What it does
 
@@ -98,6 +113,12 @@ disconnected duplicate report.
 | Structured help requests | Mobile form sends `assistance_needed[]` chips (Tow Truck, Mechanic, Medical, Police, Alternative Vehicle, Fuel); admin registry renders them | Dispatch had to parse prose to know what help to send |
 
 Pure decision logic lives in `src/lib/incidents/resolution.js`, `src/lib/driver/grounding.js`, and `src/lib/incidents/responder-tracking.js` (24, 11, and 10 unit tests) so the routes stay thin — same pattern as [[grounding]]. Field resolution's shared transactional core is `src/lib/incidents/field-resolution.js` (called by both driver endpoints). The DB dedup pattern mirrors fuel/inspection idempotency (migrations 059/060); migrations 083–086 carry it for incident maintenance.
+
+## Incident map location eligibility — 2026-10-03
+
+An incident remains valid and visible in the registry when the driver's report-time GPS fix is unavailable. Both the typed report form and SOS attempt a foreground location read and continue submitting when permission is denied or the read fails. The API stores absent `latitude`/`longitude` as SQL `NULL` and does not substitute the driver's latest tracked position.
+
+The web resolver accepts a complete stored coordinate pair or coordinate text it can parse (decimal pair, Google Maps URL, or DMS); it does not geocode a human-readable place name. The incident registry therefore keeps the active report while the map omits its marker and reports it in the missing-GPS count. This is the expected state when the map says an active incident has no GPS fix. The typed form now explains that coordinates are included only when location permission and a GPS fix are available. Do not derive an incident pin from a later driver fix or an unverified address.
 
 ## Known limits
 
@@ -306,3 +327,44 @@ The same threading was added to `advanceReservation({ db })` for the dispatch st
 Read-only live verification confirmed incident #110 is `Open`, `Moderate`, unacknowledged and past `due_at`; grounding is Complete, vehicle 76 is `Under Maintenance`, and the linked Emergency Repair is `In Progress`. The incident registry is correct to mark it overdue regardless of severity.
 
 It has no `Incident SLA Breached — Unacknowledged` notification because that notifier intentionally selects only Critical/Major rows. Existing linked notifications are eight `Vehicle Taken Out of Service` Alerts plus one `Incident Report Under Review` Info. It also has no dedicated AI Insights card because `/api/ai/insights` never queries `driverincidents`; that omission is documented in [[Manual Functional Testing Follow-up Audit]].
+
+## Responder candidate GPS age - 2026-10-03
+
+The incident responder picker now returns the candidate's `last_location_update`, age in minutes, and freshness using the same five-minute threshold as responder automation. The picker shows a live/stale/missing/future-timestamp state. Stale or invalid fixes remain visible for context, but the API omits distance and ETA so old coordinates cannot look like a current travel estimate. The responder selector and assignment workflow are otherwise unchanged.
+
+## Active incident map missing-GPS handling — 2026-10-03 (code fix; live accepted)
+
+Live QA confirmed the /incidents basemap loads, but the active incident appears
+at 0°,0° and its exact-location link resolves to q=0,0, despite a reported
+location of “CoCo Star Hotel / Metro Manila”. Reloading reproduced the same
+state. The map tiles themselves are not the cause.
+
+The source path explains the misplaced point when a row has no stored GPS fix:
+GET /api/incidents returns nullable latitude/longitude; the report endpoint
+stores absent coordinates as SQL NULL; resolveIncidentCoords converts both
+fields with Number() before checking for absence, so Number(null) becomes zero
+and passes the range check. The web page then counts the resulting pair as GPS
+and IncidentMap uses it for the marker and fitBounds. `resolveIncidentCoords`
+now rejects null, blank, non-string/non-number, and partial pairs before using
+them. The incident registry and detail view label records without a complete
+GPS pair; the map summary reports active incidents omitted for missing GPS.
+Exact-location links remain hidden when coordinates are absent, and the map
+uses its existing Manila-area default center when no incident points remain.
+
+An explicit numeric 0,0 pair is still accepted as a valid coordinate pair. The
+live row’s raw database fields and provenance were not inspected, so the
+confirmed q=0,0 link could represent either a stored placeholder or a test made
+before the code fix was loaded. Do not rewrite it or infer replacement
+coordinates from the location text. If q=0,0 remains after this fix is loaded,
+investigate the row’s source and correct it only when placeholder provenance is
+confirmed.
+
+Live retest passed after the updated page loaded: the basemap showed Metro Manila
+labels rather than the 0°,0° ocean area; the summary showed zero active
+incidents plotted and one active incident without GPS; DMM-4210 showed “GPS fix
+unavailable”; and it had no marker or exact-location link. All of these results
+persisted after one reload. The user made no incident changes. Regression
+coverage confirms null, blank, and partial pairs are omitted while numeric
+strings and explicit 0,0 remain valid. The focused resolver suite passes 10/10
+and touched-file ESLint passes. Raw database fields were not inspected; no data
+repair was needed for the live acceptance result.

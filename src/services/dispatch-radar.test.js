@@ -51,11 +51,11 @@ it("extends a cargo window by handling buffers instead of the bare drive ETA", (
 it("does not turn a missing cargo pickup into a 1970 booking", () => {
   expect(serviceEnd({ ...request, load_type: "Cargo", pickup_datetime: null }, { durationMin: 60 })).toBeNull();
 });
-it("extends short explicit cargo plans and preserves invalid arrival as a blocker", () => {
+it("rejects short explicit cargo plans and preserves invalid arrival as a blocker", () => {
   const pickup = "2026-10-08T02:00:00Z";
   expect(serviceEnd({ ...request, load_type: "Cargo", pickup_datetime: pickup,
     scheduled_arrival: "2026-10-08T03:00:00Z" }, { durationMin: 60 }))
-    .toEqual(new Date("2026-10-08T04:30:00Z"));
+    .toBeNull();
   expect(serviceEnd({ ...request, load_type: "Cargo", pickup_datetime: pickup,
     scheduled_arrival: pickup }, { durationMin: 60 })).toBeNull();
   expect(serviceEnd({ ...request, load_type: "Cargo", pickup_datetime: pickup,

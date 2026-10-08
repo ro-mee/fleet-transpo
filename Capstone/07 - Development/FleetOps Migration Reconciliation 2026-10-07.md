@@ -1,8 +1,18 @@
 # FleetOps migration reconciliation — 2026-10-07
 
+## Current closeout — 2026-10-08
+
+Main has been integrated into the feature worktree, preserving the separate Supply flow and both branches' test coverage. The authorized repository runner applied migrations 150–155 and refreshed the generated schema. Final database status reports **155 applied, 0 pending and 0 changed files**. The live schema contract covers **77 relations with 0 violations**. The anon probe reports **0 exposed, 29 explicitly refused and 48 inconclusive**, with the inconclusive cases explained by the live contract rather than counted as refusals. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]] for the coordinated release evidence.
+
+The three real PostgreSQL behavioral cases passed using transaction-scoped temporary table clones and actual persisted fixture rows: Pending or missing verified documents cannot clear the final typed gate; a complete 650 kg cargo request succeeds with 150 minutes of occupancy for a 60-minute drive; deficient/equal explicit ends reject; all four assignment/dispatch-create/dispatch-edit/start endpoints return the same 1800 kg overload message; and a preserved null-classified historical request starts with Pending commissioning and no verified documents. The fixture writes were rolled back and did not commission or alter the production fleet. The separate namespace-rebound migration 151 regression passed its first apply and rerun with a valid Cargo row.
+
+These results close the recorded migration/application/catalog checks for the checked environment. They do not establish real fleet cohort eligibility, partner connector activation, physical driver/device acceptance, or application deployment. Real evidence and explicit commissioning are still required before admitting a production vehicle to typed work.
+
+## Historical reconciliation scope — 2026-10-07
+
 Scope: reconcile the unapplied passenger/cargo drafts in `.worktrees/feat-passenger-cargo`. User authorized status checks and reconciliation, not migration apply, schema dump, merge, connector activation or deployment. Existing status documentation edits were preserved. Root/main source files were not changed.
 
-## Current draft names
+## Draft names recorded on 2026-10-07
 
 | Previous branch draft | Current unapplied draft |
 | --- | --- |
@@ -31,7 +41,7 @@ The recorded SCM sandbox importer (`src/app/api/supply/sandbox/transport-request
 
 Three-way review from the shared merge base to recorded `origin/main` found no competing edits to the shared ingest, contracts, gateway, pull or outbound service. The transport-request route has an independent `departing-soon` filter and tests, and recommendation tests have independent additions. These must survive a future authorized merge; they were not copied or merged during this migration-only reconciliation.
 
-## Remaining release gates
+## Release gates recorded on 2026-10-07 — superseded where closed above
 
 Number collisions are resolved for this snapshot. Broad code/dispatch reconciliation is not complete. Before apply or release: reconcile the recorded origin baseline and its security registry/schema artifact; confirm recorded migration contents against the applied ledger; run authorized live catalog/constraint and historical-data preflights; agree how both transport pipelines share capacity/readiness/conflict gates; preserve supply allocation triggers; verify passenger and cargo dispatch labels and request linkage. `PASSENGER` currently denotes the old request-backed dispatch flow even if a future request has `load_type = 'Cargo'`; deciding/implementing a unified discriminator is later plan work, not part of renumbering.
 

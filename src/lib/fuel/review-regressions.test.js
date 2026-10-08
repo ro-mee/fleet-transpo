@@ -19,8 +19,24 @@ describe("fuel review regressions", () => {
     expect(validateSnapshotInput({ ...row, unit: "gal" }).ok).toBe(false);
     expect(validateSnapshotInput({ ...row, source_url: "https://" }).ok).toBe(false);
   });
+  it("treats explicit Manila and UTC instants equally at the effectivity boundary", () => {
+    expect(validateSnapshotInput(row).ok).toBe(true);
+    expect(priceAt([row], { fuelType: "Diesel", region: "NCR", at: "2026-08-31T15:59:59Z" })).toBeNull();
+    expect(priceAt([row], { fuelType: "Diesel", region: "NCR", at: "2026-08-31T16:00:00Z" })).toEqual(row);
+    expect(priceAt([row], { fuelType: "Diesel", region: "NCR", at: "2026-09-01T00:00:00+08:00" })).toEqual(row);
+  });
   it("rejects redirected off-origin data even when JSON claims an approved source", async () => {
     const result = await fetchReferencePrice({ sourceUrl: "https://official.example/feed", fetchImpl: async () => ({ ok: true, redirected: true, url: "https://evil.example/prices", json: async () => row }) });
     expect(result.ok).toBe(false);
+  });
+  it("requests redirect refusal and rejects changed origins even without a redirected flag", async () => {
+    let options;
+    const sameOrigin = await fetchReferencePrice({ sourceUrl: "https://official.example/feed", fetchImpl: async (_url, init) => { options = init; return { ok: true, redirected: false, url: "https://official.example/feed", json: async () => row }; } });
+    expect(options.redirect).toBe("error"); expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(sameOrigin).toEqual({ ok: true, data: row });
+    for (const response of [{ redirected: false, url: "https://evil.example/feed" }, { redirected: true, url: "https://official.example/other" }]) {
+      const result = await fetchReferencePrice({ sourceUrl: "https://official.example/feed", fetchImpl: async () => ({ ok: true, ...response, json: async () => row }) });
+      expect(result.ok).toBe(false);
+    }
   });
 });

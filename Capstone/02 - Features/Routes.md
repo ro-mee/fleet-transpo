@@ -28,6 +28,12 @@ related: ["[[Dispatch]]", "[[Trips]]", "[[Reservations]]"]
 
 **Migration checkpoint (2026-10-07):** The location identity/proposal draft is now `152_location_intake_identity.sql` (formerly146), after source identity150 and typed-load151. Its SQL behavior is unchanged and it remains unapplied. Recorded supply site mappings reference existing `location_id` values, which this draft preserves; live compatibility is not established by this static comparison. Historical entries below use their original filenames. See [[FleetOps Migration Reconciliation 2026-10-07]].
 
+## TomTom/manual route follow-up — 2026-10-02
+
+The route form now explains that TomTom is optional for a manually entered distance and travel time. Typing either field marks its provenance `Manual`, and a selected pair that already has an active direction is flagged before submission. The reverse-route option now says it may be saved without an estimate when TomTom is unavailable. The API was already able to create a fresh manually estimated direction without calling TomTom; a regression test pins that behavior and the separate duplicate-direction 409 rule. No live route was created by this follow-up.
+
+The local `.env` has both TomTom key names populated, but the QA deployment reported that the **server** key was missing. This checkout is not linked to the FleetOps Vercel project, and the available Vercel login lists only an unrelated project. The production `TOMTOM_API_KEY` therefore remains unverified and unchanged; it must be set in the FleetOps project's production environment and deployed by an account with access. Focused tests, ESLint and production build passed.
+
 ## What it does
 
 The **Routes Registry** (`/routes`) manages verified directional transit pairs (`Origin → Destination`) between canonical physical locations stored in the `locations` table.

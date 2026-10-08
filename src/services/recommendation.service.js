@@ -198,6 +198,15 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   const windowStart = request?.pickup_datetime ? new Date(request.pickup_datetime).toISOString() : null;
   const estimate = await resolveRequestEstimate(request, { query }, { persistRoute: false });
   const windowEnd = serviceEnd(request, estimate)?.toISOString() ?? null;
+  // A supplied end is a plan to validate, never permission to silently extend it.
+  if (request?.scheduled_arrival != null && (!Number.isFinite(+new Date(request.scheduled_arrival))
+    || +new Date(request.scheduled_arrival) <= +new Date(request.pickup_datetime))) {
+    return {ok:false,conflict:{type:'service_window',severity:'blocking',message:'Scheduled arrival must be after scheduled departure.'}};
+  }
+  if (request?.load_type === 'Cargo' && !windowEnd) {
+    return {ok:false,conflict:{type:'service_window',severity:'blocking',message:'Cargo service window must cover the driving estimate plus loading, securement, unloading and turnaround. Correct the arrival or driving evidence before assigning.'}};
+  }
+
 
   const [{ rows: pairs }, { rows: substitutes }, { rows: vehicleRows }] = await Promise.all([
     query(

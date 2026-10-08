@@ -182,6 +182,38 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Dispatch records, assignments and cancellation reasons.",
   },
+  vehicle_cargo_profiles: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Per-vehicle measured cargo capacity, handling capability and verification evidence.",
+  },
+  supply_shipments: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "SCM transport-request snapshots, destination windows and shipment lifecycle; contains operational locations.",
+  },
+  supply_dispatch_allocations: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Private link between an immutable SCM manifest revision and a shared Fleet dispatch; includes assignment history.",
+  },
+  supply_manifest_revisions: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Immutable approved SCM manifest snapshots and package measurements.",
+  },
+  supply_integration_inbox: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "SCM sandbox event hashes, sequencing and idempotent acknowledgements.",
+  },
+  supply_integration_attempts: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Rejected SCM sandbox attempt hashes and bounded conflict metadata; never stores rejected bodies.",
+  },
+  supply_shipment_events: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Append-only supply shipment integration and Fleet audit events.",
+  },
+  supply_site_mappings: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Admin-verified mapping from sandbox SCM site IDs to active Fleet locations and coordinates.",
+  },
   routes: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Canonical route registry with endpoint FKs.",
@@ -412,6 +444,12 @@ export const TABLES = Object.freeze({
       "RESOLVED 2026-09-18 by migration 116. Created by 106 after migration 100 and never given RLS; `db:contract` read RLS DISABLED with anon holding SELECT/INSERT/UPDATE/DELETE, and the probe's `200 []` was an EMPTY TABLE, not a protected one. Now RLS-enabled with no policy, and the anon/authenticated grants are revoked. The revoke is load-bearing rather than decorative: RLS does not apply to TRUNCATE, so enabling RLS alone would have left an anonymous caller able to empty the table. `npm run verify:anon` returns an explicit 42501.",
   },
 
+  fuel_price_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Verified fuel reference prices are server-managed planning context; no public PostgREST access is authorized.",
+    rlsNote: "Applied 2026-10-08 through migration 154. Live contract confirms RLS enabled and no anon policy or table grant; anon probe explicitly refused access (42501).",
+  },
+
   // --- audit & tooling -----------------------------------------------------
   audit_logs: {
     classification: CLASSIFICATION.PRIVATE,
@@ -428,9 +466,21 @@ export const TABLES = Object.freeze({
     rlsNote:
       "Found readable with the public anon key on 2026-09-18 (SEC-DB-003); RLS added by migration 115. CONFIRMED from the database side by `db:contract`: RLS enabled, no anon policy. Regression-guarded by `npm run verify:anon`.",
   },
+  system_health_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Historical system health and reliability telemetry snapshots. RLS enabled with anon/authenticated privileges revoked.",
+  },
   schema_migrations: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Migration ledger — the name and checksum of every migration.",
+  },
+  system_health_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "System health telemetry snapshots (availability, latency, error/incident counts). Operational internals with no per-user audience.",
+    rlsNote:
+      "Surfaced 2026-10-06 when the mechanic-workspace dump closed artifact lag (table created live by ledger-missing 142, never dumped or classified). Measured live: RLS enabled, zero policies, grants to postgres + service_role only — no anon/authenticated grants. `npm run verify:anon` returns an explicit 401.",
   },
 });
 
@@ -458,13 +508,7 @@ export const tableNames = () => Object.keys(TABLES).sort();
 // Reviewed PREPARED objects are deliberately separate from the applied dump.
 // The offline gate verifies each exact migration; the live gate still demands
 // these objects exist with the declared protection before release.
-export const PENDING_TABLES = Object.freeze({
-  fuel_price_snapshots: {
-    classification: CLASSIFICATION.PRIVATE,
-    reason: "Verified fuel reference prices are server-managed planning context; no public PostgREST access is authorized.",
-    migration: "154_fuel_price_snapshots.sql",
-  },
-});
+export const PENDING_TABLES = Object.freeze({});
 export const contractTableNames = () => [...tableNames(), ...Object.keys(PENDING_TABLES)].sort();
 
 /** Every classified view name, sorted. */

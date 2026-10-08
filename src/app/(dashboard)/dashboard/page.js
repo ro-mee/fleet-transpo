@@ -14,9 +14,10 @@ export default function DashboardPage() {
     if (role === "driver" || role === "management") {
       router.replace(role === "driver" ? "/driver" : "/executive");
     }
+    if (role === "mechanic") router.replace("/mechanic");
   }, [role, router]);
 
-  if (loading || role === "driver" || role === "management") return null;
+  if (loading || role === "driver" || role === "management" || role === "mechanic") return null;
 
   return <RoleDashboard role={role} employee={employee} />;
 }

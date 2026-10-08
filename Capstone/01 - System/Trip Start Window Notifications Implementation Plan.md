@@ -10,6 +10,10 @@ related: ["[[Notifications]]", "[[Trips]]", "[[Dispatch]]"]
 
 # Plan: Trip Start-Window Notifications
 
+## Current behavior update - 2026-10-03
+
+The original Driver-Accepted-only scan described below has been superseded. `src/lib/scheduling/trip-state.js` now exports `PRE_START_TRIP_STATUSES` for the mobile-supported Pending, Approved, Vehicle Assigned, Driver Assigned, Dispatched, Assigned, and Driver Accepted states, and `loadEligibleTrips()` uses that whitelist. A driver assigned before accepting can therefore receive the same start-window notices; dispatcher fan-out still occurs only when `latest_start` (scheduled pickup) is reached. Started, completed, and cancelled statuses remain outside the scan. Dashboard, Calendar, and Trip detail use the same pickup threshold to show a derived no-start warning. No timer changes stored lifecycle state, and no grace period or database setting was added.
+
 The gap: nothing time-driven tells a driver their trip start window opened. Real
 push delivery exists end-to-end (notifications + push_outbox → flushOutbox →
 Expo → FCM → OS, verified 2026-08-19), but every producer today is
@@ -164,7 +168,9 @@ with `node scripts/acceptance-preflight.mjs`):**
 - `pg_net` is NOT installed, so pg_cron cannot call the HTTP endpoint from
   inside the DB — the sync scheduler must be external (hosting platform or a
   pinger service). **Landed 2026-09-24:** `.github/workflows/cron-sync.yml`
-  (external caller) + `vercel.json` (inert on HostForge, ready for Vercel).
+  (external caller) + `vercel.json` (inert on HostForge, ready for Vercel) —
+  the `vercel.json` half was **removed 2026-10-03** (Vercel Hobby cron cap
+  failed the deploy; see §1).
 - Zero Driver Accepted trips exist right now, so the live test needs a seeded
   trip (a driver account with a push token, a dispatch with a near-term
   `scheduled_departure`, trip walked to Driver Accepted).
@@ -178,13 +184,15 @@ with `node scripts/acceptance-preflight.mjs`):**
     schedule floor is 5 min; the loop recovers the ~1/min target). Fail-loud
     on missing secrets or non-200 (503 = `CRON_SECRET` unset server-side,
     401 = mismatch). `concurrency: cron-sync`, `cancel-in-progress: false`.
-  - `vercel.json` — `{"crons": [{"path": "/api/cron/sync", "schedule": "* * * * *"},
-    {"path": "/api/cron/reconcile", "schedule": "*/5 * * * *"}]}`. Inert on
-    HostForge; if the app returns to Vercel, the platform attaches
-    `Authorization: Bearer <CRON_SECRET>` automatically (GET; both routes
-    accept GET and POST). Per-minute needs **Vercel Pro** — Hobby caps cron
-    frequency at once per day, which is NOT enough for minute-level
-    thresholds. Pinned by `src/vercel.crons.test.js`.
+  - `vercel.json` — **crons REMOVED 2026-10-03.** It previously carried
+    `* * * * *` / `*/5 * * * *`, but Vercel **Hobby** rejects deploys whose
+    cron runs more than once per day ("Hobby accounts are limited to cron jobs
+    that run once per day"), so the file blocked deployment and was deleted
+    (it held nothing else). The GitHub workflow above remains the sole
+    external caller. Per-minute via Vercel needs **Pro**; a Vercel return
+    without Pro must not re-add these crons.
+    Pinned by `src/vercel.crons.test.js` (now asserts *no* vercel.json crons
+    and that the workflow drives both paths).
   - Caveats accepted (documented in the workflow header): GitHub schedule is
     queued not punctual, default-branch-only, auto-disable after 60 days
     without repo activity. A production deployment wants a real platform

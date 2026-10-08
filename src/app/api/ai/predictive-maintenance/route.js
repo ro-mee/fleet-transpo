@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 import { predictFleet, USAGE_WINDOW_DAYS } from "@/lib/ai/predictive-maintenance";
 
 /**
@@ -70,8 +71,16 @@ SELECT v.vehicle_id, v.plate_number, v.vehicle_name, v.mileage,
 
 export async function GET(req) {
   try {
-    await requirePermission(req, "predictive_maintenance", "read");
-    const { rows } = await query(FLEET_SQL, [String(USAGE_WINDOW_DAYS)]);
+    const session = await requirePermission(req, "predictive_maintenance", "read");
+    // Mechanic: scope to vehicles with an assigned, non-archived work order.
+    // Fleet-wide predictions would leak the whole fleet to an assignee-scoped
+    // role — same fail-closed rule as the other mechanic reads.
+    const isMechanic = normalizeRoleName(session?.user?.role) === "mechanic";
+    const sql = isMechanic
+      ? `${FLEET_SQL}\n  AND EXISTS (SELECT 1 FROM vehiclemaintenance vm WHERE vm.vehicle_id = v.vehicle_id AND vm.assigned_mechanic_id = $2 AND vm.deleted_at IS NULL)`
+      : FLEET_SQL;
+    const args = isMechanic ? [String(USAGE_WINDOW_DAYS), session.user.employeeId] : [String(USAGE_WINDOW_DAYS)];
+    const { rows } = await query(sql, args);
     // One clock for the whole fleet, so two vehicles cannot be scored against
     // instants milliseconds apart and land on different sides of a boundary.
     const { predictions, summary } = predictFleet(rows, new Date());

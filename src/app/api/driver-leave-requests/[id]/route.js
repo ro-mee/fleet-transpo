@@ -2,8 +2,9 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { reviewLeaveRequest } from "@/services/driver-schedule.service";
 
-// Leave request review (migration 049) — the fleet manager's approve/decline
-// action. Only the fleet manager (or a super_admin) reviews; admin observes.
+// Leave request review (migration 049). Admin and fleet_manager both review
+// (admin gained `update` on 2026-10-03 so leave does not stall while the fleet
+// manager is away); dispatcher and management only observe.
 export async function PATCH(req, { params }) {
   try {
     const session = await requirePermission(req, "driver_leave_requests", "update");

@@ -13,3 +13,6 @@
 *.woff -text
 *.woff2 -text
 *.traineddata -text
+
+# Defense SVG checksums are computed over canonical LF bytes on every OS.
+scripts/defense-seed/assets/**/*.svg text eol=lf

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import * as db from "@/lib/db";
 import * as apiUtils from "@/lib/api/utils";
 import * as audit from "@/lib/audit";
@@ -98,5 +98,24 @@ describe("POST /api/driver-assignments license eligibility", () => {
     expect(body.assignment).not.toHaveProperty("license_number");
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("WHERE a.assignment_id = $1"), [71]);
     expect(db.withTransaction).toHaveBeenCalledOnce();
+  });
+});
+
+describe("GET /api/driver-assignments license evidence", () => {
+  it("preserves presence and syntax without returning the license number", async () => {
+    vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
+    vi.spyOn(db, "query").mockResolvedValue({ rows: [
+      { assignment_id: 1, ...DRIVER, required_license_class: "B" },
+      { assignment_id: 2, ...DRIVER, license_number: "N04-19-01!583", required_license_class: "B" },
+      { assignment_id: 3, ...DRIVER, license_number: null, required_license_class: "B" },
+    ] });
+
+    const response = await GET(request());
+    const { assignments } = await response.json();
+
+    expect(assignments.map(({ license_number_present, license_number_valid }) =>
+      [license_number_present, license_number_valid]
+    )).toEqual([[true, true], [true, false], [false, false]]);
+    expect(assignments.every((row) => !("license_number" in row))).toBe(true);
   });
 });

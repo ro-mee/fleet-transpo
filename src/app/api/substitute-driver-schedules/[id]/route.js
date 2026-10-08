@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
-import { evaluateDriverLicenseEligibility, isValidLicenseNumber, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
+import { evaluateDriverLicenseEligibility, licenseNumberEvidence, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
 
 // Substitute driver schedule item routes (migration 032).
 //
@@ -27,7 +27,7 @@ const SELECT_SCHEDULE = `
 function safeSchedule(row) {
   if (!row) return row;
   const { license_number, ...safe } = row;
-  return { ...safe, license_number_valid: isValidLicenseNumber(license_number) };
+  return { ...safe, ...licenseNumberEvidence(license_number) };
 }
 
 async function loadSchedule(id) {

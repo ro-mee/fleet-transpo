@@ -21,6 +21,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { toast } from "@/components/ui/toast";
 import { cn, formatDate } from "@/lib/utils";
+import { getFleetCustodyCoverage } from "@/lib/assignment-coverage";
+import { manilaDateKey } from "@/lib/dates";
+import { VEHICLE_STATUS } from "@/lib/constants";
 import {
   UserCog,
   Link2,
@@ -151,14 +154,26 @@ export default function AssignmentsPage() {
   const vehicles = useMemo(() => (Array.isArray(vehiclesData) ? vehiclesData : []), [vehiclesData]);
   const drivers = useMemo(() => (Array.isArray(driversData) ? driversData : []), [driversData]);
 
-  // Derived KPI metrics
-  const activePairingsCount = assignments.length;
-  const totalVehiclesCount = vehicles.length;
-  const assignedVehicleIds = useMemo(() => new Set(assignments.map((a) => a.vehicle_id)), [assignments]);
-  const assignedDriverIds = useMemo(() => new Set(assignments.map((a) => a.driver_id)), [assignments]);
+  // Derived KPI metrics. Pairings may reference vehicles outside the current
+  // active roster, so custody coverage is the unique assigned-vehicle count
+  // intersected with the same active fleet used as its denominator.
+  const activeAssignments = useMemo(
+    () => assignments.filter((assignment) => assignment.assigned_until == null),
+    [assignments]
+  );
+  const activePairingsCount = activeAssignments.length;
+  const custodyCoverage = useMemo(
+    () => getFleetCustodyCoverage(activeAssignments, vehicles),
+    [activeAssignments, vehicles]
+  );
+  const totalVehiclesCount = custodyCoverage.totalVehicles;
+  const assignedVehicleIds = useMemo(() => new Set(activeAssignments.map((a) => a.vehicle_id)), [activeAssignments]);
+  const assignedDriverIds = useMemo(() => new Set(activeAssignments.map((a) => a.driver_id)), [activeAssignments]);
 
   const unassignedVehicles = useMemo(
-    () => vehicles.filter((v) => !assignedVehicleIds.has(v.vehicle_id) && v.deleted_at == null),
+    () => vehicles.filter((v) => !assignedVehicleIds.has(v.vehicle_id)
+      && v.deleted_at == null
+      && v.vehicle_status !== VEHICLE_STATUS.DECOMMISSIONED),
     [vehicles, assignedVehicleIds]
   );
 
@@ -168,7 +183,7 @@ export default function AssignmentsPage() {
   );
 
   const activeSubstitutesCount = useMemo(() => {
-    const todayKey = new Date().toISOString().slice(0, 10);
+    const todayKey = manilaDateKey();
     return schedules.filter((s) => {
       if (s.effective_until && s.effective_until < todayKey) return false;
       if (s.effective_from && s.effective_from > todayKey) return false;
@@ -176,9 +191,7 @@ export default function AssignmentsPage() {
     }).length;
   }, [schedules]);
 
-  const coveragePercent = totalVehiclesCount > 0
-    ? Math.round((activePairingsCount / totalVehiclesCount) * 100)
-    : 0;
+  const coveragePercent = custodyCoverage.percent;
 
   const handleQuickMatch = (vehicleId, driverId) => {
     setPresetAssign({
@@ -237,10 +250,12 @@ export default function AssignmentsPage() {
         <StatCard
           icon={Layers}
           label="Fleet Custody Coverage"
-          value={`${coveragePercent}%`}
-          valueNote={`${activePairingsCount} / ${totalVehiclesCount || 0} units`}
-          trend={coveragePercent >= 80 ? "Healthy fleet assignment rate" : "Unassigned units available"}
-          tone={coveragePercent >= 80 ? "success" : coveragePercent >= 50 ? "warning" : "neutral"}
+          value={coveragePercent == null ? "—" : `${coveragePercent}%`}
+          valueNote={`${custodyCoverage.assignedVehicles} / ${totalVehiclesCount} active vehicles`}
+          trend={totalVehiclesCount === 0
+            ? "No active vehicles in scope"
+            : `${custodyCoverage.assignedVehicles} of ${totalVehiclesCount} active vehicles have a custodian`}
+          tone={totalVehiclesCount === 0 ? "neutral" : coveragePercent === 100 ? "success" : "warning"}
         />
         <StatCard
           icon={UserCheck}
@@ -315,23 +330,24 @@ export default function AssignmentsPage() {
                 </span>
               </TabsTrigger>
 
-              {/* Tab 4: Matchmaking Assistant */}
-              <TabsTrigger
-                value="matchmaker"
-                className="rounded-[15px] px-4 py-2 text-xs font-semibold text-foreground-secondary hover:text-foreground hover:bg-surface/50 data-[state=active]:bg-surface data-[state=active]:text-foreground data-[state=active]:font-bold data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-border/70 transition-all duration-200 gap-2 cursor-pointer group"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-500 transition-transform group-hover:scale-110" />
-                <span>Matchmaking Assistant</span>
-                {unassignedVehicles.length > 0 ? (
-                  <span className="font-data font-bold text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                    {unassignedVehicles.length} unassigned
-                  </span>
-                ) : (
-                  <span className="font-data font-semibold text-[11px] px-2 py-0.5 rounded-full bg-muted text-foreground-muted border border-border/60">
-                    0
-                  </span>
-                )}
-              </TabsTrigger>
+              {canAssign && (
+                <TabsTrigger
+                  value="matchmaker"
+                  className="rounded-[15px] px-4 py-2 text-xs font-semibold text-foreground-secondary hover:text-foreground hover:bg-surface/50 data-[state=active]:bg-surface data-[state=active]:text-foreground data-[state=active]:font-bold data-[state=active]:shadow-xs data-[state=active]:border data-[state=active]:border-border/70 transition-all duration-200 gap-2 cursor-pointer group"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 transition-transform group-hover:scale-110" />
+                  <span>Matchmaking Assistant</span>
+                  {unassignedVehicles.length > 0 ? (
+                    <span className="font-data font-bold text-[11px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                      {unassignedVehicles.length} unassigned
+                    </span>
+                  ) : (
+                    <span className="font-data font-semibold text-[11px] px-2 py-0.5 rounded-full bg-muted text-foreground-muted border border-border/60">
+                      0
+                    </span>
+                  )}
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
 
@@ -402,14 +418,16 @@ export default function AssignmentsPage() {
         </TabsContent>
 
         {/* ── TAB 4: Matchmaking Assistant ────────────────────────────── */}
-        <TabsContent value="matchmaker" className="mt-0">
-          <MatchmakingAssistant
-            unassignedVehicles={unassignedVehicles}
-            unassignedDrivers={unassignedAvailableDrivers}
-            canManage={canAssign}
-            onQuickMatch={handleQuickMatch}
-          />
-        </TabsContent>
+        {canAssign && (
+          <TabsContent value="matchmaker" className="mt-0">
+            <MatchmakingAssistant
+              unassignedVehicles={unassignedVehicles}
+              unassignedDrivers={unassignedAvailableDrivers}
+              canManage={canAssign}
+              onQuickMatch={handleQuickMatch}
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* ── Assign Driver Dialog ──────────────────────────────────────── */}

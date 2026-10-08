@@ -4,7 +4,7 @@ vi.mock('@/services/dispatch-evidence.service',()=>({readDispatchRevision:vi.fn(
 vi.mock('@/services/route-resolver.service',()=>({resolveRequestEstimate:vi.fn(async()=>({durationMin:120,source:'TomTom'}))}));
 vi.mock('@/services/driver-schedule.service',()=>({loadDriverScheduleContext:vi.fn(async()=>({schedules:new Map(),leave:new Map()}))}));
 vi.mock('@/lib/ai/pair-scoring',async importOriginal=>({...await importOriginal(),resolveVehiclePairing:()=>({ok:true,kind:'designated',driver:{driver_id:7}}),resolveSubstituteForDate:()=>null}));
-vi.mock('@/services/dispatch-radar.service',()=>({evaluateDispatchCandidate:vi.fn(),serviceEnd:(request,estimate)=>new Date(new Date(request.pickup_datetime).getTime()+estimate.durationMin*60_000)}));
+vi.mock('@/services/dispatch-radar.service',async importOriginal=>({...await importOriginal(),evaluateDispatchCandidate:vi.fn()}));
 import { query } from '@/lib/db';
 import { evaluateDispatchCandidate } from '@/services/dispatch-radar.service';
 import { validatePairAvailability } from './recommendation.service';
@@ -98,4 +98,17 @@ it('allows complete typed cargo evidence and pins the stored weight over stale c
  record.cargo_weight_kg=1800;
  const result=await validatePairAvailability({request:{...record,cargo_weight_kg:1},vehicleId:2,driverId:7,allowReview:true});
  expect(result.conflict.message).toBe('Vehicle TRK5678 cargo capacity 1000 kg, request needs 1800 kg (over by 800 kg).');
+});
+
+it('rejects a deficient explicit cargo service window before review overrides',async()=>{
+ record={...record,load_type:'Cargo',passenger_count:null,cargo_weight_kg:650,cargo_description:'Rice',pickup_datetime:'2027-02-01T02:00:00Z',scheduled_arrival:'2027-02-01T03:00:00Z'};
+ const result=await validatePairAvailability({request:record,vehicleId:2,driverId:7,allowReview:true});
+ expect(result).toMatchObject({ok:false,conflict:{type:'service_window',severity:'blocking'}});
+ expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
+});
+it('rejects equal explicit pickup and arrival at the shared gate',async()=>{
+ record.scheduled_arrival=record.pickup_datetime;
+ const result=await check(true);
+ expect(result).toMatchObject({ok:false,conflict:{type:'service_window',severity:'blocking'}});
+ expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
 });

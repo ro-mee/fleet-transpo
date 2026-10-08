@@ -5,8 +5,8 @@
 //   - target mutation (enable/disable, credential reset) → canMutateAccount()
 //
 // Hierarchy:
-//   super_admin → super_admin, admin, fleet_manager, dispatcher, management
-//   admin       → fleet_manager, dispatcher, management
+//   super_admin → super_admin, admin, fleet_manager, dispatcher, management, mechanic
+//   admin       → fleet_manager, dispatcher, management, mechanic
 // Driver accounts are managed through the Drivers Directory, never here.
 import { ROLE_IDS } from "@/lib/constants";
 import {
@@ -21,6 +21,7 @@ const ROLE_NAME_BY_ID = {
   [ROLE_IDS.driver]: "driver",
   [ROLE_IDS.management]: "management",
   [ROLE_IDS.admin]: "admin",
+  [ROLE_IDS.mechanic]: "mechanic",
 };
 
 const SUPER_ADMIN_ASSIGNABLE = new Set([
@@ -29,12 +30,14 @@ const SUPER_ADMIN_ASSIGNABLE = new Set([
   "fleet_manager",
   "dispatcher",
   "management",
+  "mechanic",
 ]);
 
 const ADMIN_ASSIGNABLE = new Set([
   "fleet_manager",
   "dispatcher",
   "management",
+  "mechanic",
 ]);
 
 // Roles whose accounts only a Super Admin may mutate.
@@ -49,6 +52,7 @@ const KNOWN_ROLES = new Set([
   "dispatcher",
   "management",
   "driver",
+  "mechanic",
 ]);
 
 export function roleNameForId(roleId) {

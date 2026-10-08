@@ -11,11 +11,31 @@ source:
   - src/lib/dispatch/narration-guards.js
   - src/lib/dispatch/clause-polarity.js
   - resources/ai/instructions.md
-last_verified: 2026-09-24
+last_verified: 2026-10-03
 related: ["[[Dispatch]]", "[[AI Architecture]]"]
 ---
 
 # Feature: AI Advisory
+
+## Copilot license / substitute exclusion — 2026-10-03 (source diagnosis)
+
+The message `License class does not cover this vehicle (requires B1). No substitute driver is assigned to this vehicle for 2026-10-03.` is composed by `resolveVehiclePairing()` in `src/lib/ai/pair-scoring.js`; it is deterministic server evidence, not model narration. The active designated driver fails `evaluateDriverLicenseEligibility()` for the vehicle's recorded required class, so the shared pairing rule treats that driver as unavailable. If `substitute_vehicle_schedules` has no row covering this vehicle and pickup date, the vehicle is withheld and the exclusion includes both reasons. Dispatch Copilot deliberately does not choose an unrelated free driver: the replacement must already be explicitly scheduled for that vehicle and date.
+
+This source trace explains what the message means but does not confirm the live vehicle or driver records for the user's case; no request ID was supplied and no database rows were read. To check whether a result is stale after a record change, reanalyze the request and inspect the vehicle's required license class, its active designated pairing, and substitute schedule coverage for the pickup date. No application behavior changed and no tests were run.
+
+## Dispatch Copilot audit remediation — Task 2 (2026-10-02)
+
+- A failed recommendation refresh keeps completed cached pairs/checks only in a distinct, historic, read-only summary; it does not reuse current option or confirmation flows.
+- Initial or incomplete recommendation evidence disables free-text chat as well as option/selection/confirmation context, preventing a separate conversation request from exposing an independently recomputed result.
+- A queue proposal marked `candidateEvaluationComplete: false` is non-current even when its outcome is `VERIFIED`. That reservation's options, chat/plan-token context, selection checks, and confirmation remain withheld until completed queue reanalysis; `dispatchConfirmation` rejects the incomplete proposal centrally. Queue counts and table badges classify every incomplete candidate evaluation as `Not evaluated`, not Ready. Saved selection remains clearable during plan errors without duplicating the control when request evidence also fails.
+- Explicit Recheck invalidates the prior selection check and refreshes request evidence first. It rederives the selected option by saved key from the refreshed recommendation and only starts queue reanalysis/checking if the pair remains current and selectable; queue mode still refreshes again after reanalysis invalidates recommendation data. A successful fresh response may recover a prior error/incomplete snapshot and start a new check; failed/incomplete refreshed evidence and missing, blocked, or unavailable pairs never reuse the prior check.
+- The inspector says Eligible only with a non-GPS clear eligibility finding and all rows clear or not applicable. No API/service/schema or authorization behavior changed; server-side plan-token verification remains authoritative.
+
+Focused panel, evidence-drawer, dispatch-decision, and queue-workspace suites passed 74/74; touched-file ESLint and `git diff --check` passed. Post-fix review found no Critical/Important regressions and scoped source/test commit `8d4f19e8` is complete. One Minor duplicate-control finding spans two edge-state combinations and is deferred to final whole-branch review; full build and authenticated browser acceptance have not yet been run.
+
+## Dispatch Copilot audit remediation — Task 3 (2026-10-02)
+
+A successful assignment response remains the display source over stale queue/locked-row copies until the same request returns in a committed or terminal state. Assigned/In Progress trips retain permission-gated read-only Q&A; Completed/Cancelled trips have no composer. Stale options, eligibility/proof/recovery actions, recommendation suggestions, and client pair/options/plan/baseline context are suppressed for active chats. The authorized conversation route uses only server-loaded lifecycle status/committed IDs in its existing private/no-store response shape and skips recommendation, radar, ranking, proof, and LLM work; missing IDs remain unavailable and Pending uses the normal path. Verification reported 182/182 focused tests across 10 suites, touched-file ESLint and `git diff --check` passed; production build/browser testing remain for later plan gates. Commit `21ba8efd` contains only the nine scoped source/test paths. Independent review found no Critical/Important issues; two Minor observations are deferred to final branch review.
 
 ## RS-UZYD policy gaps: shift/break answers, single GPS story, service due date — 2026-10-02
 

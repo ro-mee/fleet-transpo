@@ -67,8 +67,8 @@ export function cargoServiceEnd({ pickup, scheduledArrival = null, driveMinutes 
   if (Number.isFinite(arrivalMs)) {
     const shortfallMin = Math.max(0, Math.ceil((minimumEnd - arrivalMs) / 60_000));
     return {
-      end: new Date(Math.max(arrivalMs, minimumEnd)),
-      basis: shortfallMin > 0 ? "handling-buffered-plan" : "scheduled",
+      end: shortfallMin > 0 ? null : new Date(arrivalMs),
+      basis: shortfallMin > 0 ? "insufficient-arrival" : "scheduled",
       handlingMin,
       shortfallMin,
       provenance,

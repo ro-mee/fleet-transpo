@@ -2131,7 +2131,8 @@ describe("Tour duty bookends — Pre-Shift opens the shift, End Duty closes it",
     });
 
     it("6. Tutorial incident submission cannot reach the production incident API", () => {
-      const submitIndex = incidentsScreen.indexOf("const handleSubmit = async () =>");
+      const submitIndex = incidentsScreen.indexOf("const handleSubmit = async (");
+      expect(submitIndex).toBeGreaterThanOrEqual(0);
       const submitBlock = incidentsScreen.slice(
         submitIndex,
         incidentsScreen.indexOf("setSubmitting(true);", submitIndex)

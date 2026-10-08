@@ -32,15 +32,15 @@ describe("cargo booking schedule", () => {
     expect(noDrive.basis).toBe("unknown-drive");
   });
 
-  it("preserves ample plans and extends short plans to include all handling", () => {
+  it("preserves ample plans and rejects deficient explicit plans", () => {
     const roomy = cargoServiceEnd({ pickup: PICKUP, scheduledArrival: "2026-10-08T06:00:00Z", driveMinutes: 60 });
     expect(roomy.end?.toISOString()).toBe("2026-10-08T06:00:00.000Z");
     expect(roomy.basis).toBe("scheduled");
     expect(roomy.shortfallMin).toBe(0);
 
     const tight = cargoServiceEnd({ pickup: PICKUP, scheduledArrival: "2026-10-08T04:00:00Z", driveMinutes: 60 });
-    expect(tight.end?.toISOString()).toBe("2026-10-08T04:30:00.000Z");
-    expect(tight.basis).toBe("handling-buffered-plan");
+    expect(tight.end).toBeNull();
+    expect(tight.basis).toBe("insufficient-arrival");
     expect(tight.shortfallMin).toBe(30);
   });
 

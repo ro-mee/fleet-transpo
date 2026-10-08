@@ -21,6 +21,13 @@ import {
   tripNotStartedStaff,
   endDutyReminder,
   endDutyStillNotReported,
+  maintenanceAssigned,
+  maintenanceReassigned,
+  maintenanceUrgent,
+  maintenanceReturned,
+  maintenanceUpdated,
+  maintenanceReady,
+  maintenanceApproved,
 } from "./copy";
 
 // Every driver-facing variant. Staff variants are exercised separately —
@@ -50,6 +57,13 @@ const ALL_CASES = [
   ["driverAutoSuspendedStaff", driverAutoSuspendedStaff, { name: "Juan Dela Cruz", expiry: "2026-01-01" }],
   ["driverReinstatedStaff", driverReinstatedStaff, { name: "Juan Dela Cruz" }],
   ["tripNotStartedStaff", tripNotStartedStaff, { driverName: "Juan Dela Cruz", pickup: "2026-09-09T02:30:00.000Z" }],
+  ["maintenanceAssigned", maintenanceAssigned, { plate: "ABC 1234" }],
+  ["maintenanceReassigned", maintenanceReassigned, { plate: "ABC 1234" }],
+  ["maintenanceUrgent", maintenanceUrgent, { plate: "ABC 1234" }],
+  ["maintenanceReturned", maintenanceReturned, { plate: "ABC 1234" }],
+  ["maintenanceUpdated", maintenanceUpdated, { plate: "ABC 1234" }],
+  ["maintenanceReady", maintenanceReady, { plate: "ABC 1234" }],
+  ["maintenanceApproved", maintenanceApproved, { plate: "ABC 1234" }],
 ];
 
 describe("copy module — structural invariants (all variants)", () => {

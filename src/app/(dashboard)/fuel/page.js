@@ -48,6 +48,7 @@ import {
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
 import { fuelExportTarget } from "@/lib/fuel/export-targets";
+import { getPermitReceiptState } from "@/lib/fuel/permit-receipt-state";
 import { toast } from "@/components/ui/toast";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
@@ -708,6 +709,19 @@ export default function FuelPage() {
       },
     }),
     columnHelper.display({
+      id: "receipt_state",
+      header: "Receipt / Analytics",
+      cell: (info) => {
+        const state = getPermitReceiptState(info.row.original);
+        return (
+          <div className="min-w-36 text-xs">
+            <p className="font-semibold text-foreground">{state.label}</p>
+            <p className="mt-0.5 text-foreground-muted">{state.detail}</p>
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
       id: "action",
       header: () => <div className="text-right">Action</div>,
       cell: (info) => {
@@ -854,7 +868,7 @@ export default function FuelPage() {
         <StatGrid cols={4}>
           <StatCard icon={Clock} label="Pending" value={requestsLoading ? "—" : requestData.counts?.pending || 0} trend="Requests awaiting review" tone="warning" />
           <StatCard icon={CheckCircle2} label="Approved" value={requestsLoading ? "—" : requestData.counts?.approved || 0} trend="Authorized, awaiting logging" tone="info" />
-          <StatCard icon={Fuel} label="Fulfilled" value={requestsLoading ? "—" : requestData.counts?.fulfilled || 0} trend="Logged against the permit" tone="success" />
+          <StatCard icon={Fuel} label="Fulfilled" value={requestsLoading ? "—" : requestData.counts?.fulfilled || 0} trend="Analytics includes approved active receipts only" tone="success" />
           <StatCard icon={XCircle} label="Rejected" value={requestsLoading ? "—" : requestData.counts?.rejected || 0} trend="Declined requests" tone="neutral" />
         </StatGrid>
       )}
@@ -894,7 +908,7 @@ export default function FuelPage() {
         data={fuelRequests}
         isLoading={requestsLoading}
         title="Fuel Requests (Permits)"
-        description="Permits authorize fuel before the pump — recommendations cover the next 24 hours toward a safe level."
+        description="Permits authorize fuel; row-level receipt state shows whether a record is active and eligible for analytics."
         icon={ClipboardList}
         searchable={false}
         pageSize={5}
@@ -1038,8 +1052,8 @@ export default function FuelPage() {
       />
 
       <Dialog open={!!reviewRequest} onOpenChange={(open) => !open && setReviewRequest(null)}>
-        <DialogContent className="max-w-2xl w-[95vw] md:w-[640px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
-          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+        <DialogContent className="max-w-2xl w-[95vw] md:w-[640px] max-h-[calc(100dvh-2rem)] p-0 overflow-y-auto rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="sticky top-0 z-10 px-6 py-4 border-b border-border/70 bg-surface/90 backdrop-blur-md flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
                 <FileText className="h-5 w-5" />
@@ -1061,7 +1075,7 @@ export default function FuelPage() {
           </div>
 
           {reviewRequest ? (
-            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            <div className="p-6 space-y-4">
               {/* Driver & Trip Info Card */}
               <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
                 <div className="rounded-xl bg-surface p-3.5 border border-border/50 flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -1195,22 +1209,22 @@ export default function FuelPage() {
             </div>
           ) : null}
 
-          <div className="px-6 py-3.5 border-t border-border/70 bg-surface/90 backdrop-blur-md flex items-center justify-end gap-2.5 shrink-0">
-            <Button variant="outline" onClick={() => setReviewRequest(null)} className="text-xs h-9 px-4">
+          <div className="sticky bottom-0 z-10 px-6 py-3.5 border-t border-border/70 bg-surface/95 backdrop-blur-md flex flex-wrap items-center justify-end gap-2.5">
+            <Button variant="outline" onClick={() => setReviewRequest(null)} className="text-xs h-9 px-4 shrink-0">
               Cancel
             </Button>
             <Button
               variant="destructive"
               onClick={() => submitRequestReview("Rejected")}
               disabled={reviewRequestMutation.isPending}
-              className="text-xs h-9 px-4 font-semibold"
+              className="text-xs h-9 px-4 font-semibold shrink-0"
             >
               Reject
             </Button>
             <Button
               onClick={() => submitRequestReview("Approved")}
               disabled={reviewRequestMutation.isPending}
-              className="text-xs h-9 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="text-xs h-9 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
             >
               {reviewRequestMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
               Approve Refill

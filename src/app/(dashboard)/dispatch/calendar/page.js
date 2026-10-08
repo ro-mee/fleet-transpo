@@ -74,6 +74,7 @@ const TYPE_FILTERS = [
   { id: "conflicts", label: "Conflicts" },
   { id: "vip", label: "VIP" },
   { id: "soon", label: "Starting soon" },
+  { id: "not-started", label: "No start recorded" },
   { id: "dispatches", label: "Bookings" },
   { id: "maintenance", label: "Maintenance" },
   { id: "leave", label: "Leave & Rest" },
@@ -292,7 +293,7 @@ export default function DispatchCalendarPage() {
     [effectiveView, anchor]
   );
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+  const { data, isLoading, isFetching, isPlaceholderData, isError, error, refetch } = useQuery({
     queryKey: ["dispatch-calendar", start.toISOString(), end.toISOString()],
     queryFn: () =>
       getDispatchCalendar({ from: start.toISOString(), to: end.toISOString() }),
@@ -441,7 +442,7 @@ export default function DispatchCalendarPage() {
       if (typeFilter === "attention") {
         const exception =
           e.kind === EVENT_KIND.DISPATCH &&
-          (e.unassigned || isPendingReassignment(e) || e.isStartingSoon);
+          (e.unassigned || isPendingReassignment(e) || e.isStartingSoon || e.noStartRecorded);
         if (!exception && !conflicts.has(e.id)) return false;
       }
       if (typeFilter === "dispatches" && e.kind !== EVENT_KIND.DISPATCH) return false;
@@ -450,6 +451,7 @@ export default function DispatchCalendarPage() {
       if (typeFilter === "conflicts" && !conflicts.has(e.id)) return false;
       if (typeFilter === "vip" && (!e.vip || e.kind !== EVENT_KIND.DISPATCH)) return false;
       if (typeFilter === "soon" && (!e.isStartingSoon || e.kind !== EVENT_KIND.DISPATCH)) return false;
+      if (typeFilter === "not-started" && (!e.noStartRecorded || e.kind !== EVENT_KIND.DISPATCH)) return false;
       if (typeFilter === "maintenance" && e.kind !== EVENT_KIND.MAINTENANCE) return false;
       if (
         typeFilter === "leave" &&
@@ -590,6 +592,14 @@ export default function DispatchCalendarPage() {
       </header>
 
       {/* Reference-led operational KPI row — exception-first */}
+      {isLoading || isError || isPlaceholderData || !data ? (
+        <section aria-label="Dispatch summary" className="space-y-3" role="status">
+          <p className="text-sm text-foreground-secondary">{isError ? "Dispatch summary unavailable. Try again below." : "Loading dispatch summary…"}</p>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-7">
+            {[1, 2, 3, 4, 5, 6, 7].map((n) => <Skeleton key={n} className="h-28 rounded-2xl" />)}
+          </div>
+        </section>
+      ) : (
       <section aria-label="Dispatch summary" className="grid grid-cols-2 gap-3 md:grid-cols-4 2xl:grid-cols-7">
         <StatCard
           icon={attentionCount > 0 ? AlertTriangle : CheckCircle2}
@@ -654,6 +664,7 @@ export default function DispatchCalendarPage() {
         />
         <StatCard icon={Users} value={availableDriverCount} label="Available drivers" trend={`of ${(data?.drivers || []).length}`} tone="success" className="min-h-28 rounded-2xl p-3" />
       </section>
+      )}
 
       {actionRequired.length > 0 && (
         <section className="overflow-hidden rounded-2xl border border-danger/40 bg-danger/5" aria-label="Dispatches needing action">

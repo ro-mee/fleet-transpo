@@ -53,6 +53,8 @@ export const CRON_HEARTBEAT_KEY = "cron_sync_last_ok";
  */
 export function buildHealthRows(s = {}) {
   const rows = [appRow(s), dbRow(s), integrationRow(s), pushRow(s), aiRow(s), authRow(s), syncRow(s)];
+  if (s.storage !== undefined) rows.push(storageRow(s));
+  if (s.maps !== undefined) rows.push(mapsRow(s));
   const overall = rows.reduce(
     (worst, r) => (STATE_RANK[r.state] > STATE_RANK[worst] ? r.state : worst),
     "operational"
@@ -429,4 +431,295 @@ export async function recordSyncHeartbeat() {
   } catch {
     return false;
   }
+}
+
+function storageRow(s) {
+  if (s.storage === null || s.storage === undefined)
+    return unknownRow("storage", "File Storage");
+  if (s.storage.ok === false)
+    return {
+      id: "storage",
+      label: "File Storage",
+      state: "degraded",
+      summary: s.storage.error || "Storage service unreachable",
+      what: "Supabase file storage did not answer or returned an error.",
+      impact: "Driver licenses, inspection media, and receipts cannot be uploaded or loaded.",
+      recommendedAction: "Verify Supabase project storage quotas, bucket status, and service credentials.",
+      actions: [{ id: "recheck", kind: "refetch", label: "Retry Health Check" }],
+    };
+  const count = s.storage.bucketsCount;
+  return {
+    id: "storage",
+    label: "File Storage",
+    state: "operational",
+    summary: typeof count === "number" ? `${count} storage buckets active and accessible` : "All storage buckets operational",
+    what: null,
+    impact: null,
+    recommendedAction: null,
+    actions: [{ id: "recheck", kind: "refetch", label: "Retry Health Check" }],
+  };
+}
+
+function mapsRow(s) {
+  if (s.maps === null || s.maps === undefined)
+    return unknownRow("maps", "Maps & Routing");
+  if (s.maps.ok === false)
+    return {
+      id: "maps",
+      label: "Maps & Routing",
+      state: "degraded",
+      summary: s.maps.error || "TomTom Routing probe failed",
+      what: "TomTom routing service returned an HTTP error or timed out.",
+      impact: "Real-time dispatch route calculation may fall back to cached estimates.",
+      recommendedAction: "Check TomTom API key quota and network connectivity.",
+      actions: [{ id: "recheck", kind: "refetch", label: "Retry Health Check" }],
+    };
+  if (s.maps.warning)
+    return {
+      id: "maps",
+      label: "Maps & Routing",
+      state: "attention",
+      summary: s.maps.message || "TomTom API key not configured — fallback to Haversine heuristic",
+      what: "Live traffic routing is running in fallback heuristic mode.",
+      impact: "Trip travel estimates use straight-line approximations instead of live traffic.",
+      recommendedAction: "Configure TOMTOM_API_KEY in environment variables.",
+      actions: [{ id: "recheck", kind: "refetch", label: "Retry Health Check" }],
+    };
+  const ms = s.maps.latencyMs;
+  return {
+    id: "maps",
+    label: "Maps & Routing",
+    state: "operational",
+    summary: typeof ms === "number" ? `TomTom Routing responding in ${ms}ms` : "TomTom Routing operational",
+    what: null,
+    impact: null,
+    recommendedAction: null,
+    actions: [{ id: "recheck", kind: "refetch", label: "Retry Health Check" }],
+  };
+}
+
+function formatBucketLabel(date, format) {
+  const d = new Date(date);
+  if (format === "time") {
+    return d.toLocaleTimeString("en-US", { hour: "numeric", hour12: true });
+  }
+  if (format === "day") {
+    return d.toLocaleDateString("en-US", { weekday: "short" });
+  }
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/**
+ * Record a health snapshot in the system_health_snapshots table.
+ */
+export async function recordHealthSnapshot(data = {}) {
+  try {
+    await query(
+      `INSERT INTO system_health_snapshots
+       (overall_status, availability_pct, db_latency_ms, app_errors_count, active_incidents_count, subsystems, recorded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        data.overall,
+        data.availabilityPct,
+        data.dbLatencyMs ?? 0,
+        data.appErrorsCount ?? 0,
+        data.activeIncidentsCount ?? 0,
+        JSON.stringify(data.subsystems || {}),
+      ]
+    );
+    return true;
+  } catch (e) {
+    console.error("Non-fatal error in recordHealthSnapshot:", e?.message);
+    return false;
+  }
+}
+
+/**
+ * Gather time-series telemetry and calculated KPIs over the given timeframe.
+ * @param {'24h' | '7d' | '30d'} timeframe
+ */
+export async function getHealthTelemetry(timeframe = "24h") {
+  const intervals = {
+    "24h": { interval: "24 hours", bucket: "hour", step: "1 hour", format: "time" },
+    "7d": { interval: "7 days", bucket: "day", step: "1 day", format: "day" },
+    "30d": { interval: "30 days", bucket: "day", step: "1 day", format: "date" },
+  };
+  const tf = intervals[timeframe] || intervals["24h"];
+
+  const errorDistQuery = `
+    WITH time_buckets AS (
+      SELECT generate_series(
+        date_trunc($1, NOW() - $2::interval),
+        date_trunc($1, NOW()),
+        $3::interval
+      ) AS bucket
+    ),
+    app_errs AS (
+      SELECT date_trunc($1, created_at) AS bucket, COUNT(*)::int AS count
+      FROM app_errors
+      WHERE created_at >= NOW() - $2::interval
+      GROUP BY 1
+    ),
+    integration_errs AS (
+      SELECT date_trunc($1, created_at) AS bucket, COUNT(*)::int AS count
+      FROM integration_log
+      WHERE direction = 'outbound' AND status = 'failed' AND created_at >= NOW() - $2::interval
+      GROUP BY 1
+    ),
+    push_errs AS (
+      SELECT date_trunc($1, created_at) AS bucket, COUNT(*)::int AS count
+      FROM push_outbox
+      WHERE status = 'error' AND created_at >= NOW() - $2::interval
+      GROUP BY 1
+    ),
+    ai_errs AS (
+      SELECT date_trunc($1, created_at) AS bucket, COUNT(*)::int AS count
+      FROM ailogs
+      WHERE status ILIKE 'error' AND created_at >= NOW() - $2::interval
+      GROUP BY 1
+    ),
+    auth_errs AS (
+      SELECT date_trunc($1, created_at) AS bucket, COUNT(*)::int AS count
+      FROM audit_logs
+      WHERE action = 'login_failure' AND created_at >= NOW() - $2::interval
+      GROUP BY 1
+    )
+    SELECT
+      tb.bucket,
+      COALESCE(ae.count, 0) AS app_errors,
+      COALESCE(ie.count, 0) AS integration_errors,
+      COALESCE(pe.count, 0) AS push_errors,
+      COALESCE(aie.count, 0) AS ai_errors,
+      COALESCE(aue.count, 0) AS auth_errors
+    FROM time_buckets tb
+    LEFT JOIN app_errs ae ON tb.bucket = ae.bucket
+    LEFT JOIN integration_errs ie ON tb.bucket = ie.bucket
+    LEFT JOIN push_errs pe ON tb.bucket = pe.bucket
+    LEFT JOIN ai_errs aie ON tb.bucket = aie.bucket
+    LEFT JOIN auth_errs aue ON tb.bucket = aue.bucket
+    ORDER BY tb.bucket ASC;
+  `;
+
+  const snapshotsQuery = `
+    SELECT
+      date_trunc($1, recorded_at) AS bucket,
+      AVG(db_latency_ms) FILTER (WHERE subsystems->>'db' = 'true')::int AS avg_latency,
+      AVG(availability_pct) FILTER (WHERE overall_status <> 'unknown')::numeric(5,2) AS avg_availability,
+      MAX(db_latency_ms)::int AS max_latency,
+      COUNT(*) FILTER (WHERE overall_status <> 'unknown')::int AS count
+    FROM system_health_snapshots
+    WHERE recorded_at >= NOW() - $2::interval AND subsystems ? 'db'
+    GROUP BY 1
+    ORDER BY 1 ASC;
+  `;
+
+  const latenciesQuery = `
+    SELECT db_latency_ms
+    FROM system_health_snapshots
+    WHERE recorded_at >= NOW() - $1::interval AND subsystems->>'db' = 'true'
+    ORDER BY db_latency_ms ASC;
+  `;
+
+  const pushTotalsQuery = `
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'sent')::int AS sent,
+      COUNT(*) FILTER (WHERE status = 'error')::int AS errors,
+      COUNT(*)::int AS total
+    FROM push_outbox
+    WHERE created_at >= NOW() - $1::interval;
+  `;
+
+  const [errRows, snapRows, latRows, pushStats] = await Promise.all([
+    query(errorDistQuery, [tf.bucket, tf.interval, tf.step]).then((r) => r.rows).catch(() => null),
+    query(snapshotsQuery, [tf.bucket, tf.interval]).then((r) => r.rows).catch(() => null),
+    query(latenciesQuery, [tf.interval]).then((r) => r.rows).catch(() => null),
+    query(pushTotalsQuery, [tf.interval]).then((r) => r.rows[0]).catch(() => null),
+  ]);
+
+  const snapMap = new Map((snapRows ?? []).map((s) => [new Date(s.bucket).toISOString(), s]));
+
+  const reliabilityTrend = [];
+  const errorDistribution = [];
+
+  let totalAppErrors = 0;
+  let totalErrors = 0;
+
+  for (const row of errRows ?? []) {
+    const bDate = new Date(row.bucket);
+    const iso = bDate.toISOString();
+    const snap = snapMap.get(iso);
+
+    const appErr = Number(row.app_errors) || 0;
+    const intErr = Number(row.integration_errors) || 0;
+    const pushErr = Number(row.push_errors) || 0;
+    const aiErr = Number(row.ai_errors) || 0;
+    const authErr = Number(row.auth_errors) || 0;
+    const bTotal = appErr + intErr + pushErr + aiErr + authErr;
+
+    totalAppErrors += appErr;
+    totalErrors += bTotal;
+
+    const label = formatBucketLabel(bDate, tf.format);
+
+    const calcAvailability = snap?.avg_availability == null ? null : Number(snap.avg_availability);
+    const latency = snap?.avg_latency == null ? null : Number(snap.avg_latency);
+
+    reliabilityTrend.push({
+      timestamp: iso,
+      label,
+      availability: calcAvailability,
+      latency,
+      errorCount: bTotal,
+    });
+
+    errorDistribution.push({
+      timestamp: iso,
+      label,
+      appErrors: appErr,
+      integrationErrors: intErr,
+      pushErrors: pushErr,
+      aiErrors: aiErr,
+      authErrors: authErr,
+      total: bTotal,
+    });
+  }
+
+  const availabilityCount = (snapRows ?? []).reduce((count, row) => count + Number(row.count), 0);
+  const overallAvailability = availabilityCount
+    ? Number((snapRows.reduce((sum, row) => sum + Number(row.avg_availability) * Number(row.count), 0) / availabilityCount).toFixed(1))
+    : null;
+
+  const sortedLats = (latRows ?? [])
+    .map((r) => Number(r.db_latency_ms))
+    .filter((n) => !Number.isNaN(n))
+    .sort((a, b) => a - b);
+  const avgLatency =
+    sortedLats.length > 0 ? Math.round(sortedLats.reduce((s, v) => s + v, 0) / sortedLats.length) : null;
+  const p95Index = Math.max(0, Math.ceil(sortedLats.length * 0.95) - 1);
+  const p95Latency = sortedLats.length > 0 ? sortedLats[p95Index] : null;
+  const peakLatency = sortedLats.length > 0 ? sortedLats[sortedLats.length - 1] : null;
+
+  const pushDelivered = Number(pushStats?.sent) || 0;
+  const pushFail = Number(pushStats?.errors) || 0;
+  const pushTotal = pushStats ? Number(pushStats.total) : null;
+  const pushSuccessRate = pushTotal > 0 ? Number(((pushDelivered / pushTotal) * 100).toFixed(1)) : null;
+
+  return {
+    kpis: {
+      availability: overallAvailability,
+      dbLatencyAvg: avgLatency,
+      dbLatencyP95: p95Latency,
+      dbLatencyPeak: peakLatency,
+      pushSuccessRate,
+      pushDelivered,
+      pushFailed: pushFail,
+      pushTotal,
+      totalErrors: errRows ? totalErrors : null,
+      appErrorsCount: errRows ? totalAppErrors : null,
+    },
+    charts: {
+      reliabilityTrend,
+      errorDistribution,
+    },
+  };
 }

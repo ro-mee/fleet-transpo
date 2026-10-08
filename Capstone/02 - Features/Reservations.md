@@ -11,6 +11,9 @@ source:
   - src/lib/scheduling/reservation-state.js
   - src/lib/scheduling/priority.js
   - supabase/migrations/152_location_intake_identity.sql
+  - src/components/reservations/ai-recommendation-panel.jsx
+  - src/components/reservations/historic-recommendation-summary.jsx
+  - src/lib/dispatch/decision.js
 last_verified: 2026-10-06
 related: ["[[Dispatch]]", "[[System Boundaries]]"]
 ---
@@ -18,6 +21,20 @@ related: ["[[Dispatch]]", "[[System Boundaries]]"]
 # Feature: Reservations
 
 **Migration checkpoint (2026-10-07):** Provisional passenger/cargo drafts 144/145/146 are now 150/151/152, still unapplied. Historical references below retain their earlier names. Number collisions with applied supply work are resolved; this does not enable request revisions/cancellation or cargo dispatch. The recorded-origin SCM sandbox workflow is separate from this authenticated PMS/POS request path. See [[FleetOps Migration Reconciliation 2026-10-07]] for remaining merge/live/dispatch gates.
+
+## Dispatch Copilot audit remediation — Task 2 (2026-10-02)
+
+Reservation recommendation and queue-proposal states distinguish current, incomplete, failed, and historic evidence. A queue proposal with `candidateEvaluationComplete: false` is not offered as a current option even if its outcome says `VERIFIED`; the request panel suppresses its option/chat/selection/confirmation context, offers queue reanalysis, and the shared confirmation policy independently rejects incomplete proposals. Queue counts and reservation-table badges classify incomplete evaluations as `Not evaluated`. Explicit Recheck invalidates old selection-check state, refreshes request evidence first, and only proceeds to queue reanalysis/checking if the selected pair remains current and selectable; queue mode retains the post-analysis refetch. A successful fresh response can recover a prior request-error/incomplete snapshot; failed/incomplete refreshed evidence or a missing, blocked, or unavailable pair cannot reuse the prior check. Plan-error states preserve the non-mutating saved-selection clear action without duplication when request evidence also fails. For first-load/incomplete recommendation data, free-text chat is disabled so the conversation endpoint cannot expose a separate evaluation while the panel is unknown. Failed refreshes retain cached facts only in a visibly historic, read-only summary.
+
+Verification: focused panel, evidence-drawer, dispatch-decision, and queue-workspace suites passed 74/74; touched-file ESLint and `git diff --check` passed. Post-fix review found no Critical/Important regressions and scoped source/test commit `8d4f19e8` is complete. One Minor duplicate-control finding spans two edge-state combinations and is deferred to final whole-branch review; full browser/build checks remain pending.
+
+## Dispatch Copilot audit follow-up: committed lifecycle display — 2026-10-02
+
+After a successful queue assignment, the returned status and resource IDs remain visible over stale list/locked-request data until the same request has a committed or terminal status in the refreshed queue; the selected row remains isolated while Copilot is busy. Assigned/In Progress requests disable recommendation refresh, choices, and assignment controls while allowing read-only questions only when `reservations:recommend` is permitted; Completed/Cancelled requests have no composer. Conversation POSTs preserve auth, validation, and the existing response shape, load the request, then return server-derived status/IDs without recommendation/radar/ranking/proof/LLM work or fresh choices. Missing IDs remain unavailable; client IDs are never assignment truth; Pending behavior is unchanged, and authorized dispatch detail remains the reassignment path. Verification reported 182/182 tests across 10 suites, touched-file ESLint and `git diff --check` passed; production build/browser acceptance remain pending. Commit `21ba8efd` contains the scoped source/test changes; independent review found no Critical/Important issues, with two Minor observations deferred.
+
+## Queue tab label — 2026-10-02
+
+Per the requested shorter copy, the reservation queue tab now displays **Today** and its empty state says **Nothing today**. The underlying Manila-date predicate remains `pickup_datetime <= today`, so overdue requests remain in this work group; the tab tooltip still says "Pickup today or already past." The loading/count accessible names follow the shorter tab label. Verification: all 5 focused queue page tests passed and scoped ESLint passed.
 
 ## Manual Analyze controls removed - 2026-09-15
 
@@ -234,6 +251,8 @@ Four reported queue/request symptoms, all verified against the code and a read-o
 
 `QUEUE_TAB_PREDICATES.today` is `pickup_datetime <= today (Asia/Manila)` — today **or already past**. The vault already documented that as intentional dispatcher work grouping; the tab's bare word "Today" hid it, so a request dated the 15th under "Today (6)" read as a bug. The tab is now **Today & overdue**, with a tooltip and an `aria-label` that spell out the filter, and the empty state reads "Nothing today or overdue".
 
+The 2026-10-02 label request supersedes the visible wording described in the paragraph above; the predicate and tooltip remain as described. See "Queue tab label" above.
+
 The count badge and the highlight were two more honesty defects:
 
 - `counts[id] || 0` rendered `(0)` until the first response landed, which claims an empty queue. Badges now render `(…)` and announce "count loading" while `!countsReady`. `queueTabBadges()` in `src/lib/scheduling/smart-default-tab.js` returns `null` — not `0` — for "not loaded".
@@ -308,3 +327,7 @@ For v2, `service_code` and each supplied location code are initially resolved fo
 Pull classifies recognized v2 `update`, `cancel`, and any non-initial revision as `SOURCE_REVISION_UNSUPPORTED`: the aggregate HTTP 200 response increments `skipped`, `rejected`, and `rejectionCodes`, then continues later rows. Other malformed envelopes increment only `skipped`; update/cancel semantics are not implemented. Push's unsupported v2 operations remain a separate 409 path.
 
 Final verification after the zero-ID correction: `npm run test:run -- --reporter=dot` passed 311 files / 3,702 tests (56.53s); the post-fix ingest suite passed 34/34, with focused integration ingest + route-resolver 62/62, pull-route 11/11, migration/source contract 30/30, and combined geofence/live-monitor 69/69 also recorded. ESLint passed on all 17 changed JS/test files, including a post-fix targeted run on ingest.js and its test; offline `npm run db:check` accepted 143 valid migration files, and committed-range `git diff --check` passed. No production build was run because the prior attempt stopped before compilation with missing `NEXT_PUBLIC_SUPABASE_URL`; no placeholder was added. No live DB/status/catalog query, migration apply, schema dump, connector activation, merge, or deploy occurred; migrations 144/145/146 remain drafts/unapplied pending concurrent Hotel/POS reconciliation and explicit apply approval.
+
+## Dispatcher next-30-minute pickup filter - 2026-10-03
+
+The queue accepts `filter=departing-soon` alongside its Today tab. The API applies the open-request, missing-vehicle-or-driver, and exact `[NOW(), NOW() + 30 minutes]` pickup predicate before both the row query and total count. The dashboard deep-link therefore opens a paginated view whose rows and count come from the same SQL set. This filter is separate from Today, which still intentionally includes overdue requests in Asia/Manila.

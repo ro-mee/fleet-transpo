@@ -3,6 +3,7 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 import { writeAuditRequired } from "@/lib/audit";
 
 // The API's field names, kept as-is so existing clients do not break, mapped to
@@ -40,11 +41,20 @@ const FIELD_TO_COLUMN = {
 
 // Lean projection for the paginated register. Only the columns the maintenance
 // page renders + the detail dialog needs, instead of `vm.*` + `row_to_json(v.*)`.
+// Task 4b adds the 9 timeline/evidence keys (assigned_at, repair_started_at,
+// repair_completed_at, repair_completed_by, diagnosis, parts_replaced,
+// labor_hours, rejection_reason, completed_date — completed_date was already
+// here) plus source_inspection_id, so the Task 6 detail page renders real
+// timeline/dots instead of "Not recorded". Mechanic AND staff rows carry the
+// same superset (read-only; no new mutation surface).
 const MT_LIST_SELECT = `
   vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
   vm.completed_date, vm.status, vm.priority, vm.cost, vm.service_provider,
   vm.service_center, vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
-  vm.source_incident_id,
+  vm.source_incident_id, vm.source_inspection_id,
+  vm.assigned_at, vm.repair_started_at, vm.repair_completed_at, vm.repair_completed_by,
+  vm.diagnosis, vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
+  (vm.status = 'Scheduled' AND vm.maintenance_date < (NOW() AT TIME ZONE 'Asia/Manila')::date) AS is_overdue,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
   END AS vehicles
@@ -54,6 +64,16 @@ const MT_FROM = `
   FROM vehiclemaintenance vm
   LEFT JOIN vehicles v ON vm.vehicle_id = v.vehicle_id
 `;
+
+// Task 4 — mechanic reads always go through the lean projection above: `vm.*`
+// + `row_to_json(v.*)` leaks purchase_price, image_url and the full vehicle
+// row. The mechanic branch additionally carries its own assignment id so every
+// returned row proves its ownership; staff keep MT_LIST_SELECT byte-identical.
+const MT_MECHANIC_SELECT = `${MT_LIST_SELECT}, vm.assigned_mechanic_id`;
+
+function mtLeanListSQL(select, where, orderBy, limitSql) {
+  return `SELECT ${select} ${MT_FROM} ${where} ${orderBy}${limitSql}`;
+}
 
 // Whitelist of sortable columns for the register. Maps the TanStack accessor id
 // to a SQL expression so user input never reaches ORDER BY.
@@ -72,6 +92,10 @@ const MT_COUNTS_SQL = `
   SELECT
     count(*) AS total,
     count(*) FILTER (WHERE vm.status = 'Scheduled') AS scheduled,
+    count(*) FILTER (
+      WHERE vm.status = 'Scheduled'
+        AND vm.maintenance_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+    ) AS overdue,
     count(*) FILTER (WHERE vm.status IN ('In Progress', 'Pending Inspection')) AS "inProgress",
     COALESCE(SUM(vm.cost), 0) AS total_cost
   FROM vehiclemaintenance vm WHERE vm.deleted_at IS NULL
@@ -110,12 +134,17 @@ const maintenanceWriteSchema = {
 
 export async function GET(req) {
   try {
-    await requirePermission(req, "maintenance", "read");
+    const session = await requirePermission(req, "maintenance", "read");
     const { searchParams } = new URL(req.url);
+    // Task 4 — mechanics read only their own assigned rows (fail closed:
+    // unassigned NULL rows match nobody). Staff filters below are untouched.
+    const isMechanic = normalizeRoleName(session?.user?.role) === "mechanic";
 
     let where = " WHERE vm.deleted_at IS NULL";
     const params = [];
     let idx = 1;
+
+    if (isMechanic) { where += ` AND vm.assigned_mechanic_id = $${idx++}`; params.push(session.user.employeeId); }
 
     const vehicle_id = searchParams.get("vehicle_id");
     if (vehicle_id) { where += ` AND vm.vehicle_id = $${idx++}`; params.push(+vehicle_id); }
@@ -153,11 +182,14 @@ export async function GET(req) {
 
       const [rowsRes, totalRes, countsRes] = await Promise.all([
         query(
-          `SELECT ${MT_LIST_SELECT} ${MT_FROM} ${where} ${orderBy} LIMIT $${idx++} OFFSET $${idx++}`,
+          mtLeanListSQL(isMechanic ? MT_MECHANIC_SELECT : MT_LIST_SELECT, where, orderBy, ` LIMIT $${idx++} OFFSET $${idx++}`),
           [...params, ps, (page - 1) * ps]
         ),
         query(`SELECT count(*) AS total ${MT_FROM} ${where}`, params.slice(0, whereCount)),
-        query(MT_COUNTS_SQL),
+        // Mechanic stat cards are scoped by the same assignment; staff totals stay global.
+        isMechanic
+          ? query(`${MT_COUNTS_SQL} AND vm.assigned_mechanic_id = $1`, [session.user.employeeId])
+          : query(MT_COUNTS_SQL),
       ]);
 
       const c = countsRes.rows[0] || {};
@@ -169,10 +201,21 @@ export async function GET(req) {
         counts: {
           total: Number(c.total) || 0,
           scheduled: Number(c.scheduled) || 0,
+          overdue: Number(c.overdue) || 0,
           inProgress: Number(c.inProgress) || 0,
           totalCost: Number(c.total_cost) || 0,
         },
       });
+    }
+
+    // Non-paginated: mechanics take the same lean branch (never the fat
+    // select below); staff callers keep the full array, byte-identical.
+    if (isMechanic) {
+      const { rows } = await query(
+        mtLeanListSQL(MT_MECHANIC_SELECT, where, " ORDER BY vm.maintenance_date DESC", ""),
+        params
+      );
+      return ok(rows);
     }
 
     // Non-paginated: full array (other callers).

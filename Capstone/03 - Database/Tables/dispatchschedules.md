@@ -5,8 +5,10 @@ tags: [database, table, dispatch, concurrency]
 source:
   - supabase/migrations/012_status_constraints.sql
   - supabase/migrations/023_dispatch_overlap_guard.sql
+  - supabase/migrations/147_dispatch_service_type.sql
+  - supabase/migrations/148_supply_dispatch_allocations.sql
   - src/lib/scheduling/dispatch-state.js
-last_verified: 2026-08-11
+last_verified: 2026-10-07
 ---
 
 # Table: dispatchschedules
@@ -20,6 +22,7 @@ A dispatch is not a trip. The dispatch reserves the resources; the [[trips]] row
 | Column | Note |
 |---|---|
 | `request_id` | FK → [[transportation_requests]]. **The only parent** since migration 036. |
+| `service_type` | `PASSENGER` or `SUPPLY_DELIVERY`; NULL is retained for historical requestless rows whose purpose is unknown. New rows default to `PASSENGER`. This is dispatch work classification, distinct from `transportation_requests.service_type_id`, which names the Booking product. |
 | `vehicle_id`, `driver_id` | The reserved resources |
 | `scheduled_departure`, `scheduled_arrival` | The window. Arrival is nullable. |
 | `status` | 5 values — migration 033 declared `Pending Reassignment`, which live already allowed. → [[BUG Pending Reassignment Not In State Machine]] |
@@ -68,6 +71,12 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
 ```
 
 Transitions are **rank monotonicity**, not adjacency — you may skip forward, never back. `Cancelled` is special-cased because it has no rank.
+
+## Supply delivery work classification — 2026-10-07
+
+Migration `147_dispatch_service_type.sql` adds a checked `service_type` discriminator to this shared resource reservation. Request-linked legacy rows are backfilled as `PASSENGER`; unlinked historical rows stay NULL rather than receiving an assumed purpose. New writes default to `PASSENGER`. The current general dispatch API stamps `PASSENGER` and rejects an explicit `SUPPLY_DELIVERY` request.
+
+Migration `148_supply_dispatch_allocations.sql` adds a private allocation bridge to a shipment and exact manifest revision. Deferred consistency triggers require a cargo dispatch and its allocation to be committed together, with no passenger request and the current manifest revision. One shipment may have only one `ASSIGNED` allocation, and one dispatch may be allocated only once; ended allocation history remains. These constraints do not add a cargo assignment API or create dispatches/trips.
 
 ## Related
 

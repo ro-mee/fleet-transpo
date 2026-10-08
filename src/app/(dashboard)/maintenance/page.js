@@ -82,7 +82,7 @@ export default function MaintenancePage() {
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(maintenanceFormSchema);
 
   const {
-    data = { rows: [], total: 0, counts: { total: 0, scheduled: 0, inProgress: 0, totalCost: 0 } },
+    data = { rows: [], total: 0, counts: { total: 0, scheduled: 0, overdue: 0, inProgress: 0, totalCost: 0 } },
     isLoading,
     isError,
     error,
@@ -103,7 +103,7 @@ export default function MaintenancePage() {
 
   const records = data.rows || [];
   const total = data.total || 0;
-  const stats = data.counts || { total: 0, scheduled: 0, inProgress: 0, totalCost: 0 };
+  const stats = data.counts || { total: 0, scheduled: 0, overdue: 0, inProgress: 0, totalCost: 0 };
 
   const { data: vehicles = [] } = useQuery({
     queryKey: ["vehicles-for-maintenance"],
@@ -274,7 +274,12 @@ export default function MaintenancePage() {
       }),
       columnHelper.accessor("status", {
         header: "Status",
-        cell: (info) => <StatusBadge status={info.getValue()} entity="maintenance" className="rounded-full px-3 py-1 text-xs font-bold" />,
+        cell: (info) => (
+          <div className="inline-flex flex-wrap items-center gap-1.5">
+            <StatusBadge status={info.getValue()} entity="maintenance" className="rounded-full px-3 py-1 text-xs font-bold" />
+            {info.row.original.is_overdue && <Badge variant="warning" className="rounded-full px-2.5 py-1 text-[10px] font-bold">Overdue</Badge>}
+          </div>
+        ),
       }),
       columnHelper.accessor("priority", {
         header: "Priority",
@@ -346,7 +351,7 @@ export default function MaintenancePage() {
           <>
             <Link href="/maintenance/predictive">
               <Button variant="outline" size="sm" className={cn("rounded-2xl h-10 px-4 text-xs font-bold", heroButtonOutlineClass)}>
-                <Sparkles className="w-4 h-4 mr-2 text-warning" /> AI Predictive Health
+                <Sparkles className="w-4 h-4 mr-2 text-warning" /> Service Schedule Outlook
               </Button>
             </Link>
             <Button
@@ -385,7 +390,9 @@ export default function MaintenancePage() {
           </div>
           <div>
             <div className="text-3xl font-medium text-foreground font-data">{stats.scheduled}</div>
-            <p className="text-[11px] text-info font-medium mt-1">Pending maintenance dates</p>
+            <p className={cn("text-[11px] font-medium mt-1", stats.overdue > 0 ? "text-warning" : "text-info")}>
+              {stats.overdue > 0 ? `${stats.overdue} past-due scheduled record${stats.overdue === 1 ? "" : "s"}` : "No past-due scheduled records"}
+            </p>
           </div>
         </div>
 

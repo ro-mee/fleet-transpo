@@ -831,7 +831,9 @@ because it is what made "all crons" true):
   1/min). Pending three operator steps before it fires (merge to `main`,
   repo secrets, HostForge `CRON_SECRET`).
 - `vercel.json` — same two paths for a possible Vercel return; inert on
-  HostForge. Pinned by `src/vercel.crons.test.js`.
+  HostForge. Pinned by `src/vercel.crons.test.js`. **Removed 2026-10-03:**
+  Vercel Hobby caps cron at one run/day, so the schedules failed deployment;
+  the test now asserts *no* vercel.json crons remain.
 - `scripts/unschedule-test-cron.mjs` — removed the leftover `test` pg_cron
   job (`SELECT 1` every minute). Live `cron.job` now holds exactly four
   jobs: `incident-sla-breach-check` (099), `duty-autoclose-sweep` (126),
@@ -899,3 +901,58 @@ still resolve, Caloocan has 193 barangays, and the eight SGA clusters retain 63 
 0 exposed and 18 explicit refusals; 49 HTTP-empty responses were inconclusive from the probe
 and are resolved by the live contract as RLS-enabled with no anon policy. Focused geography
 tests: 30/30; touched-file ESLint clean. `npm run db:status`: 136 applied, 0 pending, 0 changed.
+
+## 2026-10-03 — `141_driverincident_severity_assessment.sql`
+
+Before implementation, `npm run db:status` reported 140 applied, 0 pending, and 0 changed; version 141 was available. Migration 141 adds nullable `driverincidents.severity_assessment jsonb` and a CHECK constraint for its version, source, supported severity values, coded answer shape, confirmation flags, and override reason codes. Existing severity-only clients remain compatible because the field is nullable and no default or backfill was added. No table, view, policy, or grant was introduced.
+
+`npm run db:up` applied the migration; `npm run db:dump` refreshed the generated schema artifact, which now contains the column and CHECK constraint. Final `npm run db:status`: 141 applied, 0 pending, 0 changed. `npm run db:check` passed. `npm run db:contract` found 67 classified relations and 0 violations. The new column inherits the existing `driverincidents` table grant/RLS posture; the contract confirmed the live schema remains RLS-enabled with no anon policy.
+
+During final verification, `db:dump` also picked up the live `system_health_snapshots` table. This was concurrent and unrelated to migration 141. The live contract classifies it as private and confirms RLS enabled with no anon policy; `verify:anon` received an explicit HTTP 401 / SQLSTATE 42501 refusal. Migration `142_system_health_telemetry.sql` is now present on disk and matches the applied ledger checksum; `db:status` reports 141 applied, 0 pending, and 0 changed. The dump reflects the live table structure. Current `db:contract`: 68 live relations, 0 violations.
+
+## 2026-10-07 - `144_supply_delivery_foundation.sql`
+
+Before implementation, `npm run db:status` reported 142 on-disk migration files applied, 0 pending and 0 changed; `npm run db:check` passed. Version 143 was already spent by a historical ledger entry without a current file, so migration 144 was selected. `npm run db:up` applied it, and `npm run db:dump` refreshed the generated `schema.sql` from the configured live database.
+
+Migration 144 creates five private relations: `vehicle_cargo_profiles`, `supply_shipments`, `supply_manifest_revisions`, `supply_integration_inbox` and `supply_shipment_events`. It adds measurement and verification constraints, immutable-history triggers, indexes, RLS, and explicit `REVOKE ALL PRIVILEGES` for `anon` and `authenticated`. It does not create dispatch allocations, receipt/POD records, an outbox or inventory writes. `schema.sql` does not show RLS/grants; review those through `db:contract`.
+
+The dump reported 72 tables, 1 view, 139 foreign keys, 178 standalone indexes, 18 functions and 26 triggers. `npm run db:contract` classified 73/73 relations with 0 violations. `npm run verify:anon` exited 1 globally because 48 pre-existing HTTP-empty results were inconclusive; each of the five new tables returned explicit HTTP 401 / SQLSTATE 42501, and the live contract resolved the older empty results as RLS enabled with no anon policy. Final `npm run db:status`: 143 files applied, 0 pending, 0 changed. No test suite, build, browser/device check or deployment verification was run.
+
+## 2026-10-07 - `145_supply_site_mappings.sql`
+
+Before applying, `npm run db:status` reported 144 on-disk files, 143 applied, one pending and zero changed; `npm run db:check` passed. The pending file was `145_supply_site_mappings.sql`; historical missing ledger entries remained visible and unchanged. `npm run db:up` applied migration 145, then `npm run db:dump` refreshed the generated schema to 73 tables, 1 view, 141 foreign keys, 179 standalone indexes, 18 functions and 26 triggers.
+
+Migration 145 adds a private sandbox-only `supply_site_mappings` table that links source organization/site IDs to Fleet locations and records the verifying employee/time. It enables RLS and revokes all privileges from `anon` and `authenticated`. `npm run db:contract` passed with 74/74 relations classified and zero violations; it confirms the new table is RLS-on with no anon SELECT. `npm run verify:anon` explicitly refused the new relation with HTTP 401 / SQLSTATE 42501. The command still exited 1 for 48 existing HTTP-empty inconclusive probes; the live contract resolved all 48 as RLS-enabled with no anon policy. No tests, build, browser/device check or deployment verification was run.
+
+## 2026-10-07 - `146_supply_import_attempts.sql`
+
+Before applying, `npm run db:status` reported 144 applied, one pending and zero changed; the pending file was migration 146. `npm run db:check` passed with 145 migration files. `npm run db:up` applied migration 146, then `npm run db:dump` refreshed generated `schema.sql` to 74 tables, 1 view, 142 foreign keys, 180 standalone indexes, 18 functions and 26 triggers. Final `npm run db:status` reported 145 applied, 0 pending and 0 changed; the historical missing ledger entries, including version 143, remain unchanged.
+
+Migration 146 adds private `supply_integration_attempts` with nullable, sandbox-scoped source identity; payload hash; bounded rejection code/status; authenticated employee FK; and attempt time. Parsed JSON that fails Zod validation and conflicts that cannot occupy a unique inbox row can be recorded without storing rejected bodies or invalid field values. Syntactically malformed JSON is still rejected before an attempt row is written. `npm run db:contract` classified 75/75 relations with 0 violations and confirmed RLS on/no anon policy for the new relation. `npm run verify:anon` explicitly refused it with HTTP 401 / SQLSTATE 42501; the command still exits 1 because 48 older HTTP-empty probes are inconclusive from the HTTP side, which the live contract resolves as RLS enabled with no anon policy. Focused ESLint passed for the modified sandbox import route/service. No automated tests, build, browser/device check or deployment verification was run.
+
+## 2026-10-07 - `147_dispatch_service_type.sql`
+
+Before migration 147, `npm run db:status` reported 145 applied, 0 pending and 0 changed. Version 143 remains a missing historical ledger key, so version 147 was selected after the status check; `npm run db:check` passed with 146 files. `npm run db:up` applied migration 147 and `npm run db:dump` refreshed `schema.sql` (74 tables, 1 view, 142 foreign keys, 180 standalone indexes, 18 functions and 26 triggers). Final status: 146 files applied, 0 pending and 0 changed; the historical missing ledger keys remain unchanged.
+
+The migration adds nullable `dispatchschedules.service_type`, constraining values to `PASSENGER` / `SUPPLY_DELIVERY` when present and defaulting new rows to `PASSENGER`. Request-linked legacy rows are backfilled as `PASSENGER`; requestless legacy rows stay NULL. It adds no table and changes no grants or RLS. A live `information_schema` / `pg_constraint` query confirmed the column, default and check. The existing dispatch list query returned 37 active rows, all classified `PASSENGER`. `npm run db:contract` reported 75/75 relations classified with 0 violations. Focused ESLint and `git diff --check` passed. No automated tests, build, browser/device check or deployment verification was run.
+
+## 2026-10-07 - `148_supply_dispatch_allocations.sql`
+
+Before implementation, `npm run db:status` reported 146 on-disk files applied, 0 pending and 0 changed. Version 143 remains a spent historical ledger key, so version 148 was selected; `npm run db:check` passed with 147 valid files. `npm run db:up` applied migration 148, then `npm run db:dump` refreshed `schema.sql` to 75 tables, 1 view, 147 foreign keys, 182 standalone indexes, 21 functions and 30 triggers. Final `npm run db:status` reported 147 applied, 0 pending and 0 changed; missing historical ledger keys remain unchanged.
+
+Migration 148 adds private `supply_dispatch_allocations`, linking one shipment and immutable manifest revision to one shared dispatch. It records the assigning employee/time and preserves terminal release/cancellation/closure history. A unique dispatch constraint and a partial unique index enforce one allocation per dispatch and at most one `ASSIGNED` allocation per shipment. Deferred consistency triggers require `SUPPLY_DELIVERY` dispatches to have a matching allocation with a null passenger request at commit, reject cargo allocations on passenger/unknown dispatches, and reject assigned links to stale manifest revisions. Allocation identity cannot be edited in place. The table has RLS enabled and explicit `REVOKE ALL PRIVILEGES` for `anon` and `authenticated`; trigger-only functions also have RPC execution revoked.
+
+`npm run db:contract` classified all 76 live relations (75 tables and one view) with 0 violations, and confirmed RLS enabled with no anon policy for the allocation relation. `npm run verify:anon` explicitly refused `supply_dispatch_allocations` with HTTP 401 / SQLSTATE 42501 and reported 0 exposed relations; it still exits 1 because 48 pre-existing HTTP-empty probes are inconclusive from the HTTP side, resolved by `db:contract` as RLS-enabled with no anon policy. No assignment API, cargo dispatch, trip or operational row was created. No automated tests, build, browser/device acceptance or deployment verification was run.
+
+## 2026-10-07 - `149_supply_allocation_end_reason.sql`
+
+After migration 148, a source review identified that `length(btrim(end_reason)) > 0` evaluates to NULL when `end_reason` is NULL, and PostgreSQL accepts UNKNOWN results in CHECK constraints. Migration 149 replaces the allocation end-state CHECK with an explicit `end_reason IS NOT NULL` condition for `RELEASED`, `CANCELLED` and `CLOSED` states. Before applying it, `npm run db:status` showed 147 files applied, 0 pending and 0 changed; `npm run db:check` passed with 148 files. `npm run db:up` applied the correction and `npm run db:dump` refreshed `schema.sql` (75 tables, 1 view, 147 foreign keys, 182 standalone indexes, 21 functions and 30 triggers). Final status: 148 applied, 0 pending and 0 changed; `db:check` passed.
+
+`npm run db:contract` again reported 76/76 relations classified and 0 violations, with the allocation table still RLS-enabled and without an anon policy. No allocation data, dispatch, or trip was inserted. No automated tests, build, browser/device acceptance or deployment verification was run.
+# 2026-10-08 — passenger/cargo migrations 150–155 applied
+
+After integrating main and preserving supply SQL 144–149, fresh status showed 149 applied files, six pending and zero changed. The approved `npm run db:up` runner applied 150–155 in filename order and separate transactions, then `npm run db:dump` regenerated `schema.sql`: 76 tables, one view, 148 foreign keys, 187 standalone indexes, 21 functions and 30 triggers. Applied SQL checksums were not changed. Final filename gate: 155 valid; status: 155 applied, zero pending, zero changed. The three old renumbered ledger names remain historical entries.
+
+`fuel_price_snapshots` is registered in the applied private-table contract. The live catalog confirms RLS enabled, zero policies, no anon/authenticated TRUNCATE privilege, and a validated trips-to-snapshot foreign key. `db:contract` classifies all 77 relations with zero violations. `verify:anon` reports zero exposed, 29 explicit refusals and 48 inconclusive empty responses; its exit 1 is expected and those responses are resolved by the paired contract's RLS-on/no-anon-policy evidence. The generated schema contains structure, not policy/grant proof.
+
+Real application SQL was verified using isolated temporary/private-schema rows, including typed cargo readiness, identical four-endpoint blockers, legacy starts, actual manual snapshot completion, GPS actuals, concurrent captures and decoded report workbooks. Migration 151 first-apply/rerun uses its exact SQL body rebound only to a temporary schema, including valid cargo on rerun. No operational fixture rows were added. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]] for behavioral evidence, final regression and remaining acceptance deferrals.

@@ -25,6 +25,12 @@ export const DASHBOARD_CONFIGS = {
     queries: ["vehicles", "drivers", "driverStats", "reservations", "dispatches", "locations"],
     layout: ["priority-queue", "resource-health", "timeline", "active-trips", "live-map", "recommendation"],
   },
+  mechanic: {
+    title: "Mechanic Workshop",
+    description: "Assigned repairs, findings and handover.",
+    queries: ["mechanicSummary"],
+    layout: ["shift-strip", "up-next", "queue", "side-rail"],
+  },
 };
 
 export function getDashboardConfig(role) {

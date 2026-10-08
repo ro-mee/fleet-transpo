@@ -386,3 +386,41 @@ mint an emergency code for a locked account until the window expires.**
 `mobile/components/otp/OtpVerificationView.jsx`,
 `src/lib/auth/email-otp.test.js`, `mobile/lib/otp.test.js`,
 `src/security-assessment/auth-session.security.test.js`.
+
+**2026-10-06 — Mechanic workshop: web-only, own titles, least-privilege fallback, frozen terminals.**
+
+- **Web-only.** The mechanic workspace (`/mechanic/*`) ships on the web
+  dashboard alone — no mobile surfaces. The mobile app is the Driver
+  Companion (driver role only); workshop work is desktop work, enforced in
+  code: mutating actions disable below 1024px with the desktop reason instead
+  of hiding (`use-is-desktop.js`). Building a second mobile role surface for
+  three actions would double the RBAC surface for no operational need.
+- **Reassignment gets its own title.** The notification dedupe key is
+  `(employee, title, reference)`. Reusing "Maintenance Work Assigned" for a
+  reassignment would collapse the new row into the old one — or read as a
+  duplicate send. A distinct "Maintenance Reassignment" title keeps the old
+  assignee's and the new assignee's rows apart, which is what makes "notify
+  both X and Y, never Assigned twice" expressible at all.
+- **Unknown-role fallback is least-privilege.** `getWorkspace()` used to fall
+  back to the admin workspace for any unrecognised role (fail-open: an
+  unknown role saw admin nav). It now falls back to "No Access"
+  (`/settings/profile`). A role nobody registered must see nothing, not the
+  most powerful thing.
+- **Human rulings C1–C3 (PUT hardening).** (1) Completed-row freeze stands:
+  every PUT on a `Completed` row without `deleted_at` 409s, including
+  same-status field updates (pre-existing Test 6 amended to pin the 409).
+  A terminal state that still accepts cost edits is not terminal. (2) Staff
+  keep the direct `Scheduled → Completed` edge for externally-completed work
+  (pre-existing Test 7 pins the 200) — the shop floor does not perform every
+  repair, and forcing those completions through In Progress would fabricate a
+  history nobody acted out. A direct staff completion leaves
+  `repair_completed_by` NULL and therefore sits outside the four-eyes gate,
+  same as every pre-113 row. (3) `Cancelled` is terminal like `Completed`:
+  empty edge list plus full-row freeze, so a cancelled record cannot be
+  reopened by status edit.
+
+**Evidence:** `supabase/migrations/143_mechanic_assignment.sql`,
+`src/lib/workspaces.js`, `src/lib/notifications/copy.js`,
+`src/app/api/vehicle-maintenance/[id]/route.js` (`MECHANIC_TRANSITIONS`,
+`STAFF_TRANSITIONS`), `src/components/mechanic/use-is-desktop.js`,
+`Capstone/02 - Features/Maintenance.md` §"Mechanic workshop".

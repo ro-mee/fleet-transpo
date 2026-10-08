@@ -37,7 +37,7 @@ Ranked by **likelihood × how long it would take you to work out why**.
 |---|---|---|
 | Inbound webhook | anyone POSTs to it | `BOOKING_WEBHOOK_SECRET` absent — **unverified sender** → [[System Boundaries]] |
 | Outbound status | going live | `BOOKING_GATEWAY` unset — mock. Nothing reaches Booking, silently. |
-| Cron endpoints | going live | **caller landed 2026-09-24** (workflow + vercel.json) but `CRON_SECRET` still absent in HostForge/repo — 503 fail-closed until the three operator steps → [[Environment Setup]] |
+| Cron endpoints | going live | **caller landed 2026-09-24** (`.github/workflows/cron-sync.yml`; `vercel.json` mirror removed 2026-10-03, Vercel Hobby cron cap) but `CRON_SECRET` still absent in HostForge/repo — 503 fail-closed until the three operator steps → [[Environment Setup]] |
 | CORS | a browser from another origin | wildcard → [[Technology Stack]] |
 | AI bullet parsing | narration containing "Ave." or "3.5" | prose-level contract, split on `.` → [[AI Advisory]] |
 

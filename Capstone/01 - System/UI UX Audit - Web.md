@@ -198,6 +198,10 @@ impeccable (Operate critique + craft floor + mechanical detector), taste
   accounts as name + status chips; Admin compliance donut names expired units
   as plate + document-type chips. Donuts remain partitions-only — overlapping
   counts (incident risk) stay bars everywhere.
+- System Admin disabled-account chips (2026-10-03): chips now use each
+  account's `employee_id` as their React key, so distinct accounts with the
+  same display name remain visible without duplicate-key warnings. The section
+  heading now says “Disabled accounts” to match the rows it lists.
 
 ## Known remaining gaps (post-waves)
 - Per-device web session history isn't tracked (security page explains honestly).

@@ -23,6 +23,7 @@ beforeEach(()=>{
    // the database stays the clock.
    if(sql.includes('SELECT date FROM driverattendance'))return {rows:[{date:'2026-09-23'}]};
    if(sql.includes('AS yes'))return {rows:[{yes:true}]};
+   if(sql.includes('INSERT INTO driverattendance'))return {rows:[{attendance_id:17}],rowCount:1};
    return {rows:[]};
  });
 });

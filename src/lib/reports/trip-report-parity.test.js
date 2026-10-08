@@ -40,4 +40,26 @@ describe("real selector to workbook parity", () => {
     expect(sheet).toBeDefined(); expect(sheet.rowCount).toBe(2);
     expect(sheet.getCell("A2").value).toBe(701); expect(sheet.getCell("F2").value).toBe(0.65);
   });
+  it("retains typed request cargo in fleet activity and its payload worksheet while excluding independent supply dispatches", async () => {
+    query.mockImplementation(async sql => {
+      if (!sql.includes("row_to_json(v.*)")) return { rows: [] };
+      const rows = [
+        { ...trip, trip_id: 1, service_type: "PASSENGER", load_type: "Passenger", distance: 12 },
+        { ...trip, trip_id: 2, service_type: null, distance: 8 },
+        { ...trip, trip_id: 3, service_type: "PASSENGER", load_type: "Cargo", cargo_weight_kg: 650, cargo_capacity_kg: 1000, distance: 36 },
+        { ...trip, trip_id: 4, service_type: "SUPPLY_DELIVERY", load_type: null, distance: 40 },
+      ];
+      // Model main's independent supply-dispatch SQL boundary. Request-backed
+      // typed cargo retains PASSENGER here; load_type drives its cargo measure.
+      return { rows: sql.includes("COALESCE(ds.service_type, 'PASSENGER') = 'PASSENGER'") ? rows.slice(0, 3) : rows };
+    });
+    const report = await getFleetUtilizationReport("2026-10-01", "2026-10-07");
+    expect(report.totalTrips).toBe(3); expect(report.totalDistance).toBe(56);
+    expect(report.trips.map(row => row.trip_id)).toEqual([1, 2, 3]);
+    expect(report.cargoUtilization.byTrip.map(row => row.trip_id)).toEqual([3]);
+    const book = await decode(await buildFleetUtilizationWorkbook(report, {}));
+    expect(book.getWorksheet("Trip Details").rowCount).toBe(4);
+    expect(book.getWorksheet("Cargo Utilization").getCell("A2").value).toBe(3);
+    expect(book.getWorksheet("Cargo Utilization").getCell("F2").value).toBe(0.65);
+  });
 });

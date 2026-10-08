@@ -3,7 +3,7 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
 import { haversineKm, etaFromDistanceKm, tomtomEtaMinutes } from "@/lib/scheduling/travel-buffer";
-import { sortCandidateResponders } from "@/lib/incidents/responder-tracking";
+import { sortCandidateResponders, summarizeResponderPosition } from "@/lib/incidents/responder-tracking";
 import { responderAssignedResponder, responderAssignedReporter } from "@/lib/notifications/copy";
 
 // Assign a FLEET driver as the incident's responder. This is what turns the
@@ -57,8 +57,10 @@ export async function GET(req, props) {
       rows
         .filter((r) => r.driver_id !== incidentDriverId)
         .map(async (r) => {
-          const hasCoords = r.current_latitude != null && targetLat != null;
-          const distanceKm = hasCoords
+          const positionSummary = summarizeResponderPosition(r.last_location_update);
+          const hasCoords = r.current_latitude != null && r.current_longitude != null && targetLat != null && targetLng != null;
+          const hasFreshCoords = hasCoords && positionSummary.position_fresh;
+          const distanceKm = hasFreshCoords
             ? haversineKm(
                 [Number(r.current_latitude), Number(r.current_longitude)],
                 [Number(targetLat), Number(targetLng)]
@@ -67,7 +69,7 @@ export async function GET(req, props) {
 
           let etaMinutes = null;
           let isLiveTraffic = false;
-          if (hasCoords) {
+          if (hasFreshCoords) {
             etaMinutes = await tomtomEtaMinutes({
               origin: [Number(r.current_latitude), Number(r.current_longitude)],
               destination: [Number(targetLat), Number(targetLng)],
@@ -88,9 +90,7 @@ export async function GET(req, props) {
             eta_minutes: etaMinutes != null ? Math.max(1, Math.round(etaMinutes)) : null,
             is_live_traffic: isLiveTraffic,
             has_location: hasCoords,
-            position_fresh:
-              r.last_location_update != null &&
-              Date.now() - new Date(r.last_location_update).getTime() < 5 * 60_000,
+            ...positionSummary,
           };
         })
     );

@@ -4,10 +4,10 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { writeAudit, writeAuditRequired } from "@/lib/audit";
 
 const DEFAULT_HOTEL_CATEGORIES = [
-  { category_name: "VIP Guest Transport", description: "Executive SUVs & Luxury Vehicles for VIP Guest Pickups", seating_capacity: 7 },
-  { category_name: "Guest Shuttle & Airport Transfer", description: "Passenger Vans & Minibuses for Group Transfers", seating_capacity: 14 },
-  { category_name: "Hotel Operations & Logistics", description: "Cargo Pickups & Vans for Housekeeping & Kitchen Supplies", seating_capacity: 3 },
-  { category_name: "Staff & Employee Transport", description: "Shuttle Buses & Vans for Hotel Employee Shift Transport", seating_capacity: 18 },
+  { category_name: "VIP Guest Transport", description: "Executive SUVs & Luxury Vehicles for VIP Guest Pickups" },
+  { category_name: "Guest Shuttle & Airport Transfer", description: "Passenger Vans & Minibuses for Group Transfers" },
+  { category_name: "Hotel Operations & Logistics", description: "Cargo Pickups & Vans for Housekeeping & Kitchen Supplies" },
+  { category_name: "Staff & Employee Transport", description: "Shuttle Buses & Vans for Hotel Employee Shift Transport" },
 ];
 
 // Client-writable columns for vehiclecategories. Column names are never taken
@@ -18,16 +18,20 @@ const CATEGORY_WRITABLE = [
   "base_rate",
   "per_km_rate",
   "per_hour_rate",
-  "seating_capacity",
   "image_url",
   "status",
 ];
+// Excludes the legacy category seating_capacity column; seats belong to vehicles.
+const CATEGORY_COLUMNS = [
+  "category_id", "category_name", "description", "base_rate", "per_km_rate",
+  "per_hour_rate", "image_url", "status", "created_at", "updated_at", "deleted_at",
+].join(", ");
 
 export async function GET(req) {
   try {
     const session = await requirePermission(req, "categories", "read");
     let { rows } = await query(
-      `SELECT * FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
+      `SELECT ${CATEGORY_COLUMNS} FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
     );
 
     // Auto-seed default Hotel categories if none exist in database
@@ -36,9 +40,9 @@ export async function GET(req) {
       for (const cat of DEFAULT_HOTEL_CATEGORIES) {
         try {
           const seeded = await query(
-            `INSERT INTO vehiclecategories (category_name, description, seating_capacity, status)
-             VALUES ($1, $2, $3, 'Active') RETURNING category_id`,
-            [cat.category_name, cat.description, cat.seating_capacity]
+            `INSERT INTO vehiclecategories (category_name, description, status)
+             VALUES ($1, $2, 'Active') RETURNING category_id`,
+            [cat.category_name, cat.description]
           );
           insertedCount += seeded.rows.length;
         } catch (seedErr) {
@@ -53,7 +57,7 @@ export async function GET(req) {
         });
       }
       const seeded = await query(
-        `SELECT * FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
+        `SELECT ${CATEGORY_COLUMNS} FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
       );
       rows = seeded.rows;
     }
@@ -70,7 +74,6 @@ export async function POST(req) {
     const errors = validateBody(body, {
       category_name: { required: true, maxLength: 100, label: "Category name" },
       description: { maxLength: 500, label: "Description" },
-      seating_capacity: { type: "seating", label: "Seating capacity" },
       status: { maxLength: 30, label: "Status" },
     });
     if (!isValidObject(errors)) {
@@ -89,7 +92,7 @@ export async function POST(req) {
     const cols = keys.join(", ");
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
     const row = await withTransaction(async (tx) => {
-      const { rows } = await tx.query(`INSERT INTO vehiclecategories (${cols}) VALUES (${placeholders}) RETURNING *`, values);
+      const { rows } = await tx.query(`INSERT INTO vehiclecategories (${cols}) VALUES (${placeholders}) RETURNING ${CATEGORY_COLUMNS}`, values);
       await writeAuditRequired(tx, req, session, {
         action: "create", resource: "vehiclecategories", resourceId: rows[0]?.category_id,
         newValues: { changed_fields: keys, outcome: "created" },

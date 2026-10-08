@@ -122,7 +122,9 @@ const migrationFiles = readdirSync(MIGRATIONS_DIR)
 
 describe("SEC-DB-005 the schema contract is well-formed", () => {
   it("allows prepared SQL only for exact reviewed migration-backed private tables", () => {
-    expect(Object.keys(PENDING_TABLES)).toEqual(["fuel_price_snapshots"]);
+    expect(Object.keys(PENDING_TABLES)).toEqual([]);
+    expect(TABLES.fuel_price_snapshots.classification).toBe(CLASSIFICATION.PRIVATE);
+    expect(schemaTables().has("fuel_price_snapshots")).toBe(true);
     for (const [name, entry] of Object.entries(PENDING_TABLES)) {
       expect(entry.classification).toBe(CLASSIFICATION.PRIVATE);
       expect(entry.migration).toMatch(/^\d{3}_[a-z0-9_]+\.sql$/);

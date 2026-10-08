@@ -4,6 +4,7 @@ import {
   formatLicenseClasses,
   isValidLicenseExpiry,
   isValidLicenseNumber,
+  licenseNumberEvidence,
   licenseExpiryIsBefore,
   maskLicenseNumber,
   normalizeLicenseClasses,
@@ -125,6 +126,27 @@ describe("evaluateDriverLicenseEligibility", () => {
       "2026-09-27"
     );
     expect(checked.eligible).toBe(true);
+  });
+
+  it("uses number evidence in a redacted assignment row", () => {
+    const { license_number: _number, ...redacted } = DRIVER;
+    const valid = evaluateDriverLicenseEligibility(
+      { ...redacted, ...licenseNumberEvidence(DRIVER.license_number) }, VEHICLE, "2026-09-27"
+    );
+    expect(valid.eligible).toBe(true);
+
+    const malformed = evaluateDriverLicenseEligibility(
+      { ...redacted, ...licenseNumberEvidence("N04-19-01!583") }, VEHICLE, "2026-09-27"
+    );
+    expect(malformed.reasons).toContain("License number is malformed.");
+    expect(malformed.reasons).not.toContain("License number is missing.");
+
+    const missing = evaluateDriverLicenseEligibility(
+      { ...redacted, ...licenseNumberEvidence(null) }, VEHICLE, "2026-09-27"
+    );
+    expect(missing.reasons).toContain("License number is missing.");
+    expect(evaluateDriverLicenseEligibility(redacted, VEHICLE, "2026-09-27").reasons)
+      .toContain("License number is missing.");
   });
 
   it("does not treat a masked value as a valid stored number on the server", () => {

@@ -1,5 +1,9 @@
 # FleetOps Passenger/Cargo Integration and Fuel — Implementation Baseline
 
+**Current status — 2026-10-08:** Main is integrated into the feature worktree. Migrations 150–155 are applied through the authorized runner and the generated schema is refreshed; database status is 155 applied / 0 pending / 0 changed, the live contract is 77 relations / 0 violations, and the anon probe is 0 exposed / 29 refused / 48 inconclusive explained by that contract. The actual PostgreSQL readiness, cargo, four-endpoint blocker and preserved legacy-start cases pass. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]]. Real cohort commissioning, partner activation, device/browser acceptance and deployment are not claimed. Automatic provider publication remains disabled until an approved source is verified. Task 1 remains create-only; revisions/cancellations are not advertised as supported.**
+
+### Historical prepared status before closeout
+
 **Status: Tasks 1–13 prepared on isolated `feat/passenger-cargo`; the 2026-10-07 review defects have a verified offline correction patch on 2026-10-08. See [[FleetOps Passenger Cargo Review Fixes 2026-10-08]] for verification and current scope. NOT deployed: migrations 150–155 remain unapplied and no live behavior is claimed. Manual price repository/API/UI and explicit pending snapshot classification are now implemented offline. Remaining release gates: concurrent Hotel/POS reconciliation, authorized migration apply/dump, live RLS/grants/anon/FK/catalog/real-query verification, legitimate production-build configuration, browser/device acceptance and isolated demo reversal. Automatic provider publication stays disabled until an approved source is verified. Task 1 remains create-only; revisions/cancellations are not advertised as supported.**
 
 Full task-by-task implementation plan: `docs/superpowers/plans/2026-10-05-fleetops-passenger-cargo-integration-and-fuel.md`.
@@ -27,7 +31,7 @@ FleetOps receives requests from external hotel/restaurant subsystems. The target
 Cross-checked current repository notes for Reservations, Dispatch, Trips, Vehicles, Routes, Fuel and System Boundaries; inspected existing contract, ingest, package scripts, generated schema, and target file paths. No tests, migrations, source edits or live integration calls were run as part of planning. Existing `SYSTEM.md` had unrelated uncommitted changes; those must remain intact.
 
 
-## Expanded schema release hold after review corrections (2026-10-08)
+## Schema release inventory recorded before apply (2026-10-08)
 
 The global hold covers **every** read/write introduced by drafts 150–155, including passenger reads through shared trip projections. Do not deploy only the UI or individual endpoints ahead of those migrations.
 
@@ -38,4 +42,8 @@ The global hold covers **every** read/write introduced by drafts 150–155, incl
 - **155:** atomic completion capture and all shared trip/report projections that name planned/actual fuel fields. The common joins now also require **154**, so `/api/trips`, trip detail/active/latest-location feeds, driver trip reads and JSON/Excel report consumers share this hold.
 - **150/151 demo preparation:** the opt-in local typed intake runner references prepared request fields and the canonical service catalog. It has not been run. Full dispatch/start/completion/price/device demo acceptance remains separate.
 
-Generated `schema.sql` remains untouched. Migration text, pure fixtures and fake-database tests prove local code behavior only; they do not prove PostgreSQL application/rerun, live policy/grants or successful production compilation.
+At the earlier offline checkpoint the generated schema remained untouched, and local fixtures did not prove application/rerun or live policies. The current closeout supersedes that state: the runner applied the migrations, the schema was dumped, the live contract/anon checks passed, and actual PostgreSQL temporary-table behavioral tests passed. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]]. Production fleet/device acceptance remains separate.
+
+## Scheduling closeout rule
+
+An explicit cargo arrival shorter than driving plus the 90-minute loading/securement/unloading/turnaround policy is rejected; the server does not extend a deficient supplied plan. Equal/backward ends reject as well. A missing arrival is derived only from known driving and handling evidence: 60 minutes driving produces 150 minutes occupancy. Adequate explicit plans remain unchanged, and overlap checks use the same accepted end that is saved.

@@ -1,14 +1,16 @@
 # FleetOps Cargo Rollout Runbook — staged commissioning
 
-**Status: offline review fixes prepared 2026-10-08 on `feat/passenger-cargo`. Migration application and live catalog verification remain release holds. No enablement has occurred.**
+**Current status — 2026-10-08:** Main is integrated into the feature worktree. The authorized runner applied migrations 150–155 and refreshed the generated schema. Database status is 155 applied / 0 pending / 0 changed; the live contract covers 77 relations with 0 violations; anon exposure is 0 exposed, 29 refused and 48 inconclusive explained by that contract. The three actual PostgreSQL readiness/cargo/endpoint/legacy cases pass. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]]. Real production cohorts and device acceptance remain unverified; no deployment or partner activation is claimed.
+
+**Historical prepared status:** Before the authorized closeout apply, the 2026-10-08 offline patch still held migration application and live catalog verification. The current status above supersedes those database holds for the checked environment.
 
 Full plan: `docs/superpowers/plans/2026-10-05-fleetops-passenger-cargo-integration-and-fuel.md` (Task 7).
 
-## Apply checkpoint before this application revision
+## Apply checkpoint — satisfied for the checked environment
 
-Do not deploy this revision against a pre-150–153 database. Runtime SQL reads location/load fields, cargo service settings and vehicle capability/document verification columns unconditionally in several paths, including pair validation, strict conflict evidence, start load/checklist detection, candidate queries, vehicle create/edit/commission, dispatch evidence revisions and locks, and the read-only fleet audit. Apply drafts through the repository runner in order, verify the intended project's ledger and catalog, refresh the generated schema, then run the real application queries. Draft 151 preserves historical null load type and removes a load default; draft 153 checks the exact asset index and validated constraints. Conflicting existing catalog objects must halt release rather than be rewritten blindly. Do not manufacture measured payload, verification, plates or fleet rows to clear these checks.
+Do not deploy this revision against a pre-150–153 database. Runtime SQL reads location/load fields, cargo service settings and vehicle capability/document verification columns unconditionally in several paths, including pair validation, strict conflict evidence, start load/checklist detection, candidate queries, vehicle create/edit/commission, dispatch evidence revisions and locks, and the read-only fleet audit. For other environments, apply through the repository runner in order, verify the intended project's ledger and catalog, refresh the generated schema, then run the real application queries. Migration 151 preserves historical null load type and removes a load default; migration 153 checks the exact asset index and validated constraints. Conflicting existing catalog objects must halt release rather than be rewritten blindly. Do not manufacture measured payload, verification, plates or fleet rows to clear these checks.
 
-RLS/grants, catalog/check/index shape, migration reruns (including existing valid Cargo rows), generated schema freshness, production query compatibility, and real commissioning/dispatch/start flows need live verification before release. Offline tests do not close those holds. The current catalog has not been contacted for this work.
+The authorized closeout passed the live ledger, schema contract and anon checks, refreshed the schema, and ran actual PostgreSQL service/endpoint proofs on isolated temporary rows. Migration 151 first-apply/rerun with existing Cargo also passed in an isolated rebound namespace. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]] for the precise scope. These results do not commission real fleet records or replace real cohort/device acceptance.
 
 ## Staged order
 
@@ -24,8 +26,12 @@ There is no feature enablement flag. Staging uses the nullable historical intake
 
 Existing schedules are not silently cancelled or rewritten. Typed committed starts must satisfy current checks; unresolved evidence goes to dispatcher review. Stop accepting new typed work when rolling back a stage, and keep compliance checks intact. A UI change or a cohort report does not weaken the server gate. `scripts/audit-fleet-readiness.mjs` remains read-only.
 
-## Offline verification
+## Earlier offline verification — superseded database holds
 
-Inventory tests cover cohort placement, missing identity/static evidence independently, unsupported classes/nonfinite capacities, blocked counts, pair coverage, immutable inputs and read-only audit assertions. Runtime/endpoint regressions cover real verified cargo evidence, document changes under commit evidence, commissioning authorization/atomic audit, unchanged overload wording, stored-weight pinning, legacy null starts and renewed typed documents despite stale legacy expiry/status. Live apply/catalog verification and browser/device acceptance are still outstanding.
+Inventory tests cover cohort placement, missing identity/static evidence independently, unsupported classes/nonfinite capacities, blocked counts, pair coverage, immutable inputs and read-only audit assertions. Runtime/endpoint regressions cover real verified cargo evidence, document changes under commit evidence, commissioning authorization/atomic audit, unchanged overload wording, stored-weight pinning, legacy null starts and renewed typed documents despite stale legacy expiry/status. Live apply/catalog and isolated PostgreSQL behavioral verification are now recorded in the closeout. Browser/device and real production cohort acceptance remain outstanding.
 
 Verification on 2026-10-08: 25 targeted files / 243 tests passed, strict owned-file lint passed, diff whitespace passed, 146 migration filenames valid, 300/300 route-auth checks passed. No live database contact.
+
+## Explicit cargo service windows
+
+Reject an explicit arrival that is equal to or before departure, or shorter than the known drive plus loading/securement/unloading/turnaround. A deficient explicit plan is not extended silently. A missing arrival is derived from the known driving estimate and the 90-minute default handling policy; a 60-minute drive therefore occupies 150 minutes. Preserve adequate explicit ends. The accepted end is used consistently for saved schedules and overlap checks.

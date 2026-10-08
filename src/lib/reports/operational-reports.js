@@ -90,7 +90,7 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
               t.total_cost, row_to_json(v.*) AS vehicles,
               CONCAT_WS(' ', e.first_name, e.last_name) AS driver_name,
               r.route_name, r.origin, r.destination,
-              tr.load_type, tr.cargo_weight_kg, v.cargo_capacity_kg
+              ds.service_type, tr.load_type, tr.cargo_weight_kg, v.cargo_capacity_kg
          FROM trips t
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
          LEFT JOIN drivers d ON d.driver_id = t.driver_id
@@ -99,6 +99,7 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
          LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL
          LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
         WHERE t.deleted_at IS NULL
+          AND COALESCE(ds.service_type, 'PASSENGER') = 'PASSENGER'
           AND t.start_time >= $1::date
           AND t.start_time < ($2::date + 1)
         ORDER BY t.start_time DESC, t.trip_id DESC`,
@@ -178,7 +179,7 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
     statusBreakdown: [...statusMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => b.trips - a.trips),
     monthlyData: [...monthMap.values()].map((row) => ({ ...row, distance: round(row.distance) })).sort((a, b) => a.month.localeCompare(b.month)),
     trips: trips || [],
-    methodology: "Current in-use rate = vehicles currently marked In Use divided by the non-deleted vehicle roster. Activity totals use every trip record in the selected start-time window; trip status is shown so users can distinguish completed from in-progress or cancelled activity. Cargo payload utilization averages declared weight over usable capacity across completed cargo trips with both figures known; trips with unknown weight or capacity are omitted, never zero-filled.",
+    methodology: "Current in-use rate = vehicles currently marked In Use divided by the non-deleted vehicle roster. Activity totals use request-backed and legacy trip records in the selected start-time window, excluding independent SUPPLY_DELIVERY dispatches. Request-backed typed cargo retains the historical PASSENGER dispatch value; its request load type separately identifies cargo. Trip status distinguishes completed from in-progress or cancelled activity. Cargo payload utilization averages declared weight over usable capacity across completed cargo trips in the same window with both figures known; trips with unknown weight or capacity are omitted, never zero-filled.",
   };
 }
 
@@ -232,6 +233,11 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
    LEFT JOIN trips t ON t.driver_id = d.driver_id
      AND t.trip_status = 'Completed' AND t.deleted_at IS NULL
      AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+     AND NOT EXISTS (
+       SELECT 1 FROM dispatchschedules supply_dispatch
+        WHERE supply_dispatch.dispatch_id = t.dispatch_id
+          AND supply_dispatch.service_type = 'SUPPLY_DELIVERY'
+     )
    LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
    LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
   WHERE d.deleted_at IS NULL
@@ -249,6 +255,7 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
   WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
     AND d.deleted_at IS NULL
     AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+    AND COALESCE(ds.service_type, 'PASSENGER') = 'PASSENGER'
     AND t.at_pickup_at IS NOT NULL
     AND COALESCE(ds.scheduled_departure, tr.pickup_datetime) IS NOT NULL
     AND COALESCE(t.at_pickup_override, FALSE) = FALSE
@@ -274,6 +281,7 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
    WHERE t.trip_status = 'Completed' AND t.deleted_at IS NULL
     AND d.deleted_at IS NULL
     AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)
+    AND COALESCE(ds.service_type, 'PASSENGER') = 'PASSENGER'
   ORDER BY t.end_time, t.trip_id`,
       params
     ),
@@ -326,7 +334,7 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
     },
     details,
     trips: tripRows || [],
-    methodology: `Completed non-deleted trips by end_time in window. Measured = has server-stamped at_pickup_at and a scheduled pickup (dispatch plan, else booking promise); geofence-override arrivals are excluded from on-time/late and shown separately. On-time = at_pickup_at within ${PUNCTUALITY_GRACE_MINUTES} min after scheduled pickup; early = on-time. Rate = on-time / measured only.`,
+    methodology: `Completed non-deleted passenger and legacy untyped trips by end_time in window. Measured = has server-stamped at_pickup_at and a scheduled pickup (dispatch plan, else booking promise); geofence-override arrivals are excluded from on-time/late and shown separately. On-time = at_pickup_at within ${PUNCTUALITY_GRACE_MINUTES} min after scheduled pickup; early = on-time. Rate = on-time / measured only.`,
   };
 }
 

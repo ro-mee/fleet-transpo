@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 import { escalateOverdueIncidents } from "@/lib/incidents/sla";
 
 // Staff view of all driver-reported incidents (dispatcher, management, ops).
@@ -15,6 +16,14 @@ export async function GET(req) {
 
     if (session.user.role !== "super_admin" && session.user.role !== "hr_admin") {
       conditions.push(`(i.is_confidential = false OR e.employee_id = $${params.length + 1})`);
+      params.push(session.user.employeeId);
+    }
+
+    // Mechanic: only incidents linked to own assigned, non-archived work
+    // orders (via source_incident_id). Unlinked reports are nobody's
+    // assignment — same rule as the problems queue scoping.
+    if (normalizeRoleName(session?.user?.role) === "mechanic") {
+      conditions.push(`EXISTS (SELECT 1 FROM vehiclemaintenance vm WHERE vm.source_incident_id = i.incident_id AND vm.assigned_mechanic_id = $${params.length + 1} AND vm.deleted_at IS NULL)`);
       params.push(session.user.employeeId);
     }
 
@@ -64,7 +73,7 @@ export async function GET(req) {
       SELECT i.incident_id,
              i.vehicle_id,
              i.trip_id, i.incident_type, i.incident_date,
-             i.description, i.location, i.latitude, i.longitude, i.severity, i.status,
+             i.description, i.location, i.latitude, i.longitude, i.severity, i.severity_assessment, i.status,
              i.actions_taken, i.acknowledged_at, i.acknowledged_by,
              i.resolved_at, i.resolved_by, i.grounding_status, i.grounding_error,
              i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,

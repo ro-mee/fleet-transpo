@@ -56,6 +56,14 @@ On the vehicle form (`fleet/vehicles/new`), attaching an OR/CR or Insurance file
 
 `vehicles` (20) · `vehiclecategories` · [[driver_vehicle_assignments]] · `vehicleinspection` **0 rows** · [[dispatchschedules]]
 
+## Vehicle detail display — 2026-10-02
+
+The Vehicle Specifications card on `/fleet/vehicles/[id]` no longer shows Purchase Date or Purchase Price. This is a display-only change; the vehicle fields and existing form/API behavior remain available. Verified with targeted ESLint and a source search confirming the labels and field references are absent from the detail page.
+
+## Passenger capacity belongs to each vehicle — 2026-10-02
+
+Removed seating capacity from the Vehicle Categories form and category cards. The category API no longer accepts, returns, or seeds `vehiclecategories.seating_capacity`; category records describe the service class, while passenger capacity is recorded on each vehicle in `vehicles.seating_capacity` through the vehicle form and API. The legacy nullable `vehiclecategories.seating_capacity` database column and its existing values are retained but are no longer selected or written by these category endpoints. No migration was needed. Static source review confirmed the vehicle form/API still use the per-vehicle field; automated tests were not run for this change.
+
 ## Related
 
 [[Dispatch]] · [[Maintenance]] · [[Fuel]] · [[UVVRP Number Coding]] · [[Feature Index]]
@@ -94,3 +102,9 @@ There was, however, a real presentation defect: an empty control is indistinguis
 Both notices are computed from the **loaded row** (`storedCategoryMissing` / `storedLicenseMissing`), so a vehicle that *does* have the values shows neither, and neither appears while the row is still loading. The LTO code was already `required` in `vehicleSchema` and stays required — a deliberate selection is enforced on save, and the hint now explains why. `category_id` remains optional in the schema; making it mandatory would block unrelated edits on 16 vehicles, and that is a product decision, not a bug fix.
 
 **Verification.** `src/app/(dashboard)/fleet/vehicles/new/page.test.js` (5 tests) renders the real form with a mocked query and pins: the missing-value notice and placeholder for each column, the notice being conditional on the loaded row (none while loading, none for a populated row), and each column being flagged independently. (The prefilled *values* land through `form.reset` inside an effect, which a static render does not run — what these tests assert is that the form never reports a value as missing when the record has one.)
+
+**Save/reopen follow-up — 2026-10-02:** The initial direct load eventually showed the saved values, but the user-directed **View Vehicle → Edit Details** flow reproduced the blank controls while the form initialized. A read-only lookup confirmed the category and LTO code remained in the database; the issue was the edit form exposing default values before its `useEffect` called `form.reset()`.
+
+The root cause of the reproducible path is a **warm react-query cache**: `/fleet/vehicles/[id]` and `/fleet/vehicles/[id]/edit` share the `["vehicle", id]` key, so "Edit Details" mounts the form with the row already available on the first render — before any effect can run. The form now derives its `useForm` `defaultValues` from that cached row (a shared `vehicleToFormValues` mapper also used by the reset effect), so the correct values are present from the first paint. A cold load, where the row is not cached, still gates on a loading state until the reset effect has run, and offers retry/back actions if loading fails. `vehicleId` is captured in the initial `initializedVehicleId` state so the gate is satisfied on the warm path without an effect.
+
+No database change was needed. The 5 `fleet/vehicles/new/page.test.js` tests (which pin the "never recorded" copy and fail if the gate blocks the form) pass, along with scoped ESLint. A post-fix browser recheck remains pending because the local app session expired.
