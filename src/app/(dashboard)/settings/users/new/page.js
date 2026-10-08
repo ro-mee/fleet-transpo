@@ -11,7 +11,7 @@ import { toast } from "@/components/ui/toast";
 import { createEmployeeAccount } from "@/services/auth.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useAuth } from "@/hooks/use-auth";
-import { isSuperAdmin } from "@/lib/auth/role-names";
+import { canAssignRole } from "@/lib/auth/privilege";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
 import {
@@ -31,10 +31,7 @@ const ACCOUNT_ROLES = REGISTRATION_ROLES.filter((r) => r.value !== "driver");
 // Roles the signed-in actor may offer. The server re-validates every
 // submission — this only keeps the picker from offering a doomed choice.
 function rolesForActor(actorRole) {
-  if (isSuperAdmin(actorRole)) return ACCOUNT_ROLES;
-  return ACCOUNT_ROLES.filter((r) =>
-    ["fleet_manager", "dispatcher", "management"].includes(r.value)
-  );
+  return ACCOUNT_ROLES.filter((r) => canAssignRole(actorRole, r.id));
 }
 
 const PRIVILEGED_VALUES = new Set(["super_admin", "admin"]);
@@ -84,6 +81,15 @@ const ROLE_META = {
     activeBg: "bg-emerald-500",
     description: "Read-only dashboard access for executives and managers.",
     badge: "View Only",
+  },
+  mechanic: {
+    icon: Wrench,
+    color: "text-orange-500",
+    bg: "bg-orange-50 dark:bg-orange-950/40",
+    ring: "ring-orange-200 dark:ring-orange-800",
+    activeBg: "bg-orange-500",
+    description: "Works assigned repair jobs and submits them for review.",
+    badge: "Workshop",
   },
 };
 

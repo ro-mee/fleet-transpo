@@ -272,3 +272,10 @@ Dispatchers retain read access to pairing and substitute information where it ex
 ## Related
 
 [[Authentication]] · [[employees]] · [[Why RLS Is Not A Boundary]] · [[Anti Enumeration 404 vs 403]] · [[Fail Closed By Default]] · [[Architecture]]
+## Mechanic account provisioning picker — corrected 2026-10-08
+
+The Add User page had its own outdated Admin role list, so Admin could not select Mechanic even though `canAssignRole` and the registration API already allowed role 10. The page now filters the shared registration catalog through `canAssignRole`, using exactly the server's permission rule. Admin and Super Admin both see Mechanic with its assigned-repair/workshop description. Admin still cannot offer privileged roles or driver accounts; loading, unknown and unauthorized actor roles produce no role choices. Driver provisioning remains in the Drivers Directory.
+
+Six actual page-render regressions reproduce the former omission and missing description, then verify the corrected role choices. Two registration-route tests confirm both authorized actors can submit Mechanic role 10. Focused page/API/privilege/schema/auth-security verification passed 108 tests; production build passed. A read-only live query confirmed `roles.role_id=10` is `mechanic`; no migration was necessary. Live browser verification could not run because the browser tool failed to initialize. No operational account was created by the tests.
+
+Final main verification: `npm run test:run` passed 386 files / 4,389 tests, with 16 opt-in database tests skipped; `npm run lint:ci` passed with zero warnings; `npm run build` passed. No server permission rule changed.

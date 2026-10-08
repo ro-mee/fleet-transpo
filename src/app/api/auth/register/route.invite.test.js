@@ -70,6 +70,14 @@ beforeEach(() => {
 });
 
 describe("POST /api/auth/register — temp-password invite flow", () => {
+  it.each(["admin", "super_admin"])("accepts the Mechanic selection from %s", async role => {
+    requirePermission.mockResolvedValue({ ...ADMIN_SESSION, user: { ...ADMIN_SESSION.user, role } });
+    const response = await post({ ...VALID, role_id: "10" });
+    expect(response.status).toBe(201);
+    expect(insertCall()[1][4]).toBe(10);
+    expect(await response.json()).toMatchObject({ employee_id: 77 });
+  });
+
   it("creates the account with the invite flags and returns no password material", async () => {
     const res = await post(VALID);
     const data = await res.json();
