@@ -174,6 +174,38 @@ export function validateSecurityPolicy(policy) {
 }
 
 /**
+ * Split a stored seconds total into the minutes + seconds pair the form shows.
+ *
+ * Pure display helper for the split idle-timeout input: `300` →
+ * `{ minutes: "5", seconds: "0" }`. Strings, not numbers, because the inputs
+ * are text and must be able to hold `""` while the operator is retyping.
+ *
+ * @param {*} totalSeconds
+ * @returns {{minutes: string, seconds: string}}
+ */
+export function splitDurationParts(totalSeconds) {
+  const total = Math.max(0, Math.round(Number(totalSeconds) || 0));
+  return { minutes: String(Math.floor(total / 60)), seconds: String(total % 60) };
+}
+
+/**
+ * Join a typed minutes + seconds pair back into a stored seconds total.
+ *
+ * Empty halves count as 0 while typing, so clearing one box does not freeze
+ * the other — the input can go momentarily empty and `Save` validates the
+ * joined total (60–3600) once the operator is done.
+ *
+ * @param {*} minutes raw minutes text (`""` allowed)
+ * @param {*} seconds raw seconds text (`""` allowed)
+ * @returns {number} whole seconds, >= 0
+ */
+export function joinDurationParts(minutes, seconds) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0));
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  return m * 60 + s;
+}
+
+/**
  * Seconds until the "Are you still there?" warning, and the two heartbeat
  * intervals — all derived from the idle window so they can never outlast it.
  *

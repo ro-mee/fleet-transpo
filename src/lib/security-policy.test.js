@@ -21,6 +21,8 @@ import {
   mergeSecurityPolicy,
   validateSecurityPolicy,
   deriveIdleWindows,
+  splitDurationParts,
+  joinDurationParts,
 } from "@/lib/security-policy";
 
 describe("defaults", () => {
@@ -166,6 +168,30 @@ describe("deriveIdleWindows", () => {
       expect(deriveIdleWindows(bad).idleWarningSeconds).toBe(
         deriveIdleWindows(DEFAULT_SECURITY_POLICY.idleTimeoutSeconds).idleWarningSeconds
       );
+    }
+  });
+});
+
+describe("split/join duration parts", () => {
+  it("splits a stored total into minutes + seconds strings", () => {
+    expect(splitDurationParts(300)).toEqual({ minutes: "5", seconds: "0" });
+    expect(splitDurationParts(90)).toEqual({ minutes: "1", seconds: "30" });
+    expect(splitDurationParts("300")).toEqual({ minutes: "5", seconds: "0" });
+  });
+
+  it("joins a typed pair back into whole seconds, with empty counting as 0", () => {
+    expect(joinDurationParts("5", "0")).toBe(300);
+    // Clearing one box to retype it must not freeze the other half.
+    expect(joinDurationParts("5", "")).toBe(300);
+    expect(joinDurationParts("", "")).toBe(0);
+    // Leading zeros typed mid-edit join to the same total blur normalizes to.
+    expect(joinDurationParts("0", "015")).toBe(15);
+  });
+
+  it("round-trips through the form helpers", () => {
+    for (const total of [60, 300, 315, 3600]) {
+      const { minutes, seconds } = splitDurationParts(total);
+      expect(joinDurationParts(minutes, seconds)).toBe(total);
     }
   });
 });

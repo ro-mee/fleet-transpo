@@ -31,6 +31,8 @@ import {
   DEFAULT_SECURITY_POLICY,
   validateSecurityPolicy,
   deriveIdleWindows,
+  splitDurationParts,
+  joinDurationParts,
 } from "@/lib/security-policy";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useAuth } from "@/hooks/use-auth";
@@ -126,14 +128,28 @@ const toSecurityForm = (policy) =>
   );
 
 /**
- * `300` → "5 min", `90` → "1 min 30 s". The form states a duration the way an
- * operator says it; the stored value, the range bounds and every consumer stay
- * in seconds.
+ * Split-field text held apart from the joined seconds total, so either box can
+ * go momentarily empty while the operator retypes it. The joined total in
+ * `securityForm` is what Save validates; this is only what the two boxes show.
+ */
+const toDurationDraft = (policy) =>
+  Object.fromEntries(
+    SECURITY_POLICY_FIELDS.filter((f) => f.parts).map((f) => [
+      f.key,
+      splitDurationParts(policy?.[f.key] ?? DEFAULT_SECURITY_POLICY[f.key]),
+    ])
+  );
+
+/**
+ * `300` → "5 min", `90` → "1 min 30 s", `12` → "12 s". The form states a
+ * duration the way an operator says it; the stored value, the range bounds
+ * and every consumer stay in seconds.
  */
 const fmtDuration = (totalSeconds) => {
   const total = Math.max(0, Math.round(Number(totalSeconds) || 0));
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
+  if (minutes === 0) return `${seconds} s`;
   return seconds ? `${minutes} min ${seconds} s` : `${minutes} min`;
 };
 
@@ -225,10 +241,12 @@ export default function SettingsGeneralPage() {
   // before the first response would persist those defaults over a policy an
   // administrator already set. Save is disabled until `securityPolicy` lands.
   const [securityForm, setSecurityForm] = useState(() => toSecurityForm(DEFAULT_SECURITY_POLICY));
+  const [durationDraft, setDurationDraft] = useState(() => toDurationDraft(DEFAULT_SECURITY_POLICY));
   const [hydratedSecurityFrom, setHydratedSecurityFrom] = useState(undefined);
   if (securityPolicy !== hydratedSecurityFrom) {
     setHydratedSecurityFrom(securityPolicy);
     setSecurityForm(toSecurityForm(securityPolicy ?? DEFAULT_SECURITY_POLICY));
+    setDurationDraft(toDurationDraft(securityPolicy ?? DEFAULT_SECURITY_POLICY));
   }
   // Server-side validation errors are shown inline rather than only in a toast:
   // the cross-field rule fires on a pair of fields the admin can see, and a
@@ -267,19 +285,31 @@ export default function SettingsGeneralPage() {
   };
 
   /**
-   * Rewrite one half of a split duration field. Both boxes edit the SAME stored
-   * seconds value rather than living as two independent numbers, so they cannot
-   * drift apart, and the value that reaches Save is the one the server expects.
+   * Rewrite one half of a split duration field. The typed text stays in
+   * `durationDraft` exactly as entered — including `""` while the operator
+   * clears a box to retype it — and the joined seconds total in `securityForm`
+   * follows via `joinDurationParts()`, so the halves cannot drift apart and
+   * Save still receives seconds. Non-digit input is ignored; range checks stay
+   * on Save, never while typing.
    */
   const setDurationPart = (key, part, raw) => {
     setSecurityError(null);
-    setSecurityForm((prev) => {
-      const total = Math.max(0, Math.round(Number(prev[key]) || 0));
-      const minutes = Math.floor(total / 60);
-      const seconds = total % 60;
-      const typed = Math.max(0, Math.round(Number(raw) || 0));
-      const value = part === "minutes" ? typed * 60 + seconds : minutes * 60 + typed;
-      return { ...prev, [key]: String(value) };
+    if (raw !== "" && !/^\d+$/.test(raw)) return;
+    const cur = durationDraft[key] ?? splitDurationParts(securityForm[key]);
+    const next = { ...cur, [part]: raw };
+    setDurationDraft((prev) => ({ ...prev, [key]: next }));
+    setSecurityForm((prev) => ({ ...prev, [key]: String(joinDurationParts(next.minutes, next.seconds)) }));
+  };
+
+  /**
+   * Re-split the joined total back over both boxes. Runs on blur so typing
+   * `015` or leaving a box empty collapses to the canonical `15` / `0` only
+   * after the operator is done, never mid-keystroke.
+   */
+  const normalizeDuration = (key) => {
+    setDurationDraft((prev) => {
+      const total = Math.max(0, Math.round(Number(securityForm[key]) || 0));
+      return { ...prev, [key]: splitDurationParts(total) };
     });
   };
 
@@ -775,31 +805,34 @@ export default function SettingsGeneralPage() {
                           )}
                         </label>
                         {isSplit ? (
-                          // Two boxes over ONE stored seconds value — editing
-                          // either half rewrites the whole thing, so the halves
-                          // cannot disagree (see setDurationPart).
+                          // Two boxes over ONE stored seconds value — the typed
+                          // text lives in durationDraft (so a box can go empty
+                          // mid-edit) and the joined total in securityForm
+                          // follows it, so the halves cannot disagree.
                           <div className="flex items-center gap-2">
                             <Input
                               id={`security-${f.key}`}
                               aria-label={`${f.label} — minutes`}
-                              type="number"
-                              min={0}
-                              max={Math.floor(range.max / 60)}
-                              step={1}
-                              value={Math.floor(total / 60)}
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              placeholder="0"
+                              value={durationDraft[f.key]?.minutes ?? String(Math.floor(total / 60))}
                               onChange={(e) => setDurationPart(f.key, "minutes", e.target.value)}
+                              onBlur={() => normalizeDuration(f.key)}
                               className="h-10 w-24 rounded-xl border-border/80 font-data"
                             />
                             <span className="text-[11px] text-foreground-muted">min</span>
                             <Input
                               id={`security-${f.key}-seconds`}
                               aria-label={`${f.label} — seconds`}
-                              type="number"
-                              min={0}
-                              max={59}
-                              step={1}
-                              value={total % 60}
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              placeholder="0"
+                              value={durationDraft[f.key]?.seconds ?? String(total % 60)}
                               onChange={(e) => setDurationPart(f.key, "seconds", e.target.value)}
+                              onBlur={() => normalizeDuration(f.key)}
                               className="h-10 w-24 rounded-xl border-border/80 font-data"
                             />
                             <span className="text-[11px] text-foreground-muted">sec</span>
@@ -838,12 +871,12 @@ export default function SettingsGeneralPage() {
                   </p>
                   <ul className="text-[11px] font-data text-foreground-secondary space-y-0.5">
                     <li>
-                      Idle warning opens {securityDerived.idleWarningSeconds}s before the session is
-                      gone
+                      Idle warning opens {fmtDuration(securityDerived.idleWarningSeconds)} before the
+                      session is gone
                     </li>
                     <li>
-                      Activity heartbeats are at least {securityDerived.heartbeatMinGapSeconds}s apart,
-                      with a {securityDerived.heartbeatIntervalSeconds}s backstop
+                      Activity heartbeats are at least {fmtDuration(securityDerived.heartbeatMinGapSeconds)} apart,
+                      with a {fmtDuration(securityDerived.heartbeatIntervalSeconds)} backstop
                     </li>
                   </ul>
                 </div>
