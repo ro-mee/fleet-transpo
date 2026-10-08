@@ -14,6 +14,7 @@ import {
 } from "@/lib/incidents/resolution";
 import { evaluateResponder } from "@/lib/incidents/responder-tracking";
 import { haversineKm } from "@/lib/scheduling/travel-buffer";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 
 // Staff resolution endpoints. Resolving is no longer just a row edit: it also
 // restores the vehicle's availability (grounding automation set it to
@@ -104,6 +105,21 @@ export async function GET(req, props) {
       rows[0].reporter_employee_id !== session.user.employeeId
     ) {
       return err("Forbidden", 403);
+    }
+
+    // Assignee-scoped read for mechanics (G1 2026-10-08): the collection
+    // filters to incidents linked to the caller's own assigned work orders
+    // (incidents/route.js), so the detail must enforce the same ownership —
+    // otherwise any non-confidential report (photos, linked maintenance,
+    // live driver/responder positions) is readable by guessing an id.
+    // Placed before the dispatches/linked queries so a denied caller costs
+    // no extra reads.
+    if (normalizeRoleName(session?.user?.role) === "mechanic") {
+      const { rows: owned } = await query(
+        `SELECT 1 FROM vehiclemaintenance vm WHERE vm.source_incident_id = $1 AND vm.assigned_mechanic_id = $2 AND vm.deleted_at IS NULL LIMIT 1`,
+        [id, session.user.employeeId]
+      );
+      if (!owned[0]) return err("Forbidden", 403);
     }
 
     // Grounding writes one audit entry per interrupted dispatch with this exact

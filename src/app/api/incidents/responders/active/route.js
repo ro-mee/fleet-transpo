@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
+import { normalizeRoleName } from "@/lib/auth/role-names";
 
 // Active rescue missions for the live operations map: every OPEN incident with
 // a fleet responder assigned, with both parties' live positions. This is the
@@ -9,7 +10,18 @@ import { requirePermission, ok, handleError } from "@/lib/api/utils";
 // incident GETs keep response_status/ETA fresh; nothing is computed here.
 export async function GET(req) {
   try {
-    await requirePermission(req, "incidents", "read");
+    const session = await requirePermission(req, "incidents", "read");
+
+    // Assignee-scoped read for mechanics (G2 2026-10-08): the unfiltered
+    // feed carries every open rescue mission with live driver/responder
+    // positions, which an assignee-scoped role has no operational need for.
+    // Same ownership predicate as the incident collection.
+    const params = [];
+    let scope = "";
+    if (normalizeRoleName(session?.user?.role) === "mechanic") {
+      scope = ` AND EXISTS (SELECT 1 FROM vehiclemaintenance vm WHERE vm.source_incident_id = i.incident_id AND vm.assigned_mechanic_id = $1 AND vm.deleted_at IS NULL)`;
+      params.push(session.user.employeeId);
+    }
 
     const { rows } = await query(
       `SELECT i.incident_id,
@@ -42,8 +54,9 @@ export async function GET(req) {
          LEFT JOIN employees de ON de.employee_id = dd.employee_id
         WHERE i.status = 'Open'
           AND i.responder_driver_id IS NOT NULL
-          AND i.deleted_at IS NULL
-        ORDER BY i.responder_assigned_at DESC NULLS LAST, i.incident_id DESC`
+          AND i.deleted_at IS NULL${scope}
+        ORDER BY i.responder_assigned_at DESC NULLS LAST, i.incident_id DESC`,
+      params
     );
 
     return ok(rows);
