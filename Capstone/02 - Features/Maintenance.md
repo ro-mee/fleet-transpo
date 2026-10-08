@@ -376,6 +376,15 @@ Completion Audit" above; the seven notification titles in [[Notifications]].
   assigns nothing; driver accounts stay in the Drivers Directory.
   Unknown-role fallback is least-privilege "No Access", not the old admin
   workspace.
+- **Session + redirect gaps closed 2026-10-08.** The heartbeat admitted staff
+  roles only, so mechanic/driver web sessions 403'd on every heartbeat
+  (`last_seen_at` never slid → idle-logout while active); both roles are now
+  admitted (`route.roles.test.js` pins the list — the endpoint only
+  reads/slides the caller's own session row). Post-login and denied-route
+  redirects also knew only the driver home, so a mechanic landed on
+  staff-only `/dashboard` (restricted panel + bounce to the same page);
+  `role-guard.js` and `return-to.js` now route mechanics to `/mechanic`,
+  mirroring the driver precedent (pinned in `return-to.test.js`).
 - **Per-role transition maps (Task 3 + human rulings C1–C3).** Mechanic:
   `Scheduled → In Progress → Pending Inspection` only (no completion, no
   skips). Staff: `Scheduled → In Progress/Cancelled/Completed`,
