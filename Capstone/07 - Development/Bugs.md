@@ -4373,3 +4373,5 @@ Full-role audit (API x UI x incident-chain) after the first real mechanic sign-i
 5. **CommandPalette search 403s for mechanics** (`command-palette.jsx:96-102` fires `GET /api/search`, explicitly denied at `permissions.js:349-352`); palette also lists zero `/mechanic/*` pages. Minor: RoleDashboard has a mechanic config with no query/branch (blank body if ever rendered), `summary.upcoming` is a hardcoded `[]`, predictive_maintenance grant unused by any mechanic UI.
 
 Non-gaps (deliberate): mobile driver-only login reject, search deny (anti-enumeration), notifications self-only, PUT whitelist == client whitelist, transition maps agree, four-eyes completion guard, cost visible-but-not-editable.
+
+**Fixed 2026-10-08 (main 24abb099).** G1: `GET /api/incidents/[id]` now enforces the same `assigned_mechanic_id = me` ownership as the collection (403 otherwise, checked before the dispatches/linked reads). G2: `GET /api/incidents/responders/active` applies the same EXISTS scope for mechanics; staff feed unchanged. 5 new scope tests green; incidents + security-assessment suites 393/393; lint clean.
