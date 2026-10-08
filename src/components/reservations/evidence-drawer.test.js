@@ -1,17 +1,57 @@
 import React from 'react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+const focusHooks=vi.hoisted(()=>({slots:[],cursor:0,effects:[]}));
+vi.mock('react',async importOriginal=>{
+  const actual=await importOriginal();
+  return {
+    ...actual,
+    useState:initial=>{
+      const index=focusHooks.cursor++;
+      if(!(index in focusHooks.slots)) focusHooks.slots[index]={value:typeof initial==='function'?initial():initial};
+      const slot=focusHooks.slots[index];
+      return [slot.value,value=>{slot.value=typeof value==='function'?value(slot.value):value;}];
+    },
+    useRef:initial=>{
+      const index=focusHooks.cursor++;
+      if(!(index in focusHooks.slots)) focusHooks.slots[index]={value:{current:initial}};
+      return focusHooks.slots[index].value;
+    },
+    useEffect:effect=>{focusHooks.effects.push(effect);},
+  };
+});
 vi.mock('@/lib/api/client', () => ({ apiFetch: vi.fn(async () => ({})) }));
 import { apiFetch } from '@/lib/api/client';
-import { fetchEvidence, EvidenceBody, EvidenceDrawer, EligibilityInspector, ComparisonCard, buildInspectorRows } from './evidence-drawer';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { fetchEvidence, EvidenceBody, EvidenceDrawer, EvidenceFailureMessage, EligibilityInspector, ComparisonCard, buildInspectorRows, inspectorConclusion } from './evidence-drawer';
+import { readFileSync } from 'node:fs';
+const drawerSource = readFileSync(new URL('./evidence-drawer.jsx', import.meta.url), 'utf8');
 
-beforeEach(() => { vi.stubGlobal('React', React); vi.clearAllMocks(); });
+beforeEach(() => { focusHooks.slots=[]; focusHooks.cursor=0; focusHooks.effects=[]; vi.stubGlobal('React', React); vi.clearAllMocks(); });
 
 const leaveData = {
   title: 'Leave Evidence', managingModule: 'Attendance & Leave', checkedAt: '2026-09-17T17:42:10+08:00',
   facts: { driverName: 'Marco Santos', status: 'Approved', startDate: '2026-09-18', endDate: '2026-09-19', overlapsBooking: true, verdict: 'blocked' },
 };
 const renderBody = (data, planStatus) => renderToStaticMarkup(React.createElement(EvidenceBody, { data, proofType: 'leave', planStatus }));
+const findNode=(node,predicate)=>{
+  if(Array.isArray(node)) return node.map(child=>findNode(child,predicate)).find(Boolean)??null;
+  if(!React.isValidElement(node)) return null;
+  if(predicate(node)) return node;
+  return findNode(node.props?.children,predicate);
+};
+const evidenceTree=(props={})=>{
+  focusHooks.slots=[];
+  focusHooks.cursor=0;
+  focusHooks.effects=[];
+  return EvidenceDrawer({requestId:502,proof:{type:'leave',ref:'ev_x'},onClose:()=>{},...props});
+};
+const treeText=node=>{
+  if(Array.isArray(node)) return node.map(treeText).join(' ');
+  if(typeof node==='string'||typeof node==='number') return String(node);
+  if(!React.isValidElement(node)) return '';
+  return treeText(node.props?.children);
+};
 
 it('fetches exactly one point-in-time snapshot per proof via GET', async () => {
   await fetchEvidence(502, 'ev_abc.123');
@@ -47,11 +87,12 @@ it('renders the conflict timeline for schedule conflicts', () => {
 });
 
 it('drawer shell renders loading state with close-only chrome', () => {
-  const html = renderToStaticMarkup(React.createElement(EvidenceDrawer, { requestId: 502, proof: { type: 'leave', ref: 'ev_x' }, planStatus: null, onClose: () => {} }));
-  expect(html).toContain('Read-only evidence');
-  expect(html).toContain('Loading verified evidence');
-  expect(html).toContain('Close');
-  expect(html).not.toMatch(/Edit|Delete|Approve/);
+  const tree = evidenceTree({ requestId: 502, proof: { type: 'leave', ref: 'ev_x' }, planStatus: null });
+  expect(treeText(tree)).toContain('Read-only evidence');
+  expect(treeText(tree)).toContain('Loading verified evidence');
+  expect(treeText(tree)).toContain('Close');
+  expect(treeText(tree)).not.toMatch(/Edit|Delete|Approve/);
+  expect(findNode(tree, node => node.type === DialogTitle)).not.toBeNull();
 });
 
 it('builds inspector rows with bounded copy and future GPS as not applicable', () => {
@@ -67,17 +108,43 @@ it('builds inspector rows with bounded copy and future GPS as not applicable', (
   expect(immediate.at(-1)).toMatchObject({ label: 'GPS Health', state: 'clear' });
 });
 
-it('inspector renders locked eligibility copy without absolute guarantees', () => {
+it('inspector conclusion follows row state and stays bound to evaluated server evidence', () => {
+  const clear = [{ label: 'Seating capacity', state: 'clear', note: 'No blocking issue found', proof: { type: 'capacity', ref: 'ev_c' } }];
   const html = renderToStaticMarkup(React.createElement(EligibilityInspector, {
-    pairLabel: 'Marco Santos + ABC', horizon: 'SCHEDULED',
-    rows: [{ label: 'Seating capacity', state: 'clear', note: 'No blocking issue found', proof: { type: 'capacity', ref: 'ev_c' } }],
-    onReviewProof: () => {},
+    pairLabel: 'Marco Santos + ABC', horizon: 'SCHEDULED', rows: clear, onReviewProof: () => {},
   }));
-  expect(html).toContain('Eligible based on the evaluated server evidence');
+  expect(inspectorConclusion(clear)).toMatch(/Eligible.*evaluated server evidence.*this booking/i);
+  expect(html).toContain('Eligible');
   expect(html).toContain('SCHEDULED');
   expect(html).toContain('Review');
   expect(html).not.toMatch(/definitely|guarantee|all clear|therefore assign/i);
   expect(html).not.toMatch(/<input|<select|<form/);
+});
+
+it.each([
+  ['blocking rows', [{ label: 'Schedule', state: 'blocked', note: 'Approved leave overlaps' }], /Blocking evidence/i],
+  ['blocked and verification rows', [{ label: 'Schedule', state: 'blocked' }, { label: 'License', state: 'verify' }], /Blocking evidence/i],
+  ['verification rows', [{ label: 'License', state: 'verify', note: 'Needs verification' }], /Eligibility is unknown/i],
+  ['missing rows', [], /Eligibility is unknown/i],
+  ['GPS-only rows', [{ label: 'GPS Health', state: 'clear', note: 'Fresh' }], /Eligibility is unknown/i],
+  ['GPS clear with non-GPS not-applicable rows', [{ label: 'GPS Health', state: 'clear', note: 'Fresh' }, { label: 'Number coding', state: 'na', note: 'Not applicable' }], /Eligibility is unknown/i],
+])('never calls %s eligible', (_name, rows, conclusion) => {
+  const html = renderToStaticMarkup(React.createElement(EligibilityInspector, {
+    pairLabel: 'Marco Santos + ABC', horizon: 'SCHEDULED', rows, onReviewProof: () => {},
+  }));
+  expect(inspectorConclusion(rows)).toMatch(conclusion);
+  expect(html).toMatch(conclusion);
+  expect(html).not.toContain('Eligible');
+});
+
+it('shows Retry and Close for an evidence-fetch failure', () => {
+  const html = renderToStaticMarkup(React.createElement(EvidenceFailureMessage, {
+    error: new Error('network'), onRetry: () => {}, onClose: () => {},
+  }));
+  expect(html).toContain('role="alert"');
+  expect(html).toContain('Evidence unavailable');
+  expect(html).toContain('Retry evidence');
+  expect(html).toContain('Close evidence');
 });
 
 it('comparison card shows codes and facts without scores', () => {
@@ -114,4 +181,149 @@ it('renders an unevaluated pairing as no claim, never as a blocking result', () 
   expect(html).toContain('>—<');
   expect(html).not.toContain('Blocking');
   expect(html).not.toContain('none');
+});
+
+it('renders evidence as a named modal Radix dialog with the existing right-side placement',()=>{
+  const tree=evidenceTree();
+  const root=findNode(tree,node=>node.type===Dialog);
+  const content=findNode(tree,node=>node.type===DialogContent);
+
+  expect(root?.props.open).toBe(true);
+  expect(root?.props.modal).not.toBe(false);
+  expect(content).not.toBeNull();
+  expect(content.props.className).toMatch(/right-0/);
+  expect(findNode(tree,node=>node.type===DialogTitle)).not.toBeNull();
+});
+
+it('focuses Close on open and restores the exact Review opener without fetching on focus',()=>{
+  const reviewTrigger={focus:vi.fn()};
+  const openerRef={current:reviewTrigger};
+  apiFetch.mockClear();
+  const tree=evidenceTree({openerRef});
+  const content=findNode(tree,node=>node.type===DialogContent);
+  const close=findNode(tree,node=>node.type==='button'&&node.props['aria-label']==='Close evidence');
+
+  expect(content?.props.onOpenAutoFocus).toBeTypeOf('function');
+  expect(content?.props.onCloseAutoFocus).toBeTypeOf('function');
+  expect(close).not.toBeNull();
+  const closeFocus=vi.fn();
+  const closeRef=close.props.ref??close.ref;
+  expect(closeRef).toBeDefined();
+  closeRef.current={focus:closeFocus};
+  const openEvent={preventDefault:vi.fn()};
+  content.props.onOpenAutoFocus(openEvent);
+  expect(openEvent.preventDefault).toHaveBeenCalledOnce();
+  expect(closeFocus).toHaveBeenCalledOnce();
+  expect(apiFetch).not.toHaveBeenCalled();
+
+  const closeEvent={preventDefault:vi.fn()};
+  content.props.onCloseAutoFocus(closeEvent);
+  expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+  expect(reviewTrigger.focus).toHaveBeenCalledOnce();
+});
+
+it('closes on Radix dismissal through the controlled dialog callback',()=>{
+  const onClose=vi.fn();
+  const tree=evidenceTree({onClose});
+  const root=findNode(tree,node=>node.type===Dialog);
+
+  root?.props.onOpenChange(false);
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
+it('returns from a proof drill-down to its exact Review trigger on Back',()=>{
+  const onBack=vi.fn();
+  const reviewTrigger={focus:vi.fn()};
+  const tree=evidenceTree({onBack,backTo:{kind:'inspector'},openerRef:{current:reviewTrigger}});
+  const content=findNode(tree,node=>node.type===DialogContent);
+  const back=findNode(tree,node=>node.type==='button'&&treeText(node.props.children).includes('Back to checklist'));
+
+  expect(back).not.toBeNull();
+  back.props.onClick();
+  expect(onBack).toHaveBeenCalledOnce();
+  content.props.onCloseAutoFocus({preventDefault:vi.fn()});
+  expect(reviewTrigger.focus).toHaveBeenCalledOnce();
+});
+
+it('makes one scope-bound GET for explicit proof open and none for the inspector',()=>{
+  apiFetch.mockClear();
+  evidenceTree({requestId:502,proof:{type:'leave',ref:'ev_abc.123'}});
+  expect(focusHooks.effects).toHaveLength(1);
+  focusHooks.effects[0]();
+  expect(apiFetch).toHaveBeenCalledOnce();
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/integration/transport-requests/502/evidence?ref=ev_abc.123',
+    {method:'GET'},
+  );
+
+  apiFetch.mockClear();
+  evidenceTree({requestId:502,proof:null,inspector:{pairLabel:'Maria Santos + ABC-1234',rows:[]}});
+  expect(focusHooks.effects).toHaveLength(1);
+  focusHooks.effects[0]();
+  expect(apiFetch).not.toHaveBeenCalled();
+});
+
+it('passes the exact eligibility Review button to its nested proof dialog',()=>{
+  const proof={type:'capacity',ref:'ev_c'};
+  const onReviewProof=vi.fn();
+  const tree=EligibilityInspector({
+    pairLabel:'Maria Santos + ABC-1234',
+    horizon:'SCHEDULED',
+    rows:[{label:'Seating capacity',state:'clear',note:'No blocking issue found',proof}],
+    onReviewProof,
+  });
+  const review=findNode(tree,node=>node.type==='button'&&treeText(node.props.children).includes('Review'));
+  const trigger={focus:vi.fn()};
+
+  review.props.onClick({currentTarget:trigger});
+  expect(onReviewProof).toHaveBeenCalledWith(proof,trigger);
+});
+
+// Task 7 (P2-06): comparison columns must identify both actual pairs by the
+// immutable server ids, never by guessed plates or names.
+it('identifies both compared pairs by immutable server ids',()=>{
+  const comparisonHtml=renderToStaticMarkup(React.createElement(ComparisonCard,{
+    planStatus:null,
+    data:{
+      title:'Option Comparison',managingModule:'Dispatch Copilot',checkedAt:'2026-09-17T17:42:10+08:00',
+      facts:{
+        optionA:{vehicleId:1,driverId:2,reliability:'SAFE',transferMinutes:12,workload:{totalTrips:4,serviceDate:'2026-09-19'},standing:'Non-standing'},
+        optionB:{vehicleId:3,driverId:4,reliability:'SAFE',transferMinutes:25,workload:{totalTrips:2,serviceDate:'2026-09-19'},standing:'Standing pair'},
+        hierarchy:['Reliability','Efficiency'],verdict:'clear',
+      },
+    },
+  }));
+  expect(comparisonHtml).toContain('Vehicle #1 / Driver #2');
+  expect(comparisonHtml).toContain('Vehicle #3 / Driver #4');
+  expect(comparisonHtml).toContain('Option 1');
+  expect(comparisonHtml).toContain('Option 2');
+  expect(comparisonHtml).toContain('Checked');
+  expect(comparisonHtml).not.toMatch(/score|87\/100|points/i);
+});
+
+// Task 7 (P2-08 remainder): a failed proof snapshot retries with one more
+// GET only on explicit Retry, never polls, and never mutates (so retry
+// cannot create an assignment).
+it('issues another snapshot GET only on explicit Retry and never mutates',()=>{
+  apiFetch.mockClear();
+  focusHooks.slots=[];
+  focusHooks.cursor=0;
+  focusHooks.effects=[];
+  EvidenceDrawer({requestId:502,proof:{type:'leave',ref:'ev_retry'},onClose:()=>{}});
+  expect(focusHooks.effects).toHaveLength(1);
+  focusHooks.effects[0]();
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+
+  focusHooks.slots[0].value={status:'error',data:null,error:new Error('network')};
+  focusHooks.cursor=0;
+  const errorView=EvidenceDrawer({requestId:502,proof:{type:'leave',ref:'ev_retry'},onClose:()=>{}});
+  const failure=findNode(errorView,node=>node.type===EvidenceFailureMessage);
+  expect(failure).not.toBeNull();
+  expect(failure.props.onRetry).toBeTypeOf('function');
+  failure.props.onRetry();
+  expect(focusHooks.slots[0].value).toMatchObject({status:'loading'});
+  focusHooks.effects.at(-1)();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+  for(const [,options] of apiFetch.mock.calls) expect(options).toMatchObject({method:'GET'});
+  expect(drawerSource).not.toMatch(/setInterval|setTimeout/);
 });

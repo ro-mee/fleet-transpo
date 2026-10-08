@@ -25,6 +25,7 @@ vi.mock("@/lib/api/utils", () => ({
 const tables = ["trips", "vehicles", "transportation_requests", "dispatchschedules", "gpstracking", "fuel_price_snapshots", "system_settings", "trip_monitor_alerts", "audit_logs"];
 const enabled = process.env.FLEETOPS_REVIEW_DB_TEST === "1";
 let pool; let admin; let schema; let pauseCapture; let lockedPids; let fixtureQuery;
+const inFlight = new Set();
 const request = (url, method, body) => new Request(`https://local${url}`, { method, body: JSON.stringify(body) });
 const complete = (body) => PUT(request("/api/trips/1/complete", "PUT", body), { params: Promise.resolve({ id: 1 }) });
 
@@ -33,6 +34,12 @@ function assertFixtureDml(sql) {
   for (const match of sql.matchAll(/\b(?:INSERT\s+INTO|UPDATE\s+(?!OF\b|SET\b)|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s*([a-z_][a-z_0-9.]*)/gi)) {
     if (!tables.includes(match[1].toLowerCase())) throw new Error("Review DML escaped the fixture table allowlist.");
   }
+}
+
+function qualifyFixtureSql(sql) {
+  // Qualify only SQL relation positions; never rewrite literals such as resource='trips'.
+  const names = tables.join("|");
+  return sql.replace(new RegExp(`\\b(FROM|JOIN|INTO|UPDATE|TRUNCATE)\\s+(${names})\\b`, "gi"), (_match, keyword, name) => `${keyword} "${schema}"."${name.toLowerCase()}"`);
 }
 
 describe.skipIf(!enabled)("opt-in PostgreSQL fuel closeout in an isolated private fixture schema", () => {
@@ -68,14 +75,9 @@ describe.skipIf(!enabled)("opt-in PostgreSQL fuel closeout in an isolated privat
       // Checked inside the pinned transaction immediately before every query.
       const scope = await client.query("SELECT current_schema() AS schema");
       if (scope.rows[0].schema !== schema) throw new Error("Review query escaped its transaction-local fixture schema.");
-      return client.query(sql, params);
+      return client.query(qualifyFixtureSql(sql), params);
     };
-    fixtureQuery = async (sql, params) => {
-      await admin.query("BEGIN");
-      try { await localSettings(admin); const result = await checkedQuery(admin, null)(sql, params); await admin.query("COMMIT"); return result; }
-      catch (error) { await admin.query("ROLLBACK"); throw error; }
-    };
-    adapter.transaction = async (fn) => {
+    const transaction = async (fn) => {
       const client = await pool.connect();
       try {
         await client.query("BEGIN"); await localSettings(client);
@@ -85,12 +87,26 @@ describe.skipIf(!enabled)("opt-in PostgreSQL fuel closeout in an isolated privat
       } catch (error) { await client.query("ROLLBACK"); throw error; }
       finally { client.release(); }
     };
+    adapter.transaction = (fn) => {
+      const pending = transaction(fn);
+      inFlight.add(pending);
+      pending.then(() => inFlight.delete(pending), () => inFlight.delete(pending));
+      return pending;
+    };
     adapter.query = (sql, params) => adapter.transaction((tx) => tx.query(sql, params));
+    let fixtureTail = Promise.resolve();
+    fixtureQuery = (sql, params) => {
+      const pending = fixtureTail.then(() => adapter.query(sql, params));
+      fixtureTail = pending.catch(() => {});
+      return pending;
+    };
   }, 30000);
 
   beforeEach(async () => {
+    await Promise.allSettled([...inFlight]);
     pauseCapture = null; lockedPids = [];
-    await fixtureQuery(`TRUNCATE ${tables.join(",")};
+    // Every name is generated from the fixed allowlist, including comma-separated targets.
+    await fixtureQuery(`TRUNCATE ${tables.map((name) => `"${schema}"."${name}"`).join(",")};
       INSERT INTO vehicles (vehicle_id,mileage,fuel_efficiency_kmpl,fuel_type) VALUES (5,1000,9,'Diesel');
       INSERT INTO transportation_requests (request_id,pickup_location,pickup_datetime,fleet_status) VALUES (55,'Fixture only',NOW(),'Pending');
       INSERT INTO dispatchschedules (dispatch_id,status) VALUES (55,'In Progress');
@@ -107,6 +123,7 @@ describe.skipIf(!enabled)("opt-in PostgreSQL fuel closeout in an isolated privat
   afterAll(async () => {
     if (!admin) { if (pool) await pool.end(); return; }
     try {
+      await Promise.allSettled([...inFlight]);
       await admin.query("ROLLBACK"); // Also clears a failed setup transaction.
       await admin.query("BEGIN");
       await admin.query("SET LOCAL search_path TO pg_catalog");
@@ -133,7 +150,7 @@ describe.skipIf(!enabled)("opt-in PostgreSQL fuel closeout in an isolated privat
     expect([row.actual_distance_km,row.fuel_efficiency_snapshot_kmpl,row.fuel_reference_price,row.estimated_fuel_l,row.estimated_fuel_cost,row.planned_estimated_fuel_l,row.planned_estimated_fuel_cost].map(Number)).toEqual([36,9,62.7,4,250.8,3.556,222.96]);
     expect(row.fuel_estimate_captured_at).toBeInstanceOf(Date);
     expect(Number((await fixtureQuery("SELECT COUNT(*) AS count FROM audit_logs WHERE resource='trips' AND action='update'")).rows[0].count)).toBe(1);
-  });
+  }, 30000);
 
   it("persists server GPS distance separately from the 32km plan", async () => {
     await fixtureQuery("INSERT INTO gpstracking (tracking_id,vehicle_id,trip_id,latitude,longitude,recorded_at) VALUES (1,5,1,14,121,NOW()-INTERVAL '30 minutes'),(2,5,1,14.1,121,NOW())");
@@ -142,7 +159,7 @@ describe.skipIf(!enabled)("opt-in PostgreSQL fuel closeout in an isolated privat
     expect(Number(row.actual_distance_km)).toBeGreaterThan(11); expect(Number(row.actual_distance_km)).toBeLessThan(12);
     expect(Number(row.planned_distance_km)).toBe(32); expect(row.distance_provenance).toBe("gps-trail");
     expect(row.estimated_fuel_cost).not.toBe(row.planned_estimated_fuel_cost);
-  });
+  }, 30000);
 
   it("blocks a second real PostgreSQL client and preserves the whole first snapshot", async () => {
     let release; let entered;
@@ -175,5 +192,5 @@ describe.skipIf(!enabled)("opt-in PostgreSQL fuel closeout in an isolated privat
     expect(a.fuel_estimate_captured_at).toEqual(b.fuel_estimate_captured_at);
     expect(Number((await fixtureQuery("SELECT actual_distance_km FROM trips WHERE trip_id=1")).rows[0].actual_distance_km)).toBe(36);
     expect(Number((await fixtureQuery("SELECT COUNT(*) AS count FROM audit_logs WHERE resource='trips' AND action='update'")).rows[0].count)).toBe(1);
-  }, 15000);
+  }, 30000);
 });

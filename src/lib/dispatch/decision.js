@@ -168,6 +168,7 @@ export function dispatchConfirmation({ canAssign, pair, decision, awaitingResult
     if (!Number.isFinite(+new Date(queue.plan.expiresAt)) || +new Date(queue.plan.expiresAt) <= now)
       return disabled('Queue plan expired. Analyze this service date again.', 'analyze');
     if (!queue.proposal) return disabled('This reservation has no proposal in this queue analysis.', 'analyze');
+    if (queue.proposal.candidateEvaluationComplete === false) return disabled('Queue proposal candidate evaluation is incomplete. Analyze this service date again.', 'analyze');
     if (queue.proposal.dependsOnRequestIds?.length) return disabled('Waiting for the preceding reservation. Confirm it, then analyze again.', 'analyze');
     if (!queue.token) return disabled('This queue analysis is no longer valid. Analyze this service date again.', 'analyze');
     if (queue.validation?.isError) return disabled('Queue validation failed. Analyze this service date again.', 'analyze');
@@ -209,8 +210,7 @@ export function dispatchDecision(pair, { stale = false, now = Date.now() } = {})
 }
 
 export function bucketProposal(p, now = Date.now()) {
-  if (!p) return 'Not evaluated';
-  if (p.outcome === 'NOT_EVALUATED') return 'Not evaluated';
+  if (!p || p.outcome === 'NOT_EVALUATED' || p.candidateEvaluationComplete === false) return 'Not evaluated';
   if (p.dependsOnRequestIds?.length) return 'Waiting for preceding request';
   if (!p.pair) return p.candidateEvaluationComplete ? 'Needs verification' : 'Not evaluated';
   return DECISION_LABELS[dispatchDecision(p.pair, { now }).state] || 'Needs verification';

@@ -1605,7 +1605,7 @@ export default function IncidentsPage() {
 
       {/* Full Screen Map Overlay */}
       {isMapFullscreen && (
-        <div className="fixed inset-0 z-[100] bg-surface flex flex-col">
+        <div className="fixed inset-0 z-30 bg-surface flex flex-col">
           <div className="flex items-center justify-between border-b border-border/60 px-6 py-4 shrink-0 bg-surface/80 backdrop-blur-md">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-danger/10 text-danger">

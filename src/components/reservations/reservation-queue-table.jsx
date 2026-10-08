@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { bagSummary, queuePresentation } from "@/lib/dispatch/queue-presentation";
 import { formatTime, cn } from "@/lib/utils";
 import {
   Calendar,
@@ -70,11 +72,16 @@ function formatTripMetrics(r) {
   // This used to fill the gap from `request_id % n` "so numbers look
   // authentic" — which put a confident "12 km · ~25 min" on every card for a
   // request nobody had ever estimated. An unknown estimate is unknown.
+  // Units follow the routes contract: estimated_distance is km (routes page
+  // labels "Estimated distance (km)" and renders `${v} km`; estimates write
+  // distanceKm). No m/km heuristic: a 150 km record must read 150 km, not 0.
+  const distNum = r.estimated_distance != null ? Number(r.estimated_distance) : null;
   const distStr =
-    r.estimated_distance != null ? `${Math.round(Number(r.estimated_distance) > 100 ? Number(r.estimated_distance) / 1000 : Number(r.estimated_distance))} km` : null;
+    distNum != null && Number.isFinite(distNum) ? `${Math.round(distNum)} km` : null;
 
+  const durNum = r.estimated_duration != null ? Number(r.estimated_duration) : null;
   const durStr =
-    r.estimated_duration != null ? `~ ${Math.round(Number(r.estimated_duration))} min` : null;
+    durNum != null && Number.isFinite(durNum) ? `~ ${Math.round(durNum)} min` : null;
 
   // Everything known, joined; only the service name is always present.
   const summary = [serviceName, distStr, durStr].filter(Boolean).join(" · ");
@@ -133,92 +140,6 @@ export function getDerivedTags(r) {
   return tags;
 }
 
-function getStatusPill(r, bucket) {
-  // Interrupted commitment (incident/leave) outranks Copilot's proposal bucket:
-  // the dispatcher must re-pick a pair before anything else matters.
-  if (r.dispatch_status === "Pending Reassignment") {
-    return {
-      label: "Needs reassignment",
-      className:
-        "bg-red-100/90 dark:bg-red-950/60 text-red-900 dark:text-red-200 border border-red-500/30",
-    };
-  }
-  // If Copilot has evaluated a proposal, prioritize that assessment
-  if (bucket === "Ready for confirmation") {
-    return {
-      label: "Ready",
-      className:
-        "bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-    };
-  }
-  if (bucket === "Review required") {
-    return {
-      label: "Needs review",
-      className:
-        "bg-amber-100/90 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-500/20",
-    };
-  }
-  if (bucket === "Blocked") {
-    return {
-      label: "Blocked",
-      className:
-        "bg-red-100/90 dark:bg-red-950/60 text-red-900 dark:text-red-200 border border-red-500/20",
-    };
-  }
-  if (bucket === "Needs verification") {
-    return {
-      label: "Needs review",
-      className:
-        "bg-amber-100/90 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-500/20",
-    };
-  }
-  if (bucket === "Waiting for preceding request") {
-    return {
-      label: "Waiting",
-      className:
-        "bg-purple-100/90 dark:bg-purple-950/60 text-purple-900 dark:text-purple-200 border border-purple-500/20",
-    };
-  }
-
-  // Fallback to lifecycle state
-  const status = r.fleet_status;
-  if (status === "Assigned") {
-    return {
-      label: "Assigned",
-      className:
-        "bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-    };
-  }
-  if (status === "Completed") {
-    return {
-      label: "Completed",
-      className:
-        "bg-emerald-100/90 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-    };
-  }
-  if (status === "In Progress") {
-    return {
-      label: "In Progress",
-      className:
-        "bg-blue-100/90 dark:bg-blue-950/60 text-blue-900 dark:text-blue-200 border border-blue-500/20",
-    };
-  }
-  if (status === "Cancelled") {
-    return {
-      label: "Cancelled",
-      className:
-        "bg-muted/70 dark:bg-muted/40 text-foreground-secondary border border-border/40",
-    };
-  }
-
-  // Pending / Scheduled (Unassigned)
-  return {
-    label: "Unassigned",
-    className:
-      "bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border border-emerald-500/20",
-  };
-}
-
 function PillTag({ tag }) {
   if (tag.type === "vip") {
     return (
@@ -273,72 +194,69 @@ export function ReservationQueueTable({
   bucketProposal,
   viewMode = "list",
 }) {
+  // Rows are a named list of native selection buttons. The row's horizontal
+  // switch keys off the queue column's own container width (@md:), never the
+  // viewport, and guest/category/route identity wraps to two lines with the
+  // full text kept in the DOM (title + accessible name) instead of one-line
+  // truncation. No nested interactive descendants: StatusBadge and PillTag
+  // render plain spans, and the chevron is decorative.
   if (viewMode === "grid") {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+      <ul aria-label="Transportation requests" className="grid grid-cols-1 @sm:grid-cols-2 gap-3.5 min-w-0">
         {requests.map((r) => {
           const isSelected = Number(selectedId) === Number(r.request_id);
           const proposal = getProposal ? getProposal(r.request_id) : null;
           const bucket = proposal && bucketProposal ? bucketProposal(proposal) : null;
-          const statusPill = getStatusPill(r, bucket);
+          const { label, status, entity } = queuePresentation(r, bucket);
           const metrics = formatTripMetrics(r);
           const tags = getDerivedTags(r);
           const category = getCategoryInfo(r);
           const pax = Number(r.passenger_count) || 1;
-          const bags = r.luggage_count != null ? r.luggage_count : pax;
+          const bags = bagSummary(r);
 
           return (
-            <div
-              key={r.request_id}
-              role="button"
-              tabIndex={0}
+            <li key={r.request_id} className="min-w-0">
+            <button
+              type="button"
               aria-pressed={isSelected}
               onClick={() => onSelect?.(r)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onSelect?.(r);
-                }
-              }}
               className={cn(
-                "group p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs",
+                "group p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs w-full min-w-0 min-h-[44px]",
                 isSelected
-                  ? "border-emerald-600/50 bg-emerald-500/5 dark:bg-emerald-950/20 ring-1 ring-emerald-600/30 shadow-xs"
+                  ? "border-primary/50 bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30 shadow-xs"
                   : "border-border/80 hover:border-border hover:shadow-xs"
               )}
             >
               {/* Top Bar: Reference ID + Category + Status Pill */}
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-xs font-bold text-foreground font-data shrink-0">
                     {formatReference(r)}
                   </span>
                   {category && (
-                    <span className="text-[11px] font-medium text-foreground-muted truncate" title={`Category: ${category}`}>
+                    <span className="text-[11px] font-medium text-foreground-muted min-w-0 line-clamp-2 break-words" title={`Category: ${category}`}>
                       · {category}
                     </span>
                   )}
                 </div>
-                <span
-                  className={cn(
-                    "px-3 py-0.5 rounded-full text-xs font-semibold select-none shrink-0",
-                    statusPill.className
-                  )}
-                >
-                  {statusPill.label}
-                </span>
+                <StatusBadge
+                  status={status}
+                  entity={entity}
+                  label={label}
+                  className="shrink-0 select-none"
+                />
               </div>
 
               {/* Guest Details */}
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" />
-                  <span className="text-sm font-bold text-foreground truncate" title={r.guest_name}>
+                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={r.guest_name}>
                     {r.guest_name || "Unnamed Guest"}
                   </span>
                 </div>
                 <p className="text-xs text-foreground-secondary pl-5">
-                  {pax} {pax === 1 ? "guest" : "guests"} · {bags} {bags === 1 ? "bag" : "bags"}
+                  {pax} {pax === 1 ? "guest" : "guests"} · {bags}
                 </p>
               </div>
 
@@ -346,7 +264,7 @@ export function ReservationQueueTable({
               <div className="grid grid-cols-12 gap-2 pt-1 border-t border-border/40 text-xs items-center">
                 {/* Schedule: 5 cols */}
                 <div className="col-span-5 flex items-start gap-1.5 min-w-0">
-                  <Calendar className="w-3.5 h-3.5 text-foreground-muted shrink-0 mt-0.5" />
+                  <Calendar className="w-3.5 h-3.5 text-foreground-muted shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="min-w-0 space-y-0.5 leading-tight">
                     <p className="text-foreground-secondary text-[11px] truncate">
                       {formatDateWithDay(r.pickup_datetime)}
@@ -359,10 +277,10 @@ export function ReservationQueueTable({
 
                 {/* Route & Distance: 6 cols */}
                 <div className="col-span-6 flex items-start gap-1.5 min-w-0">
-                  <MapPin className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <MapPin className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
                   <div className="min-w-0 space-y-0.5 leading-tight">
                     <p
-                      className="font-bold text-foreground text-xs truncate"
+                      className="font-bold text-foreground text-xs min-w-0 line-clamp-2 break-words"
                       title={`${r.pickup_location} → ${r.dropoff_location}`}
                     >
                       {r.pickup_location || "Pickup not recorded"} → {r.dropoff_location || "Dropoff not recorded"}
@@ -375,7 +293,7 @@ export function ReservationQueueTable({
 
                 {/* Action Chevron: 1 col */}
                 <div className="col-span-1 flex justify-end">
-                  <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" />
+                  <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" aria-hidden="true" />
                 </div>
               </div>
 
@@ -385,60 +303,54 @@ export function ReservationQueueTable({
                   <PillTag key={tag.key} tag={tag} />
                 ))}
               </div>
-            </div>
+            </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
     );
   }
 
   // Default: List View (1-to-1 match with reference image 1)
   return (
-    <div className="space-y-2.5">
+    <ul aria-label="Transportation requests" className="space-y-2.5 min-w-0">
       {requests.map((r) => {
         const isSelected = Number(selectedId) === Number(r.request_id);
         const proposal = getProposal ? getProposal(r.request_id) : null;
         const bucket = proposal && bucketProposal ? bucketProposal(proposal) : null;
-        const statusPill = getStatusPill(r, bucket);
+        const { label, status, entity } = queuePresentation(r, bucket);
         const metrics = formatTripMetrics(r);
         const tags = getDerivedTags(r);
         const category = getCategoryInfo(r);
         const pax = Number(r.passenger_count) || 1;
-        const bags = r.luggage_count != null ? r.luggage_count : pax;
+        const bags = bagSummary(r);
 
         return (
-          <div
-            key={r.request_id}
-            role="button"
-            tabIndex={0}
+          <li key={r.request_id} className="min-w-0">
+          <button
+            type="button"
             aria-pressed={isSelected}
             onClick={() => onSelect?.(r)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onSelect?.(r);
-              }
-            }}
             className={cn(
-              "group p-3.5 sm:p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs relative",
+              "group p-3.5 sm:p-4 rounded-2xl border bg-surface transition-all duration-150 cursor-pointer flex flex-col @md:flex-row items-start @md:items-center justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-2xs relative w-full min-w-0 min-h-[44px]",
               isSelected
-                ? "border-emerald-600/50 bg-emerald-500/5 dark:bg-emerald-950/20 ring-1 ring-emerald-600/30 shadow-xs"
+                ? "border-primary/50 bg-primary/5 dark:bg-primary/10 ring-1 ring-primary/30 shadow-xs"
                 : "border-border/80 hover:border-border hover:shadow-xs"
             )}
           >
             {/* Left Segment: Checkbox + Reference & Guest */}
-            <div className="flex items-center gap-3.5 min-w-0 sm:min-w-[220px]">
+            <div className="flex items-center gap-3.5 min-w-0">
               {/* Checkbox */}
               <div
                 className={cn(
                   "w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all",
                   isSelected
-                    ? "bg-emerald-800 dark:bg-emerald-700 text-white"
+                    ? "bg-primary text-surface"
                     : "border-2 border-border/90 bg-surface group-hover:border-primary/50"
                 )}
                 aria-hidden="true"
               >
-                {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" aria-hidden="true" />}
               </div>
 
               {/* Reference, Category, Guest, Passengers */}
@@ -448,28 +360,28 @@ export function ReservationQueueTable({
                     {formatReference(r)}
                   </span>
                   {category && (
-                    <span className="text-[11px] font-medium text-foreground-muted truncate" title={`Category: ${category}`}>
+                    <span className="text-[11px] font-medium text-foreground-muted min-w-0 line-clamp-2 break-words" title={`Category: ${category}`}>
                       · {category}
                     </span>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" />
-                  <span className="text-sm font-bold text-foreground truncate" title={r.guest_name}>
+                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
+                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={r.guest_name}>
                     {r.guest_name || "Unnamed Guest"}
                   </span>
                 </div>
                 <div className="flex items-center gap-1 text-xs text-foreground-secondary pl-5">
                   <span>{pax} {pax === 1 ? "guest" : "guests"}</span>
                   <span className="text-foreground-muted">|</span>
-                  <span>{bags} {bags === 1 ? "bag" : "bags"}</span>
+                  <span>{bags}</span>
                 </div>
               </div>
             </div>
 
             {/* Middle Segment: Date & Time */}
-            <div className="flex items-center gap-2.5 min-w-0 sm:min-w-[130px] pl-8 md:pl-0">
-              <Calendar className="w-4 h-4 text-foreground-muted shrink-0" />
+            <div className="flex items-center gap-2.5 min-w-0 pl-8 @md:pl-0">
+              <Calendar className="w-4 h-4 text-foreground-muted shrink-0" aria-hidden="true" />
               <div className="space-y-0.5 leading-tight">
                 <p className="font-bold text-foreground font-data text-sm">
                   {r.pickup_datetime ? formatTime(r.pickup_datetime) : "Time not set"}
@@ -481,55 +393,54 @@ export function ReservationQueueTable({
             </div>
 
             {/* Center-Right Segment: Route & Metrics */}
-            <div className="flex items-start gap-2.5 min-w-0 flex-1 pl-8 md:pl-0 max-w-md">
-              <MapPin className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2.5 min-w-0 flex-1 pl-8 @md:pl-0">
+              <MapPin className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" aria-hidden="true" />
               <div className="space-y-0.5 min-w-0 leading-tight">
                 <p
-                  className="font-bold text-sm text-foreground truncate"
+                  className="font-bold text-sm text-foreground min-w-0 line-clamp-2 break-words"
                   title={`${r.pickup_location} → ${r.dropoff_location}`}
                 >
                   {r.pickup_location || "Pickup not recorded"} → {r.dropoff_location || "Dropoff not recorded"}
                 </p>
                 <p className="text-xs text-foreground-secondary truncate flex items-center gap-1">
-                  <Navigation className="w-3 h-3 text-foreground-muted shrink-0" />
+                  <Navigation className="w-3 h-3 text-foreground-muted shrink-0" aria-hidden="true" />
                   <span className="truncate">{metrics.summary}</span>
                 </p>
               </div>
             </div>
 
             {/* Right Segment: Tags + Status Pill + Chevron */}
-            <div className="flex items-center gap-2.5 shrink-0 self-end md:self-center pl-8 md:pl-0">
+            <div className="flex items-center gap-2.5 shrink-0 self-end @md:self-center pl-8 @md:pl-0">
               {/* Pill Tags */}
-              <div className="hidden sm:flex items-center gap-1.5">
+              <div className="hidden @sm:flex items-center gap-1.5">
                 {tags.map((tag) => (
                   <PillTag key={tag.key} tag={tag} />
                 ))}
               </div>
 
               {/* Status Pill */}
-              <span
-                className={cn(
-                  "px-3 py-1 rounded-full text-xs font-semibold select-none",
-                  statusPill.className
-                )}
-              >
-                {statusPill.label}
-              </span>
+              <StatusBadge
+                status={status}
+                entity={entity}
+                label={label}
+                className="shrink-0 select-none"
+              />
 
               {/* Chevron */}
-              <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" />
+              <ChevronRight className="w-4 h-4 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform shrink-0" aria-hidden="true" />
             </div>
-          </div>
+          </button>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
 export function ReservationQueueTableSkeleton({ viewMode = "list" }) {
   if (viewMode === "grid") {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 animate-pulse">
+      <div className="grid grid-cols-1 @sm:grid-cols-2 gap-3.5 motion-safe:animate-pulse">
         {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
@@ -558,7 +469,7 @@ export function ReservationQueueTableSkeleton({ viewMode = "list" }) {
   }
 
   return (
-    <div className="space-y-2.5 animate-pulse">
+    <div className="space-y-2.5 motion-safe:animate-pulse">
       {[1, 2, 3, 4, 5].map((i) => (
         <div
           key={i}
@@ -572,11 +483,11 @@ export function ReservationQueueTableSkeleton({ viewMode = "list" }) {
               <div className="w-24 h-3 bg-muted rounded" />
             </div>
           </div>
-          <div className="hidden sm:block space-y-1.5">
+          <div className="hidden @sm:block space-y-1.5">
             <div className="w-20 h-3.5 bg-muted rounded" />
             <div className="w-16 h-3 bg-muted rounded" />
           </div>
-          <div className="hidden md:block space-y-1.5 flex-1 max-w-xs">
+          <div className="hidden @md:block space-y-1.5 flex-1 max-w-xs">
             <div className="w-48 h-3.5 bg-muted rounded" />
             <div className="w-36 h-3 bg-muted rounded" />
           </div>

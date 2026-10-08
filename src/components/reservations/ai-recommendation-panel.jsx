@@ -8,7 +8,18 @@ import { Button } from "@/components/ui/button";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { CopilotConversation, setReservationMessages, getReservationSelection, setReservationSelection, clearReservationSelection } from "./copilot-conversation";
 import { CopilotBubble, CopilotOptionFlow, SelectedPairSummary } from "@/components/reservations/copilot-option-flow";
+import { CopilotAvatar } from "@/components/reservations/copilot-avatar";
+import { HistoricRecommendationSummary } from "@/components/reservations/historic-recommendation-summary";
+import { CopilotStateMessage } from "@/components/reservations/copilot-state-message";
 import { deriveOptions, optionKey as pairKey, resolveRememberedOption } from "@/components/reservations/copilot-options";
+import {
+  canRestoreRememberedSelection,
+  canStartSelectionCheck,
+  historicRecommendationPairs,
+  isCompletedRecommendation,
+  recommendationStatusLabel,
+  recheckSelectedRecommendation,
+} from "./recommendation-panel-state";
 import { useNow } from "@/components/reservations/trip-summary";
 import {
   getRecommendation,
@@ -46,28 +57,38 @@ export function CopilotTripDetailsBubble({
   committedPair,
   alreadyAssigned,
 }) {
-  const status =
-    selectedRequest?.fleet_status ||
-    (committedPair ? "Assigned" : alreadyAssigned ? "Assigned" : "Completed");
+  const selectedStatus = selectedRequest?.fleet_status;
+  // Missing status must never read as terminal: this bubble only renders when
+  // the panel is assignment-closed (committed or Assigned/terminal), so an
+  // absent status is an optimistic post-success Assigned, never Completed.
+  // A truly unknown lifecycle stays visible as Assigned only here because the
+  // caller gates terminal behavior (composer, refresh) on displayedRequest,
+  // not on this display label.
+  const status = ['In Progress', 'Completed', 'Cancelled'].includes(selectedStatus)
+    ? selectedStatus
+    : (committedPair || alreadyAssigned || selectedStatus === 'Assigned')
+      ? 'Assigned'
+      : selectedStatus || 'Assigned';
   const isCompleted = status === "Completed";
   const isCancelled = status === "Cancelled";
   const isInProgress = status === "In Progress";
 
-  const driverName = selectedRequest?.drivers
+  const requestDriverName = selectedRequest?.drivers
     ? [selectedRequest.drivers.first_name, selectedRequest.drivers.last_name]
         .filter(Boolean)
         .join(" ") ||
       selectedRequest.drivers.driver_name ||
       `Driver #${selectedRequest.drivers.driver_id}`
-    : committedPair?.driver?.driver_name || null;
+    : null;
+  const driverName = committedPair?.driver?.driver_name || requestDriverName;
 
   const vehiclePlate =
-    selectedRequest?.vehicles?.plate_number ||
     committedPair?.vehicle?.plate_number ||
+    selectedRequest?.vehicles?.plate_number ||
     null;
   const vehicleModel =
-    selectedRequest?.vehicles?.model ||
     committedPair?.vehicle?.vehicle_name ||
+    selectedRequest?.vehicles?.model ||
     null;
 
   const pickupLoc = selectedRequest?.pickup_location;
@@ -105,15 +126,15 @@ export function CopilotTripDetailsBubble({
               className={cn(
                 "flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 shadow-2xs",
                 isCompleted &&
-                  "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 ring-emerald-500/25",
+                  "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 ring-emerald-500/25",
                 isCancelled &&
-                  "bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 ring-rose-500/25",
+                  "bg-rose-500/10 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300 ring-rose-500/25",
                 isInProgress &&
-                  "bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 ring-blue-500/25",
+                  "bg-blue-500/10 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 ring-blue-500/25",
                 !isCompleted &&
                   !isCancelled &&
                   !isInProgress &&
-                  "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 ring-indigo-500/25"
+                  "bg-indigo-500/10 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300 ring-indigo-500/25"
               )}
             >
               {isCompleted && <CheckCircle2 className="size-4" />}
@@ -164,7 +185,7 @@ export function CopilotTripDetailsBubble({
                 isCancelled &&
                   "bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.7)]",
                 isInProgress &&
-                  "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.7)] animate-pulse",
+                  "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.7)]",
                 !isCompleted &&
                   !isCancelled &&
                   !isInProgress &&
@@ -194,7 +215,7 @@ export function CopilotTripDetailsBubble({
         {/* ── Cancellation Reason Alert (if cancelled) ── */}
         {isCancelled && selectedRequest?.status_reason && (
           <div className="rounded-xl border border-rose-200/80 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-950/20 p-2.5 flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-200 shadow-2xs">
-            <AlertCircle className="size-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+            <AlertCircle className="size-4 shrink-0 text-rose-700 dark:text-rose-300 mt-0.5" />
             <div className="min-w-0 flex-1">
               <span className="font-semibold block text-xs uppercase tracking-wider text-rose-700 dark:text-rose-300">
                 Cancellation Reason
@@ -206,15 +227,14 @@ export function CopilotTripDetailsBubble({
           </div>
         )}
 
-        {/* ── Double-Bezel Hardware Card for Trip Details ── */}
+        {/* ── Trip details card: single DESIGN.md card-radius layer ── */}
         {(pickupLoc ||
           dropoffLoc ||
           guestName ||
           vehiclePlate ||
           driverName ||
           categoryName) && (
-          <div className="rounded-2xl border border-border/80 bg-muted/40 dark:bg-muted/10 p-1.5 shadow-xs">
-            <div className="rounded-xl border border-border/60 bg-surface/95 dark:bg-surface/85 backdrop-blur-xs p-3 space-y-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
+          <div className="rounded-card border border-border/80 bg-surface p-3 space-y-3 shadow-2xs">
               {/* Route Transit Stops Wayfinding */}
               {(pickupLoc || dropoffLoc) && (
                 <div className="rounded-lg border border-border/50 bg-background/50 dark:bg-background/20 p-2.5 space-y-2">
@@ -325,7 +345,6 @@ export function CopilotTripDetailsBubble({
                   </div>
                 ) : null}
               </div>
-            </div>
           </div>
         )}
 
@@ -402,10 +421,19 @@ export function AiRecommendationPanel({
   }
   useEffect(() => () => { selectionGeneration.current++; }, [requestId]);
 
-  const requestStatus = selectedRequest?.fleet_status;
+  const freshStatus = selectedRequest?.fleet_status;
+  const freshCommittedRequestArrived = !!committed &&
+    Number(selectedRequest?.request_id) === Number(requestId) &&
+    ['Assigned', 'In Progress', 'Completed', 'Cancelled'].includes(freshStatus);
+  const displayedRequest = committed && !freshCommittedRequestArrived
+    ? { ...(selectedRequest ?? {}), ...committed, request_id: requestId, fleet_status: committed.fleet_status ?? 'Assigned' }
+    : selectedRequest;
+  const requestStatus = displayedRequest?.fleet_status;
   const isTerminal = ['Completed', 'Cancelled'].includes(requestStatus);
   const isAssignedOrActive = ['Assigned', 'In Progress'].includes(requestStatus) || alreadyAssigned;
-  const isClosed = isTerminal || isAssignedOrActive || !!committed;
+  const assignmentClosed = isTerminal || isAssignedOrActive || !!committed;
+  const conversationClosed = isTerminal;
+  const readOnlyCommitted = !isTerminal && (isAssignedOrActive || !!committed);
 
   // Request-level recommendation query.
   //
@@ -418,26 +446,33 @@ export function AiRecommendationPanel({
   const query = useQuery({
     queryKey: ["reservation-recommendation", requestId, "decision"],
     queryFn: () => getRecommendation(requestId),
-    enabled: !!requestId && !isClosed,
+    enabled: !!requestId && !assignmentClosed,
     staleTime: 30_000,
-    refetchInterval: 30_000,
+    refetchInterval: assignmentClosed ? false : 30_000,
     refetchIntervalInBackground: false,
     retry: false,
   });
 
   const rec = query.data;
-  const candidates = isClosed ? [] : (rec?.pair?.candidates ?? []);
-  // One derivation, read by both the render path and the restore path below, so
-  // the option a restored selection resolves against cannot diverge from the one
-  // the dispatcher would have seen.
-  const deriveFor = (pinned = null) => deriveOptions({
-    candidates,
-    recommended: (plan?.selectedPair ? rec?.pair?.recommended : planProposal?.pair ?? rec?.pair?.recommended) ?? null,
+  const completedRecommendation = isCompletedRecommendation(rec);
+  const queueProposalIncomplete = queueMode && planProposal?.candidateEvaluationComplete === false;
+  const currentRecommendation = completedRecommendation && !query.isError && !queueProposalIncomplete;
+  const historicSummaryPairs = historicRecommendationPairs({
+    queryError: query.isError,
+    completedRecommendation,
+    recommendation: rec,
+  });
+  const candidates = assignmentClosed || !currentRecommendation ? [] : (rec?.pair?.candidates ?? []);
+  // Share one derivation rule across render, restore, and refreshed recheck so a
+  // saved selection always resolves against the same option-construction logic.
+  const deriveFor = (pinned = null, recommendation = rec) => deriveOptions({
+    candidates: recommendation?.pair?.candidates ?? [],
+    recommended: (plan?.selectedPair ? recommendation?.pair?.recommended : planProposal?.pair ?? recommendation?.pair?.recommended) ?? null,
     proposalPair: planProposal?.pair ?? null,
     pinnedKeys: pinned,
   });
-  const options = isClosed ? [] : deriveFor(pinnedKeys);
-  const pair = selected
+  const options = assignmentClosed || !currentRecommendation ? [] : deriveFor(pinnedKeys);
+  const pair = selected && (assignmentClosed || currentRecommendation)
     ? (pairKey(planProposal?.pair) === selected ? planProposal.pair : null) ?? candidates.find((p) => pairKey(p) === selected) ??
       options.find((o) => pairKey(o.pair) === selected)?.pair ??
       null
@@ -445,6 +480,13 @@ export function AiRecommendationPanel({
   const effectivePlanToken = queueMode ? planToken : null;
   const analysisDate = pickupAt && Number.isFinite(+new Date(pickupAt)) ? manilaDate(pickupAt) : manilaDate();
 
+
+  useEffect(() => {
+    if (currentRecommendation || !selectionCheck) return;
+    selectionGeneration.current++;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- invalidate a check as soon as its evidence is no longer current
+    setSelectionCheck(null);
+  }, [currentRecommendation, selectionCheck]);
 
   // Handle scheduled horizon re-check
   const contextBoundary = rec?.requestContext?.nextBoundaryAt ? +new Date(rec.requestContext.nextBoundaryAt) : null;
@@ -454,14 +496,14 @@ export function AiRecommendationPanel({
     if (
       contextBoundary == null ||
       !Number.isFinite(contextBoundary) ||
-      isClosed
+      assignmentClosed
     )
       return;
     const delay = contextBoundary - Date.now();
     if (delay < 0 || delay > 30_000) return;
     const timer = setTimeout(() => { if (document.visibilityState === 'visible') refetch(); }, delay + 1);
     return () => clearTimeout(timer);
-  }, [contextBoundary, rec?.evaluatedAt, isClosed, refetch]);
+  }, [contextBoundary, rec?.evaluatedAt, assignmentClosed, refetch]);
 
   const planExpired =
     !!planProposal &&
@@ -565,8 +607,15 @@ export function AiRecommendationPanel({
   // `announce` is the transcript text, or null to stay silent. `pin` overrides
   // which option keys are held, so a restore can re-pin the list the dispatcher
   // actually saw rather than today's derivation.
-  const runSelectionCheck = async (option, { announce = null, pin = undefined } = {}) => {
-    if (assignment.isPending || failure?.checking || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return;
+  const runSelectionCheck = async (option, { announce = null, pin = undefined, recommendationRefreshed = false } = {}) => {
+    if (!canStartSelectionCheck({
+      currentRecommendation,
+      recommendationRefreshed,
+      assignmentPending: assignment.isPending,
+      failureChecking: failure?.checking,
+      unavailable: option.unavailable,
+      blocked: dispatchDecision(option.pair).state === 'BLOCKED',
+    })) return;
     const operation = ++selectionGeneration.current;
     const key = pairKey(option.pair);
     if (announce !== null) setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:announce,at:Date.now(),action:'select-pair',selectedPair:{vehicleId:Number(option.pair.vehicle_id),driverId:Number(option.pair.driver_id)}}]);
@@ -586,8 +635,10 @@ export function AiRecommendationPanel({
         if (!baseline?.planToken) throw new Error('Queue analysis is required before confirming this option.');
         await onReanalyze({date:analysisDate,selection:{requestId:Number(requestId),vehicleId:Number(option.pair.vehicle_id),driverId:Number(option.pair.driver_id)},basePlanToken:baseline.planToken});
       }
-      const fresh = await query.refetch();
-      if (fresh?.isError) throw fresh.error;
+      if (!recommendationRefreshed || (queueMode && onReanalyze)) {
+        const fresh = await query.refetch();
+        if (fresh?.isError) throw fresh.error;
+      }
       if (operation === selectionGeneration.current) setSelectionCheck({key,pending:false});
     } catch(error) {
       if (operation !== selectionGeneration.current) return;
@@ -596,17 +647,42 @@ export function AiRecommendationPanel({
     }
   };
 
-  const chooseOption = async (option, message = null) =>
-    runSelectionCheck(option, { announce: message || `Option ${option.index+1}` });
+  const chooseOption = async (option, message = null, checkOptions = {}) =>
+    runSelectionCheck(option, { announce: message || `Option ${option.index+1}`, ...checkOptions });
+
+  const retryQueueAnalysis = async () => {
+    if (!onReanalyze) return;
+    try {
+      await onReanalyze(analysisDate);
+    } catch {
+      // useDispatchPlan publishes the failure through planError.
+    }
+  };
 
   const recheck = async () => {
     setRechecking(true);
     setFailure(null);
     setReason("");
+    const selectionKey = selected;
+    let operation = null;
     try {
-      const option = options.find(o => pairKey(o.pair) === selected);
-      if (option) await chooseOption(option, 'Recheck selected option');
-      else await query.refetch();
+      await recheckSelectedRecommendation({
+        query,
+        selectionKey,
+        invalidateSelectionCheck: () => {
+          operation = ++selectionGeneration.current;
+          setSelectionCheck(null);
+        },
+        isCurrent: () => operation === selectionGeneration.current,
+        resolveCurrentOption: (recommendation, currentSelectionKey) => {
+          if (assignmentClosed || queueProposalIncomplete) return null;
+          const refreshedOptions = deriveFor(pinnedKeys, recommendation);
+          const currentOption = refreshedOptions.find(o => pairKey(o.pair) === currentSelectionKey);
+          if (!currentOption || currentOption.unavailable || dispatchDecision(currentOption.pair).state === 'BLOCKED') return null;
+          return { option: currentOption, pinnedKeys: refreshedOptions.map(o => pairKey(o.pair)) };
+        },
+        chooseOption,
+      });
     } finally {
       setRechecking(false);
     }
@@ -624,6 +700,13 @@ export function AiRecommendationPanel({
     setReason("");
     setSelectionCheck(null);
   };
+  const resetDecision = () => {
+    if (assignment.isPending || failure?.checking || selectionCheck?.pending) return;
+    chooseAnother();
+  };
+  const resetDisabled = assignment.isPending || !!failure?.checking || !!selectionCheck?.pending;
+
+  const hasSavedSelection = !!selected || !!getReservationSelection(requestId);
 
   // Restore a remembered choice. DispatchPlanPanel remounts this panel per
   // request (`key={selectedRequest?.request_id}`), so `selected` starts null and
@@ -638,7 +721,13 @@ export function AiRecommendationPanel({
   // would re-fire on its own invalidation — one queue analysis per loop.
   const restoredFor = useRef(null);
   useEffect(() => {
-    if (!requestId || isClosed || !options.length) return;
+    if (!canRestoreRememberedSelection({
+      requestId,
+      isClosed: assignmentClosed,
+      queryError: query.isError,
+      completedRecommendation,
+      optionCount: options.length,
+    })) return;
     if (restoredFor.current === requestId) return;
     const remembered = getReservationSelection(requestId);
     restoredFor.current = requestId;
@@ -657,7 +746,7 @@ export function AiRecommendationPanel({
     // fire this on every render; the ref above, not this list, is what holds the
     // restore to one run per request.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once-per-request guard is a ref
-  }, [requestId, isClosed, options.length]);
+  }, [requestId, assignmentClosed, options.length, query.isError, completedRecommendation]);
 
   useEffect(()=>{onBusyChange?.(assignment.isPending || !!failure?.checking || !!selectionCheck?.pending || rechecking);},[assignment.isPending,failure?.checking,selectionCheck?.pending,rechecking,onBusyChange]);
 
@@ -673,8 +762,8 @@ export function AiRecommendationPanel({
   if (action.recovery === "analyze") action.message = "This option needs a fresh queue check. Recheck the reservation before assigning.";
   const manual = !!pair && !decision.canConfirm;
   const canRecommend = can("reservations", "recommend");
-  // The checked-pair reply is the review. Choosing never commits an assignment.
-  const reviewCurrent = !!pair && selectionCheck?.key === selected && !selectionCheck.pending && action.canSubmit;
+  // The checked-pair decision dock is the review. Choosing never commits an assignment.
+  const reviewCurrent = currentRecommendation && !!pair && selectionCheck?.key === selected && !selectionCheck.pending && action.canSubmit;
   const confirmSelection = (message = 'Assign it') => {
     if (!action.canSubmit || !reviewCurrent || submitting.current) return;
     submitting.current = true;
@@ -684,8 +773,23 @@ export function AiRecommendationPanel({
   const handleCommand = message => {
     const intent = parseCopilotIntent(message);
     if (!intent) return null;
+    if (readOnlyCommitted) {
+      return ['choose', 'assign', 'change'].includes(intent.type)
+        ? 'This trip is already committed. Use the authorized dispatch detail flow for any change.'
+        : null;
+    }
     if (assignment.isPending || failure?.checking) return 'An assignment is still being checked. Wait for its result.';
-    if (intent.type === 'change') { chooseAnother(); return 'Choose a current option below.'; }
+    if (intent.type === 'change') {
+      chooseAnother();
+      return queueProposalIncomplete
+        ? 'Selection cleared. Reanalyze the queue before choosing another option.'
+        : currentRecommendation
+          ? 'Selection cleared. Choose a current option below.'
+          : 'Selection cleared. Recheck before choosing another option.';
+    }
+    if (query.isError) return 'Current recommendation evidence is unavailable. Recheck before choosing an option.';
+    if (queueProposalIncomplete) return 'The queue analysis is incomplete. Reanalyze before choosing an option.';
+    if (!currentRecommendation) return 'The recommendation evaluation is incomplete. Recheck before choosing an option.';
     if (intent.type === 'choose') {
       const option = options[intent.index];
       if (!option || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return 'That option is not available in the current evidence.';
@@ -710,14 +814,11 @@ export function AiRecommendationPanel({
       >
         <div className="relative w-20 h-20 rounded-3xl p-1 bg-gradient-to-b from-emerald-500/20 to-emerald-600/5 border border-emerald-500/25 shadow-sm flex items-center justify-center">
           <img
-            src="/images/copilot-avatar-blinking.gif"
-            alt="Dispatch Copilot Mascot"
+            src="/images/copilot-avatar.png"
+            alt="" aria-hidden="true"
             className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none"
           />
-          <span className="absolute -bottom-1 -right-1 flex h-4 w-4" aria-hidden="true">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-600 border-2 border-surface" />
-          </span>
+          <span className="absolute -bottom-1 -right-1 flex h-4 w-4 rounded-full bg-emerald-600 border-2 border-surface" aria-hidden="true" />
         </div>
         <div className="space-y-1">
           <h3 className="text-sm font-bold text-foreground">Dispatch Copilot Ready</h3>
@@ -729,22 +830,27 @@ export function AiRecommendationPanel({
     );
   }
 
-  // The confirmation action lives inside the conversation as Copilot's reply,
-  // so the flow and its gating are composed as slots of the option message.
+  // The current selection review and confirmation stay in one guarded decision dock,
+  // and selecting an option never commits an assignment.
   const busy = assignment.isPending || !!failure?.checking;
   // First load or an explicit Recheck press — never a background poll.
-  const recheckBusy = query.isLoading || rechecking;
+  const recheckBusy = rechecking || (!query.isError && query.isLoading);
   const recovery =
     action.recovery === "request" ? (
       <Link className="text-xs text-primary underline" href={`/reservations/${requestId}`}>Open current request</Link>
     ) : (action.recovery === "recheck" || action.recovery === "analyze") ? (
-      <Button size="xs" variant="outline" className="rounded-lg text-[11px]" onClick={recheck} disabled={recheckBusy || busy}>Recheck reservation</Button>
+      <Button size="sm" variant="outline" className="rounded-lg text-[11px] min-h-[44px]" onClick={recheck} disabled={recheckBusy || busy}>Recheck reservation</Button>
     ) : null;
+  const selectionChangeButton = hasSavedSelection ? (
+    <Button size="sm" variant="outline" className="min-h-[44px]" disabled={busy} onClick={chooseAnother}>
+      Change selection
+    </Button>
+  ) : null;
   const reasonSlot =
     canAssign && manual && decision.canReview ? (
       <div>
         <label htmlFor="dispatch-manual-reason" className="block text-xs font-bold text-foreground mb-1">
-          Reason <span className="text-danger">*</span>
+          Reason <span className="text-danger-700">*</span>
         </label>
         <textarea
           id="dispatch-manual-reason"
@@ -762,6 +868,14 @@ export function AiRecommendationPanel({
     <CopilotBubble>
       <div id="copilot-option-result" tabIndex={-1} className="space-y-3">
         <SelectedPairSummary pair={pair} optionNumber={options.findIndex(o=>pairKey(o.pair)===selected)+1} pending={selectionCheck?.pending} now={now}/>
+        {!selectionCheck?.pending && !decision.canConfirm && decision.reasons.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-foreground">{decision.label}</p>
+            <ul aria-label={`${decision.label} reasons`} className="list-disc space-y-0.5 pl-4 text-xs text-foreground-secondary">
+              {decision.reasons.map((reason,index)=><li key={`${index}-${reason}`}>{reason}</li>)}
+            </ul>
+          </div>
+        )}
         {!selectionCheck?.pending && <>
           {reasonSlot}
           <p id="dispatch-confirmation-status" role="status" className="text-xs text-foreground-secondary">{reviewCurrent ? 'This option passed a fresh check. Dispatcher confirmation is required. Confirm assignment? Type "Assign it" or use Confirm assignment below.' : action.message}</p>
@@ -770,14 +884,14 @@ export function AiRecommendationPanel({
             {assignment.isPending ? 'Confirming assignment...' : 'Confirm assignment — ' + pairLabel(pair)}
           </Button>
         </>}
-        <Button variant="ghost" size="sm" disabled={busy || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
+        <Button variant="ghost" size="sm" className="min-h-[44px]" disabled={busy || query.isError || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
       </div>
     </CopilotBubble>
   ) : null;
   // Pre-choice gating (permission, queue analysis, failures) is spoken by
   // Copilot as a status message instead of a disabled footer button.
   const preChoiceStatus =
-    !pair && !action.canSubmit && action.recovery !== "analyze" && action.message !== "No current pair is selected. Review exclusions or recheck this reservation."
+    !query.isError && !pair && !action.canSubmit && action.recovery !== "analyze" && action.message !== "No current pair is selected. Review exclusions or recheck this reservation."
       ? action
       : null;
   const flowNode = (
@@ -785,11 +899,11 @@ export function AiRecommendationPanel({
       <CopilotOptionFlow
         options={options}
         exclusionReason={(rec?.pair?.none_reasons ?? [])[0] ?? (rec?.pair?.recommended && dispatchDecision(rec.pair.recommended,{now}).state === 'BLOCKED' ? {reason:`Blocked: ${dispatchDecision(rec.pair.recommended,{now}).reasons.join(' ')}`} : null)}
-        busy={busy || !!selectionCheck?.pending || !!selected}
+        busy={busy || query.isError || !!selectionCheck?.pending || !!selected}
         onChoose={chooseOption}
         now={now}
       />
-      {!!plan?.changedProposals?.length && <p className="text-xs text-warning">Queue proposals changed for requests {plan.changedProposals.join(', ')}. Review the updated arrangement before confirmation.</p>}
+      {!!plan?.changedProposals?.length && <p className="text-xs text-warning-700">Queue proposals changed for requests {plan.changedProposals.join(', ')}. Review the updated arrangement before confirmation.</p>}
       {preChoiceStatus && (
         <CopilotBubble>
           <div className="space-y-1.5">
@@ -802,6 +916,26 @@ export function AiRecommendationPanel({
       )}
     </div>
   );
+  const committedVehicleId = Number(displayedRequest?.vehicle_id);
+  const committedDriverId = Number(displayedRequest?.driver_id);
+  const pairMatchesCommittedRequest = pair &&
+    Number(pair.vehicle_id) === committedVehicleId && Number(pair.driver_id) === committedDriverId;
+  const committedCandidate = (rec?.pair?.candidates ?? []).find(candidate =>
+    Number(candidate?.vehicle_id) === committedVehicleId && Number(candidate?.driver_id) === committedDriverId);
+  const committedPairDetails = pairMatchesCommittedRequest ? pair : committedCandidate;
+  const committedPairForDisplay = Number.isSafeInteger(committedVehicleId) && committedVehicleId > 0 &&
+    Number.isSafeInteger(committedDriverId) && committedDriverId > 0
+    ? {
+        vehicle_id: committedVehicleId,
+        driver_id: committedDriverId,
+        vehicle: freshCommittedRequestArrived
+          ? displayedRequest?.vehicles ?? committedPairDetails?.vehicle ?? null
+          : committedPairDetails?.vehicle ?? displayedRequest?.vehicles ?? null,
+        driver: freshCommittedRequestArrived
+          ? displayedRequest?.drivers ?? committedPairDetails?.driver ?? null
+          : committedPairDetails?.driver ?? displayedRequest?.drivers ?? null,
+      }
+    : null;
 
   return (
     <section
@@ -818,52 +952,55 @@ export function AiRecommendationPanel({
         <div className="p-4 border-b border-border/80 bg-muted/20 shrink-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
-              <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-                <img
-                  src="/images/copilot-avatar-blinking.gif"
-                  alt="Dispatch Copilot Avatar"
-                  className="w-full h-full object-cover select-none pointer-events-none"
-                />
+              <div className="relative inline-flex shrink-0">
+                <CopilotAvatar size="md" decorative={false} label="Dispatch Copilot Avatar" />
                 <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-surface" aria-hidden="true" />
               </div>
               <div>
                 <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5 leading-none">
                   Dispatch Copilot
                   <span className="text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                    {/* A known stale/error state outranks an in-flight refresh:
-                        the chip must not report "Checking" over a real blocker.
-                        Only first load or an explicit Recheck reads Checking —
-                        a background poll keeps Evidence, so the 30s timer never
-                        looks like a reload. */}
-                    {query.isError ? "Unavailable" : decision.stale ? "Stale" : recheckBusy ? "Checking" : "Evidence"}
+                    {/* Explicit retries show activity; otherwise an error outranks stale evidence.
+                        Background polling remains non-disruptive. */}
+                    {readOnlyCommitted ? 'Read-only trip' : recommendationStatusLabel({queryError:query.isError,stale:decision.stale,checking:recheckBusy || (queueProposalIncomplete && isAnalyzing),incomplete:!completedRecommendation || queueProposalIncomplete})}
                   </span>
                 </h2>
                 <p className="text-[11px] text-foreground-secondary mt-1">
-                  {rec?.evaluatedAt
-                    ? `Evidence evaluated ${formatDateTime(rec.evaluatedAt)}`
-                    : "Evaluating pair options…"}
+                  {readOnlyCommitted
+                    ? 'This trip is committed; no new options or eligibility checks are generated here.'
+                    : query.isError
+                      ? rec?.evaluatedAt
+                        ? `Historic findings · last evaluated ${formatDateTime(rec.evaluatedAt)}`
+                        : "Current recommendation unavailable."
+                      : queueProposalIncomplete
+                        ? isAnalyzing ? "Reanalyzing queue; choices remain unavailable." : "Queue candidate evaluation did not complete."
+                        : completedRecommendation
+                          ? `Evidence evaluated ${formatDateTime(rec.evaluatedAt)}`
+                          : query.isLoading
+                          ? "Evaluating pair options…"
+                          : "Recommendation evaluation not completed."}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            {!assignmentClosed && <div className="flex items-center gap-1.5">
               <Button
                 variant="outline"
-                size="xs"
+                size="sm"
                 onClick={recheck}
                 disabled={recheckBusy || assignment.isPending || failure?.checking}
-                className="h-7 text-xs rounded-lg border-border/80"
+                className="min-h-[44px] text-xs rounded-lg border-border/80"
                 title="Recheck evidence for this reservation"
               >
                 <RefreshCw
-                  className={cn("w-3 h-3 mr-1", recheckBusy && "animate-spin")}
+                  className={cn("w-3 h-3 mr-1", recheckBusy && "motion-safe:animate-spin")}
                 />
                 {recheckBusy ? "Checking…" : "Recheck reservation"}
               </Button>
-            </div>
+            </div>}
           </div>
 
-          {queueMode && plan?.generatedAt && (
+          {queueMode && !assignmentClosed && plan?.generatedAt && (
             <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[11px] text-foreground-muted">
               <span>Plan date: {plan.window?.date || "Today"}{plan.window?.includesOverdue ? " + overdue" : ""}</span>
               <span>Expires {formatDateTime(plan.expiresAt)}</span>
@@ -872,39 +1009,97 @@ export function AiRecommendationPanel({
         </div>
       )}
 
-      {planError && <p role="alert" className="p-3 text-sm text-danger">Queue analysis failed: {planError}. Choose or recheck an option to try again.</p>}
+      {planError && !assignmentClosed && (
+        <CopilotStateMessage
+          title="Queue analysis failed"
+          description={`${planError?.message ?? planError}. Any previous queue findings are historical until analysis succeeds. Retry before confirming a queue proposal.`}
+        >
+          {onReanalyze && (
+            <Button size="sm" variant="outline" className="min-h-[44px]" onClick={retryQueueAnalysis} disabled={isAnalyzing}>
+              Retry queue analysis
+            </Button>
+          )}
+          {!query.isError && selectionChangeButton}
+        </CopilotStateMessage>
+      )}
       <div className="min-h-0 flex-1 flex flex-col">
         <CopilotConversation
           key={requestId}
           requestId={requestId}
-          selectedRequest={selectedRequest}
-          planToken={queueMode ? effectivePlanToken : null}
-          hasPair={!isClosed && options.length > 0}
-          selectedPair={pair ? {vehicleId:Number(pair.vehicle_id),driverId:Number(pair.driver_id)} : null}
-          selectedPairLabel={pair ? pairLabel(pair) : null}
-          displayedOptions={options.map(o=>({vehicleId:Number(o.pair.vehicle_id),driverId:Number(o.pair.driver_id)}))}
-          displayedEvaluatedAt={rec?.evaluatedAt ?? null}
-          disabled={busy || !canRecommend || isClosed}
-          completed={isClosed}
+          selectedRequest={displayedRequest}
+          planToken={!readOnlyCommitted && queueMode && currentRecommendation ? effectivePlanToken : null}
+          hasPair={!readOnlyCommitted && currentRecommendation && !assignmentClosed && options.length > 0}
+          selectedPair={!readOnlyCommitted && currentRecommendation && pair ? {vehicleId:Number(pair.vehicle_id),driverId:Number(pair.driver_id)} : null}
+          selectedPairLabel={!readOnlyCommitted && currentRecommendation && pair ? pairLabel(pair) : null}
+          displayedOptions={!readOnlyCommitted && currentRecommendation ? options.map(o=>({vehicleId:Number(o.pair.vehicle_id),driverId:Number(o.pair.driver_id)})) : []}
+          displayedEvaluatedAt={!readOnlyCommitted && currentRecommendation ? rec?.evaluatedAt ?? null : null}
+          disabled={busy || !canRecommend || (!readOnlyCommitted && (query.isError || !currentRecommendation || assignmentClosed))}
+          completed={conversationClosed}
+          readOnlyCommitted={readOnlyCommitted}
           onCommand={handleCommand}
+           onResetDecision={resetDecision}
+           resetDisabled={resetDisabled}
           planStatus={{ isInvalid: !!planInvalidReason, invalidReason: planInvalidReason ?? null }}
-          selectedReply={!isClosed && !assignment.isPending ? actionSlot : null}
+          decisionDock={!readOnlyCommitted && !assignmentClosed && currentRecommendation && !assignment.isPending ? actionSlot : null}
           reply={<>
-            {query.isLoading && <CopilotBubble><p role="status">Checking the eligible options and their schedules.</p></CopilotBubble>}
-            {query.isError && <CopilotBubble><p role="alert">I could not refresh the evidence. {query.error.message}</p>{recovery}</CopilotBubble>}
-            {failure && <CopilotBubble><p role="alert">{failure.message}</p><ConflictBlock conflicts={failure.conflicts ?? []}/>{recovery}</CopilotBubble>}
-            {assignment.isPending && <CopilotBubble><p role="status">Confirming assignment for {pairLabel(pair)}. Revalidating availability and conflicts before saving.</p></CopilotBubble>}
-            {isClosed && (
+            {!assignmentClosed && query.isError && (
+              <CopilotStateMessage
+                title="Recommendation evidence unavailable"
+                description={completedRecommendation
+                  ? `The prior evaluation is not current. ${historicSummaryPairs.length ? "Historic details are shown below for reference only. " : ""}Retry before selecting or assigning. ${query.error?.message ?? "The refresh failed."}`
+                  : `Current eligibility is unknown because the recommendation request failed${query.error?.message ? `: ${query.error.message}` : ""}. Recheck before taking action.`}
+              >
+                <Button size="sm" variant="outline" className="min-h-[44px]" onClick={recheck} disabled={recheckBusy || busy}>
+                  Retry evidence
+                </Button>
+                {selectionChangeButton}
+              </CopilotStateMessage>
+            )}
+            {!assignmentClosed && !query.isError && queueProposalIncomplete && !planError && (
+              <CopilotStateMessage
+                role="status"
+                tone="warning"
+                title="Queue analysis incomplete"
+                description={isAnalyzing
+                  ? "Queue reanalysis is in progress. Options remain unavailable until candidate evaluation completes."
+                  : "This queue proposal is partial. Reanalyze the service date before selecting or confirming a resource pair."}
+              >
+                {onReanalyze && (
+                  <Button size="sm" variant="outline" className="min-h-[44px]" onClick={retryQueueAnalysis} disabled={isAnalyzing || busy}>
+                    {isAnalyzing ? "Reanalyzing queue…" : "Retry queue analysis"}
+                  </Button>
+                )}
+                {selectionChangeButton}
+              </CopilotStateMessage>
+            )}
+            {!assignmentClosed && query.isError && completedRecommendation && <HistoricRecommendationSummary pairs={historicSummaryPairs} />}
+            {!assignmentClosed && !query.isError && query.isLoading && <CopilotBubble><p role="status">Checking the eligible options and their schedules.</p></CopilotBubble>}
+            {!assignmentClosed && !query.isError && !query.isLoading && !completedRecommendation && (
+              <CopilotStateMessage
+                role="status"
+                tone="warning"
+                title="Eligibility unknown"
+                description="The recommendation response does not contain a completed evaluation. No fleet-wide exclusion can be inferred; recheck this reservation."
+              >
+                <Button size="sm" variant="outline" className="min-h-[44px]" onClick={recheck} disabled={recheckBusy || busy}>
+                  Recheck reservation
+                </Button>
+                {selectionChangeButton}
+              </CopilotStateMessage>
+            )}
+            {!assignmentClosed && failure && <CopilotBubble><p role="alert">{failure.message}</p><ConflictBlock conflicts={failure.conflicts ?? []}/>{recovery}</CopilotBubble>}
+            {!assignmentClosed && assignment.isPending && <CopilotBubble><p role="status">Confirming assignment for {pairLabel(pair)}. Revalidating availability and conflicts before saving.</p></CopilotBubble>}
+            {assignmentClosed && (
               <CopilotTripDetailsBubble
                 requestId={requestId}
-                selectedRequest={selectedRequest}
-                committedPair={pair}
-                alreadyAssigned={alreadyAssigned}
+                selectedRequest={displayedRequest}
+                committedPair={committedPairForDisplay}
+                alreadyAssigned={alreadyAssigned || readOnlyCommitted}
               />
             )}
           </>}
         >
-          {!isClosed && !query.isLoading && flowNode}
+          {!readOnlyCommitted && !assignmentClosed && currentRecommendation && flowNode}
         </CopilotConversation>
       </div>
     </section>

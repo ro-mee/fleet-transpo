@@ -20,7 +20,7 @@ import { MapCtrlZoom, ZoomHintOverlay } from "@/components/maps/map-ctrl-zoom";
 import {
   createMapEntityMarkerIcon,
   resolveMarkerConfig,
-  MinimalMapLegend,
+  IncidentMapLegend,
 } from "@/components/maps/map-entity-marker";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -79,7 +79,7 @@ export default function IncidentMap({
   };
 
   return (
-    <div className="relative h-full w-full select-none overflow-hidden rounded-2xl">
+    <div className="relative h-full w-full select-none overflow-hidden rounded-2xl isolate">
       <MapContainer
         center={center}
         zoom={12}
@@ -153,10 +153,12 @@ export default function IncidentMap({
       {/* Zoom Hint Overlay */}
       <ZoomHintOverlay show={showZoomMessage} />
 
-      {/* Minimal Floating Map Legend (Section 9) */}
-      <div className="absolute bottom-3 left-3 z-[1000] pointer-events-auto">
-        <MinimalMapLegend />
-      </div>
+      {/* Incident Floating Map Legend (Section 9) */}
+      {!selectedIncident && (
+        <div className="absolute bottom-3 left-3 z-[1000] pointer-events-auto">
+          <IncidentMapLegend />
+        </div>
+      )}
 
       {/* Incident Selection Drawer / Panel (Section 6) */}
       {selectedIncident && (
@@ -347,10 +349,12 @@ export default function IncidentMap({
                 size="sm"
                 className="flex-1 text-xs font-semibold bg-primary text-white rounded-xl shadow-xs"
                 onClick={() => {
+                  const inc = selectedIncident;
+                  setSelectedIncident(null);
                   if (onAcknowledgeIncident) {
-                    onAcknowledgeIncident(selectedIncident);
+                    onAcknowledgeIncident(inc);
                   } else if (onSelectIncident) {
-                    onSelectIncident(selectedIncident);
+                    onSelectIncident(inc);
                   }
                 }}
               >
@@ -362,8 +366,10 @@ export default function IncidentMap({
               size="sm"
               className="flex-1 text-xs font-semibold rounded-xl"
               onClick={() => {
+                const inc = selectedIncident;
+                setSelectedIncident(null);
                 if (onSelectIncident) {
-                  onSelectIncident(selectedIncident);
+                  onSelectIncident(inc);
                 }
               }}
             >

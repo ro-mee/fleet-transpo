@@ -1,12 +1,15 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { CopilotStateMessage } from "@/components/reservations/copilot-state-message";
 
 // Read-only evidence drawer (Phase B2). Displays server-verified proof for one
-// signed evidence reference. GET-only: fetches exactly once per opened proof
-// (effect deps are [proofRef, requestId] ONLY — planStatus changes never
-// refetch). Never validates, polls, reranks, selects, assigns, or mutates.
+// signed evidence reference. GET-only: one request on open; a second request
+// occurs only after explicit Retry (planStatus changes never refetch). Never
+// validates, polls, reranks, selects, assigns, or mutates.
 // Staleness is observed from the existing plan-validation state owned by the
 // panel, never determined here.
 export async function fetchEvidence(requestId, proofRef) {
@@ -54,7 +57,7 @@ function ConflictTimeline({ facts }) {  if (!facts.existingDeparture || !facts.r
     <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs" aria-label="Schedule conflict timeline">
       <p>Existing: {formatValue("existingDeparture", facts.existingDeparture)} → {formatValue("existingArrival", facts.existingArrival)}</p>
       <p>Requested: {formatValue("requestedPickup", facts.requestedPickup)} → {formatValue("requestedEnd", facts.requestedEnd)}</p>
-      <p className="mt-1 font-semibold text-danger">CONFLICT — windows overlap</p>
+      <p className="mt-1 font-semibold text-danger-700">CONFLICT — windows overlap</p>
     </div>
   );
 }
@@ -88,10 +91,41 @@ export function EvidenceBody({ data, proofType, planStatus = null }) {
   );
 }
 
-export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = null, planStatus = null, onClose, onBack, onReviewProof }) {
+export function EvidenceFailureMessage({ error, onRetry, onClose }) {
+  return (
+    <CopilotStateMessage
+      title="Evidence unavailable"
+      description={`This evidence snapshot could not be loaded${error?.message ? `: ${error.message}` : ""}. Retry the snapshot or close this view.`}
+    >
+      <Button size="sm" variant="outline" onClick={onRetry} className="min-h-[44px]">Retry evidence</Button>
+      <Button size="sm" variant="ghost" onClick={onClose} className="min-h-[44px]">Close evidence</Button>
+    </CopilotStateMessage>
+  );
+}
+
+export function EvidenceDrawer({
+  requestId,
+  proof,
+  inspector = null,
+  backTo = null,
+  planStatus = null,
+  openerRef = null,
+  closeFocusRef = openerRef,
+  nested = false,
+  onClose,
+  onCloseAll,
+  onBack,
+  onReviewProof,
+}) {
   const proofRef = proof?.ref ?? null;
   const proofType = proof?.type ?? null;
   const [state, setState] = useState({ status: "loading", data: null, error: null });
+  const [attempt, setAttempt] = useState(0);
+  const closeButtonRef = useRef(null);
+  const retry = () => {
+    setState({ status: "loading", data: null, error: null });
+    setAttempt(value => value + 1);
+  };
 
   useEffect(() => {
     if (!proofRef || !requestId) return;
@@ -101,62 +135,72 @@ export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = nu
       error => { if (!cancelled) setState({ status: "error", data: null, error }); }
     );
     return () => { cancelled = true; };
-    // INTENTIONAL dep scope: planStatus excluded — validation changes never refetch.
-  }, [proofRef, requestId]);
+    // Retry is explicit; planStatus stays excluded so validation changes never refetch.
+  }, [proofRef, requestId, attempt]);
 
   const headerTitle = inspector ? "Eligibility Evidence" : (state.data?.title ?? "Evidence");
-  return (
-    <aside
-      role="dialog"
-      aria-modal="false"
-      aria-label={`${headerTitle} evidence`}
-      className="absolute inset-y-0 right-0 z-20 flex w-full max-w-sm flex-col border-l border-border bg-surface shadow-lg"
-    >
-      <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2.5">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">{headerTitle}</h2>
-          <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-foreground-secondary">Read-only evidence</p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close evidence"
-          className="rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
-        >
-          Close
-        </button>
-      </div>
+  const handleOpenAutoFocus = event => {
+    event.preventDefault();
+    closeButtonRef.current?.focus();
+  };
+  const handleCloseAutoFocus = event => {
+    event.preventDefault();
+    closeFocusRef?.current?.focus();
+  };
 
-      <div className="min-h-0 flex-1 overflow-y-auto space-y-3 p-3">
-        {inspector ? (
-          <EligibilityInspector
-            pairLabel={inspector.pairLabel}
-            horizon={inspector.horizon}
-            rows={inspector.rows}
-            onReviewProof={onReviewProof}
-          />
-        ) : (
-          <>
-            {state.status === "loading" && <p role="status" className="text-sm text-foreground-secondary">Loading verified evidence…</p>}
-        {state.status === "error" && (
-          <p role="alert" className="text-sm text-danger">
-            This evidence is unavailable{state.error?.message ? `: ${state.error.message}` : "."} Ask Copilot again for fresh evidence.
-          </p>
-        )}
-        {state.status === "ready" && <EvidenceBody data={state.data} proofType={proofType} planStatus={planStatus} />}
-        {backTo && (
+  return (
+    <Dialog open onOpenChange={open => !open && onClose?.()}>
+      <DialogContent
+        onOpenAutoFocus={handleOpenAutoFocus}
+        onCloseAutoFocus={handleCloseAutoFocus}
+        overlayClassName={nested ? "z-[80] bg-black/40 backdrop-blur-none" : "z-[60] bg-black/40 backdrop-blur-none"}
+        className={cn("left-auto right-0 top-0 translate-x-0 translate-y-0 flex h-dvh max-h-dvh w-full max-w-sm min-w-0 flex-col overflow-hidden rounded-none border-l border-border bg-surface p-0 shadow-xl", nested ? "z-[90]" : "z-[70]")}
+      >
+        <div className="flex items-start justify-between gap-2 border-b border-border px-3 py-2.5">
+          <div>
+            <DialogTitle className="text-sm font-semibold text-foreground">{headerTitle}</DialogTitle>
+            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wide text-foreground-secondary">Read-only evidence</p>
+          </div>
           <button
+            ref={closeButtonRef}
             type="button"
-            onClick={onBack}
-            className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+            onClick={onCloseAll ?? onClose}
+            aria-label="Close evidence"
+            className="rounded-lg border border-border px-2.5 min-h-[44px] inline-flex items-center text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
           >
-            Back to checklist
+            Close
           </button>
-        )}
-          </>
-        )}
-      </div>
-    </aside>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+          {inspector ? (
+            <EligibilityInspector
+              pairLabel={inspector.pairLabel}
+              horizon={inspector.horizon}
+              rows={inspector.rows}
+              onReviewProof={onReviewProof}
+            />
+          ) : (
+            <>
+              {state.status === "loading" && <p role="status" className="text-sm text-foreground-secondary">Loading verified evidence…</p>}
+              {state.status === "error" && (
+                <EvidenceFailureMessage error={state.error} onRetry={retry} onClose={onClose} />
+              )}
+              {state.status === "ready" && <EvidenceBody data={state.data} proofType={proofType} planStatus={planStatus} />}
+              {backTo && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="rounded-lg border border-border px-2.5 min-h-[44px] inline-flex items-center text-xs text-foreground-secondary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+                >
+                  Back to checklist
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -165,6 +209,13 @@ export function EvidenceDrawer({ requestId, proof, inspector = null, backTo = nu
 export function ComparisonCard({ data, planStatus = null }) {
   const facts = data?.facts ?? {};
   const { optionA, optionB, hierarchy = [] } = facts;
+  // Immutable pair identity from the signed server facts (P2-06). The
+  // comparison resolver carries vehicleId/driverId only — plates and names
+  // are never guessed here. Missing values stay unknown.
+  const pairIdentity = side => {
+    if (!side || (side.vehicleId == null && side.driverId == null)) return "Unidentified pair";
+    return `Vehicle #${side.vehicleId ?? "?"} / Driver #${side.driverId ?? "?"}`;
+  };
   const cell = side => {
     if (!side) return "—";
     return (
@@ -180,11 +231,13 @@ export function ComparisonCard({ data, planStatus = null }) {
     <>
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-lg border border-border/60 px-2.5 py-1.5">
-          <p className="mb-1 font-semibold text-foreground">Option 1</p>
+          <h4 className="mb-1 text-sm font-bold text-foreground">{pairIdentity(optionA)}</h4>
+          <p className="mb-1 text-[11px] text-foreground-secondary">Option 1</p>
           {cell(optionA)}
         </div>
         <div className="rounded-lg border border-border/60 px-2.5 py-1.5">
-          <p className="mb-1 font-semibold text-foreground">Option 2</p>
+          <h4 className="mb-1 text-sm font-bold text-foreground">{pairIdentity(optionB)}</h4>
+          <p className="mb-1 text-[11px] text-foreground-secondary">Option 2</p>
           {cell(optionB)}
         </div>
       </div>
@@ -220,7 +273,11 @@ export function buildInspectorRows(clearance = [], meta = {}) {
         proof: c.proof ?? null,
       });
     } else if (c.status === "blocking") {
-      rows.push({ label: c.label, state: "blocked", note: "See exclusion proof", proof: null });
+      // Blocked clearance carries no direct proof ref by contract
+      // (evidence-contract mints refs for verified checks; blocking detail
+      // rides with recoveryActions in the conversation). The note must not
+      // promise an inspector Review button that does not exist.
+      rows.push({ label: c.label, state: "blocked", note: "Blocked — see Review Evidence in the conversation for the exclusion detail", proof: null });
     } else {
       rows.push({ label: c.label, state: "verify", note: "Needs verification", proof: null });
     }
@@ -243,12 +300,24 @@ export function buildInspectorRows(clearance = [], meta = {}) {
   return rows;
 }
 
-const ROW_STATE_LABEL = { clear: "Clear", blocked: "Blocked", verify: "Needs verification", na: "—" };
+export function inspectorConclusion(rows = []) {
+  if (rows.some(row => row.state === "blocked")) {
+    return "Blocking evidence was found in the evaluated server evidence for this booking.";
+  }
+  const hasClearEligibilityFinding = rows.some(row =>
+    row.state === "clear" && !["Current GPS", "GPS Health"].includes(row.label)
+  );
+  const allFindingsEvaluated = rows.length > 0 && rows.every(row => ["clear", "na"].includes(row.state));
+  if (!allFindingsEvaluated || !hasClearEligibilityFinding) {
+    return "Eligibility is unknown because the evaluated server evidence for this booking is missing or needs verification.";
+  }
+  return "Eligible based only on the evaluated server evidence for this booking.";
+}
 
 export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }) {
   return (
     <div className="space-y-2">
-      {pairLabel && <p className="text-xs font-medium text-foreground">{pairLabel}</p>}
+      {pairLabel && <h4 className="text-sm font-bold text-foreground">{pairLabel}</h4>}
       <dl className="space-y-1.5">
         {rows.map((row, idx) => (
           <div key={`${row.label}-${idx}`} className="rounded-lg border border-border/60 px-2.5 py-1.5 text-xs">
@@ -259,8 +328,8 @@ export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }
             {row.proof?.ref && (
               <button
                 type="button"
-                onClick={() => onReviewProof?.(row.proof)}
-                className="mt-1.5 rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
+                onClick={event => onReviewProof?.(row.proof, event.currentTarget)}
+                className="mt-1.5 rounded-lg border border-border px-2.5 min-h-[44px] inline-flex items-center text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer"
               >
                 Review
               </button>
@@ -271,7 +340,7 @@ export function EligibilityInspector({ pairLabel, horizon, rows, onReviewProof }
       {horizon && (
         <p className="text-[11px] text-foreground-secondary">Evaluation horizon: {horizon}</p>
       )}
-      <p className="text-[11px] text-foreground-secondary">Eligible based on the evaluated server evidence.</p>
+      <p className="text-[11px] text-foreground-secondary">{inspectorConclusion(rows)}</p>
     </div>
   );
 }
