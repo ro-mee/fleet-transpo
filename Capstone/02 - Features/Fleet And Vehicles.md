@@ -12,6 +12,14 @@ related: ["[[Dispatch]]", "[[Maintenance]]"]
 
 # Feature: Fleet And Vehicles
 
+## 2026-10-09 - OR/CR and insurance upload experience
+
+Vehicle create/edit uses the shared document dropzone for one JPG/PNG/PDF up to 10MB in each OR/CR or Insurance section. It shows the destination, private storage notice, filename/type/size, real transfer progress, storage confirmation, retry and cancellation. **Uploaded - awaiting Save** remains distinct from persistence, verification and commissioning. New files are owner-scoped drafts in private `vehicle-documents`; create/update and individual document writers bind them within the record/audit transaction. Binding rejects wrong owners, resources, kinds, targets, references and expired/unfinished uploads, including omitted-ID and reparenting bypasses. Cancelled replacements restore the saved file; prior saved objects and legacy references are retained.
+
+Authorized reads return temporary signed previews plus canonical references; edits persist references instead of signed URLs. PDFs use a tile and signed browser-viewer link without weakening CSP. Valid legacy inline vehicle PDFs now reach Gemini after bounded base64/signature validation; arbitrary remote hosts remain rejected. Replacement/cancellation/record changes invalidate stale scans, and refocusing an edit no longer reseeds pending changes.
+
+Verification: 206 focused tests, strict scoped lint, production build and auth audit passed. Authenticated localhost checks covered PDF upload/viewer, connection-failure/retry, unsupported insurance files, insurance upload and narrow light/dark filename layout. Four cancelled synthetic drafts had zero remaining storage objects. Existing records were not modified. Physical drag/drop, live save/reopen and deployed/device acceptance remain open. Cleanup uses the existing scheduled sync; the deployed schedule was not verified. See [[document_uploads]] and [[Migrations]].
+
 ## What it does
 
 The vehicle registry: 20 vehicles, their categories, documents, odometer readings, and availability status.

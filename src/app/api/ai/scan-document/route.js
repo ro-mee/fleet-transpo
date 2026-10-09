@@ -3,6 +3,7 @@ import { logAiRequest } from "@/lib/ai/logger";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import { loadScanImage, scanDocumentWithGemini } from "@/lib/ai/gemini-document";
+import { DOCUMENT_KINDS, validateDocumentFile } from "@/lib/uploads/document-policy";
 
 const SUPPORTED_DOCUMENT_TYPES = new Set([
   "Driver_License",
@@ -41,7 +42,17 @@ export async function POST(request) {
 
     // SSRF guard: the server must never fetch arbitrary caller-supplied URLs,
     // only fleet storage or inline data URLs.
-    if (!isSafeRemoteMediaUrl(fileUrl)) {
+    let inlinePdf = false;
+    if (!isDriverLicenseScan && fileUrl.startsWith("data:application/pdf;")) {
+      const encoded = fileUrl.match(/^data:application\/pdf;base64,([A-Za-z0-9+/]+={0,2})$/)?.[1];
+      const limit = DOCUMENT_KINDS[documentType].maxBytes;
+      if (!encoded || encoded.length % 4 || encoded.length > Math.ceil(limit / 3) * 4) return err("Choose a valid PDF up to 10MB.", 400);
+      const bytes = Buffer.from(encoded, "base64");
+      const validated = validateDocumentFile({ type: "application/pdf", size: bytes.length }, documentType, bytes);
+      if (validated.error) return err(validated.error, 400);
+      inlinePdf = true; // Local bytes only; this does not permit another remote host.
+    }
+    if (!inlinePdf && !isSafeRemoteMediaUrl(fileUrl)) {
       return err("file_url must be a document uploaded to fleet storage.", 400);
     }
 

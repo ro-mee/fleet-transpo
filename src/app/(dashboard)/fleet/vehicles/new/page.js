@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
@@ -16,7 +16,6 @@ import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { toDateInput } from "@/lib/dates";
 import {
   Loader2,
-  Upload,
   FileText,
   CheckCircle2,
   ShieldCheck,
@@ -41,6 +40,9 @@ import { SelectItem } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { cn } from "@/lib/utils";
+import { DocumentUploadField } from "@/components/ui/document-upload-field";
+import { DocumentPreview } from "@/components/ui/document-preview";
+import { useDocumentUpload } from "@/hooks/use-document-upload";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
 
@@ -119,7 +121,9 @@ export default function VehicleFormPage({ params }) {
   const [previewModalUrl, setPreviewModalUrl] = useState(null);
 
   // AI Scan State
-  const [scanningDocType, setScanningDocType] = useState(null);
+  const [scanningDocs, setScanningDocs] = useState({ OR_CR: false, Insurance: false });
+  const scanSequence = useRef({ OR_CR: 0, Insurance: 0 });
+  useEffect(() => () => { scanSequence.current.OR_CR++; scanSequence.current.Insurance++; }, [vehicleId]);
 
   // The queries sit above `useForm` on purpose. "View Vehicle → Edit Details"
   // arrives with the row already in the react-query cache (the detail page uses
@@ -210,12 +214,14 @@ export default function VehicleFormPage({ params }) {
       toast.error("Please upload a document scan first before scanning with AI.");
       return;
     }
-    setScanningDocType(documentType);
+    const generation = ++scanSequence.current[documentType];
+    setScanningDocs(previous => ({ ...previous, [documentType]: true }));
     try {
       const res = await scanDocumentWithAi({
         document_type: documentType,
         file_url: fileUrl,
       });
+      if (scanSequence.current[documentType] !== generation) return;
       const filled = res ? fillExtractedFields(res.extracted_data || {}, documentType) : 0;
       if (filled > 0) {
         toast.success(
@@ -227,24 +233,24 @@ export default function VehicleFormPage({ params }) {
         toast.error(`Couldn't read new fields from the ${documentType.replace("_", " ")} scan. Enter them manually.`);
       }
     } catch (err) {
+      if (scanSequence.current[documentType] !== generation) return;
       toast.error(err.message || "Failed to scan document with AI");
     } finally {
-      setScanningDocType(null);
+      if (scanSequence.current[documentType] === generation) setScanningDocs(previous => ({ ...previous, [documentType]: false }));
     }
   };
 
+  const seededDocumentsFor = useRef(null);
   useEffect(() => {
-    if (vehicle) {
+    if (vehicle && seededDocumentsFor.current !== vehicleId) {
+      seededDocumentsFor.current = vehicleId;
       form.reset(vehicleToFormValues(vehicle));
       setInitializedVehicleId(vehicleId);
-
-      if (Array.isArray(vehicle.documents)) {
-        const orCr = vehicle.documents.find((d) => d.document_type === "OR_CR");
-        if (orCr) setOrCrDoc({ document_number: orCr.document_number || "", file_url: orCr.file_url || "" });
-
-        const ins = vehicle.documents.find((d) => d.document_type === "Insurance");
-        if (ins) setInsuranceDoc({ document_number: ins.document_number || "", file_url: ins.file_url || "" });
-      }
+      setScanningDocs({ OR_CR: false, Insurance: false });
+      const orCr = vehicle.documents?.find((d) => d.document_type === "OR_CR");
+      setOrCrDoc({ document_number: orCr?.document_number || "", file_url: orCr?.file_url || "", file_ref: orCr?.file_ref || orCr?.file_url || "" });
+      const ins = vehicle.documents?.find((d) => d.document_type === "Insurance");
+      setInsuranceDoc({ document_number: ins?.document_number || "", file_url: ins?.file_url || "", file_ref: ins?.file_ref || ins?.file_url || "" });
     }
   }, [vehicle, form, vehicleId]);
 
@@ -268,9 +274,35 @@ export default function VehicleFormPage({ params }) {
   // the passenger layout, so unclassified stock renders exactly as before.
   const watchedOperationalUse = form.watch("operational_use");
 
+  const orCrUpload = useDocumentUpload({
+    kind: "OR_CR", targetId: vehicleId,
+    onPending: () => { scanSequence.current.OR_CR++; setScanningDocs(previous => ({ ...previous, OR_CR: false })); },
+    onRestore: () => {
+      const saved = vehicle?.documents?.find(doc => doc.document_type === "OR_CR");
+      setOrCrDoc(previous => ({ ...previous, file_url: saved?.file_url || "", file_ref: saved?.file_ref || saved?.file_url || "" }));
+    },
+    onUploaded: metadata => {
+      setOrCrDoc(previous => ({ ...previous, file_url: metadata.preview_url, file_ref: metadata.stored_ref }));
+      void handleAiScan("OR_CR", metadata.preview_url);
+    },
+  });
+  const insuranceUpload = useDocumentUpload({
+    kind: "Insurance", targetId: vehicleId,
+    onPending: () => { scanSequence.current.Insurance++; setScanningDocs(previous => ({ ...previous, Insurance: false })); },
+    onRestore: () => {
+      const saved = vehicle?.documents?.find(doc => doc.document_type === "Insurance");
+      setInsuranceDoc(previous => ({ ...previous, file_url: saved?.file_url || "", file_ref: saved?.file_ref || saved?.file_url || "" }));
+    },
+    onUploaded: metadata => {
+      setInsuranceDoc(previous => ({ ...previous, file_url: metadata.preview_url, file_ref: metadata.stored_ref }));
+      void handleAiScan("Insurance", metadata.preview_url);
+    },
+  });
   const createMutation = useMutation({
     mutationFn: createVehicle,
     onSuccess: () => {
+      orCrUpload.markSaved();
+      insuranceUpload.markSaved();
       toast.success("Vehicle and attached documents saved successfully");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       router.push("/fleet/vehicles");
@@ -283,6 +315,8 @@ export default function VehicleFormPage({ params }) {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => updateVehicle(id, data),
     onSuccess: () => {
+      orCrUpload.markSaved();
+      insuranceUpload.markSaved();
       toast.success("Vehicle updated successfully");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
@@ -302,29 +336,16 @@ export default function VehicleFormPage({ params }) {
     onError:error=>toast.error(error.message),
   });
 
-  const handleFileUpload = (e, setter, documentType) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setter((prev) => ({ ...prev, file_url: reader.result }));
-        toast.success("Document scan attached! Scanning automatically...");
-        if (documentType) {
-          handleAiScan(documentType, reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
   const onSubmit = (data) => {
+    if (orCrUpload.blocking || insuranceUpload.blocking || scanningDocs.OR_CR || scanningDocs.Insurance) { toast.error("Wait for the document uploads and scans, or remove the pending file before saving."); return; }
     setSubmitError("");
     const documentsPayload = [];
     if (orCrDoc.file_url || orCrDoc.document_number) {
       documentsPayload.push({
         document_type: "OR_CR",
         document_number: orCrDoc.document_number || null,
-        file_url: orCrDoc.file_url || null,
+        file_url: orCrDoc.file_ref || orCrDoc.file_url || null,
+        ...(orCrUpload.uploadId ? { upload_id: orCrUpload.uploadId } : {}),
         expiry_date: data.registration_expiry || null,
       });
     }
@@ -332,7 +353,8 @@ export default function VehicleFormPage({ params }) {
       documentsPayload.push({
         document_type: "Insurance",
         document_number: insuranceDoc.document_number || null,
-        file_url: insuranceDoc.file_url || null,
+        file_url: insuranceDoc.file_ref || insuranceDoc.file_url || null,
+        ...(insuranceUpload.uploadId ? { upload_id: insuranceUpload.uploadId } : {}),
         // The API's only expiry key is expiry_date — issue_date/expiration_date
         // were silently dropped, leaving Insurance rows without an expiry.
         expiry_date: data.insurance_expiry || null,
@@ -363,7 +385,7 @@ export default function VehicleFormPage({ params }) {
       <Button
         type="button"
         onClick={form.handleSubmit(onSubmit)}
-        disabled={isSubmitting}
+        disabled={isSubmitting || orCrUpload.blocking || insuranceUpload.blocking || scanningDocs.OR_CR || scanningDocs.Insurance}
         className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
       >
         {isSubmitting ? (
@@ -437,7 +459,7 @@ export default function VehicleFormPage({ params }) {
           <CardHeader><CardTitle>Verify documents and commission</CardTitle><CardDescription>Commissioning: {vehicle?.commissioning_status ?? 'Pending'}. Save changes first, then check the saved scans, document numbers, registration class and expiry dates against the official records.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={verificationConfirmed} onChange={event=>setVerificationConfirmed(event.target.checked)} />I checked both saved official documents and the vehicle classification.</label>
-            <Button type="button" disabled={!verificationConfirmed || commissionMutation.isPending || form.formState.isDirty || orCrDoc.file_url !== (vehicle?.documents?.find(d=>d.document_type === 'OR_CR')?.file_url ?? '') || orCrDoc.document_number !== (vehicle?.documents?.find(d=>d.document_type === 'OR_CR')?.document_number ?? '') || insuranceDoc.file_url !== (vehicle?.documents?.find(d=>d.document_type === 'Insurance')?.file_url ?? '') || insuranceDoc.document_number !== (vehicle?.documents?.find(d=>d.document_type === 'Insurance')?.document_number ?? '')} onClick={()=>commissionMutation.mutate()}>Verify documents and commission</Button>
+            <Button type="button" disabled={!verificationConfirmed || orCrUpload.blocking || insuranceUpload.blocking || commissionMutation.isPending || form.formState.isDirty || orCrDoc.file_url !== (vehicle?.documents?.find(d=>d.document_type === 'OR_CR')?.file_url ?? '') || orCrDoc.document_number !== (vehicle?.documents?.find(d=>d.document_type === 'OR_CR')?.document_number ?? '') || insuranceDoc.file_url !== (vehicle?.documents?.find(d=>d.document_type === 'Insurance')?.file_url ?? '') || insuranceDoc.document_number !== (vehicle?.documents?.find(d=>d.document_type === 'Insurance')?.document_number ?? '')} onClick={()=>commissionMutation.mutate()}>Verify documents and commission</Button>
           </CardContent>
         </Card>
       )}
@@ -790,10 +812,10 @@ export default function VehicleFormPage({ params }) {
                         type="button"
                         size="sm"
                         onClick={() => handleAiScan("OR_CR", orCrDoc.file_url)}
-                        disabled={scanningDocType === "OR_CR"}
+                        disabled={scanningDocs.OR_CR || isSubmitting || orCrUpload.blocking}
                         className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
-                        {scanningDocType === "OR_CR" ? (
+                        {scanningDocs.OR_CR ? (
                           <>
                             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-white" /> Scanning...
                           </>
@@ -807,19 +829,7 @@ export default function VehicleFormPage({ params }) {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
-                      <input
-                        type="file"
-                        accept="image/*,.pdf"
-                        onChange={(e) => handleFileUpload(e, setOrCrDoc, "OR_CR")}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      />
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                        <Upload className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
-                        <span className="font-semibold text-foreground">Upload OR/CR Scan</span>
-                        <span className="text-[11px] text-foreground-muted">PNG, JPG, PDF up to 10MB</span>
-                      </div>
-                    </div>
+                    <DocumentUploadField kind="OR_CR" upload={orCrUpload} destination={`Vehicle ${watchedPlate || vehicle?.fleet_asset_code || "new record"} / OR/CR`} hasSavedFile={Boolean(vehicle?.documents?.find(doc => doc.document_type === "OR_CR")?.file_url)} savedMetadata={vehicle?.documents?.find(doc => doc.document_type === "OR_CR")?.upload} disabled={isSubmitting} scanning={scanningDocs.OR_CR} />
 
                     <Input
                       placeholder="CR / Registration Number..."
@@ -836,7 +846,7 @@ export default function VehicleFormPage({ params }) {
                     className="rounded-xl overflow-hidden border border-border bg-black/5 aspect-[16/10] relative group cursor-pointer flex items-center justify-center"
                     onClick={() => setPreviewModalUrl(orCrDoc.file_url)}
                   >
-                    <img src={orCrDoc.file_url} alt="OR/CR Document" className="w-full h-full object-contain" />
+                    <DocumentPreview url={orCrDoc.file_url} alt="OR/CR Document" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
                       <ZoomIn className="w-3.5 h-3.5" /> Click to Enlarge
                     </div>
@@ -880,10 +890,10 @@ export default function VehicleFormPage({ params }) {
                         type="button"
                         size="sm"
                         onClick={() => handleAiScan("Insurance", insuranceDoc.file_url)}
-                        disabled={scanningDocType === "Insurance"}
+                        disabled={scanningDocs.Insurance || isSubmitting || insuranceUpload.blocking}
                         className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
-                        {scanningDocType === "Insurance" ? (
+                        {scanningDocs.Insurance ? (
                           <>
                             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-white" /> Scanning...
                           </>
@@ -897,19 +907,7 @@ export default function VehicleFormPage({ params }) {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
-                      <input
-                        type="file"
-                        accept="image/*,.pdf"
-                        onChange={(e) => handleFileUpload(e, setInsuranceDoc, "Insurance")}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      />
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                        <Upload className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
-                        <span className="font-semibold text-foreground">Upload Insurance Scan</span>
-                        <span className="text-[11px] text-foreground-muted">PNG, JPG, PDF up to 10MB</span>
-                      </div>
-                    </div>
+                    <DocumentUploadField kind="Insurance" upload={insuranceUpload} destination={`Vehicle ${watchedPlate || vehicle?.fleet_asset_code || "new record"} / Insurance`} hasSavedFile={Boolean(vehicle?.documents?.find(doc => doc.document_type === "Insurance")?.file_url)} savedMetadata={vehicle?.documents?.find(doc => doc.document_type === "Insurance")?.upload} disabled={isSubmitting} scanning={scanningDocs.Insurance} />
 
                     <Input
                       placeholder="Insurance Policy Number..."
@@ -925,7 +923,7 @@ export default function VehicleFormPage({ params }) {
                     className="rounded-xl overflow-hidden border border-border bg-black/5 aspect-[16/10] relative group cursor-pointer flex items-center justify-center"
                     onClick={() => setPreviewModalUrl(insuranceDoc.file_url)}
                   >
-                    <img src={insuranceDoc.file_url} alt="Insurance Document" className="w-full h-full object-contain" />
+                    <DocumentPreview url={insuranceDoc.file_url} alt="Insurance Document" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
                       <ZoomIn className="w-3.5 h-3.5" /> Click to Enlarge
                     </div>
@@ -951,7 +949,7 @@ export default function VehicleFormPage({ params }) {
           </DialogHeader>
           <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-3xl border border-border">
             {previewModalUrl && (
-              <img src={previewModalUrl} alt="Document Zoom" className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />
+              <DocumentPreview url={previewModalUrl} alt="Document full preview" expanded />
             )}
           </div>
         </DialogContent>

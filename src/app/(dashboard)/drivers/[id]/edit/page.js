@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
@@ -18,7 +18,6 @@ import { toast } from "@/components/ui/toast";
 import {
   ArrowLeft,
   Loader2,
-  Upload,
   ZoomIn,
   IdCard,
   CheckCircle2,
@@ -50,6 +49,8 @@ import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/co
 import { StickyActionBar } from "@/components/ui/sticky-actions";
 import { PageEntrance } from "@/components/ui/page-entrance";
 import { cn } from "@/lib/utils";
+import { DocumentUploadField } from "@/components/ui/document-upload-field";
+import { useDocumentUpload } from "@/hooks/use-document-upload";
 import { normalizeLicenseType } from "@/lib/drivers/license-eligibility";
 
 export default function EditDriverPage() {
@@ -65,6 +66,8 @@ export default function EditDriverPage() {
 
   const [isScanningFront, setIsScanningFront] = useState(false);
   const [isScanningBack, setIsScanningBack] = useState(false);
+  const scanSequence = useRef({ front: 0, back: 0 });
+  useEffect(() => () => { scanSequence.current.front++; scanSequence.current.back++; }, [id]);
 
   // The addresses picked through the cascade on THIS visit, held outside the
   // form. Null means the operator has not picked one, which is what leaves the
@@ -138,8 +141,10 @@ export default function EditDriverPage() {
     const emp = driver.employees || {};
     const imgUrl = driver.license_image_url || "";
     const backUrl = driver.license_back_image_url || "";
-    if (imgUrl) setLicenseImagePreview(imgUrl);
-    if (backUrl) setLicenseBackImagePreview(backUrl);
+    setLicenseImagePreview(imgUrl || null);
+    setLicenseBackImagePreview(backUrl || null);
+    setIsScanningFront(false);
+    setIsScanningBack(false);
 
     // A fresh driver is a fresh edit: any pick made against the previous one must
     // not survive into this one. This is the one moment the picks are cleared —
@@ -204,12 +209,13 @@ export default function EditDriverPage() {
   };
 
   const handleAiScanFront = async (fileUrlOverride) => {
-    const fileUrl = fileUrlOverride || licenseImagePreview || form.getValues("license_image_url");
+    const fileUrl = (typeof fileUrlOverride === "string" ? fileUrlOverride : null) || licenseImagePreview || form.getValues("license_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Front Driver's License image first.");
       return;
     }
 
+    const generation = ++scanSequence.current.front;
     setIsScanningFront(true);
     try {
       const res = await scanDocumentWithAi({
@@ -217,6 +223,7 @@ export default function EditDriverPage() {
         file_url: fileUrl,
       });
 
+      if (scanSequence.current.front !== generation) return;
       const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
       if (filled > 0) {
         toast.success(`Front License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
@@ -226,19 +233,21 @@ export default function EditDriverPage() {
         toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
+      if (scanSequence.current.front !== generation) return;
       toast.error(err.message || "Failed to scan driver's license");
     } finally {
-      setIsScanningFront(false);
+      if (scanSequence.current.front === generation) setIsScanningFront(false);
     }
   };
 
   const handleAiScanBack = async (fileUrlOverride) => {
-    const fileUrl = fileUrlOverride || licenseBackImagePreview || form.getValues("license_back_image_url");
+    const fileUrl = (typeof fileUrlOverride === "string" ? fileUrlOverride : null) || licenseBackImagePreview || form.getValues("license_back_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Back Driver's License image first.");
       return;
     }
 
+    const generation = ++scanSequence.current.back;
     setIsScanningBack(true);
     try {
       const res = await scanDocumentWithAi({
@@ -246,6 +255,7 @@ export default function EditDriverPage() {
         file_url: fileUrl,
       });
 
+      if (scanSequence.current.back !== generation) return;
       const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
       if (filled > 0) {
         toast.success(`Back of License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
@@ -255,74 +265,47 @@ export default function EditDriverPage() {
         toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
+      if (scanSequence.current.back !== generation) return;
       toast.error(err.message || "Failed to scan back of driver's license");
     } finally {
-      setIsScanningBack(false);
+      if (scanSequence.current.back === generation) setIsScanningBack(false);
     }
   };
 
-  const handleFrontUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be less than 5MB");
-        return;
-      }
-      if (file.type !== "image/jpeg" && file.type !== "image/png") {
-        toast.error("Scan must be a JPEG or PNG image");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseImagePreview(result);
-        form.setValue("license_image_url", result, { shouldDirty: true });
-        toast.success("Front License scan updated! Scanning automatically...");
-        handleAiScanFront(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleBackUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be less than 5MB");
-        return;
-      }
-      if (file.type !== "image/jpeg" && file.type !== "image/png") {
-        toast.error("Scan must be a JPEG or PNG image");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseBackImagePreview(result);
-        form.setValue("license_back_image_url", result, { shouldDirty: true });
-        toast.success("Back License scan updated! Scanning automatically...");
-        handleAiScanBack(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
+  const frontUpload = useDocumentUpload({
+    kind: "license_front", targetId: id,
+    onPending: () => { scanSequence.current.front++; setIsScanningFront(false); },
+    onRestore: () => { setLicenseImagePreview(driver?.license_image_url || null); form.setValue("license_image_url", driver?.license_image_url || null, { shouldDirty: true }); },
+    onUploaded: metadata => {
+      setLicenseImagePreview(metadata.preview_url);
+      form.setValue("license_image_url", metadata.stored_ref, { shouldDirty: true });
+      void handleAiScanFront(metadata.preview_url);
+    },
+  });
+  const backUpload = useDocumentUpload({
+    kind: "license_back", targetId: id,
+    onPending: () => { scanSequence.current.back++; setIsScanningBack(false); },
+    onRestore: () => { setLicenseBackImagePreview(driver?.license_back_image_url || null); form.setValue("license_back_image_url", driver?.license_back_image_url || null, { shouldDirty: true }); },
+    onUploaded: metadata => {
+      setLicenseBackImagePreview(metadata.preview_url);
+      form.setValue("license_back_image_url", metadata.stored_ref, { shouldDirty: true });
+      void handleAiScanBack(metadata.preview_url);
+    },
+  });
   const handleRotateFront = async () => {
     if (!licenseImagePreview) return;
     const rotated = await rotateBase64Image(licenseImagePreview, 90);
-    setLicenseImagePreview(rotated);
-    form.setValue("license_image_url", rotated, { shouldDirty: true });
-    toast.success("Rotated Front License 90°");
+    if (!rotated?.startsWith("data:image/")) { toast.error("Could not rotate the scan. Try choosing the image again."); return; }
+    const blob = await (await fetch(rotated)).blob();
+    await frontUpload.selectFile(new File([blob], "front-license-rotated.jpg", { type: "image/jpeg" }));
   };
-
   const handleRotateBack = async () => {
     if (!licenseBackImagePreview) return;
     const rotated = await rotateBase64Image(licenseBackImagePreview, 90);
-    setLicenseBackImagePreview(rotated);
-    form.setValue("license_back_image_url", rotated, { shouldDirty: true });
-    toast.success("Rotated Back License 90°");
+    if (!rotated?.startsWith("data:image/")) { toast.error("Could not rotate the scan. Try choosing the image again."); return; }
+    const blob = await (await fetch(rotated)).blob();
+    await backUpload.selectFile(new File([blob], "back-license-rotated.jpg", { type: "image/jpeg" }));
   };
-
   const updateMutation = useMutation({
     mutationFn: (payload) => updateDriver(id, payload),
     onSuccess: (updatedDriver, payload) => {
@@ -339,6 +322,8 @@ export default function EditDriverPage() {
         return;
       }
 
+      frontUpload.markSaved();
+      backUpload.markSaved();
       toast.success("Driver updated successfully");
       queryClient.invalidateQueries({ queryKey: ["driver-edit", id] });
       queryClient.invalidateQueries({ queryKey: ["driver", id] });
@@ -363,14 +348,17 @@ export default function EditDriverPage() {
   });
 
   const onSubmit = (data) => {
+    if (frontUpload.blocking || backUpload.blocking || isScanningFront || isScanningBack) { toast.error("Wait for the document uploads and scans, or remove the pending file before saving."); return; }
     const payload = {
       first_name: data.first_name.trim(),
       last_name: data.last_name.trim(),
       license_number: data.license_number.trim(),
       years_of_experience: data.years_of_experience ?? 0,
       position: data.position?.trim() || "Driver",
-      license_image_url: licenseImagePreview || data.license_image_url || null,
-      license_back_image_url: licenseBackImagePreview || data.license_back_image_url || null,
+      license_image_url: data.license_image_url || null,
+      ...(frontUpload.uploadId ? { license_front_upload_id: frontUpload.uploadId } : {}),
+      license_back_image_url: data.license_back_image_url || null,
+      ...(backUpload.uploadId ? { license_back_upload_id: backUpload.uploadId } : {}),
       // Pass null when cleared so backend clears the column rather than ignoring it
       email: data.email?.trim() || null,
       phone: data.phone?.trim() || null,
@@ -431,7 +419,7 @@ export default function EditDriverPage() {
       <Button
         type="button"
         onClick={form.handleSubmit(onSubmit, onInvalid)}
-        disabled={isSaving}
+        disabled={isSaving || frontUpload.blocking || backUpload.blocking || isScanningFront || isScanningBack}
         className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
       >
         {isSaving ? (
@@ -627,8 +615,8 @@ export default function EditDriverPage() {
                     <p className="text-xs font-semibold">Staff review: {driver?.license_verified_at ? `recorded ${new Date(driver.license_verified_at).toLocaleString()}` : "not verified"}</p>
                     <p className="text-[11px] text-foreground-muted mt-1">Review the number, type, class, and expiry against the physical card or LTO Digital ID. This records your review; it does not query LTO or prove the license remains active.</p>
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending || isSaving || form.formState.isDirty} onClick={() => verificationMutation.mutate("physical_card")}>Confirm physical card checked</Button>
-                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending || isSaving || form.formState.isDirty} onClick={() => verificationMutation.mutate("lto_digital_id")}>Confirm LTO Digital ID checked</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending || isSaving || frontUpload.blocking || backUpload.blocking || form.formState.isDirty} onClick={() => verificationMutation.mutate("physical_card")}>Confirm physical card checked</Button>
+                      <Button type="button" variant="outline" size="sm" disabled={verificationMutation.isPending || isSaving || frontUpload.blocking || backUpload.blocking || form.formState.isDirty} onClick={() => verificationMutation.mutate("lto_digital_id")}>Confirm LTO Digital ID checked</Button>
                     </div>
                     {form.formState.isDirty && <p className="text-[11px] text-warning mt-2">Save changes before recording a license review.</p>}
                   </div>
@@ -698,7 +686,7 @@ export default function EditDriverPage() {
                   </CardTitle>
                   {licenseImagePreview && (
                     <div className="flex items-center gap-1">
-                      <Button type="button" variant="ghost" size="sm" onClick={handleRotateFront} className="h-7 text-xs">
+                      <Button type="button" variant="ghost" size="sm" onClick={handleRotateFront} disabled={isSaving || frontUpload.blocking} className="h-7 text-xs">
                         <RotateCw className="w-3.5 h-3.5 mr-1" /> Rotate
                       </Button>
                       <Button type="button" variant="ghost" size="sm" onClick={() => setEnlargeModalUrl(licenseImagePreview)} className="h-7 text-xs text-primary">
@@ -716,8 +704,8 @@ export default function EditDriverPage() {
                       <Button
                         type="button"
                         size="sm"
-                        onClick={handleAiScanFront}
-                        disabled={isScanningFront}
+                        onClick={() => handleAiScanFront()}
+                        disabled={isScanningFront || isSaving || frontUpload.blocking}
                         className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {isScanningFront ? <Loader2 className="w-3.5 h-3.5 animate-spin text-white" /> : <Zap className="w-3.5 h-3.5 mr-1 text-white" />} Scan Front
@@ -725,12 +713,7 @@ export default function EditDriverPage() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border rounded-xl p-3 text-center bg-muted/20 cursor-pointer">
-                      <input type="file" accept="image/jpeg, image/png" onChange={handleFrontUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-                      <div className="flex items-center justify-center gap-2 text-xs text-foreground-secondary">
-                        <Upload className="w-4 h-4 text-primary" /> Upload Front Scan
-                      </div>
-                    </div>
+                    <DocumentUploadField kind="license_front" upload={frontUpload} destination={`Driver #${id} / Front License`} hasSavedFile={Boolean(driver?.license_image_url)} savedMetadata={driver?.document_uploads?.license_front} disabled={isSaving} scanning={isScanningFront} />
                   </div>
                 </div>
 
@@ -755,7 +738,7 @@ export default function EditDriverPage() {
                   </CardTitle>
                   {licenseBackImagePreview && (
                     <div className="flex items-center gap-1">
-                      <Button type="button" variant="ghost" size="sm" onClick={handleRotateBack} className="h-7 text-xs">
+                      <Button type="button" variant="ghost" size="sm" onClick={handleRotateBack} disabled={isSaving || backUpload.blocking} className="h-7 text-xs">
                         <RotateCw className="w-3.5 h-3.5 mr-1" /> Rotate
                       </Button>
                       <Button type="button" variant="ghost" size="sm" onClick={() => setEnlargeModalUrl(licenseBackImagePreview)} className="h-7 text-xs text-primary">
@@ -773,8 +756,8 @@ export default function EditDriverPage() {
                       <Button
                         type="button"
                         size="sm"
-                        onClick={handleAiScanBack}
-                        disabled={isScanningBack}
+                        onClick={() => handleAiScanBack()}
+                        disabled={isScanningBack || isSaving || backUpload.blocking}
                         className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {isScanningBack ? <Loader2 className="w-3.5 h-3.5 animate-spin text-white" /> : <Zap className="w-3.5 h-3.5 mr-1 text-white" />} Scan Back
@@ -782,12 +765,7 @@ export default function EditDriverPage() {
                     )}
                   </div>
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border rounded-xl p-3 text-center bg-muted/20 cursor-pointer">
-                      <input type="file" accept="image/jpeg, image/png" onChange={handleBackUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
-                      <div className="flex items-center justify-center gap-2 text-xs text-foreground-secondary">
-                        <Upload className="w-4 h-4 text-primary" /> Upload Back Scan
-                      </div>
-                    </div>
+                    <DocumentUploadField kind="license_back" upload={backUpload} destination={`Driver #${id} / Back License`} hasSavedFile={Boolean(driver?.license_back_image_url)} savedMetadata={driver?.document_uploads?.license_back} disabled={isSaving} scanning={isScanningBack} />
                   </div>
                 </div>
 

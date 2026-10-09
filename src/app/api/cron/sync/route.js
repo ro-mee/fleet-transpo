@@ -6,6 +6,7 @@ import { syncAssignedTripAlerts } from "@/services/assigned-trip-scan.service";
 import { syncEndDutyReminders } from "@/services/end-duty-reminder.service";
 import { pruneAppErrors } from "@/lib/app-errors";
 import { recordSyncHeartbeat } from "@/lib/system-health";
+import { cleanupDocumentDrafts } from "@/lib/uploads/document-storage";
 
 // Scheduled compliance & status sync (C4).
 //
@@ -37,7 +38,7 @@ async function runSync(req) {
   // pruneAppErrors never throws by contract, but it runs in its own isolated
   // step anyway: retention cleanup must never fail vehicle/driver/compliance
   // sync just because pruning had a bad day.
-  const [vehicleResult, driverResult, complianceResult, pruneResult, startWindowResult, assignedTripResult, endDutyResult] = await Promise.all([
+  const [vehicleResult, driverResult, complianceResult, pruneResult, startWindowResult, assignedTripResult, endDutyResult, documentCleanup] = await Promise.all([
     syncAllVehicleStatuses(),
     syncAllDriverStatuses(),
     syncComplianceNotifications(),
@@ -80,6 +81,7 @@ async function runSync(req) {
         return { created: 0, pushes_attempted: 0, scanned: 0, skipped: 0, errors: 1 };
       }
     })(),
+    cleanupDocumentDrafts().catch(() => ({ deleted: 0, pending: 0, errors: 1 })),
   ]);
 
   return ok({
@@ -87,6 +89,8 @@ async function runSync(req) {
     drivers_synced: driverResult.synced,
     notifications_created: complianceResult.created,
     errors_pruned: pruneResult.deleted,
+    document_drafts_deleted: documentCleanup.deleted,
+    document_cleanup_errors: documentCleanup.errors || documentCleanup.pending || 0,
     start_window_notifications_created: startWindowResult.created,
     start_window_pushes_attempted: startWindowResult.pushes_attempted,
     start_window_skipped: startWindowResult.skipped,

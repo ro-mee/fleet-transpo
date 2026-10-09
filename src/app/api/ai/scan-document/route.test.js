@@ -16,6 +16,8 @@ vi.mock("@/lib/ai/logger", () => ({ logAiRequest: vi.fn() }));
 
 import { POST } from "./route";
 import * as apiUtils from "@/lib/api/utils";
+import * as mediaUrl from "@/lib/security/remote-url";
+import { scanDocumentWithGemini } from "@/lib/ai/gemini-document";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -48,5 +50,23 @@ describe("POST /api/ai/scan-document license response", () => {
     const response = await POST(request());
 
     expect(response.status).toBe(403);
+  });
+});
+
+describe("vehicle PDF scan validation", () => {
+  it.each(["OR_CR", "Insurance"])("accepts a valid legacy inline PDF for %s", async documentType => {
+    vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
+    vi.spyOn(mediaUrl, "isSafeRemoteMediaUrl").mockReturnValue(false);
+    const response = await POST({ json: async () => ({ document_type: documentType, file_url: "data:application/pdf;base64,JVBERi0x" }) });
+    expect(response.status).toBe(200);
+  });
+
+  it.each(["data:application/pdf;base64,AAAA", "data:application/pdf;base64,%%%", "http://127.0.0.1/scan.pdf"])("rejects a disguised PDF or untrusted URL %s", async fileUrl => {
+    vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
+    vi.spyOn(mediaUrl, "isSafeRemoteMediaUrl").mockReturnValue(false);
+    scanDocumentWithGemini.mockClear();
+    const response = await POST({ json: async () => ({ document_type: "OR_CR", file_url: fileUrl }) });
+    expect(response.status).toBe(400);
+    expect(scanDocumentWithGemini).not.toHaveBeenCalled();
   });
 });

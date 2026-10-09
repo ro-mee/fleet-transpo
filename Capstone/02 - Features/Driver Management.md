@@ -21,6 +21,14 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 
 # Feature: Driver Management
 
+## 2026-10-09 - Private license upload drafts
+
+Driver create/edit now shares `DocumentUploadField` and `useDocumentUpload` for front/back scans: one JPG/PNG up to 5MB, browse/drop, destination, filename/type/size, real XHR transfer progress, storage confirmation, retry, cancellation and replacement. Small screens place Remove/Cancel below the filename. Selection creates an owner-scoped private `driver-licenses` draft; **Uploaded - awaiting Save** does not mean record persistence or license verification. Save binds the draft inside the driver/employee/address/audit transaction, checking owner, resource, kind, target, matching reference, readiness and expiry. Failed saves roll binding back.
+
+Cancelling a replacement restores the saved file; leaving attempts pending-draft cancellation. New draft keys are excluded from profile avatar mirroring; existing media/profile-photo paths remain. Gemini suggestions stay separate from storage/human review, and stale results are ignored after replacement, cancellation, record switching or unmount. Authorized GET returns metadata matched to the current saved references. Review permissions and credential-change invalidation remain intact.
+
+Verification: 206 focused tests across 18 files, strict changed-file ESLint, production build, auth audit (317/317) and migration gates passed. Authenticated synthetic-file browser checks covered keyboard selection, progress, stored previews, cancellation and removal; vehicle checks cover the shared retry/PDF/responsive UI. No existing driver was changed. Physical drag/drop and live record save/reopen remain acceptance checks. See [[document_uploads]] for expiry/cleanup and access.
+
 **Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old operational data was cleaned, and ten new intended defense drivers were seeded. The live driver roster contains exactly those ten profiles and ten active driver-role accounts; the 23 old driver employees and six retired driver profiles were later hard-deleted by exact FK-checked cleanup. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
 
 ## What it does

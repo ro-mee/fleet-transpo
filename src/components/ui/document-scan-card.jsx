@@ -1,3 +1,4 @@
+import { DocumentPreview } from "@/components/ui/document-preview";
 import { CheckCircle2, ZoomIn } from "lucide-react";
 
 // Reusable document scan preview block (used across vehicle/driver detail + form pages).
@@ -27,7 +28,7 @@ export function DocumentScanCard({ title, icon: Icon, fileUrl, alt = title, meta
           className="rounded-lg overflow-hidden border border-border bg-black/5 aspect-[16/10] relative group cursor-pointer"
           onClick={() => onPreview?.(fileUrl)}
         >
-          <img src={fileUrl} alt={alt} className="w-full h-full object-contain" />
+          <DocumentPreview url={fileUrl} alt={alt} />
           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
             <ZoomIn className="w-3.5 h-3.5" /> Click to Zoom
           </div>

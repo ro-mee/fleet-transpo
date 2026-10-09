@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
@@ -19,7 +19,6 @@ import {
   User,
   IdCard,
   CheckCircle2,
-  Upload,
   Eye,
   EyeOff,
   ZoomIn,
@@ -46,6 +45,8 @@ import { LEGAL_DRIVING_AGE } from "@/lib/validation/age";
 import { rotateBase64Image } from "@/lib/images";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { cn } from "@/lib/utils";
+import { DocumentUploadField } from "@/components/ui/document-upload-field";
+import { useDocumentUpload } from "@/hooks/use-document-upload";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
 
@@ -71,6 +72,8 @@ export default function NewDriverPage() {
 
   const [isScanningFront, setIsScanningFront] = useState(false);
   const [isScanningBack, setIsScanningBack] = useState(false);
+  const scanSequence = useRef({ front: 0, back: 0 });
+  useEffect(() => () => { scanSequence.current.front++; scanSequence.current.back++; }, []);
 
   const form = useForm({
     resolver: zodResolver(driverSchema),
@@ -95,23 +98,6 @@ export default function NewDriverPage() {
       emergency_contact_name: "",
       emergency_contact_address: "",
       emergency_contact_phone: "",
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: createDriver,
-    onSuccess: (data) => {
-      // Nothing here reports a partial save any more: POST /api/drivers writes the
-      // employee, the driver and both address rows in ONE transaction, so a
-      // failure on the address half fails the whole request and lands in onError
-      // below rather than arriving here as a success carrying a warning.
-      toast.success("Driver registered successfully");
-      queryClient.invalidateQueries({ queryKey: ["drivers"] });
-      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
-      router.push(data?.driver_id ? `/drivers/${data.driver_id}` : "/drivers");
-    },
-    onError: (err) => {
-      setSubmitError(err.message || "Failed to create driver");
     },
   });
 
@@ -143,12 +129,13 @@ export default function NewDriverPage() {
 
   // Handle Instant Front AI Document Scan
   const handleAiScanFront = async (fileUrlOverride) => {
-    const fileUrl = fileUrlOverride || licenseImagePreview || form.getValues("license_image_url");
+    const fileUrl = (typeof fileUrlOverride === "string" ? fileUrlOverride : null) || licenseImagePreview || form.getValues("license_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Front Driver's License image first.");
       return;
     }
 
+    const generation = ++scanSequence.current.front;
     setIsScanningFront(true);
     try {
       const res = await scanDocumentWithAi({
@@ -156,6 +143,7 @@ export default function NewDriverPage() {
         file_url: fileUrl,
       });
 
+      if (scanSequence.current.front !== generation) return;
       const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
       if (filled > 0) {
         toast.success(`Front License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
@@ -165,20 +153,22 @@ export default function NewDriverPage() {
         toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
+      if (scanSequence.current.front !== generation) return;
       toast.error(err.message || "Failed to scan driver's license");
     } finally {
-      setIsScanningFront(false);
+      if (scanSequence.current.front === generation) setIsScanningFront(false);
     }
   };
 
   // Handle Instant Back AI Document Scan
   const handleAiScanBack = async (fileUrlOverride) => {
-    const fileUrl = fileUrlOverride || licenseBackImagePreview || form.getValues("license_back_image_url");
+    const fileUrl = (typeof fileUrlOverride === "string" ? fileUrlOverride : null) || licenseBackImagePreview || form.getValues("license_back_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Back Driver's License image first.");
       return;
     }
 
+    const generation = ++scanSequence.current.back;
     setIsScanningBack(true);
     try {
       const res = await scanDocumentWithAi({
@@ -186,6 +176,7 @@ export default function NewDriverPage() {
         file_url: fileUrl,
       });
 
+      if (scanSequence.current.back !== generation) return;
       const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
       if (filled > 0) {
         toast.success(`Back of License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
@@ -195,71 +186,70 @@ export default function NewDriverPage() {
         toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
+      if (scanSequence.current.back !== generation) return;
       toast.error(err.message || "Failed to scan back of driver's license");
     } finally {
-      setIsScanningBack(false);
+      if (scanSequence.current.back === generation) setIsScanningBack(false);
     }
   };
 
   // Handle Front License Upload
-  const handleFrontUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("File size must be less than 10MB");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseImagePreview(result);
-        form.setValue("license_image_url", result);
-        toast.success("Front License attached! Scanning automatically...");
-        handleAiScanFront(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Handle Back License Upload
-  const handleBackUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("File size must be less than 10MB");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseBackImagePreview(result);
-        form.setValue("license_back_image_url", result);
-        toast.success("Back of License attached! Scanning automatically...");
-        handleAiScanBack(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Rotate Front Image 90 Degrees Clockwise
+  const frontUpload = useDocumentUpload({
+    kind: "license_front", targetId: null,
+    onPending: () => { scanSequence.current.front++; setIsScanningFront(false); },
+    onRestore: () => { setLicenseImagePreview(null); form.setValue("license_image_url", null, { shouldDirty: true }); },
+    onUploaded: metadata => {
+      setLicenseImagePreview(metadata.preview_url);
+      form.setValue("license_image_url", metadata.stored_ref, { shouldDirty: true });
+      void handleAiScanFront(metadata.preview_url);
+    },
+  });
+  const backUpload = useDocumentUpload({
+    kind: "license_back", targetId: null,
+    onPending: () => { scanSequence.current.back++; setIsScanningBack(false); },
+    onRestore: () => { setLicenseBackImagePreview(null); form.setValue("license_back_image_url", null, { shouldDirty: true }); },
+    onUploaded: metadata => {
+      setLicenseBackImagePreview(metadata.preview_url);
+      form.setValue("license_back_image_url", metadata.stored_ref, { shouldDirty: true });
+      void handleAiScanBack(metadata.preview_url);
+    },
+  });
   const handleRotateFront = async () => {
     if (!licenseImagePreview) return;
     const rotated = await rotateBase64Image(licenseImagePreview, 90);
-    setLicenseImagePreview(rotated);
-    form.setValue("license_image_url", rotated);
-    toast.success("Rotated Front License 90°");
+    if (!rotated?.startsWith("data:image/")) { toast.error("Could not rotate the scan. Try choosing the image again."); return; }
+    const blob = await (await fetch(rotated)).blob();
+    await frontUpload.selectFile(new File([blob], "front-license-rotated.jpg", { type: "image/jpeg" }));
   };
-
   // Rotate Back Image 90 Degrees Clockwise
   const handleRotateBack = async () => {
     if (!licenseBackImagePreview) return;
     const rotated = await rotateBase64Image(licenseBackImagePreview, 90);
-    setLicenseBackImagePreview(rotated);
-    form.setValue("license_back_image_url", rotated);
-    toast.success("Rotated Back License 90°");
+    if (!rotated?.startsWith("data:image/")) { toast.error("Could not rotate the scan. Try choosing the image again."); return; }
+    const blob = await (await fetch(rotated)).blob();
+    await backUpload.selectFile(new File([blob], "back-license-rotated.jpg", { type: "image/jpeg" }));
   };
+  const createMutation = useMutation({
+    mutationFn: createDriver,
+    onSuccess: (data) => {
+      // Nothing here reports a partial save any more: POST /api/drivers writes the
+      // employee, the driver and both address rows in ONE transaction, so a
+      // failure on the address half fails the whole request and lands in onError
+      // below rather than arriving here as a success carrying a warning.
+      frontUpload.markSaved();
+      backUpload.markSaved();
+      toast.success("Driver registered successfully");
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
+      router.push(data?.driver_id ? `/drivers/${data.driver_id}` : "/drivers");
+    },
+    onError: (err) => {
+      setSubmitError(err.message || "Failed to create driver");
+    },
+  });
 
   const onSubmit = (data) => {
+    if (frontUpload.blocking || backUpload.blocking || isScanningFront || isScanningBack) { toast.error("Wait for the document uploads and scans, or remove the pending file before saving."); return; }
     setSubmitError("");
     const payload = {
       first_name: data.first_name.trim(),
@@ -268,8 +258,10 @@ export default function NewDriverPage() {
       years_of_experience: data.years_of_experience ?? 0,
       driver_status: data.driver_status || "Available",
       position: data.position || "Driver",
-      license_image_url: licenseImagePreview || data.license_image_url || null,
-      license_back_image_url: licenseBackImagePreview || data.license_back_image_url || null,
+      license_image_url: data.license_image_url || null,
+      ...(frontUpload.uploadId ? { license_front_upload_id: frontUpload.uploadId } : {}),
+      license_back_image_url: data.license_back_image_url || null,
+      ...(backUpload.uploadId ? { license_back_upload_id: backUpload.uploadId } : {}),
     };
 
     if (data.email?.trim()) payload.email = data.email.trim();
@@ -311,7 +303,7 @@ export default function NewDriverPage() {
       <Button
         type="button"
         onClick={form.handleSubmit(onSubmit)}
-        disabled={isSubmitting}
+        disabled={isSubmitting || frontUpload.blocking || backUpload.blocking || isScanningFront || isScanningBack}
         className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
       >
         {isSubmitting ? (
@@ -653,7 +645,7 @@ export default function NewDriverPage() {
                         variant="ghost"
                         size="sm"
                         className="h-7 text-xs text-foreground-secondary hover:text-foreground"
-                        onClick={handleRotateFront}
+                        onClick={handleRotateFront} disabled={isSubmitting || frontUpload.blocking}
                         title="Rotate Image 90° Clockwise"
                       >
                         <RotateCw className="w-3.5 h-3.5 mr-1" /> Rotate 90°
@@ -682,8 +674,8 @@ export default function NewDriverPage() {
                       <Button
                         type="button"
                         size="sm"
-                        onClick={handleAiScanFront}
-                        disabled={isScanningFront}
+                        onClick={() => handleAiScanFront()}
+                        disabled={isScanningFront || isSubmitting || frontUpload.blocking}
                         className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {isScanningFront ? (
@@ -700,19 +692,7 @@ export default function NewDriverPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFrontUpload}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      />
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                        <Upload className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
-                        <span className="font-semibold text-foreground">Click to upload Front Side</span>
-                        <span className="text-[11px] text-foreground-muted">PNG, JPG, WEBP up to 10MB</span>
-                      </div>
-                    </div>
+                    <DocumentUploadField kind="license_front" upload={frontUpload} destination={`Driver profile / Front License`} hasSavedFile={false} savedMetadata={null} disabled={isSubmitting} scanning={isScanningFront} />
                   </div>
                 </div>
 
@@ -753,7 +733,7 @@ export default function NewDriverPage() {
                         variant="ghost"
                         size="sm"
                         className="h-7 text-xs text-foreground-secondary hover:text-foreground"
-                        onClick={handleRotateBack}
+                        onClick={handleRotateBack} disabled={isSubmitting || backUpload.blocking}
                         title="Rotate Image 90° Clockwise"
                       >
                         <RotateCw className="w-3.5 h-3.5 mr-1" /> Rotate 90°
@@ -782,8 +762,8 @@ export default function NewDriverPage() {
                       <Button
                         type="button"
                         size="sm"
-                        onClick={handleAiScanBack}
-                        disabled={isScanningBack}
+                        onClick={() => handleAiScanBack()}
+                        disabled={isScanningBack || isSubmitting || backUpload.blocking}
                         className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {isScanningBack ? (
@@ -800,19 +780,7 @@ export default function NewDriverPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleBackUpload}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      />
-                      <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                        <Upload className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
-                        <span className="font-semibold text-foreground">Click to upload Back Side</span>
-                        <span className="text-[11px] text-foreground-muted">PNG, JPG, WEBP up to 10MB</span>
-                      </div>
-                    </div>
+                    <DocumentUploadField kind="license_back" upload={backUpload} destination={`Driver profile / Back License`} hasSavedFile={false} savedMetadata={null} disabled={isSubmitting} scanning={isScanningBack} />
                   </div>
                 </div>
 

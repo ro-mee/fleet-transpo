@@ -1,6 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { writeAuditRequired } from "@/lib/audit";
+import { attachVehicleDocument, signVehicleDocuments } from "@/lib/uploads/document-storage";
 
 // Client-writable columns for vehicledocuments. Column names are never taken
 // from the request body — that would allow SQL injection via crafted keys.
@@ -20,7 +21,7 @@ export async function GET(req, { params }) {
       `SELECT * FROM vehicledocuments WHERE vehicle_id = $1 AND deleted_at IS NULL ORDER BY expiry_date ASC`,
       [id]
     );
-    return ok(rows);
+    return ok(await signVehicleDocuments(rows));
   } catch (e) { return handleError(e); }
 }
 
@@ -29,6 +30,8 @@ export async function POST(req, { params }) {
     const session = await requirePermission(req, "vehicles", "update");
     const { id } = await params;
     const body = await parseBody(req);
+    if (body.file_ref !== undefined) body.file_url = body.file_ref;
+    if (body.upload_id && !body.file_url) return err("The uploaded file reference is required.", 400);
     const columns = [];
     const values = [];
     for (const key of DOC_WRITABLE) {
@@ -43,6 +46,10 @@ export async function POST(req, { params }) {
     const cols = columns.join(", ");
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const row = await withTransaction(async (tx) => {
+      if (body.file_url || body.upload_id) {
+        const fileIndex = columns.indexOf("file_url");
+        values[fileIndex] = await attachVehicleDocument(tx, session, body, id);
+      }
       const { rows } = await tx.query(`INSERT INTO vehicledocuments (${cols}) VALUES (${placeholders}) RETURNING *`, values);
       await writeAuditRequired(tx, req, session, {
         action: "create", resource: "vehicledocuments", resourceId: rows[0]?.document_id,

@@ -14,6 +14,7 @@ import { notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/rec
 import { driverReinstatedDriver, driverReinstatedStaff } from "@/lib/notifications/copy";
 import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, licenseCalendarDay } from "@/lib/drivers/license-eligibility";
 import { rateLimit } from "@/lib/rate-limit";
+import { attachDocumentUpload, documentMetadata, publicUpload } from "@/lib/uploads/document-storage";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -199,8 +200,15 @@ export async function GET(req, { params }) {
 
     // Media columns hold object keys; resolve them to short-lived URLs for the
     // response. See `lib/drivers/media` — never persist what this returns.
+    const uploads = await documentMetadata("drivers", id);
+    const documentUploads = {};
+    for (const upload of uploads) {
+      const column = upload.kind === "license_back" ? "license_back_image_url" : "license_image_url";
+      if (`${upload.bucket}/${upload.object_key}` === driver[column]) documentUploads[upload.kind] = publicUpload(upload);
+    }
     const responseData = await signDriverMedia({
         ...driver,
+        document_uploads: documentUploads,
         ...stats,
         ...punctuality,
         license_expiry: licenseCalendarDay(driver.license_expiry),
@@ -405,6 +413,8 @@ export async function PUT(req, { params }) {
     // Keep the driver row, linked employee, credential revocation, and event in
     // one transaction so a required audit failure rolls the edit back.
     await withTransaction(async (tx) => {
+    await attachDocumentUpload(tx, session, { uploadId: body.license_front_upload_id, kind: "license_front", recordId: id, ref: storedLicenceFront });
+    await attachDocumentUpload(tx, session, { uploadId: body.license_back_upload_id, kind: "license_back", recordId: id, ref: storedLicenceBack });
     if (residential.value) driverPayload.address_id = await saveAddress(residential.value, { tx });
     if (emergency.value) driverPayload.emergency_contact_address_id = await saveAddress(emergency.value, { tx });
 
@@ -450,7 +460,7 @@ export async function PUT(req, { params }) {
     if (email !== undefined && email !== null && String(email).trim() !== "") employeePayload.email = normalizeEmail(email);
     if (phone !== undefined) employeePayload.phone = normalizePhone(phone) || null;
     if (position !== undefined) employeePayload.position = position || "Driver";
-    if (storedLicenceFront !== undefined) {
+    if (storedLicenceFront !== undefined && !storedLicenceFront?.startsWith("driver-licenses/drafts/")) {
       // The allow-list replaced a bare startsWith("http") prefix test, which
       // admitted any host. The 512 cap stays: it is why a multi-megabyte scan
       // data URL has never been copied into employees.avatar_url, and that

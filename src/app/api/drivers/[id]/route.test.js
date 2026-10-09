@@ -102,7 +102,7 @@ const isEmergencyPick = (value) =>
  * `driverUpdates` collects every `UPDATE drivers SET …` the route issues, which
  * is where "did this edit touch the address ids?" is answered.
  */
-function installDb({ failOn, existing: existingOverride } = {}) {
+function installDb({ failOn, existing: existingOverride, upload = null } = {}) {
   const driverUpdates = [];
   const employeeUpdates = [];
   const state = { committed: false, rolledBack: false };
@@ -110,6 +110,7 @@ function installDb({ failOn, existing: existingOverride } = {}) {
 
   db.query.mockImplementation(async (sql, params = []) => {
     const text = String(sql);
+    if (text.includes("FROM document_uploads")) return { rows: upload ? [upload] : [] };
     if (text.includes("ALTER TABLE drivers")) return { rows: [], rowCount: 0 };
     // The existing-driver lookup, before anything is written.
     // An `existing` override stands in for a stored row that already holds
@@ -245,6 +246,14 @@ afterEach(() => {
 });
 
 describe("PUT /api/drivers/[id] — an edit that does not touch the address", () => {
+  it("preserves the profile avatar when saving a new license draft", async () => {
+    const upload = { upload_id: "b31b58a1-cb15-4a1a-9cd0-013273ed42cc", owner_id: 1, resource: "drivers", kind: "license_front", target_id: DRIVER_ID, bucket: "driver-licenses", object_key: "drafts/1/test.png", state: "ready", expires_at: "2099-01-01" };
+    const { employeeUpdates, state } = installDb({ upload, existing: { employee_avatar_url: "face-captures/1/profile.jpg" } });
+    const response = await PUT({ json: async () => ({ license_image_url: "driver-licenses/drafts/1/test.png", license_front_upload_id: upload.upload_id }) }, { params: Promise.resolve({ id: String(DRIVER_ID) }) });
+    expect(response.status).toBe(200);
+    expect(state.committed).toBe(true);
+    expect(employeeUpdates.some(call => call.sql.includes("avatar_url"))).toBe(false);
+  });
   it("leaves the address ids and both text columns out of the UPDATE entirely", async () => {
     // The load-bearing rule. If a rename wrote `address_id: null` — or wrote the
     // id back by reading it from somewhere — an operator editing a phone number

@@ -951,8 +951,17 @@ After migration 148, a source review identified that `length(btrim(end_reason)) 
 `npm run db:contract` again reported 76/76 relations classified and 0 violations, with the allocation table still RLS-enabled and without an anon policy. No allocation data, dispatch, or trip was inserted. No automated tests, build, browser/device acceptance or deployment verification was run.
 # 2026-10-08 — passenger/cargo migrations 150–155 applied
 
+
 After integrating main and preserving supply SQL 144–149, fresh status showed 149 applied files, six pending and zero changed. The approved `npm run db:up` runner applied 150–155 in filename order and separate transactions, then `npm run db:dump` regenerated `schema.sql`: 76 tables, one view, 148 foreign keys, 187 standalone indexes, 21 functions and 30 triggers. Applied SQL checksums were not changed. Final filename gate: 155 valid; status: 155 applied, zero pending, zero changed. The three old renumbered ledger names remain historical entries.
 
 `fuel_price_snapshots` is registered in the applied private-table contract. The live catalog confirms RLS enabled, zero policies, no anon/authenticated TRUNCATE privilege, and a validated trips-to-snapshot foreign key. `db:contract` classifies all 77 relations with zero violations. `verify:anon` reports zero exposed, 29 explicit refusals and 48 inconclusive empty responses; its exit 1 is expected and those responses are resolved by the paired contract's RLS-on/no-anon-policy evidence. The generated schema contains structure, not policy/grant proof.
 
 Real application SQL was verified using isolated temporary/private-schema rows, including typed cargo readiness, identical four-endpoint blockers, legacy starts, actual manual snapshot completion, GPS actuals, concurrent captures and decoded report workbooks. Migration 151 first-apply/rerun uses its exact SQL body rebound only to a temporary schema, including valid cargo on rerun. No operational fixture rows were added. See [[FleetOps Passenger Cargo Review Closeout 2026-10-08]] for behavioral evidence, final regression and remaining acceptance deferrals.
+
+## 2026-10-09 - `157_document_upload_drafts.sql`
+
+Fresh status showed 155 applied on-disk files, zero pending/changed and spent ledger-only `156_driver_service_qualifications.sql`; version 157 was chosen. A pre-apply dump captured the already-live qualification tables, then the runner applied only 157 and regenerated schema.sql (79 tables, one view, 154 FKs, 189 indexes, 22 functions, 32 triggers). Final gates: 156 valid/applied files, zero pending/changed. Applied checksums and historical missing keys were not changed.
+
+Migration 157 creates private `document_uploads` with explicit RLS/revoked anon/authenticated privileges, owner FK, context constraints and expiry/record indexes; it upserts the private 10MB JPG/PNG/PDF `vehicle-documents` bucket. No existing media is migrated. The refreshed schema required registering existing `driver_service_qualifications` and `driver_service_qualification_events` as private; their DB permissions were unchanged.
+
+`db:contract` passed all 80 relations with zero violations. `verify:anon`: zero exposed, 32 explicit refusals including the ledger, and 48 empty/inconclusive responses resolved by the paired live catalog contract. Generated schema alone is not RLS/grant proof. Catalog checks confirmed private buckets and denied ledger SELECT/TRUNCATE grants. Application/browser QA used synthetic drafts only. See [[document_uploads]] for binding/cleanup behavior.

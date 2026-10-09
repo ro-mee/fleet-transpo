@@ -34,6 +34,7 @@ export const KNOWN_MEDIA_BUCKETS = new Set([
   "fuel-receipts",
   "incident-evidence",
   "expense-receipts",
+  "vehicle-documents",
 ]);
 
 // Keys this app mints are shallow: "<driverId>/<uuid>.<ext>" or

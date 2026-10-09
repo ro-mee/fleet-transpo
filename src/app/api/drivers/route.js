@@ -12,6 +12,7 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, licenseNumberEvidence } from "@/lib/drivers/license-eligibility";
 import { writeAuditRequired } from "@/lib/audit";
+import { attachDocumentUpload } from "@/lib/uploads/document-storage";
 
 const EMPLOYEE_FIELDS = `json_build_object(
   'employee_id', e.employee_id,
@@ -433,6 +434,7 @@ export async function POST(req) {
 
     const avatarUrl =
       storedLicenceFront &&
+      !storedLicenceFront.startsWith("driver-licenses/drafts/") &&
       typeof storedLicenceFront === "string" &&
       storedLicenceFront.length <= 512 &&
       isAllowedStoredImageRef(storedLicenceFront)
@@ -512,6 +514,9 @@ export async function POST(req) {
         if (!newDriverId) {
           throw new Error("Failed to insert driver record");
         }
+
+        await attachDocumentUpload(tx, session, { uploadId: body.license_front_upload_id, kind: "license_front", recordId: newDriverId, ref: storedLicenceFront });
+        await attachDocumentUpload(tx, session, { uploadId: body.license_back_upload_id, kind: "license_back", recordId: newDriverId, ref: storedLicenceBack });
 
         await writeAuditRequired(tx, req, session, {
           action: "create",

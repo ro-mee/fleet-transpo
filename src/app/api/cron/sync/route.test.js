@@ -13,6 +13,7 @@ import * as assignedTripService from "@/services/assigned-trip-scan.service";
 import * as endDutyService from "@/services/end-duty-reminder.service";
 import * as appErrors from "@/lib/app-errors";
 import * as systemHealth from "@/lib/system-health";
+import * as documentStorage from "@/lib/uploads/document-storage";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -24,6 +25,7 @@ function mockReq() {
 }
 
 function mockHappyPath(overrides = {}) {
+  vi.spyOn(documentStorage, "cleanupDocumentDrafts").mockResolvedValue({ deleted: 0, pending: 0 });
   vi.stubEnv("CRON_SECRET", "test-secret");
   vi.spyOn(serviceAuth, "verifyServiceToken").mockReturnValue({ ok: true });
   vi.spyOn(statusService, "syncAllVehicleStatuses").mockResolvedValue({ synced: 3 });
