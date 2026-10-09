@@ -3,6 +3,7 @@ import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils"
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 import { TRIP_STATUS } from "@/lib/constants";
+import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
 
 /**
  * PUT /api/mobile/driver/trips/[id]/accept
@@ -35,11 +36,12 @@ export async function PUT(req, { params }) {
     const current = trip.trip_status;
     const target = body.accept ? TRIP_STATUS.DRIVER_ACCEPTED : TRIP_STATUS.CANCELLED;
 
+    const writeAcceptance = async db => {
     const check = canTransitionTrip(current, target);
     if (!check.ok) {
       // Accepting from a legacy ingest status: bridge through Assigned first.
       if (body.accept && canTransitionTrip(current, TRIP_STATUS.ASSIGNED).ok) {
-        const { rows: bridged } = await query(
+        const { rows: bridged } = await db.query(
           `UPDATE trips SET trip_status = $1, updated_at = NOW() WHERE trip_id = $2 RETURNING *`,
           [TRIP_STATUS.ASSIGNED, id]
         );
@@ -52,7 +54,7 @@ export async function PUT(req, { params }) {
       }
     }
 
-    const { rows } = await query(
+    const { rows } = await db.query(
       `UPDATE trips
           SET trip_status = $1, updated_at = NOW(), updated_by = $2
         WHERE trip_id = $3
@@ -61,6 +63,9 @@ export async function PUT(req, { params }) {
     );
 
     return ok(rows[0]);
+    };
+    return body.accept ? await withQualificationWrite({ driverId: trip.driver_id, tripId: id }, writeAcceptance)
+      : await writeAcceptance({ query });
   } catch (e) {
     return handleError(e);
   }

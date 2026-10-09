@@ -9,6 +9,7 @@ import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/se
 import { writeAudit } from "@/lib/audit";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 import { emitTransportStatus } from "@/services/outbound.service";
+import { withQualificationWrite } from './driver-qualification-boundaries.service';
 
 const DISPATCH_CANCELLED = DISPATCH_STATUS.CANCELLED;
 // A stood-down dispatch RELEASES the request: the pair returns to the pool and
@@ -120,10 +121,12 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
     values.push(val);
   }
   values.push(tripId);
-  const { rows } = await query(
-    `UPDATE trips SET ${sets.join(", ")} WHERE trip_id = $${values.length} RETURNING *`,
-    values
-  );
+  const updateTrip = db => db.query(
+    `UPDATE trips SET ${sets.join(", ")} WHERE trip_id = $${values.length} RETURNING *`, values);
+  const requiresQualification = ['Assigned', 'Driver Accepted', 'Trip Started', 'Passenger Onboard', 'En Route', 'In Progress', 'Arrived'].includes(to);
+  const { rows } = requiresQualification
+    ? await withQualificationWrite({ driverId: before[0].driver_id, tripId }, updateTrip)
+    : await updateTrip({ query });
   if (!rows[0]) throw new AuthError("Trip not found", 404);
 
   // Reconcile derived resources. The trip row is committed; a failure here is

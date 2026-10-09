@@ -1,6 +1,7 @@
 import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { query } from "@/lib/db";
+import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { setDispatchStatus } from "@/services/transition.service";
@@ -277,7 +278,8 @@ export async function PUT(req, { params }) {
       `UPDATE dispatchschedules SET ${assignments.join(", ")} WHERE dispatch_id = $${values.length + 1} AND deleted_at IS NULL RETURNING *`,
       [...values, id]
     );
-    const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,update) : await update({ query });
+    const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,update)
+      : await withQualificationWrite({ driverId: effDriverId, dispatchId: id }, update);
     if (!rows[0]) return err("Dispatch not found", 404);
 
     // Reassigning a Pending Reassignment dispatch moves it back to Scheduled

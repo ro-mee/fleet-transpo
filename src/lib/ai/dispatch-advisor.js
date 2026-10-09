@@ -258,6 +258,7 @@ function toPairCandidate(pair, request, trip) {
     is_designated: pair.is_designated,
     reason_type: pair.reason_type,
     replacement_reason: pair.replacement_reason ?? null,
+    ...(pair.qualification ? { qualification: pair.qualification } : {}),
     score: pair.score,
     confidence: Number(pair.confidence),
     reasons: pair.reasons,
@@ -328,6 +329,7 @@ export function buildDispatchRecommendation({
   now = new Date(),
   returnAt,
   scheduleContext,
+  qualificationContext,
   prefiltered = [],
 }) {
   const passengers = Number(request?.passenger_count) || 1;
@@ -344,6 +346,7 @@ export function buildDispatchRecommendation({
     now,
     returnAt,
     scheduleContext,
+    qualificationContext,
   });
 
   // DEPRECATED legacy independent ranking — quarantine, do not use for display
@@ -410,7 +413,8 @@ export function buildDispatchRecommendation({
       // skipped when it could not form a pair, plus pre-filtered vehicles the
       // SQL candidate query removed before scoring (flagged, honestly brief).
       none_reasons: [
-        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason, driver_id: s.driver_id ?? null, driver_name: s.driver_name ?? null })),
+        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason, driver_id: s.driver_id ?? null, driver_name: s.driver_name ?? null,
+          ...(s.qualification ? { qualification: s.qualification } : {}) })),
         ...prefilteredSkipped,
       ],
     },

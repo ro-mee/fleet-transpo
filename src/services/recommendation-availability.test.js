@@ -1,4 +1,4 @@
-import { beforeEach,it,expect,vi } from 'vitest';
+import { afterEach,beforeEach,it,expect,vi } from 'vitest';
 vi.mock('@/lib/db',()=>({query:vi.fn()}));
 vi.mock('@/services/dispatch-evidence.service',()=>({readDispatchRevision:vi.fn(async()=> 'revision')}));
 vi.mock('@/services/route-resolver.service',()=>({resolveRequestEstimate:vi.fn(async()=>({durationMin:120,source:'TomTom'}))}));
@@ -9,12 +9,13 @@ import { query } from '@/lib/db';
 import { evaluateDispatchCandidate } from '@/services/dispatch-radar.service';
 import { validatePairAvailability } from './recommendation.service';
 let record,category,driver;
+afterEach(()=>vi.unstubAllEnvs());
 beforeEach(()=>{
   vi.clearAllMocks(); category=1;
   record={request_id:3,fleet_status:'Pending',passenger_count:8,requested_category_id:1,pickup_datetime:'2026-09-14T02:00:00Z'};
   driver={driver_id:7,driver_status:'Available',license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2028-01-01',license_verified_at:'2026-09-27T10:00:00+08:00',license_verified_by:1,license_verification_method:'physical_card'};
   query.mockImplementation(async sql=>{
-    if(sql.includes('SELECT * FROM transportation_requests'))return {rows:[record]};
+    if(sql.includes('FROM transportation_requests r'))return {rows:[record]};
     if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,category_id:category,vehicle_status:'Available',seating_capacity:10,required_license_class:'B'}]};
     if(sql.includes('FROM drivers d'))return {rows:[driver]};
     return {rows:[]};
@@ -22,6 +23,16 @@ beforeEach(()=>{
   evaluateDispatchCandidate.mockResolvedValue({checks:[{id:'request',status:'verified'}],reviewable:true,dispatchContext:{mode:'SCHEDULED'},readiness:'REVIEW_REQUIRED',feasibility:{verdict:'UNKNOWN',reasons:['Departure plan needs review.']}});
 });
 const check=(allowReview=false)=>validatePairAvailability({request:{...record,passenger_count:1,requested_category_id:99},vehicleId:2,driverId:7,allowReview});
+it('pins the stored catalog service over a caller override and blocks a driver without that approval',async()=>{
+ vi.stubEnv('DRIVER_QUALIFICATION_MODE','ENFORCE');
+ vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION','fixture-v1');
+ vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW','fixture-roster');
+ vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS','RECHECK');
+ record.service_code='HOTEL_SUPPLY_TRANSFER';
+ const result=await validatePairAvailability({request:{...record,service_code:'GUEST_TRANSPORT'},vehicleId:2,driverId:7,allowReview:true});
+ expect(result).toMatchObject({ok:false,conflict:{code:'DRIVER_SERVICE_QUALIFICATION_REQUIRED',detail:{required_group:'CARGO',service_code:'HOTEL_SUPPLY_TRANSFER'}}});
+ expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
+});
 it('reloads linked request requirements and uses the actual service window',async()=>{
   const result=await check(true);expect(result.ok).toBe(true);
   expect(evaluateDispatchCandidate.mock.calls[0][0].request.passenger_count).toBe(8);
@@ -59,7 +70,7 @@ it('rejects license class that does not cover the selected vehicle',async()=>{
 it('blocks an overweight cargo pair with the shared gate message before candidate evaluation',async()=>{
   record.load_type='Cargo';record.passenger_count=null;record.cargo_weight_kg=1800;record.cargo_description='Rice';
   query.mockImplementation(async sql=>{
-    if(sql.includes('SELECT * FROM transportation_requests'))return {rows:[record]};
+    if(sql.includes('FROM transportation_requests r'))return {rows:[record]};
     if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,plate_number:'TRK 5678',category_id:category,vehicle_status:'Available',operational_use:'Cargo',cargo_capacity_kg:1000,required_license_class:'B'}]};
     if(sql.includes('FROM drivers d'))return {rows:[driver]};
     return {rows:[]};
@@ -74,7 +85,7 @@ it('blocks an overweight cargo pair with the shared gate message before candidat
 it('blocks a capacity-eligible typed pair without commissioned verified road evidence, even with review override', async()=>{
  record.load_type='Passenger';
  query.mockImplementation(async sql=>{
-  if(sql.includes('SELECT * FROM transportation_requests')) return {rows:[record]};
+  if(sql.includes('FROM transportation_requests r')) return {rows:[record]};
   if(sql.includes('FROM vehicles WHERE')) return {rows:[{vehicle_id:2, plate_number:'ABC1234',category_id:1,operational_use:'Passenger',commissioning_status:'Pending',seating_capacity:10,required_license_class:'B'}]};
   if(sql.includes('FROM drivers d')) return {rows:[driver]};
   return {rows:[]};
@@ -90,7 +101,7 @@ it('allows complete typed cargo evidence and pins the stored weight over stale c
  record={...record,load_type:'Cargo',passenger_count:null,cargo_weight_kg:650,cargo_description:'Rice',pickup_datetime:'2027-02-01T02:00:00Z'};
  const vehicle={vehicle_id:2,plate_number:'TRK5678',vehicle_status:'Registration Expired',registration_expiry:'2000-01-01',insurance_expiry:'2000-01-01',fleet_asset_code:'FLT-002',category_id:1,operational_use:'Cargo',commissioning_status:'Ready',cargo_capacity_kg:1000,required_license_class:'B'};
  const documents=['OR_CR','Insurance'].map(document_type=>({document_type,verification_status:'Verified',verified_by:8,verified_at:'2026-09-01T00:00:00Z',expiry_date:'2028-01-01'}));
- query.mockImplementation(async sql=>({rows:sql.includes('SELECT * FROM transportation_requests')?[record]:sql.includes('FROM vehicles WHERE')?[vehicle]:sql.includes('FROM vehicledocuments')?documents:sql.includes('FROM drivers d')?[driver]:[]}));
+ query.mockImplementation(async sql=>({rows:sql.includes('FROM transportation_requests r')?[record]:sql.includes('FROM vehicles WHERE')?[vehicle]:sql.includes('FROM vehicledocuments')?documents:sql.includes('FROM drivers d')?[driver]:[]}));
  evaluateDispatchCandidate.mockResolvedValue({checks:[{id:'request',status:'verified'},{id:'road_readiness',status:'verified'}],reviewable:false,dispatchContext:{mode:'SCHEDULED'},readiness:'VERIFIED',feasibility:{verdict:'SAFE',reasons:[]}});
  expect((await validatePairAvailability({request:{...record,cargo_weight_kg:1},vehicleId:2,driverId:7})).ok).toBe(true);
  expect(query.mock.calls.find(([sql])=>sql.includes('FROM vehicles WHERE'))[0]).toMatch(/fleet_asset_code/);

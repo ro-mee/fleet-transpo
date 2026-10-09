@@ -1,4 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
+import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
 import { requirePermission, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
@@ -235,6 +236,7 @@ export async function PUT(req, { params }) {
     // back) together. The derived statuses run after COMMIT, best-effort.
     const commitStart = startEvidence ? write => commitDispatchEvidence(startEvidence,write) : withTransaction;
     const { rows } = await commitStart(async (tx) => {
+      await guardDriverQualification({ driverId: trip.driver_id, tripId: id }, tx);
       const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 AND trip_status = $3 RETURNING *`, [rawOdometer, id, trip.trip_status]);
       if (!r.rows[0]) throw new AuthError("Trip not found", 404);
       const txWrites = [];

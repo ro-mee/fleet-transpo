@@ -11,6 +11,7 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { derivePriority } from '@/lib/scheduling/priority';
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { manilaDate } from '@/lib/dispatch/plan-window';
+import { loadQualificationContext } from './driver-qualification-boundaries.service';
 
 export async function loadServiceDateWorkload(driverIds, pickupAt) {
   if (!driverIds.length || !pickupAt || !Number.isFinite(+new Date(pickupAt))) return new Map();
@@ -314,10 +315,10 @@ export async function withResolvedEstimate(request, { persistRoute = false } = {
 export async function prepareDispatchRecommendation(request, { persistRoute = false, now = new Date() } = {}) {
   const resolved = await withResolvedEstimate(request, { persistRoute });
   const { vehicles, drivers, windowEnd, prefiltered } = await fetchCandidates(resolved.request, resolved.estimate);
-  const [activePairs, activeSubstitutes, scheduleContext] = await Promise.all([
-  loadActivePairs(), loadActiveSubstitutes(), loadDriverScheduleContext(drivers.map(d => d.driver_id))]);
+  const [activePairs, activeSubstitutes, scheduleContext, qualificationContext] = await Promise.all([
+  loadActivePairs(), loadActiveSubstitutes(), loadDriverScheduleContext(drivers.map(d => d.driver_id)), loadQualificationContext(drivers.map(d => d.driver_id))]);
   const recommendation = buildDispatchRecommendation({request: resolved.request, vehicles, drivers, now,
-  activePairs, activeSubstitutes, returnAt: windowEnd ? new Date(windowEnd) : null, scheduleContext, prefiltered});
+  activePairs, activeSubstitutes, returnAt: windowEnd ? new Date(windowEnd) : null, scheduleContext, qualificationContext, prefiltered});
   // Missing workload is neutral; it must never look like an empty workday.
   const workloads = await loadServiceDateWorkload(drivers.map(d => d.driver_id), request.pickup_datetime).catch(() => new Map());
   for (const pair of recommendation.pair?.candidates ?? []) pair.workloadEvidence = workloads.get(Number(pair.driver_id)) ?? null;

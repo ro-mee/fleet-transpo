@@ -4,6 +4,7 @@ import { flushOutbox } from "@/services/push.service";
 import { resolveRouteForRequest } from "@/services/route-resolver.service";
 import { serviceEnd } from '@/services/dispatch-radar.service';
 import { DISPATCH_SERVICE_TYPE } from "@/lib/constants";
+import { guardDriverQualification } from './driver-qualification-boundaries.service';
 
 // Auto-create a dispatch (+ its trip) the moment a full vehicle+driver pair is
 // committed to a transportation request — GAP-FIX: previously the assign
@@ -37,6 +38,7 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
   const employeeId = session?.user?.employeeId ?? null;
 
   const create = async (tx) => {
+    await guardDriverQualification({ driverId, requestId: request.request_id }, tx);
     // Idempotency: never raise a second live dispatch for the same request.
     const existing = await tx.query(
       `SELECT * FROM dispatchschedules

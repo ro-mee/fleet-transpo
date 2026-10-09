@@ -1,4 +1,5 @@
 import { DRIVER_STATUS, VEHICLE_STATUS } from "@/lib/constants";
+import { qualificationFinding } from '@/lib/drivers/qualification-rollout';
 import {
   estimateEfficiency,
   scoreProximity,
@@ -644,6 +645,7 @@ export function buildFleetPairRecommendations({
   now = new Date(),
   returnAt,
   scheduleContext,
+  qualificationContext,
 }) {
   const passengers = Number(request?.passenger_count) || 1;
   const pickupDate = request?.pickup_datetime || now;
@@ -707,6 +709,14 @@ export function buildFleetPairRecommendations({
     }
 
     const chosen = pairing.driver;
+    const qualification = qualificationFinding({ serviceCode: request?.service_code,
+      qualifications: qualificationContext?.qualifications?.get(Number(chosen.driver_id)) ?? [],
+      ...(qualificationContext ? { rollout: qualificationContext.rollout } : {}) });
+    if (qualification?.severity === 'blocking') {
+      skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number,
+        driver_id: chosen.driver_id, driver_name: pairDriverName(chosen), reason: qualification.message, qualification });
+      continue;
+    }
     const designated = pairing.designated;
     const replacement_reason = pairing.kind === PAIRING_KIND.SUBSTITUTE ? pairing.reason : null;
 
@@ -725,6 +735,7 @@ export function buildFleetPairRecommendations({
       driver: chosen,
       designated,
       pairing_kind: pairing.kind,
+      ...(qualification ? { qualification } : {}),
       ...scored,
     });
   }

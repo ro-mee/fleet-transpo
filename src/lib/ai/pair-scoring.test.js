@@ -47,6 +47,28 @@ const mkRequest = (over = {}) => ({
   ...over,
 });
 
+describe('service qualifications on the effective substitute',()=>{
+ const cargo={group:'CARGO',status:'ACTIVE',verified_by:8,verified_at:'2026-10-09T00:00:00Z',policy_version:'fixture-v1',version:1};
+ const build=(serviceCode,status='ACTIVE',mode='ENFORCE')=>buildFleetPairRecommendations({
+  request:mkRequest({service_code:serviceCode,pickup_datetime:NOW}),vehicles:[mkVehicle()],
+  drivers:[mkDriver({driver_id:5,driver_status:DRIVER_STATUS.ON_LEAVE}),mkDriver({driver_id:9})],
+  activePairs:[{vehicle_id:1,driver_id:5}],activeSubstitutes:[{vehicle_id:1,substitute_driver_id:9,effective_from:'2026-08-01'}],now:NOW,
+  qualificationContext:{rollout:{mode,configured:true,policyVersion:'fixture-v1'},qualifications:new Map([[9,[{...cargo,status}]]])},
+ });
+ it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('offers the explicitly qualified substitute for %s',service=>{
+  expect(build(service).recommended.driver.driver_id).toBe(9);
+ });
+ it('excludes revoked cargo and passenger without a separate approval',()=>{
+  for(const result of [build('HOTEL_SUPPLY_TRANSFER','REVOKED'),build('GUEST_TRANSPORT')]) {
+   expect(result.recommended).toBeNull();
+   expect(result.skipped[0]).toMatchObject({driver_id:9,qualification:{code:'DRIVER_SERVICE_QUALIFICATION_REQUIRED'}});
+  }
+ });
+ it('reports a revoked substitute in SHADOW while keeping the candidate',()=>{
+  expect(build('HOTEL_SUPPLY_TRANSFER','REVOKED','SHADOW').recommended).toMatchObject({driver:{driver_id:9},qualification:{severity:'warning'}});
+ });
+});
+
 describe("resolveDesignatedDriver", () => {
   it("returns the active custodian of a vehicle", () => {
     const pairs = [{ driver_id: 7, vehicle_id: 1 }];

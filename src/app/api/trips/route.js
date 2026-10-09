@@ -1,5 +1,6 @@
 import { appendTripFilters, validateServiceCode } from "@/lib/trips/filters";
 import { query } from "@/lib/db";
+import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 
@@ -177,7 +178,8 @@ export async function POST(req) {
     }
     if (columns.length === 0) return err("No valid fields provided", 400);
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-    const { rows } = await query(`INSERT INTO trips (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
+    const { rows } = await withQualificationWrite({ driverId: body.driver_id, dispatchId: body.dispatch_id },
+      db => db.query(`INSERT INTO trips (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values));
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }
 }

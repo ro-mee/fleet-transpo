@@ -1,6 +1,7 @@
 import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { query } from "@/lib/db";
+import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
@@ -189,7 +190,8 @@ export async function POST(req) {
     }
     const k = Object.keys(body), v = Object.values(body);
     const insert = db => db.query(`INSERT INTO dispatchschedules (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
-    const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,insert) : await insert({ query });
+    const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,insert)
+      : await withQualificationWrite({ driverId: body.driver_id, requestId: transportRequest?.request_id }, insert);
     const p = []; if (rows[0]?.vehicle_id) p.push(syncVehicleStatus(rows[0].vehicle_id)); if (rows[0]?.driver_id) p.push(syncDriverStatus(rows[0].driver_id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(rows[0].dispatch_id)); await Promise.all(p);
     await writeAudit(req, session, { action: "create", resource: "dispatchschedules", resourceId: rows[0]?.dispatch_id, newValues: rows[0] });
 

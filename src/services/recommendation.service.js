@@ -13,6 +13,8 @@ import { evaluateDispatchCandidate, serviceEnd } from '@/services/dispatch-radar
 import { resolveRequestEstimate } from '@/services/route-resolver.service';
 import { LOCATION_POLICY_VERSION } from '@/lib/dispatch/location-relevance';
 import { readDispatchRevision } from '@/services/dispatch-evidence.service';
+import { loadQualificationContext, driverQualificationFinding } from './driver-qualification-boundaries.service';
+import { groupForService } from '@/lib/drivers/service-qualifications';
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
 // recommendations (migration 027).
@@ -179,16 +181,26 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     };
   }
   if (request?.request_id) {
-    const { rows } = await query('SELECT * FROM transportation_requests WHERE request_id=$1 AND deleted_at IS NULL', [request.request_id]);
+    const { rows } = await query(`SELECT r.*, st.service_code FROM transportation_requests r
+      LEFT JOIN service_types st ON st.service_type_id=r.service_type_id AND st.deleted_at IS NULL
+      WHERE r.request_id=$1 AND r.deleted_at IS NULL`, [request.request_id]);
     if (!rows[0] || !['Pending','Scheduled','Assigned'].includes(rows[0].fleet_status))
       return { ok:false,conflict:{type:'request_state',severity:'blocking',message:'The transportation request is no longer actionable.'} };
     request = { ...rows[0],...request,passenger_count:rows[0].passenger_count,requested_category_id:rows[0].requested_category_id };
     // Typed load fields are authoritative from the stored row, never from the
     // caller — mirroring the passenger_count pin above. A changed weight on a
     // committed pair must re-gate here rather than ride in on stale input.
-    request = { ...request, load_type: rows[0].load_type ?? null, cargo_weight_kg: rows[0].cargo_weight_kg ?? null, cargo_description: rows[0].cargo_description ?? null };
+    request = { ...request, service_code: rows[0].service_code ?? null, load_type: rows[0].load_type ?? null, cargo_weight_kg: rows[0].cargo_weight_kg ?? null, cargo_description: rows[0].cargo_description ?? null };
   }
   const commitToken = { driverId,vehicleId,requestId:request?.request_id ?? null,...(excludeTripId ? {tripId:excludeTripId} : {}) };
+  const qualificationContext = await loadQualificationContext([driverId]);
+  const qualification = driverQualificationFinding(qualificationContext, driverId, request?.request_id ? request.service_code : null);
+  if (qualification?.severity === 'blocking') return { ok: false, conflict: qualification };
+  if (qualificationContext) commitToken.qualification = {
+    service_code: request?.request_id ? request.service_code ?? null : null,
+    qualification_version: qualificationContext.qualifications.get(Number(driverId))?.find(row => row.group === groupForService(request?.service_code))?.version ?? 0,
+    finding: qualification,
+  };
   commitToken.revision = await readDispatchRevision(commitToken);
   if (request?.route_id && !request.pickup_location) {
     const { rows } = await query('SELECT origin,destination FROM routes WHERE route_id=$1 AND deleted_at IS NULL', [request.route_id]);

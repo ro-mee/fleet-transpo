@@ -1,4 +1,4 @@
-import {beforeEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 vi.mock('@/lib/db',()=>({query:vi.fn(),withTransaction:vi.fn()}));
 vi.mock('@/lib/api/utils',()=>({requirePermission:vi.fn(async()=>({user:{employeeId:1}})),parseBody:vi.fn(async()=>({})),ok:body=>Response.json(body),err:(message,status)=>Response.json({error:message},{status}),handleError:e=>Response.json({error:e.message},{status:e.status??500}),AuthError:class extends Error {constructor(message,status){super(message);this.status=status;}}}));
 vi.mock('@/lib/api/ownership',()=>({assertTripOwnership:vi.fn(async()=>({trip_id:7,dispatch_id:8,driver_id:2,vehicle_id:3,trip_status:'Driver Accepted'}))}));
@@ -30,6 +30,31 @@ beforeEach(()=>{
  validatePairAvailability.mockResolvedValue({ok:true,commitToken:{revision:'current'}});
 });
 const run=()=>PUT(new Request('http://localhost/api/trips/7/start',{method:'PUT'}),{params:Promise.resolve({id:'7'})});
+afterEach(()=>vi.unstubAllEnvs());
+it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('starts travel to pickup for approved %s without a pickup receipt',async serviceCode=>{
+ vi.stubEnv('DRIVER_QUALIFICATION_MODE','ENFORCE');vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION','fixture-v1');
+ vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW','fixture-review');vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS','RECHECK');
+ query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type:'Cargo'}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}:defaultQuery(sql));
+ const statements=[];
+ const tx={query:async sql=>{statements.push(sql);return {rows:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]
+  :sql.includes('transportation_requests')?[{service_code:serviceCode}]:sql.includes('FROM trips')?[{driver_id:2,dispatch_id:8}]
+  :sql.includes('driver_service_qualifications')?[{driver_id:2,group:'CARGO',status:'ACTIVE',verified_by:1,verified_at:'2026-10-09T00:00:00Z',policy_version:'fixture-v1',version:1}]:[{driver_id:2}]};}};
+ commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
+ expect((await run()).status).toBe(200);
+ expect(statements.some(sql=>sql.startsWith('UPDATE trips'))).toBe(true);
+ expect(statements.some(sql=>sql.includes('cargo_receipt'))).toBe(false);
+});
+it('refuses qualification revoked after the preview inside the final start transaction',async()=>{
+ vi.stubEnv('DRIVER_QUALIFICATION_MODE','ENFORCE');vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION','fixture-v1');
+ vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW','fixture-review');vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS','RECHECK');
+ const statements=[];
+ const tx={query:async sql=>{statements.push(sql);return {rows:sql.includes('transportation_requests')?[{service_code:'HOTEL_SUPPLY_TRANSFER'}]
+  :sql.includes('FROM trips')?[{driver_id:2,dispatch_id:8}]
+  :sql.includes('driver_service_qualifications')?[{driver_id:2,group:'CARGO',status:'REVOKED'}]:[{driver_id:2}]};}};
+ commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
+ expect((await run()).status).toBe(409);
+ expect(statements.some(sql=>sql.startsWith('UPDATE trips'))).toBe(false);
+});
 it('rechecks the committed pair and excludes only the owned trip, blocking changed evidence before writes',async()=>{
  validatePairAvailability.mockResolvedValue({ok:false,conflict:{message:'New maintenance conflict'}});
  expect((await run()).status).toBe(409);
