@@ -79,6 +79,7 @@ describe('qualification profile display', () => {
   });
   it('shows a retry state instead of missing approval after read failure', () => {
     harness.query.isError = true;
+    harness.query.data = undefined;
     const html = renderToStaticMarkup(ServiceQualifications({ driverId: 87 }));
     expect(html).toContain('Reload qualifications');
     expect(html).not.toContain('Not approved');
@@ -86,6 +87,60 @@ describe('qualification profile display', () => {
 });
 
 describe('qualification review interactions', () => {
+  it('preserves the same mounted review and draft through a real query observer refresh failure until reload succeeds', async () => {
+    const { QueryClient, QueryObserver } = await vi.importActual('@tanstack/react-query');
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const queryKey = ['driver-qualifications', 87];
+    const loaded = harness.query.data;
+    client.setQueryData(queryKey, loaded);
+    let failRefresh = true;
+    const observer = new QueryObserver(client, { queryKey, enabled: false, retry: false, queryFn: async () => {
+      if (failRefresh) throw new Error('Connection lost.');
+      return loaded;
+    } });
+    let mountedReview = null;
+    // Model React's component identity boundary: removal/type/key change destroys local hook state.
+    // Unlike the old test, every observer notification rerenders the parent first.
+    function renderSection(result) {
+      harness.query = result;
+      const child = find(ServiceQualifications({ driverId: 87 }), node => node.type === QualificationReview);
+      if (!child || !mountedReview || child.type !== mountedReview.type || child.key !== mountedReview.key) harness.states = [];
+      mountedReview = child;
+    }
+    renderSection(observer.getCurrentResult());
+    const initialKey = mountedReview.key;
+    const unsubscribe = observer.subscribe(renderSection);
+    try {
+      let tree = review(mountedReview.props);
+      field(tree, 'status').props.onChange({ target: { value: 'SUSPENDED' } });
+      field(tree, 'reason').props.onChange({ target: { value: 'Needs review.' } });
+      tree = review(mountedReview.props);
+      apiFetch.mockResolvedValueOnce({ data: { version: 1 } });
+      await form(tree).props.onSubmit({ preventDefault() {} });
+      expect(observer.getCurrentResult()).toMatchObject({ isError: true, isRefetchError: true, data: loaded });
+      expect(mountedReview).not.toBeNull();
+      expect(mountedReview.key).toBe(initialKey);
+      tree = review(mountedReview.props);
+      expect(field(tree, 'status').props.value).toBe('SUSPENDED');
+      expect(field(tree, 'reason').props.value).toBe('Needs review.');
+      expect(field(tree, 'status').props.disabled).toBe(true);
+      expect(renderToStaticMarkup(tree)).toContain('The review was saved');
+      expect(renderToStaticMarkup(ServiceQualifications({ driverId: 87 }))).toContain('last loaded');
+      await form(tree).props.onSubmit({ preventDefault() {} });
+      expect(apiFetch).toHaveBeenCalledTimes(1);
+      failRefresh = false;
+      await observer.refetch({ throwOnError: true });
+      expect(observer.getCurrentResult().isError).toBe(false);
+      expect(mountedReview.key).toBe(initialKey);
+      tree = review(mountedReview.props);
+      expect(field(tree, 'status').props.disabled).toBe(false);
+      expect(field(tree, 'reason').props.value).toBe('Needs review.');
+    } finally {
+      unsubscribe();
+      observer.destroy();
+      client.clear();
+    }
+  });
   it('retains selected status and reason when the server rejects the save', async () => {
     const onSave = vi.fn().mockRejectedValue(new Error('This qualification changed. Reload before reviewing it.'));
     let tree = review({ onSave });

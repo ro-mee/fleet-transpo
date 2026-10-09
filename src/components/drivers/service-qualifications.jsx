@@ -19,7 +19,7 @@ function reviewDate(value) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Manila' }).format(new Date(value));
 }
 
-export function QualificationReview({ qualification, history, canManage, configuredPolicy, onSave }) {
+export function QualificationReview({ qualification, history, canManage, configuredPolicy, reviewDisabled = false, onSave }) {
   const { group, status, version, policy_version, reviewer_name, verified_by, verified_at } = qualification;
   const [nextStatus, setNextStatus] = useState('');
   const [reason, setReason] = useState('');
@@ -29,7 +29,7 @@ export function QualificationReview({ qualification, history, canManage, configu
 
   async function submit(event) {
     event.preventDefault();
-    if (saving || !nextStatus || !reason.trim()) return;
+    if (saving || reviewDisabled || !nextStatus || !reason.trim()) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -62,7 +62,7 @@ export function QualificationReview({ qualification, history, canManage, configu
           {configuredPolicy && <p className="text-sm text-foreground-secondary">Policy for new approval: <span className="break-words font-medium text-foreground">{configuredPolicy}</span></p>}
           <div className="max-w-sm space-y-1.5">
             <Label htmlFor={`${prefix}-status`}>Review action</Label>
-            <select id={`${prefix}-status`} name="status" value={nextStatus} onChange={event => setNextStatus(event.target.value)} required disabled={saving} className={controlClass}>
+            <select id={`${prefix}-status`} name="status" value={nextStatus} onChange={event => setNextStatus(event.target.value)} required disabled={saving || reviewDisabled} className={controlClass}>
               <option value="">Choose an action</option>
               <option value="ACTIVE" disabled={!configuredPolicy}>Approve as Active</option>
               <option value="SUSPENDED">Suspend</option>
@@ -71,10 +71,10 @@ export function QualificationReview({ qualification, history, canManage, configu
           </div>
           <div className="space-y-1.5">
             <Label htmlFor={`${prefix}-reason`}>Reason for review</Label>
-            <textarea id={`${prefix}-reason`} name="reason" value={reason} onChange={event => setReason(event.target.value)} maxLength={2000} required rows={3} disabled={saving} className={controlClass} aria-describedby={`${prefix}-reason-help`} />
+            <textarea id={`${prefix}-reason`} name="reason" value={reason} onChange={event => setReason(event.target.value)} maxLength={2000} required rows={3} disabled={saving || reviewDisabled} className={controlClass} aria-describedby={`${prefix}-reason-help`} />
             <p id={`${prefix}-reason-help`} className="text-xs text-foreground-secondary">Record the checks or circumstances behind this decision. This review does not approve cargo shortages or replace license and safety checks.</p>
           </div>
-          <Button type="submit" disabled={saving || !nextStatus || !reason.trim() || (nextStatus === 'ACTIVE' && !configuredPolicy)}>{saving ? 'Saving and reloading…' : 'Save review'}</Button>
+          <Button type="submit" disabled={saving || reviewDisabled || !nextStatus || !reason.trim() || (nextStatus === 'ACTIVE' && !configuredPolicy)}>{saving ? 'Saving and reloading…' : 'Save review'}</Button>
           {message && <p role={message.error ? 'alert' : 'status'} className="text-sm text-foreground">{message.text}</p>}
         </form>
       )}
@@ -125,13 +125,16 @@ export function ServiceQualifications({ driverId }) {
         <CardDescription>Passenger and cargo approval are reviewed separately. A driver may hold both.</CardDescription>
       </CardHeader>
       <CardContent>
-        {isLoading ? <p role="status" className="text-sm text-foreground-secondary">Loading qualifications…</p>
-          : isError || !data ? <p role="alert" className="text-sm text-foreground-secondary">Qualifications could not be loaded. Reload qualifications to try again.</p>
-            : <div className="divide-y divide-border">{data.groups.map(qualification => (
+        {!data ? (isLoading ? <p role="status" className="text-sm text-foreground-secondary">Loading qualifications…</p>
+          : <p role="alert" className="text-sm text-foreground-secondary">Qualifications could not be loaded. Reload qualifications to try again.</p>)
+          : <div className="space-y-4">
+            {isError && <p role="alert" className="text-sm text-foreground-secondary">Showing the last loaded qualifications. Reload qualifications successfully before reviewing again. Your draft has been kept.</p>}
+            <div className="divide-y divide-border">{data.groups.map(qualification => (
               <QualificationReview key={`${driverId}-${qualification.group}-${qualification.version}`} qualification={qualification}
                 history={data.history.filter(event => event.new_group === qualification.group)} canManage={data.can_manage}
-                configuredPolicy={data.configured_policy_version} onSave={save} />
-            ))}</div>}
+                configuredPolicy={data.configured_policy_version} reviewDisabled={isError} onSave={save} />
+            ))}</div>
+          </div>}
       </CardContent>
     </Card>
   );
