@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DISPATCH_STATUS } from "@/lib/constants";
-import { EVENT_KIND, dispatchToEvent, isPendingReassignment } from "./calendar";
+import {
+  EVENT_KIND,
+  dispatchToEvent,
+  isPendingReassignment,
+  unassignedDispatchClusters,
+} from "./calendar";
 
 function mk(over = {}) {
   return {
@@ -82,5 +87,58 @@ describe("isPendingReassignment", () => {
     expect(isPendingReassignment(ok)).toBe(false);
     expect(isPendingReassignment(null)).toBe(false);
     expect(isPendingReassignment({ kind: EVENT_KIND.LEAVE, status: DISPATCH_STATUS.PENDING_REASSIGNMENT })).toBe(false);
+  });
+});
+
+describe("unassigned dispatch clusters", () => {
+  const day = new Date(2026, 9, 9);
+  const at = (hour) => new Date(2026, 9, 9, hour).toISOString();
+  const dispatch = (id, start, end, over = {}) =>
+    dispatchToEvent(mk({
+      dispatch_id: id,
+      dispatch_number: `DSP-${id}`,
+      scheduled_departure: at(start),
+      scheduled_arrival: at(end),
+      ...over,
+    }));
+
+  it("clusters identical and partially overlapping unassigned trips while preserving separate trips", () => {
+    const events = [
+      dispatch(1, 8, 10, { driver_id: null, vehicle_id: 3 }),
+      dispatch(2, 8, 10, { driver_id: null, vehicle_id: 4 }),
+      dispatch(3, 9, 11, { driver_id: null, vehicle_id: 5 }),
+      dispatch(4, 12, 13, { driver_id: null, vehicle_id: 6 }),
+      dispatch(5, 8, 10, { driver_id: 7, vehicle_id: 8 }),
+      {
+        id: "maintenance-1",
+        kind: EVENT_KIND.MAINTENANCE,
+        start: new Date(2026, 9, 9, 8),
+        end: new Date(2026, 9, 9, 10),
+        driverId: null,
+      },
+    ];
+
+    const clusters = unassignedDispatchClusters(events, day, "driver");
+
+    expect(clusters).toHaveLength(2);
+    expect(clusters[0].isCluster).toBe(true);
+    expect(clusters[0].events.map((event) => event.dispatchId)).toEqual([1, 2, 3]);
+    expect(clusters[0].count + clusters[1].count).toBe(4);
+    expect(clusters[1].isCluster).toBe(false);
+    expect(clusters[1].primaryEvent.dispatchId).toBe(4);
+  });
+
+  it("filters by the missing lane resource", () => {
+    const events = [
+      dispatch(1, 8, 9, { driver_id: null, vehicle_id: 3 }),
+      dispatch(2, 8, 9, { driver_id: 7, vehicle_id: null }),
+      dispatch(3, 8, 9, { driver_id: null, vehicle_id: null }),
+    ];
+
+    const missingDrivers = unassignedDispatchClusters(events, day, "driver");
+    const missingVehicles = unassignedDispatchClusters(events, day, "vehicle");
+
+    expect(missingDrivers[0].events.map((event) => event.dispatchId)).toEqual([1, 3]);
+    expect(missingVehicles[0].events.map((event) => event.dispatchId)).toEqual([2, 3]);
   });
 });

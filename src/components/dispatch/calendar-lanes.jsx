@@ -7,7 +7,7 @@ import { CalendarEvent } from "@/components/dispatch/calendar-event";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useRoleAccess } from "@/hooks/use-role-access";
-import { dayPosition, onDay, packColumns } from "@/lib/scheduling/calendar";
+import { dayPosition, onDay, packColumns, unassignedDispatchClusters } from "@/lib/scheduling/calendar";
 import { cn } from "@/lib/utils";
 import { CarFront, Clock, Search, Users, X } from "lucide-react";
 
@@ -243,10 +243,11 @@ export function LaneGrid({
     return list;
   }, [resources, filterQuery, sortBy, byResource]);
 
-  const unassigned = useMemo(
-    () => dayEvents.filter((e) => (isVehicle ? e.vehicleId : e.driverId) == null),
-    [dayEvents, isVehicle]
+  const unassignedClusters = useMemo(
+    () => unassignedDispatchClusters(dayEvents, day, isVehicle ? "vehicle" : "driver"),
+    [dayEvents, day, isVehicle]
   );
+  const unassignedCount = unassignedClusters.reduce((count, cluster) => count + cluster.count, 0);
 
   if (resources.length === 0) {
     return (
@@ -355,7 +356,7 @@ export function LaneGrid({
               </div>
             </div>
 
-            {unassigned.length > 0 && (
+            {unassignedClusters.length > 0 && (
               <div className="flex border-b border-warning/30 bg-warning/[0.035]">
                 <div
                   className="sticky left-0 z-20 flex shrink-0 items-center gap-3 border-r border-warning/25 bg-warning/[0.04] px-4 py-2"
@@ -366,17 +367,20 @@ export function LaneGrid({
                   </span>
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-foreground">Unassigned trips</p>
-                    <p className="text-[10px] text-warning">{unassigned.length} need a {isVehicle ? "vehicle" : "driver"}</p>
+                    <p className="text-[10px] text-warning">{unassignedCount} need a {isVehicle ? "vehicle" : "driver"}</p>
                   </div>
                 </div>
                 <div className="relative h-14 min-w-0 flex-1">
-                  {unassigned.map((event) => {
+                  {unassignedClusters.map((event) => {
                     const { leftPct, widthPct } = laneSpan(event, day);
+                    const clusterConflicts = event.events.flatMap(
+                      (item) => conflicts.get(item.id) || []
+                    );
                     return (
                       <CalendarEvent
                         key={event.id}
                         event={event}
-                        conflicts={conflicts.get(event.id) || []}
+                        conflicts={clusterConflicts}
                         compact
                         className="absolute z-10"
                         onSelect={onSelectEvent}
