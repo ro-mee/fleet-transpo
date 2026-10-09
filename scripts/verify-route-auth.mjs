@@ -32,6 +32,10 @@ const PUBLIC_METHOD_ALLOWLIST = new Set([
   // src/app/api/health/route.js. Adding any other method or logic here
   // requires an intentional review.
   "GET health/route.js",
+  // Deny-all development boundary: always503, no body/DB/config reads. The
+  // route test locks down that refusal. Remove this exception and require
+  // machine-only source authorization before wiring approved runtime intake.
+  "POST integration/cargo/manifests/route.js",
   // Next.js returns 405 for these unused method slots; they never read data.
   "GET dispatch/[id]/cancel/route.js",
   "GET trips/[id]/cancel/route.js",

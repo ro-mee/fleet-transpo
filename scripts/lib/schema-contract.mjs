@@ -516,7 +516,13 @@ export const tableNames = () => Object.keys(TABLES).sort();
 // Reviewed PREPARED objects are deliberately separate from the applied dump.
 // The offline gate verifies each exact migration; the live gate still demands
 // these objects exist with the declared protection before release.
-export const PENDING_TABLES = Object.freeze({});
+export const PENDING_TABLES = Object.freeze({
+  request_cargo_manifest_revisions: {
+    classification: CLASSIFICATION.PRIVATE,
+    migration: '158_request_cargo_manifest_revisions.sql',
+    reason: 'Candidate unapplied immutable source cargo manifests; source-scoped server access only. D01-D10 approvals and activation remain held.',
+  },
+});
 export const contractTableNames = () => [...tableNames(), ...Object.keys(PENDING_TABLES)].sort();
 
 /** Every classified view name, sorted. */

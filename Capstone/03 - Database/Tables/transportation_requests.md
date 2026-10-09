@@ -105,3 +105,17 @@ Migration 145 preflights historical `passenger_count IS NULL OR passenger_count 
 ## Related
 
 [[Reservations]] · [[Request Lifecycle]] · [[Database Overview]] · [[ERD]] · [[System Boundaries]]
+
+## Disabled cargo manifest contracts — Task 4, 2026-10-09
+
+The application now has strict item-manifest and receipt input contracts, exact decimal-string quantity comparison, and a request-manifest ingest service. Package counts must be integers; approved unit-level contracts may use up to three decimal places. Receipts cannot supply expected quantities or alternate units, and must name every line in the exact manifest revision/hash. Source image references are not enabled for ingestion pending ownership/privacy rules.
+
+REQUEST intake requires a trusted server mapping of the exact source system and external request ID to an organization. It never derives that owner from the posted body or the first manifest. The service locks the request, checks Cargo/service agreement, and stores an immutable canonical manifest hash with source-scoped event identity. Exact replay returns the original manifest reference; changed events/revisions return409. All revisions and first attachments to dispatched requests are conservatively refused until custody checks and transactional rescheduling/reference invalidation exist.
+
+Candidate `158_request_cargo_manifest_revisions.sql` is **unapplied**. It defines the private append-only table, request/source/service identity guard, RLS, and explicit PUBLIC/anon/authenticated privilege revokes. It is registered in `PENDING_TABLES`, not the applied schema list. Fresh ledger checks showed156 applied and candidate158 pending, with157 already spent in the ledger. **Do not run `db:up` while this candidate awaits owner/data/privacy approval: the runner applies every pending migration.** `schema.sql` was not edited or refreshed.
+
+The installed `/api/integration/cargo/manifests` POST always returns503 `CARGO_CONFIGURATION_REQUIRED`, without reading bodies or accessing the database. No credential scopes, approvals, operational fixture values, source sending, evidence writes or supply assignment were activated. Existing request v1/v2 and staff injector behavior remain intact. These contracts do not enable source request update/cancel handling.
+
+Verification: focused8files/57tests passed, including7 real PostgreSQL tests in a unique isolated schema rolled back at completion. Those tests cover migration rerun, RLS/grants, immutable rows/source identity, malformed snapshot rejection, replay conflicts, trusted ownership, dispatched-work refusal and exact supply allocation reads. This is fixture evidence, **not live public-schema security confirmation**. Route authorization audit passed324/324; offline migration check passed157files. D01–D10 approvals remain absent.
+
+Recovery verification (2026-10-10): all 57 selected tests have fresh passing results across a 56-pass run and a 13-test schema-suite follow-up after a five-second scan timeout. All seven isolated PostgreSQL rollback fixtures passed. Scoped ESLint, authorization 324/324, migration naming and whitespace checks passed. Candidate 158 remains the only pending file; no application or schema activation occurred.

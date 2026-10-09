@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { requirePermission, resolveIdentity, ok, err, handleError } from "@/lib/api/utils";
-import { safeEqual } from "@/lib/api/service-auth";
+import { authorizeRequestSource } from "@/lib/integration/source-auth";
 import { normalizeInboundEnvelope } from "@/lib/integration/source-contract";
 import { ingestRequest } from "@/lib/integration/ingest";
 import { detectConflictsForRequests } from "@/lib/scheduling/conflicts";
@@ -26,25 +26,14 @@ import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-proven
 // ============================================================================
 
 async function authorize(req) {
-  // 1) Service token (machine-to-machine).
-  const header = req.headers.get("authorization") || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  if (process.env.BOOKING_WEBHOOK_SECRET && process.env.POS_WEBHOOK_SECRET &&
-      safeEqual(process.env.BOOKING_WEBHOOK_SECRET, process.env.POS_WEBHOOK_SECRET)) return null;
-  for (const [source, secret] of [["PMS", process.env.BOOKING_WEBHOOK_SECRET], ["POS", process.env.POS_WEBHOOK_SECRET]]) {
-    if (secret && token && safeEqual(token, secret)) {
-      return { actor: "service", session: null, source };
-    }
-  }
-  // Never fall back to a browser session when a caller presented an invalid token.
-  if (header) return null;
-  // 2) Fall back to a logged-in Fleet user (dev injector / manual replay).
+  return authorizeRequestSource(req, { staffFallback: async () => {
   const session = await resolveIdentity(req).catch(() => null);
   const role = session?.user?.role;
   if (session?.user && rolesFor("reservations", "create").includes(role)) {
     return { actor: "user", session, source: "PMS" };
   }
   return null;
+  } });
 }
 
 // GET — list the Fleet Reservation Queue (for the queue UI). Session-only.

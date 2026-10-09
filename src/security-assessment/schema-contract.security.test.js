@@ -122,7 +122,7 @@ const migrationFiles = readdirSync(MIGRATIONS_DIR)
 
 describe("SEC-DB-005 the schema contract is well-formed", () => {
   it("allows prepared SQL only for exact reviewed migration-backed private tables", () => {
-    expect(Object.keys(PENDING_TABLES)).toEqual([]);
+    expect(Object.keys(PENDING_TABLES)).toEqual(['request_cargo_manifest_revisions']);
     expect(TABLES.fuel_price_snapshots.classification).toBe(CLASSIFICATION.PRIVATE);
     expect(schemaTables().has("fuel_price_snapshots")).toBe(true);
     for (const [name, entry] of Object.entries(PENDING_TABLES)) {
@@ -131,7 +131,7 @@ describe("SEC-DB-005 the schema contract is well-formed", () => {
       const sql = readFileSync(join(MIGRATIONS_DIR, entry.migration), "utf8");
       expect(sql).toMatch(new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${name}\\s*\\(`, "i"));
       expect(sql).toMatch(new RegExp(`ALTER TABLE public\\.${name} ENABLE ROW LEVEL SECURITY`, "i"));
-      expect(sql).toMatch(new RegExp(`REVOKE ALL PRIVILEGES ON public\\.${name} FROM anon, authenticated`, "i"));
+      expect(sql).toMatch(new RegExp(`REVOKE ALL PRIVILEGES ON (?:TABLE )?public\\.${name} FROM (?:PUBLIC, )?anon, authenticated`, "i"));
       expect(TABLES[name]).toBeUndefined();
     }
   });
