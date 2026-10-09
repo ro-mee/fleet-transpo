@@ -6,7 +6,7 @@ source:
   - src/app/(dashboard)/fleet/assignments/page.js
   - src/app/api/driver-assignments
   - src/app/api/substitute-driver-schedules
-last_verified: 2026-10-02
+last_verified: 2026-10-09
 related: ["[[Driver Management]]", "[[Fleet And Vehicles]]", "[[Dispatch]]"]
 ---
 
@@ -87,3 +87,7 @@ Fleet custody coverage counts distinct vehicles with an open-ended assignment, i
 ## Release and substitute removal reconsideration - 2026-10-09
 
 Assignment release/custody and substitute-schedule removal confirmations in both the assignments page and driver cards now use the shared five-second pre-request Undo window. A release still closes the pairing while leaving scheduled trips unaffected; substitute removal still removes recommendation coverage only. Undo or dismissing the confirmation sends no mutation. Changed-file ESLint passed; these actions were not exercised in the browser, and the production build remains pending because of the shared Next build lock.
+
+## Assignment table text overflow fix - 2026-10-09
+
+Eligibility warnings now wrap inside a bounded License Eligibility column in both the active custodial pairings and substitute schedules tables. This keeps long warnings out of Notes and the Release action despite the shared DataTable no-wrap default. Both tables use the existing sticky-first-column behavior so driver identity remains visible during horizontal scrolling. Notes remain truncated with their full text title. Eligibility evaluation, copy, permissions, APIs, and assignment data are unchanged. The local active-pairings table was browser-checked with long multi-reason rows; the text wraps without covering Notes. Changed-file ESLint and diff checks passed. The substitute table currently has no rows, so its populated rendering was not browser-verified.
