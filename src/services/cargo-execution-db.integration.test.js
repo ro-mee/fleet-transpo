@@ -178,4 +178,18 @@ describe.skipIf(!enabled)('cargo storage candidate, isolated real PostgreSQL nam
     expect(await run(tx => appendCargoFeedback({ execution: current, eventType: 'PICKUP_RECORDED', receipt: latest }, tx))).toBe(event);
     await expect(run(tx => appendCargoFeedback({ execution: current, eventType: 'PICKUP_RECORDED', receipt: { ...latest, payload: { ...latest.payload, observed_at: '2026-10-09T10:00:00Z' } } }, tx))).rejects.toMatchObject({ status: 409 });
   });
+  it('replays a persisted event after execution advances but rejects changed and stale new events', async () => {
+    const first = await run(tx => insertReceipt(receipt(), actor, tx));
+    const snapshot = await run(tx => loadExecutionForUpdate(1, tx));
+    const original = { execution: snapshot, eventType: 'PICKUP_RECORDED', receipt: first };
+    const eventId = await run(tx => appendCargoFeedback(original, tx));
+    await run(tx => insertReceipt(receipt(), actor, tx));
+    expect((await run(tx => loadExecutionForUpdate(1, tx))).version).toBeGreaterThan(snapshot.version);
+    expect(await run(tx => appendCargoFeedback(original, tx))).toBe(eventId);
+    await expect(run(tx => appendCargoFeedback({ ...original, receipt: { ...first, payload: { ...first.payload, observed_at: '2026-10-09T10:00:00Z' } } }, tx))).rejects.toMatchObject({ status: 409 });
+    await expect(run(tx => appendCargoFeedback({ execution: snapshot, eventType: 'TRANSPORT_CLOSED' }, tx))).rejects.toMatchObject({ status: 409 });
+    const foreign = { ...snapshot, manifest: { ...snapshot.manifest, source_ref: { ...snapshot.manifest.source_ref, organization_id: 'foreign' } } };
+    await expect(run(tx => appendCargoFeedback({ ...original, execution: foreign }, tx))).rejects.toMatchObject({ status: 409 });
+    expect((await run(tx => tx.query('SELECT event_id FROM cargo_feedback_outbox WHERE execution_id=$1 AND execution_version=$2 AND event_type=$3', [snapshot.execution_id, snapshot.version, 'PICKUP_RECORDED']))).rows).toEqual([{ event_id: eventId }]);
+  });
 });

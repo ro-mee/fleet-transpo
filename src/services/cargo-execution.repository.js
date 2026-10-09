@@ -121,7 +121,7 @@ export async function appendCargoFeedback({ execution, eventType, receipt = null
     receipt: receipt ? { receipt_id: receipt.receipt_id, payload: receipt.payload } : null,
     decision: decision ? { decision_id: decision.decision_id, payload: decision.payload } : null });
   const bound = (await tx.query('SELECT * FROM cargo_trip_executions WHERE execution_id=$1 FOR UPDATE', [execution.execution_id])).rows[0];
-  if (!bound || bound.version !== execution.version || cargoPayloadHash(bound.manifest) !== cargoPayloadHash(execution.manifest)) fail('CARGO_EVENT_CONFLICT', 'Event does not match the locked execution.');
+  if (!bound || cargoPayloadHash(bound.manifest) !== cargoPayloadHash(execution.manifest)) fail('CARGO_EVENT_CONFLICT', 'Event does not match the locked execution.');
   // Never accept an otherwise well-formed foreign or invented receipt/decision object.
   if (receipt) {
     const stored = (await tx.query('SELECT payload FROM cargo_receipts WHERE receipt_id=$1 AND execution_id=$2', [receipt.receipt_id, execution.execution_id])).rows[0];
@@ -138,6 +138,10 @@ export async function appendCargoFeedback({ execution, eventType, receipt = null
     if (replay.payload_hash !== hash) fail('CARGO_REPLAY_CONFLICT', 'Event has different content.');
     return replay.event_id;
   }
+  // Existing immutable events remain replayable after later receipts/decisions.
+  // Only creation needs the current version; all source/record checks above
+  // still apply before returning a historical event's stable identity.
+  if (bound.version !== execution.version) fail('CARGO_EVENT_CONFLICT', 'New event does not match the current execution version.');
   return (await tx.query(`INSERT INTO cargo_feedback_outbox(execution_id,execution_version,source_system,source_organization_id,event_type,receipt_id,decision_id,payload,payload_hash)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING event_id`, [execution.execution_id, execution.version, payload.source_ref.system, payload.source_ref.organization_id, eventType, receipt?.receipt_id || null, decision?.decision_id || null, JSON.stringify(payload), hash])).rows[0].event_id;
 }
