@@ -1,6 +1,17 @@
 import { it, expect, vi } from 'vitest';
 import { ingestRequestManifest, resolveTripManifest, adaptSupplyManifest, assertCargoConfiguration } from './cargo-manifest.service';
 const hash = 'a'.repeat(64);
+it.each(['bad', '-1', '0', '1.5'])('returns the invalid-manifest 400 before opening a transaction for quantity %s', async expected_quantity => {
+  const principal = { system: 'PMS', organization_id: 'simulated:hotel', capabilities: ['cargo:manifest:write'] };
+  const db = { withTransaction: vi.fn(), cargoConfig: { dataApprovalRef: 'simulated:data', privacyApprovalRef: 'simulated:privacy', schemaReady: true, simulated: true, environment: 'test' } };
+  const input = { event_id: 'simulated:event', revision: 1, manifest: {
+    source_ref: { system: 'PMS', organization_id: 'simulated:hotel', external_request_id: 'r1' },
+    service_code: 'HOTEL_SUPPLY_TRANSFER',
+    lines: [{ line_id: 'oil', name: 'Oil', quantity_basis: 'TRANSPORT_PACKAGE', expected_quantity, unit: 'box', reference_image_ref: null, handling: [] }],
+  } };
+  await expect(ingestRequestManifest(input, principal, db)).rejects.toMatchObject({ code: 'CARGO_INVALID_MANIFEST', status: 400 });
+  expect(db.withTransaction).not.toHaveBeenCalled();
+});
 it('refuses writes before querying when approval or schema configuration is absent', async () => {
   const db = { query: vi.fn(), withTransaction: vi.fn() };
   await expect(ingestRequestManifest({}, {}, db)).rejects.toMatchObject({ code: 'CARGO_CONFIGURATION_REQUIRED', status: 503 });

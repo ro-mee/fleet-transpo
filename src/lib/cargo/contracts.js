@@ -14,7 +14,10 @@ const lineSchema = z.object({
   expected_quantity: quantity, unit: text(32), reference_image_ref: uuid.nullable(),
   handling: z.array(z.enum(['FRAGILE', 'NO_STACK', 'FOOD_SEPARATION', 'SECURE_LOAD', 'SPILL_CONTAINMENT'])).max(5),
 }).strict().superRefine((line, ctx) => {
-  if (compareQuantities(line.expected_quantity, '0') <= 0 || (line.quantity_basis === 'TRANSPORT_PACKAGE' && line.expected_quantity.includes('.'))) {
+  // Zod may run this refinement after the field already reported an issue.
+  const expected = quantity.safeParse(line.expected_quantity);
+  if (!expected.success) return;
+  if (compareQuantities(expected.data, '0') <= 0 || (line.quantity_basis === 'TRANSPORT_PACKAGE' && expected.data.includes('.'))) {
     ctx.addIssue({ code: 'custom', message: 'Expected quantity must be positive; package counts must be integers.' });
   }
 });

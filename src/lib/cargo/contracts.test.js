@@ -11,6 +11,11 @@ it('accepts cargo and rejects passenger service and unknown fields', () => {
   expect(manifestSchema.safeParse({ ...manifest(), service_code: 'GUEST_TRANSPORT' }).success).toBe(false);
   expect(manifestSchema.safeParse({ ...manifest(), load_type: 'Passenger' }).success).toBe(false);
 });
+it.each(['bad', '-1', 'NaN', 'Infinity', '1.0001', '0', '1.5'])('returns a validation failure for invalid expected quantity %s', expected_quantity => {
+  const input = manifest();
+  input.lines[0].expected_quantity = expected_quantity;
+  expect(manifestSchema.safeParse(input).success).toBe(false);
+});
 it('rejects duplicate, empty, oversized, zero and fractional-package manifests', () => {
   for (const lines of [[], Array(501).fill(manifest().lines[0]), Array(2).fill(manifest().lines[0]), [{ ...manifest().lines[0], expected_quantity: '0' }], [{ ...manifest().lines[0], expected_quantity: '1.1' }]]) {
     expect(manifestSchema.safeParse({ ...manifest(), lines }).success).toBe(false);
