@@ -38,9 +38,14 @@ export async function readDispatchRevision({ driverId, vehicleId, requestId = nu
 export async function commitDispatchEvidence(token, write) {
   if (!token?.revision) throw new AuthError('Refresh the dispatch evidence before assigning.',409,'EVIDENCE_REQUIRED');
   return withTransaction(async tx => {
-    // Parent-first matches the reviewer and also protects missing approvals.
-    if (qualificationRollout().mode === 'ENFORCE' && token.driverId)
+    // Take the driver's existing fleet table lock before its row lock. Ordinary
+    // UPDATE writers acquire RowExclusive first; upgrading after locking a row
+    // can deadlock with an update waiting on that row. Reviewer RowShare locks
+    // are compatible, and the parent still protects missing approvals.
+    if (qualificationRollout().mode === 'ENFORCE' && token.driverId) {
+      await tx.query('LOCK TABLE drivers IN SHARE ROW EXCLUSIVE MODE');
       await tx.query('SELECT driver_id FROM drivers WHERE driver_id=$1 AND deleted_at IS NULL FOR UPDATE', [token.driverId]);
+    }
     // ponytail: brief fleet-wide write lock for this small fleet; replace with ordered
     // per-resource locks if assignment contention becomes measurable. No provider I/O here.
     await tx.query(`LOCK TABLE drivers,vehicles,vehiclecategories,dispatchschedules,driver_vehicle_assignments,

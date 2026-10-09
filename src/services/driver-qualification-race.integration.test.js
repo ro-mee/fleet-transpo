@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { loadEnvLocal } from '../../scripts/load-env.mjs';
-const routing = vi.hoisted(() => ({ storage: null, schema: null, pids: {} }));
+const routing = vi.hoisted(() => ({ storage: null, schema: null, pids: {}, parentGate: null }));
 vi.mock('@/lib/db', async original => ({
   ...await original(),
   query: (sql, values) => routing.storage.getStore().client.query(sql, values),
@@ -14,7 +14,15 @@ vi.mock('@/lib/db', async original => ({
     await client.query('SET LOCAL statement_timeout=15000');
     routing.pids[label] = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
     try {
-      const result = await write(client);
+      const tx = { query: async (sql, values) => {
+        const result = await client.query(sql, values);
+        if (label === 'dispatch' && routing.parentGate && sql.startsWith('SELECT driver_id FROM drivers')) {
+          const gate = routing.parentGate; routing.parentGate = null;
+          gate.entered(); await gate.release;
+        }
+        return result;
+      } };
+      const result = await write(tx);
       await client.query(outer ? 'RELEASE SAVEPOINT boundary_write' : 'COMMIT');
       return result;
     } catch (error) {
@@ -126,5 +134,34 @@ describe.skipIf(process.env.FLEETOPS_REVIEW_DB_TEST !== '1')('two PostgreSQL ses
     await assigned; expect((await revoked).error).toBeUndefined();
     expect((await dispatch.query(`SELECT * FROM ${schema}.race_commits`)).rows).toEqual([{ id: 2 }]);
     expect((await dispatch.query(`SELECT status FROM ${schema}.driver_service_qualifications`)).rows[0].status).toBe('REVOKED');
+  }, 30000);
+  it('serializes an ordinary driver UPDATE without a table-row upgrade deadlock', async () => {
+    await run(reviewer, () => review('ACTIVE'));
+    const preview = await token();
+    let entered, release;
+    const parentLocked = new Promise(resolve => { entered = resolve; });
+    const gate = new Promise(resolve => { release = resolve; });
+    routing.parentGate = { entered, release: gate };
+    const assigned = run(dispatch, () => commitDispatchEvidence(preview, tx => tx.query('INSERT INTO race_commits VALUES(3)')))
+      .then(() => null, error => error);
+    await parentLocked;
+    await reviewer.query('BEGIN');
+    await reviewer.query(`SET LOCAL search_path=${schema},pg_catalog`);
+    await reviewer.query('SET LOCAL statement_timeout=15000');
+    const pid = (await reviewer.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const updated = reviewer.query("UPDATE drivers SET driver_status='On Trip' WHERE driver_id=7")
+      .then(async () => { await reviewer.query('COMMIT'); return null; }, async error => { await reviewer.query('ROLLBACK'); return error; });
+    let waiting = false;
+    try {
+      for (let attempt = 0; attempt < 100 && !waiting; attempt++) {
+        waiting = (await dispatch.query('SELECT cardinality(pg_blocking_pids($1))>0 AS waiting', [pid])).rows[0].waiting;
+        if (!waiting) await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(waiting).toBe(true);
+    } finally { release(); }
+    const results = await Promise.all([assigned, updated]);
+    expect(results.map(error => error?.code ?? null)).toEqual([null, null]);
+    expect((await dispatch.query(`SELECT driver_status FROM ${schema}.drivers WHERE driver_id=7`)).rows[0].driver_status).toBe('On Trip');
+    expect((await dispatch.query(`SELECT id FROM ${schema}.race_commits WHERE id=3`)).rows).toEqual([{ id: 3 }]);
   }, 30000);
 });

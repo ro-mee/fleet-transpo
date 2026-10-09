@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { query } from "@/lib/db";
 
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
@@ -26,6 +26,7 @@ vi.mock("@/services/dispatch-evidence.service", () => ({ readDispatchRevision:vi
 
 import { validatePairAvailability } from "@/services/recommendation.service";
 import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
+import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { POST } from "./route";
 import { PUT } from "./[id]/route";
 
@@ -40,6 +41,7 @@ const request = (body) => new Request("http://localhost/api/dispatch", {
 });
 const create = (body) => POST(request({ request_id: 3, vehicle_id: 2, driver_id: 7, scheduled_departure: departure.toISOString(), ...body }));
 const edit = (body) => PUT(request(body), { params: Promise.resolve({ id: "10" }) });
+afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -67,6 +69,37 @@ beforeEach(async () => {
 });
 
 describe("dispatch window boundary", () => {
+  it('pins reassignment to the persisted passenger request despite a caller-supplied cargo request', async () => {
+    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'ENFORCE'); vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION', 'fixture-v1');
+    vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW', 'fixture-review'); vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS', 'RECHECK');
+    const original = query.getMockImplementation();
+    query.mockImplementation(async (sql, values) => {
+      if (sql.includes('driver_service_qualifications')) return { rows: [{ driver_id: 7, group: 'CARGO', status: 'ACTIVE', verified_by: 8,
+        verified_at: '2026-10-09T00:00:00Z', policy_version: 'fixture-v1', version: 1 }] };
+      if (sql.includes('FROM transportation_requests')) {
+        const result = await original(sql, values);
+        return { rows: result.rows.map(row => ({ ...row, request_id: Number(values[0]), service_code: Number(values[0]) === 99 ? 'HOTEL_SUPPLY_TRANSFER' : 'GUEST_TRANSPORT' })) };
+      }
+      return original(sql, values);
+    });
+    const response = await edit({ driver_id: 7, request_id: 99 });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/Passenger.*approval/);
+    expect(validatePairAvailability).toHaveBeenCalledWith(expect.objectContaining({ request: expect.objectContaining({ request_id: 3 }) }));
+    expect(commitDispatchEvidence).not.toHaveBeenCalled();
+    expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE dispatchschedules'))).toBe(false);
+  });
+  it('keeps the final token and saved dispatch on its stored cargo request despite an extraneous request ID', async () => {
+    validatePairAvailability.mockImplementation(async ({ request: candidate }) => ({ ok: true,
+      commitToken: { requestId: candidate.request_id, driverId: 7, vehicleId: 2, revision: 'fixture' } }));
+    const response = await edit({ driver_id: 7, request_id: 99, service_code: 'GUEST_TRANSPORT' });
+    expect(response.status).toBe(200);
+    expect((await response.json()).request_id).toBe(3);
+    expect(commitDispatchEvidence).toHaveBeenCalledWith(expect.objectContaining({ requestId: 3 }), expect.any(Function));
+    expect(validatePairAvailability.mock.calls[0][0].request.service_code).toBeUndefined();
+    const write = query.mock.calls.find(([sql]) => sql.startsWith('UPDATE dispatchschedules'));
+    expect(write[0]).not.toMatch(/SET request_id|, request_id/);
+  });
   it.each([departure.toISOString(),new Date(+departure-60000).toISOString()])("rejects create arrival %s before evaluating a pair", async (arrival) => {
     expect((await create({ scheduled_arrival: arrival })).status).toBe(400);
     expect(validatePairAvailability).not.toHaveBeenCalled();

@@ -233,7 +233,9 @@ export async function PUT(req, { params }) {
     let dispatchEvidence;
     if (effVehicleId || effDriverId) {
       const pairCheck = await validatePairAvailability({
-        request: { ...before[0], ...body, dispatch_id: Number(id), pickup_datetime: effDeparture ?? null, scheduled_arrival: effArrival, fleet_status: "Pending" },
+        request: { ...before[0], ...Object.fromEntries(columns.map((column, index) => [column, values[index]])),
+          request_id: before[0]?.request_id ?? null, dispatch_id: Number(id), pickup_datetime: effDeparture ?? null,
+          scheduled_arrival: effArrival, fleet_status: "Pending" },
         vehicleId: effVehicleId,
         driverId: effDriverId,
         allowReview: typeof body.override_reason === "string" && body.override_reason.trim().length > 0,
