@@ -1,8 +1,8 @@
 // Shared browser/server policy. Personal document data never belongs in the
 // public vehicle-images bucket. Server validation also checks the actual bytes.
 export const DOCUMENT_KINDS = Object.freeze({
-  license_front: { resource: "drivers", bucket: "driver-licenses", label: "Front License", maxBytes: 5 * 1024 * 1024, accept: "image/jpeg,image/png", formats: "JPG or PNG · up to 5MB" },
-  license_back: { resource: "drivers", bucket: "driver-licenses", label: "Back License", maxBytes: 5 * 1024 * 1024, accept: "image/jpeg,image/png", formats: "JPG or PNG · up to 5MB" },
+  license_front: { resource: "drivers", bucket: "driver-licenses", label: "Front License", maxBytes: 10 * 1024 * 1024, accept: "image/jpeg,image/png", formats: "JPG or PNG · up to 10MB" },
+  license_back: { resource: "drivers", bucket: "driver-licenses", label: "Back License", maxBytes: 10 * 1024 * 1024, accept: "image/jpeg,image/png", formats: "JPG or PNG · up to 10MB" },
   OR_CR: { resource: "vehicles", bucket: "vehicle-documents", label: "OR/CR", maxBytes: 10 * 1024 * 1024, accept: "image/jpeg,image/png,application/pdf", formats: "JPG, PNG or PDF · up to 10MB" },
   Insurance: { resource: "vehicles", bucket: "vehicle-documents", label: "Insurance", maxBytes: 10 * 1024 * 1024, accept: "image/jpeg,image/png,application/pdf", formats: "JPG, PNG or PDF · up to 10MB" },
 });

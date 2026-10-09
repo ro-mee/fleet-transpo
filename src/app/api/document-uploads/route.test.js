@@ -7,10 +7,11 @@ vi.mock("@/lib/uploads/document-storage", () => ({ uploadResponse: mocks.respons
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.limit }));
 import { POST } from "./route";
 const id = "b31b58a1-cb15-4a1a-9cd0-013273ed42cc";
-function request({ kind = "OR_CR", bytes = [37, 80, 68, 70, 45, 49], type = "application/pdf", extraFile = false } = {}) {
+function request({ kind = "OR_CR", bytes = [37, 80, 68, 70, 45, 49], type = "application/pdf", extraFile = false, targetId, filename = "test.pdf" } = {}) {
   const form = new FormData();
   form.append("kind", kind); form.append("upload_id", id);
-  form.append("file", new Blob([new Uint8Array(bytes)], { type }), "test.pdf");
+  if (targetId) form.append("target_id", String(targetId));
+  form.append("file", new Blob([new Uint8Array(bytes)], { type }), filename);
   if (extraFile) form.append("file", new Blob(["other"]), "other.txt");
   return new Request("https://fleet.test/api/document-uploads", { method: "POST", body: form });
 }
@@ -29,6 +30,25 @@ describe("document upload route", () => {
     expect(mocks.permission).toHaveBeenCalledWith(expect.anything(), "vehicles", "create");
     expect(mocks.upload).toHaveBeenCalledWith(`drafts/8/${id}.pdf`, expect.any(Uint8Array), { contentType: "application/pdf", upsert: false });
     expect((await res.json()).state).toBe("ready");
+  });
+  it.each([
+    { kind: "license_front", type: "image/jpeg", signature: [255, 216, 255], filename: "front.jpg" },
+    { kind: "license_back", type: "image/png", signature: [137, 80, 78, 71, 13, 10, 26, 10], filename: "back.png", targetId: 90 },
+  ])("accepts a 10MB $kind scan including multipart overhead", async ({ signature, ...options }) => {
+    const bytes = new Uint8Array(10 * 1024 * 1024);
+    bytes.set(signature);
+    const res = await POST(request({ ...options, bytes }));
+    expect(res.status).toBe(201);
+    expect(mocks.permission).toHaveBeenCalledWith(expect.anything(), "drivers", options.targetId ? "update" : "create");
+    expect(mocks.upload.mock.calls[0][1].byteLength).toBe(bytes.byteLength);
+  });
+  it.each(["license_front", "license_back"])("rejects a %s scan one byte above 10MB before storage", async kind => {
+    const bytes = new Uint8Array(10 * 1024 * 1024 + 1);
+    bytes.set([255, 216, 255]);
+    const res = await POST(request({ kind, bytes, type: "image/jpeg", filename: "license.jpg" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/10MB/);
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
   it("does not touch storage when permission is denied", async () => {
     const { AuthError } = await import("@/lib/api/utils");

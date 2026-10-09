@@ -2,10 +2,13 @@ import { describe, it, expect } from "vitest";
 import { validateDocumentFile, isPdfDocument } from "./document-policy";
 
 describe("document upload policy", () => {
-  it("keeps create and edit license scans at 5MB and JPG/PNG", () => {
+  it("accepts create and edit license scans above 5MB through 10MB in JPG/PNG", () => {
     for (const kind of ["license_front", "license_back"]) {
-      expect(validateDocumentFile({ type: "image/jpeg", size: 5 * 1024 * 1024 }, kind).error).toBeUndefined();
-      expect(validateDocumentFile({ type: "image/jpeg", size: 5 * 1024 * 1024 + 1 }, kind).error).toMatch(/5MB/);
+      for (const type of ["image/jpeg", "image/png"]) {
+        expect(validateDocumentFile({ type, size: 5 * 1024 * 1024 + 1 }, kind).error).toBeUndefined();
+        expect(validateDocumentFile({ type, size: 10 * 1024 * 1024 }, kind).error).toBeUndefined();
+        expect(validateDocumentFile({ type, size: 10 * 1024 * 1024 + 1 }, kind).error).toMatch(/10MB/);
+      }
       expect(validateDocumentFile({ type: "image/webp", size: 10 }, kind).error).toBeTruthy();
       expect(validateDocumentFile({ type: "application/pdf", size: 10 }, kind).error).toBeTruthy();
     }
