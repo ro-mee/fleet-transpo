@@ -15,7 +15,9 @@ source:
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-10-03
+  - src/services/driver-qualification.service.js
+  - src/components/drivers/service-qualifications.jsx
+last_verified: 2026-10-09
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -27,9 +29,21 @@ Migration 156 adds explicit PASSENGER and CARGO reviews. PASSENGER covers Guest 
 
 The internal qualification service requires the dedicated `driver_qualifications/manage` staff permission, a review reason and authenticated employee identity. ACTIVE approval requires an exact match to configured `DRIVER_QUALIFICATION_POLICY_VERSION`, without a default policy. Staff identity and review time come from the server. Current review, append-only history and required audit commit together or all roll back. Optional `expectedVersion` prevents stale edits (0 means a first review). Removed drivers are excluded from loads and updates.
 
-This is a disabled foundation: assignment enforcement and supply dispatch activation remain unchanged, and neither migration nor service automatically qualifies a roster. The live new tables were verified empty. No pending external owner worksheet approval was changed. The staff API/UI and rollout guards are separate later tasks.
+Assignment enforcement and supply dispatch activation remain unchanged, and neither migration nor service automatically qualifies a roster. The live new tables were verified empty. No pending external owner worksheet approval was changed. The staff API/UI is now implemented as described below; rollout guards are a separate later task.
 
 Verification: pure service mapping/provenance tests and real PostgreSQL tests in a rollback-only isolated schema; migration executed twice there to verify idempotence. Live checks found RLS on, no policies and no anon/authenticated grants on both new tables; the public-key probe explicitly refused both with HTTP 401/42501. The live schema contract reported zero violations. See [[driver_service_qualifications]] for storage details and test evidence.
+
+## Service qualification profile management — 2026-10-09
+
+The driver profile Overview now contains Passenger Driver and Cargo Logistics Driver sections. Each shows its allowed services, stored status, last approval reviewer/date (Manila time), policy version and separate immutable review history. A missing record is displayed as **Not approved**, never treated as an automatic roster qualification. Cargo approval covers all three cargo services with no restaurant/hotel subgroup.
+
+`GET /api/drivers/[id]/qualifications` returns both groups, history, the configured approval policy version and server-derived management permission. The dedicated `driver_qualifications/read` permission allows super_admin, admin, fleet_manager, dispatcher and management. The conservative `driver_qualifications/manage` grant is only admin plus the existing super_admin bypass. Fleet managers, dispatchers and management are read-only; drivers and mechanics cannot read this staff endpoint or self-approve. Broad trip editing authority does not grant qualification management, and this permission does not authorize source-side shortage acceptance.
+
+`PUT` accepts only `group`, `status`, `policy_version`, `reason` and mandatory `expected_version`. Unknown fields, including spoofed reviewer/time, are rejected. Missing/archived drivers return 404 before policy-dependent writes. The service still locks the driver/current record and checks the expected version; conflicting edits return 409. ACTIVE requires the exact configured approved policy version and returns 503 when unavailable. There is no default policy, and the current environment has none configured. The UI disables approval in that case while allowing authorized suspension/revocation with a reason.
+
+Saving does not optimistically show approval. It waits for an authoritative GET refresh; a refused save preserves selected action and reason. If a save commits but its refresh fails, the UI explains that the review was saved and requires reload, without reporting a refreshed success state. Reads that fail show retry feedback, not a fabricated missing approval.
+
+Verification: focused route/component/evaluator tests, opt-in rollback-only PostgreSQL route and existing service tests, touched-file ESLint and authorization audit. A read-only live query check verified active-driver/missing-driver reads, empty reviews/history and absent policy configuration. It found and fixed an ambiguous joined `status` column; the PostgreSQL route fixture includes employee status and stored review/history data to prevent recurrence. No real qualification or production policy was created. Browser/device acceptance is not claimed: the available browser session is a mechanic account without driver-profile access. The component tests render the UI and exercise save/refetch callbacks through the existing mocked-hook harness; they do not replace browser accessibility or responsive review.
 
 **Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old operational data was cleaned, and ten new intended defense drivers were seeded. The live driver roster contains exactly those ten profiles and ten active driver-role accounts; the 23 old driver employees and six retired driver profiles were later hard-deleted by exact FK-checked cleanup. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
 

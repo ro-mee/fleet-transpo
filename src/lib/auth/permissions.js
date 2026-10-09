@@ -133,6 +133,7 @@ export function hasRole(employee, roleOrRoles) {
 // here — as is `driver: reservations.read = false`.
 const MATRIX = {
   admin: {
+    driver_qualifications: { read: true, manage: true },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     driver_assignments: { create: true, read: true, update: true, delete: true },
@@ -186,6 +187,7 @@ const MATRIX = {
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   fleet_manager: {
+    driver_qualifications: { read: true, manage: false },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: false },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     // Custodial pairing is a fleet-management decision, so fleet_manager writes
@@ -232,6 +234,7 @@ const MATRIX = {
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   dispatcher: {
+    driver_qualifications: { read: true, manage: false },
     vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: false },
     // Read-only: a dispatcher must SEE the pairing to understand the warning
@@ -275,6 +278,7 @@ const MATRIX = {
     system: { read: false, update: false },
   },
   driver: {
+    driver_qualifications: { read: false, manage: false },
     vehicles: { read: true },
     reservations: { read: false },
     dispatch: { read: true, update: true },
@@ -303,6 +307,7 @@ const MATRIX = {
     system: { read: false, update: false },
   },
   management: {
+    driver_qualifications: { read: true, manage: false },
     vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },
     driver_assignments: { read: true },
@@ -340,6 +345,7 @@ const MATRIX = {
     system: { read: false, update: false },
   },
   mechanic: {
+    driver_qualifications: { read: false, manage: false },
     vehicles: { read: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },
     maintenance: { read: true, update: true },

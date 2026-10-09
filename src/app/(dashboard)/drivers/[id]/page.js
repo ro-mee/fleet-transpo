@@ -20,6 +20,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { RenewLicenseDialog } from "@/components/drivers/renew-license-dialog";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
 import { WorkScheduleCard } from "@/components/drivers/work-schedule-card";
+import { ServiceQualifications } from "@/components/drivers/service-qualifications";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getInitials, formatDate } from "@/lib/utils";
@@ -415,6 +416,7 @@ export default function DriverDetailPage() {
 
         {/* ── TAB 1: OVERVIEW ── */}
         <TabsContent value="overview" className="space-y-6 mt-2 focus:outline-none">
+          <ServiceQualifications driverId={driver.driver_id} />
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
             {/* Left 7 Cols: Personal & License Details */}
