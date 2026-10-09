@@ -285,6 +285,53 @@ CREATE TABLE driver_leave_requests (
   CONSTRAINT driver_leave_requests_pkey PRIMARY KEY (leave_request_id)
 );
 
+CREATE TABLE driver_service_qualification_events (
+  event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  qualification_id uuid NOT NULL,
+  driver_id integer NOT NULL,
+  actor_id integer NOT NULL,
+  old_group text,
+  new_group text NOT NULL,
+  old_status text,
+  new_status text NOT NULL,
+  reason text NOT NULL,
+  policy_version text,
+  version integer NOT NULL,
+  occurred_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT driver_service_qualification_events_check CHECK (((new_status <> 'ACTIVE'::text) OR (policy_version IS NOT NULL))),
+  CONSTRAINT driver_service_qualification_events_new_group_check CHECK ((new_group = ANY (ARRAY['PASSENGER'::text, 'CARGO'::text]))),
+  CONSTRAINT driver_service_qualification_events_new_status_check CHECK ((new_status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'REVOKED'::text]))),
+  CONSTRAINT driver_service_qualification_events_old_group_check CHECK ((old_group = ANY (ARRAY['PASSENGER'::text, 'CARGO'::text]))),
+  CONSTRAINT driver_service_qualification_events_old_status_check CHECK ((old_status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'REVOKED'::text]))),
+  CONSTRAINT driver_service_qualification_events_policy_version_check CHECK (((policy_version IS NULL) OR ((length(btrim(policy_version)) > 0) AND (length(policy_version) <= 128)))),
+  CONSTRAINT driver_service_qualification_events_reason_check CHECK (((length(btrim(reason)) > 0) AND (length(reason) <= 2000))),
+  CONSTRAINT driver_service_qualification_events_version_check CHECK ((version > 0)),
+  CONSTRAINT driver_service_qualification_events_pkey PRIMARY KEY (event_id),
+  CONSTRAINT driver_service_qualification_event_qualification_id_version_key UNIQUE (qualification_id, version)
+);
+
+CREATE TABLE driver_service_qualifications (
+  qualification_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  driver_id integer NOT NULL,
+  qualification_group text NOT NULL,
+  status text NOT NULL,
+  policy_version text,
+  verified_by integer,
+  verified_at timestamptz,
+  reason text NOT NULL,
+  version integer DEFAULT 1 NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT driver_service_qualifications_check CHECK (((status <> 'ACTIVE'::text) OR ((verified_by IS NOT NULL) AND (verified_by > 0) AND (verified_at IS NOT NULL) AND isfinite(verified_at) AND (policy_version IS NOT NULL)))),
+  CONSTRAINT driver_service_qualifications_policy_version_check CHECK (((policy_version IS NULL) OR ((length(btrim(policy_version)) > 0) AND (length(policy_version) <= 128)))),
+  CONSTRAINT driver_service_qualifications_qualification_group_check CHECK ((qualification_group = ANY (ARRAY['PASSENGER'::text, 'CARGO'::text]))),
+  CONSTRAINT driver_service_qualifications_reason_check CHECK (((length(btrim(reason)) > 0) AND (length(reason) <= 2000))),
+  CONSTRAINT driver_service_qualifications_status_check CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'REVOKED'::text]))),
+  CONSTRAINT driver_service_qualifications_version_check CHECK ((version > 0)),
+  CONSTRAINT driver_service_qualifications_pkey PRIMARY KEY (qualification_id),
+  CONSTRAINT driver_service_qualifications_driver_id_qualification_group_key UNIQUE (driver_id, qualification_group)
+);
+
 CREATE TABLE driver_vehicle_assignments (
   assignment_id integer DEFAULT nextval('driver_vehicle_assignments_assignment_id_seq'::regclass) NOT NULL,
   driver_id integer NOT NULL,
@@ -1543,6 +1590,11 @@ ALTER TABLE driver_consents ADD CONSTRAINT driver_consents_driver_id_fkey FOREIG
 ALTER TABLE driver_leave_balances ADD CONSTRAINT driver_leave_balances_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
+ALTER TABLE driver_service_qualification_events ADD CONSTRAINT driver_service_qualification_events_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES employees(employee_id);
+ALTER TABLE driver_service_qualification_events ADD CONSTRAINT driver_service_qualification_events_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE driver_service_qualification_events ADD CONSTRAINT driver_service_qualification_events_qualification_id_fkey FOREIGN KEY (qualification_id) REFERENCES driver_service_qualifications(qualification_id);
+ALTER TABLE driver_service_qualifications ADD CONSTRAINT driver_service_qualifications_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE driver_service_qualifications ADD CONSTRAINT driver_service_qualifications_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -2388,6 +2440,16 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.reject_driver_qualification_event_changes()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  RAISE EXCEPTION 'Driver qualification history is append-only' USING ERRCODE = '55000';
+END;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.update_incident_sla_breaches()
  RETURNS void
  LANGUAGE plpgsql
@@ -2418,6 +2480,8 @@ $function$
 
 -- =========================== TRIGGERS ===========================
 
+CREATE TRIGGER qualification_events_immutable BEFORE DELETE OR UPDATE ON public.driver_service_qualification_events FOR EACH ROW EXECUTE FUNCTION reject_driver_qualification_event_changes();
+CREATE TRIGGER qualification_events_no_truncate BEFORE TRUNCATE ON public.driver_service_qualification_events FOR EACH STATEMENT EXECUTE FUNCTION reject_driver_qualification_event_changes();
 CREATE CONSTRAINT TRIGGER supply_allocation_dispatch_consistency AFTER INSERT OR DELETE OR UPDATE ON public.supply_dispatch_allocations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION enforce_supply_dispatch_allocation();
 CREATE TRIGGER supply_allocation_identity_guard BEFORE UPDATE ON public.supply_dispatch_allocations FOR EACH ROW EXECUTE FUNCTION guard_supply_dispatch_allocation_update();
 CREATE CONSTRAINT TRIGGER supply_dispatch_allocation_consistency AFTER INSERT OR UPDATE ON public.dispatchschedules DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION enforce_supply_dispatch_allocation();

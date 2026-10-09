@@ -110,6 +110,10 @@ Four objects existed with no migration file and one CHECK constraint differed. *
 
 [[ERD]] · [[Migrations]] · [[Supabase]] · [[Architecture]] · [[Home]]
 
+## Driver qualification tables — 2026-10-09
+
+Migration 156 adds private current reviews and append-only events: [[driver_service_qualifications]]. The live schema was dumped after application; both new tables have RLS and no anon/authenticated grants. No driver was automatically approved and operational qualification enforcement remains off. Current review, event and required audit writes share one transaction.
+
 ## Supply delivery tables
 
 The sandbox supply-delivery foundation is documented in [[supply_delivery_foundation]] and applied by migrations 144 and 145. It stores private shipment/manifest snapshots, measured per-vehicle cargo profiles, and admin-verified mappings from sandbox SCM site IDs to Fleet locations. It does not yet reserve dispatches or store receiver acceptance/inventory postings.

@@ -21,6 +21,16 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 
 # Feature: Driver Management
 
+## Service qualification foundation — 2026-10-09
+
+Migration 156 adds explicit PASSENGER and CARGO reviews. PASSENGER covers Guest Transport and VIP Guest Transport; CARGO covers Restaurant Supply Pickup, Restaurant Food Delivery and Hotel Supply Transfer. The two groups are independent, so one approval cannot authorize the other. License, consent, schedule and vehicle checks remain separate.
+
+The internal qualification service requires the dedicated `driver_qualifications/manage` staff permission, a review reason and authenticated employee identity. ACTIVE approval requires an exact match to configured `DRIVER_QUALIFICATION_POLICY_VERSION`, without a default policy. Staff identity and review time come from the server. Current review, append-only history and required audit commit together or all roll back. Optional `expectedVersion` prevents stale edits (0 means a first review). Removed drivers are excluded from loads and updates.
+
+This is a disabled foundation: assignment enforcement and supply dispatch activation remain unchanged, and neither migration nor service automatically qualifies a roster. The live new tables were verified empty. No pending external owner worksheet approval was changed. The staff API/UI and rollout guards are separate later tasks.
+
+Verification: pure service mapping/provenance tests and real PostgreSQL tests in a rollback-only isolated schema; migration executed twice there to verify idempotence. Live checks found RLS on, no policies and no anon/authenticated grants on both new tables; the public-key probe explicitly refused both with HTTP 401/42501. The live schema contract reported zero violations. See [[driver_service_qualifications]] for storage details and test evidence.
+
 **Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old operational data was cleaned, and ten new intended defense drivers were seeded. The live driver roster contains exactly those ten profiles and ten active driver-role accounts; the 23 old driver employees and six retired driver profiles were later hard-deleted by exact FK-checked cleanup. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
 
 ## What it does
