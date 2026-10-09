@@ -5,11 +5,16 @@ tags: [architecture, frontend, react, nextjs]
 source:
   - src/app
   - src/components
+  - src/lib/workspaces.js
   - package.json
 last_verified: 2026-09-30
 ---
 
 # Frontend
+
+**Sidebar icon distinction (2026-10-09):** Icon selection remains centralized in `src/lib/workspaces.js`. Reports uses `FileChartColumn`, Analytics uses `ChartNoAxesCombined`, and Management's Financial Overview uses `Wallet`. The remaining repeated icon assignments are resolved through Number Coding → `CalendarRange`, Fuel Policy → `SlidersHorizontal`, Executive Overview → `LayoutDashboard`, and Dispatcher Trips → `ClipboardList`. Existing Admin/Fleet Manager Driver Assignments mappings (`UsersRound`/`ClipboardCheck`) are retained. The edit changes icon references only; the shell continues to render the existing Lucide outline family at 16px with its existing labels, destinations, permissions and active treatment.
+
+Verification: runtime import and icon-identity inventory found no repeated icons among icon-bearing sidebar items in all seven workspace definitions (Super Admin 12, Admin 19, Fleet Manager 16, Dispatcher 11, Driver 8, Management 10, Mechanic 5). Eight existing tests across `workspaces.test.js` and `super-admin-nav.test.js`, strict scoped ESLint and `git diff --check` passed. Authenticated localhost Admin checks verified distinct Reports/Analytics SVGs at 16px in expanded and collapsed sidebars while preserving the current Incidents page. Other-role browser sessions, full suite and production build were not run for this icon-only change.
 
 **61 pages** under `src/app/`, Next.js 16 App Router, React 19.2.4.
 
