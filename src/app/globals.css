@@ -99,6 +99,7 @@
   --warning: #f59e0b;
   --danger: #ef4444;
   --info: #3b82f6;
+  --warning-ink: #422006;
 
   /* Darker AA text variants (light mode). */
   --success-700: #047857;

@@ -462,3 +462,7 @@ This is automated source/component and caller verification. It does not claim an
 ## Creating a mechanic account — corrected 2026-10-08
 
 Admin and Super Admin can select **Mechanic** in Settings → Users → Add User. The picker now uses the same `canAssignRole` rule as the account API; the old page-only Admin list had omitted Mechanic. The role card explains assigned repair jobs and submission for review, with a Workshop badge. Provisioning keeps the existing temporary-password invitation workflow and mechanic's assigned-work-order permissions. See [[RBAC]] for the page/API regression evidence and live role check.
+
+## Archive and cancellation reconsideration - 2026-10-09
+
+Maintenance archive confirmations and both existing-record edit flows that save status `Cancelled` now use the shared five-second pre-request reconsideration. Cancellation captures the validated form snapshot; Undo returns to the current editor without writing, while expiry sends the existing update once. The warning keeps the terminal/history consequence visible. New-record creation and other maintenance status transitions are unchanged. Changed-file ESLint passed; a production build could not start because another Next build held the shared lock, and these maintenance flows were not exercised in the browser.

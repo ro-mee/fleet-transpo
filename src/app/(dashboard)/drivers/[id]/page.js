@@ -98,9 +98,6 @@ export default function DriverDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
       router.push("/drivers");
     },
-    onError: (err) => {
-      toast.error(err.message || "Failed to archive driver");
-    },
   });
 
   const accountMutation = useMutation({
@@ -926,11 +923,14 @@ export default function DriverDetailPage() {
       <ConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Archive Driver Profile"
+        title="Archive Driver Profile?"
         message={`Are you sure you want to archive ${emp.first_name} ${emp.last_name}? They will be marked inactive.`}
         confirmLabel="Archive driver"
         variant="archive"
-        onConfirm={() => deleteMutation.mutate()}
+        reconsiderable
+        actionKey={id}
+        workingLabel="Archiving..."
+        onConfirm={() => deleteMutation.mutateAsync()}
         loading={deleteMutation.isPending}
       />
 

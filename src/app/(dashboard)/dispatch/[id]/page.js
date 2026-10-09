@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { FuseButton } from "@/components/ui/fuse-button";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -152,6 +153,8 @@ export default function DispatchDetailPage() {
   const [editing, setEditing] = useState(null); // { dispatch, mode }
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelExecuting, setCancelExecuting] = useState(false);
+  const [cancelArmed, setCancelArmed] = useState(false);
 
   const {
     data: dispatch,
@@ -204,7 +207,6 @@ export default function DispatchDetailPage() {
       setCancelReason("");
       invalidate();
     },
-    onError: (e) => toast.error(e.message || "Failed to cancel the dispatch"),
   });
 
   const patchMutation = useMutation({
@@ -587,8 +589,17 @@ export default function DispatchDetailPage() {
       />
 
       {confirmCancel && (
-        <Dialog open onOpenChange={(open) => { if (!open) { setConfirmCancel(false); setCancelReason(""); } }}>
-          <DialogContent>
+        <Dialog open onOpenChange={(open) => {
+          if (!open && (cancelExecuting || cancelMutation.isPending)) return;
+          if (!open) { setConfirmCancel(false); setCancelReason(""); setCancelArmed(false); }
+        }}>
+          <DialogContent onEscapeKeyDown={(event) => {
+            if (!cancelArmed) return;
+            const armedButton = event.currentTarget.querySelector('button[data-phase="armed"]');
+            if (!armedButton) return;
+            event.preventDefault();
+            armedButton.click();
+          }}>
             <DialogHeader>
               <DialogTitle>Cancel this dispatch?</DialogTitle>
               {/* Describes what the endpoint ACTUALLY does — setDispatchStatus's
@@ -613,21 +624,24 @@ export default function DispatchDetailPage() {
                 rows={3}
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
+                disabled={cancelArmed || cancelExecuting}
                 placeholder="e.g. Vehicle unavailable, driver not required, request withdrawn…"
                 className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
               />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => { setConfirmCancel(false); setCancelReason(""); }}>
+              <Button variant="outline" disabled={cancelExecuting} onClick={() => { setConfirmCancel(false); setCancelReason(""); setCancelArmed(false); }}>
                 Keep it
               </Button>
-              <Button
-                variant="destructive"
-                disabled={cancelMutation.isPending || cancelReason.trim().length === 0}
-                onClick={() => cancelMutation.mutate()}
-              >
-                {cancelMutation.isPending ? "Cancelling…" : "Cancel dispatch"}
-              </Button>
+              <FuseButton
+                label="Cancel dispatch"
+                workingLabel="Cancelling dispatch..."
+                tone="destructive"
+                disabled={cancelReason.trim().length === 0 || cancelExecuting}
+                onPhaseChange={(phase) => setCancelArmed(phase === "armed")}
+                onExecutingChange={setCancelExecuting}
+                onCommit={() => cancelMutation.mutateAsync()}
+              />
             </DialogFooter>
           </DialogContent>
         </Dialog>

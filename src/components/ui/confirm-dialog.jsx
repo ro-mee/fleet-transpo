@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Trash2, Archive, LogOut, Info, Loader2 } from "lucide-react";
+import { FuseButton } from "@/components/ui/fuse-button";
 
 const variantConfig = {
   destructive: {
@@ -67,32 +68,61 @@ export function ConfirmDialog({
   loading = false,
   isLoading = false,
   onConfirm,
+  reconsiderable = false,
+  undoWindow = 5000,
+  workingLabel,
+  actionKey,
 }) {
   const config = variantConfig[variant] || variantConfig.destructive;
   const Icon = config.icon;
   const busy = loading || isLoading;
   const bodyText = message ?? description ?? "Are you sure?";
   const actionLabel = confirmLabel ?? confirmText ?? "Confirm";
+  const messageId = useId();
+  const [executing, setExecuting] = useState(false);
+
+  const handleOpenChange = (nextOpen) => {
+    if (!nextOpen && (busy || executing)) return;
+    if (!nextOpen) setExecuting(false);
+    onOpenChange?.(nextOpen);
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md w-[95vw] md:w-[440px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        aria-describedby={messageId}
+        onEscapeKeyDown={(event) => {
+          if (!reconsiderable) return;
+          const armedButton = event.currentTarget.querySelector('button[data-phase="armed"]');
+          if (!armedButton) return;
+          event.preventDefault();
+          armedButton.click();
+        }}
+        className="max-w-md w-[95vw] md:w-[440px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl"
+      >
         {/* Keyed by `open` so the reason textarea remounts fresh each time the
             dialog opens — no reset-in-effect. */}
         <DialogBody
-          key={String(open)}
+          key={`${String(open)}:${actionKey ?? ""}`}
           config={config}
           Icon={Icon}
           title={title}
           bodyText={bodyText}
+          messageId={messageId}
           requireReason={requireReason}
           reasonLabel={reasonLabel}
           reasonPlaceholder={reasonPlaceholder}
           busy={busy}
+          executing={executing}
+          setExecuting={setExecuting}
           actionLabel={actionLabel}
           cancelLabel={cancelLabel}
-          onOpenChange={onOpenChange}
+          onOpenChange={handleOpenChange}
           onConfirm={onConfirm}
+          closeOnSuccess={() => onOpenChange?.(false)}
+          reconsiderable={reconsiderable}
+          undoWindow={undoWindow}
+          workingLabel={workingLabel}
         />
       </DialogContent>
     </Dialog>
@@ -104,17 +134,25 @@ function DialogBody({
   Icon,
   title,
   bodyText,
+  messageId,
   requireReason,
   reasonLabel,
   reasonPlaceholder,
   busy,
+  executing,
+  setExecuting,
   actionLabel,
   cancelLabel,
   onOpenChange,
   onConfirm,
+  closeOnSuccess,
+  reconsiderable,
+  undoWindow,
+  workingLabel,
 }) {
   const [reason, setReason] = useState("");
-  const canConfirm = !busy && (!requireReason || reason.trim().length > 0);
+  const [actionPhase, setActionPhase] = useState("idle");
+  const canConfirm = !busy && !executing && (!requireReason || reason.trim().length > 0);
 
   const handleConfirm = () => {
     if (!canConfirm) return;
@@ -132,12 +170,8 @@ function DialogBody({
             <Icon className={`w-5 h-5 ${config.iconColor}`} />
           </div>
           <div className="min-w-0 pt-0.5">
-            <h3 className="text-base font-bold text-foreground tracking-tight leading-snug">
-              {title}
-            </h3>
-            <p className="text-xs text-foreground-secondary mt-1 leading-relaxed">
-              {bodyText}
-            </p>
+            <DialogTitle className="text-base font-bold tracking-tight leading-snug">{title}</DialogTitle>
+            <DialogDescription id={messageId} className="text-xs mt-1 leading-relaxed">{bodyText}</DialogDescription>
           </div>
         </div>
 
@@ -154,6 +188,7 @@ function DialogBody({
               placeholder={reasonPlaceholder}
               rows={3}
               maxLength={500}
+              disabled={actionPhase !== "idle"}
               className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10 resize-none shadow-2xs"
             />
             {!reason.trim() && (
@@ -164,19 +199,34 @@ function DialogBody({
       </div>
 
       <div className="px-6 py-3.5 border-t border-border/70 bg-surface/90 backdrop-blur-md flex items-center justify-end gap-2.5">
-        <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy} className="text-xs h-9 px-4">
-          {cancelLabel}
+        <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy || executing} className="text-xs h-9 px-4">
+          {actionPhase === "error" ? "Close" : cancelLabel}
         </Button>
-        <Button
-          variant={config.confirmVariant}
-          size="sm"
-          onClick={handleConfirm}
-          disabled={!canConfirm}
-          className="text-xs h-9 px-4 font-semibold shadow-xs"
-        >
-          {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-          {actionLabel}
-        </Button>
+        {reconsiderable ? (
+          <FuseButton
+            label={actionLabel}
+            tone={config.confirmVariant === "warning" ? "archive" : "destructive"}
+            icon={Icon}
+            delay={undoWindow}
+            disabled={!canConfirm}
+            workingLabel={workingLabel || `Saving${actionLabel.endsWith("...") ? "" : "..."}`}
+            onCommit={() => onConfirm?.(requireReason ? reason.trim() : undefined)}
+            onExecutingChange={setExecuting}
+            onPhaseChange={setActionPhase}
+            onSuccess={closeOnSuccess}
+          />
+        ) : (
+          <Button
+            variant={config.confirmVariant}
+            size="sm"
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+            className="text-xs h-9 px-4 font-semibold shadow-xs"
+          >
+            {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+            {actionLabel}
+          </Button>
+        )}
       </div>
     </>
   );

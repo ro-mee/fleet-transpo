@@ -87,3 +87,7 @@ The dispatch machine's edges are unchanged. What changed is the chain the `Cance
 5. `COMMIT`, then sync the derived vehicle/driver statuses and notify Booking. Nothing external runs while a connection is held.
 
 Full rule table, plumbing and verification: [[Dispatch#Dispatch stand-down vs request cancellation — 2026-10-01 (implemented)]].
+
+## Stand-down confirmation delay - 2026-10-09
+
+The dispatch-detail stand-down dialog adds a five-second local reconsideration window before the existing transaction is requested. Required reason text is frozen while armed; Undo/Escape cancels only the local timer. At expiry the original locked-row validation, open-trip cancellation, dispatch cancellation, request release, commit, and post-commit synchronization still govern the outcome. Browser acceptance of the stand-down path remains pending; changed-file ESLint passed, and the production build was blocked by an existing Next build lock.

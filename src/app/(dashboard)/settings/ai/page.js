@@ -164,7 +164,6 @@ export default function AiSettingsPage() {
       toast.success("AI Provider removed");
       queryClient.invalidateQueries({ queryKey: ["ai-providers"] });
     },
-    onError: (err) => toast.error(err.message),
   });
 
   const toggleMutation = useMutation({
@@ -976,12 +975,11 @@ export default function AiSettingsPage() {
             : ""
         }
         confirmLabel="Delete provider"
-        loading={deleteMutation.isPending}
-        onConfirm={() => {
-          if (!deletingProvider) return;
-          deleteMutation.mutate(deletingProvider.provider_id, {
-            onSettled: () => setDeletingProvider(null),
-          });
+        reconsiderable
+        actionKey={deletingProvider?.provider_id}
+        workingLabel="Deleting provider..."
+        onConfirm={async () => {
+          if (deletingProvider) await deleteMutation.mutateAsync(deletingProvider.provider_id);
         }}
       />
     </div>

@@ -348,3 +348,7 @@ Final verification after the zero-ID correction: `npm run test:run -- --reporter
 ## Dispatcher next-30-minute pickup filter - 2026-10-03
 
 The queue accepts `filter=departing-soon` alongside its Today tab. The API applies the open-request, missing-vehicle-or-driver, and exact `[NOW(), NOW() + 30 minutes]` pickup predicate before both the row query and total count. The dashboard deep-link therefore opens a paginated view whose rows and count come from the same SQL set. This filter is separate from Today, which still intentionally includes overdue requests in Asia/Manila.
+
+## Request cancellation reconsideration - 2026-10-09
+
+The reservation queue and request-detail cancellation confirmations now wait five seconds before the existing cancellation request is sent. Required reason text is locked while the timer is armed and remains part of the mutation; Undo/Escape or ordinary dismissal sends nothing. The existing booking-notification result and request/dispatch/trip cascade remain unchanged and are reported only after the server responds. Changed-file ESLint passed; no reservation was cancelled during browser review, and production build acceptance remains pending because of the shared Next build lock.

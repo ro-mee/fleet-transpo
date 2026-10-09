@@ -1,0 +1,141 @@
+.root {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.action {
+  min-height: 2.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control, 12px);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+  cursor: pointer;
+}
+
+.action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-width: 9.25rem;
+  overflow: hidden;
+  padding: 0.5rem 1rem;
+  color: white;
+  background: var(--danger-700, #b91c1c);
+  isolation: isolate;
+}
+
+.action::after {
+  position: absolute;
+  z-index: 0;
+  inset: auto 0 0;
+  height: 3px;
+  content: "";
+  background: var(--danger-700, #b91c1c);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 80ms linear;
+}
+
+.root[data-tone="archive"] .action,
+.root[data-tone="warning"] .action {
+  color: var(--warning-ink, #422006);
+  background: var(--color-warning, #f59e0b);
+}
+
+:global(.dark) .root[data-tone="destructive"] .action {
+  background: var(--danger-bg, #7f1d1d);
+}
+
+.root[data-tone="archive"] .action::after,
+.root[data-tone="warning"] .action::after {
+  background: var(--color-warning-700, #b45309);
+}
+
+.action[data-phase="armed"]::after {
+  height: 2px;
+  transform: scaleX(var(--fuse-progress, 0));
+}
+
+.root[data-tone="destructive"] .action[data-phase="armed"]::after {
+  background: var(--danger-700, #b91c1c);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--color-foreground, #111827);
+  outline-offset: 2px;
+}
+
+.action:disabled {
+  cursor: wait;
+}
+
+.action > * {
+  position: relative;
+  z-index: 1;
+}
+
+.icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+.error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-danger-700, #b91c1c);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action,
+  .action::after {
+    transition: none;
+  }
+
+  .spinner {
+    animation: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .action {
+    min-height: 2.75rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .action {
+    border: 1px solid ButtonText;
+  }
+
+  .action::after {
+    background: Highlight;
+  }
+}

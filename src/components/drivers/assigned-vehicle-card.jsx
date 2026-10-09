@@ -167,10 +167,6 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
       setReleasing(null);
       invalidate();
     },
-    onError: (err) => {
-      toast.error(err.message || "Failed to release assignment");
-      setReleasing(null);
-    },
   });
 
   const busy = assignMutation.isPending || releaseMutation.isPending;
@@ -303,7 +299,12 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
         message="The pairing is closed and kept in history. Both sides become free to reassign. This does not affect any scheduled trips."
         confirmLabel="Release"
         variant="warning"
-        onConfirm={() => releasing && releaseMutation.mutate(releasing.assignment_id)}
+        reconsiderable
+        actionKey={releasing?.assignment_id}
+        workingLabel="Releasing..."
+        onConfirm={async () => {
+          if (releasing) await releaseMutation.mutateAsync(releasing.assignment_id);
+        }}
       />
 
       <Dialog

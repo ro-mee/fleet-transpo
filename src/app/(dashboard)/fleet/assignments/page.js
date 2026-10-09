@@ -509,10 +509,6 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
       queryClient.invalidateQueries({ queryKey: ["driver-assignments"] });
       queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
     },
-    onError: (err) => {
-      toast.error(err.message || "Failed to release assignment");
-      setReleasing(null);
-    },
   });
 
   const columns = useMemo(
@@ -660,8 +656,13 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
         message={`${releasing ? personLabel(releasing) : "This driver"} will no longer be responsible for ${releasing ? vehicleLabel(releasing) : "this vehicle"}. The pairing record is closed and archived; scheduled dispatches remain unaffected.`}
         confirmLabel="Release Custody"
         variant="warning"
+        reconsiderable
+        actionKey={releasing?.assignment_id}
+        workingLabel="Releasing..."
         loading={releaseMutation.isPending}
-        onConfirm={() => releasing && releaseMutation.mutate(releasing.assignment_id)}
+        onConfirm={async () => {
+          if (releasing) await releaseMutation.mutateAsync(releasing.assignment_id);
+        }}
       />
     </>
   );
@@ -727,10 +728,6 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
       toast.success("Substitute schedule removed");
       setRemoving(null);
       invalidate();
-    },
-    onError: (err) => {
-      toast.error(err.message || "Failed to remove substitute schedule");
-      setRemoving(null);
     },
   });
 
@@ -913,8 +910,13 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
         }
         confirmLabel="Remove Schedule"
         variant="warning"
+        reconsiderable
+        actionKey={removing?.substitute_id}
+        workingLabel="Removing schedule..."
         loading={removeMutation.isPending}
-        onConfirm={() => removing && removeMutation.mutate(removing.substitute_id)}
+        onConfirm={async () => {
+          if (removing) await removeMutation.mutateAsync(removing.substitute_id);
+        }}
       />
     </>
   );

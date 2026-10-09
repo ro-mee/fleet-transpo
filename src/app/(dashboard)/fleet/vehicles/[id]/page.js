@@ -55,7 +55,6 @@ export default function VehicleDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
       router.push("/fleet/vehicles");
     },
-    onError: (err) => toast.error(err.message),
   });
 
   const uploadImageMutation = useMutation({
@@ -460,7 +459,10 @@ export default function VehicleDetailPage() {
         message={`Are you sure you want to archive ${vehicle.plate_number}? This vehicle will be hidden from active lists.`}
         confirmLabel="Archive vehicle"
         variant="archive"
-        onConfirm={() => archiveMutation.mutate()}
+        reconsiderable
+        actionKey={vehicleId}
+        workingLabel="Archiving..."
+        onConfirm={() => archiveMutation.mutateAsync()}
         loading={archiveMutation.isPending}
       />
 

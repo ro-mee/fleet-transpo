@@ -65,6 +65,7 @@ export default function MaintenancePage() {
   const [viewingRecord, setViewingRecord] = useState(null);
   const [editingRecord, setEditingRecord] = useState(null);
   const [formError, setFormError] = useState(null);
+  const [pendingCancellation, setPendingCancellation] = useState(null);
   const [formData, setFormData] = useState({
     vehicle_id: "",
     maintenance_type: "Routine",
@@ -145,7 +146,6 @@ export default function MaintenancePage() {
       queryClient.invalidateQueries({ queryKey: ["vehicle"] });
       queryClient.invalidateQueries({ queryKey: ["vehicles-for-maintenance"] });
     },
-    onError: (err) => toast.error(err.message),
   });
 
   const [archivingId, setArchivingId] = useState(null);
@@ -168,6 +168,7 @@ export default function MaintenancePage() {
       remarks: "",
     });
     setFormError(null);
+    setPendingCancellation(null);
     resetValidation();
     setDialogOpen(true);
   }
@@ -205,6 +206,7 @@ export default function MaintenancePage() {
     setViewingRecord(null);
     setEditingRecord(null);
     setFormError(null);
+    setPendingCancellation(null);
   }
 
   function handleSubmit(e) {
@@ -217,6 +219,14 @@ export default function MaintenancePage() {
       completed_date: formData.completed_date !== "" ? formData.completed_date : null,
     };
     if (!validate(submissionData)) return;
+
+    if (editingRecord && submissionData.status === "Cancelled" && editingRecord.status !== "Cancelled") {
+      setPendingCancellation({
+        id: editingRecord.maintenance_id,
+        data: submissionData,
+      });
+      return;
+    }
 
     if (editingRecord) {
       updateMutation.mutate({ id: editingRecord.maintenance_id, data: submissionData });
@@ -623,7 +633,10 @@ export default function MaintenancePage() {
                   icon={Tag}
                   id="status"
                   value={formData.status}
-                  onValueChange={(val) => setFormData({ ...formData, status: val })}
+                  onValueChange={(val) => {
+                    setFormData({ ...formData, status: val });
+                    setPendingCancellation(null);
+                  }}
                 >
                   <SelectItem value="Scheduled">Scheduled</SelectItem>
                   <SelectItem value="In Progress">In Progress</SelectItem>
@@ -669,12 +682,28 @@ export default function MaintenancePage() {
         message="Are you sure you want to archive this maintenance record? This action can be audited."
         confirmLabel="Archive"
         variant="archive"
+        reconsiderable
+        actionKey={archivingId}
+        workingLabel="Archiving..."
         loading={archiveMutation.isPending}
-        onConfirm={() => {
-          if (archivingId) {
-            archiveMutation.mutate(archivingId, {
-              onSuccess: () => setArchivingId(null),
-            });
+        onConfirm={async () => {
+          if (archivingId) await archiveMutation.mutateAsync(archivingId);
+        }}
+      />
+      <ConfirmDialog
+        open={!!pendingCancellation}
+        onOpenChange={(open) => { if (!open) setPendingCancellation(null); }}
+        title="Cancel this maintenance record?"
+        message="This is a terminal work-order status. The record will remain in history and cannot be edited afterward."
+        confirmLabel="Cancel record"
+        cancelLabel="Keep editing"
+        variant="danger"
+        reconsiderable
+        actionKey={pendingCancellation?.id}
+        workingLabel="Cancelling record..."
+        onConfirm={async () => {
+          if (pendingCancellation) {
+            await updateMutation.mutateAsync({ id: pendingCancellation.id, data: pendingCancellation.data });
           }
         }}
       />

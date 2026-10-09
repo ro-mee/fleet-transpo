@@ -232,7 +232,6 @@ export default function ReservationDetailPage() {
       setReason("");
       invalidate();
     },
-    onError: (e) => toast.error(e.message || "Failed to cancel request"),
   });
 
   const rescheduleMutation = useMutation({
@@ -545,10 +544,12 @@ export default function ReservationDetailPage() {
         requireReason
         reasonLabel="Cancellation reason"
         reasonPlaceholder="e.g. Guest cancelled booking"
-        loading={cancelMutation.isPending}
+        reconsiderable
+        actionKey={requestId}
+        workingLabel="Cancelling request..."
         onConfirm={(why) => {
           setReason(why);
-          cancelMutation.mutate(why);
+          return cancelMutation.mutateAsync(why);
         }}
       />
 

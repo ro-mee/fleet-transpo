@@ -98,10 +98,6 @@ export function SubstituteDriverCard({ id, canManage = false }) {
       setRemoving(null);
       invalidate();
     },
-    onError: (e) => {
-      toast.error(e.message || "Failed to remove substitute schedule");
-      setRemoving(null);
-    },
   });
 
   const canSubmit = driverId && !createMutation.isPending;
@@ -235,7 +231,12 @@ export function SubstituteDriverCard({ id, canManage = false }) {
         message="The vehicle will stop appearing in recommendations on these dates until another substitute is scheduled. This does not affect any scheduled trips."
         confirmLabel="Remove"
         variant="warning"
-        onConfirm={() => removing && removeMutation.mutate(removing.substitute_id)}
+        reconsiderable
+        actionKey={removing?.substitute_id}
+        workingLabel="Removing schedule..."
+        onConfirm={async () => {
+          if (removing) await removeMutation.mutateAsync(removing.substitute_id);
+        }}
       />
     </Card>
   );

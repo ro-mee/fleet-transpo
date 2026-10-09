@@ -83,3 +83,7 @@ Focused eligibility and assignment-route tests passed 18/18; changed-source ESLi
 ## Fleet Manager live-use remediation - 2026-10-03
 
 Fleet custody coverage counts distinct vehicles with an open-ended assignment, intersected with the non-deleted, non-decommissioned fleet used as the denominator. The card shows the assigned/total count and percentage; zero active vehicles displays an em dash. Decommissioned and deleted vehicles are excluded from the matching unassigned-vehicle count. Substitute schedule date checks use the Asia/Manila calendar day. This changes presentation only and does not modify pairing rows.
+
+## Release and substitute removal reconsideration - 2026-10-09
+
+Assignment release/custody and substitute-schedule removal confirmations in both the assignments page and driver cards now use the shared five-second pre-request Undo window. A release still closes the pairing while leaving scheduled trips unaffected; substitute removal still removes recommendation coverage only. Undo or dismissing the confirmation sends no mutation. Changed-file ESLint passed; these actions were not exercised in the browser, and the production build remains pending because of the shared Next build lock.

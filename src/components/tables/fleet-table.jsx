@@ -63,7 +63,6 @@ export function FleetTable({ filters = {} }) {
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
     },
-    onError: (err) => toast.error(err.message),
   });
 
   const [archivingId, setArchivingId] = useState(null);
@@ -205,7 +204,10 @@ export function FleetTable({ filters = {} }) {
         message="This vehicle will be hidden from active lists."
         confirmLabel="Archive"
         variant="archive"
-        onConfirm={() => { if (archivingId) archiveMutation.mutate(archivingId); }}
+        reconsiderable
+        actionKey={archivingId}
+        workingLabel="Archiving..."
+        onConfirm={async () => { if (archivingId) await archiveMutation.mutateAsync(archivingId); }}
       />
     </>
   );

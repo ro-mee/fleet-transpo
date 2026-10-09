@@ -832,3 +832,7 @@ tests unbroken; notification-adjacent sweep 135/135). `verify:auth` 295/295
 ## Related
 
 [[Dispatch]] · [[Trips]] · [[Maintenance]] · [[Database Overview]] · [[Feature Index]]
+
+## Notification deletion reconsideration - 2026-10-09
+
+Notification Center deletion now waits five seconds before calling the existing soft-delete mutation. Undo/Escape or closing the confirmation does not send a request; the delete success toast and notification refresh remain tied to server success. The notification dropdown's read/mark-read actions are unchanged. Changed-file ESLint passed; no notification was deleted during browser review, and production build acceptance remains pending due to the shared Next build lock.

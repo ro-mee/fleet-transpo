@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -17,6 +18,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
   const isCompletion = initialData?.status === "Scheduled" || initialData?.status === "In Progress";
   
   const [loading, setLoading] = useState(false);
+  const [pendingCancellationData, setPendingCancellationData] = useState(null);
   const [formData, setFormData] = useState({
     vehicle_id: initialData?.vehicle_id || "",
     maintenance_type: initialData?.maintenance_type || "Routine",
@@ -41,25 +43,35 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const saveRecord = async (data, { showErrorToast = true } = {}) => {
     setLoading(true);
     try {
       if (isEditing) {
-        await updateMaintenanceRecord(initialData.maintenance_id, formData);
+        await updateMaintenanceRecord(initialData.maintenance_id, data);
         toast.success("Maintenance updated successfully");
       } else {
-        await createMaintenanceRecord(formData);
+        await createMaintenanceRecord(data);
         toast.success("Maintenance scheduled successfully");
       }
       queryClient.invalidateQueries(["maintenance-records"]);
       queryClient.invalidateQueries(["predictive-maintenance"]);
+      setPendingCancellationData(null);
       onClose();
     } catch (err) {
-      toast.error(err.message || "Failed to save maintenance record");
+      if (showErrorToast) toast.error(err.message || "Failed to save maintenance record");
+      throw err;
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (isEditing && formData.status === "Cancelled" && initialData?.status !== "Cancelled") {
+      setPendingCancellationData({ ...formData });
+      return;
+    }
+    await saveRecord(formData).catch(() => {});
   };
 
   return (
@@ -134,6 +146,23 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
           </DialogFooter>
         </form>
       </DialogContent>
+      <ConfirmDialog
+        open={!!pendingCancellationData}
+        onOpenChange={(open) => { if (!open) setPendingCancellationData(null); }}
+        title="Cancel this maintenance record?"
+        message="This is a terminal work-order status. The record will remain in history and cannot be edited afterward."
+        confirmLabel="Cancel record"
+        cancelLabel="Keep editing"
+        variant="danger"
+        reconsiderable
+        actionKey={initialData?.maintenance_id}
+        workingLabel="Cancelling record..."
+        onConfirm={async () => {
+          if (pendingCancellationData) {
+            await saveRecord(pendingCancellationData, { showErrorToast: false });
+          }
+        }}
+      />
     </Dialog>
   );
 }

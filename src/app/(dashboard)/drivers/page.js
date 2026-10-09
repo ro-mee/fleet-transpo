@@ -103,6 +103,10 @@ export default function DriversPage() {
       email: [employee.email, employee.phone].filter(Boolean).join(" "),
     };
   }), [drivers]);
+  const deletingDriver = drivers.find((driver) => Number(driver.driver_id) === Number(deletingId));
+  const deletingDriverName = [deletingDriver?.employees?.first_name, deletingDriver?.employees?.last_name]
+    .filter(Boolean)
+    .join(" ") || `driver #${deletingId ?? ""}`;
 
   const { data: visibleLicenseMasks = [] } = useQuery({
     queryKey: ["driver-license-masks", visibleDriverIds],
@@ -125,10 +129,6 @@ export default function DriversPage() {
       toast.success("Driver archived successfully");
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
       queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
-      setDeletingId(null);
-    },
-    onError: (err) => {
-      toast.error(err.message || "Failed to archive driver");
       setDeletingId(null);
     },
   });
@@ -468,11 +468,14 @@ export default function DriversPage() {
           if (!open) setDeletingId(null);
         }}
         title="Archive Driver Profile?"
-        message="Are you sure you want to archive this driver? The driver will be hidden from active dispatch selection."
+        message={`Archive ${deletingDriverName}? The profile will be hidden from active dispatch selection.`}
         confirmLabel="Archive Driver"
         variant="archive"
-        onConfirm={() => {
-          if (deletingId) deleteMutation.mutate(deletingId);
+        reconsiderable
+        actionKey={deletingId}
+        workingLabel="Archiving..."
+        onConfirm={async () => {
+          if (deletingId) await deleteMutation.mutateAsync(deletingId);
         }}
       />
     </div>
