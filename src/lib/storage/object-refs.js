@@ -152,6 +152,8 @@ async function signKey(bucket, key, expiresIn) {
  * @returns {Promise<string|null>}
  */
 export async function signedUrlFor(bucket, ref, { expiresIn = DEFAULT_MEDIA_TTL_SECONDS } = {}) {
+  // Dedicated cargo evidence reads must check the persisted owner and exact key.
+  if (typeof ref === 'string' && /(^|\/)cargo-evidence(\/|$)/i.test(ref)) return null;
   const candidates = (Array.isArray(bucket) ? bucket : [bucket]).filter((b) =>
     KNOWN_MEDIA_BUCKETS.has(b)
   );

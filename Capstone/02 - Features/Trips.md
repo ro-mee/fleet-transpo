@@ -18,6 +18,12 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Disabled cargo persistence — Task 5, 2026-10-10
+
+Prepared immutable cargo execution/receipt/decision storage and private evidence tracking behind missing-configuration 503 boundaries. Original manifest counts remain separate from observations. Exact retries reuse saved records, changed retries conflict, and receipt/decision events append atomically to a private outbox. ACK cannot grant business acceptance or close inventory. No cargo lifecycle, safety approval, supply assignment or public writer is activated.
+
+Candidate 159 and candidate 158 remain unapplied; generated schema is unchanged. Eleven actual PostgreSQL fixture cases passed, including two-session races, private catalog checks, upload failure/retry and stale clearance after recount. Existing media security passed 72 tests, focused cargo/schema tests and lint passed, and authorization passed 324/324. Production security verification is deferred until approved application. See [[cargo_execution_storage]] for the exact interfaces, version/source binding and pending safety/retention requirements.
+
 ## Current closeout — 2026-10-08
 
 

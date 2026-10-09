@@ -36,6 +36,13 @@ export const KNOWN_MEDIA_BUCKETS = new Set([
   "expense-receipts",
 ]);
 
+// Cargo is deliberately excluded from generic media validation/signing. Its
+// records require a separate authenticated execution/evidence ownership check.
+export const CARGO_EVIDENCE_BUCKET = 'cargo-evidence';
+export function isCargoEvidenceRef(ref) {
+  return typeof ref === 'string' && /(^|\/)cargo-evidence(\/|$)/i.test(ref);
+}
+
 // Keys this app mints are shallow: "<driverId>/<uuid>.<ext>" or
 // "<driverId>/<folder>/<uuid>.<ext>". A generous ceiling, not a policy.
 const MAX_KEY_SEGMENTS = 8;
@@ -92,6 +99,7 @@ export function decodeSegment(segment) {
  * @returns {{bucket: string|null, key: string}|null}
  */
 export function parseStoredKey(ref) {
+  if (isCargoEvidenceRef(ref)) return null;
   if (typeof ref !== "string" || !ref) return null;
   if (ref.startsWith("data:")) return null;
   if (ref.includes("://")) return null;

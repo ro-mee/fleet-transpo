@@ -34,6 +34,22 @@ export const receiptSchema = z.object({
 }).strict();
 export const decisionSchema = z.object({ event_id: uuid, receipt_id: uuid, manifest_hash: z.string().regex(/^[a-f0-9]{64}$/), action: z.enum(['WAIT', 'ACCEPT_OBSERVED', 'REJECT_PICKUP']), reason: text(2000) }).strict();
 
+export const cargoFeedbackEventTypeSchema = z.enum(['PICKUP_RECORDED', 'DISCREPANCY_REPORTED', 'SOURCE_DECISION_RECORDED', 'DELIVERY_RECORDED', 'TRANSPORT_CLOSED']);
+export const cargoFeedbackSchema = z.object({
+  execution_id: uuid, execution_version: z.number().int().positive(), source_ref: sourceRefSchema,
+  event_type: cargoFeedbackEventTypeSchema, manifest_ref: manifestRefSchema,
+  receipt: z.object({ receipt_id: uuid, payload: receiptSchema }).strict().nullable(),
+  decision: z.object({ decision_id: uuid, payload: decisionSchema }).strict().nullable(),
+}).strict().superRefine((event, ctx) => {
+  const invalid = message => ctx.addIssue({ code: 'custom', message });
+  if (event.event_type !== 'TRANSPORT_CLOSED' && !event.receipt) invalid('Receipt is required.');
+  if ((event.event_type === 'SOURCE_DECISION_RECORDED') !== Boolean(event.decision)) invalid('Decision must match event type.');
+  if (event.receipt && Object.keys(event.manifest_ref).some(key => event.receipt.payload.manifest_ref[key] !== event.manifest_ref[key])) invalid('Receipt manifest mismatch.');
+  if (event.decision && (event.decision.payload.receipt_id !== event.receipt?.receipt_id || event.decision.payload.manifest_hash !== event.manifest_ref.hash)) invalid('Decision receipt mismatch.');
+  if (event.event_type === 'PICKUP_RECORDED' && event.receipt?.payload.stage !== 'PICKUP') invalid('Pickup receipt required.');
+  if (event.event_type === 'DELIVERY_RECORDED' && event.receipt?.payload.stage !== 'DELIVERY') invalid('Delivery receipt required.');
+});
+
 export function validateReceiptAgainstManifest(input, expected) {
   const receipt = receiptSchema.parse(input), manifest = manifestSchema.parse(expected);
   if (Object.keys(manifest.manifest_ref).some(key => receipt.manifest_ref[key] !== manifest.manifest_ref[key])) throw new Error('Stale manifest reference.');
