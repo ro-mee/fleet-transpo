@@ -34,7 +34,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 }));
 
 import { apiFetch, setSessionExpiredHandler } from "./api";
-import { saveTokens, getRefreshToken } from "./storage";
+import { saveTokens, getRefreshToken, clearAll } from "./storage";
 import { __clear as clearSecureStore } from "expo-secure-store";
 import { setCargoSessionActor } from "./cargo-sync";
 
@@ -85,6 +85,73 @@ describe("reconnect burst with an expired access token", () => {
 });
 
 describe("cargo account fencing", () => {
+  it("shares one refresh flight between cargo and generic requests in the same session", async () => {
+    await seedSession();
+    setCargoSessionActor("employee-A");
+    let refreshCalls = 0;
+    let releaseRefresh;
+    const gate = new Promise((resolve) => { releaseRefresh = resolve; });
+    global.fetch = vi.fn(async (url, init) => {
+      if (String(url).includes("/api/mobile/auth/refresh")) {
+        refreshCalls += 1;
+        await gate;
+        return jsonRes(200, { accessToken: "A2", refreshToken: "R2" });
+      }
+      if (init?.headers?.Authorization === "Bearer A2") return jsonRes(200, { ok: true });
+      return jsonRes(401, { error: "Unauthorized" });
+    });
+    const cargo = apiFetch("/api/trips/7/cargo", { cargoActorId: "employee-A", queueOnFailure: false });
+    const generic = apiFetch("/api/driver/me");
+    await vi.waitFor(() => expect(refreshCalls).toBe(1));
+    releaseRefresh();
+    expect(await Promise.all([cargo, generic])).toEqual([{ ok: true }, { ok: true }]);
+    expect(refreshCalls).toBe(1);
+  });
+
+  it("aborts a cargo refresh on account switch and cannot replace the new account tokens", async () => {
+    await seedSession("A-access", "A-refresh");
+    setCargoSessionActor("employee-A");
+    let releaseRefresh;
+    let refreshSignal;
+    global.fetch = vi.fn((url, init) => {
+      if (String(url).includes("/api/mobile/auth/refresh")) {
+        refreshSignal = init.signal;
+        return new Promise((resolve) => { releaseRefresh = resolve; });
+      }
+      return Promise.resolve(jsonRes(401, { error: "Unauthorized" }));
+    });
+    const pending = apiFetch("/api/trips/7/cargo", { cargoActorId: "employee-A", queueOnFailure: false });
+    await vi.waitFor(() => expect(releaseRefresh).toBeDefined());
+    setCargoSessionActor("employee-B");
+    await saveTokens({ accessToken: "B-access", refreshToken: "B-refresh" });
+    expect(refreshSignal.aborted).toBe(true);
+    releaseRefresh(jsonRes(200, { accessToken: "late-A-access", refreshToken: "late-A-refresh" }));
+    await expect(pending).rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
+    expect(await getRefreshToken()).toBe("B-refresh");
+  });
+
+  it("does not restore an expired session after logout during refresh", async () => {
+    await seedSession("A-access", "A-refresh");
+    setCargoSessionActor("employee-A");
+    let releaseRefresh;
+    let refreshSignal;
+    global.fetch = vi.fn((url, init) => {
+      if (String(url).includes("/api/mobile/auth/refresh")) {
+        refreshSignal = init.signal;
+        return new Promise((resolve) => { releaseRefresh = resolve; });
+      }
+      return Promise.resolve(jsonRes(401, { error: "Unauthorized" }));
+    });
+    const pending = apiFetch("/api/trips/7/cargo", { cargoActorId: "employee-A", queueOnFailure: false });
+    await vi.waitFor(() => expect(releaseRefresh).toBeDefined());
+    setCargoSessionActor(null);
+    await clearAll();
+    expect(refreshSignal.aborted).toBe(true);
+    releaseRefresh(jsonRes(200, { accessToken: "late-A-access", refreshToken: "late-A-refresh" }));
+    await expect(pending).rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
+    expect(await getRefreshToken()).toBeNull();
+  });
+
   it("refuses a cargo request when its owner is not the signed-in employee", async () => {
     await seedSession();
     setCargoSessionActor("employee-B");

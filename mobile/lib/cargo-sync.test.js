@@ -103,6 +103,30 @@ describe("cargo evidence replay", () => {
     expect(item.actorId).toBe("employee-A");
   });
 
+  it("serializes a new save behind the upload evidence checkpoint", async () => {
+    const { sync, drafts, storage } = await setup();
+    let releaseUpload;
+    let releaseRead;
+    const readGate = new Promise((resolve) => { releaseRead = resolve; });
+    const api = { uploadEvidence: vi.fn(() => new Promise((resolve) => { releaseUpload = resolve; })), submitReceipt: vi.fn() };
+    const drain = sync.syncCargoDrafts({ actorId: "employee-A", api, files: {} });
+    await vi.waitFor(() => expect(api.uploadEvidence).toHaveBeenCalledOnce());
+    const originalGet = storage.getItem;
+    storage.getItem = vi.fn(async (key) => { const value = await originalGet(key); await readGate; return value; });
+    releaseUpload({ data: { evidence_upload: { evidence_id: "server-evidence-1" } } });
+    await vi.waitFor(() => expect(storage.getItem).toHaveBeenCalledOnce());
+    const save = drafts.saveCargoDraft({ actorId: "employee-A", tripId: 8,
+      manifestRef: { kind: "REQUEST", id: "r8", revision: 1, hash: "h8" }, draft: { lines: [] } });
+    await Promise.resolve();
+    expect(storage.getItem).toHaveBeenCalledOnce();
+    releaseRead();
+    await Promise.all([drain, save]);
+    storage.getItem = originalGet;
+    const rows = await drafts.listCargoDrafts("employee-A");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].evidence[0].evidenceId).toBe("server-evidence-1");
+  });
+
   it("retains a draft after transport outage and keeps partner receipt separate from business state", async () => {
     const { sync, drafts } = await setup();
     const api = { uploadEvidence: vi.fn(async () => ({ data: { evidence_upload: { evidence_id: "ev-1" } } })), submitReceipt: vi.fn(async () => { throw { status: 0 }; }) };
@@ -111,5 +135,35 @@ describe("cargo evidence replay", () => {
     expect(row.syncState).toBe("DEVICE_SAVED");
     expect((await sync.getCargoSyncState("employee-A", 7)).fleetSaved).toBe(false);
     expect((await sync.getCargoSyncState("employee-A", 7)).partnerReceived).toBe(false);
+  });
+
+  it("reconciles an already-saved receipt with later Task 9 feedback and scopes state to the latest recount", async () => {
+    const { sync, drafts, item } = await setup();
+    await drafts.markCargoSubmitted("employee-A", item.submissionId, {
+      pickup_receipt: { receipt_id: "receipt-current" }, feedback: { state: "WAITING" },
+    });
+    const api = {
+      getExecution: vi.fn(async () => ({ data: {
+        pickup_receipt: { receipt_id: "receipt-current" }, feedback: { state: "ACKNOWLEDGED" },
+      } })),
+      uploadEvidence: vi.fn(), submitReceipt: vi.fn(),
+    };
+    await sync.syncCargoDrafts({ actorId: "employee-A", api });
+    expect((await drafts.listCargoDrafts("employee-A"))[0].partnerReceived).toBe(true);
+    const next = await drafts.saveCargoDraft({ actorId: "employee-A", tripId: 7,
+      manifestRef: item.manifestRef, draft: { stage: "PICKUP", lines: [] } });
+    const state = await sync.getCargoSyncState("employee-A", 7);
+    expect(state.fleetSaved).toBe(false);
+    expect(state.partnerReceived).toBe(false);
+    expect(state.drafts.at(-1).submissionId).toBe(next.submissionId);
+  });
+
+  it("keeps the saved local receipt state when Task 7 feedback is unavailable", async () => {
+    const { sync, drafts, item } = await setup();
+    await drafts.markCargoSubmitted("employee-A", item.submissionId, {
+      pickup_receipt: { receipt_id: "receipt-current" }, feedback: { state: "WAITING" },
+    });
+    await sync.syncCargoDrafts({ actorId: "employee-A", api: { getExecution: async () => { throw { status: 503 }; } } });
+    expect((await drafts.listCargoDrafts("employee-A"))[0].partnerReceived).toBe(false);
   });
 });

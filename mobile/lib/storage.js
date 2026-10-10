@@ -38,11 +38,22 @@ const store = {
   },
 };
 
-export async function saveTokens({ accessToken, refreshToken }) {
-  await Promise.all([
+let authMutation = Promise.resolve();
+function mutateAuth(isCurrent, work) {
+  const operation = authMutation.catch(() => {}).then(async () => {
+    if (!isCurrent()) return false;
+    await work();
+    return true;
+  });
+  authMutation = operation;
+  return operation;
+}
+
+export async function saveTokens({ accessToken, refreshToken }, isCurrent = () => true) {
+  return mutateAuth(isCurrent, () => Promise.all([
     store.setItem(KEYS.ACCESS_TOKEN, accessToken),
     store.setItem(KEYS.REFRESH_TOKEN, refreshToken),
-  ]);
+  ]));
 }
 
 export async function getAccessToken() {
@@ -74,11 +85,11 @@ export async function clearLegacyBiometricEnrollment() {
   ]);
 }
 
-export async function clearAll() {
-  await Promise.all([
+export async function clearAll(isCurrent = () => true) {
+  return mutateAuth(isCurrent, () => Promise.all([
     store.deleteItem(KEYS.ACCESS_TOKEN),
     store.deleteItem(KEYS.REFRESH_TOKEN),
     store.deleteItem(KEYS.USER),
     clearLegacyBiometricEnrollment(),
-  ]);
+  ]));
 }

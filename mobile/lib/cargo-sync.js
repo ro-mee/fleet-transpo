@@ -26,6 +26,19 @@ export function getCargoActorSignal(actorId) {
   return isCurrentCargoActor(actorId) ? sessionController.signal : null;
 }
 
+export function captureCargoSession(actorId) {
+  if (!isCurrentCargoActor(actorId)) return null;
+  return { actorId: String(actorId), generation: sessionGeneration, signal: sessionController.signal };
+}
+
+export function captureCurrentCargoSession() {
+  return sessionActorId == null ? null : captureCargoSession(sessionActorId);
+}
+
+export function isCurrentCargoSession(snapshot) {
+  return Boolean(snapshot && isCurrentCargoActor(snapshot.actorId) && sessionGeneration === snapshot.generation && !snapshot.signal.aborted);
+}
+
 function ensureCurrent(actorId, generation) {
   if (!isCurrentCargoActor(actorId) || sessionGeneration !== generation) {
     const error = new Error("Cargo sync was cancelled because the signed-in account changed.");
@@ -50,6 +63,7 @@ function evidenceForm(file, submissionId) {
 }
 
 async function syncOne(row, { actorId, generation, api, files, signal }) {
+  const isCurrent = () => isCurrentCargoActor(actorId) && sessionGeneration === generation;
   ensureCurrent(actorId, generation);
   try {
     if (typeof api.getExecution === "function") {
@@ -57,7 +71,7 @@ async function syncOne(row, { actorId, generation, api, files, signal }) {
       ensureCurrent(actorId, generation);
       const view = current?.data ?? current;
       if (!view?.manifest?.manifest_ref?.hash || view.manifest.manifest_ref.hash !== row.manifestHash) {
-        await updateCargoDraft(actorId, row.submissionId, { syncState: "STALE_REVIEW", lastErrorCode: "CARGO_MANIFEST_STALE" });
+        await updateCargoDraft(actorId, row.submissionId, { syncState: "STALE_REVIEW", lastErrorCode: "CARGO_MANIFEST_STALE" }, isCurrent);
         ensureCurrent(actorId, generation);
         return;
       }
@@ -72,7 +86,7 @@ async function syncOne(row, { actorId, generation, api, files, signal }) {
         continue;
       }
       if (!evidence.uri) {
-        await updateCargoDraft(actorId, row.submissionId, { syncState: "TERMINAL_REVIEW", lastErrorCode: "CARGO_FILE_REFERENCE_MISSING" });
+        await updateCargoDraft(actorId, row.submissionId, { syncState: "TERMINAL_REVIEW", lastErrorCode: "CARGO_FILE_REFERENCE_MISSING" }, isCurrent);
         ensureCurrent(actorId, generation);
         return;
       }
@@ -80,7 +94,7 @@ async function syncOne(row, { actorId, generation, api, files, signal }) {
         const info = await files.getInfo(evidence.uri);
         ensureCurrent(actorId, generation);
         if (info?.exists === false) {
-          await updateCargoDraft(actorId, row.submissionId, { syncState: "TERMINAL_REVIEW", lastErrorCode: "CARGO_FILE_MISSING" });
+          await updateCargoDraft(actorId, row.submissionId, { syncState: "TERMINAL_REVIEW", lastErrorCode: "CARGO_FILE_MISSING" }, isCurrent);
           ensureCurrent(actorId, generation);
           return;
         }
@@ -94,7 +108,7 @@ async function syncOne(row, { actorId, generation, api, files, signal }) {
       const updatedEvidence = { ...evidence, evidenceId, uploadState: "UPLOADED" };
       uploaded.push(updatedEvidence);
       const nextEvidence = row.evidence.map((item, itemIndex) => itemIndex === index ? updatedEvidence : item);
-      await updateCargoDraft(actorId, row.submissionId, { evidence: nextEvidence, syncState: "DEVICE_SAVED" });
+      await updateCargoDraft(actorId, row.submissionId, { evidence: nextEvidence, syncState: "DEVICE_SAVED" }, isCurrent);
       ensureCurrent(actorId, generation);
       row.evidence[index] = updatedEvidence;
     }
@@ -107,19 +121,19 @@ async function syncOne(row, { actorId, generation, api, files, signal }) {
     const receipt = { ...row.draft, submission_id: row.submissionId, manifest_ref: row.manifestRef, lines };
     const result = await api.submitReceipt(row.tripId, receipt, actorId, signal);
     ensureCurrent(actorId, generation);
-    await markCargoSubmitted(actorId, row.submissionId, result?.data ?? result ?? {});
+    await markCargoSubmitted(actorId, row.submissionId, result?.data ?? result ?? {}, isCurrent);
     ensureCurrent(actorId, generation);
   } catch (error) {
     if (error?.code === "CARGO_SYNC_CANCELLED") return;
     const status = statusOf(error);
     if (status === 409) {
-      await updateCargoDraft(actorId, row.submissionId, { syncState: "STALE_REVIEW", lastErrorCode: error?.code || "CARGO_CONFLICT" });
+      await updateCargoDraft(actorId, row.submissionId, { syncState: "STALE_REVIEW", lastErrorCode: error?.code || "CARGO_CONFLICT" }, isCurrent);
       ensureCurrent(actorId, generation);
     } else if (status === 401) {
-      await updateCargoDraft(actorId, row.submissionId, { syncState: "REAUTHENTICATION_REQUIRED", lastErrorCode: "CARGO_REAUTH_REQUIRED" });
+      await updateCargoDraft(actorId, row.submissionId, { syncState: "REAUTHENTICATION_REQUIRED", lastErrorCode: "CARGO_REAUTH_REQUIRED" }, isCurrent);
       ensureCurrent(actorId, generation);
     } else if (status === 403 || status === 404) {
-      await updateCargoDraft(actorId, row.submissionId, { syncState: "TERMINAL_REVIEW", lastErrorCode: error?.code || `HTTP_${status}` });
+      await updateCargoDraft(actorId, row.submissionId, { syncState: "TERMINAL_REVIEW", lastErrorCode: error?.code || `HTTP_${status}` }, isCurrent);
       ensureCurrent(actorId, generation);
     }
     // Network, 429, 5xx, disabled 503, and unknown failures retain DEVICE_SAVED.
@@ -138,7 +152,30 @@ export async function syncCargoDrafts({ actorId, api, files = {} }) {
       const rows = await listCargoDrafts(actorId);
       ensureCurrent(actorId, generation);
       for (const row of rows) {
-        if (["FLEET_SAVED", "STALE_REVIEW", "TERMINAL_REVIEW"].includes(row.syncState)) continue;
+        if (row.syncState === "FLEET_SAVED") {
+          if (typeof api.getExecution === "function" && row.receiptId) {
+            try {
+              ensureCurrent(actorId, generation);
+              const current = await api.getExecution(row.tripId, actorId, controller.signal);
+              ensureCurrent(actorId, generation);
+              const view = current?.data ?? current;
+              const stageReceipt = row.draft?.stage === "DELIVERY" ? view?.delivery_receipt : view?.pickup_receipt;
+              if (stageReceipt?.receipt_id === row.receiptId) {
+                const acknowledged = view?.feedback?.state === "ACKNOWLEDGED";
+                await updateCargoDraft(actorId, row.submissionId, {
+                  partnerReceived: acknowledged,
+                  feedbackState: view?.feedback?.state ?? null,
+                }, () => isCurrentCargoActor(actorId) && sessionGeneration === generation);
+                ensureCurrent(actorId, generation);
+              }
+            } catch (error) {
+              if (error?.code === "CARGO_SYNC_CANCELLED") throw error;
+              // The Task 7 view may be unavailable; keep the last truthful local receipt state.
+            }
+          }
+          continue;
+        }
+        if (["STALE_REVIEW", "TERMINAL_REVIEW"].includes(row.syncState)) continue;
         ensureCurrent(actorId, generation);
         await syncOne(row, { actorId, generation, api, files, signal: controller.signal });
         ensureCurrent(actorId, generation);
@@ -166,8 +203,8 @@ export async function getCargoSyncState(actorId, tripId) {
   return {
     drafts: matches,
     deviceSaved: matches.length > 0,
-    fleetSaved: matches.some((row) => row.fleetSaved),
-    partnerReceived: matches.some((row) => row.partnerReceived),
+    fleetSaved: Boolean(last?.fleetSaved),
+    partnerReceived: Boolean(last?.partnerReceived),
     state: last?.syncState ?? "NONE",
     lastErrorCode: last?.lastErrorCode ?? null,
   };
