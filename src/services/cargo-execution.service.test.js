@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { submitCargoReceipt, recordSourceDecision, clearCargoDeparture, getCargoExecution, createCargoExecutionService } from './cargo-execution.service';
+import { submitCargoReceipt, recordSourceDecision, clearCargoDeparture, getCargoExecution, recordManualCargoDecision, recordCargoEvidenceUpload, createCargoExecutionService } from './cargo-execution.service';
 
 describe('cargo execution runtime remains disabled', () => {
   afterEach(() => vi.unstubAllEnvs());
-  it.each([submitCargoReceipt, recordSourceDecision, clearCargoDeparture, getCargoExecution])('refuses runtime access without authority before any database call', async operation => {
+  it.each([submitCargoReceipt, recordSourceDecision, clearCargoDeparture, getCargoExecution, recordManualCargoDecision, recordCargoEvidenceUpload])('refuses runtime access without authority before any database call', async operation => {
     await expect(operation(1, {}, {})).rejects.toMatchObject({ status: 503, code: 'CARGO_CONFIGURATION_REQUIRED' });
   });
   it('does not turn an arbitrary config object into an operational provider', () => {

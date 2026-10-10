@@ -4,7 +4,9 @@ import { writeAuditRequired } from '@/lib/audit';
 import { receiptSchema, decisionSchema, validateReceiptAgainstManifest } from '@/lib/cargo/contracts';
 import { deriveCargoState, matchesCargoAuthorityProof } from '@/lib/cargo/execution-state';
 import { cargoError } from './cargo-manifest.service';
-import { assertCargoStorageConfiguration, assertCargoDriver, loadExecutionForUpdate, insertReceipt, appendCargoDecision, cargoPayloadHash } from './cargo-execution.repository';
+import { assertCargoStorageConfiguration, assertCargoDriver, loadExecutionForUpdate, insertReceipt, appendCargoDecision, appendManualCargoDecision, cargoPayloadHash } from './cargo-execution.repository';
+import { manualDecisionSchema, manualAuthorityProofSchema } from '@/lib/cargo/manual-decision';
+import { rolesFor } from '@/lib/auth/permissions';
 
 const fail = (code, message, status = 409) => { throw cargoError(code, message, status); };
 const disabled = async () => fail('CARGO_CONFIGURATION_REQUIRED', 'Cargo execution authority is not configured.', 503);
@@ -12,6 +14,8 @@ export const submitCargoReceipt = disabled;
 export const recordSourceDecision = disabled;
 export const clearCargoDeparture = disabled;
 export const getCargoExecution = disabled;
+export const recordManualCargoDecision = disabled;
+export const recordCargoEvidenceUpload = disabled;
 const json = value => JSON.parse(JSON.stringify(value));
 const parse = (schema, input) => { const result = schema.safeParse(input); if (!result.success) fail('CARGO_INVALID_INPUT', 'Invalid cargo command.', 400); return result.data; };
 const clearanceSchema = z.object({ receipt_id: z.string().uuid(), expected_version: z.number().int().positive(), reason: z.string().trim().min(1).max(2000) }).strict();
@@ -21,7 +25,7 @@ const beforeCustody = status => ['Trip Started', 'At Pickup'].includes(status);
 const atDelivery = status => ['Drop-off', 'Arrived'].includes(status);
 
 /** Explicit simulated fixture seam. No operational provider is installed. */
-export function createCargoExecutionService({ db, config, authorizeFleet, authorizeStaffRead, resolveSafetyProof, resolveReceiverProof } = {}) {
+export function createCargoExecutionService({ db, config, authorizeFleet, authorizeStaffRead, authorizeManualRecord, resolveManualAuthority, resolveSafetyProof, resolveReceiverProof } = {}) {
   const configured = () => {
     assertCargoStorageConfiguration(config);
     if (config.simulated !== true || process.env.NODE_ENV === 'production' || !['test', 'development'].includes(config.environment) ||
@@ -45,6 +49,13 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
       if (!trip) fail('CARGO_TRIP_NOT_FOUND', 'Cargo trip was not found.', 404);
       await tx.query('SELECT dispatch_id FROM dispatchschedules WHERE dispatch_id=$1 FOR UPDATE', [trip.dispatch_id]);
       if (mode === 'driver') await assertCargoDriver(tripId, actor, tx);
+      if (mode === 'manual') {
+        if (!config.manualDecisionApprovalRef?.trim() || !authorizeManualRecord || !resolveManualAuthority) fail('CARGO_CONFIGURATION_REQUIRED', 'Manual source authority is not configured.', 503);
+        if (!rolesFor('cargo','manual_decision').includes(actor?.user?.role) || actor?.user?.role === 'driver' || !Number.isSafeInteger(actor?.user?.employeeId)) fail('CARGO_SOURCE_FORBIDDEN', 'Approved manual recording authority is required.', 403);
+        const employee = (await tx.query('SELECT employee_id FROM employees WHERE employee_id=$1 FOR SHARE', [actor.user.employeeId])).rows[0];
+        if (!employee || await authorizeManualRecord({ session: actor, trip, tx, approvalRef: config.manualDecisionApprovalRef }) !== true) fail('CARGO_SOURCE_FORBIDDEN', 'Approved manual recording authority is required.', 403);
+        tx.cargoManualRecordApproved = true;
+      }
       if (mode === 'staffRead') {
         const employee = Number.isSafeInteger(actor?.user?.employeeId) && (await tx.query('SELECT employee_id FROM employees WHERE employee_id=$1 FOR SHARE', [actor.user.employeeId])).rows[0];
         if (!employee || !config.staffReadApprovalRef?.trim() || !authorizeStaffRead || await authorizeStaffRead({ session: actor, tripId, trip, tx, approvalRef: config.staffReadApprovalRef }) !== true) fail('CARGO_FORBIDDEN', 'Approved staff cargo read authority is required.', 403);
@@ -66,6 +77,10 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
     const receipts = (await tx.query('SELECT DISTINCT ON (stage) * FROM cargo_receipts WHERE execution_id=$1 ORDER BY stage,execution_version DESC LIMIT 2', [execution.execution_id])).rows;
     const pickup = receipts.find(row => row.stage === 'PICKUP') ?? null, delivery = receipts.find(row => row.stage === 'DELIVERY') ?? null;
     const decision = pickup ? (await tx.query('SELECT * FROM cargo_decisions WHERE receipt_id=$1 ORDER BY execution_version DESC LIMIT 1', [pickup.receipt_id])).rows[0] ?? null : null;
+    if (decision) {
+      const provenance = (await tx.query('SELECT to_jsonb(p) AS provenance FROM cargo_manual_decision_provenance p WHERE decision_id=$1', [decision.decision_id])).rows[0]?.provenance;
+      if (provenance) decision.manual_provenance = provenance;
+    }
     const clearance = (await tx.query('SELECT * FROM cargo_fleet_clearances WHERE execution_id=$1 ORDER BY version DESC LIMIT 1', [execution.execution_id])).rows[0] ?? null;
     return { pickup, delivery, decision, clearance };
   }
@@ -91,11 +106,12 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
   }
   async function save(execution, kind, key, hash, record, actor, tx, fresh) {
     const response = await view(execution, tx, fresh), commandId = randomUUID();
+    if (kind === 'EVIDENCE') response.evidence_upload = { evidence_id: record.evidence_id };
     const audit = await writeAuditRequired(tx, null, kind === 'DECISION' ? null : actor, { action: `cargo_${kind.toLowerCase()}`, resource: 'cargo_execution', resourceId: execution.trip_id,
       newValues: { command_id: commandId, execution_id: execution.execution_id, kind, source: kind === 'DECISION' ? execution.manifest.source_ref.system : 'FLEET' } });
     if (!audit?.log_id) throw new Error('Required cargo audit was not persisted.');
-    await tx.query(`INSERT INTO cargo_execution_commands(command_id,execution_id,command_kind,command_key,payload_hash,receipt_id,decision_id,clearance_id,audit_log_id,response)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [commandId, execution.execution_id, kind, key, hash, record.receipt_id, kind === 'DECISION' ? record.decision_id : null, kind === 'CLEARANCE' ? record.clearance_id : null, audit.log_id, JSON.stringify(response)]);
+    await tx.query(`INSERT INTO cargo_execution_commands(command_id,execution_id,command_kind,command_key,payload_hash,receipt_id,decision_id,clearance_id,audit_log_id,response,evidence_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [commandId, execution.execution_id, kind, key, hash, kind === 'EVIDENCE' ? null : record.receipt_id, ['DECISION','MANUAL_DECISION'].includes(kind) ? record.decision_id : null, kind === 'CLEARANCE' ? record.clearance_id : null, audit.log_id, JSON.stringify(response), kind === 'EVIDENCE' ? record.evidence_id : null]);
     return response;
   }
   const updated = async (execution, tx) => (await tx.query('SELECT * FROM cargo_trip_executions WHERE execution_id=$1', [execution.execution_id])).rows[0];
@@ -103,6 +119,39 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
     return matchesCargoAuthorityProof(candidate, kind, receipt) && candidate.approval_ref === approvalRef && candidate.simulated === true && candidate.method === 'simulated-fixture' ? candidate : null;
   }
   return {
+    manualDecisionAvailable: () => Boolean(config.manualDecisionApprovalRef?.trim() && authorizeManualRecord && resolveManualAuthority),
+    recordCargoEvidenceUpload: (tripId, evidenceId, session) => transact(tripId, session, 'driver', async ({ execution, tx }) => {
+      requireExecution(execution);
+      if (!z.string().uuid().safeParse(evidenceId).success) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo evidence was not found.', 404);
+      const row = (await tx.query("SELECT * FROM cargo_evidence WHERE evidence_id=$1 AND execution_id=$2 AND state IN ('READY','ATTACHED')", [evidenceId,execution.execution_id])).rows[0];
+      if (!row || row.uploader_employee_id !== session.user.employeeId || row.uploader_driver_id !== session.user.driverId) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo evidence was not found.', 404);
+      const old = await replay(execution, 'EVIDENCE', evidenceId, row.content_hash, tx);
+      if (old) return old;
+      return save(execution, 'EVIDENCE', evidenceId, row.content_hash, row, session, tx);
+    }),
+    recordManualCargoDecision: (tripId, input, session) => transact(tripId, session, 'manual', async ({ trip, execution, tx }) => {
+      requireExecution(execution);
+      const payload = parse(manualDecisionSchema, input);
+      const receipt = (await tx.query('SELECT * FROM cargo_receipts WHERE receipt_id=$1 AND execution_id=$2', [payload.receipt_id,execution.execution_id])).rows[0];
+      if (!receipt) fail('CARGO_RECEIPT_NOT_FOUND', 'Cargo receipt was not found.', 404);
+      const hash = cargoPayloadHash({ payload, employeeId: session.user.employeeId });
+      const old = await replay(execution, 'MANUAL_DECISION', payload.event_id, hash, tx);
+      if (old) return old;
+      if (!beforeCustody(trip.trip_status)) fail('CARGO_CUSTODY_LOCKED', 'Cargo custody prevents a new manual decision.');
+      const current = await rowsFor(execution, tx);
+      if (receipt.stage !== 'PICKUP' || current.pickup?.receipt_id !== receipt.receipt_id) fail('CARGO_RECEIPT_STALE', 'Manual decisions require the latest pickup.');
+      if (payload.manifest_hash !== receipt.manifest_hash || payload.manifest_hash !== execution.manifest.manifest_ref.hash) fail('CARGO_MANIFEST_CONFLICT', 'Decision manifest does not match receipt.');
+      const resolved = manualAuthorityProofSchema.safeParse(await resolveManualAuthority({ input: payload, session, trip, execution, receipt, tx, approvalRef: config.manualDecisionApprovalRef }));
+      if (!resolved.success) fail('CARGO_SOURCE_FORBIDDEN', 'Independently verified source communication is required.', 403);
+      const authority = resolved.data;
+      if (authority.approval_ref !== config.manualDecisionApprovalRef || cargoPayloadHash(authority.source_ref) !== cargoPayloadHash(execution.manifest.source_ref) || authority.receipt_id !== receipt.receipt_id || authority.manifest_hash !== payload.manifest_hash || authority.action !== payload.action || authority.reason !== payload.reason || authority.approver_identity !== payload.approver_identity || authority.approver_reference !== payload.approver_reference || authority.communicated_at !== payload.communicated_at || cargoPayloadHash(authority.evidence_ids) !== cargoPayloadHash(payload.communication_evidence_ids)) {
+        fail('CARGO_SOURCE_FORBIDDEN', 'Source communication does not authorize this decision.', 403);
+      }
+      const evidence = (await tx.query("SELECT evidence_id FROM cargo_evidence WHERE execution_id=$1 AND evidence_id=ANY($2::uuid[]) AND state IN ('READY','ATTACHED') FOR SHARE", [execution.execution_id,authority.evidence_ids])).rows;
+      if (evidence.length !== authority.evidence_ids.length) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo communication evidence was not found.', 404);
+      const row = await appendManualCargoDecision(payload, session, authority, tx);
+      return save(await updated(execution, tx), 'MANUAL_DECISION', payload.event_id, hash, row, session, tx);
+    }),
     submitCargoReceipt: (tripId, input, session) => transact(tripId, session, 'driver', async ({ tx, trip, createExecution }) => {
       const payload = parse(receiptSchema, input), execution = await createExecution();
       const hash = cargoPayloadHash({ payload, employeeId: session.user.employeeId, driverId: session.user.driverId });

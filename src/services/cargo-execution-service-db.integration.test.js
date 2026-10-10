@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
-const apiFixture=vi.hoisted(()=>({run:null}));
-vi.mock('@/lib/api/utils',()=>({resolveIdentity:async()=>({user:{role:'driver',driverId:1,employeeId:1}}),AuthError:class extends Error {constructor(message,status,code){super(message);Object.assign(this,{status,code});}},ok:data=>Response.json(data),handleError:error=>Response.json({error:error.message,code:error.code},{status:error.status??500})}));
-vi.mock('@/lib/api/ownership',()=>({assertTripOwnership:async(session,tripId)=>{const trip=(await apiFixture.run(tx=>tx.query('SELECT * FROM trips WHERE trip_id=$1',[tripId]))).rows[0];if(!trip||trip.driver_id!==session.user.driverId)throw Object.assign(new Error('Not found'),{status:404});return trip;}}));
+const apiFixture=vi.hoisted(()=>({run:null,session:{user:{role:'driver',driverId:1,employeeId:1}}}));
+vi.mock('@/lib/api/utils',()=>({resolveIdentity:async()=>apiFixture.session,AuthError:class extends Error {constructor(message,status,code){super(message);Object.assign(this,{status,code});}},ok:data=>Response.json(data),handleError:error=>Response.json({error:error.message,code:error.code},{status:error.status??500})}));
+vi.mock('@/lib/api/ownership',()=>({assertTripOwnership:async(session,tripId)=>{const trip=(await apiFixture.run(tx=>tx.query('SELECT * FROM trips WHERE trip_id=$1',[tripId]))).rows[0];if(!trip||(session.user.role==='driver'&&trip.driver_id!==session.user.driverId))throw Object.assign(new Error('Not found'),{status:404});return trip;}}));
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
@@ -18,7 +18,7 @@ const manifest = { manifest_ref: { kind: 'REQUEST', id: randomUUID(), revision: 
 const receipt = (quantity = '9', stage = 'PICKUP') => ({ submission_id: randomUUID(), manifest_ref: manifest.manifest_ref, stage, observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: quantity, condition: 'INTACT', issue_code: null, remarks: '', evidence_ids: [] }], receiver_confirmation_ref: null });
 const decision = view => ({ event_id: randomUUID(), receipt_id: view.pickup_receipt.receipt_id, manifest_hash: manifest.manifest_ref.hash, action: 'ACCEPT_OBSERVED', reason: 'Simulated owner accepts the count' });
 const proof = (kind, row) => ({ kind, receipt_id: row.receipt_id, manifest_hash: row.manifest_hash, approval_ref: kind === 'POST_LOAD_SECUREMENT' ? config.safetyApprovalRef : config.receivingApprovalRef, method: 'simulated-fixture', reference: randomUUID(), simulated: true });
-let pool, service, migration;
+let pool, service, migration, manualMigration;
 const db = { withTransaction: async work => {
   const client = await pool.connect();
   try { await client.query('BEGIN'); await client.query(`SET LOCAL search_path TO ${schema},pg_catalog`); await client.query("SET LOCAL statement_timeout='10s'; SET LOCAL lock_timeout='5s'"); const result = await work({ query: (...args) => client.query(...args) }); await client.query('COMMIT'); return result; }
@@ -29,6 +29,18 @@ apiFixture.run=run;
 const makeService = overrides => createCargoExecutionService({ db, config, authorizeFleet: async ({ session }) => session?.user?.role === 'dispatcher', resolveSafetyProof: async ({ receipt }) => proof('POST_LOAD_SECUREMENT', receipt), resolveReceiverProof: async ({ receipt }) => proof('RECEIVER_CONFIRMATION', receipt), ...overrides });
 const stage = status => run(tx => tx.query('UPDATE trips SET trip_status=$1 WHERE trip_id=1', [status]));
 const prepare = async () => { await stage('At Pickup'); return service.submitCargoReceipt(1, receipt(), actor); };
+
+const communications = new Map();
+const manualConfig = { ...config, manualDecisionApprovalRef: 'simulated:manual' };
+const makeManualService = overrides => makeService({ config: manualConfig, authorizeManualRecord: async ({ session }) => session.user.role === 'dispatcher', resolveManualAuthority: async ({ input }) => communications.get(input.communication_evidence_ids[0]), ...overrides });
+async function manualInput(picked, changes = {}) {
+  const evidenceId = randomUUID(), submissionId = randomUUID();
+  await run(tx => tx.query(`INSERT INTO cargo_evidence(evidence_id,execution_id,uploader_employee_id,uploader_driver_id,submission_id,object_key,mime_type,byte_length,content_hash,state)
+    VALUES($1,$2,1,1,$3,$4,'image/jpeg',3,$5,'READY')`, [evidenceId,picked.execution_id,submissionId,`${picked.execution_id}/${submissionId}/${evidenceId}.jpg`,'c'.repeat(64)]));
+  const input = { ...decision(picked), approver_identity: 'Simulated purchasing owner', approver_reference: 'simulated:source-owner-42', communicated_at: '2026-10-09T09:00:00Z', communication_evidence_ids: [evidenceId], ...changes };
+  communications.set(evidenceId, { kind:'SOURCE_COMMUNICATION', method:'simulated-fixture', reference:`simulated:communication:${evidenceId}`, approval_ref:manualConfig.manualDecisionApprovalRef, source_ref:manifest.source_ref, receipt_id:input.receipt_id, manifest_hash:input.manifest_hash, action:input.action, reason:input.reason, approver_identity:input.approver_identity, approver_reference:input.approver_reference, communicated_at:input.communicated_at, evidence_ids:[evidenceId], simulated:true });
+  return input;
+}
 
 describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with real isolated transactions', () => {
   beforeAll(async () => {
@@ -51,6 +63,8 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
       await tx.query(readFileSync('supabase/migrations/159_cargo_execution_storage.sql', 'utf8').replaceAll('public.', `${schema}.`).replaceAll('storage.', `${storage}.`));
       migration = readFileSync('supabase/migrations/160_cargo_execution_commands.sql', 'utf8').replaceAll('public.', `${schema}.`);
       await tx.query(migration);
+      manualMigration = readFileSync('supabase/migrations/161_cargo_manual_provenance.sql', 'utf8').replaceAll('public.', `${schema}.`);
+      await tx.query(manualMigration);
     });
     service = makeService();
   }, 30000);
@@ -58,8 +72,84 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
 
   it('reruns the candidate safely and keeps command snapshots private', async () => {
     await run(tx => tx.query(migration));
+    await run(tx => tx.query(manualMigration));
     const row = (await pool.query(`SELECT relrowsecurity,has_table_privilege('anon',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') anon,has_table_privilege('authenticated',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') authenticated FROM pg_class WHERE oid=$1::regclass`, [`${schema}.cargo_execution_commands`])).rows[0];
     expect(row).toEqual({ relrowsecurity: true, anon: false, authenticated: false });
+    const provenance=(await pool.query(`SELECT relrowsecurity,has_table_privilege('anon',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') anon,has_table_privilege('authenticated',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') authenticated FROM pg_class WHERE oid=$1::regclass`,[`${schema}.cargo_manual_decision_provenance`])).rows[0];
+    expect(provenance).toEqual({relrowsecurity:true,anon:false,authenticated:false});
+  });
+  it('durably records independently resolved manual provenance and exact replay after later events',async()=>{
+    const picked=await prepare(),input=await manualInput(picked),manual=makeManualService();
+    const api=createCargoApi({service:manual,simulated:true,environment:'test',approvalRef:'simulated:api',authorizeStaff:async()=>true});
+    apiFixture.session=fleet;
+    let original;
+    try {
+      const response=await api.manualDecision(new Request('http://localhost/api/trips/1/cargo/manual-decision',{method:'POST',body:JSON.stringify(input)}),{params:Promise.resolve({id:'1'})});
+      expect(response.status).toBe(200);original=(await response.json()).data;
+    } finally { apiFixture.session=actor; }
+    expect(original.source_decision.manual_provenance).toMatchObject({recording_employee_id:2,approver_identity:input.approver_identity,approver_reference:input.approver_reference,communication_evidence_ids:input.communication_evidence_ids,source_system:source.system,source_organization_id:source.organization_id});
+    const stored=(await run(tx=>tx.query('SELECT * FROM cargo_manual_decision_provenance WHERE decision_id=$1',[original.source_decision.decision_id]))).rows[0];
+    expect(stored.authority_proof.reference).toBe(communications.get(input.communication_evidence_ids[0]).reference);
+    const audit=(await run(tx=>tx.query('SELECT a.* FROM audit_logs a JOIN cargo_execution_commands c ON c.audit_log_id=a.log_id WHERE c.command_key=$1',[input.event_id]))).rows[0];
+    expect(audit.employee_id).toBe(2);expect(audit.action).toBe('cargo_manual_decision');expect(original.source_decision.principal_ref).toBe(input.approver_reference);
+    await expect(run(tx=>tx.query(`INSERT INTO cargo_manual_decision_provenance SELECT decision_id,execution_id,receipt_id,recording_employee_id,source_system,source_organization_id,external_request_id,'forged owner',approver_reference,communicated_at,communication_evidence_ids,authority_reference,authority_approval_ref,authority_proof,command_payload,created_at FROM cargo_manual_decision_provenance WHERE decision_id=$1`,[original.source_decision.decision_id]))).rejects.toMatchObject({code:'23514'});
+    await expect(run(async tx=>{
+      const commandId=randomUUID();
+      const auditRow=(await tx.query("INSERT INTO audit_logs(action,resource,resource_id,employee_id,new_values) VALUES('cargo_manual_decision','cargo_execution',1,1,$1) RETURNING log_id",[JSON.stringify({command_id:commandId})])).rows[0];
+      await tx.query(`INSERT INTO cargo_execution_commands(command_id,execution_id,command_kind,command_key,payload_hash,receipt_id,decision_id,clearance_id,audit_log_id,response,evidence_id) SELECT $1,execution_id,command_kind,command_key,payload_hash,receipt_id,decision_id,clearance_id,$2,response,evidence_id FROM cargo_execution_commands WHERE command_key=$3`,[commandId,auditRow.log_id,input.event_id]);
+    })).rejects.toMatchObject({code:'23514'});
+    await service.submitCargoReceipt(1,receipt('10'),actor);await stage('En Route');
+    expect(await manual.recordManualCargoDecision(1,input,fleet)).toEqual(original);
+    await expect(manual.recordManualCargoDecision(1,{...input,approver_reference:'changed-owner'},fleet)).rejects.toMatchObject({code:'CARGO_REPLAY_CONFLICT',status:409});
+    await expect(run(tx=>tx.query('UPDATE cargo_manual_decision_provenance SET approver_identity=$1 WHERE decision_id=$2',['changed',original.source_decision.decision_id]))).rejects.toMatchObject({code:'55000'});
+  });
+  it('refuses caller communication IDs without independent proof and rejects foreign source/evidence',async()=>{
+    const picked=await prepare(),input=await manualInput(picked);
+    await expect(makeManualService({resolveManualAuthority:undefined}).recordManualCargoDecision(1,input,fleet)).rejects.toMatchObject({status:503});
+    await expect(makeManualService({resolveManualAuthority:async()=>null}).recordManualCargoDecision(1,input,fleet)).rejects.toMatchObject({status:403});
+    await expect(makeManualService().recordManualCargoDecision(1,{...input,action:'WAIT'},fleet)).rejects.toMatchObject({status:403});
+    await expect(makeManualService({authorizeManualRecord:async()=>false}).recordManualCargoDecision(1,input,{user:{role:'admin',employeeId:2}})).rejects.toMatchObject({status:403});
+    await expect(makeManualService({resolveManualAuthority:async()=>({...communications.get(input.communication_evidence_ids[0]),source_ref:{...manifest.source_ref,organization_id:'foreign'}})}).recordManualCargoDecision(1,input,fleet)).rejects.toMatchObject({status:403});
+    await expect(makeManualService().recordManualCargoDecision(1,input,actor)).rejects.toMatchObject({status:403});
+    const foreignExecution=randomUUID(),foreignEvidence=randomUUID(),submission=randomUUID();
+    await run(async tx=>{
+      await tx.query('INSERT INTO cargo_trip_executions(execution_id,trip_id,request_manifest_id,manifest) VALUES($1,2,$2,$3)',[foreignExecution,manifest.manifest_ref.id,JSON.stringify(manifest)]);
+      await tx.query(`INSERT INTO cargo_evidence(evidence_id,execution_id,uploader_employee_id,uploader_driver_id,submission_id,object_key,mime_type,byte_length,content_hash,state) VALUES($1,$2,2,2,$3,$4,'image/jpeg',3,$5,'READY')`,[foreignEvidence,foreignExecution,submission,`${foreignExecution}/${submission}/${foreignEvidence}.jpg`,'d'.repeat(64)]);
+    });
+    const foreignInput={...input,communication_evidence_ids:[foreignEvidence]};
+    communications.set(foreignEvidence,{...communications.get(input.communication_evidence_ids[0]),evidence_ids:[foreignEvidence]});
+    await expect(makeManualService().recordManualCargoDecision(1,foreignInput,fleet)).rejects.toMatchObject({status:404});
+  });
+  it.each(['audit_logs','cargo_feedback_outbox','cargo_manual_decision_provenance','cargo_execution_commands'])('rolls manual provenance, decision, inbox, version and feedback back if required %s fails',async table=>{
+    const picked=await prepare(),input=await manualInput(picked);
+    const failing=makeManualService({db:{withTransaction:work=>db.withTransaction(tx=>work({query:(sql,params)=>sql.includes(`INSERT INTO ${table}`)?Promise.reject(new Error('required manual write failure')):tx.query(sql,params)}))}});
+    await expect(failing.recordManualCargoDecision(1,input,fleet)).rejects.toThrow('required manual write failure');
+    expect((await run(tx=>tx.query('SELECT * FROM cargo_decisions WHERE event_id=$1',[input.event_id]))).rows).toHaveLength(0);
+    expect((await run(tx=>tx.query('SELECT * FROM cargo_decision_inbox WHERE event_id=$1',[input.event_id]))).rows).toHaveLength(0);
+    expect((await service.getCargoExecution(1,actor)).version).toBe(picked.version);
+    expect((await run(tx=>tx.query('SELECT * FROM cargo_feedback_outbox WHERE receipt_id=$1 AND event_type=$2',[input.receipt_id,'SOURCE_DECISION_RECORDED']))).rows).toHaveLength(0);
+    expect((await run(tx=>tx.query('SELECT * FROM cargo_manual_decision_provenance WHERE receipt_id=$1',[input.receipt_id]))).rows).toHaveLength(0);
+  });
+  it('persists the evidence upload view and ID once and replays after later events',async()=>{
+    const picked=await prepare(),input=await manualInput(picked),evidenceId=input.communication_evidence_ids[0];
+    const api=createCargoApi({service,simulated:true,environment:'test',approvalRef:'simulated:api',storeEvidence:async()=>({evidence_id:evidenceId})});
+    const idForEvidence=(await run(tx=>tx.query('SELECT submission_id FROM cargo_evidence WHERE evidence_id=$1',[evidenceId]))).rows[0].submission_id;
+    const upload=()=>{
+      const form=new FormData();form.append('submission_id',idForEvidence);form.append('file',new File([new Uint8Array([255,216,255])],'communication.jpg',{type:'image/jpeg'}));
+      return api.evidence(new Request('http://localhost/api/trips/1/cargo/evidence',{method:'POST',body:form}),{params:Promise.resolve({id:'1'})});
+    };
+    const response=await upload();expect(response.status).toBe(200);const original=(await response.json()).data;
+    expect(original).toMatchObject({execution_id:picked.execution_id,evidence_upload:{evidence_id:evidenceId}});
+    await service.submitCargoReceipt(1,receipt('10'),actor);
+    expect(await (await upload()).json()).toEqual({data:original});
+    expect(JSON.stringify(original)).not.toMatch(/https?:\/\//);
+  });
+  it.each(['audit_logs','cargo_execution_commands'])('keeps READY upload tracking when its required %s write fails',async table=>{
+    const picked=await prepare(),input=await manualInput(picked),evidenceId=input.communication_evidence_ids[0];
+    const failing=makeService({db:{withTransaction:work=>db.withTransaction(tx=>work({query:(sql,params)=>sql.includes(`INSERT INTO ${table}`)?Promise.reject(new Error('required evidence write failure')):tx.query(sql,params)}))}});
+    await expect(failing.recordCargoEvidenceUpload(1,evidenceId,actor)).rejects.toThrow('required evidence write failure');
+    expect((await run(tx=>tx.query('SELECT state FROM cargo_evidence WHERE evidence_id=$1',[evidenceId]))).rows[0].state).toBe('READY');
+    expect((await run(tx=>tx.query('SELECT * FROM cargo_execution_commands WHERE command_key=$1',[evidenceId]))).rows).toHaveLength(0);
   });
   it('routes actual scoped source duplicates and conflicts without storing URLs',async()=>{
     await stage('At Pickup');

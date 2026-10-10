@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { manifestSchema, receiptSchema, decisionSchema, cargoFeedbackSchema, validateReceiptAgainstManifest } from '@/lib/cargo/contracts';
 import { assertCargoConfiguration, cargoError } from './cargo-manifest.service';
 import { compareQuantities } from '@/lib/cargo/quantities';
+import { manualDecisionSchema, manualAuthorityProofSchema } from '@/lib/cargo/manual-decision';
 
 const fail = (code, message, status = 409) => { throw cargoError(code, message, status); };
 const nonblank = value => typeof value === 'string' && value.trim().length > 0;
@@ -117,6 +118,37 @@ export async function appendCargoDecision(input, principal, tx) {
   const updated = (await tx.query('UPDATE cargo_trip_executions SET version=version+1,updated_at=now() WHERE execution_id=$1 RETURNING *', [execution.execution_id])).rows[0];
   await appendCargoFeedback({ execution: updated, eventType: 'SOURCE_DECISION_RECORDED', receipt, decision: row }, tx);
   return response;
+}
+
+export async function appendManualCargoDecision(input, session, authority, tx) {
+  assertCargoStorageConfiguration(tx?.cargoConfig);
+  const command = parse(manualDecisionSchema, input);
+  const proof = parse(manualAuthorityProofSchema, authority);
+  if (tx.cargoManualRecordApproved !== true || session?.user?.role === 'driver' || !Number.isSafeInteger(session?.user?.employeeId) || proof.approval_ref !== tx.cargoConfig.manualDecisionApprovalRef) {
+    fail('CARGO_SOURCE_FORBIDDEN', 'Independent manual-record authority is required.', 403);
+  }
+  const payload = decisionSchema.parse(Object.fromEntries(['event_id','receipt_id','manifest_hash','action','reason'].map(key => [key, command[key]])));
+  const receipt = (await tx.query('SELECT * FROM cargo_receipts WHERE receipt_id=$1', [payload.receipt_id])).rows[0];
+  if (!receipt) fail('CARGO_RECEIPT_NOT_FOUND', 'Cargo receipt was not found.', 404);
+  const execution = (await tx.query('SELECT * FROM cargo_trip_executions WHERE execution_id=$1 FOR UPDATE', [receipt.execution_id])).rows[0];
+  const source = execution.manifest.source_ref;
+  if (cargoPayloadHash(proof.source_ref) !== cargoPayloadHash(source) || proof.receipt_id !== receipt.receipt_id || proof.manifest_hash !== receipt.manifest_hash) {
+    fail('CARGO_SOURCE_FORBIDDEN', 'Communication authority does not match this source receipt.', 403);
+  }
+  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [JSON.stringify([source.system, source.organization_id, command.event_id])]);
+  if ((await tx.query('SELECT event_id FROM cargo_decision_inbox WHERE source_system=$1 AND source_organization_id=$2 AND event_id=$3', [source.system, source.organization_id, command.event_id])).rows.length) {
+    fail('CARGO_REPLAY_CONFLICT', 'This source event is already recorded.');
+  }
+  const hash = cargoPayloadHash({ payload: command, employeeId: session.user.employeeId });
+  const row = (await tx.query(`INSERT INTO cargo_decisions(receipt_id,action,manifest_hash,source_system,source_organization_id,principal_ref,reason,event_id,payload_hash,payload,execution_version)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`, [receipt.receipt_id, payload.action, payload.manifest_hash, source.system, source.organization_id, proof.approver_reference, payload.reason, payload.event_id, hash, JSON.stringify(payload), execution.version + 1])).rows[0];
+  await tx.query(`INSERT INTO cargo_manual_decision_provenance(decision_id,execution_id,receipt_id,recording_employee_id,source_system,source_organization_id,external_request_id,approver_identity,approver_reference,communicated_at,communication_evidence_ids,authority_reference,authority_approval_ref,authority_proof,command_payload)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, [row.decision_id,execution.execution_id,receipt.receipt_id,session.user.employeeId,source.system,source.organization_id,source.external_request_id,proof.approver_identity,proof.approver_reference,proof.communicated_at,proof.evidence_ids,proof.reference,proof.approval_ref,JSON.stringify(proof),JSON.stringify(command)]);
+  await tx.query(`INSERT INTO cargo_decision_inbox(source_system,source_organization_id,event_id,payload_hash,response,receipt_id,actor_ref,decision_id)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [source.system,source.organization_id,command.event_id,hash,JSON.stringify(row),receipt.receipt_id,proof.approver_reference,row.decision_id]);
+  const updated = (await tx.query('UPDATE cargo_trip_executions SET version=version+1,updated_at=now() WHERE execution_id=$1 RETURNING *', [execution.execution_id])).rows[0];
+  await appendCargoFeedback({ execution: updated, eventType: 'SOURCE_DECISION_RECORDED', receipt, decision: row }, tx);
+  return row;
 }
 
 export async function appendCargoFeedback({ execution, eventType, receipt = null, decision = null }, tx) {

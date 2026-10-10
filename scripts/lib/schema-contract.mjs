@@ -517,6 +517,11 @@ export const tableNames = () => Object.keys(TABLES).sort();
 // The offline gate verifies each exact migration; the live gate still demands
 // these objects exist with the declared protection before release.
 export const PENDING_TABLES = Object.freeze({
+  cargo_manual_decision_provenance: {
+    classification: CLASSIFICATION.PRIVATE,
+    migration: '161_cargo_manual_provenance.sql',
+    reason: 'Candidate unapplied immutable source communication proof and recording-employee provenance, bound to existing decisions and snapshots. Real approvals and activation remain held.',
+  },
   cargo_execution_commands: {
     classification: CLASSIFICATION.PRIVATE,
     migration: '160_cargo_execution_commands.sql',
