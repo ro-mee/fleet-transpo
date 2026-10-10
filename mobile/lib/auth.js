@@ -1,4 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { AppState } from "react-native";
+import NetInfo from "@react-native-community/netinfo";
 import { apiFetch, setSessionExpiredHandler } from "./api";
 import { decodeJwtRole } from "./rbac";
 import {
@@ -12,6 +14,8 @@ import {
 } from "./storage";
 import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { registerDeviceTokenIfAuthorized, unregisterDeviceToken } from "./notifications/device-token";
+import { setCargoSessionActor, syncCargoDrafts } from "./cargo-sync";
+import { cargoApi } from "./cargo-api";
 
 const AuthContext = createContext(null);
 
@@ -26,6 +30,7 @@ export function AuthProvider({ children }) {
       try {
         const [token, stored] = await Promise.all([getAccessToken(), getUser()]);
         if (token && stored) {
+          setCargoSessionActor(stored.employeeId ?? null);
           setUser(stored);
           if (!stored.mustChangePassword) registerDeviceTokenIfAuthorized();
         }
@@ -40,8 +45,30 @@ export function AuthProvider({ children }) {
   // When a refresh fails there is no recovering the session; drop the user so
   // the guard in app/(app)/_layout.js redirects to login.
   useEffect(() => {
-    setSessionExpiredHandler(() => setUser(null));
+    setSessionExpiredHandler(() => {
+      setCargoSessionActor(null);
+      setUser(null);
+    });
   }, []);
+
+  useEffect(() => {
+    const sync = (actorId) => {
+      if (actorId != null && AppState.currentState === "active") {
+        syncCargoDrafts({ actorId: String(actorId), api: cargoApi }).catch(() => {});
+      }
+    };
+    const appState = AppState.addEventListener("change", (state) => {
+      if (state === "active") sync(user?.employeeId);
+    });
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      if (state.isConnected && state.isInternetReachable !== false) sync(user?.employeeId);
+    });
+    if (user?.employeeId != null) sync(user.employeeId);
+    return () => {
+      appState.remove();
+      unsubscribe();
+    };
+  }, [user?.employeeId]);
 
   // `otpCode` is the six-digit code emailed to the account, or one of its
   // recovery codes. The second factor is mandatory: the first call for a phone
@@ -64,6 +91,7 @@ export function AuthProvider({ children }) {
       role: decodeJwtRole(data.accessToken) || "driver",
       mustChangePassword: Boolean(data.driver?.mustChangePassword),
     };
+    setCargoSessionActor(driver.employeeId ?? null);
     await saveUser(driver);
     setUser(driver);
     // Non-prompting push registration — only registers if permission was already granted previously.
@@ -72,6 +100,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signOut = useCallback(async ({ allDevices = false } = {}) => {
+    // Fence cargo work before awaiting logout so no in-flight account A request
+    // can update saved state or continue into a later account B session.
+    setCargoSessionActor(null);
     const refreshToken = await getRefreshToken();
     try {
       if (refreshToken) {

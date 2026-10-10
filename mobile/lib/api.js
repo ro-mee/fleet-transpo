@@ -8,6 +8,7 @@ import {
 import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { enqueueRequest, syncQueue, setApiFetch, hasPendingWork } from "./sync";
 import { isTransportFailure } from "./connectivity-state";
+import { getCargoActorSignal, isCurrentCargoActor } from "./cargo-sync";
 
 // Re-exported so screens share the one classification: transport failures
 // belong to the global connectivity banner, never to inline error surfaces.
@@ -93,13 +94,20 @@ export function setSessionExpiredHandler(fn) {
  * fetch with an abort timeout so a hung request surfaces as a clear error
  * instead of an infinite spinner.
  */
-async function fetchWithTimeout(url, init) {
+async function fetchWithTimeout(url, init, externalSignals = []) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const signals = [init.signal, ...externalSignals].filter(Boolean);
+  const abortFromCaller = () => controller.abort();
+  for (const signal of signals) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", abortFromCaller, { once: true });
+  }
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    for (const signal of signals) signal.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -209,11 +217,19 @@ async function refreshAccessToken() {
  * is bounded by fetchWithTimeout.
  */
 export async function apiFetch(path, options = {}) {
-  const { skipAuth = false, queueOnFailure = true, ...init } = options;
+  const { skipAuth = false, queueOnFailure = true, cargoActorId = null, ...init } = options;
+  const assertCargoActor = () => {
+    if (cargoActorId != null && !isCurrentCargoActor(cargoActorId)) {
+      throw new ApiError("Cargo request cancelled because the signed-in account changed.", 0, "CARGO_SYNC_CANCELLED");
+    }
+  };
 
+  assertCargoActor();
   let token = skipAuth ? null : await getAccessToken();
+  assertCargoActor();
 
   const send = async (t) => {
+    assertCargoActor();
     const headers = {
       "Cache-Control": "no-cache, no-store, must-revalidate",
       "Pragma": "no-cache",
@@ -224,13 +240,17 @@ export async function apiFetch(path, options = {}) {
       headers["Content-Type"] = "application/json";
     }
     if (t) headers.Authorization = `Bearer ${t}`;
-    return fetchWithTimeout(`${BASE_URL}${path}`, { ...init, headers });
+    const actorSignal = cargoActorId == null ? null : getCargoActorSignal(cargoActorId);
+    const response = await fetchWithTimeout(`${BASE_URL}${path}`, { ...init, headers }, [actorSignal]);
+    assertCargoActor();
+    return response;
   };
 
   let res;
   try {
     res = await send(token);
   } catch (e) {
+    assertCargoActor();
     // First-attempt transport failure is connectivity evidence even when the
     // retry below succeeds (repeated retry-then-success IS instability). A
     // final success clears the window decisively, so one blip never sticks.
@@ -271,6 +291,7 @@ export async function apiFetch(path, options = {}) {
       try {
         res = await send(token);
       } catch (retryErr) {
+        assertCargoActor();
         if (isTransportFailure(retryErr)) emitApiEvent({ type: "transport-failure" });
         return await handleNetworkFailure();
       }
@@ -282,15 +303,19 @@ export async function apiFetch(path, options = {}) {
   if (res.status === 401 && !skipAuth) {
     // Access token expired mid-session; refresh once and replay the request.
     const doRefreshReplay = async () => {
+      assertCargoActor();
       let fresh;
       try {
         fresh = await refreshAccessToken();
       } catch (refreshErr) {
+        assertCargoActor();
         if (isTransportFailure(refreshErr)) emitApiEvent({ type: "transport-failure" });
         throw refreshErr;
       }
       try {
-        return await send(fresh);
+        const response = await send(fresh);
+        assertCargoActor();
+        return response;
       } catch (sendErr) {
         if (isTransportFailure(sendErr)) emitApiEvent({ type: "transport-failure" });
         throw sendErr;
@@ -314,6 +339,7 @@ export async function apiFetch(path, options = {}) {
   } catch {
     // Non-JSON response (HTML error page, empty body).
   }
+  assertCargoActor();
 
   if (!res.ok) {
     throw new ApiError(body?.error || `Request failed (${res.status})`, res.status, body?.code ?? null);

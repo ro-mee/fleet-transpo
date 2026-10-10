@@ -36,6 +36,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 import { apiFetch, setSessionExpiredHandler } from "./api";
 import { saveTokens, getRefreshToken } from "./storage";
 import { __clear as clearSecureStore } from "expo-secure-store";
+import { setCargoSessionActor } from "./cargo-sync";
 
 const jsonRes = (status, body) => ({
   ok: status >= 200 && status < 300,
@@ -50,6 +51,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   onExpired.mockClear();
   setSessionExpiredHandler(onExpired);
+  setCargoSessionActor(null);
   global.fetch = vi.fn();
 });
 
@@ -79,6 +81,41 @@ describe("reconnect burst with an expired access token", () => {
     expect(results).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
     expect(refreshCalls).toBe(1);
     expect(onExpired).not.toHaveBeenCalled();
+  });
+});
+
+describe("cargo account fencing", () => {
+  it("refuses a cargo request when its owner is not the signed-in employee", async () => {
+    await seedSession();
+    setCargoSessionActor("employee-B");
+    await expect(apiFetch("/api/trips/7/cargo", { cargoActorId: "employee-A", queueOnFailure: false }))
+      .rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("ignores an A response that arrives after the account changes to B", async () => {
+    await seedSession();
+    setCargoSessionActor("employee-A");
+    let releaseResponse;
+    let fetchSignal;
+    global.fetch = vi.fn((_url, init) => new Promise((resolve) => { releaseResponse = resolve; fetchSignal = init.signal; }));
+    const pending = apiFetch("/api/trips/7/cargo", { cargoActorId: "employee-A", queueOnFailure: false });
+    await vi.waitFor(() => expect(global.fetch).toHaveBeenCalledOnce());
+    setCargoSessionActor("employee-B");
+    expect(fetchSignal.aborted).toBe(true);
+    releaseResponse(jsonRes(200, { data: { secret: "A" } }));
+    await expect(pending).rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
+  });
+
+  it("cancels cargo work when refresh expires the session", async () => {
+    await seedSession();
+    setCargoSessionActor("employee-A");
+    setSessionExpiredHandler(() => setCargoSessionActor(null));
+    global.fetch = vi.fn(async (url) => String(url).includes("/api/mobile/auth/refresh")
+      ? jsonRes(401, { error: "Session expired" })
+      : jsonRes(401, { error: "Unauthorized" }));
+    await expect(apiFetch("/api/trips/7/cargo", { cargoActorId: "employee-A", queueOnFailure: false }))
+      .rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
   });
 });
 
