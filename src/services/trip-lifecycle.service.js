@@ -9,6 +9,7 @@ import { resolveEstimateDistance, estimateFuelCost } from "@/lib/fuel/trip-estim
 import { fuelPrices, fuelSchemaError } from "@/lib/fuel/price-repository";
 import { trailDistanceKm } from "@/lib/geo/geofence";
 import { resolveMonitorAlerts } from "@/services/live-trip-monitor.service";
+import { assertCargoCheckpoint, prepareCargoLifecycle } from './cargo-execution.service';
 
 const TERMINAL = new Set(["Completed", "Cancelled"]);
 
@@ -41,6 +42,7 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
   let odo;
   let completedNow = false;
   const { rows } = await withTransaction(async (tx) => {
+    if (await prepareCargoLifecycle(tx)) await assertCargoCheckpoint({ trip_id: tripId }, { to: 'Completed', session }, tx);
     const initial = await tx.query(
       `SELECT t.*, t.distance AS planned_distance,
               v.mileage AS vehicle_mileage, v.fuel_efficiency_kmpl, v.fuel_type
@@ -323,6 +325,7 @@ export async function cancelTrip(tripId, session, { reason = null } = {}) {
   }
 
   const { rows } = await withTransaction(async (tx) => {
+    if (await prepareCargoLifecycle(tx)) await assertCargoCheckpoint({ ...before[0], trip_id: tripId }, { to: 'Cancelled', session }, tx);
     const r = await tx.query(
       `UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE trip_id = $1 RETURNING *`,
       [tripId]

@@ -1,9 +1,10 @@
-import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, loadRequest } from "@/services/reservation-lifecycle.service";
 import { writeAudit } from "@/lib/audit";
 import { query } from "@/lib/db";
 import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
+import { cargoLifecycleEnabled } from '@/services/cargo-execution.service';
 
 // CANCEL a transportation request.
 //
@@ -19,6 +20,9 @@ export async function PUT(req, { params }) {
 
     const before = await loadRequest(id);
     if (!before) return err("Transportation request not found", 404);
+    if (cargoLifecycleEnabled() && before.load_type === 'Cargo') {
+      throw new AuthError('Cargo request cancellation requires approved source coordination.', 503, 'CARGO_CONFIGURATION_REQUIRED');
+    }
 
     const reason = (body?.reason || "").toString().slice(0, 1000) || null;
 

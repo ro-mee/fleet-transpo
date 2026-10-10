@@ -1,9 +1,11 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { TRIP_WRITABLE } from "../route";
 import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
 import { qualificationRollout } from '@/lib/drivers/qualification-rollout';
+import { assertCargoCheckpoint, cargoLifecycleEnabled, prepareCargoLifecycle } from '@/services/cargo-execution.service';
+import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
 
 export async function GET(req, { params }) {
   try {
@@ -17,7 +19,7 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    await requirePermission(req, "trips", "update_all");
+    const session = await requirePermission(req, "trips", "update_all");
     const id = (await params).id;
     const body = await parseBody(req);
     const columns = [];
@@ -39,7 +41,12 @@ export async function PUT(req, { params }) {
       identity = { driverId: body.driver_id ?? current[0].driver_id, expectedDriverId: current[0].driver_id,
         tripId: id, dispatchId: body.dispatch_id ?? current[0].dispatch_id, expectedDispatchId: current[0].dispatch_id };
     }
-    const { rows } = identity ? await withQualificationWrite(identity, write) : await write({ query });
+    const { rows } = cargoLifecycleEnabled() ? await withTransaction(async tx => {
+      await prepareCargoLifecycle(tx);
+      await assertCargoCheckpoint({ trip_id: id }, { to: body.trip_status ?? 'Reassign', session, patch: body }, tx);
+      if (identity) await guardDriverQualification(identity, tx);
+      return write(tx);
+    }) : identity ? await withQualificationWrite(identity, write) : await write({ query });
     if (!rows[0]) return err("Trip not found", 404);
     return ok(rows[0]);
   } catch (e) { return handleError(e); }

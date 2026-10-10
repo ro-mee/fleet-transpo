@@ -9,6 +9,7 @@ vi.mock("@/lib/api/utils", () => ({
   err: (error, status = 400) => Response.json({ error }, { status }),
   errValidation: (errors) => Response.json({ errors }, { status: 400 }),
   handleError: (e) => Response.json({ error: e.message }, { status: e.status || 500 }),
+  AuthError: class extends Error { constructor(message, status, code) { super(message); Object.assign(this, { status, code }); } },
 }));
 vi.mock("@/services/status.service", () => ({ syncVehicleStatus: vi.fn(), syncDriverStatus: vi.fn(), ensureTripForDispatch: vi.fn() }));
 vi.mock("@/services/transition.service", () => ({ setDispatchStatus: vi.fn() }));
@@ -69,6 +70,13 @@ beforeEach(async () => {
 });
 
 describe("dispatch window boundary", () => {
+  it('holds dispatch reassignment when cargo lifecycle enforcement has no approved provider', async () => {
+    vi.stubEnv('CARGO_LIFECYCLE_MODE', 'ENFORCE');
+    validatePairAvailability.mockResolvedValue({ ok: true, commitToken: { revision: 'fixture' } });
+    const response = await edit({ driver_id: 7 });
+    expect(response.status).toBe(503);
+    expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE dispatchschedules'))).toBe(false);
+  });
   it('pins reassignment to the persisted passenger request despite a caller-supplied cargo request', async () => {
     vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'ENFORCE'); vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION', 'fixture-v1');
     vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW', 'fixture-review'); vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS', 'RECHECK');

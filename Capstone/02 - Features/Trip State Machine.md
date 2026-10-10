@@ -90,3 +90,7 @@ Called by the trip route handlers before any status write. Pure — no I/O in th
 ## Related
 
 [[Trips]] · [[State Machines]] · [[Dispatch State Machine]] · [[Reservation State Machine]] · [[Request Lifecycle]] · [[trips]]
+
+## Cargo checkpoint overlay — Task 8, 2026-10-11
+
+The adjacency map and stored status names are unchanged. With the default cargo boundary OFF, legacy behavior is preserved. Explicitly configured nonproduction enforcement adds receipt/clearance/securement checks to Passenger Onboard, En Route, In Progress and Drop-off, and receiver confirmation to Arrived/Completed. Trip Started still means travel to pickup. Cancellation and reassignment acquire a conservative review hold once a pickup observation exists or the trip has entered loaded/progress states; pre-start states remain eligible for the ordinary cancellation/reassignment path. These are shared transactional service checks, not new graph edges or UI labels. Runtime enforcement is unavailable without approved providers. See [[Trips]] for final verification and policy holds.

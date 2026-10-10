@@ -1,20 +1,31 @@
-import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
-const apiFixture=vi.hoisted(()=>({run:null,session:{user:{role:'driver',driverId:1,employeeId:1}}}));
+import { beforeAll, afterAll, afterEach, describe, it, expect, vi } from 'vitest';
+const apiFixture=vi.hoisted(()=>({run:null,transaction:null,session:{user:{role:'driver',driverId:1,employeeId:1}}}));
+vi.mock('@/lib/db', () => ({ query: (...args) => apiFixture.run(tx => tx.query(...args)), withTransaction: work => apiFixture.transaction(work) }));
+vi.mock('@/services/status.service', () => ({ syncVehicleStatus: async () => {}, syncDriverStatus: async () => {}, ensureTripForDispatch: async () => {} }));
+vi.mock('@/services/outbound.service', () => ({ emitTransportStatus: async () => {} }));
+vi.mock('@/services/push.service', () => ({ sendPush: async () => {} }));
+vi.mock('@/services/trip-geofence.service', () => ({ checkPickupProximity: async () => ({ state: 'outside', distanceM: 1000 }), checkDestinationProximity: async () => ({ state: 'unknown' }) }));
+vi.mock('@/lib/audit', async original => ({ ...await original(), writeAudit: async () => null }));
 vi.mock('@/lib/api/utils',()=>({resolveIdentity:async()=>apiFixture.session,AuthError:class extends Error {constructor(message,status,code){super(message);Object.assign(this,{status,code});}},ok:data=>Response.json(data),handleError:error=>Response.json({error:error.message,code:error.code},{status:error.status??500})}));
 vi.mock('@/lib/api/ownership',()=>({assertTripOwnership:async(session,tripId)=>{const trip=(await apiFixture.run(tx=>tx.query('SELECT * FROM trips WHERE trip_id=$1',[tripId]))).rows[0];if(!trip||(session.user.role==='driver'&&trip.driver_id!==session.user.driverId))throw Object.assign(new Error('Not found'),{status:404});return trip;}}));
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { loadEnvLocal } from '../../scripts/load-env.mjs';
-import { createCargoExecutionService } from './cargo-execution.service';
+import { createCargoExecutionService, assertCargoCheckpoint, prepareCargoLifecycle } from './cargo-execution.service';
 import { createCargoApi } from '@/lib/cargo/api';
 import { createCargoReadAdapter } from '@/lib/cargo/read-adapter';
+import { cargoPayloadHash } from './cargo-execution.repository';
+import { setTripStatus } from './transition.service';
+import { completeTrip, cancelTrip } from './trip-lifecycle.service';
 
 const schema = `cargo_service_fixture_${randomUUID().replaceAll('-', '')}`, storage = `${schema}_objects`;
 const config = { dataApprovalRef: 'simulated:data', privacyApprovalRef: 'simulated:privacy', receivingApprovalRef: 'simulated:receiver', retentionApprovalRef: 'simulated:retention', sourceApprovalRef: 'simulated:source', safetyApprovalRef: 'simulated:safety', fleetApprovalRef: 'simulated:fleet', schemaReady: true, simulated: true, environment: 'test' };
 const actor = { user: { role: 'driver', driverId: 1, employeeId: 1 } }, fleet = { user: { role: 'dispatcher', employeeId: 2 } };
 const source = { subject: 'simulated:owner', system: 'PMS', organization_id: 'simulated:hotel', capabilities: ['cargo:decision:write'] };
 const manifest = { manifest_ref: { kind: 'REQUEST', id: randomUUID(), revision: 1, hash: 'a'.repeat(64) }, source_ref: { system: source.system, organization_id: source.organization_id, external_request_id: 'r1' }, service_code: 'HOTEL_SUPPLY_TRANSFER', lines: [{ line_id: 'oil', name: 'Oil', quantity_basis: 'TRANSPORT_PACKAGE', expected_quantity: '10', unit: 'box', reference_image_ref: null, handling: [] }] };
+const manifestSnapshot = { source_ref: manifest.source_ref, service_code: manifest.service_code, lines: manifest.lines };
+manifest.manifest_ref.hash = cargoPayloadHash(manifestSnapshot);
 const receipt = (quantity = '9', stage = 'PICKUP') => ({ submission_id: randomUUID(), manifest_ref: manifest.manifest_ref, stage, observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: quantity, condition: 'INTACT', issue_code: null, remarks: '', evidence_ids: [] }], receiver_confirmation_ref: null });
 const decision = view => ({ event_id: randomUUID(), receipt_id: view.pickup_receipt.receipt_id, manifest_hash: manifest.manifest_ref.hash, action: 'ACCEPT_OBSERVED', reason: 'Simulated owner accepts the count' });
 const proof = (kind, row) => ({ kind, receipt_id: row.receipt_id, manifest_hash: row.manifest_hash, approval_ref: kind === 'POST_LOAD_SECUREMENT' ? config.safetyApprovalRef : config.receivingApprovalRef, method: 'simulated-fixture', reference: randomUUID(), simulated: true });
@@ -26,6 +37,7 @@ const db = { withTransaction: async work => {
 } };
 const run = work => db.withTransaction(work);
 apiFixture.run=run;
+apiFixture.transaction=run;
 const makeService = overrides => createCargoExecutionService({ db, config, authorizeFleet: async ({ session }) => session?.user?.role === 'dispatcher', resolveSafetyProof: async ({ receipt }) => proof('POST_LOAD_SECUREMENT', receipt), resolveReceiverProof: async ({ receipt }) => proof('RECEIVER_CONFIRMATION', receipt), ...overrides });
 const stage = status => run(tx => tx.query('UPDATE trips SET trip_status=$1 WHERE trip_id=1', [status]));
 const prepare = async () => { await stage('At Pickup'); return service.submitCargoReceipt(1, receipt(), actor); };
@@ -59,7 +71,15 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
         CREATE TABLE ${storage}.objects(bucket_id text); ALTER TABLE ${storage}.objects ENABLE ROW LEVEL SECURITY;
         INSERT INTO employees VALUES(1),(2); INSERT INTO drivers VALUES(1,1),(2,2);
         INSERT INTO dispatchschedules VALUES(1,1,'PASSENGER'),(2,1,'PASSENGER'); INSERT INTO trips VALUES(1,1,1,NULL,'At Pickup'),(2,2,2,NULL,'At Pickup');`);
-      await tx.query('INSERT INTO request_cargo_manifest_revisions VALUES($1,1,1,$2,$3)', [manifest.manifest_ref.id, manifest.manifest_ref.hash, JSON.stringify({ ...manifest, manifest_ref: undefined })]);
+      await tx.query(`ALTER TABLE trips ADD COLUMN vehicle_id integer DEFAULT 1, ADD COLUMN updated_at timestamptz, ADD COLUMN at_pickup_at timestamptz, ADD COLUMN at_pickup_override boolean DEFAULT false;
+        ALTER TABLE drivers ADD COLUMN deleted_at timestamptz;
+        CREATE TABLE service_types(service_type_id integer PRIMARY KEY,service_code text,deleted_at timestamptz);
+        CREATE TABLE transportation_requests(request_id integer PRIMARY KEY,load_type text,source_system text,external_request_id text,service_type_id integer,deleted_at timestamptz);
+        INSERT INTO service_types VALUES(1,'HOTEL_SUPPLY_TRANSFER',NULL);
+        INSERT INTO transportation_requests VALUES(1,'Cargo','PMS','r1',1,NULL);`);
+      await tx.query(readFileSync('supabase/migrations/156_driver_service_qualifications.sql', 'utf8'));
+      await tx.query("INSERT INTO driver_service_qualifications(driver_id,qualification_group,status,policy_version,verified_by,verified_at,reason) VALUES(1,'CARGO','ACTIVE','simulated:v1',2,now(),'Fixture approval')");
+      await tx.query('INSERT INTO request_cargo_manifest_revisions VALUES($1,1,1,$2,$3)', [manifest.manifest_ref.id, manifest.manifest_ref.hash, JSON.stringify(manifestSnapshot)]);
       await tx.query(readFileSync('supabase/migrations/159_cargo_execution_storage.sql', 'utf8').replaceAll('public.', `${schema}.`).replaceAll('storage.', `${storage}.`));
       migration = readFileSync('supabase/migrations/160_cargo_execution_commands.sql', 'utf8').replaceAll('public.', `${schema}.`);
       await tx.query(migration);
@@ -69,6 +89,150 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
     service = makeService();
   }, 30000);
   afterAll(async () => { try { if (pool) await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE; DROP SCHEMA IF EXISTS ${storage} CASCADE`); } finally { await pool?.end(); } });
+  afterEach(() => { vi.unstubAllEnvs(); apiFixture.transaction = run; });
+
+  function enableLifecycle() {
+    vi.stubEnv('CARGO_LIFECYCLE_MODE', 'ENFORCE');
+    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'ENFORCE');
+    vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION', 'simulated:v1');
+    vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW', 'simulated:review');
+    vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS', 'RECHECK');
+    const lifecycle = makeService({ config: { ...config, lifecycleApprovalRef: 'simulated:lifecycle' }, authorizeLifecycle: async () => true });
+    apiFixture.transaction = work => run(base => work(lifecycle.bindLifecycleTransaction(base)));
+    return lifecycle;
+  }
+
+  it('actual shared departure and completion reject missing pickup even with geofence override', async () => {
+    enableLifecycle();
+    await stage('At Pickup');
+    for (const to of ['Passenger Onboard', 'In Progress']) await expect(setTripStatus({ tripId: 1, to, session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' })).rejects.toMatchObject({ code: 'CARGO_PICKUP_REQUIRED' });
+    await stage('In Progress');
+    for (const to of ['En Route', 'Arrived']) await expect(setTripStatus({ tripId: 1, to, session: actor })).rejects.toMatchObject({ code: 'CARGO_PICKUP_REQUIRED' });
+    await expect(completeTrip(1, actor)).rejects.toMatchObject({ code: 'CARGO_PICKUP_REQUIRED' });
+    expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=1'))).rows[0].trip_status).toBe('In Progress');
+  });
+
+  it('guards actual lifecycle transaction: start needs no receipt, loading does, recorded pickup holds custody', async () => {
+    const lifecycle = enableLifecycle();
+    await run(tx => tx.query("INSERT INTO dispatchschedules VALUES(3,1,'PASSENGER'); INSERT INTO trips(trip_id,dispatch_id,driver_id,trip_status) VALUES(3,3,1,'Driver Accepted')"));
+    for (const to of ['Reassign', 'Cancelled']) await expect(run(async base => {
+      const tx = lifecycle.bindLifecycleTransaction(base);
+      await prepareCargoLifecycle(tx);
+      return assertCargoCheckpoint({ trip_id: 3 }, { to, session: fleet, patch: { vehicle_id: 2 } }, tx);
+    })).resolves.toBeNull();
+    const checkpoint = (tripId, to) => run(async base => {
+      const tx = lifecycle.bindLifecycleTransaction(base);
+      await prepareCargoLifecycle(tx);
+      await assertCargoCheckpoint({ trip_id: tripId }, { to, session: actor }, tx);
+      return tx.query('UPDATE trips SET trip_status=$1 WHERE trip_id=$2 RETURNING *', [to, tripId]);
+    });
+    expect((await checkpoint(3, 'Trip Started')).rows[0].trip_status).toBe('Trip Started');
+    await expect(service.clearCargoDeparture(3, { receipt_id: randomUUID(), expected_version: 1, reason: 'No pickup exists' }, fleet)).rejects.toMatchObject({ status: 404 });
+    await run(async base => {
+      const tx = lifecycle.bindLifecycleTransaction(base);
+      await prepareCargoLifecycle(tx);
+      await assertCargoCheckpoint({ trip_id: 3 }, { to: 'Reassign', session: fleet, patch: { vehicle_id: 2 } }, tx);
+      await tx.query('UPDATE trips SET vehicle_id=2 WHERE trip_id=3');
+    });
+    expect((await run(tx => tx.query('SELECT vehicle_id FROM trips WHERE trip_id=3'))).rows[0].vehicle_id).toBe(2);
+    await expect(checkpoint(3, 'In Progress')).rejects.toMatchObject({ code: 'CARGO_PICKUP_REQUIRED' });
+    expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=3'))).rows[0].trip_status).toBe('Trip Started');
+    await checkpoint(3, 'At Pickup');
+    await service.submitCargoReceipt(3, receipt('10'), actor);
+    await expect(checkpoint(3, 'Cancelled')).rejects.toMatchObject({ code: 'CARGO_CUSTODY_REVIEW_REQUIRED' });
+    await expect(checkpoint(3, 'Reassign')).rejects.toMatchObject({ code: 'CARGO_CUSTODY_REVIEW_REQUIRED' });
+    await expect(checkpoint(3, 'Completed')).rejects.toMatchObject({ code: 'CARGO_PICKUP_NOT_CLEARED' });
+  });
+
+  it('uses current assignment-bound clearance rather than immutable READY replay and requires receiver proof', async () => {
+    enableLifecycle();
+    await stage('At Pickup');
+    const picked = await service.submitCargoReceipt(1, receipt('10'), actor);
+    const input = { receipt_id: picked.pickup_receipt.receipt_id, expected_version: picked.version, reason: 'Fixture securement' };
+    const original = await service.clearCargoDeparture(1, input, fleet);
+    expect(original.can_depart).toBe(true);
+    expect(original.fleet_clearance.assignment).toEqual({ driver_id: 1, vehicle_id: 1 });
+    await expect(setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, extra: { vehicle_id: 2 }, geofenceOverride: true, geofenceReason: 'Fixture override' })).rejects.toMatchObject({ code: 'CARGO_CUSTODY_REVIEW_REQUIRED' });
+    await run(tx => tx.query('UPDATE trips SET driver_id=2 WHERE trip_id=1'));
+    const nextDriver = { user: { role: 'driver', employeeId: 2, driverId: 2 } };
+    expect((await service.getCargoExecution(1, nextDriver)).can_depart).toBe(false);
+    await expect(setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' })).rejects.toMatchObject({ status: 404 });
+    await run(tx => tx.query('UPDATE trips SET driver_id=1 WHERE trip_id=1'));
+    await run(tx => tx.query('UPDATE trips SET vehicle_id=2 WHERE trip_id=1'));
+    expect(await service.clearCargoDeparture(1, input, fleet)).toEqual(original);
+    await expect(setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' })).rejects.toMatchObject({ code: 'CARGO_PICKUP_NOT_CLEARED' });
+    await run(tx => tx.query('UPDATE trips SET vehicle_id=1 WHERE trip_id=1'));
+    await setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' });
+    await setTripStatus({ tripId: 1, to: 'En Route', session: actor });
+    await expect(cancelTrip(1, actor)).rejects.toMatchObject({ code: 'CARGO_CUSTODY_REVIEW_REQUIRED' });
+    await expect(setTripStatus({ tripId: 1, to: 'Arrived', session: actor })).rejects.toMatchObject({ code: 'CARGO_RECEIVER_CONFIRMATION_REQUIRED' });
+    await expect(completeTrip(1, actor)).rejects.toMatchObject({ code: 'CARGO_RECEIVER_CONFIRMATION_REQUIRED' });
+    await stage('Drop-off');
+    await service.submitCargoReceipt(1, receipt('10', 'DELIVERY'), actor);
+    await apiFixture.transaction(async tx => { await prepareCargoLifecycle(tx); expect((await assertCargoCheckpoint({ trip_id: 1 }, { to: 'Completed', session: actor }, tx)).can_complete).toBe(true); });
+    const audit = (await run(tx => tx.query("SELECT new_values FROM audit_logs WHERE action='cargo_checkpoint' ORDER BY log_id DESC LIMIT 1"))).rows[0];
+    expect(JSON.stringify(audit)).not.toMatch(/https?:|remarks|payload/);
+  });
+
+  it('keeps passenger qualification independent when the simulated cargo boundary is active', async () => {
+    enableLifecycle();
+    await run(tx => tx.query("INSERT INTO service_types VALUES(2,'GUEST_TRANSPORT',NULL); INSERT INTO transportation_requests VALUES(2,'Passenger','PMS','passenger',2,NULL); INSERT INTO dispatchschedules VALUES(4,2,'PASSENGER'); INSERT INTO trips(trip_id,dispatch_id,driver_id,trip_status) VALUES(4,4,1,'Trip Started')"));
+    await expect(setTripStatus({ tripId: 4, to: 'In Progress', session: actor })).rejects.toMatchObject({ code: 'DRIVER_SERVICE_QUALIFICATION_REQUIRED' });
+    expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=4'))).rows[0].trip_status).toBe('Trip Started');
+  });
+
+  it('rejects missing enforced qualification policy and stale manifest at the final checkpoint', async () => {
+    const lifecycle = enableLifecycle();
+    await stage('Driver Accepted');
+    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'OFF');
+    await expect(apiFixture.transaction(async tx => { await prepareCargoLifecycle(tx); return assertCargoCheckpoint({ trip_id: 1 }, { to: 'Trip Started', session: actor }, tx); })).rejects.toMatchObject({ status: 503 });
+    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'ENFORCE');
+    await stage('At Pickup');
+    await service.submitCargoReceipt(1, receipt('10'), actor);
+    const changed = { ...manifestSnapshot, lines: [{ ...manifest.lines[0], expected_quantity: '11' }] };
+    await run(tx => tx.query('INSERT INTO request_cargo_manifest_revisions VALUES($1,1,2,$2,$3)', [randomUUID(), cargoPayloadHash(changed), JSON.stringify(changed)]));
+    try {
+      await expect(run(async base => { const tx = lifecycle.bindLifecycleTransaction(base); await prepareCargoLifecycle(tx); return assertCargoCheckpoint({ trip_id: 1 }, { to: 'Passenger Onboard', session: actor }, tx); })).rejects.toMatchObject({ code: 'CARGO_MANIFEST_CONFLICT' });
+    } finally { await run(tx => tx.query('DELETE FROM request_cargo_manifest_revisions WHERE revision=2')); }
+  });
+
+  it('rolls back departure when its required checkpoint audit fails', async () => {
+    const lifecycle = enableLifecycle();
+    await stage('At Pickup');
+    const picked = await service.submitCargoReceipt(1, receipt('10'), actor);
+    await service.clearCargoDeparture(1, { receipt_id: picked.pickup_receipt.receipt_id, expected_version: picked.version, reason: 'Fixture securement' }, fleet);
+    apiFixture.transaction = work => run(base => work(lifecycle.bindLifecycleTransaction({ query: (sql, params) => sql.includes('INSERT INTO audit_logs') ? Promise.reject(new Error('checkpoint audit failure')) : base.query(sql, params) })));
+    await expect(setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' })).rejects.toThrow('checkpoint audit failure');
+    expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=1'))).rows[0].trip_status).toBe('At Pickup');
+  });
+
+  it('serializes final departure behind committed revocation on a separate database session', async () => {
+    const lifecycle = enableLifecycle();
+    await stage('At Pickup');
+    const picked = await service.submitCargoReceipt(1, receipt('10'), actor);
+    await service.clearCargoDeparture(1, { receipt_id: picked.pickup_receipt.receipt_id, expected_version: picked.version, reason: 'Fixture securement' }, fleet);
+    const client = await pool.connect();
+    let departure;
+    try {
+      await client.query('BEGIN'); await client.query(`SET LOCAL search_path TO ${schema},pg_catalog`);
+      await client.query('SELECT driver_id FROM drivers WHERE driver_id=1 FOR UPDATE');
+      await client.query("UPDATE driver_service_qualifications SET status='REVOKED',version=version+1 WHERE driver_id=1");
+      let entered; const waiting = new Promise(resolve => { entered = resolve; });
+      apiFixture.transaction = work => run(base => work(lifecycle.bindLifecycleTransaction({ query: async (sql, params) => {
+        if (sql.startsWith('SELECT driver_id FROM drivers WHERE driver_id=')) entered();
+        return base.query(sql, params);
+      } })));
+      departure = setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' }).then(value => ({ value }), error => ({ error }));
+      await waiting;
+      await client.query('COMMIT');
+      expect((await departure).error).toMatchObject({ code: 'DRIVER_SERVICE_QUALIFICATION_REQUIRED', status: 409 });
+      expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=1'))).rows[0].trip_status).toBe('At Pickup');
+    } finally {
+      await client.query('ROLLBACK'); client.release();
+      if (departure) await departure;
+      await run(tx => tx.query("UPDATE driver_service_qualifications SET status='ACTIVE',version=version+1 WHERE driver_id=1"));
+    }
+  });
 
   it('reruns the candidate safely and keeps command snapshots private', async () => {
     await run(tx => tx.query(migration));

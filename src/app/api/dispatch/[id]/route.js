@@ -1,6 +1,6 @@
 import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
@@ -12,6 +12,8 @@ import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { validatePairAvailability } from "@/services/recommendation.service";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
+import { assertCargoCheckpoint, cargoLifecycleEnabled, prepareCargoLifecycle } from '@/services/cargo-execution.service';
+import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
 
 const NON_DISPATCHABLE_VEHICLE = ["Under Maintenance", "Decommissioned", "Registration Expired"];
 const NON_DISPATCHABLE_DRIVER = ["Suspended", "On Leave", "Off Duty"];
@@ -276,11 +278,19 @@ export async function PUT(req, { params }) {
     assignments.push(`updated_at = NOW()`, `updated_by = $${columns.length + 1}`);
     values.push(session.user.employeeId);
 
-    const update = db => db.query(
-      `UPDATE dispatchschedules SET ${assignments.join(", ")} WHERE dispatch_id = $${values.length + 1} AND deleted_at IS NULL RETURNING *`,
-      [...values, id]
-    );
+    const update = async db => {
+      if (await prepareCargoLifecycle(db)) {
+        const trips = (await db.query('SELECT * FROM trips WHERE dispatch_id=$1 AND deleted_at IS NULL ORDER BY trip_id', [id])).rows;
+        for (const trip of trips) await assertCargoCheckpoint(trip, { to: 'Reassign', session, patch: { driver_id: effDriverId, vehicle_id: effVehicleId } }, db);
+      }
+      return db.query(`UPDATE dispatchschedules SET ${assignments.join(", ")} WHERE dispatch_id = $${values.length + 1} AND deleted_at IS NULL RETURNING *`, [...values, id]);
+    };
     const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,update)
+      : cargoLifecycleEnabled() ? await withTransaction(async tx => {
+        await prepareCargoLifecycle(tx);
+        await guardDriverQualification({ driverId: effDriverId, dispatchId: id }, tx);
+        return update(tx);
+      })
       : await withQualificationWrite({ driverId: effDriverId, dispatchId: id }, update);
     if (!rows[0]) return err("Dispatch not found", 404);
 

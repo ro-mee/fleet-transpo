@@ -9,7 +9,8 @@ import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/se
 import { writeAudit } from "@/lib/audit";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 import { emitTransportStatus } from "@/services/outbound.service";
-import { withQualificationWrite } from './driver-qualification-boundaries.service';
+import { withQualificationWrite, guardDriverQualification } from './driver-qualification-boundaries.service';
+import { assertCargoCheckpoint, prepareCargoLifecycle, cargoLifecycleEnabled } from './cargo-execution.service';
 
 const DISPATCH_CANCELLED = DISPATCH_STATUS.CANCELLED;
 // A stood-down dispatch RELEASES the request: the pair returns to the pool and
@@ -121,10 +122,18 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
     values.push(val);
   }
   values.push(tripId);
-  const updateTrip = db => db.query(
-    `UPDATE trips SET ${sets.join(", ")} WHERE trip_id = $${values.length} RETURNING *`, values);
   const requiresQualification = ['Assigned', 'Driver Accepted', 'Trip Started', 'Passenger Onboard', 'En Route', 'In Progress', 'Arrived'].includes(to);
-  const { rows } = requiresQualification
+  const updateTrip = async db => {
+    await assertCargoCheckpoint(before[0], { to, session, patch: extra }, db);
+    if (cargoLifecycleEnabled(db) && requiresQualification) await guardDriverQualification({ driverId: before[0].driver_id, tripId }, db);
+    return db.query(`UPDATE trips SET ${sets.join(", ")} WHERE trip_id = $${values.length} RETURNING *`, values);
+  };
+  const { rows } = cargoLifecycleEnabled()
+    ? await withTransaction(async tx => {
+      await prepareCargoLifecycle(tx);
+      return updateTrip(tx);
+    })
+    : requiresQualification
     ? await withQualificationWrite({ driverId: before[0].driver_id, tripId }, updateTrip)
     : await updateTrip({ query });
   if (!rows[0]) throw new AuthError("Trip not found", 404);
@@ -240,6 +249,12 @@ async function cancelDispatch({ dispatchId, before, session, reason }) {
   const cleanReason = typeof reason === "string" && reason.trim() ? reason.trim() : null;
 
   const { dispatch, request } = await withTransaction(async (tx) => {
+    if (await prepareCargoLifecycle(tx)) {
+      const trips = (await tx.query('SELECT * FROM trips WHERE dispatch_id=$1 AND deleted_at IS NULL ORDER BY trip_id', [dispatchId])).rows;
+      for (const trip of trips.filter(row => !['Completed', 'Cancelled'].includes(row.trip_status))) {
+        await assertCargoCheckpoint(trip, { to: 'Cancelled', session }, tx);
+      }
+    }
     const { rows: locked } = await tx.query(
       `SELECT dispatch_id, dispatch_number, status, vehicle_id, driver_id, request_id
          FROM dispatchschedules WHERE dispatch_id = $1 FOR UPDATE`,

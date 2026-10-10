@@ -12,7 +12,7 @@ vi.mock('@/lib/db', () => {
   });
   return { query, withTransaction: fn => fn({ query }) };
 });
-vi.mock('../route', () => ({ TRIP_WRITABLE: ['driver_id', 'dispatch_id', 'trip_status'] }));
+vi.mock('../route', () => ({ TRIP_WRITABLE: ['driver_id', 'vehicle_id', 'dispatch_id', 'trip_status'] }));
 vi.mock('@/lib/api/utils', () => ({ requirePermission: vi.fn(), parseBody: async () => fixture.body,
   ok: data => Response.json(data), err: (error, status) => Response.json({ error }, { status }),
   handleError: e => Response.json({ error: e.message, code: e.code }, { status: e.status || 500 }),
@@ -53,4 +53,9 @@ it('permits SHADOW writes with revoked approval', async () => {
   vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'SHADOW'); fixture.status = 'REVOKED';
   expect((await run()).status).toBe(200);
   expect(fixture.calls.some(call => call.sql.includes('FOR UPDATE'))).toBe(false);
+});
+it.each([{ trip_status: 'Completed' }, { trip_status: 'Cancelled' }, { driver_id: 9 }, { vehicle_id: 4 }])('generic edits cannot bypass unconfigured cargo enforcement: %j', async patch => {
+  vi.stubEnv('CARGO_LIFECYCLE_MODE', 'ENFORCE'); fixture.body = patch;
+  expect((await run()).status).toBe(503);
+  expect(fixture.calls.some(call => call.sql.startsWith('UPDATE trips'))).toBe(false);
 });

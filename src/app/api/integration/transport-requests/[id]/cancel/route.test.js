@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
 vi.mock("@/lib/api/utils", () => ({
@@ -7,6 +7,7 @@ vi.mock("@/lib/api/utils", () => ({
   ok: (data) => Response.json(data),
   err: (error, status) => Response.json({ error }, { status }),
   handleError: (e) => Response.json({ error: e.message }, { status: e.status ?? 500 }),
+  AuthError: class extends Error { constructor(message, status, code) { super(message); Object.assign(this, { status, code }); } },
 }));
 vi.mock("@/services/reservation-lifecycle.service", () => ({
   loadRequest: vi.fn(),
@@ -35,6 +36,15 @@ beforeEach(() => {
   requirePermission.mockResolvedValue({ user: { employeeId: 1 } });
   loadRequest.mockResolvedValue({ request_id: 501, fleet_status: "Assigned" });
   query.mockResolvedValue({ rows: [] });
+});
+afterEach(() => vi.unstubAllEnvs());
+
+it('holds cargo request cancellation before any cascade when source coordination is unapproved', async () => {
+  vi.stubEnv('CARGO_LIFECYCLE_MODE', 'ENFORCE');
+  loadRequest.mockResolvedValue({ request_id: 501, fleet_status: 'Assigned', load_type: 'Cargo' });
+  expect((await PUT(request(), params)).status).toBe(503);
+  expect(query).not.toHaveBeenCalled();
+  expect(advanceReservation).not.toHaveBeenCalled();
 });
 
 it("requires the cancel permission before touching the request", async () => {
