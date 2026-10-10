@@ -18,6 +18,16 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Disabled cargo execution state — Task 6, 2026-10-10
+
+The new cargo service keeps original manifest quantities, pickup observations and delivery observations separate. Expected 10 / source-accepted pickup 9 / confirmed delivery 9 reports order shortage 1 and delivery shortage 0. Missing observations and their shortages remain null. Damage and overages require review. Unsupported corrections and wrong-item codes are rejected by the current contract rather than silently reinterpreted.
+
+An intact, exact pickup still waits for Fleet clearance and an explicitly resolved post-load safety/securement proof. Source WAIT holds, REJECT blocks, and ACCEPT_OBSERVED applies only to its current immutable receipt. A recount appends a receipt and invalidates older acceptance and clearance. Driver input cannot approve a discrepancy. A typed receiver reference alone never confirms delivery; missing server-resolved confirmation keeps `CARGO_RECEIVER_CONFIRMATION_REQUIRED` and blocks completion. Acknowledging feedback does not accept quantities, confirm receiving, or close inventory.
+
+`Trip Started` remains travel to pickup: source review is allowed there and at `At Pickup`. New decisions and pickup recounts are refused in loaded/departure/legacy-progress or terminal states. A late source decision writes only a bounded refusal audit. Exact accepted-command retries still return the original full view after later observations, decisions or configuration changes; changed retries conflict. Current reads recheck the configured proof authority and do not treat a superseded safety reference as current approval.
+
+All four public service entry points remain 503. Only the explicit simulated nonproduction factory runs against fixtures; no operational configuration, routes, lifecycle wiring, supply assignment, partner worker or inventory action was added. Candidates 158–160 are unapplied and `schema.sql` is unchanged. The final service-only run passed 13 real SQL cases; storage regressions passed 12 and pure/runtime/contracts/schema checks passed 53 across focused runs. A combined remote SQL run timed out and is not claimed as passing; the final service-only run covered all affected cases. Scoped lint, authorization 324/324 and migration naming passed. See [[cargo_execution_storage]].
+
 ## Disabled cargo persistence — Task 5, 2026-10-10
 
 Prepared immutable cargo execution/receipt/decision storage and private evidence tracking behind missing-configuration 503 boundaries. Original manifest counts remain separate from observations. Exact retries reuse saved records, changed retries conflict, and receipt/decision events append atomically to a private outbox. ACK cannot grant business acceptance or close inventory. No cargo lifecycle, safety approval, supply assignment or public writer is activated.

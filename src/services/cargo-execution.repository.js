@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { manifestSchema, receiptSchema, decisionSchema, cargoFeedbackSchema, validateReceiptAgainstManifest } from '@/lib/cargo/contracts';
 import { assertCargoConfiguration, cargoError } from './cargo-manifest.service';
+import { compareQuantities } from '@/lib/cargo/quantities';
 
 const fail = (code, message, status = 409) => { throw cargoError(code, message, status); };
 const nonblank = value => typeof value === 'string' && value.trim().length > 0;
@@ -80,7 +81,11 @@ export async function insertReceipt(input, actor, tx) {
   if (evidenceIds.length) await tx.query("UPDATE cargo_evidence SET state='ATTACHED',receipt_id=$1,updated_at=now() WHERE evidence_id=ANY($2::uuid[])", [row.receipt_id, evidenceIds]);
   const updated = (await tx.query('UPDATE cargo_trip_executions SET version=version+1,updated_at=now() WHERE execution_id=$1 RETURNING *', [execution.execution_id])).rows[0];
   await appendCargoFeedback({ execution: updated, eventType: payload.stage === 'PICKUP' ? 'PICKUP_RECORDED' : 'DELIVERY_RECORDED', receipt: row }, tx);
-  if (payload.lines.some(line => line.issue_code !== null || line.condition === 'DAMAGED' || line.observed_quantity !== execution.manifest.lines.find(original => original.line_id === line.line_id).expected_quantity)) {
+  const pickup = payload.stage === 'DELIVERY' ? (await tx.query("SELECT lines FROM cargo_receipts WHERE execution_id=$1 AND stage='PICKUP' ORDER BY execution_version DESC LIMIT 1", [execution.execution_id])).rows[0] : null;
+  if (payload.lines.some(line => {
+    const expected = payload.stage === 'DELIVERY' ? pickup?.lines.find(original => original.line_id === line.line_id)?.observed_quantity : execution.manifest.lines.find(original => original.line_id === line.line_id).expected_quantity;
+    return line.issue_code !== null || line.condition === 'DAMAGED' || expected == null || compareQuantities(line.observed_quantity, expected) !== 0;
+  })) {
     await appendCargoFeedback({ execution: updated, eventType: 'DISCREPANCY_REPORTED', receipt: row }, tx);
   }
   return row;
