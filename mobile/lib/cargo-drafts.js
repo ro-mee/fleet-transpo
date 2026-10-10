@@ -106,7 +106,8 @@ export async function updateCargoDraft(actorId, submissionId, update, isCurrent 
   if (!isCurrent()) return null;
   const index = rows.findIndex((row) => row.submissionId === submissionId);
   if (index < 0) return null;
-  rows[index] = { ...rows[index], ...update };
+  const patch = typeof update === "function" ? update(rows[index]) : update;
+  rows[index] = { ...rows[index], ...patch };
   if (!isCurrent()) return null;
   await writeQueue(actorId, rows);
   return rows[index];
@@ -114,14 +115,14 @@ export async function updateCargoDraft(actorId, submissionId, update, isCurrent 
 }
 
 export async function markCargoSubmitted(actorId, submissionId, result = {}, isCurrent = () => true) {
-  const existing = (await listCargoDrafts(actorId)).find((row) => row.submissionId === submissionId);
-  const stage = existing?.draft?.stage;
-  const receipt = stage === "DELIVERY" ? result.delivery_receipt : result.pickup_receipt;
-  return updateCargoDraft(actorId, submissionId, {
-    syncState: "FLEET_SAVED",
-    fleetSaved: true,
-    partnerReceived: result.feedback?.state === "ACKNOWLEDGED",
-    receiptId: receipt?.receipt_id ?? null,
-    lastErrorCode: null,
+  return updateCargoDraft(actorId, submissionId, (existing) => {
+    const receipt = existing.draft?.stage === "DELIVERY" ? result.delivery_receipt : result.pickup_receipt;
+    return {
+      syncState: "FLEET_SAVED",
+      fleetSaved: true,
+      partnerReceived: result.feedback?.state === "ACKNOWLEDGED",
+      receiptId: receipt?.receipt_id ?? null,
+      lastErrorCode: null,
+    };
   }, isCurrent);
 }
