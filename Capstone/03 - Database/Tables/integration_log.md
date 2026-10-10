@@ -49,3 +49,7 @@ The stored event is retried with its original ID/status/time. Only `delivered ==
 ## Related
 
 [[System Boundaries]] · [[Anti-Corruption Layer]] · [[transportation_requests]] · [[Database Overview]] · [[Reservations]]
+
+## Cargo feedback is a separate outbox — Task 9, 2026-10-11
+
+Cargo receipt/decision events use the private `cargo_feedback_outbox` introduced by the cargo storage candidate. They do not use `integration_log` or change Booking status delivery. Its worker is manually callable through an authenticated route, but returns503 before leasing until an approved cargo provider is configured. No scheduled invocation, live endpoint, credential or partner send was enabled. A cargo partner ACK means only that the event was received; source decisions remain in the separate immutable decision inbox and cargo state flow.
