@@ -28,7 +28,7 @@ export async function storeCargoEvidence() {
 }
 
 // Explicit simulated dependency seam only. Future runtime wiring needs review.
-export function createCargoEvidenceStore({ db, storage, config }) {
+export function createCargoEvidenceStore({ db, storage, config, authorizeStaffRead }) {
   assertCargoStorageConfiguration(config);
   if (config.simulated !== true || !['test', 'development'].includes(config.environment) || process.env.NODE_ENV === 'production') fail('CARGO_CONFIGURATION_REQUIRED', 'Cargo evidence fixtures are nonproduction only.', 503);
   const transaction = work => db.withTransaction(tx => work({ ...tx, cargoConfig: config }));
@@ -76,15 +76,21 @@ export function createCargoEvidenceStore({ db, storage, config }) {
     return { evidence_id: row.evidence_id };
   }
 
-  async function signCargoEvidence(evidenceId, actor) {
+  async function signCargoEvidence(evidenceId, actor, { tripId } = {}) {
     if (!uuid.safeParse(evidenceId).success) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo evidence was not found.', 404);
     // Hold trip ownership through signing. No caller object key or generic signer.
     return transaction(async tx => {
       const row = (await tx.query(`SELECT e.*,x.trip_id FROM cargo_evidence e JOIN cargo_trip_executions x USING(execution_id)
         WHERE e.evidence_id=$1 AND e.state IN ('READY','ATTACHED')`, [evidenceId])).rows[0];
       if (!row) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo evidence was not found.', 404);
-      await assertCargoDriver(row.trip_id, actor, tx);
-      if (row.uploader_employee_id !== actor.user.employeeId || row.uploader_driver_id !== actor.user.driverId) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo evidence was not found.', 404);
+      if (tripId !== undefined && row.trip_id !== tripId) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo evidence was not found.', 404);
+      if (actor?.user?.role === 'driver') {
+        await assertCargoDriver(row.trip_id, actor, tx);
+        if (row.uploader_employee_id !== actor.user.employeeId || row.uploader_driver_id !== actor.user.driverId) fail('CARGO_EVIDENCE_NOT_FOUND', 'Cargo evidence was not found.', 404);
+      } else if (!Number.isSafeInteger(actor?.user?.employeeId) || !Number.isSafeInteger(tripId) || !config.staffReadApprovalRef?.trim() || !authorizeStaffRead ||
+        await authorizeStaffRead({ session: actor, tripId: row.trip_id, tx, approvalRef: config.staffReadApprovalRef }) !== true) {
+        fail('CARGO_FORBIDDEN', 'Approved staff cargo read authority is required.', 403);
+      }
       const key = assertCargoEvidenceKey(row);
       return storage.sign(key, { bucket: CARGO_EVIDENCE_BUCKET, expiresIn: 300 });
     });

@@ -1,0 +1,6 @@
+import { it, expect, vi } from 'vitest';
+vi.mock('@/lib/api/utils',()=>({resolveIdentity:vi.fn(async()=>({user:{role:'admin',employeeId:2}})),AuthError:class extends Error {constructor(message,status,code){super(message);Object.assign(this,{status,code});}},ok:data=>Response.json(data),handleError:error=>Response.json({error:error.message,code:error.code},{status:error.status??500})}));
+import { POST } from './route';
+import { resolveIdentity } from '@/lib/api/utils';
+it('rejects an invalid bearer even with a browser staff cookie',async()=>{const response=await POST(new Request('http://localhost/api/integration/cargo/decisions',{method:'POST',headers:{authorization:'Bearer invalid',cookie:'staff-session=valid'},body:'{}'}));expect(response.status).toBe(401);expect((await response.json()).code).toBe('SESSION_INVALID');expect(resolveIdentity).not.toHaveBeenCalled();});
+it('requires source credentials without browser fallback',async()=>{expect((await POST(new Request('http://localhost/api/integration/cargo/decisions',{method:'POST',headers:{cookie:'staff-session=valid'},body:'{}'}))).status).toBe(401);});

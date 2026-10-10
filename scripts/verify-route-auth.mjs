@@ -44,6 +44,14 @@ const PUBLIC_METHOD_ALLOWLIST = new Set([
 // These handlers delegate their guard to a service helper instead of calling a
 // recognized guard in the exported function body. Keep the delegation visible.
 const DELEGATED_GUARD_ALLOWLIST = new Set([
+  // Reviewed cargoApi boundary: session/ownership + distinct approved staff
+  // authority; machine decisions use credential-bound source auth only.
+  'GET trips/[id]/cargo/route.js',
+  'POST trips/[id]/cargo/receipts/route.js',
+  'POST trips/[id]/cargo/evidence/route.js',
+  'POST trips/[id]/cargo/clearance/route.js',
+  'POST trips/[id]/cargo/manual-decision/route.js',
+  'POST integration/cargo/decisions/route.js',
   "GET cron/sync/route.js",
   "POST cron/sync/route.js",
   "GET cron/reconcile/route.js",

@@ -133,6 +133,7 @@ export function hasRole(employee, roleOrRoles) {
 // here — as is `driver: reservations.read = false`.
 const MATRIX = {
   admin: {
+    cargo: { read: true, observe: false, clearance: true, manual_decision: true },
     driver_qualifications: { read: true, manage: true },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
@@ -187,6 +188,7 @@ const MATRIX = {
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   fleet_manager: {
+    cargo: { read: true, observe: false, clearance: true, manual_decision: true },
     driver_qualifications: { read: true, manage: false },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: false },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
@@ -234,6 +236,7 @@ const MATRIX = {
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   dispatcher: {
+    cargo: { read: true, observe: false, clearance: true, manual_decision: true },
     driver_qualifications: { read: true, manage: false },
     vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: false },
@@ -278,6 +281,7 @@ const MATRIX = {
     system: { read: false, update: false },
   },
   driver: {
+    cargo: { read: true, observe: true, clearance: false, manual_decision: false },
     driver_qualifications: { read: false, manage: false },
     vehicles: { read: true },
     reservations: { read: false },
@@ -307,6 +311,7 @@ const MATRIX = {
     system: { read: false, update: false },
   },
   management: {
+    cargo: { read: true, observe: false, clearance: false, manual_decision: false },
     driver_qualifications: { read: true, manage: false },
     vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },
@@ -345,6 +350,7 @@ const MATRIX = {
     system: { read: false, update: false },
   },
   mechanic: {
+    cargo: { read: false, observe: false, clearance: false, manual_decision: false },
     driver_qualifications: { read: false, manage: false },
     vehicles: { read: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },

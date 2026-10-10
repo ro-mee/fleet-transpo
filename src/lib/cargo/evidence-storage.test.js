@@ -36,4 +36,18 @@ describe('private cargo evidence boundaries', () => {
     expect(parseStoredKey(`cargo-evidence/${id}/${id}/${id}.jpg`)).toBe(null);
     expect(await signedUrlFor('driver-licenses', `cargo-evidence/${id}/${id}/${id}.jpg`)).toBe(null);
   });
+  it('signs approved staff reads against exact trip without driver impersonation', async () => {
+    const row={execution_id:id,submission_id:id,evidence_id:id,trip_id:7,mime_type:'image/jpeg',bucket:'cargo-evidence',object_key:`${id}/${id}/${id}.jpg`,uploader_employee_id:1,uploader_driver_id:1};
+    const queries=[],db={withTransaction:work=>work({query:async sql=>{queries.push(sql);return {rows:[row]};}})},storage={sign:vi.fn(async()=>({url:'private',expires_in:300}))};
+    const store=createCargoEvidenceStore({db,storage,config:{...config,staffReadApprovalRef:'simulated:staff'},authorizeStaffRead:async ({session,tripId})=>session.user.role==='management'&&tripId===7});
+    expect(await store.signCargoEvidence(id,{user:{role:'management',employeeId:2}},{tripId:7})).toEqual({url:'private',expires_in:300});
+    expect(queries.some(sql=>sql.includes('FROM drivers'))).toBe(false);
+    await expect(store.signCargoEvidence(id,{user:{role:'management',employeeId:2}},{tripId:8})).rejects.toMatchObject({status:404});
+    expect(storage.sign).toHaveBeenCalledTimes(1);
+  });
+  it('staff role alone cannot sign cargo evidence',async()=>{
+    const row={execution_id:id,submission_id:id,evidence_id:id,trip_id:7,mime_type:'image/jpeg',bucket:'cargo-evidence',object_key:`${id}/${id}/${id}.jpg`};
+    const store=createCargoEvidenceStore({db:{withTransaction:work=>work({query:async()=>({rows:[row]})})},storage:{},config});
+    await expect(store.signCargoEvidence(id,{user:{role:'admin',employeeId:2}},{tripId:7})).rejects.toMatchObject({status:403});
+  });
 });

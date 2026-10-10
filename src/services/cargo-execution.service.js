@@ -21,7 +21,7 @@ const beforeCustody = status => ['Trip Started', 'At Pickup'].includes(status);
 const atDelivery = status => ['Drop-off', 'Arrived'].includes(status);
 
 /** Explicit simulated fixture seam. No operational provider is installed. */
-export function createCargoExecutionService({ db, config, authorizeFleet, resolveSafetyProof, resolveReceiverProof } = {}) {
+export function createCargoExecutionService({ db, config, authorizeFleet, authorizeStaffRead, resolveSafetyProof, resolveReceiverProof } = {}) {
   const configured = () => {
     assertCargoStorageConfiguration(config);
     if (config.simulated !== true || process.env.NODE_ENV === 'production' || !['test', 'development'].includes(config.environment) ||
@@ -45,6 +45,10 @@ export function createCargoExecutionService({ db, config, authorizeFleet, resolv
       if (!trip) fail('CARGO_TRIP_NOT_FOUND', 'Cargo trip was not found.', 404);
       await tx.query('SELECT dispatch_id FROM dispatchschedules WHERE dispatch_id=$1 FOR UPDATE', [trip.dispatch_id]);
       if (mode === 'driver') await assertCargoDriver(tripId, actor, tx);
+      if (mode === 'staffRead') {
+        const employee = Number.isSafeInteger(actor?.user?.employeeId) && (await tx.query('SELECT employee_id FROM employees WHERE employee_id=$1 FOR SHARE', [actor.user.employeeId])).rows[0];
+        if (!employee || !config.staffReadApprovalRef?.trim() || !authorizeStaffRead || await authorizeStaffRead({ session: actor, tripId, trip, tx, approvalRef: config.staffReadApprovalRef }) !== true) fail('CARGO_FORBIDDEN', 'Approved staff cargo read authority is required.', 403);
+      }
       if (mode === 'fleet') {
         const employee = (await tx.query('SELECT employee_id FROM employees WHERE employee_id=$1 FOR SHARE', [actor.user.employeeId])).rows[0];
         if (!employee || !authorizeFleet || await authorizeFleet({ session: actor, trip, tx, approvalRef: config.fleetApprovalRef }) !== true) fail('CARGO_FLEET_FORBIDDEN', 'Fleet authority is required.', 403);
@@ -59,7 +63,7 @@ export function createCargoExecutionService({ db, config, authorizeFleet, resolv
   }
   const requireExecution = execution => { if (!execution) fail('CARGO_TRIP_NOT_FOUND', 'Cargo execution was not found.', 404); };
   async function rowsFor(execution, tx) {
-    const receipts = (await tx.query('SELECT * FROM cargo_receipts WHERE execution_id=$1 ORDER BY execution_version DESC', [execution.execution_id])).rows;
+    const receipts = (await tx.query('SELECT DISTINCT ON (stage) * FROM cargo_receipts WHERE execution_id=$1 ORDER BY stage,execution_version DESC LIMIT 2', [execution.execution_id])).rows;
     const pickup = receipts.find(row => row.stage === 'PICKUP') ?? null, delivery = receipts.find(row => row.stage === 'DELIVERY') ?? null;
     const decision = pickup ? (await tx.query('SELECT * FROM cargo_decisions WHERE receipt_id=$1 ORDER BY execution_version DESC LIMIT 1', [pickup.receipt_id])).rows[0] ?? null : null;
     const clearance = (await tx.query('SELECT * FROM cargo_fleet_clearances WHERE execution_id=$1 ORDER BY version DESC LIMIT 1', [execution.execution_id])).rows[0] ?? null;
@@ -151,6 +155,6 @@ export function createCargoExecutionService({ db, config, authorizeFleet, resolv
         VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [execution.execution_id, payload.receipt_id, current.decision?.decision_id ?? null, session.user.employeeId, next.version, execution.manifest.manifest_ref.hash, safetyProof.reference, payload.reason])).rows[0];
       return save(next, 'CLEARANCE', key, hash, row, session, tx, { safetyProof });
     }),
-    getCargoExecution: (tripId, session) => transact(tripId, session, 'driver', async ({ execution, tx }) => { requireExecution(execution); return view(execution, tx); }),
+    getCargoExecution: (tripId, session) => transact(tripId, session, session?.user?.role === 'driver' ? 'driver' : 'staffRead', async ({ execution, tx }) => { requireExecution(execution); return view(execution, tx); }),
   };
 }

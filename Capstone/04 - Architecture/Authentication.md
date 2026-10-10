@@ -859,3 +859,11 @@ On upgraded installs, `clearLegacyBiometricEnrollment()` deletes the retired `fl
 ## Related
 
 [[RBAC]] · [[employees]] · [[Mobile Architecture]] · [[Why RLS Is Not A Boundary]] · [[Architecture]] · [[Backend]] · [[Security Audit]]
+
+## Cargo route authorization — Task 7 (2026-10-10, disabled development)
+
+Cargo routes delegate to the reviewed `cargoApi` boundary and the auth audit explicitly classifies all six methods. The cargo matrix separates read, own-driver observation, Fleet clearance and manual-decision recording; management stays read-only and mechanics are denied. Staff additionally need a separately approved action resolver, not an admin/qualification permission. Driver trip ownership precedes access; source machine auth never falls back to staff cookies. No runtime credentials/configuration/provider was installed.
+
+Private staff photo reads require independently scoped approval, employee identity and the exact requested trip. They never impersonate a driver/uploader, and generic media signers continue rejecting cargo keys. Detail signing is limited to five selected IDs and 300 seconds. Read capabilities come from per-action approval checks and are excluded from immutable mutation snapshots. A manual source decision requires actual approver/communication provenance and a separate authorized recorder; its durable provider remains absent. See [[Trips]] and [[cargo_execution_storage]] for exact interfaces and remaining gates.
+
+Task 7 verification: final focused route/API/source-auth/staff-read/signing checks passed 10 files / 61 tests; scoped ESLint passed and auth audit passed 330/330. The sequential disposable SQL suite passed the existing 13 service cases and exposed the new history query using a nonexistent created_at column. Corrected it to actual received_at; the isolated new route/history/replay case then passed (1 test, 13 skipped). These are covering staggered checks, not a single reported 14-test SQL pass. No full suite/build, browser/device acceptance, operational cargo data, storage upload or partner delivery was performed.

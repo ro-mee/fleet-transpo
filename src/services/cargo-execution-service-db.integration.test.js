@@ -1,9 +1,14 @@
-import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
+const apiFixture=vi.hoisted(()=>({run:null}));
+vi.mock('@/lib/api/utils',()=>({resolveIdentity:async()=>({user:{role:'driver',driverId:1,employeeId:1}}),AuthError:class extends Error {constructor(message,status,code){super(message);Object.assign(this,{status,code});}},ok:data=>Response.json(data),handleError:error=>Response.json({error:error.message,code:error.code},{status:error.status??500})}));
+vi.mock('@/lib/api/ownership',()=>({assertTripOwnership:async(session,tripId)=>{const trip=(await apiFixture.run(tx=>tx.query('SELECT * FROM trips WHERE trip_id=$1',[tripId]))).rows[0];if(!trip||trip.driver_id!==session.user.driverId)throw Object.assign(new Error('Not found'),{status:404});return trip;}}));
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { loadEnvLocal } from '../../scripts/load-env.mjs';
 import { createCargoExecutionService } from './cargo-execution.service';
+import { createCargoApi } from '@/lib/cargo/api';
+import { createCargoReadAdapter } from '@/lib/cargo/read-adapter';
 
 const schema = `cargo_service_fixture_${randomUUID().replaceAll('-', '')}`, storage = `${schema}_objects`;
 const config = { dataApprovalRef: 'simulated:data', privacyApprovalRef: 'simulated:privacy', receivingApprovalRef: 'simulated:receiver', retentionApprovalRef: 'simulated:retention', sourceApprovalRef: 'simulated:source', safetyApprovalRef: 'simulated:safety', fleetApprovalRef: 'simulated:fleet', schemaReady: true, simulated: true, environment: 'test' };
@@ -20,6 +25,7 @@ const db = { withTransaction: async work => {
   catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 } };
 const run = work => db.withTransaction(work);
+apiFixture.run=run;
 const makeService = overrides => createCargoExecutionService({ db, config, authorizeFleet: async ({ session }) => session?.user?.role === 'dispatcher', resolveSafetyProof: async ({ receipt }) => proof('POST_LOAD_SECUREMENT', receipt), resolveReceiverProof: async ({ receipt }) => proof('RECEIVER_CONFIRMATION', receipt), ...overrides });
 const stage = status => run(tx => tx.query('UPDATE trips SET trip_status=$1 WHERE trip_id=1', [status]));
 const prepare = async () => { await stage('At Pickup'); return service.submitCargoReceipt(1, receipt(), actor); };
@@ -54,6 +60,24 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
     await run(tx => tx.query(migration));
     const row = (await pool.query(`SELECT relrowsecurity,has_table_privilege('anon',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') anon,has_table_privilege('authenticated',oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') authenticated FROM pg_class WHERE oid=$1::regclass`, [`${schema}.cargo_execution_commands`])).rows[0];
     expect(row).toEqual({ relrowsecurity: true, anon: false, authenticated: false });
+  });
+  it('routes actual scoped source duplicates and conflicts without storing URLs',async()=>{
+    await stage('At Pickup');
+    const adapter=createCargoReadAdapter({config,db:{query:(...args)=>run(tx=>tx.query(...args)),withTransaction:db.withTransaction},simulated:true,environment:'test',approvalRef:'simulated:read'});
+    const api=createCargoApi({service,simulated:true,environment:'test',approvalRef:'simulated:api',readHistory:adapter.readHistory,resolveSourceRequest:adapter.resolveSourceRequest,credentials:[{secret:'fixture-secret',system:source.system,organization_id:source.organization_id,subject:source.subject,approval_ref:'simulated:source',simulated:true,capabilities:source.capabilities}]});
+    const request=(body)=>new Request('http://localhost/api/integration/cargo/decisions',{method:'POST',headers:{authorization:'Bearer fixture-secret'},body:JSON.stringify(body)});
+    const picked=await api.receipts(new Request('http://localhost/api/trips/1/cargo/receipts',{method:'POST',body:JSON.stringify(receipt())}),{params:Promise.resolve({id:'1'})});
+    expect(picked.status).toBe(200);
+    const payload={...decision((await picked.json()).data),external_request_id:'r1'};
+    const read=await api.get(new Request('http://localhost/api/trips/1/cargo?history_limit=1'),{params:Promise.resolve({id:'1'})});
+    expect(read.status).toBe(200);expect((await read.json()).data.history.rows).toHaveLength(1);
+    const first=await api.sourceDecision(request(payload));expect(first.status).toBe(200);const original=await first.json();
+    expect(await (await api.sourceDecision(request(payload))).json()).toEqual(original);
+    expect((await api.sourceDecision(request({...payload,reason:'Changed owner instruction'}))).status).toBe(409);
+    expect((await api.sourceDecision(request({...payload,external_request_id:'foreign'}))).status).toBe(404);
+    const other=createCargoApi({service,simulated:true,environment:'test',approvalRef:'simulated:api',resolveSourceRequest:adapter.resolveSourceRequest,credentials:[{secret:'fixture-secret',system:source.system,organization_id:'other-hotel',subject:source.subject,approval_ref:'simulated:source',simulated:true,capabilities:source.capabilities}]});
+    expect((await other.sourceDecision(request(payload))).status).toBe(404);
+    expect(JSON.stringify(original)).not.toMatch(/https?:\/\//);
   });
   it('preserves 10/9/9 and requires separate source, Fleet and receiver authority', async () => {
     const picked = await prepare(); expect(picked.pickup_state).toBe('AWAITING_DECISION');
