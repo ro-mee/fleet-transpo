@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { query, withTransaction } from '@/lib/db';
 import { AuthError } from '@/lib/api/utils';
 import { validateCargoFeedbackEnvelope, cargoFeedbackAckSchema } from '@/lib/cargo/feedback-contract';
+import { writeAuditRequired } from '@/lib/audit';
 
 const fail = (code, message, status = 409) => { throw new AuthError(message, status, code); };
 const retryMinutes = attempt => [1, 5, 15, 60][attempt - 1] ?? 60;
@@ -71,33 +72,69 @@ export async function deliverCargoFeedback({ batchSize = 50, now = new Date(), g
   return createWorker({ gateway }).deliverCargoFeedback({ batchSize, now });
 }
 
-async function listFeedback(db, { tripId, sourceSystem, organizationId, limit = 50 }) {
-  if (!Number.isSafeInteger(tripId) || tripId < 1 || !['PMS','POS','SCM'].includes(sourceSystem) || typeof organizationId !== 'string' || !organizationId.trim() || !Number.isInteger(limit) || limit < 1 || limit > 100) fail('CARGO_INVALID_INPUT', 'Feedback scope is invalid.', 400);
-  const { rows } = await db.query(`SELECT o.event_id,o.execution_version,o.event_type,o.status,o.attempts,o.next_attempt_at,o.acknowledged_at,o.last_error_code,o.created_at
-    FROM cargo_feedback_outbox o JOIN cargo_trip_executions e USING(execution_id)
-    WHERE e.trip_id=$1 AND o.source_system=$2 AND o.source_organization_id=$3 ORDER BY o.created_at DESC LIMIT $4`, [tripId,sourceSystem,organizationId,limit]);
-  return rows;
+function validateStaffRequest(input, action) {
+  const { tripId, sourceSystem, organizationId } = input ?? {};
+  if (!Number.isSafeInteger(tripId) || tripId < 1 || !['PMS','POS','SCM'].includes(sourceSystem) || typeof organizationId !== 'string' || !organizationId.trim() ||
+      (action === 'read' && (!Number.isInteger(input.limit ?? 50) || (input.limit ?? 50) < 1 || (input.limit ?? 50) > 100)) ||
+      (action === 'execute' && !/^[0-9a-f-]{36}$/i.test(input.eventId || ''))) fail('CARGO_INVALID_INPUT', 'Feedback scope is invalid.', 400);
 }
 
-async function retryFeedback(db, { eventId, tripId, sourceSystem, organizationId }) {
-  if (!Number.isSafeInteger(tripId) || tripId < 1 || !/^[0-9a-f-]{36}$/i.test(eventId || '') || !['PMS','POS','SCM'].includes(sourceSystem) || typeof organizationId !== 'string' || !organizationId.trim()) fail('CARGO_INVALID_INPUT', 'Feedback scope is invalid.', 400);
+async function authorizeFeedbackStaff(tx, input, action, { authorizeStaff, approvalRef }) {
+  const employeeId = input.session?.user?.employeeId;
+  if (!Number.isSafeInteger(employeeId) || employeeId < 1) fail('CARGO_FORBIDDEN', 'Authenticated staff identity is required.', 403);
+  const trip = (await tx.query(`SELECT t.trip_id,e.execution_id,e.manifest
+    FROM trips t JOIN cargo_trip_executions e ON e.trip_id=t.trip_id
+    WHERE t.trip_id=$1 AND t.deleted_at IS NULL FOR UPDATE OF t,e`, [input.tripId])).rows[0];
+  if (!trip) fail('CARGO_FEEDBACK_NOT_FOUND', 'Cargo feedback was not found in this trip and source scope.', 404);
+  const source = trip.manifest?.source_ref;
+  if (source?.system !== input.sourceSystem || source?.organization_id !== input.organizationId) fail('CARGO_SOURCE_FORBIDDEN', 'Requested source does not match the persisted trip source.', 403);
+  const employee = (await tx.query(`SELECT employee_id FROM employees WHERE employee_id=$1 AND status='Active' AND deleted_at IS NULL FOR SHARE`, [employeeId])).rows[0];
+  if (!employee || await authorizeStaff({ session: input.session, action, trip, execution: { execution_id: trip.execution_id, manifest: trip.manifest }, tx, approvalRef }) !== true) {
+    fail('CARGO_FORBIDDEN', 'Approved cargo feedback authority is required.', 403);
+  }
+  return { trip, source };
+}
+
+async function listFeedback(db, input, authority) {
+  validateStaffRequest(input, 'read');
+  const limit = input.limit ?? 50;
   return db.withTransaction(async tx => {
-    const { rows } = await tx.query(`UPDATE cargo_feedback_outbox o SET status='PENDING',next_attempt_at=now(),last_error_code=NULL
-      FROM cargo_trip_executions e WHERE o.execution_id=e.execution_id AND e.trip_id=$1 AND o.event_id=$2
-        AND o.source_system=$3 AND o.source_organization_id=$4 AND o.status='FAILED' AND o.lease_token IS NULL
-      RETURNING o.event_id,o.status,o.attempts,o.next_attempt_at`, [tripId,eventId,sourceSystem,organizationId]);
+    const { trip, source } = await authorizeFeedbackStaff(tx, input, 'read', authority);
+    const { rows } = await tx.query(`SELECT o.event_id,o.execution_version,o.event_type,o.status,o.attempts,o.next_attempt_at,o.acknowledged_at,o.last_error_code,o.created_at
+      FROM cargo_feedback_outbox o WHERE o.execution_id=$1 AND o.source_system=$2 AND o.source_organization_id=$3 ORDER BY o.created_at DESC LIMIT $4`, [trip.execution_id,source.system,source.organization_id,limit]);
+    const audit = await writeAuditRequired(tx,input.req,input.session,{action:'cargo_feedback_read',resource:'cargo_feedback',resourceId:trip.trip_id,
+      newValues:{trip_id:trip.trip_id,source_system:source.system,count:rows.length}});
+    if (!audit?.log_id) throw new Error('Required cargo feedback read audit was not persisted.');
+    return rows;
+  });
+}
+
+async function retryFeedback(db, input, authority) {
+  validateStaffRequest(input, 'execute');
+  return db.withTransaction(async tx => {
+    const { trip, source } = await authorizeFeedbackStaff(tx,input,'execute',authority);
+    const row=(await tx.query(`SELECT event_id,status,attempts,last_error_code,source_system,source_organization_id
+      FROM cargo_feedback_outbox WHERE execution_id=$1 AND event_id=$2 FOR UPDATE`,[trip.execution_id,input.eventId])).rows[0];
+    if (!row || row.source_system!==source.system || row.source_organization_id!==source.organization_id || row.status!=='FAILED') fail('CARGO_FEEDBACK_NOT_FOUND','Retryable feedback was not found in this trip and source scope.',404);
+    const { rows } = await tx.query(`UPDATE cargo_feedback_outbox SET status='PENDING',attempts=0,next_attempt_at=now(),last_error_code=NULL
+      WHERE execution_id=$1 AND event_id=$2 AND status='FAILED' AND lease_token IS NULL
+      RETURNING event_id,status,attempts,next_attempt_at`,[trip.execution_id,input.eventId]);
     if (!rows[0]) fail('CARGO_FEEDBACK_NOT_FOUND', 'Retryable feedback was not found in this trip and source scope.', 404);
+    const audit = await writeAuditRequired(tx,input.req,input.session,{action:'cargo_feedback_retry',resource:'cargo_feedback',resourceId:trip.trip_id,
+      oldValues:{status:row.status,attempts:row.attempts,error_code:row.last_error_code},newValues:{event_id:row.event_id,status:'PENDING',attempts:0,trip_id:trip.trip_id,source:source.system}});
+    if (!audit?.log_id) throw new Error('Required cargo feedback retry audit was not persisted.');
     return rows[0];
   });
 }
 
-export function createCargoFeedbackStaffFixture({ db, config, environment = process.env.NODE_ENV } = {}) {
-  if (environment === 'production' || !['test','development'].includes(environment) || config?.simulated !== true || !config?.approvalRef?.trim() || typeof db?.query !== 'function' || typeof db?.withTransaction !== 'function') {
+export function createCargoFeedbackStaffFixture({ db, config, authorizeStaff, environment = process.env.NODE_ENV } = {}) {
+  if (environment === 'production' || !['test','development'].includes(environment) || config?.simulated !== true || typeof config?.approvalRef !== 'string' || !config.approvalRef.trim() || typeof authorizeStaff !== 'function' || typeof db?.withTransaction !== 'function') {
     fail('CARGO_CONFIGURATION_REQUIRED', 'Cargo feedback staff authority is not configured.', 503);
   }
+  const authority={authorizeStaff,approvalRef:config.approvalRef};
   return {
-    listCargoFeedback: input => listFeedback(db,input),
-    retryCargoFeedback: input => retryFeedback(db,input),
+    listCargoFeedback: input => listFeedback(db,input,authority),
+    retryCargoFeedback: input => retryFeedback(db,input,authority),
   };
 }
 

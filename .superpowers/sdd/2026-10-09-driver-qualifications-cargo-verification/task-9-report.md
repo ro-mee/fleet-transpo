@@ -33,3 +33,26 @@ Updated `Capstone/01 - System/System Boundaries.md`, `Capstone/03 - Database/Tab
 Fixtures prove behavior against isolated disposable schemas, not the live database catalog, external partner delivery, credentials, deployment configuration or production scheduler. Runtime remains closed until approved configuration and gates exist. No Task 10/mobile/report work was included.
 
 Commit: `Add durable cargo feedback worker` on `feat/mechanic-integration`.
+## Review fix 1 — caller-bound staff authority and retry cycles
+
+The first scoped review found that attempt 10 could be manually requeued but the next lease became attempt 11, which the event envelope rejected. It also found the staff route discarded its authenticated session and staff list/retry trusted caller-selected scope without resolving approved authority or writing required audit.
+
+A retry now resets the bounded attempt counter to zero and begins a new ten-attempt cycle. The event UUID and immutable source/payload/hash stay fixed. The successful required audit records the old FAILED status, old attempt count and error code along with the event ID and authenticated employee, preserving cycle history. A later tenth failure again becomes FAILED. No schema change was needed.
+
+The routes pass the `requirePermission` session and request into the service. The service resolves the trip and execution manifest from the database in a transaction, compares requested source/organization with persisted source data, checks the active employee, then calls an explicitly configured staff-authority callback with the session and persisted trip/execution. Reads and retries both call `writeAuditRequired` in the same transaction as their query/update. No live callback/provider is configured; production staff endpoints continue returning 503. The only callback seam is an explicit nonproduction fixture.
+
+TDD RED was observed: the first regression run failed five tests (three service cases because the fixture lacked caller-bound authorization and two route cases because session/request were dropped). After implementation, the focused run passed **5 files / 22 tests**:
+
+`npx vitest run src/lib/cargo/feedback-contract.test.js src/lib/integration/cargo-gateway.test.js src/services/cargo-feedback.service.test.js 'src/app/api/integration/cargo/feedback/route.test.js' src/app/api/cron/cargo-feedback/route.test.js --reporter=dot`
+
+The sequential isolated PostgreSQL suite passed **4/4**:
+
+`$env:CARGO_FIXTURE_DB_TEST='1'; npx vitest run src/services/cargo-feedback-db.integration.test.js --testTimeout=60000 --reporter=verbose`
+
+Its new staff fixture denied a requested organization different from the persisted manifest, forced a real audit-trigger failure and verified the retry stayed FAILED at attempts 10, then retried the same event, observed attempt 1 delivered and ACKed with identical payload/hash, and exhausted another retried event at attempt 10. Existing two-session lease ordering, stale-token and inbox uniqueness tests also passed. All SQL scenarios used isolated disposable schemas and ran sequentially; no live schema changed.
+
+Scoped ESLint passed for all 11 Task 9 source/test files. `npm run verify:auth` passed 333/333 guarded route methods. No migration, schema dump, provider configuration, partner send or scheduler was added. Updated System Boundaries, cargo storage and implementation plan notes plus `SYSTEM.md`; recovery ledger records this review fix.
+
+### Review fix 1 commit status
+
+The changes above are included in the scoped Task 9 review-fix commit, based on review base `57734e22`.

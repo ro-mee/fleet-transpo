@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { loadEnvLocal } from '../../scripts/load-env.mjs';
-import { createCargoFeedbackWorker } from './cargo-feedback.service';
+import { createCargoFeedbackWorker, createCargoFeedbackStaffFixture } from './cargo-feedback.service';
 import { cargoPayloadHash } from './cargo-execution.repository';
 
 const enabled = process.env.CARGO_FIXTURE_DB_TEST === '1';
@@ -35,7 +35,9 @@ describe.skipIf(!enabled)('cargo feedback worker PostgreSQL isolation and compet
     pool=new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false},max:4,connectionTimeoutMillis:5000});
     await pool.query(`CREATE SCHEMA ${schema}; CREATE SCHEMA ${storageSchema}`);
     await db().withTransaction(async tx=>{
-      await tx.query(`CREATE TABLE employees(employee_id integer PRIMARY KEY);
+      await tx.query(`CREATE TABLE employees(employee_id integer PRIMARY KEY,status text NOT NULL DEFAULT 'Active',deleted_at timestamptz);
+        CREATE TABLE audit_logs(log_id bigserial PRIMARY KEY,employee_id integer,action text NOT NULL,resource text NOT NULL,resource_id integer,old_values jsonb,new_values jsonb,ip_address varchar(50),user_agent text,event_key uuid);
+        CREATE UNIQUE INDEX audit_logs_event_key_uq ON audit_logs(event_key) WHERE event_key IS NOT NULL;
         CREATE TABLE drivers(driver_id integer PRIMARY KEY,employee_id integer);
         CREATE TABLE transportation_requests(request_id integer PRIMARY KEY);
         CREATE TABLE dispatchschedules(dispatch_id integer PRIMARY KEY,request_id integer,service_type text);
@@ -45,7 +47,7 @@ describe.skipIf(!enabled)('cargo feedback worker PostgreSQL isolation and compet
         CREATE TABLE supply_manifest_revisions(supply_manifest_revision_id uuid PRIMARY KEY,supply_shipment_id uuid,manifest_revision integer,manifest_hash text);
         CREATE TABLE ${storageSchema}.buckets(id text PRIMARY KEY,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
         CREATE TABLE ${storageSchema}.objects(bucket_id text);
-        INSERT INTO employees VALUES(1),(2); INSERT INTO drivers VALUES(1,1),(2,2); INSERT INTO transportation_requests VALUES(1),(2);
+        INSERT INTO employees(employee_id) VALUES(1),(2); INSERT INTO drivers VALUES(1,1),(2,2); INSERT INTO transportation_requests VALUES(1),(2);
         INSERT INTO dispatchschedules VALUES(1,1,'PASSENGER'),(2,2,'PASSENGER'); INSERT INTO trips VALUES(1,1,1,NULL),(2,2,2,NULL);`);
       const manifest={ manifest_ref:manifestRef,source_ref:source,service_code:'HOTEL_SUPPLY_TRANSFER',lines:[{line_id:'oil',name:'Oil',quantity_basis:'TRANSPORT_PACKAGE',expected_quantity:'1',unit:'box',reference_image_ref:null,handling:[]}] };
       const {manifest_ref,...snapshot}=manifest;
@@ -119,5 +121,39 @@ describe.skipIf(!enabled)('cargo feedback worker PostgreSQL isolation and compet
     expect((await pool.query(`SELECT source_organization_id,event_id FROM ${schema}.cargo_decision_inbox WHERE event_id=$1 ORDER BY source_organization_id`,[sharedEvent])).rows).toHaveLength(2);
     await expect(db().withTransaction(tx=>tx.query(`INSERT INTO cargo_decision_inbox(source_system,source_organization_id,event_id,payload_hash,response,receipt_id,actor_ref,decision_id)
       SELECT source_system,source_organization_id,event_id,payload_hash,response,receipt_id,actor_ref,decision_id FROM cargo_decision_inbox WHERE event_id=$1 LIMIT 1`,[sharedEvent]))).rejects.toMatchObject({code:'23505'});
+  });
+
+  it('audits authorized retries, rolls back on audit failure and delivers a new ten-attempt cycle',async()=>{
+    const id=randomUUID();await insertEvent(id,4);
+    await pool.query(`UPDATE ${schema}.cargo_feedback_outbox SET status='FAILED',attempts=10,last_error_code='GATEWAY_TIMEOUT' WHERE event_id=$1`,[id]);
+    const session={user:{employeeId:1,role:'dispatcher'}};
+    const authorizeStaff=async({session:actor,action,trip,execution,approvalRef})=>actor.user.employeeId===1&&action==='execute'&&approvalRef==='fixture-approval'&&trip.trip_id===1&&execution.manifest.source_ref.organization_id===source.organization_id;
+    const staff=createCargoFeedbackStaffFixture({db:db(),config:{simulated:true,approvalRef:'fixture-approval'},authorizeStaff,environment:'test'});
+    const scope={req:new Request('http://localhost/api/integration/cargo/feedback'),session,tripId:1,sourceSystem:'PMS',organizationId:source.organization_id,eventId:id};
+    await expect(staff.retryCargoFeedback({...scope,organizationId:'fixture-hotel-b'})).rejects.toMatchObject({status:403,code:'CARGO_SOURCE_FORBIDDEN'});
+    expect((await pool.query(`SELECT status,attempts FROM ${schema}.cargo_feedback_outbox WHERE event_id=$1`,[id])).rows[0]).toEqual({status:'FAILED',attempts:10});
+
+    await pool.query(`CREATE FUNCTION ${schema}.fail_feedback_retry_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='cargo_feedback_retry' THEN RAISE EXCEPTION 'fixture audit failure'; END IF; RETURN NEW; END $$;
+      CREATE TRIGGER fail_feedback_retry_audit BEFORE INSERT ON ${schema}.audit_logs FOR EACH ROW EXECUTE FUNCTION ${schema}.fail_feedback_retry_audit()`);
+    await expect(staff.retryCargoFeedback(scope)).rejects.toThrow('fixture audit failure');
+    expect((await pool.query(`SELECT status,attempts,last_error_code FROM ${schema}.cargo_feedback_outbox WHERE event_id=$1`,[id])).rows[0]).toEqual({status:'FAILED',attempts:10,last_error_code:'GATEWAY_TIMEOUT'});
+    await pool.query(`DROP TRIGGER fail_feedback_retry_audit ON ${schema}.audit_logs; DROP FUNCTION ${schema}.fail_feedback_retry_audit()`);
+
+    expect(await staff.retryCargoFeedback(scope)).toMatchObject({event_id:id,status:'PENDING',attempts:0});
+    expect((await pool.query(`SELECT employee_id,action,resource_id,old_values,new_values FROM ${schema}.audit_logs WHERE action='cargo_feedback_retry'`)).rows[0]).toMatchObject({employee_id:1,action:'cargo_feedback_retry',resource_id:1,old_values:{status:'FAILED',attempts:10,error_code:'GATEWAY_TIMEOUT'},new_values:{event_id:id,status:'PENDING',attempts:0,trip_id:1,source:'PMS'}});
+    const sends=[];const worker=createCargoFeedbackWorker({db:db(),gateway:{send:async event=>{sends.push(event);return {event_id:event.event_id,received:true};}},environment:'test'});
+    expect(await worker.deliverCargoFeedback({batchSize:1})).toEqual({acknowledged:1,pending:0,failed:0});
+    expect(sends).toHaveLength(1);expect(sends[0]).toMatchObject({event_id:id,attempt:1,payload:envelope(id,4)});
+    expect((await pool.query(`SELECT event_id,status,attempts,payload,payload_hash FROM ${schema}.cargo_feedback_outbox WHERE event_id=$1`,[id])).rows[0]).toMatchObject({event_id:id,status:'ACKNOWLEDGED',attempts:1,payload:envelope(id,4),payload_hash:cargoPayloadHash(envelope(id,4))});
+
+    const second=randomUUID();await insertEvent(second,5);
+    await pool.query(`UPDATE ${schema}.cargo_feedback_outbox SET status='FAILED',attempts=10,last_error_code='GATEWAY_TIMEOUT' WHERE event_id=$1`,[second]);
+    await staff.retryCargoFeedback({...scope,eventId:second});
+    const cycleStart=Date.now();
+    for(let attempt=1;attempt<=10;attempt++){
+      const result=await createCargoFeedbackWorker({db:db(),gateway:{send:async event=>{expect(event.event_id).toBe(second);throw Object.assign(new Error('timeout'),{code:'GATEWAY_TIMEOUT'});}},environment:'test'}).deliverCargoFeedback({batchSize:1,now:new Date(cycleStart+attempt*3*60*60*1000)});
+      expect(result).toEqual({acknowledged:0,pending:attempt<10?1:0,failed:attempt===10?1:0});
+    }
+    expect((await pool.query(`SELECT event_id,status,attempts,payload_hash FROM ${schema}.cargo_feedback_outbox WHERE event_id=$1`,[second])).rows[0]).toMatchObject({event_id:second,status:'FAILED',attempts:10,payload_hash:cargoPayloadHash(envelope(second,5))});
   });
 });

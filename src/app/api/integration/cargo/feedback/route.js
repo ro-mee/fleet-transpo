@@ -17,24 +17,24 @@ async function boundedBody(req) {
 
 export async function GET(req) {
   try {
-    await requirePermission(req, 'integrations', 'read');
+    const session = await requirePermission(req, 'integrations', 'read');
     const params = new URL(req.url).searchParams;
     if ([...params.keys()].some(key => params.getAll(key).length !== 1)) throw invalid();
     const raw = Object.fromEntries(params.entries());
     const parsed = scopeSchema.safeParse(raw);
     if (!parsed.success) throw invalid();
     const { trip_id: tripId, source_system: sourceSystem, organization_id: organizationId, limit } = parsed.data;
-    const rows = await listCargoFeedback({ tripId, sourceSystem, organizationId, limit });
+    const rows = await listCargoFeedback({ req, session, tripId, sourceSystem, organizationId, limit });
     return ok({ data: rows });
   } catch (error) { return handleError(error); }
 }
 
 export async function POST(req) {
   try {
-    await requirePermission(req, 'integrations', 'execute');
+    const session = await requirePermission(req, 'integrations', 'execute');
     const parsed = retrySchema.safeParse(await boundedBody(req));
     if (!parsed.success) throw invalid();
     const { trip_id: tripId, source_system: sourceSystem, organization_id: organizationId, event_id: eventId } = parsed.data;
-    return ok({ data: await retryCargoFeedback({ tripId, sourceSystem, organizationId, eventId }) });
+    return ok({ data: await retryCargoFeedback({ req, session, tripId, sourceSystem, organizationId, eventId }) });
   } catch (error) { return handleError(error); }
 }
