@@ -237,6 +237,19 @@ export default function LoginScreen() {
               Forgot password?
             </Text>
           </Pressable>
+
+          <View style={[styles.demoEntry, { borderTopColor: colors.outlineVariant }]}>
+            <Text style={[styles.demoEntryTitle, { color: colors.onSurface }]}>Want to see the cargo flow?</Text>
+            <Pressable
+              onPress={() => router.push("/cargo-demo")}
+              accessibilityRole="link"
+              accessibilityLabel="Explore the simulated cargo demo"
+              style={styles.demoEntryLink}
+            >
+              <Text style={[styles.demoEntryLinkText, { color: colors.primary }]}>Explore sample cases  →</Text>
+            </Pressable>
+            <Text style={[styles.demoEntryNote, { color: colors.onSurfaceVariant }]}>Restaurant and hotel examples · No real updates</Text>
+          </View>
         </ClayCard>
 
         {/* Footer */}
@@ -284,6 +297,33 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     fontFamily: fonts.bodySemiBold,
     lineHeight: moderateScale(20),
+  },
+  demoEntry: {
+    marginTop: moderateScale(4),
+    paddingTop: moderateScale(15),
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: moderateScale(4),
+  },
+  demoEntryTitle: {
+    fontSize: moderateScale(13),
+    lineHeight: moderateScale(19),
+    fontFamily: fonts.bodySemiBold,
+  },
+  demoEntryLink: {
+    minHeight: moderateScale(48),
+    alignSelf: "flex-start",
+    justifyContent: "center",
+    paddingHorizontal: moderateScale(4),
+  },
+  demoEntryLinkText: {
+    fontSize: moderateScale(14),
+    lineHeight: moderateScale(20),
+    fontFamily: fonts.bodySemiBold,
+  },
+  demoEntryNote: {
+    fontSize: moderateScale(11),
+    lineHeight: moderateScale(16),
+    fontFamily: fonts.body,
   },
   footer: {
     textAlign: "center",

@@ -1080,3 +1080,9 @@ An equal, intact count with a remark is a clean pickup note. Report pickup issue
 Legacy **In Progress** cargo trips show a hold explaining that delivery observations attach only at Drop-off or Arrived. Contact Fleet to review the trip status and custody; the cargo screen cannot move the trip to another status. Completion remains blocked without current server delivery/receiver confirmation, including when execution is unavailable. Camera/photo-library permission descriptions now cover trip photo evidence, including both fuel receipts and cargo observations; installed native apps need a rebuild to receive that copy.
 
 Review checks passed99 focused and621 mobile/shared-presentation tests, scoped lint and Android/iOS/web export. Native permission dialogs and device flows remain unverified.
+
+## Cargo demo from sign-in — sample only
+
+From the sign-in screen, open **Explore sample cases** to view the cargo examples without an account. The demo starts with 10 expected boxes and 9 counted, then shows the source asking for a recount. Select **After recount** to see the new clean count for the same sample trip and manifest. Restaurant and hotel examples use the same cargo layout; Guest/VIP transport stays in the passenger flow.
+
+Every value is simulated. Choosing a case only changes what is shown on this screen; it does not contact Fleet or a restaurant/hotel system, save a cargo record, upload a photo or send a partner update. Production cargo actions remain unavailable until the real source, Fleet, receiver and privacy approvals are connected.
