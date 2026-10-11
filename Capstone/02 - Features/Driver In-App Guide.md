@@ -1071,3 +1071,12 @@ The Map's existing geofence-backed destination action moves the trip to **Drop-o
 Counts save separately on this device when you edit or use Back. Explicit receipt retry keeps its original submission ID and unchanged amounts; a changed manifest requires a new count and preserves the earlier observation. Switching accounts hides and fences the previous account's form. If the service says **unavailable**, retain the count and retry online or contact Fleet; the app does not simulate clearance.
 
 Verified with 609 passing mobile/shared-presentation regressions, scoped lint and Android/iOS/web export. Supplemental light/dark and small/large/landscape/2x-text checks passed after correcting input wrapping. Native device flows, keyboard/safe-area behavior, screen-reader announcements and camera acceptance are still pending. Production cargo providers remain disabled.
+
+
+### Cargo guide review corrections (2026-10-12)
+
+An equal, intact count with a remark is a clean pickup note. Report pickup issue requires a shortage, excess or damage and a reason; unsupported reports are refused without changing the saved receipt. Source reference images are not enabled under the current ownership/retention policy, so the readable image placeholder is expected.
+
+Legacy **In Progress** cargo trips show a hold explaining that delivery observations attach only at Drop-off or Arrived. Contact Fleet to review the trip status and custody; the cargo screen cannot move the trip to another status. Completion remains blocked without current server delivery/receiver confirmation, including when execution is unavailable. Camera/photo-library permission descriptions now cover trip photo evidence, including both fuel receipts and cargo observations; installed native apps need a rebuild to receive that copy.
+
+Review checks passed99 focused and621 mobile/shared-presentation tests, scoped lint and Android/iOS/web export. Native permission dialogs and device flows remain unverified.

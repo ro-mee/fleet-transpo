@@ -39,3 +39,13 @@ describe("cargo form preservation and submission", () => {
     const restored = await readCargoForm(input);
     await saving; expect(restored.counts.boxes).toBe("7");
   });
+
+it("rejects an unclassified issue before saving a receipt but retains clean confirmation", async () => {
+  const clean = { ...input, form: { ...input.form, counts: { boxes: "10" }, issues: { boxes: { reported: true, remarks: "Packaging checked" } } }, offline: true };
+  await expect(submitCargoObservation({ ...clean, reportIssue: true })).rejects.toThrow(/shortage|excess|damage/i);
+  expect(await listCargoDrafts("employee-12")).toEqual([]);
+  const row = await submitCargoObservation(clean);
+  expect(row.draft.lines[0].issue_code).toBe(null);
+  await expect(submitCargoObservation({ ...clean, reportIssue: true })).rejects.toThrow(/shortage|excess|damage/i);
+  expect(await listCargoDrafts("employee-12")).toHaveLength(1);
+});

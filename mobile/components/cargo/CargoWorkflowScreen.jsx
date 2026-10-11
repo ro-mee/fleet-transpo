@@ -13,7 +13,7 @@ import { api } from "../../lib/api";
 import { cargoApi } from "../../lib/cargo-api";
 import { getCargoSyncState, captureCargoSession, isCurrentCargoSession } from "../../lib/cargo-sync";
 import { readCargoForm, saveCargoForm, submitCargoObservation } from "../../lib/cargo-form-state";
-import { blankCargoCounts, buildCargoViewModel, buildCargoReceipt, validateCargoCounts } from "../../lib/cargo-view-model";
+import { blankCargoCounts, buildCargoViewModel, buildCargoReceipt, validateCargoCounts, readCargoScreenSources } from "../../lib/cargo-view-model";
 const EMPTY_FORM = { counts: {}, issues: {} };
 export default function CargoWorkflowScreen({ mode = "overview" }) {
   const { id } = useLocalSearchParams();
@@ -38,11 +38,12 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
       let execution = saved?.execution || null, trip = saved?.trip || null, fresh = false, error = null;
       if (!offline) {
         try {
-          const [response, trips] = await Promise.all([cargoApi.getExecution(id, actorId, snapshot.signal), api.get("/api/mobile/driver/trips?status=all&limit=100")]);
+          const sources = await readCargoScreenSources(id, { readExecution: () => cargoApi.getExecution(id, actorId, snapshot.signal), readTrips: () => api.get("/api/mobile/driver/trips?status=all&limit=100") });
           if (!current()) return;
-          execution = response?.data ?? response;
-          trip = Array.isArray(trips) ? trips.find(row => String(row.trip_id) === String(id)) || null : null;
-          fresh = true;
+          trip = sources.trip || trip;
+          if (sources.executionError) throw sources.executionError;
+          execution = sources.execution?.data ?? sources.execution;
+          fresh = sources.trip != null;
           if (trip?.load_type !== "Cargo") { execution = null; error = "This trip has no assigned cargo workflow. Use Trip Details for passenger trips."; }
         } catch (failure) {
           if (!current()) return;
@@ -77,10 +78,10 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
     if (!validation.valid) { setReview(false); setMessage("Check each actual count. Zero is allowed; a blank count is not."); return; }
     const snapshot = captureCargoSession(actorId);
     try {
-      const receipt = buildCargoReceipt(execution, { stage, counts: formRef.current.counts, issues: formRef.current.issues });
+      const receipt = buildCargoReceipt(execution, { stage, counts: formRef.current.counts, issues: formRef.current.issues, reportIssue });
       if (stage === "PICKUP" && !reportIssue && receipt.lines.some(line => line.issue_code)) throw new Error("Use Report pickup issue for a different count or damaged item.");
       inFlight.current = true; setBusy(true); setMessage(null);
-      const row = await submitCargoObservation({ ...context, execution, form: formRef.current, offline, api: cargoApi, files: { getInfo: FileSystem.getInfoAsync } });
+      const row = await submitCargoObservation({ ...context, execution, form: formRef.current, reportIssue, offline, api: cargoApi, files: { getInfo: FileSystem.getInfoAsync } });
       if (!isCurrentCargoSession(snapshot)) return;
       formRef.current = { ...formRef.current, pendingSubmissionId: row.submissionId }; setForm(formRef.current);
       setMessage(row.fleetSaved ? "Observation saved to Fleet. Refreshing the current decision; a saved receipt alone is not clearance." : "Saved on this device. Fleet has not accepted this observation. Retry this same submission when available.");

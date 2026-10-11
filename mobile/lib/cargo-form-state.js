@@ -43,9 +43,10 @@ export async function submitCargoObservation(input) {
     let row = rows.find(item => String(item.tripId) === String(input.tripId) && item.draft.stage === input.stage && item.manifestHash === hash && (item.submissionId === savedForm?.pendingSubmissionId || item.submissionId === input.form?.pendingSubmissionId));
     if (!row) row = rows.filter(item => String(item.tripId) === String(input.tripId) && item.draft.stage === input.stage && item.manifestHash === hash && item.syncState !== "FLEET_SAVED").at(-1);
     if (!row) {
-      const draft = buildCargoReceipt(input.execution, { stage: input.stage, counts: input.form.counts, issues: input.form.issues });
+      const draft = buildCargoReceipt(input.execution, { stage: input.stage, counts: input.form.counts, issues: input.form.issues, reportIssue: input.reportIssue === true });
       check(snapshot); row = await saveCargoDraft({ actorId: input.actorId, tripId: input.tripId, manifestRef: input.execution.manifest.manifest_ref, draft }); check(snapshot);
     }
+    if (input.reportIssue && !row.draft.lines.some(line => ["SHORTAGE", "EXCESS", "DAMAGE"].includes(line.issue_code))) throw new Error("Report an issue only for a shortage, excess or damage. Retry this clean receipt through Confirm pickup.");
     await saveCargoForm({ ...input, form: { ...input.form, pendingSubmissionId: row.submissionId } }); check(snapshot);
     if (!input.offline) { await syncCargoDrafts({ actorId: input.actorId, api: input.api, files: input.files }); check(snapshot); }
     const latest = await listCargoDrafts(input.actorId); check(snapshot);

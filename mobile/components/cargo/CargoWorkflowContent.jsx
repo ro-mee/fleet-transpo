@@ -18,6 +18,7 @@ export function CargoWorkflowContent({ mode, execution, trip, view, form, errors
     {loading && <Text accessibilityLiveRegion="polite" style={type.bodyMd}>Loading cargo verification…</Text>}
     {error && <Text accessibilityRole="alert" style={[type.bodyMd, { color: colors.error }]}>{error}</Text>}
     {message && <Text accessibilityLiveRegion="polite" style={type.bodyMd}>{message}</Text>}
+    {view.legacyHold && <Text accessibilityRole="alert" style={type.bodyMd}>{view.legacyHold}</Text>}
     <CargoDecisionStatus view={view} />
     <ClayButton label="Refresh cargo status" variant="tonal" onPress={onRefresh} disabled={busy || loading} />
     {view.stage !== "UNAVAILABLE" && <>

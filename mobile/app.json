@@ -47,15 +47,15 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "FleetOps uses the camera to scan fuel receipts.",
-          "photosPermission": "FleetOps uses your photo library to attach fuel receipts.",
+          "cameraPermission": "FleetOps uses the camera to capture trip photo evidence, including fuel receipts and cargo observations.",
+          "photosPermission": "FleetOps uses your photo library to attach trip photo evidence, including fuel receipts and cargo observations.",
           "microphonePermission": false
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "FleetOps uses the camera to scan fuel receipts.",
+          "cameraPermission": "FleetOps uses the camera to capture trip photo evidence, including fuel receipts and cargo observations.",
           "recordAudioAndroid": false
         }
       ],

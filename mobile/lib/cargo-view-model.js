@@ -2,6 +2,7 @@
 const SERVICES = { RESTAURANT_SUPPLY_PICKUP: "Restaurant supply pickup", RESTAURANT_FOOD_DELIVERY: "Restaurant food delivery", HOTEL_SUPPLY_TRANSFER: "Hotel supply transfer" };
 const SYNC = { NONE: "No observation saved", DEVICE_SAVED: "Saved on this device", FLEET_SAVED: "Saved to Fleet", STALE_REVIEW: "Manifest changed — review your count", TERMINAL_REVIEW: "Saved draft needs Fleet review", REAUTHENTICATION_REQUIRED: "Sign in again to sync" };
 const FEEDBACK = { ACKNOWLEDGED: "Partner acknowledged receipt — not approval", PENDING: "Partner receipt pending", LEASED: "Sending partner receipt", RETRY: "Partner receipt will retry", FAILED: "Partner receipt failed", NOT_QUEUED: "Partner receipt not queued" };
+const LEGACY_HOLD = "This legacy In Progress cargo trip needs Fleet review. Delivery observations can only be attached at Drop-off or Arrived. Contact Fleet to review the trip status and custody before continuing; this screen cannot change its status.";
 export function cargoMapAction(trip) {
   if (trip?.load_type !== "Cargo") return null;
   if (trip.trip_status === "At Pickup") return "cargo-pickup";
@@ -32,7 +33,7 @@ function validManifest(manifest) {
 }
 export function buildCargoViewModel(execution, { offline = false, syncState = {}, fresh = true, tripStatus = null } = {}) {
   const view = execution?.data ?? execution;
-  if (!validManifest(view?.manifest)) return { stage: "UNAVAILABLE", primaryAction: "Retry", canSubmit: false, canDepart: false, canConfirmDelivery: false, summary: {}, blockers: [{ code: "CARGO_UNAVAILABLE", message: "Cargo verification is unavailable. Retry online or contact Fleet." }] };
+  if (!validManifest(view?.manifest)) return { stage: "UNAVAILABLE", primaryAction: "Retry", canSubmit: false, canDepart: false, canConfirmDelivery: false, legacyHold: tripStatus === "In Progress" ? LEGACY_HOLD : null, summary: {}, blockers: [{ code: "CARGO_UNAVAILABLE", message: "Cargo verification is unavailable. Retry online or contact Fleet." }] };
   const manifest = view.manifest;
   const state = typeof syncState === "string" ? syncState : syncState.state || "NONE";
   const pending = !["NONE", "FLEET_SAVED"].includes(state);
@@ -48,25 +49,28 @@ export function buildCargoViewModel(execution, { offline = false, syncState = {}
   if (state === "STALE_REVIEW") stage = "STALE_REVIEW";
   if (view.delivery_state === "CONFIRMED" && canConfirmDelivery) stage = "CONFIRMED";
   if (atDelivery && !canConfirmDelivery && !blockers.some(row => row.code === "CARGO_RECEIVER_CONFIRMATION_REQUIRED")) blockers.push({ code: "CARGO_RECEIVER_CONFIRMATION_REQUIRED", message: "Receiver authority has not been confirmed by the server. Delivery observations remain pending review." });
-  return { stage, primaryAction: stage === "PICKUP" ? "Record pickup" : stage === "READY" ? "Review departure" : stage === "DELIVERY" ? "Record delivery observation" : "Refresh status", canSubmit: !offline && fresh && !pending && view.capabilities?.observe === true && (tripStatus == null || tripStatus === "At Pickup" || atDelivery), canDepart, canConfirmDelivery,
+  const legacyHold = tripStatus === "In Progress" && !canConfirmDelivery ? LEGACY_HOLD : null;
+  return { stage, legacyHold, primaryAction: stage === "PICKUP" ? "Record pickup" : stage === "READY" ? "Review departure" : stage === "DELIVERY" ? "Record delivery observation" : "Refresh status", canSubmit: !offline && fresh && !pending && view.capabilities?.observe === true && (tripStatus == null || tripStatus === "At Pickup" || atDelivery), canDepart, canConfirmDelivery,
     summary: { serviceLabel: SERVICES[manifest.service_code], sourceLabel: `${manifest.source_ref?.system || "Source"} · ${manifest.source_ref?.external_request_id || "Reference unavailable"}`, itemCount: manifest.lines.length, revision: manifest.manifest_ref.revision, syncLabel: SYNC[state] || "Save state unavailable", feedbackLabel: FEEDBACK[view.feedback?.state] || "Partner receipt state unavailable", sourceDecisionLabel: view.source_decision?.action === "ACCEPT_OBSERVED" ? "Source accepted the observed amount" : view.source_decision?.action === "REJECT_PICKUP" ? "Source rejected pickup" : ["WAITING", "AWAITING_DECISION"].includes(view.pickup_state) ? "Awaiting source decision or Fleet clearance" : "No source decision recorded", clearanceLabel: canDepart ? "Fleet departure clearance confirmed" : "Fleet clearance required", securementLabel: view.securement_confirmed === true ? "Server verified post-load securement" : "Post-load securement required", receiverLabel: view.receiver_confirmed === true ? "Receiver confirmation verified by server" : "Receiver authority unavailable", progress: canConfirmDelivery ? "Pickup verified · Delivery confirmed" : view.pickup_receipt ? "Pickup recorded · Delivery pending" : "Pickup pending · Delivery pending" }, blockers };
 }
-export function buildCargoReceipt(execution, { stage, counts, issues = {}, observedAt = new Date().toISOString(), confirm = false }) {
+export function buildCargoReceipt(execution, { stage, counts, issues = {}, observedAt = new Date().toISOString(), confirm = false, reportIssue = false }) {
   const view = execution?.data ?? execution;
   const manifest = view?.manifest;
   if (!validManifest(manifest) || !["PICKUP", "DELIVERY"].includes(stage)) throw new Error("A current manifest and receipt stage are required.");
   if (!validateCargoCounts(manifest, counts).valid) throw new Error("Check the actual counts and units before saving.");
   if (confirm && (view.can_complete !== true || view.receiver_confirmed !== true)) throw new Error("Server verified receiver confirmation is required.");
-  return { manifest_ref: { ...manifest.manifest_ref }, stage, observed_at: observedAt, receiver_confirmation_ref: null,
+  const receipt = { manifest_ref: { ...manifest.manifest_ref }, stage, observed_at: observedAt, receiver_confirmation_ref: null,
     lines: manifest.lines.map(line => {
       const observed = cargoQuantity(counts[line.line_id], line);
       const expected = stage === "DELIVERY" ? view.lines?.find(item => item.line_id === line.line_id)?.pickup_quantity : line.expected_quantity;
       const issue = issues[line.line_id] || {};
       const difference = expected == null ? null : compareCargoQuantities(observed, expected);
       const issueCode = issue.damaged ? "DAMAGE" : difference < 0 ? "SHORTAGE" : difference > 0 ? "EXCESS" : null;
-      if ((issueCode || issue.reported) && !issue.remarks?.trim()) throw new Error(`Add a reason for ${line.name} before reporting the issue.`);
+      if (issueCode && !issue.remarks?.trim()) throw new Error(`Add a reason for ${line.name} before reporting the issue.`);
       return { line_id: line.line_id, observed_quantity: observed, condition: issue.damaged ? "DAMAGED" : "INTACT", issue_code: issueCode, remarks: issue.remarks?.trim() || "", evidence_ids: [], evidence: issue.evidence || [] };
     }) };
+  if (reportIssue && !receipt.lines.some(line => line.issue_code)) throw new Error("Report an issue only for a shortage, excess or damage. Equal counts with a remark can use Confirm pickup.");
+  return receipt;
 }
 
 export function compareCargoQuantities(left, right) {
@@ -76,7 +80,7 @@ export function compareCargoQuantities(left, right) {
 }
 export function cargoFormHasIssue(execution, { counts = {}, issues = {} } = {}, stage = "PICKUP") {
   return !!execution?.manifest?.lines?.some(line => {
-    if (issues[line.line_id]?.reported || issues[line.line_id]?.damaged) return true;
+    if (issues[line.line_id]?.damaged) return true;
     const actual = cargoQuantity(counts[line.line_id], line);
     const expected = stage === "DELIVERY" ? execution.lines?.find(item => item.line_id === line.line_id)?.pickup_quantity : line.expected_quantity;
     return actual != null && expected != null && compareCargoQuantities(actual, expected) !== 0;
@@ -86,11 +90,19 @@ export function cargoFormHasIssue(execution, { counts = {}, issues = {} } = {}, 
 export async function resolveCargoMapGate(trip, { offline = false, readExecution, readSyncState } = {}) {
   if (trip?.load_type !== "Cargo" || !["At Pickup", "Passenger Onboard", "Drop-off", "Arrived", "In Progress"].includes(trip.trip_status)) return { allowed: true };
   const route = cargoMapAction(trip);
-  if (offline) return { allowed: false, route, reason: "Reconnect to check the current cargo decision before continuing." };
+  const legacyHold = trip.trip_status === "In Progress" ? LEGACY_HOLD : null;
+  if (offline) return { allowed: false, route, reason: legacyHold ? `Offline. ${legacyHold}` : "Reconnect to check the current cargo decision before continuing." };
   try {
     const [execution, syncState] = await Promise.all([readExecution(), readSyncState ? readSyncState() : Promise.resolve({})]);
     const view = buildCargoViewModel(execution, { fresh: true, syncState, tripStatus: trip.trip_status });
     const delivery = ["Drop-off", "Arrived", "In Progress"].includes(trip.trip_status);
-    return (delivery ? view.canConfirmDelivery : view.canDepart) ? { allowed: true } : { allowed: false, route, reason: delivery ? "Verify the delivery observation and wait for server-confirmed receiver authority before completing the trip." : "Verify pickup and wait for current source acceptance, Fleet clearance and separate post-load securement before departure." };
-  } catch { return { allowed: false, route, reason: "Cargo verification is unavailable. Retry online or contact Fleet. Your trip movement was not confirmed." }; }
+    return (delivery ? view.canConfirmDelivery : view.canDepart) ? { allowed: true } : { allowed: false, route, reason: legacyHold || (delivery ? "Verify the delivery observation and wait for server-confirmed receiver authority before completing the trip." : "Verify pickup and wait for current source acceptance, Fleet clearance and separate post-load securement before departure.") };
+  } catch { return { allowed: false, route, reason: legacyHold ? `Cargo verification is unavailable. ${legacyHold}` : "Cargo verification is unavailable. Retry online or contact Fleet. Your trip movement was not confirmed." }; }
+}
+
+// Keep trip identity/status even when the independently read cargo provider is unavailable.
+export async function readCargoScreenSources(tripId, { readExecution, readTrips }) {
+  const [execution, trips] = await Promise.allSettled([readExecution(), readTrips()]);
+  const rows = trips.status === "fulfilled" && Array.isArray(trips.value) ? trips.value : [];
+  return { execution: execution.status === "fulfilled" ? execution.value : null, executionError: execution.status === "rejected" ? execution.reason : null, trip: rows.find(row => String(row.trip_id) === String(tripId)) || null };
 }

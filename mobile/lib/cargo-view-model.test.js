@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCargoViewModel, blankCargoCounts, validateCargoCounts, buildCargoReceipt, cargoMapAction, resolveCargoMapGate } from "./cargo-view-model";
+import { buildCargoViewModel, blankCargoCounts, validateCargoCounts, buildCargoReceipt, cargoMapAction, resolveCargoMapGate, cargoFormHasIssue, readCargoScreenSources } from "./cargo-view-model";
 const manifest = { manifest_ref: { kind: "REQUEST", id: "b8da95aa-6670-4dd5-a0b0-367cab368017", revision: 1, hash: "a".repeat(64) }, source_ref: { system: "POS", organization_id: "restaurant", external_request_id: "order-12" }, service_code: "RESTAURANT_SUPPLY_PICKUP", lines: [{ line_id: "boxes", name: "Fresh produce", expected_quantity: "10", unit: "boxes", quantity_basis: "TRANSPORT_PACKAGE", handling: ["SECURE_LOAD"], reference_image_ref: null }] };
 export const execution = { manifest, pickup_state: "NOT_RECORDED", delivery_state: "NOT_RECORDED", can_depart: false, can_complete: false, capabilities: { observe: true }, blockers: [{ code: "CARGO_PICKUP_REQUIRED", message: "Verify cargo at pickup." }], lines: [{ line_id: "boxes", expected_quantity: "10", pickup_quantity: null, delivery_quantity: null, order_shortage: null, delivery_shortage: null }], feedback: { state: "NOT_QUEUED" } };
 describe("driver cargo view model", () => {
@@ -49,4 +49,42 @@ describe("existing map cargo transition guards", () => {
     const decimal = { ...execution, manifest: { ...manifest, lines: [{ ...manifest.lines[0], expected_quantity: "999999999999999.999", quantity_basis: "UNIT", unit: "kg" }] } };
     expect(buildCargoReceipt(decimal, { stage: "PICKUP", counts: { boxes: "999999999999999.998" }, issues: { boxes: { remarks: "One thousandth missing" } } }).lines[0].issue_code).toBe("SHORTAGE");
   });
+});
+
+describe("reviewed cargo issue classification", () => {
+  it("keeps an equal-count remark clean and rejects it as a reported issue", () => {
+    const form = { counts: { boxes: "10" }, issues: { boxes: { reported: true, remarks: "Packaging checked" } } };
+    expect(cargoFormHasIssue(execution, form)).toBe(false);
+    expect(buildCargoReceipt(execution, { stage: "PICKUP", ...form }).lines[0].issue_code).toBe(null);
+    expect(() => buildCargoReceipt(execution, { stage: "PICKUP", ...form, reportIssue: true })).toThrow(/shortage|excess|damage/i);
+  });
+  it.each([["9", false, "SHORTAGE"], ["11", false, "EXCESS"], ["10", true, "DAMAGE"]])("retains the supported code for count %s and damage %s", (count, damaged, code) => {
+    const form = { counts: { boxes: count }, issues: { boxes: { reported: true, damaged, remarks: "Observed discrepancy" } } };
+    expect(buildCargoReceipt(execution, { stage: "PICKUP", ...form, reportIssue: true }).lines[0].issue_code).toBe(code);
+    expect(() => buildCargoReceipt(execution, { stage: "PICKUP", ...form, issues: { boxes: { damaged } }, reportIssue: true })).toThrow(/reason/i);
+  });
+});
+describe("legacy cargo receipt hold", () => {
+  it("explains the hold with and without an execution manifest", () => {
+    for (const input of [execution, null]) {
+      const view = buildCargoViewModel(input, { tripStatus: "In Progress" });
+      expect(view.legacyHold).toMatch(/In Progress/); expect(view.legacyHold).toMatch(/Drop-off.*Arrived/); expect(view.legacyHold).toMatch(/Fleet/);
+      expect(view.canSubmit).toBe(false); expect(view.canConfirmDelivery).toBe(false);
+    }
+  });
+  it("routes legacy completion to the explained hold until the server verifies delivery", async () => {
+    const trip = { load_type: "Cargo", trip_status: "In Progress" };
+    const gate = await resolveCargoMapGate(trip, { readExecution: async () => execution });
+    expect(gate.allowed).toBe(false); expect(gate.route).toBe("cargo"); expect(gate.reason).toMatch(/In Progress.*Fleet/);
+    const confirmed = { ...execution, can_complete: true, receiver_confirmed: true, delivery_state: "CONFIRMED" };
+    expect((await resolveCargoMapGate(trip, { readExecution: async () => confirmed })).allowed).toBe(true);
+    expect(buildCargoViewModel(confirmed, { tripStatus: "In Progress" }).legacyHold).toBe(null);
+  });
+});
+
+it("retains legacy trip status when the execution provider is unavailable", async () => {
+  const unavailable = Object.assign(new Error("Disabled"), { status: 503 });
+  const sources = await readCargoScreenSources("701", { readExecution: async () => { throw unavailable; }, readTrips: async () => [{ trip_id: 701, load_type: "Cargo", trip_status: "In Progress" }] });
+  expect(sources.trip.trip_status).toBe("In Progress"); expect(sources.executionError).toBe(unavailable);
+  expect(buildCargoViewModel(sources.execution, { tripStatus: sources.trip.trip_status }).legacyHold).toMatch(/Fleet/);
 });

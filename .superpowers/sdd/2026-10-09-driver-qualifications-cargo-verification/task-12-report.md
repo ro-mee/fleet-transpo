@@ -17,7 +17,7 @@ Read the mandatory exact [Expo SDK 57 docs](https://docs.expo.dev/versions/v57.0
 ## Implementation
 
 - Preserved `trip/[id].js` and confirmed installed Expo's route registration before adding the three cargo routes. Shared screen/controller/content serve all three cargo services and driver groups; only manifest data/source labels vary.
-- Added item rows, manifest list, inline issue/photo editor, receipt summary and decision status. Actual counts are blank, units are explicit, zero is valid, transport packages require whole counts and other quantities allow three decimal places. Exact BigInt comparisons avoid loss at the contract's 15-digit limit. Expected10/pickup9/delivery9 retains order shortage1 and delivery shortage0. Reference images are signed server inputs with readable absence/failure states.
+- Added item rows, manifest list, inline issue/photo editor, receipt summary and decision status. Actual counts are blank, units are explicit, zero is valid, transport packages require whole counts and other quantities allow three decimal places. Exact BigInt comparisons avoid loss at the contract's 15-digit limit. Expected10/pickup9/delivery9 retains order shortage1 and delivery shortage0. Reference image rendering retains readable absence/failure states; source thumbnails are currently policy-disabled, as detailed in the review-fix investigation below.
 - Separate clean Confirm pickup and Report pickup issue actions. Reason is required for discrepancies/damage; photos use the existing receipt/evidence flow and schema's five-per-line limit. Copy camera files from cache to the app document directory under employee scope before saving. Added no media retention cleanup, source authority or upload activation.
 - Added employee/trip/stage unsent-form storage outside the existing receipt queue. Autosave/back/refresh retain counts, serialized saves fence accounts, in-flight submit deduplicates and receipt retry retains unchanged stable identity. Recovered pending receipt identity after persistence failures. Manifest change preserves old draft and offers a new blank count.
 - Cargo screen state separates device save, Fleet receipt save, partner ACK, source decision, Fleet clearance, post-load proof and receiver confirmation. Offline/stale/unsynced data cannot become READY.503 reports the disabled service plainly.
@@ -82,3 +82,48 @@ Automatic approval review rejected a proposed write that would have added new de
 ## Documentation and artifacts
 
 Updated `Capstone/04 - Architecture/Mobile Architecture.md`, `Capstone/02 - Features/Driver In-App Guide.md` and `SYSTEM.md` with implemented navigation, receipt/form storage, server authority, verification and native acceptance limits. Approved design spec is unchanged because its lifecycle principles remain valid. This report is committed with the Task12 implementation. Ignored dependency/export/preview artifacts are not committed.
+
+
+## Independent review fix round 1 — 2026-10-12
+
+Review-fix base: `ba0044038dc9e1eb836c4fc5129b02628118b057`. Re-read full repository/mobile instructions, relevant completed Capstone notes, receiving-code-review and TDD/writing-good-tests guidance before changes. This round is a scoped Task12 fix, with no server production or policy changes.
+
+1. **Issue classification:** Removed remark/reported-marker inference from `cargoFormHasIssue`. Equal intact counts with a remark retain clean Confirm pickup and disable Report pickup issue. `buildCargoReceipt` accepts explicit UI report intent and rejects it when no supported SHORTAGE/EXCESS/DAMAGE code exists. The account-scoped submission service forwards that intent and also validates frozen retries before replay; it cannot relabel an existing clean receipt as an issue. Supported discrepancy/damage codes retain required reasons. The issue editor explains this boundary.
+2. **Legacy In Progress:** The model exposes an actionable hold whenever legacy cargo lacks fresh confirmed delivery/receiver proof. The Map gate gives the same Fleet/status/custody explanation even offline or503; overview shows it even without a manifest. Independent `readCargoScreenSources` uses all-settled reads so the ordinary trip status survives a disabled cargo provider; execution read failures stay unavailable and missing current trip data cannot count as a fresh view. Delivery receipts still attach only at Drop-off/Arrived; no Cargo-screen lifecycle write or new endpoint exists. Fresh server-confirmed completion alone can release the existing completion gate.
+3. **Source-reference thumbnails:** Inspected `src/services/cargo-manifest.service.js`, `src/lib/cargo/api.js`, `src/lib/cargo/evidence-storage.js`, mobile wrapper and item-list path. Request intake explicitly rejects every non-null source `reference_image_ref` with `CARGO_REFERENCE_POLICY_REQUIRED`/503 because source photo ownership/retention is unapproved; supply adaptation sets null. The optional GET `evidence_id` selector has a maximum of five UUIDs, but its signer looks up READY/ATTACHED `cargo_evidence` on the trip and, for drivers, requires both uploader employee/driver identities to match. A source manifest reference does not satisfy that authority contract. Therefore no safe supported source thumbnail request was wired, the policy/signer remain unchanged, and readable placeholders remain. The renderer's optional signed-image prop does not establish source authority or make thumbnails currently available. Documentation now states this exact limitation.
+4. **Permission copy:** Both Expo ImagePicker and Camera configuration now say the camera captures trip photo evidence, including fuel receipts and cargo observations; library copy covers attaching the same evidence. Microphone/audio settings remain disabled. This keeps the existing fuel purpose accurate. No prose-mirroring config test was added; bundle validation reads the config. Native rebuild/permission-dialog acceptance remains required.
+
+Captured RED/GREEN evidence:
+
+```text
+Initial review regressions:
+3 files failed; 8 failed / 39 passed (47)
+- equal-count reported remark incorrectly returned hasIssue=true
+- unclassified report promise resolved instead of rejecting
+- legacyHold missing and overview/Map lacked In Progress/Fleet guidance
+
+Independent trip-read regression:
+1 file failed; 4 failed / 19 passed (23)
+- readCargoScreenSources missing, plus still-open model regressions
+
+Initial GREEN after implementation:
+3 files passed; 48 tests passed
+
+Frozen clean-retry extension RED:
+1 file failed; 1 failed / 6 passed (7)
+- report intent on existing clean receipt resolved instead of rejecting
+
+Final focused GREEN:
+npm run test:run -- mobile/lib/cargo-view-model.test.js mobile/lib/cargo-form-state.test.js mobile/lib/cargo-verification-render.test.js src/services/cargo-manifest.service.test.js src/lib/cargo/evidence-storage.test.js src/lib/cargo/api.test.js --silent
+Test Files 6 passed (6)
+Tests      99 passed (99)
+
+Final mobile/passenger/inspection/Map/account/offline regression:
+npm run test:run -- mobile/lib src/lib/trips/load-presentation.test.js --silent
+Test Files 57 passed (57)
+Tests      621 passed (621)
+```
+
+Scoped ESLint of the eight changed JS/JSX sources/tests ran with `--max-warnings 0` and exited0 with no output. `git diff --check` exited0. Android/iOS/web Expo export completed with exit0; the existing missing `services/google-services.json` and NO_COLOR notices remain expected, with no secret copied. The review round has no native hardware validation, permission-dialog check, camera upload, keyboard/safe-area/TalkBack/VoiceOver run, live provider/source-image access or operational trip write. Earlier supplemental web visual checks remain supplemental; new wording/action behavior is covered by rendered-component tests, including actual Map handler execution. Native acceptance is still pending.
+
+Updated Mobile Architecture, Driver In-App Guide, SYSTEM and this report with the corrections and current image-policy limit. Self-reviewed queue save/replay classification, clean-confirm behavior, required reason/code, legacy confirmed/unconfirmed paths,503 trip-status preservation, permission purpose and unchanged backend authority. Commit only these Task12 review-fix files.
