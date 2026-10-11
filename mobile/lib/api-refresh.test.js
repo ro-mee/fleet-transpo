@@ -34,7 +34,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 }));
 
 import { apiFetch, setSessionExpiredHandler } from "./api";
-import { saveTokens, getRefreshToken, clearAll } from "./storage";
+import { saveTokens, getAccessToken, getRefreshToken, getUser, clearAll } from "./storage";
 import { completeSignIn, getRestorableSignedInUser, persistSignedInSession } from "./auth-session";
 import * as SecureStore from "expo-secure-store";
 import { setCargoSessionActor, captureCargoSession, isCurrentCargoSession, isCurrentCargoActor } from "./cargo-sync";
@@ -86,6 +86,125 @@ describe("reconnect burst with an expired access token", () => {
 });
 
 describe("cargo account fencing", () => {
+  it("reports failed cleanup after deleting the other stored session records", async () => {
+    await persistSignedInSession({
+      accessToken: "A-access",
+      refreshToken: "A-refresh",
+      driver: { employeeId: "employee-A", id: "driver-A" },
+    });
+    const originalDelete = SecureStore.deleteItemAsync.getMockImplementation();
+    const cleanupError = new Error("secure cleanup unavailable");
+    SecureStore.deleteItemAsync.mockImplementation(async (key) => {
+      if (key === "fleetops_access_token") throw cleanupError;
+      return originalDelete(key);
+    });
+    try {
+      await expect(clearAll()).rejects.toBe(cleanupError);
+      expect(await getRefreshToken()).toBeNull();
+      expect(await getUser()).toBeNull();
+      expect(await getRestorableSignedInUser()).toBeNull();
+    } finally {
+      SecureStore.deleteItemAsync.mockImplementation(originalDelete);
+    }
+  });
+
+  it.each(["fleetops_refresh_token", "fleetops_user"])(
+    "holds a retry behind failed cleanup until the pending %s deletion settles",
+    async (pausedKey) => {
+      await persistSignedInSession({
+        accessToken: "A-access",
+        refreshToken: "A-refresh",
+        driver: { employeeId: "employee-A", id: "driver-A" },
+      });
+      let releaseDelete;
+      let startedDelete;
+      const deleteStarted = new Promise((resolve) => { startedDelete = resolve; });
+      const deleteGate = new Promise((resolve) => { releaseDelete = resolve; });
+      const originalSet = SecureStore.setItemAsync.getMockImplementation();
+      const originalDelete = SecureStore.deleteItemAsync.getMockImplementation();
+      const persistenceError = new Error("secure storage unavailable");
+      let retryTokenWriteStarted = false;
+      let failedAttemptSettled = false;
+      let retrySettled = false;
+      let uiUser;
+      const setUser = (value) => { uiUser = value; };
+      SecureStore.setItemAsync.mockImplementation(async (key, value) => {
+        if (key === "fleetops_access_token" && value === "failed-access") throw persistenceError;
+        if (value === "B-access" || value === "B-refresh") retryTokenWriteStarted = true;
+        return originalSet(key, value);
+      });
+      SecureStore.deleteItemAsync.mockImplementation(async (key) => {
+        if (key === "fleetops_access_token") throw new Error("secure cleanup unavailable");
+        if (key === pausedKey) {
+          startedDelete();
+          await deleteGate;
+        }
+        return originalDelete(key);
+      });
+      const failedAttempt = completeSignIn({
+        accessToken: "failed-access",
+        refreshToken: "failed-refresh",
+        driver: { employeeId: "employee-B", id: "driver-B" },
+      }, setUser).catch((error) => {
+        failedAttemptSettled = true;
+        return error;
+      });
+      let retry;
+      let whileDeletePending;
+      let firstError;
+      try {
+        await deleteStarted;
+        retry = completeSignIn({
+          accessToken: "B-access",
+          refreshToken: "B-refresh",
+          driver: { employeeId: "employee-B", id: "driver-B" },
+        }, setUser).then((user) => {
+          retrySettled = true;
+          return user;
+        });
+        // Drain runnable promise callbacks without releasing the native delete.
+        await new Promise((resolve) => setImmediate(resolve));
+        whileDeletePending = { failedAttemptSettled, retryTokenWriteStarted, retrySettled };
+      } finally {
+        releaseDelete();
+        [firstError] = await Promise.all([failedAttempt, retry]);
+        SecureStore.setItemAsync.mockImplementation(originalSet);
+        SecureStore.deleteItemAsync.mockImplementation(originalDelete);
+      }
+
+      expect(whileDeletePending).toEqual({
+        failedAttemptSettled: false, retryTokenWriteStarted: false, retrySettled: false,
+      });
+      expect(firstError).toBe(persistenceError);
+      // Compare booleans so a regression cannot print fixture credentials.
+      expect((await getAccessToken()) === "B-access").toBe(true);
+      expect((await getRefreshToken()) === "B-refresh").toBe(true);
+      expect(await getUser()).toMatchObject({ employeeId: "employee-B", id: "driver-B" });
+      expect(await getRestorableSignedInUser()).toEqual(uiUser);
+      expect(isCurrentCargoActor("employee-B")).toBe(true);
+    },
+  );
+
+  it.each(["transition", "signed_out"])(
+    "blocks cold restore of complete leftover credentials with a %s marker",
+    async (state) => {
+      const user = await persistSignedInSession({
+        accessToken: "A-access",
+        refreshToken: "A-refresh",
+        driver: { employeeId: "employee-A", id: "driver-A" },
+      });
+      expect(await getRestorableSignedInUser()).toEqual(user);
+      // Simulate a process stopping after the marker but before any cleanup.
+      await SecureStore.setItemAsync("fleetops_session_state", state);
+      setCargoSessionActor(null);
+
+      expect((await getAccessToken()) === "A-access").toBe(true);
+      expect((await getRefreshToken()) === "A-refresh").toBe(true);
+      expect(await getUser()).toEqual(user);
+      expect(await getRestorableSignedInUser()).toBeNull();
+    },
+  );
+
   it("does not let a generic 401 refresh during a pending sign-in token write", async () => {
     await seedSession("A-access", "A-refresh");
     setCargoSessionActor("employee-A");

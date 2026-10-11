@@ -107,11 +107,15 @@ export async function clearAll(isCurrent = () => true) {
     // Persist the fence first. If any later delete fails, cold-start restore
     // still knows this credential set is incomplete and must stay signed out.
     await store.setItem(KEYS.SESSION_STATE, "signed_out");
-    await Promise.all([
+    // Keep the mutation locked until every native delete finishes, including
+    // after a sibling fails, so none can delete a later sign-in's credentials.
+    const results = await Promise.allSettled([
       store.deleteItem(KEYS.ACCESS_TOKEN),
       store.deleteItem(KEYS.REFRESH_TOKEN),
       store.deleteItem(KEYS.USER),
       clearLegacyBiometricEnrollment(),
     ]);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
   });
 }

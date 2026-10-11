@@ -136,3 +136,51 @@ Scoped lint command: `npx eslint mobile/lib/auth.js mobile/lib/auth-session.js m
 Scoped whitespace command: `git diff --check -- mobile/lib/auth.js mobile/lib/auth-session.js mobile/lib/api-refresh.test.js mobile/lib/api.js mobile/lib/storage.js mobile/lib/cargo-sync.js mobile/lib/cargo-drafts.js mobile/lib/cargo-api.js mobile/lib/cargo-drafts.test.js mobile/lib/cargo-sync.test.js mobile/lib/cargo-api.test.js 'Capstone/04 - Architecture/Mobile Architecture.md' SYSTEM.md '.superpowers/sdd/2026-10-09-driver-qualifications-cargo-verification/task-10-report.md' '.superpowers/sdd/2026-10-09-driver-qualifications-cargo-verification/progress.md'` — exit code 0, no whitespace findings. Git emitted only existing Windows fsmonitor and line-ending normalization warnings.
 
 No UI, dependency, Expo version, provider, real upload, native-device claim, media policy, or retention change was introduced.
+
+## Fix round 4 — settle failed cleanup before retrying sign-in
+
+Base: `76bd2c7880a9149da83e6b63b7c5c03661ffee4b`. Status: implemented and verified; independent scoped re-review pending. The interrupted round-4 implementer's existing storage/test diff was inspected and retained without further code changes.
+
+`clearAll` now uses `Promise.allSettled` for its native deletions and releases the shared auth mutation only after every deletion settles. It then throws the first recorded failure. Previously, `Promise.all` could reject while another deletion was pending, allowing a new sign-in to save credentials that the old pending deletion would remove.
+
+The regression suite checks failed deletion with successful sibling cleanup, then separately pauses refresh-token deletion and user deletion during a failed sign-in. A retry cannot write its tokens or finish while that deletion remains pending; after release, its complete session and current actor remain intact. The transition and signed-out marker cases independently start with a restorable complete access-token/refresh-token/user record, change only the persisted marker, verify that all three records remain, and verify that restoration is rejected. Token equality assertions emit booleans instead of credential fixtures.
+
+The prior round-4 implementer reported a pre-fix RED run of 2 failed / 22 skipped and an initial GREEN run of 45 tests, but did not finish the captured report before interruption. Those inherited results are not presented as a fresh run. The final verification below was captured during this completion pass on the unchanged implementation/test diff.
+
+### Final captured verification
+
+Exact covering command:
+
+`npx vitest run mobile/lib/cargo-drafts.test.js mobile/lib/cargo-sync.test.js mobile/lib/api-refresh.test.js mobile/lib/cargo-api.test.js`
+
+The first sandboxed attempt exited 1 before test collection: Vitest reported four `EPERM` errors resolving `node_modules/vitest/dist/spy.js`, with `Tests no tests`. This was an environment failure, not a failing test result. The same command was rerun with approved filesystem escalation. Sanitized concise stdout:
+
+```text
+RUN v3.2.7 C:/Users/lenovo/OneDrive/Desktop/capstone
+✓ mobile/lib/cargo-api.test.js (1 test) 4ms
+✓ mobile/lib/cargo-drafts.test.js (6 tests) 175ms
+✓ mobile/lib/cargo-sync.test.js (13 tests) 332ms
+✓ mobile/lib/api-refresh.test.js (25 tests) 3476ms
+Test Files  4 passed (4)
+Tests       45 passed (45)
+Duration    4.28s
+Exit code   0
+```
+
+Stderr contained only the expected missing `EXPO_PUBLIC_API_URL` development warning. Network calls are mocked; no real upload or provider activation occurred. Unchanged generic outbox/offline-cache suites are not included in this round's 45-test total.
+
+Scoped lint command:
+
+`npx eslint mobile/lib/storage.js mobile/lib/api-refresh.test.js --max-warnings 0`
+
+Captured result: exit code 0, no lint findings or warnings; npm printed only its optional update notice.
+
+Scoped whitespace command:
+
+`git -c core.fsmonitor=false diff --check -- mobile/lib/storage.js mobile/lib/api-refresh.test.js 'Capstone/04 - Architecture/Mobile Architecture.md' SYSTEM.md '.superpowers/sdd/2026-10-09-driver-qualifications-cargo-verification/task-10-report.md' '.superpowers/sdd/2026-10-09-driver-qualifications-cargo-verification/progress.md'`
+
+Captured result: exit code 1 from pre-existing CRLF/trailing-whitespace changes throughout the shared recovery ledger. These unrelated ledger changes were preserved and excluded from staging. Repeating this command without the ledger returned exit code 0, no whitespace findings, and only Windows line-ending normalization warnings. `git -c core.fsmonitor=false diff --cached --check` on the staged Task 10-only diff, including only this round's ledger append, returned exit code 0 with no output.
+
+Mobile Architecture and the Task 10 SYSTEM paragraph now identify the current four-suite / 45-test evidence and the cleanup/marker behavior. No provider, UI, real upload, retention/media policy, dependency, native-device acceptance or unrelated fuel/mechanic/status change is included. Recovery status is appended to the existing ledger; other scratch files remain ignored.
+
+Scoped commit title: `fix: wait for mobile session cleanup before retry sign-in`. Exact commit identity is recorded in the recovery ledger after commit.
