@@ -2,10 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import { AppState } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
 import { apiFetch, setSessionExpiredHandler } from "./api";
-import { decodeJwtRole } from "./rbac";
 import {
-  saveTokens,
-  saveUser,
   getUser,
   getAccessToken,
   getRefreshToken,
@@ -16,6 +13,7 @@ import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { registerDeviceTokenIfAuthorized, unregisterDeviceToken } from "./notifications/device-token";
 import { setCargoSessionActor, syncCargoDrafts } from "./cargo-sync";
 import { cargoApi } from "./cargo-api";
+import { persistSignedInSession } from "./auth-session";
 
 const AuthContext = createContext(null);
 
@@ -82,17 +80,7 @@ export function AuthProvider({ children }) {
       skipAuth: true,
     });
 
-    await saveTokens({
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
-    });
-    const driver = {
-      ...data.driver,
-      role: decodeJwtRole(data.accessToken) || "driver",
-      mustChangePassword: Boolean(data.driver?.mustChangePassword),
-    };
-    setCargoSessionActor(driver.employeeId ?? null);
-    await saveUser(driver);
+    const driver = await persistSignedInSession(data);
     setUser(driver);
     // Non-prompting push registration — only registers if permission was already granted previously.
     if (!driver.mustChangePassword) registerDeviceTokenIfAuthorized();

@@ -35,8 +35,9 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 
 import { apiFetch, setSessionExpiredHandler } from "./api";
 import { saveTokens, getRefreshToken, clearAll } from "./storage";
-import { __clear as clearSecureStore } from "expo-secure-store";
-import { setCargoSessionActor } from "./cargo-sync";
+import { persistSignedInSession } from "./auth-session";
+import * as SecureStore from "expo-secure-store";
+import { setCargoSessionActor, captureCargoSession, isCurrentCargoSession, isCurrentCargoActor } from "./cargo-sync";
 
 const jsonRes = (status, body) => ({
   ok: status >= 200 && status < 300,
@@ -47,7 +48,7 @@ const jsonRes = (status, body) => ({
 const onExpired = vi.fn();
 
 beforeEach(() => {
-  clearSecureStore();
+  SecureStore.__clear();
   vi.clearAllMocks();
   onExpired.mockClear();
   setSessionExpiredHandler(onExpired);
@@ -85,6 +86,44 @@ describe("reconnect burst with an expired access token", () => {
 });
 
 describe("cargo account fencing", () => {
+  it("invalidates A before sign-in queues B credentials and drops A's queued refresh write", async () => {
+    await seedSession("A-access", "A-refresh");
+    setCargoSessionActor("employee-A");
+    const sessionA = captureCargoSession("employee-A");
+    let releaseBWrite;
+    let startedBWrite;
+    const bWriteStarted = new Promise((resolve) => { startedBWrite = resolve; });
+    const bWriteGate = new Promise((resolve) => { releaseBWrite = resolve; });
+    const originalSet = SecureStore.setItemAsync.getMockImplementation();
+    SecureStore.setItemAsync.mockImplementation(async (key, value) => {
+      if (key === "fleetops_access_token" && value === "B-access") {
+        startedBWrite();
+        await bWriteGate;
+      }
+      return originalSet(key, value);
+    });
+
+    const signIn = persistSignedInSession({
+      accessToken: "B-access",
+      refreshToken: "B-refresh",
+      driver: { employeeId: "employee-B", id: "driver-B" },
+    });
+    await bWriteStarted;
+    expect(isCurrentCargoSession(sessionA)).toBe(false);
+    const lateRefreshWrite = saveTokens(
+      { accessToken: "late-A-access", refreshToken: "late-A-refresh" },
+      () => isCurrentCargoSession(sessionA),
+    );
+    releaseBWrite();
+    await Promise.all([signIn, lateRefreshWrite]);
+    SecureStore.setItemAsync.mockImplementation(originalSet);
+
+    expect(isCurrentCargoSession(sessionA)).toBe(false);
+    expect(isCurrentCargoActor("employee-B")).toBe(true);
+    expect(SecureStore.setItemAsync.mock.calls.some(([, value]) => value === "late-A-access")).toBe(false);
+    expect(await getRefreshToken()).toBe("B-refresh");
+  });
+
   it("shares one refresh flight between cargo and generic requests in the same session", async () => {
     await seedSession();
     setCargoSessionActor("employee-A");

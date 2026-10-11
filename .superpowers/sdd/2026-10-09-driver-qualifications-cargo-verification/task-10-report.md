@@ -53,3 +53,50 @@ Final fix-round rerun after adding the logout race regression: the same four aff
 Scoped fix commit: `fix: fence cargo queue mutations and refresh sessions` (this report is included). Only Task 10 implementation/tests, the Task 10 report, Mobile Architecture addition, and Task 10-only SYSTEM/progress append hunks were included. Unrelated dirty checkout changes remain unstaged.
 
 Final scoped re-review correction: moved the stage-specific receipt-ID lookup into `updateCargoDraft`'s serialized mutation callback, so no read that informs the submitted state can race another owner mutation. After this final code adjustment, the exact affected-suite command above was rerun: 4 files / 35 tests passed (cargo drafts 6, cargo sync 13, API refresh 15, cargo API 1); zero-warning touched ESLint and `git diff --check` passed again. This 35-test count is the final amended focused run only; no unchanged generic outbox/offline-cache tests are included. The delivery receipt-ID Minor is addressed.
+
+## Fix round 2 — sign-in ordering and verification evidence
+
+The successful login persistence flow now lives in `mobile/lib/auth-session.js`, which is called by the real `signIn` callback. It invalidates the previous cargo actor generation before invoking the serialized token write, then binds the newly authenticated employee after that write. This closes the ordering window where an A refresh already queued behind B's token write could still pass its predicate while A remained current. The regression invokes this production persistence helper, pauses the new login's SecureStore write, queues a stale A token commit behind it, and confirms A is already fenced and the stale commit never reaches SecureStore. The existing same-generation cargo/generic refresh single-flight regression remains in the same suite.
+
+### RED evidence
+
+Command:
+
+`npx vitest run mobile/lib/api-refresh.test.js -t "reproduces sign-in writing B credentials before invalidating A's queued refresh"`
+
+On the pre-fix sign-in ordering, the deterministic paused-write reproduction failed the final preservation assertion: 1 test failed, 15 skipped, exit code 1. The failure showed that the late A refresh write replaced the expected B refresh token. Test fixture credential values are intentionally omitted here.
+
+### Final affected-suite evidence
+
+Command:
+
+`npx vitest run mobile/lib/cargo-drafts.test.js mobile/lib/cargo-sync.test.js mobile/lib/api-refresh.test.js mobile/lib/cargo-api.test.js`
+
+Captured runner summary:
+
+```text
+✓ mobile/lib/cargo-api.test.js (1 test)
+✓ mobile/lib/cargo-drafts.test.js (6 tests)
+✓ mobile/lib/cargo-sync.test.js (13 tests)
+✓ mobile/lib/api-refresh.test.js (16 tests)
+Test Files  4 passed (4)
+Tests       36 passed (36)
+Duration    3.88s
+Exit code   0
+```
+
+The same-generation cargo/generic refresh single-flight case remains covered. No unrelated outbox/cache suites are included in this round's 36-test result.
+
+Lint command:
+
+`npx eslint mobile/lib/auth.js mobile/lib/auth-session.js mobile/lib/api-refresh.test.js mobile/lib/api.js mobile/lib/storage.js mobile/lib/cargo-sync.js mobile/lib/cargo-drafts.js --max-warnings 0`
+
+Captured result: exit code 0, no output and no warnings.
+
+Whitespace command:
+
+`git diff --check`
+
+Captured result: exit code 0, no whitespace findings. Git printed only existing fsmonitor IPC and line-ending normalization warnings for this dirty Windows checkout.
+
+No provider activation, real evidence upload, UI change, device acceptance claim, retention policy or photo policy was introduced. The existing unrelated fuel/mechanic checkout changes remain unstaged.
