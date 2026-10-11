@@ -3,19 +3,32 @@ import { listCargoDrafts, updateCargoDraft, markCargoSubmitted } from "./cargo-d
 let sessionActorId = null;
 let sessionGeneration = 0;
 let sessionController = new AbortController();
+let sessionPhase = "anonymous";
 const actorDrains = new Map();
 const drainControllers = new Map();
 
 export function setCargoSessionActor(actorId) {
   const next = actorId == null || String(actorId) === "" ? null : String(actorId);
-  if (next !== sessionActorId) {
+  const nextPhase = next == null ? "anonymous" : "authenticated";
+  if (next !== sessionActorId || nextPhase !== sessionPhase) {
     sessionController.abort();
     sessionController = new AbortController();
     sessionActorId = next;
+    sessionPhase = nextPhase;
     sessionGeneration += 1;
     for (const controller of drainControllers.values()) controller.abort();
     drainControllers.clear();
   }
+}
+
+export function beginCargoSessionTransition() {
+  sessionController.abort();
+  sessionController = new AbortController();
+  sessionActorId = null;
+  sessionPhase = "transition";
+  sessionGeneration += 1;
+  for (const controller of drainControllers.values()) controller.abort();
+  drainControllers.clear();
 }
 
 export function isCurrentCargoActor(actorId) {
@@ -28,15 +41,19 @@ export function getCargoActorSignal(actorId) {
 
 export function captureCargoSession(actorId) {
   if (!isCurrentCargoActor(actorId)) return null;
-  return { actorId: String(actorId), generation: sessionGeneration, signal: sessionController.signal };
+  return { actorId: String(actorId), generation: sessionGeneration, signal: sessionController.signal, phase: sessionPhase };
 }
 
 export function captureCurrentCargoSession() {
-  return sessionActorId == null ? null : captureCargoSession(sessionActorId);
+  return { actorId: sessionActorId, generation: sessionGeneration, signal: sessionController.signal, phase: sessionPhase };
 }
 
 export function isCurrentCargoSession(snapshot) {
-  return Boolean(snapshot && isCurrentCargoActor(snapshot.actorId) && sessionGeneration === snapshot.generation && !snapshot.signal.aborted);
+  return Boolean(snapshot && sessionActorId === snapshot.actorId && sessionPhase === snapshot.phase && sessionGeneration === snapshot.generation && sessionController.signal === snapshot.signal && !snapshot.signal.aborted);
+}
+
+export function canRefreshCargoSession(snapshot) {
+  return Boolean(snapshot && snapshot.phase !== "transition" && isCurrentCargoSession(snapshot));
 }
 
 function ensureCurrent(actorId, generation) {

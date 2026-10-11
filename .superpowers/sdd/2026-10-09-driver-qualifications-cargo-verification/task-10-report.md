@@ -100,3 +100,39 @@ Whitespace command:
 Captured result: exit code 0, no whitespace findings. Git printed only existing fsmonitor IPC and line-ending normalization warnings for this dirty Windows checkout.
 
 No provider activation, real evidence upload, UI change, device acceptance claim, retention policy or photo policy was introduced. The existing unrelated fuel/mechanic checkout changes remain unstaged.
+
+Task 10 review fix round 3 (2026-10-11): Generic 401 refreshes now capture a generation snapshot even when no employee is signed in; `null` no longer means an unfenced global refresh. Cargo sessions distinguish anonymous, authenticated, and sign-in transition phases. A transition is not refreshable, and sign-in invalidates the prior generation before token persistence. Generic and cargo refreshes in the same authenticated generation still share one flight. The auth storage layer writes a durable transition marker before replacing credentials, marks the session active only after both tokens and the employee record are saved, and writes a signed-out marker before credential cleanup. Cold start restores only complete token pairs with a stored user and no transition/signed-out marker.
+
+If SecureStore rejects token persistence, the real sign-in persistence helper clears the React identity and attempts cleanup while keeping the in-memory session in its non-refreshable transition phase until cleanup finishes. If cleanup itself fails, the durable signed-out marker prevents cold-start restore of a stale or partial pair. Token-pair writes await both native writes before reporting failure, so cleanup cannot race an outstanding half-write.
+
+Regression coverage includes a generic 401 during a paused B sign-in write (no refresh request), generic refresh success and rejection arriving after B binds (neither overwrites nor clears B), rejected SecureStore token persistence with failed deletion (no UI actor and no cold-start restore), and the existing same-generation cargo/generic single-flight case.
+
+RED evidence (before the transition-generation fix):
+
+Command: `npx vitest run mobile/lib/api-refresh.test.js`
+
+Captured runner summary: `mobile/lib/api-refresh.test.js (17 tests | 1 failed)`; `Tests 1 failed | 16 passed (17)`; exit code 1. The deterministic generic-401 case observed one refresh during the pending sign-in write where zero were expected. No fixture credential values were emitted.
+
+Final affected-suite evidence after all round-3 code changes:
+
+Command: `npx vitest run mobile/lib/cargo-drafts.test.js mobile/lib/cargo-sync.test.js mobile/lib/api-refresh.test.js mobile/lib/cargo-api.test.js`
+
+Captured runner output summary:
+
+```text
+✓ mobile/lib/cargo-api.test.js (1 test)
+✓ mobile/lib/cargo-drafts.test.js (6 tests)
+✓ mobile/lib/cargo-sync.test.js (13 tests)
+✓ mobile/lib/api-refresh.test.js (20 tests)
+Test Files  4 passed (4)
+Tests       40 passed (40)
+Exit code   0
+```
+
+The runner printed only the normal missing `EXPO_PUBLIC_API_URL` development warning; these tests stub network calls and did not activate a provider or send evidence.
+
+Scoped lint command: `npx eslint mobile/lib/auth.js mobile/lib/auth-session.js mobile/lib/api-refresh.test.js mobile/lib/api.js mobile/lib/storage.js mobile/lib/cargo-sync.js mobile/lib/cargo-drafts.js mobile/lib/cargo-api.js mobile/lib/cargo-drafts.test.js mobile/lib/cargo-sync.test.js mobile/lib/cargo-api.test.js --max-warnings 0` — exit code 0, no lint findings. The npm client printed only its optional update notice.
+
+Scoped whitespace command: `git diff --check -- mobile/lib/auth.js mobile/lib/auth-session.js mobile/lib/api-refresh.test.js mobile/lib/api.js mobile/lib/storage.js mobile/lib/cargo-sync.js mobile/lib/cargo-drafts.js mobile/lib/cargo-api.js mobile/lib/cargo-drafts.test.js mobile/lib/cargo-sync.test.js mobile/lib/cargo-api.test.js 'Capstone/04 - Architecture/Mobile Architecture.md' SYSTEM.md '.superpowers/sdd/2026-10-09-driver-qualifications-cargo-verification/task-10-report.md' '.superpowers/sdd/2026-10-09-driver-qualifications-cargo-verification/progress.md'` — exit code 0, no whitespace findings. Git emitted only existing Windows fsmonitor and line-ending normalization warnings.
+
+No UI, dependency, Expo version, provider, real upload, native-device claim, media policy, or retention change was introduced.

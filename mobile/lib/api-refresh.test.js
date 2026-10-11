@@ -35,7 +35,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
 
 import { apiFetch, setSessionExpiredHandler } from "./api";
 import { saveTokens, getRefreshToken, clearAll } from "./storage";
-import { persistSignedInSession } from "./auth-session";
+import { completeSignIn, getRestorableSignedInUser, persistSignedInSession } from "./auth-session";
 import * as SecureStore from "expo-secure-store";
 import { setCargoSessionActor, captureCargoSession, isCurrentCargoSession, isCurrentCargoActor } from "./cargo-sync";
 
@@ -86,6 +86,132 @@ describe("reconnect burst with an expired access token", () => {
 });
 
 describe("cargo account fencing", () => {
+  it("does not let a generic 401 refresh during a pending sign-in token write", async () => {
+    await seedSession("A-access", "A-refresh");
+    setCargoSessionActor("employee-A");
+    let releaseBWrite;
+    let startedBWrite;
+    const bWriteStarted = new Promise((resolve) => { startedBWrite = resolve; });
+    const bWriteGate = new Promise((resolve) => { releaseBWrite = resolve; });
+    const originalSet = SecureStore.setItemAsync.getMockImplementation();
+    SecureStore.setItemAsync.mockImplementation(async (key, value) => {
+      if (key === "fleetops_access_token" && value === "B-access") {
+        startedBWrite();
+        await bWriteGate;
+      }
+      return originalSet(key, value);
+    });
+    let refreshCalls = 0;
+    global.fetch = vi.fn(async (url, init) => {
+      if (String(url).includes("/api/mobile/auth/refresh")) {
+        refreshCalls += 1;
+        return jsonRes(200, { accessToken: "late-access", refreshToken: "late-refresh" });
+      }
+      if (init?.headers?.Authorization === "Bearer late-access") return jsonRes(200, { ok: true });
+      return jsonRes(401, { error: "Unauthorized" });
+    });
+
+    const signIn = persistSignedInSession({
+      accessToken: "B-access",
+      refreshToken: "B-refresh",
+      driver: { employeeId: "employee-B", id: "driver-B" },
+    });
+    await bWriteStarted;
+    const generic = apiFetch("/api/driver/me");
+    await expect(generic).rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
+    expect(refreshCalls).toBe(0);
+    releaseBWrite();
+    await signIn;
+    SecureStore.setItemAsync.mockImplementation(originalSet);
+
+    expect(await getRefreshToken()).toBe("B-refresh");
+  });
+
+  it.each([
+    ["success", jsonRes(200, { accessToken: "late-access", refreshToken: "late-refresh" })],
+    ["rejection", jsonRes(401, { error: "Session expired" })],
+  ])("ignores a generic refresh %s that finishes after B signs in", async (_label, refreshResult) => {
+    await seedSession("A-access", "A-refresh");
+    setCargoSessionActor("employee-A");
+    let releaseRefresh;
+    let refreshSignal;
+    global.fetch = vi.fn((url, init) => {
+      if (String(url).includes("/api/mobile/auth/refresh")) {
+        refreshSignal = init.signal;
+        return new Promise((resolve) => { releaseRefresh = resolve; });
+      }
+      return Promise.resolve(jsonRes(401, { error: "Unauthorized" }));
+    });
+    const pending = apiFetch("/api/driver/me");
+    await vi.waitFor(() => expect(releaseRefresh).toBeDefined());
+
+    let releaseBWrite;
+    let startedBWrite;
+    const bWriteStarted = new Promise((resolve) => { startedBWrite = resolve; });
+    const bWriteGate = new Promise((resolve) => { releaseBWrite = resolve; });
+    const originalSet = SecureStore.setItemAsync.getMockImplementation();
+    SecureStore.setItemAsync.mockImplementation(async (key, value) => {
+      if (key === "fleetops_access_token" && value === "B-access") {
+        startedBWrite();
+        await bWriteGate;
+      }
+      return originalSet(key, value);
+    });
+    const signIn = persistSignedInSession({
+      accessToken: "B-access",
+      refreshToken: "B-refresh",
+      driver: { employeeId: "employee-B", id: "driver-B" },
+    });
+    await bWriteStarted;
+    expect(refreshSignal.aborted).toBe(true);
+    releaseBWrite();
+    await signIn;
+    SecureStore.setItemAsync.mockImplementation(originalSet);
+    releaseRefresh(refreshResult);
+
+    await expect(pending).rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
+    expect(await getRefreshToken()).toBe("B-refresh");
+    expect(onExpired).not.toHaveBeenCalled();
+  });
+
+  it("fails sign-in closed when SecureStore rejects replacement credentials", async () => {
+    await seedSession("A-access", "A-refresh");
+    setCargoSessionActor("employee-A");
+    let uiUser = { employeeId: "employee-A" };
+    const setUser = vi.fn((value) => { uiUser = value; });
+    const originalSet = SecureStore.setItemAsync.getMockImplementation();
+    const originalDelete = SecureStore.deleteItemAsync.getMockImplementation();
+    SecureStore.setItemAsync.mockImplementation(async (key, value) => {
+      if (key === "fleetops_access_token" && value === "B-access") throw new Error("secure storage unavailable");
+      return originalSet(key, value);
+    });
+    SecureStore.deleteItemAsync.mockImplementation(async (key) => {
+      if (key === "fleetops_access_token") throw new Error("secure cleanup unavailable");
+      return originalDelete(key);
+    });
+
+    await expect(completeSignIn({
+      accessToken: "B-access",
+      refreshToken: "B-refresh",
+      driver: { employeeId: "employee-B", id: "driver-B" },
+    }, setUser)).rejects.toThrow("secure storage unavailable");
+    SecureStore.setItemAsync.mockImplementation(originalSet);
+    SecureStore.deleteItemAsync.mockImplementation(originalDelete);
+
+    expect(setUser).toHaveBeenLastCalledWith(null);
+    expect(uiUser).toBeNull();
+    expect(isCurrentCargoActor("employee-A")).toBe(false);
+    expect(isCurrentCargoActor("employee-B")).toBe(false);
+    expect(await getRestorableSignedInUser()).toBeNull();
+    let refreshCalls = 0;
+    global.fetch = vi.fn(async (url) => {
+      if (String(url).includes("/api/mobile/auth/refresh")) refreshCalls += 1;
+      return jsonRes(401, { error: "Unauthorized" });
+    });
+    await expect(apiFetch("/api/driver/me")).rejects.toMatchObject({ code: "CARGO_SYNC_CANCELLED" });
+    expect(refreshCalls).toBe(0);
+  });
+
   it("invalidates A before sign-in queues B credentials and drops A's queued refresh write", async () => {
     await seedSession("A-access", "A-refresh");
     setCargoSessionActor("employee-A");

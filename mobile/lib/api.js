@@ -8,7 +8,7 @@ import {
 import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { enqueueRequest, syncQueue, setApiFetch, hasPendingWork } from "./sync";
 import { isTransportFailure } from "./connectivity-state";
-import { captureCargoSession, captureCurrentCargoSession, isCurrentCargoSession, getCargoActorSignal, isCurrentCargoActor } from "./cargo-sync";
+import { captureCargoSession, captureCurrentCargoSession, isCurrentCargoSession, canRefreshCargoSession, getCargoActorSignal, isCurrentCargoActor } from "./cargo-sync";
 
 // Re-exported so screens share the one classification: transport failures
 // belong to the global connectivity banner, never to inline error surfaces.
@@ -128,7 +128,7 @@ let refreshPromise = null;
  * touches AsyncStorage alone, so this introduces no cycle.
  */
 async function clearSession(session = null) {
-  const isCurrent = () => session == null || isCurrentCargoSession(session);
+  const isCurrent = () => isCurrentCargoSession(session);
   if (!isCurrent()) return;
   try {
     const stored = await getUser();
@@ -142,17 +142,23 @@ async function clearSession(session = null) {
 }
 
 async function refreshAccessToken(session = null) {
-  const isCurrent = () => session == null || isCurrentCargoSession(session);
+  const isCurrent = () => isCurrentCargoSession(session);
   const assertCurrent = () => {
     if (!isCurrent()) throw new ApiError("Cargo refresh cancelled because the signed-in account changed.", 0, "CARGO_SYNC_CANCELLED");
   };
-  const key = session ? `${session.actorId}:${session.generation}` : "global";
+  const assertRefreshable = () => {
+    assertCurrent();
+    if (!canRefreshCargoSession(session)) {
+      throw new ApiError("Session refresh cancelled while sign-in is changing accounts.", 0, "CARGO_SYNC_CANCELLED");
+    }
+  };
+  const key = `${session.phase}:${session.actorId ?? "anonymous"}:${session.generation}`;
   if (refreshPromise?.key === key) return refreshPromise.promise;
 
   const promise = (async () => {
-    assertCurrent();
+    assertRefreshable();
     const refreshToken = await getRefreshToken();
-    assertCurrent();
+    assertRefreshable();
     if (!refreshToken) {
       await clearSession(session);
       assertCurrent();
@@ -168,18 +174,18 @@ async function refreshAccessToken(session = null) {
     });
     let res;
     try {
-      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit(), session ? [session.signal] : []);
-      assertCurrent();
+      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit(), [session.signal]);
+      assertRefreshable();
     } catch (firstErr) {
-      assertCurrent();
+      assertRefreshable();
       // Flaky reconnect: the packet carrying a successful rotation may be
       // lost in flight. Retry ONCE before concluding anything — the server
       // tolerates a repeated refresh inside its 1-minute grace window, while
       // a transport failure here must never look like a revoked session. If
       // the retry also fails to reach the server, it propagates as a plain
       // network error: no clearAll, no logout.
-      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit(), session ? [session.signal] : []);
-      assertCurrent();
+      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit(), [session.signal]);
+      assertRefreshable();
     }
 
     if (res.status === 429) {
@@ -195,7 +201,7 @@ async function refreshAccessToken(session = null) {
       } catch {
         // Keep the default wait.
       }
-      assertCurrent();
+      assertRefreshable();
       try {
         const secs = Number(hint?.retry_after);
         if (Number.isFinite(secs) && secs > 0) waitMs = Math.min(secs, 10) * 1000;
@@ -203,11 +209,11 @@ async function refreshAccessToken(session = null) {
         // Keep the default wait for malformed retry hints.
       }
       await new Promise((r) => setTimeout(r, waitMs));
-      assertCurrent();
+      assertRefreshable();
       // A transport failure here propagates as a plain network error below
       // (no clearSession, no logout) via the caller's normal handling.
-      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit(), session ? [session.signal] : []);
-      assertCurrent();
+      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit(), [session.signal]);
+      assertRefreshable();
       if (res.status === 429) {
         throw new ApiError("Too many requests. Try again later.", 429);
       }
@@ -221,13 +227,13 @@ async function refreshAccessToken(session = null) {
     }
 
     const data = await res.json();
-    assertCurrent();
+    assertRefreshable();
     const saved = await saveTokens({
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
     }, isCurrent);
-    assertCurrent();
-    if (!saved) assertCurrent();
+    assertRefreshable();
+    if (!saved) assertRefreshable();
     return data.accessToken;
   })();
   refreshPromise = { key, promise };

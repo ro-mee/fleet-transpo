@@ -5,6 +5,7 @@ const KEYS = {
   ACCESS_TOKEN: "fleetops_access_token",
   REFRESH_TOKEN: "fleetops_refresh_token",
   USER: "fleetops_user",
+  SESSION_STATE: "fleetops_session_state",
 };
 
 /**
@@ -50,10 +51,14 @@ function mutateAuth(isCurrent, work) {
 }
 
 export async function saveTokens({ accessToken, refreshToken }, isCurrent = () => true) {
-  return mutateAuth(isCurrent, () => Promise.all([
-    store.setItem(KEYS.ACCESS_TOKEN, accessToken),
-    store.setItem(KEYS.REFRESH_TOKEN, refreshToken),
-  ]));
+  return mutateAuth(isCurrent, async () => {
+    const results = await Promise.allSettled([
+      store.setItem(KEYS.ACCESS_TOKEN, accessToken),
+      store.setItem(KEYS.REFRESH_TOKEN, refreshToken),
+    ]);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+  });
 }
 
 export async function getAccessToken() {
@@ -66,6 +71,18 @@ export async function getRefreshToken() {
 
 export async function saveUser(user) {
   await store.setItem(KEYS.USER, JSON.stringify(user));
+}
+
+export async function markSignInPending() {
+  return mutateAuth(() => true, () => store.setItem(KEYS.SESSION_STATE, "transition"));
+}
+
+export async function markSignInComplete() {
+  return mutateAuth(() => true, () => store.setItem(KEYS.SESSION_STATE, "active"));
+}
+
+export async function getSessionState() {
+  return await store.getItem(KEYS.SESSION_STATE);
 }
 
 export async function getUser() {
@@ -86,10 +103,15 @@ export async function clearLegacyBiometricEnrollment() {
 }
 
 export async function clearAll(isCurrent = () => true) {
-  return mutateAuth(isCurrent, () => Promise.all([
-    store.deleteItem(KEYS.ACCESS_TOKEN),
-    store.deleteItem(KEYS.REFRESH_TOKEN),
-    store.deleteItem(KEYS.USER),
-    clearLegacyBiometricEnrollment(),
-  ]));
+  return mutateAuth(isCurrent, async () => {
+    // Persist the fence first. If any later delete fails, cold-start restore
+    // still knows this credential set is incomplete and must stay signed out.
+    await store.setItem(KEYS.SESSION_STATE, "signed_out");
+    await Promise.all([
+      store.deleteItem(KEYS.ACCESS_TOKEN),
+      store.deleteItem(KEYS.REFRESH_TOKEN),
+      store.deleteItem(KEYS.USER),
+      clearLegacyBiometricEnrollment(),
+    ]);
+  });
 }

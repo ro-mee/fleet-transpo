@@ -13,7 +13,7 @@ import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { registerDeviceTokenIfAuthorized, unregisterDeviceToken } from "./notifications/device-token";
 import { setCargoSessionActor, syncCargoDrafts } from "./cargo-sync";
 import { cargoApi } from "./cargo-api";
-import { persistSignedInSession } from "./auth-session";
+import { completeSignIn, getRestorableSignedInUser } from "./auth-session";
 
 const AuthContext = createContext(null);
 
@@ -26,8 +26,8 @@ export function AuthProvider({ children }) {
     clearLegacyBiometricEnrollment().catch(() => {});
     (async () => {
       try {
-        const [token, stored] = await Promise.all([getAccessToken(), getUser()]);
-        if (token && stored) {
+        const stored = await getRestorableSignedInUser();
+        if (stored) {
           setCargoSessionActor(stored.employeeId ?? null);
           setUser(stored);
           if (!stored.mustChangePassword) registerDeviceTokenIfAuthorized();
@@ -80,8 +80,7 @@ export function AuthProvider({ children }) {
       skipAuth: true,
     });
 
-    const driver = await persistSignedInSession(data);
-    setUser(driver);
+    const driver = await completeSignIn(data, setUser);
     // Non-prompting push registration — only registers if permission was already granted previously.
     if (!driver.mustChangePassword) registerDeviceTokenIfAuthorized();
     return driver;
