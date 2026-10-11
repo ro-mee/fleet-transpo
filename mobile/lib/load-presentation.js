@@ -54,3 +54,11 @@ export function tripActionLabel(status, loadType) {
   if (["Drop-off", "Arrived", "In Progress"].includes(status)) return loadType === "Cargo" ? "CARGO DELIVERED" : "DROPPED OFF GUEST";
   return status === "Trip Started" ? "ARRIVED AT PICKUP" : ["Passenger Onboard", "En Route"].includes(status) ? "ARRIVED AT DESTINATION" : "SWIPE TO CONFIRM";
 }
+
+/** Mobile cargo verification entry copy; source and driver group never choose screens. */
+export function cargoVerificationLabel(trip) {
+  if (!isCargoLoad(trip)) return null;
+  if (trip.trip_status === "At Pickup") return "Verify cargo pickup";
+  if (["Drop-off", "Arrived"].includes(trip.trip_status)) return "Verify cargo delivery";
+  return "View cargo manifest";
+}

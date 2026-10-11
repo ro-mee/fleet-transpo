@@ -14,7 +14,7 @@ import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
-import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel } from "../../../lib/load-presentation";
+import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { usePreShift } from "../../../lib/use-pre-shift";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
@@ -362,6 +362,8 @@ export default function TripDetailsScreen() {
             <Text style={type.cardTitle}>{depLabel || "Not provided"}</Text>
           </View>
         </ClayCard>
+
+        {isCargo && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
 
         {/* Readiness panel (pre-start) or completion summary (terminal) */}
         {isTerminal ? (

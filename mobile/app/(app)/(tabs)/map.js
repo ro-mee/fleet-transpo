@@ -32,7 +32,11 @@ import {
 } from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
-import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel } from "../../../lib/load-presentation";
+import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
+import { cargoApi } from "../../../lib/cargo-api";
+import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from "../../../lib/cargo-sync";
+import { resolveCargoMapGate } from "../../../lib/cargo-view-model";
+import { ClayButton } from "../../../components/clay/ClayButton";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -2208,6 +2212,20 @@ export default function MapTab() {
                   if (inFlight) return;
                   setInFlight(true);
                   try {
+                    if (isCargoLoad(activeTrip)) {
+                      const snapshot = captureCargoSession(user?.employeeId);
+                      const gate = await resolveCargoMapGate(activeTrip, {
+                        offline: connectivity === "offline",
+                        readExecution: () => cargoApi.getExecution(activeTrip.trip_id, user?.employeeId, snapshot?.signal),
+                        readSyncState: () => getCargoSyncState(user?.employeeId, activeTrip.trip_id),
+                      });
+                      if (!isCurrentCargoSession(snapshot)) return;
+                      if (!gate.allowed) {
+                        AppAlert.alert("Cargo verification required", gate.reason);
+                        router.push(`/trip/${activeTrip.trip_id}/${gate.route}`);
+                        return;
+                      }
+                    }
                     if (isPending || isDriverAccepted) {
                       if (isPending) {
                         // Accept MUST complete before START is attempted. The
@@ -2504,6 +2522,7 @@ export default function MapTab() {
                     ) : null;
                   })()}
                 </View>
+                {isCargoLoad(activeTrip) && <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${["Drop-off", "Arrived"].includes(activeTrip.trip_status) ? "cargo-delivery" : activeTrip.trip_status === "At Pickup" ? "cargo-pickup" : "cargo"}`)} />}
                 {!isCargoLoad(activeTrip) && <Pressable
                   style={({ pressed }) => [
                     styles.iconButton,
