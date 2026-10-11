@@ -35,3 +35,11 @@ Verification on 2026-10-08: 25 targeted files / 243 tests passed, strict owned-f
 ## Explicit cargo service windows
 
 Reject an explicit arrival that is equal to or before departure, or shorter than the known drive plus loading/securement/unloading/turnaround. A deficient explicit plan is not extended silently. A missing arrival is derived from the known driving estimate and the 90-minute default handling policy; a 60-minute drive therefore occupies 150 minutes. Preserve adequate explicit ends. The accepted end is used consistently for saved schedules and overlap checks.
+
+## Core cargo demo scenarios — 2026-10-12
+
+scripts/cargo-demo/fixtures.mjs now provides deterministic, clearly simulated examples for Guest Transport plus the three shared restaurant/hotel cargo services. Cargo cases cover a clean trip, a 10-box manifest with 9 accepted and 9 delivered, a source WAIT followed by a new clean recount, a rejected shortage, an 8-of-9 delivery discrepancy, and a simulated partner timeout. The recount keeps the same trip and manifest identity while using a new receipt.
+
+Run the focused contract check with npm run test:run -- scripts/cargo-demo/fixtures.test.mjs. All demo records use the FLEETOPS_CARGO_DEMO_V1 namespace, are marked simulated, contain no source image references or uploaded photo evidence, and the fixtures do not write to a database or contact a partner. This verifies the cargo state rules with sample data; it does not enable runtime cargo endpoints.
+
+Production cargo actions and source thumbnails remain closed until their real source, Fleet safety, receiver and privacy authorities are approved and connected. The owner worksheet remains the record of those pending gates; do not treat simulated fixture approvals as operational approval.
