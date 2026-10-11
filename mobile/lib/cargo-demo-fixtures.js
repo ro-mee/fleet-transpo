@@ -225,7 +225,7 @@ function buildCargoDemoFixtures() {
           label: "After recount",
           statusLabel: "Clean recount recorded",
           statusTone: "success",
-          summary: "The recount finds all 10 boxes. It uses a new receipt for the same trip and manifest.",
+          summary: "The recount finds all 10 boxes. It uses a new receipt for the same trip, manifest and execution.",
           execution: recountExecution,
         },
       ],

@@ -606,7 +606,7 @@ Review verification: focused UI plus existing manifest/evidence/API contracts **
 
 ## Cargo demo screen — Task 13 (2026-10-12)
 
-The public `/cargo-demo` route is linked from sign-in and uses the same static sample records tested by Task 13. It opens on the hotel 10-expected / 9-counted case, shows the source WAIT state, and lets the user switch locally to the clean recount for the same manifest and trip with a new receipt. Other cases show clean delivery, accepted and rejected shortages, a delivery difference and a partner timeout. Restaurant and hotel examples share the same cargo count layout; Guest/VIP transport is shown separately as a passenger flow.
+The public `/cargo-demo` route is linked from sign-in and uses the same static sample records tested by Task 13. It opens on the hotel 10-expected / 9-counted case, shows the source WAIT state, and lets the user switch locally to the clean recount for the same trip, manifest and execution with a new receipt. Other cases show clean delivery, accepted and rejected shortages, a delivery difference and a partner timeout. Restaurant and hotel examples share the same cargo count layout; Guest/VIP transport is shown separately as a passenger flow.
 
 The screen is a read-only showcase. Scenario and timeline selection change only component state; this route does not use the cargo API, cargo form drafts, sync queues, device storage, photo uploads or partner messaging. Its notice labels all examples as simulated and says no real trip or order changes. Source references and evidence remain absent. Production cargo endpoints and source thumbnails remain disabled under the existing approval and provider gates.
 

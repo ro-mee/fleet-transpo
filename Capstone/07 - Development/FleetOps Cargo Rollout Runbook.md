@@ -38,7 +38,7 @@ Reject an explicit arrival that is equal to or before departure, or shorter than
 
 ## Core cargo demo scenarios — 2026-10-12
 
-`mobile/lib/cargo-demo-fixtures.js` is the shared source for deterministic, clearly simulated examples for Guest Transport plus the three shared restaurant/hotel cargo services. Cargo cases cover a clean trip, a 10-box manifest with 9 accepted and 9 delivered, a source WAIT followed by a new clean recount, a rejected shortage, an 8-of-9 delivery discrepancy, and a simulated partner timeout. The recount keeps the same trip and manifest identity while using a new receipt.
+`mobile/lib/cargo-demo-fixtures.js` is the shared source for deterministic, clearly simulated examples for Guest Transport plus the three shared restaurant/hotel cargo services. Cargo cases cover a clean trip, a 10-box manifest with 9 accepted and 9 delivered, a source WAIT followed by a new clean recount, a rejected shortage, an 8-of-9 delivery discrepancy, and a simulated partner timeout. The recount keeps the same trip, manifest and execution identity while using a new receipt.
 
 The public mobile `/cargo-demo` route is linked from sign-in. It opens on the WAIT example and allows a local-only switch to the recount. Scenario selection does not call the cargo API, save drafts, use the sync queue, upload photos or message partners. The screen labels the examples as simulated and offers no operational actions. Restaurant and hotel cases use the same presentation; Guest/VIP stays separate in the passenger flow.
 

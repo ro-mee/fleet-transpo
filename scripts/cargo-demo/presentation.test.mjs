@@ -19,7 +19,7 @@ describe("cargo demo presentation", () => {
     expect(recounted).toMatchObject({
       statusLabel: "Clean recount recorded",
       quantities: { expected: "10", pickedUp: "10", delivered: null, orderShortage: "0", unit: "box" },
-      summary: "The recount finds all 10 boxes. It uses a new receipt for the same trip and manifest.",
+      summary: "The recount finds all 10 boxes. It uses a new receipt for the same trip, manifest and execution.",
       simulated: true,
       readOnly: true,
     });

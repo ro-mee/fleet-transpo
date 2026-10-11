@@ -130,7 +130,7 @@ describe("rendered read-only cargo demo", () => {
 
     const recounted = render();
     expect(renderedText(recounted)).toContain("Clean recount recorded");
-    expect(renderedText(recounted)).toContain("The recount finds all 10 boxes");
+    expect(renderedText(recounted)).toContain("new receipt for the same trip, manifest and execution");
     expect(renderedText(recounted)).not.toMatch(/Confirm pickup|Report pickup issue|Confirm delivery|Record delivery observation/i);
   });
 

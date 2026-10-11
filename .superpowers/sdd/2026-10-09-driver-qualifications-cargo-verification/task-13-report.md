@@ -5,7 +5,7 @@ Status: implemented and verified as a read-only mobile demo. It does not enable 
 ## Implemented
 
 - Added deterministic sample records for Guest/VIP transport and the three shared restaurant/hotel cargo services.
-- Added clean receipt, accepted shortage, WAIT/recount, rejected shortage, delivery discrepancy and partner-timeout cases. The recount retains the sample trip and manifest identity but uses a new receipt.
+- Added clean receipt, accepted shortage, WAIT/recount, rejected shortage, delivery discrepancy and partner-timeout cases. The recount retains the sample trip, manifest and execution identity but uses a new receipt.
 - Added the public `/cargo-demo` mobile route and a sign-in entry. It opens on the 10-expected / 9-counted WAIT case. The user can switch to the recount and other sample cases without sending a request or saving data.
 - Kept all cargo image references null and evidence lists empty. The screen contains no API, draft, sync, device-storage, upload or partner-message calls.
 - Kept Guest/VIP in a separate passenger example; restaurant and hotel cases use one shared cargo presentation.
