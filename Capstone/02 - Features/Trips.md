@@ -18,6 +18,14 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Staff cargo review and source links — Task 11, 2026-10-11
+
+Trip detail now shows the shared cargo review panel for request-backed cargo and supply-delivery trips. Reservation detail links cargo reservations to the trip review, and dispatch detail links to its existing trip when available. The panel presents expected, picked-up and delivered quantities in the manifest's same unit; expected 10 / pickup 9 / delivery 9 yields order shortage 1 and delivery shortage 0. Missing observations remain unknown. Vehicle inspection remains a separate section.
+
+Source decision, Fleet clearance, receiver confirmation and partner-message delivery are separate statuses. A partner ACK only means the message was received. Reviewer controls use only the current server-provided capability flags. Conflicts retain the reviewer's draft and block resubmission until a fresh current view is loaded. REQUEST links resolve through the persisted dispatch/request-manifest relationship; SUPPLY links resolve through the persisted execution/allocation/shipment relationship and matching manifest revision/hash. The supply page validates its `shipmentId` against the server-loaded local shipment list and keeps its existing shipment-selection view; it does not add a shipment route or trust an external request ID as a local key.
+
+The read projection contains bounded event metadata and a safe local source link only; contacts, raw proof and bearer URLs are not included. Private evidence is fetched only after an explicit view action. The runtime cargo service remains unavailable with 503, so the panel states that review configuration is unavailable and hides controls unless the server supplies a capability. Component/API fixtures are not real staff/readonly role acceptance. Verification: Task 11 focused route/API/read-adapter/client/component/helper run passed 9 files / 54 tests; touched ESLint passed with zero warnings; documented webpack compile mode succeeded. Local browser inspection could not connect to localhost, so visual, console and role-based browser acceptance remain unverified. See [[cargo_execution_storage]] and [[supply_delivery_foundation]].
+
 ## Disabled cargo execution state — Task 6, 2026-10-10
 
 The new cargo service keeps original manifest quantities, pickup observations and delivery observations separate. Expected 10 / source-accepted pickup 9 / confirmed delivery 9 reports order shortage 1 and delivery shortage 0. Missing observations and their shortages remain null. Damage and overages require review. Unsupported corrections and wrong-item codes are rejected by the current contract rather than silently reinterpreted.

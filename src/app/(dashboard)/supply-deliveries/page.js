@@ -1,7 +1,8 @@
 "use client";
 
-import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { resolveShipmentDetailSelection } from "@/lib/supply/shipment-detail-selection";
 import { AlertTriangle, Check, CheckCircle2, ClipboardCheck, Clock, MapPin, PackageCheck, RefreshCw, Scale, ShieldCheck, Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,19 @@ import { compareSupplyLoadFit } from "@/services/supply-shipment.service";
 import { getSupplySiteMappings, saveSupplySiteMapping } from "@/services/supply-site-mapping.service";
 
 const EMPTY_ITEMS = Object.freeze([]);
+
+function subscribeToLocationSearch(onChange) {
+  window.addEventListener("popstate", onChange);
+  return () => window.removeEventListener("popstate", onChange);
+}
+
+function getLocationSearch() {
+  return window.location.search;
+}
+
+function getServerLocationSearch() {
+  return "";
+}
 
 const HANDLING_CAPABILITIES = [
   ["FRAGILE", "Fragile"],
@@ -337,6 +351,8 @@ export default function SupplyDeliveriesPage() {
   const canManageProfiles = can(employee, "vehicles", "update");
   const canImportSandbox = hasRole(employee, ["admin", "super_admin"]);
   const [selectedShipmentId, setSelectedShipmentId] = useState("");
+  const locationSearch = useSyncExternalStore(subscribeToLocationSearch, getLocationSearch, getServerLocationSearch);
+  const requestedShipmentId = new URLSearchParams(locationSearch).get("shipmentId") || "";
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [profileVehicleId, setProfileVehicleId] = useState("");
   const [profileForm, setProfileForm] = useState({ ...blankProfile });
@@ -365,9 +381,14 @@ export default function SupplyDeliveriesPage() {
     staleTime: 30_000,
   });
   const shipments = shipmentsQuery.data?.shipments ?? EMPTY_ITEMS;
+  const shipmentLinkSelection = resolveShipmentDetailSelection(requestedShipmentId, shipments);
+  const sourceLinkNotice = shipmentsQuery.isSuccess && shipmentLinkSelection.unavailable
+    ? "This linked shipment is not in your current list. Select an available shipment to continue."
+    : "";
   const profiles = profilesQuery.data?.profiles ?? EMPTY_ITEMS;
   const siteMappings = siteMappingsQuery.data?.mappings ?? EMPTY_ITEMS;
   const fleetLocations = siteMappingsQuery.data?.locations ?? EMPTY_ITEMS;
+
   const siteTargets = useMemo(() => {
     const targets = new Map();
     for (const shipment of shipments) {
@@ -381,7 +402,8 @@ export default function SupplyDeliveriesPage() {
     }
     return [...targets.values()].sort((a, b) => a.source_organization_id.localeCompare(b.source_organization_id) || a.external_site_id.localeCompare(b.external_site_id));
   }, [shipments]);
-  const selectedShipment = shipments.find((item) => item.supply_shipment_id === selectedShipmentId) ?? shipments[0] ?? null;
+  const effectiveSelectedShipmentId = selectedShipmentId || shipmentLinkSelection.selectedId;
+  const selectedShipment = shipments.find((item) => item.supply_shipment_id === effectiveSelectedShipmentId) ?? shipments[0] ?? null;
   const selectedVehicle = profiles.find((item) => String(item.vehicle_id) === selectedVehicleId) ?? null;
   const profileVehicle = profiles.find((item) => String(item.vehicle_id) === profileVehicleId) ?? null;
   const evaluationSelectionRef = useRef({ shipmentId: null, vehicleId: null });
@@ -409,14 +431,14 @@ export default function SupplyDeliveriesPage() {
 
   useEffect(() => {
     startTransition(() => {
-      if (!selectedShipmentId && shipments[0]) setSelectedShipmentId(shipments[0].supply_shipment_id);
+      if (!requestedShipmentId && !selectedShipmentId && shipments[0]) setSelectedShipmentId(shipments[0].supply_shipment_id);
       if (selectedShipmentId && !shipments.some((item) => item.supply_shipment_id === selectedShipmentId)) {
         setSelectedShipmentId(shipments[0]?.supply_shipment_id ?? "");
         setEvaluation(null);
         setFleetLoadFit(null);
       }
     });
-  }, [selectedShipmentId, shipments]);
+  }, [requestedShipmentId, selectedShipmentId, shipments]);
 
   useEffect(() => {
     startTransition(() => {
@@ -681,6 +703,13 @@ export default function SupplyDeliveriesPage() {
           </p>
         </div>
       </div>
+
+      {sourceLinkNotice && (
+        <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100" role="status">
+          <p className="font-semibold">Linked shipment unavailable</p>
+          <p className="mt-1">{sourceLinkNotice}</p>
+        </div>
+      )}
 
       <section aria-label="Supply request counts">
         <StatGrid cols={3}>

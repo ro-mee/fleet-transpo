@@ -100,6 +100,54 @@ it('bounds pagination and omits contact and URLs from history', async () => {
     expect(body.data.receiver_contact).toBeUndefined();
     expect((await api.get(req(null, '?history_limit=51'), context)).status).toBe(400);
 });
+it('projects only a persisted local source link, safe review metadata, and server-authorized feedback retry', async () => {
+    resolveIdentity.mockResolvedValue({ user: { role: 'admin', employeeId: 2 } });
+    const sourceManifest = {
+        manifest_ref: { kind: 'SUPPLY', id, revision: 1, hash },
+        source_ref: { system: 'SCM', organization_id: 'fixture:scm', external_request_id: 'must-not-become-a-link' },
+        service_code: 'HOTEL_SUPPLY_TRANSFER', lines: []
+    };
+    const authorizeFeedbackRetry = vi.fn(async () => true);
+    const projected = createCargoApi({
+        simulated: true, environment: 'test', approvalRef: 'fixture:api',
+        authorizeStaff: async () => true,
+        service: { getCargoExecution: async () => ({
+            trip_id: 7, manifest: sourceManifest,
+            pickup_receipt: { receipt_id: id, receiver_proof: { token: 'hidden' } },
+            delivery_receipt: { receiver_proof: { phone: 'hidden' } },
+            source_decision: { action: 'WAIT', manual_provenance: { approver_identity: 'private identity' } },
+            fleet_clearance: { safety_proof: { token: 'hidden' }, safety_evidence_ref: 'private-ref' },
+            receiver_contact: 'private contact'
+        }) },
+        readHistory: async () => ({ rows: [{ event_id: id, event_type: 'PARTNER_FEEDBACK', status: 'FAILED' }], latest_feedback: { event_id: id, status: 'FAILED', last_error_code: 'GATEWAY_TIMEOUT' } }),
+        resolveSourceLink: async () => ({ kind: 'SUPPLY', local_id: '22222222-2222-4222-8222-222222222222', href: 'https://unsafe.test' }),
+        authorizeFeedbackRetry
+    });
+
+    const body = await (await projected.get(req(), context)).json();
+    expect(body.data.source_link).toEqual({ kind: 'SUPPLY', local_id: '22222222-2222-4222-8222-222222222222' });
+    expect(body.data.source_link.href).toBeUndefined();
+    expect(body.data.capabilities.feedback_retry).toBe(true);
+    expect(authorizeFeedbackRetry).toHaveBeenCalledWith(expect.objectContaining({ tripId: 7, eventId: id, sourceSystem: 'SCM' }));
+    expect(body.data.receiver_contact).toBeUndefined();
+    expect(body.data.delivery_receipt.receiver_proof).toBeUndefined();
+    expect(body.data.source_decision.manual_provenance).toBeUndefined();
+    expect(body.data.fleet_clearance.safety_proof).toBeUndefined();
+    expect(body.data.fleet_clearance.safety_evidence_ref).toBeUndefined();
+});
+it('does not enable feedback retry for a role outside integration execution scope', async () => {
+    resolveIdentity.mockResolvedValue(driver);
+    const authorizeFeedbackRetry = vi.fn(async () => true);
+    const restricted = createCargoApi({
+        simulated: true, environment: 'test', approvalRef: 'fixture:api',
+        service: { getCargoExecution: async () => ({ trip_id: 7, manifest: { source_ref: { system: 'POS', organization_id: 'o' } } }) },
+        readHistory: async () => ({ rows: [], latest_feedback: { event_id: id, status: 'FAILED' } }),
+        authorizeFeedbackRetry
+    });
+    const body = await (await restricted.get(req(), context)).json();
+    expect(body.data.capabilities.feedback_retry).toBe(false);
+    expect(authorizeFeedbackRetry).not.toHaveBeenCalled();
+});
 it('signs only explicit bounded detail reads', async () => {
     const response = await api.get(req(null, `?evidence_id=${id}`), context);
     expect((await response.json()).data.evidence).toEqual([{
@@ -233,6 +281,6 @@ it('provides read capabilities from approved action authority rather than role a
     });
     const response = await scoped.get(req(), context);
     expect((await response.json()).data.capabilities).toEqual({
-        read: true, observe: false, clearance: false, manual_decision: false
+        read: true, observe: false, clearance: false, manual_decision: false, feedback_retry: false
     });
 });

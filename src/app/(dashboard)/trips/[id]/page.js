@@ -37,6 +37,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { CargoVerificationPanel } from "@/components/cargo/cargo-verification-panel";
 
 const TripRouteMap = dynamic(() => import("@/components/maps/live-locations-map"), {
   ssr: false,
@@ -192,6 +193,7 @@ export default function TripDetailPage() {
   // labelled by reservation number.
   const dispatchNumber = trip.dispatchschedules?.dispatch_number;
   const linkedRequest = trip.transportation_requests || null;
+  const isCargoTrip = linkedRequest?.load_type === "Cargo" || trip.dispatchschedules?.service_type === "SUPPLY_DELIVERY";
   const hasPastPickupWithoutStart =
     Boolean(trip.dispatch_id) &&
     isPreStartTripStatus(trip.trip_status) &&
@@ -265,6 +267,8 @@ export default function TripDetailPage() {
           />
         </CardContent>
       </Card>
+
+      {isCargoTrip && <CargoVerificationPanel tripId={trip.trip_id} linkedRequestId={linkedRequest?.request_id} />}
 
       {/* Executive Key Information Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

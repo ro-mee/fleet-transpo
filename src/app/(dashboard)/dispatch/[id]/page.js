@@ -42,6 +42,7 @@ import {
   CheckCircle2,
   Clock,
   FileText,
+  ExternalLink,
   Gauge,
   MapPin,
   Navigation,
@@ -251,6 +252,11 @@ export default function DispatchDetailPage() {
   const driver = dispatch.drivers || null;
   const route = dispatch.routes || null;
   const trip = dispatch.latest_trip || null;
+  const isCargoDispatch = dispatch.service_type === "SUPPLY_DELIVERY" || [
+    "Restaurant Supply Pickup",
+    "Restaurant Food Delivery",
+    "Hotel Supply Transfer",
+  ].includes(request?.service_name);
   const progress = tripProgress(dispatch);
   const priority = dispatch.priority || request?.priority;
 
@@ -431,6 +437,18 @@ export default function DispatchDetailPage() {
           />
         )}
       </div>
+
+      {isCargoDispatch && trip?.trip_id && (
+        <div className="flex flex-col gap-2 rounded-xl border border-info/25 bg-info/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold text-foreground">Cargo review is attached to the trip</p>
+            <p className="mt-0.5 text-xs text-foreground-secondary">Open the trip to compare quantities and review the separate source, Fleet, and receiver records.</p>
+          </div>
+          <Link href={`/trips/${trip.trip_id}`} className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-info/30 bg-surface px-3 text-xs font-semibold text-primary hover:bg-info/10">
+            Review cargo <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          </Link>
+        </div>
+      )}
 
       {/* ── Main Details Layout (7 Cols Left / 5 Cols Right) ── */}
       <div className="grid gap-6 lg:grid-cols-12 items-start">

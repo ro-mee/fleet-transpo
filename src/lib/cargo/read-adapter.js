@@ -25,10 +25,63 @@ export function createCargoReadAdapter({db,config,simulated,environment,approval
         const tx={...base,cargoConfig:config};
         if(session?.user?.role==='driver')await assertCargoDriver(tripId,session,tx);
         else if(!authorizeStaffRead||await authorizeStaffRead({tripId,session,tx,approvalRef})!==true)throw cargoError('CARGO_FORBIDDEN','Approved cargo read authority is required.',403);
-        const rows=(await tx.query(`SELECT r.receipt_id,r.stage,r.execution_version,r.received_at
-          FROM cargo_receipts r JOIN cargo_trip_executions x USING(execution_id)
-          WHERE x.trip_id=$1 ORDER BY r.execution_version DESC,r.receipt_id LIMIT $2 OFFSET $3`,[tripId,limit+1,offset])).rows;
-        return {rows:rows.slice(0,limit),has_more:rows.length>limit};
+        const rows=(await tx.query(`WITH events AS (
+            SELECT r.receipt_id::text AS event_id,
+              CASE r.stage WHEN 'PICKUP' THEN 'PICKUP_RECORDED' ELSE 'DELIVERY_RECORDED' END AS event_type,
+              r.execution_version,r.received_at AS occurred_at,r.stage,NULL::text AS action,NULL::text AS status,NULL::text AS last_error_code
+            FROM cargo_receipts r JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1
+            UNION ALL
+            SELECT d.decision_id::text,'SOURCE_DECISION_RECORDED',d.execution_version,d.created_at,
+              NULL::text,d.action,NULL::text,NULL::text
+            FROM cargo_decisions d JOIN cargo_receipts r USING(receipt_id) JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1
+            UNION ALL
+            SELECT c.clearance_id::text,'FLEET_CLEARANCE_RECORDED',c.version,c.created_at,
+              NULL::text,NULL::text,NULL::text,NULL::text
+            FROM cargo_fleet_clearances c JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1
+            UNION ALL
+            SELECT f.event_id::text,'PARTNER_FEEDBACK',f.execution_version,COALESCE(f.acknowledged_at,f.created_at),
+              NULL::text,NULL::text,f.status,f.last_error_code
+            FROM cargo_feedback_outbox f JOIN cargo_trip_executions x USING(execution_id) WHERE x.trip_id=$1
+          )
+          SELECT event_id,event_type,execution_version,occurred_at,stage,action,status,last_error_code
+          FROM events ORDER BY occurred_at DESC,event_id LIMIT $2 OFFSET $3`,[tripId,limit+1,offset])).rows;
+        const latestFeedback=(await tx.query(`SELECT event_id::text,status,last_error_code
+          FROM cargo_feedback_outbox f JOIN cargo_trip_executions x USING(execution_id)
+          WHERE x.trip_id=$1 ORDER BY f.execution_version DESC,f.created_at DESC,f.event_id LIMIT 1`,[tripId])).rows[0]??null;
+        return {rows:rows.slice(0,limit),has_more:rows.length>limit,latest_feedback:latestFeedback};
+      });
+    },
+    async resolveSourceLink({tripId,session}) {
+      configured();
+      if(!Number.isSafeInteger(tripId)||tripId<1)throw cargoError('CARGO_INVALID_INPUT','Invalid cargo trip.',400);
+      return db.withTransaction(async base=>{
+        const tx={...base,cargoConfig:config};
+        if(session?.user?.role==='driver')await assertCargoDriver(tripId,session,tx);
+        else if(!authorizeStaffRead||await authorizeStaffRead({tripId,session,tx,approvalRef})!==true)throw cargoError('CARGO_FORBIDDEN','Approved cargo read authority is required.',403);
+        const rows=(await tx.query(`SELECT linked.kind,linked.local_id FROM (
+            SELECT 'REQUEST'::text AS kind,m.request_id::text AS local_id
+            FROM cargo_trip_executions e JOIN trips t ON t.trip_id=e.trip_id
+            JOIN dispatchschedules d ON d.dispatch_id=t.dispatch_id
+            JOIN request_cargo_manifest_revisions m ON m.request_cargo_manifest_revision_id=e.request_manifest_id
+            JOIN transportation_requests r ON r.request_id=d.request_id AND r.request_id=m.request_id AND r.deleted_at IS NULL
+            WHERE e.trip_id=$1 AND e.supply_allocation_id IS NULL
+              AND e.manifest->'manifest_ref'->>'kind'='REQUEST'
+              AND e.manifest->'manifest_ref'->>'id'=m.request_cargo_manifest_revision_id::text
+              AND e.manifest->'manifest_ref'->>'revision'=m.revision::text
+              AND e.manifest->'manifest_ref'->>'hash'=m.manifest_hash
+            UNION ALL
+            SELECT 'SUPPLY'::text,s.supply_shipment_id::text
+            FROM cargo_trip_executions e JOIN trips t ON t.trip_id=e.trip_id
+            JOIN supply_dispatch_allocations a ON a.supply_dispatch_allocation_id=e.supply_allocation_id AND a.dispatch_id=t.dispatch_id
+            JOIN supply_shipments s ON s.supply_shipment_id=a.supply_shipment_id
+            JOIN supply_manifest_revisions m ON m.supply_shipment_id=a.supply_shipment_id AND m.manifest_revision=a.manifest_revision
+            WHERE e.trip_id=$1 AND e.request_manifest_id IS NULL
+              AND e.manifest->'manifest_ref'->>'kind'='SUPPLY'
+              AND e.manifest->'manifest_ref'->>'id'=m.supply_manifest_revision_id::text
+              AND e.manifest->'manifest_ref'->>'revision'=m.manifest_revision::text
+              AND e.manifest->'manifest_ref'->>'hash'=m.manifest_hash
+          ) linked LIMIT 2`,[tripId])).rows;
+        return rows.length===1?rows[0]:null;
       });
     },
   };

@@ -113,7 +113,7 @@ function LifecycleRail({ status }) {
   );
 }
 
-function DispatchList({ dispatches }) {
+function DispatchList({ dispatches, cargoRequest = false }) {
   if (!dispatches?.length) return null;
 
   return (
@@ -172,7 +172,7 @@ function DispatchList({ dispatches }) {
                   className="relative z-20 inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
                 >
                   <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                  View trip
+                  {cargoRequest ? "Review cargo" : "View trip"}
                 </Link>
               )}
             </div>
@@ -514,7 +514,7 @@ export default function ReservationDetailPage() {
             </CardContent>
           </Card>
 
-          <DispatchList dispatches={r.dispatches} />
+          <DispatchList dispatches={r.dispatches} cargoRequest={r.load_type === "Cargo"} />
         </div>
 
         {/* ── RIGHT COLUMN: AI Advisor & Timeline (5 Cols) ── */}

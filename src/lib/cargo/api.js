@@ -84,8 +84,19 @@ function privateRead(value) {
   if (Array.isArray(value)) return value.map(privateRead);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !/url|contact|phone|email|receiver_name/i.test(key))
+    .filter(([key]) => !/url|contact|phone|email|receiver_name|proof|provenance|safety_evidence_ref|acknowledgement/i.test(key))
     .map(([key, item]) => [key, privateRead(item)]));
+}
+
+function safeSourceLink(value, manifest) {
+  if (!value || value.kind !== manifest?.manifest_ref?.kind) return null;
+  if (value.kind === 'REQUEST' && /^(?:[1-9]\d*)$/.test(String(value.local_id ?? '')) && Number.isSafeInteger(Number(value.local_id))) {
+    return { kind: 'REQUEST', local_id: String(value.local_id) };
+  }
+  if (value.kind === 'SUPPLY' && z.string().uuid().safeParse(value.local_id).success) {
+    return { kind: 'SUPPLY', local_id: value.local_id };
+  }
+  return null;
 }
 
 function pagination(req) {
@@ -158,11 +169,27 @@ function handlers(deps) {
       const history = await deps.readHistory({ tripId, session, limit: page.limit, offset: page.offset });
       if (!Array.isArray(history?.rows) || history.rows.length > page.limit) unavailable();
       const data = privateRead({ ...view, history: { rows: history.rows, has_more: history.has_more === true } });
+      const latestFeedback = history.latest_feedback;
+      data.feedback = latestFeedback ? {
+        ...(data.feedback || {}),
+        state: latestFeedback.status,
+        event_id: latestFeedback.event_id,
+        last_error_code: latestFeedback.last_error_code ?? null,
+      } : { state: 'NOT_QUEUED', last_error_code: null };
+      if (view?.delivery_receipt) data.receiver_confirmed = view.delivery_receipt.receiver_proof != null;
+      if (view?.fleet_clearance) data.securement_confirmed = view.fleet_clearance.safety_proof != null;
+      const sourceLink = await deps.resolveSourceLink?.({ tripId, session, manifest: view?.manifest });
+      const projectedSourceLink = safeSourceLink(sourceLink, view?.manifest);
+      if (projectedSourceLink) data.source_link = projectedSourceLink;
       data.capabilities = {
         read: true,
         observe: session.user.role === 'driver',
         clearance: await approvedAction(session, tripId, 'clearance'),
         manual_decision: deps.service.manualDecisionAvailable?.() === true && await approvedAction(session, tripId, 'manual_decision'),
+        feedback_retry: rolesFor('integrations', 'execute').includes(session.user.role) && data.feedback.state === 'FAILED' &&
+          z.string().uuid().safeParse(data.feedback.event_id).success &&
+          await deps.authorizeFeedbackRetry?.({ session, tripId, sourceSystem: view?.manifest?.source_ref?.system,
+            organizationId: view?.manifest?.source_ref?.organization_id, eventId: data.feedback.event_id }) === true,
       };
       if (page.evidenceIds.length) {
         if (!deps.signEvidence) unavailable();
