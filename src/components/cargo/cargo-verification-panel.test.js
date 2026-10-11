@@ -80,3 +80,30 @@ it("keeps reviewer input and error visible, and disables stale resubmission afte
   expect(markup).toContain("Save source decision</button>");
   expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Save source decision/);
 });
+
+it("locks decision details and offers a same-command retry after an uncertain response", () => {
+  const state = {
+    ...initialCargoReviewState,
+    decisionDraft: {
+      ...initialCargoReviewState.decisionDraft,
+      reason: "Source accepted nine boxes",
+      approver_identity: "Restaurant manager",
+      approver_reference: "Call reference 42",
+      communicated_at: "2026-10-11T08:30",
+      communication_evidence_ids: "evidence-1",
+    },
+  };
+  const markup = renderToStaticMarkup(React.createElement(CargoVerificationPanelContent, {
+    tripId: 42,
+    view: view({ read: true, manual_decision: true }),
+    reviewerState: state,
+    decisionRetryPending: true,
+  }));
+
+  expect(markup).toContain("The original details are locked until the result is confirmed.");
+  expect(markup).toContain("same command ID and payload");
+  expect(markup).toContain("Retry same decision");
+  expect(markup).toMatch(/<select[^>]*disabled=""/);
+  expect(markup).toMatch(/<textarea[^>]*disabled=""/);
+  expect(markup).not.toMatch(/<button[^>]*disabled=""[^>]*>Retry same decision/);
+});

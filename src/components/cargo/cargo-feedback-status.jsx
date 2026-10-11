@@ -1,5 +1,5 @@
 import React from "react";
-import { AlertTriangle, CheckCircle2, Clock3, RotateCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, Info, RotateCcw } from "lucide-react";
 
 export function CargoFeedbackStatus({ feedback, canRetry = false, onRetry, isRetrying = false, retryError = "" }) {
   const state = feedback?.state;
@@ -8,10 +8,39 @@ export function CargoFeedbackStatus({ feedback, canRetry = false, onRetry, isRet
   }
 
   const status = state === "ACKNOWLEDGED"
-    ? { label: "Message received", variant: "success", icon: CheckCircle2 }
+    ? {
+      label: "Message received",
+      variant: "success",
+      icon: CheckCircle2,
+      description: "The partner received the message. This does not approve cargo quantities.",
+    }
     : state === "FAILED"
-      ? { label: "Delivery failed", variant: "danger", icon: AlertTriangle }
-      : { label: "Waiting to send", variant: "warning", icon: Clock3 };
+      ? {
+        label: "Delivery failed",
+        variant: "danger",
+        icon: AlertTriangle,
+        description: "The partner message did not arrive. This does not change the cargo decision.",
+      }
+      : state === "PENDING"
+        ? {
+          label: "Waiting to send",
+          variant: "warning",
+          icon: Clock3,
+          description: "The partner message is waiting to send. Message delivery is separate from cargo approval.",
+        }
+        : state === "NOT_QUEUED"
+          ? {
+            label: "Not queued",
+            variant: "neutral",
+            icon: Clock3,
+            description: "No partner message is currently queued. This does not change cargo approval.",
+          }
+          : {
+            label: "Delivery status unavailable",
+            variant: "neutral",
+            icon: Info,
+            description: "The partner delivery state is not available. This does not change cargo approval.",
+          };
   const Icon = status.icon;
 
   return (
@@ -21,16 +50,11 @@ export function CargoFeedbackStatus({ feedback, canRetry = false, onRetry, isRet
           <Icon className="h-4 w-4 shrink-0 text-foreground-secondary" aria-hidden="true" />
           <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${
             status.variant === "success" ? "bg-success-bg text-success" :
-              status.variant === "danger" ? "bg-danger-bg text-danger" : "bg-warning-bg text-warning"
+              status.variant === "danger" ? "bg-danger-bg text-danger" :
+                status.variant === "warning" ? "bg-warning-bg text-warning" : "bg-muted/30 text-foreground-secondary"
           }`}>{status.label}</span>
         </div>
-        <p className="mt-1 text-xs text-foreground-secondary">
-          {state === "ACKNOWLEDGED"
-            ? "The partner received the message. This does not approve cargo quantities."
-            : state === "FAILED"
-              ? "The partner message did not arrive. This does not change the cargo decision."
-              : "The partner message is still waiting to send. Message delivery is separate from cargo approval."}
-        </p>
+        <p className="mt-1 text-xs text-foreground-secondary">{status.description}</p>
         {state === "FAILED" && feedback.last_error_code && (
           <p className="mt-1 font-data text-[11px] text-foreground-muted">Delivery code: {feedback.last_error_code}</p>
         )}

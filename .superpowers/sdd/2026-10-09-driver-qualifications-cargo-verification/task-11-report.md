@@ -50,3 +50,44 @@ The compile emitted the existing warning that `src/lib/auth/geoip.js` has an exp
 `npm run dev -- --hostname 127.0.0.1` reported ready, but both the isolated CUA browser request to `http://127.0.0.1:3000/trips/1` and a local `Invoke-WebRequest` timed out. The browser could not load a page, so no screenshot, console inspection, small-desktop visual review or staff/readonly role acceptance is claimed. The panel unavailable state is covered by rendered component tests, and the cargo route test confirms the default runtime response is 503; those fixture results do not establish a live role workflow. No operational cargo decision, evidence upload, feedback retry, shipment assignment or source-provider call was made.
 
 Relevant Capstone notes updated: Trips, Dispatch, `cargo_execution_storage.md`, and `supply_delivery_foundation.md`.
+
+## Round 1 review recovery — 2026-10-11
+
+Addressed both Important findings from review of `3cf046015e84f87e4ca168ec4b12da78e2994c9e`:
+
+- Feedback status now maps `NOT_QUEUED` to “Not queued”, keeps `PENDING` as “Waiting to send”, and renders unknown values as neutral “Delivery status unavailable”. The partner-message status remains separate from cargo approval.
+- A decision command manager retains the same generated `event_id` and frozen payload after a status-less network error or an HTTP 5xx. The panel locks decision details and exposes “Retry same decision” until the result is known. A definite 4xx clears the pending command so a new command can be created after the current state is refreshed. Success also clears it.
+
+The command-manager regression tests force both a lost network response and HTTP 503, retry successfully, and assert the same event ID, identical payload object and frozen evidence-ID array are sent again; they also verify that a later new decision gets a new ID and that a definite 409 permits an updated command. Rendered tests cover `NOT_QUEUED`, unknown status, and the locked same-command retry UI. Directly mounted panel rejection/refetch coverage remains deferred: this repository's Vitest setup has no DOM renderer/testing library, and the local browser timed out before loading the page. The deferred test is tracked as a review Minor; reducer/static-render tests are not described as a full panel request interaction.
+
+Final focused regression run:
+
+```text
+npx vitest run 'src/app/api/trips/[id]/cargo/route.test.js' src/lib/supply/shipment-detail-selection.test.js src/lib/cargo/api.test.js src/lib/cargo/read-adapter.test.js src/components/cargo src/services/cargo-execution.client.test.js --pool=forks --maxWorkers=1
+Test Files  10 passed (10)
+     Tests  61 passed (61)
+Exit 0
+```
+
+Scoped lint:
+
+```text
+npx eslint --max-warnings 0 src/components/cargo src/services/cargo-execution.client.js src/lib/cargo/api.js src/lib/cargo/read-adapter.js src/lib/supply/shipment-detail-selection.js 'src/app/api/trips/[id]/cargo/route.js' 'src/app/api/trips/[id]/cargo/route.test.js'
+Exit 0; no ESLint warnings or errors.
+```
+
+Webpack build check:
+
+```text
+npx next build --webpack --experimental-build-mode compile
+⚠ Compiled with warnings in 19.5s
+./src/lib/auth/geoip.js
+Critical dependency: the request of a dependency is an expression
+✓ Compiled successfully in 27.9s
+Build ran with "compile" mode, to finalize the build run either "generate" or "generate-env" mode as well
+Exit 0
+```
+
+The warning is in `src/lib/auth/geoip.js`, confirmed unchanged from the Task 11 base; it is unrelated and was not modified. This successful compile-mode check is not reported as a complete production build. The route listing included `/api/trips/[id]/cargo`; its focused route tests passed and continue to verify the default `503 CARGO_CONFIGURATION_REQUIRED` response. No provider, write path, schema, or operational cargo data was changed.
+
+Browser check for this review recovery used an isolated CUA tab to `http://127.0.0.1:3000/login`; the request timed out. The server was stopped afterward. No screenshot, browser console result, authenticated staff/readonly role acceptance, or live cargo review is claimed. The cargo API remains unavailable at runtime.

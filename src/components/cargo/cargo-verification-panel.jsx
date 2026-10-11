@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useReducer, useState } from "react";
+import React, { useReducer, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Camera, ExternalLink, RefreshCw, ShieldCheck, Truck } from "lucide-react";
 import { CargoDecisionHistory } from "./cargo-decision-history";
 import { CargoFeedbackStatus } from "./cargo-feedback-status";
 import { CargoQuantityTable } from "./cargo-quantity-table";
+import { createCargoDecisionCommandManager } from "./cargo-decision-command";
 import {
   clearCargoDeparture,
   getCargoEvidence,
@@ -102,12 +103,13 @@ function unavailableDescription(error) {
   return error?.message || "The cargo record could not be loaded.";
 }
 
-function CargoReviewForm({ view, reviewerState, busy, onDecisionDraft, onClearanceReason, onSubmitDecision, onSubmitClearance }) {
+function CargoReviewForm({ view, reviewerState, busy, decisionRetryPending, onDecisionDraft, onClearanceReason, onSubmitDecision, onSubmitClearance }) {
   const capabilities = view?.capabilities || {};
   const pickup = view?.pickup_receipt;
   const decisionAllowed = capabilities.manual_decision === true && pickup;
   const clearanceAllowed = capabilities.clearance === true && pickup;
   const blocked = busy || reviewerState.refreshRequired;
+  const decisionFieldsBlocked = blocked || decisionRetryPending;
 
   if (!decisionAllowed && !clearanceAllowed) {
     return <p className="rounded-md bg-muted/20 px-3 py-2 text-xs text-foreground-secondary">This cargo record is read-only for the current server-approved capabilities.</p>;
@@ -121,9 +123,14 @@ function CargoReviewForm({ view, reviewerState, busy, onDecisionDraft, onClearan
             <h4 className="text-xs font-semibold text-foreground">Record source decision</h4>
             <p className="mt-1 text-[11px] text-foreground-secondary">Use this only after source communication has been independently verified.</p>
           </div>
+          {decisionRetryPending && (
+            <p role="status" className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-foreground">
+              The original details are locked until the result is confirmed. Retrying uses the same command ID and payload.
+            </p>
+          )}
           <label className="block space-y-1 text-xs font-medium text-foreground-secondary">
             Decision
-            <select className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground" value={reviewerState.decisionDraft.action} onChange={(event) => onDecisionDraft({ action: event.target.value })}>
+            <select disabled={decisionFieldsBlocked} className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground disabled:opacity-50" value={reviewerState.decisionDraft.action} onChange={(event) => onDecisionDraft({ action: event.target.value })}>
               <option value="WAIT">Wait for a new count or source review</option>
               <option value="ACCEPT_OBSERVED">Accept the observed pickup count</option>
               <option value="REJECT_PICKUP">Reject this pickup</option>
@@ -131,24 +138,24 @@ function CargoReviewForm({ view, reviewerState, busy, onDecisionDraft, onClearan
           </label>
           <label className="block space-y-1 text-xs font-medium text-foreground-secondary">
             Reason
-            <textarea required maxLength={2000} className="min-h-20 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground" value={reviewerState.decisionDraft.reason} onChange={(event) => onDecisionDraft({ reason: event.target.value })} />
+            <textarea disabled={decisionFieldsBlocked} required maxLength={2000} className="min-h-20 w-full rounded-md border border-border bg-surface px-2 py-1.5 text-sm text-foreground disabled:opacity-50" value={reviewerState.decisionDraft.reason} onChange={(event) => onDecisionDraft({ reason: event.target.value })} />
           </label>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block space-y-1 text-xs font-medium text-foreground-secondary">Source approver
-              <input required maxLength={255} className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground" value={reviewerState.decisionDraft.approver_identity} onChange={(event) => onDecisionDraft({ approver_identity: event.target.value })} />
+              <input disabled={decisionFieldsBlocked} required maxLength={255} className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground disabled:opacity-50" value={reviewerState.decisionDraft.approver_identity} onChange={(event) => onDecisionDraft({ approver_identity: event.target.value })} />
             </label>
             <label className="block space-y-1 text-xs font-medium text-foreground-secondary">Verified reference
-              <input required maxLength={255} className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground" value={reviewerState.decisionDraft.approver_reference} onChange={(event) => onDecisionDraft({ approver_reference: event.target.value })} />
+              <input disabled={decisionFieldsBlocked} required maxLength={255} className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground disabled:opacity-50" value={reviewerState.decisionDraft.approver_reference} onChange={(event) => onDecisionDraft({ approver_reference: event.target.value })} />
             </label>
           </div>
           <label className="block space-y-1 text-xs font-medium text-foreground-secondary">When the source was contacted
-            <input required type="datetime-local" className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground" value={reviewerState.decisionDraft.communicated_at} onChange={(event) => onDecisionDraft({ communicated_at: event.target.value })} />
+            <input disabled={decisionFieldsBlocked} required type="datetime-local" className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground disabled:opacity-50" value={reviewerState.decisionDraft.communicated_at} onChange={(event) => onDecisionDraft({ communicated_at: event.target.value })} />
           </label>
           <label className="block space-y-1 text-xs font-medium text-foreground-secondary">Communication evidence IDs
-            <input required maxLength={1900} className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground" value={reviewerState.decisionDraft.communication_evidence_ids} onChange={(event) => onDecisionDraft({ communication_evidence_ids: event.target.value })} aria-describedby="cargo-communication-evidence-help" />
+            <input disabled={decisionFieldsBlocked} required maxLength={1900} className="h-9 w-full rounded-md border border-border bg-surface px-2 text-sm text-foreground disabled:opacity-50" value={reviewerState.decisionDraft.communication_evidence_ids} onChange={(event) => onDecisionDraft({ communication_evidence_ids: event.target.value })} aria-describedby="cargo-communication-evidence-help" />
           </label>
           <p id="cargo-communication-evidence-help" className="text-[11px] text-foreground-muted">Enter the private evidence record IDs separated by commas. The server checks that they belong to this source and receipt.</p>
-          <button type="submit" disabled={blocked} className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-3 text-xs font-semibold text-surface disabled:opacity-50">Save source decision</button>
+          <button type="submit" disabled={blocked} className="inline-flex h-9 items-center justify-center rounded-md bg-foreground px-3 text-xs font-semibold text-surface disabled:opacity-50">{decisionRetryPending ? "Retry same decision" : "Save source decision"}</button>
         </form>
       )}
 
@@ -176,6 +183,7 @@ export function CargoVerificationPanelContent({
   error = null,
   reviewerState = initialCargoReviewState,
   busy = false,
+  decisionRetryPending = false,
   onRefresh,
   onDecisionDraft,
   onClearanceReason,
@@ -261,6 +269,7 @@ export function CargoVerificationPanelContent({
                 view={view}
                 reviewerState={reviewerState}
                 busy={busy}
+                decisionRetryPending={decisionRetryPending}
                 onDecisionDraft={onDecisionDraft}
                 onClearanceReason={onClearanceReason}
                 onSubmitDecision={onSubmitDecision}
@@ -358,6 +367,23 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
   const [busy, setBusy] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
+  const [decisionRetryTripIds, setDecisionRetryTripIds] = useState(() => new Set());
+  const decisionCommandManager = useRef(null);
+  if (decisionCommandManager.current == null) {
+    decisionCommandManager.current = createCargoDecisionCommandManager({
+      send: recordManualCargoDecision,
+      createId: commandId,
+    });
+  }
+
+  function updateDecisionRetryState(tripId, retryPending) {
+    setDecisionRetryTripIds((current) => {
+      const next = new Set(current);
+      if (retryPending) next.add(tripId);
+      else next.delete(tripId);
+      return next;
+    });
+  }
 
   async function loadCurrent({ clearDraft, notice, clearActionError = false } = {}) {
     const result = await query.refetch();
@@ -369,15 +395,14 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
     return false;
   }
 
-  async function runAction(kind, payload) {
+  async function runAction(payload) {
     setBusy(true);
     dispatch({ type: "action-started" });
     try {
-      if (kind === "decision") await recordManualCargoDecision(id, payload);
-      else await clearCargoDeparture(id, payload);
+      await clearCargoDeparture(id, payload);
       dispatch({ type: "action-accepted", message: "The request was accepted. Reloading the current cargo state." });
       dispatch({ type: "refresh-required" });
-      await loadCurrent({ clearDraft: kind, notice: "The request was accepted. Current cargo state has been reloaded.", clearActionError: true });
+      await loadCurrent({ clearDraft: "clearance", notice: "The request was accepted. Current cargo state has been reloaded.", clearActionError: true });
     } catch (error) {
       const isConflict = conflictError(error);
       dispatch({ type: "action-rejected", message: error.message || "The cargo review could not be saved.", refreshRequired: isConflict });
@@ -390,27 +415,70 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
     }
   }
 
-  function submitDecision() {
+  async function submitDecision() {
     const view = query.data;
     const pickup = view?.pickup_receipt;
-    const eventId = commandId();
     const communicatedAt = timeForCommand(reviewerState.decisionDraft.communicated_at);
-    if (!eventId || !pickup?.receipt_id || !view?.manifest?.manifest_ref?.hash || !communicatedAt) {
+    if (!pickup?.receipt_id || !view?.manifest?.manifest_ref?.hash || !communicatedAt) {
       dispatch({ type: "action-rejected", message: "The current pickup or communication time is missing. Refresh the record and complete each field." });
       return;
     }
     const evidenceIds = communicationEvidenceIds(reviewerState.decisionDraft.communication_evidence_ids);
-    runAction("decision", {
-      event_id: eventId,
-      receipt_id: pickup.receipt_id,
-      manifest_hash: view.manifest.manifest_ref.hash,
-      action: reviewerState.decisionDraft.action,
-      reason: reviewerState.decisionDraft.reason.trim(),
-      approver_identity: reviewerState.decisionDraft.approver_identity.trim(),
-      approver_reference: reviewerState.decisionDraft.approver_reference.trim(),
-      communicated_at: communicatedAt,
-      communication_evidence_ids: evidenceIds,
-    });
+    setBusy(true);
+    dispatch({ type: "action-started" });
+    try {
+      const submission = await decisionCommandManager.current.submit({
+        tripId: id,
+        createPayload: (eventId) => ({
+          event_id: eventId,
+          receipt_id: pickup.receipt_id,
+          manifest_hash: view.manifest.manifest_ref.hash,
+          action: reviewerState.decisionDraft.action,
+          reason: reviewerState.decisionDraft.reason.trim(),
+          approver_identity: reviewerState.decisionDraft.approver_identity.trim(),
+          approver_reference: reviewerState.decisionDraft.approver_reference.trim(),
+          communicated_at: communicatedAt,
+          communication_evidence_ids: evidenceIds,
+        }),
+      });
+      if (submission.status === "invalid") {
+        updateDecisionRetryState(id, false);
+        dispatch({ type: "action-rejected", message: "The current pickup or communication time is missing. Refresh the record and complete each field." });
+        return;
+      }
+      if (submission.status === "uncertain") {
+        updateDecisionRetryState(id, true);
+        dispatch({
+          type: "action-rejected",
+          message: "The server did not confirm whether the decision was saved. Retry the same decision to safely check its result.",
+        });
+        return;
+      }
+      updateDecisionRetryState(id, false);
+      if (submission.status === "rejected") {
+        const error = submission.error;
+        const isConflict = conflictError(error);
+        dispatch({ type: "action-rejected", message: error?.message || "The cargo review could not be saved.", refreshRequired: isConflict });
+        if (isConflict) {
+          dispatch({ type: "refresh-required" });
+          await loadCurrent();
+        }
+        return;
+      }
+      dispatch({ type: "action-accepted", message: "The request was accepted. Reloading the current cargo state." });
+      dispatch({ type: "refresh-required" });
+      await loadCurrent({ clearDraft: "decision", notice: "The request was accepted. Current cargo state has been reloaded.", clearActionError: true });
+    } catch (error) {
+      if (decisionCommandManager.current.hasPending(id)) {
+        updateDecisionRetryState(id, true);
+        dispatch({ type: "action-rejected", message: "The server did not confirm whether the decision was saved. Retry the same decision to safely check its result." });
+      } else {
+        updateDecisionRetryState(id, false);
+        dispatch({ type: "action-rejected", message: error?.message || "The cargo review could not be saved." });
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   function submitClearance() {
@@ -419,7 +487,7 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
       dispatch({ type: "action-rejected", message: "The current pickup version is unavailable. Refresh the record before submitting." });
       return;
     }
-    runAction("clearance", {
+    runAction({
       receipt_id: pickup.receipt_id,
       expected_version: query.data.version,
       reason: reviewerState.clearanceReason.trim(),
@@ -453,6 +521,7 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
       error={query.error}
       reviewerState={{ ...reviewerState, retryError }}
       busy={busy}
+      decisionRetryPending={decisionRetryTripIds.has(id)}
       onRefresh={() => loadCurrent()}
       onDecisionDraft={(patch) => dispatch({ type: "decision-draft", patch })}
       onClearanceReason={(value) => dispatch({ type: "clearance-reason", value })}
