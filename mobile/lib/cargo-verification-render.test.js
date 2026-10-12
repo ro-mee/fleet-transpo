@@ -6,6 +6,7 @@ import { runInNewContext } from "node:vm";
 import { parse } from "espree";
 import { createRequire } from "node:module";
 import { resolveCargoMapGate, buildCargoViewModel, workspaceBlockReason } from "./cargo-view-model";
+import { normalizeRadarMarkers } from "./map-webview-data";
 import { resolveDriverWorkspace } from "./driver-workspace";
 import { isCargoLoad } from "./load-presentation";
 import { resolve, dirname } from "node:path";
@@ -143,5 +144,28 @@ describe("direct cargo screen rendered assignment gate", () => {
       const html = renderToStaticMarkup(scope.exports);
       expect(html).toMatch(/saved trip type.*vehicle/i); expect(html).toContain("Refresh assignment"); expect(html).not.toMatch(/Confirm pickup|Record delivery|Review counts|Verify pickup/);
     }
+  });
+});
+
+describe("normalized radar assignment selection", () => {
+  it.each([["Cargo", "Cargo", true], ["Passenger", "Passenger", true], ["Cargo", "Passenger", false], ["Passenger", "Cargo", false]])("tap selects %s vehicle / %s trip safely", async (operational_use, load_type, allowed) => {
+    const trip = { trip_id: 701, vehicle_id: 3, operational_use, load_type };
+    const [selectedMarker] = normalizeRadarMarkers([{ id: "trip_701", type: "assignment", lat: 14.6, lng: 121, tripId: "701", rawData: trip }]);
+    expect(selectedMarker).not.toHaveProperty("rawData");
+    let workspaceExpression, acceptExpression;
+    function find(node) {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "VariableDeclarator" && node.id.name === "markerWorkspace") workspaceExpression = mapSource.slice(...node.init.range);
+      if (node.type === "VariableDeclarator" && node.id.name === "handleAcceptAssignment") acceptExpression = mapSource.slice(...node.init.range);
+      for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(find); else if (value && typeof value === "object") find(value);
+    }
+    find(mapTree);
+    const nearbyTrips = [trip], writes = [], alerts = [];
+    const workspace = runInNewContext(workspaceExpression, { resolveDriverWorkspace, selectedMarker, nearbyTrips });
+    expect(workspace.mode).toBe(operational_use.toLowerCase()); expect(workspace.tripReady).toBe(allowed);
+    const accept = runInNewContext(`(${acceptExpression})`, { nearbyTrips, resolveDriverWorkspace, workspaceBlockReason, setAcceptingTripId: () => {}, setSelectedMarker: () => {}, loadTrip: async () => {}, wasQueued: () => false, AppAlert: { alert: (title, message) => alerts.push(message) }, api: { put: async path => { writes.push(path); return {}; } } });
+    await accept(selectedMarker.tripId);
+    expect(writes).toEqual(allowed ? ["/api/mobile/driver/trips/701/accept"] : []);
+    if (!allowed) expect(alerts[0]).toMatch(/saved trip type.*vehicle/i);
   });
 });

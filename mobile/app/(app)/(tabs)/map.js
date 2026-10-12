@@ -546,8 +546,8 @@ export default function MapTab() {
   const radarRadiusKm = 5;
   const [legendExpanded, setLegendExpanded] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
-  const markerWorkspace = resolveDriverWorkspace({ trip: selectedMarker?.rawData });
   const [nearbyTrips, setNearbyTrips] = useState([]);
+  const markerWorkspace = resolveDriverWorkspace({ trip: nearbyTrips.find(trip => selectedMarker?.tripId != null && String(trip.trip_id) === String(selectedMarker.tripId)) });
   const [recentNotification, setRecentNotification] = useState(null);
   const [acceptingTripId, setAcceptingTripId] = useState(null);
   const [coverageVisibility, setCoverageVisibility] = useState({
