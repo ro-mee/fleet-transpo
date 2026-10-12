@@ -167,3 +167,67 @@ describe("cargo evidence replay", () => {
     expect((await drafts.listCargoDrafts("employee-A"))[0].partnerReceived).toBe(false);
   });
 });
+
+describe("interactive cargo authority through deferred work", () => {
+  it.each(["driver-type", "removed-trip", "route", "offline"].flatMap(change => ["execution", "file", "upload"].map(wait => [change, wait])))("stops %s during %s before the next side effect", async (change, wait) => {
+    const { sync, drafts } = await setup();
+    const authority = { driverType: "Cargo", trip: { trip_id: 7, vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo" }, routeId: 7, online: true };
+    const isAuthorized = tripId => authority.driverType === "Cargo" && authority.trip?.trip_id === Number(tripId) && authority.routeId === Number(tripId) && authority.online;
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    const started = [];
+    const api = {
+      getExecution: async () => { started.push("execution"); if (wait === "execution") await gate; return { manifest: { manifest_ref: { hash: "hash-3" } } }; },
+      uploadEvidence: async () => { started.push("upload"); if (wait === "upload") await gate; return { evidence_upload: { evidence_id: "uploaded-id" } }; },
+      submitReceipt: async () => { started.push("receipt"); return {}; },
+    };
+    const files = { getInfo: async () => { started.push("file"); if (wait === "file") await gate; return { exists: true }; } };
+    const work = sync.syncCargoDrafts({ actorId: "employee-A", api, files, isAuthorized });
+    await vi.waitFor(() => expect(started).toContain(wait));
+    if (change === "driver-type") authority.driverType = "Passenger";
+    if (change === "removed-trip") authority.trip = null;
+    if (change === "route") authority.routeId = 8;
+    if (change === "offline") authority.online = false;
+    release();
+    const result = await work;
+    expect(result.cancelled).toBe(true);
+    expect(started).not.toContain("receipt");
+    if (wait !== "upload") expect(started).not.toContain("upload");
+    const [row] = await drafts.listCargoDrafts("employee-A");
+    expect(row.syncState).toBe("DEVICE_SAVED"); expect(row.evidence[0].evidenceId).toBeNull();
+  });
+});
+
+it("an interactive receipt does not send another trip's draft", async () => {
+  const { sync, drafts, item } = await setup();
+  const other = await drafts.saveCargoDraft({ actorId: "employee-A", tripId: 8, manifestRef: item.manifestRef, draft: { stage: "PICKUP", lines: [] } });
+  const sent = [];
+  const api = { uploadEvidence: async tripId => { sent.push(["upload", tripId]); return { evidence_upload: { evidence_id: "ev1" } }; }, submitReceipt: async tripId => { sent.push(["receipt", tripId]); return {}; } };
+  await sync.syncCargoDrafts({ actorId: "employee-A", api, submissionId: item.submissionId, isAuthorized: tripId => String(tripId) === "7" });
+  expect(sent).toEqual([["upload", "7"], ["receipt", "7"]]);
+  expect((await drafts.listCargoDrafts("employee-A")).find(row => row.submissionId === other.submissionId).fleetSaved).toBe(false);
+});
+
+it("interactive work revalidates after waiting for an existing background drain", async () => {
+  const { sync } = await setup();
+  let release, authorized = true, started = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const background = sync.syncCargoDrafts({ actorId: "employee-A", api: { uploadEvidence: async () => { started = true; await gate; return { evidence_upload: { evidence_id: "background-ev" } }; }, submitReceipt: async () => ({ pickup_receipt: { receipt_id: "receipt-1" } }) } });
+  await vi.waitFor(() => expect(started).toBe(true));
+  const effects = [];
+  const interactive = sync.syncCargoDrafts({ actorId: "employee-A", isAuthorized: () => authorized, api: { getExecution: async () => { effects.push("execution"); }, uploadEvidence: async () => { effects.push("upload"); }, submitReceipt: async () => { effects.push("receipt"); } } });
+  authorized = false; release(); await background;
+  expect((await interactive).cancelled).toBe(true); expect(effects).toEqual([]);
+});
+
+it("waiting interactive work cannot resume under a new login of the same account", async () => {
+  const { sync } = await setup();
+  let release, started = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const background = sync.syncCargoDrafts({ actorId: "employee-A", api: { uploadEvidence: async () => { started = true; await gate; return { evidence_upload: { evidence_id: "old-session" } }; }, submitReceipt: async () => ({}) } });
+  await vi.waitFor(() => expect(started).toBe(true));
+  const effects = [];
+  const interactive = sync.syncCargoDrafts({ actorId: "employee-A", isAuthorized: () => true, api: { uploadEvidence: async () => { effects.push("upload"); return { evidence_upload: { evidence_id: "new-session" } }; }, submitReceipt: async () => { effects.push("receipt"); return {}; } } });
+  sync.beginCargoSessionTransition(); sync.setCargoSessionActor("employee-A"); release(); await background;
+  expect((await interactive).cancelled).toBe(true); expect(effects).toEqual([]);
+});

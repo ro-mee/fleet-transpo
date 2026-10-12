@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,12 +26,12 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
   const driverType = profile?.driverType;
   const { status } = useConnectivity(), router = useRouter(), insets = useSafeAreaInsets(), { colors, type } = useTheme();
   const offline = status === "offline", stage = mode === "delivery" ? "DELIVERY" : "PICKUP";
-  const identity = `${actorId}:${id}:${stage}`;
+  const identity = `${actorId}:${id}:${stage}:${mode}`;
   const [screen, setScreen] = useState({ identity: null, execution: null, trip: null, fresh: false, syncState: {}, loading: true, error: null });
   const [form, setForm] = useState(EMPTY_FORM), [errors, setErrors] = useState({}), [issueLine, setIssueLine] = useState(null), [review, setReview] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState(null);
   const formRef = useRef(EMPTY_FORM), inFlight = useRef(false), requestNumber = useRef(0), formRevision = useRef(0), formIdentity = useRef(null);
   const context = { actorId, tripId: String(id), stage };
-  const persist = async next => { formRevision.current += 1; formRef.current = next; setForm(next); await saveCargoForm({ ...context, form: next }); };
+  const persist = async (next, validateAuthority) => { formRevision.current += 1; formRef.current = next; setForm(next); await saveCargoForm({ ...context, form: next, isAuthorized: validateAuthority }); };
   const load = useCallback(async () => {
     const snapshot = captureCargoSession(actorId);
     if (!snapshot) { setScreen(previous => ({ ...previous, identity, loading: false, fresh: false, error: "Sign in again to open cargo verification." })); return; }
@@ -82,8 +82,17 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
   const pending = !!(pendingRow && pendingRow.syncState !== "FLEET_SAVED");
   const localState = stale ? { state: "STALE_REVIEW" } : pendingRow ? { state: pendingRow.syncState } : screen.syncState;
   const canOperate = cargoAllowed && active && screen.fresh && isCurrentCargoSession(screen.session) && serverConfirmed && status === "online";
+  const operationRef = useRef(null);
+  useEffect(() => {
+    operationRef.current = { identity, canOperate, trip: screen.trip, session: screen.session, request: requestNumber.current };
+    return () => { operationRef.current = null; };
+  }, [identity, canOperate, screen.trip, screen.session]);
+  const isAuthorized = tripId => {
+    const current = operationRef.current;
+    return Boolean(current?.canOperate && current.identity === identity && current.request === requestNumber.current && String(tripId) === String(id) && String(current.trip?.trip_id) === String(id) && isCurrentCargoSession(current.session));
+  };
   const view = buildCargoViewModel(execution, { driverType, offline: status !== "online", fresh: active && screen.fresh && isCurrentCargoSession(screen.session) && serverConfirmed, syncState: localState, trip: active ? screen.trip : null });
-  const edit = next => { if (!canOperate) return; setErrors({}); setReview(false); persist(next).catch(failure => setMessage(`Could not save on this device: ${failure.message}. Keep this screen open and retry.`)); };
+  const edit = next => { if (!canOperate) return; setErrors({}); setReview(false); persist(next, isAuthorized).catch(failure => setMessage(`Could not save on this device: ${failure.message}. Keep this screen open and retry.`)); };
   const submit = async reportIssue => {
     if (inFlight.current || !active || !canOperate) return;
     const validation = validateCargoCounts(execution?.manifest, formRef.current.counts);
@@ -94,12 +103,12 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
       const receipt = buildCargoReceipt(execution, { stage, counts: formRef.current.counts, issues: formRef.current.issues, reportIssue });
       if (stage === "PICKUP" && !reportIssue && receipt.lines.some(line => line.issue_code)) throw new Error("Use Report pickup issue for a different count or damaged item.");
       inFlight.current = true; setBusy(true); setMessage(null);
-      const row = await submitCargoObservation({ ...context, execution, form: formRef.current, reportIssue, offline, api: cargoApi, files: { getInfo: FileSystem.getInfoAsync } });
-      if (!isCurrentCargoSession(snapshot)) return;
+      const row = await submitCargoObservation({ ...context, execution, form: formRef.current, reportIssue, offline, isAuthorized, api: cargoApi, files: { getInfo: FileSystem.getInfoAsync } });
+      if (!isCurrentCargoSession(snapshot) || !isAuthorized(id)) return;
       formRef.current = { ...formRef.current, pendingSubmissionId: row.submissionId }; setForm(formRef.current);
       setMessage(row.fleetSaved ? "Observation saved to Fleet. Refreshing the current decision; a saved receipt alone is not clearance." : "Saved on this device. Fleet has not accepted this observation. Retry this same submission when available.");
       await load();
-    } catch (failure) { if (isCurrentCargoSession(snapshot)) { setMessage(failure.message); await load(); } }
+    } catch (failure) { if (isCurrentCargoSession(snapshot) && operationRef.current?.identity === identity) { setMessage(failure.message); await load(); } }
     finally { inFlight.current = false; setBusy(false); }
   };
   const photo = async () => {
@@ -107,24 +116,26 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
     const snapshot = captureCargoSession(actorId), lineId = issueLine;
     inFlight.current = true; setBusy(true);
     try {
+      if (!isAuthorized(id)) return;
       if (!(await ImagePicker.requestCameraPermissionsAsync()).granted) throw new Error("Camera access is needed for an observation photo. You can keep the count without a photo.");
+      if (!isCurrentCargoSession(snapshot) || !isAuthorized(id)) return;
       const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], allowsEditing: false, quality: 1 });
-      if (!isCurrentCargoSession(snapshot) || result.canceled) return;
+      if (!isCurrentCargoSession(snapshot) || !isAuthorized(id) || result.canceled) return;
       const image = result.assets?.[0]; if (!image?.uri || !FileSystem.documentDirectory) throw new Error("This device cannot retain the observation photo. Your count is unchanged.");
       const directory = `${FileSystem.documentDirectory}cargo-observations/${encodeURIComponent(String(actorId))}/`;
       await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
-      if (!isCurrentCargoSession(snapshot)) return;
+      if (!isCurrentCargoSession(snapshot) || !isAuthorized(id)) return;
       const extension = image.uri.match(/\.(jpe?g|png|heic|webp)(?:\?|$)/i)?.[1] || "jpg";
       const uri = `${directory}${Date.now()}-${Math.random().toString(16).slice(2)}.${extension}`;
       await FileSystem.copyAsync({ from: image.uri, to: uri });
-      if (!isCurrentCargoSession(snapshot)) return;
+      if (!isCurrentCargoSession(snapshot) || !isAuthorized(id)) return;
       const issue = formRef.current.issues?.[lineId] || {};
-      await persist({ ...formRef.current, issues: { ...formRef.current.issues, [lineId]: { ...issue, reported: true, evidence: [...(issue.evidence || []), { uri, name: `cargo-observation.${extension}`, type: image.mimeType || "image/jpeg" }] } } });
+      await persist({ ...formRef.current, issues: { ...formRef.current.issues, [lineId]: { ...issue, reported: true, evidence: [...(issue.evidence || []), { uri, name: `cargo-observation.${extension}`, type: image.mimeType || "image/jpeg" }] } } }, isAuthorized);
     } catch (failure) { if (isCurrentCargoSession(snapshot)) setMessage(failure.message); }
     finally { inFlight.current = false; setBusy(false); }
   };
   const back = async () => { try { if (active) await saveCargoForm({ ...context, form: formRef.current }); router.back(); } catch (failure) { setMessage(`Your count could not be saved: ${failure.message}. Retry before leaving.`); } };
-  const recount = async () => { if (inFlight.current || !canOperate || !execution || (pending && !stale)) return; try { await persist({ execution, trip: screen.trip, manifestHash: execution.manifest.manifest_ref.hash, counts: blankCargoCounts(execution.manifest), issues: {} }); setReview(false); setIssueLine(null); setErrors({}); setMessage("New count started. Earlier observations remain saved."); } catch (failure) { setMessage(failure.message); } };
+  const recount = async () => { if (inFlight.current || !canOperate || !execution || (pending && !stale)) return; try { await persist({ execution, trip: screen.trip, manifestHash: execution.manifest.manifest_ref.hash, counts: blankCargoCounts(execution.manifest), issues: {} }, isAuthorized); setReview(false); setIssueLine(null); setErrors({}); setMessage("New count started. Earlier observations remain saved."); } catch (failure) { setMessage(failure.message); } };
   return <View style={[styles.root, { backgroundColor: colors.background }]}>
     <ClayScreenHeader title={mode === "overview" ? "Cargo manifest" : mode === "delivery" ? "Verify delivery" : "Verify pickup"} onBack={back} />
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : "height"}>

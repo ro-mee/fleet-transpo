@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const stored = new Map();
-vi.mock("@react-native-async-storage/async-storage", () => ({ default: { getItem: async key => stored.get(key) || null, setItem: async (key, value) => { stored.set(key, value); } } }));
+const storageGates = vi.hoisted(() => ({ read: null, write: null }));
+vi.mock("@react-native-async-storage/async-storage", () => ({ default: { getItem: async key => { await storageGates.read?.(key); return stored.get(key) || null; }, setItem: async (key, value) => { await storageGates.write?.(key); stored.set(key, value); } } }));
 import { setCargoSessionActor } from "./cargo-sync";
 import { readCargoForm, saveCargoForm, submitCargoObservation } from "./cargo-form-state";
 import { listCargoDrafts } from "./cargo-drafts";
-beforeEach(() => { stored.clear(); setCargoSessionActor("employee-12"); });
+beforeEach(() => { stored.clear(); storageGates.read = null; storageGates.write = null; setCargoSessionActor("employee-12"); });
 const ref = { kind: "REQUEST", id: "f4d34c33-78f0-4f8b-8614-243caf975318", revision: 1, hash: "a".repeat(64) };
 const execution = { manifest: { manifest_ref: ref, service_code: "RESTAURANT_SUPPLY_PICKUP", source_ref: { system: "POS", external_request_id: "order" }, lines: [{ line_id: "boxes", name: "Fresh produce", expected_quantity: "10", unit: "boxes", quantity_basis: "TRANSPORT_PACKAGE" }] }, capabilities: { observe: true } };
 const input = { actorId: "employee-12", tripId: "701", stage: "PICKUP", execution, form: { manifestHash: ref.hash, counts: { boxes: "9" }, issues: { boxes: { remarks: "One box missing" } } } };
@@ -48,4 +49,46 @@ it("rejects an unclassified issue before saving a receipt but retains clean conf
   expect(row.draft.lines[0].issue_code).toBe(null);
   await expect(submitCargoObservation({ ...clean, reportIssue: true })).rejects.toThrow(/shortage|excess|damage/i);
   expect(await listCargoDrafts("employee-12")).toHaveLength(1);
+});
+
+it.each(["driver-type", "removed-trip", "route", "offline"])("does not create a receipt after %s changes during a form read", async change => {
+  const authority = { type: "Cargo", assigned: true, route: "701", online: true };
+  const isAuthorized = tripId => authority.type === "Cargo" && authority.assigned && authority.route === String(tripId) && authority.online;
+  let release, started = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  storageGates.read = async key => { if (key.startsWith("@cargo_form:")) { started = true; await gate; } };
+  const writes = [];
+  const api = { uploadEvidence: async () => { writes.push("upload"); }, submitReceipt: async () => { writes.push("receipt"); } };
+  const work = submitCargoObservation({ ...input, isAuthorized, api, offline: false });
+  const rejection = expect(work).rejects.toThrow(/authority|assignment|refresh/i);
+  await vi.waitFor(() => expect(started).toBe(true));
+  if (change === "driver-type") authority.type = "Passenger";
+  if (change === "removed-trip") authority.assigned = false;
+  if (change === "route") authority.route = "702";
+  if (change === "offline") authority.online = false;
+  release(); await rejection;
+  expect(await listCargoDrafts(input.actorId)).toEqual([]); expect(writes).toEqual([]);
+});
+
+it("rechecks authority inside a deferred draft queue mutation before saving a new receipt", async () => {
+  let authorized = true, release, reads = 0, started = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  storageGates.read = async key => { if (key.startsWith("@cargo_drafts:") && ++reads === 2) { started = true; await gate; } };
+  const work = submitCargoObservation({ ...input, offline: true, isAuthorized: () => authorized });
+  const rejected = expect(work).rejects.toThrow(/authority|assignment|refresh/i);
+  await vi.waitFor(() => expect(started).toBe(true)); authorized = false; release(); await rejected;
+  expect(await listCargoDrafts(input.actorId)).toEqual([]);
+});
+
+it("retains an already-created draft when authority changes during its form checkpoint and sends nothing", async () => {
+  let authorized = true, release, started = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  storageGates.write = async key => { if (key.startsWith("@cargo_form:")) { started = true; await gate; } };
+  const effects = [];
+  const api = { getExecution: async () => { effects.push("execution"); }, uploadEvidence: async () => { effects.push("upload"); }, submitReceipt: async () => { effects.push("receipt"); } };
+  const work = submitCargoObservation({ ...input, offline: false, api, isAuthorized: () => authorized });
+  const rejected = expect(work).rejects.toThrow(/authority|assignment|refresh/i);
+  await vi.waitFor(() => expect(started).toBe(true)); authorized = false; release(); await rejected;
+  const [row] = await listCargoDrafts(input.actorId);
+  expect(row.syncState).toBe("DEVICE_SAVED"); expect(row.draft.lines[0].observed_quantity).toBe("9"); expect(effects).toEqual([]);
 });

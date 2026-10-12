@@ -54,11 +54,12 @@ function mutateOwnerQueue(actorId, mutation) {
   return next.finally(() => { if (ownerMutations.get(key) === next) ownerMutations.delete(key); });
 }
 
-export async function saveCargoDraft({ actorId, tripId, manifestRef, draft }) {
+export async function saveCargoDraft({ actorId, tripId, manifestRef, draft, isCurrent = () => true }) {
   if (actorId == null || !manifestRef?.hash || tripId == null || !draft || typeof draft !== "object") {
     throw new CargoDraftError("Cargo draft is missing its owner, trip, manifest or receipt.", "CARGO_DRAFT_INVALID");
   }
   return mutateOwnerQueue(actorId, async (rows) => {
+  if (!isCurrent()) throw new CargoDraftError("Cargo assignment authority changed. Refresh before saving this receipt.", "CARGO_AUTHORITY_CHANGED");
   const pending = rows.filter((row) => row.syncState !== "FLEET_SAVED").length;
   if (pending >= MAX_CARGO_DRAFTS) throw new CargoDraftError("Cargo evidence is full. Sync or review saved cargo before adding more.", "CARGO_QUEUE_FULL");
   const evidence = [];
@@ -92,6 +93,7 @@ export async function saveCargoDraft({ actorId, tripId, manifestRef, draft }) {
     lastErrorCode: null,
   };
   rows.push(row);
+  if (!isCurrent()) throw new CargoDraftError("Cargo assignment authority changed. Refresh before saving this receipt.", "CARGO_AUTHORITY_CHANGED");
   await writeQueue(actorId, rows);
   return row;
   });

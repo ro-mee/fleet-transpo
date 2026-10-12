@@ -10,7 +10,7 @@ import { normalizeRadarMarkers } from "./map-webview-data";
 import { resolveDriverWorkspace } from "./driver-workspace";
 import { isCargoLoad, loadTitle, loadSubtitle } from "./load-presentation";
 import { resolve, dirname } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 const cache = new Map();
 const primitive = tag => function NativePrimitive({ children, accessibilityLabel, accessibilityState, value, editable, placeholder }) { return React.createElement(tag, { "aria-label": accessibilityLabel, disabled: accessibilityState?.disabled || editable === false, value, placeholder }, children); };
 const theme = { colors: { background: "#F5F2EC", onSurface: "#1F2925", onSurfaceVariant: "#53615A", primary: "#285448", onPrimary: "#FFFFFF", error: "#A84340", surfaceContainerLow: "#FBF8F3" }, type: {}, scheme: "light" };
@@ -269,4 +269,46 @@ it.each([true, false])("a stale cargo count can restart only with current online
   const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
   const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", canOperate, stale: true, pending: true, execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: false, stage: "STALE_REVIEW", summary: {}, blockers: [] }, form: { counts: { boxes: "10" }, issues: {} } }));
   expect(html).toContain(canOperate ? '<button>Begin a new count' : '<button disabled="">Begin a new count');
+});
+
+it.each(["driver-type", "removed-trip", "route", "offline"].flatMap(change => ["permission", "camera", "directory", "copy"].map(wait => [change, wait])))("camera stops %s during %s before any later operation", async (change, wait) => {
+  const authority = { type: "Cargo", assigned: true, route: "701", online: true };
+  const isAuthorized = () => authority.type === "Cargo" && authority.assigned && authority.route === "701" && authority.online;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const effects = [];
+  const ImagePicker = {
+    requestCameraPermissionsAsync: async () => { effects.push("permission"); if (wait === "permission") await gate; return { granted: true }; },
+    launchCameraAsync: async () => { effects.push("camera"); if (wait === "camera") await gate; return { canceled: false, assets: [{ uri: "file://temporary.jpg" }] }; },
+  };
+  const FileSystem = { documentDirectory: "file://app/", makeDirectoryAsync: async () => { effects.push("directory"); if (wait === "directory") await gate; }, copyAsync: async () => { effects.push("copy"); if (wait === "copy") await gate; } };
+  const action = runInNewContext(`(${screenVariable("../components/cargo/CargoWorkflowScreen.jsx", "photo")})`, { inFlight: { current: false }, canOperate: true, issueLine: "boxes", actorId: 12, id: "701", captureCargoSession: () => ({}), isCurrentCargoSession: () => true, isAuthorized, setBusy: () => {}, setMessage: () => {}, ImagePicker, FileSystem, formRef: { current: { counts: { boxes: "10" }, issues: {} } }, persist: async () => { effects.push("persist"); } });
+  const work = action();
+  await vi.waitFor(() => expect(effects).toContain(wait));
+  if (change === "driver-type") authority.type = "Passenger";
+  if (change === "removed-trip") authority.assigned = false;
+  if (change === "route") authority.route = "702";
+  if (change === "offline") authority.online = false;
+  release(); await work;
+  if (["permission", "camera"].includes(wait)) expect(effects).not.toContain("directory");
+  if (wait !== "copy") expect(effects).not.toContain("copy");
+  expect(effects).not.toContain("persist");
+  if (wait === "permission") expect(effects).not.toContain("camera");
+});
+
+it("Cargo screen authority uses the latest compatible trip, profile, connection and route", () => {
+  const path = "../components/cargo/CargoWorkflowScreen.jsx";
+  const identity = "12:701:PICKUP:pickup", trip = { trip_id: 701, vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo" };
+  const requestNumber = { current: 1 }, operationRef = { current: { identity, trip, session: {}, request: 1, canOperate: true } };
+  const isAuthorized = runInNewContext(`(${screenVariable(path, "isAuthorized")})`, { operationRef, identity, id: "701", requestNumber, isCurrentCargoSession: () => true });
+  expect(isAuthorized("701")).toBe(true); expect(isAuthorized("702")).toBe(false);
+  for (const values of [{ driverType: "Passenger", trip, status: "online" }, { driverType: "Cargo", trip: null, status: "online" }, { driverType: "Cargo", trip, status: "offline" }]) {
+    const workspace = resolveDriverWorkspace({ driverType: values.driverType, trip: values.trip });
+    operationRef.current.canOperate = runInNewContext(screenVariable(path, "canOperate"), { cargoAllowed: workspace.mode === "cargo" && workspace.tripReady === true, active: true, screen: { fresh: true, session: {} }, serverConfirmed: true, status: values.status, isCurrentCargoSession: () => true });
+    expect(isAuthorized("701")).toBe(false);
+  }
+  operationRef.current.canOperate = true;
+  operationRef.current.identity = "12:701:PICKUP:overview"; expect(isAuthorized("701")).toBe(false);
+  operationRef.current.identity = identity; requestNumber.current = 2; expect(isAuthorized("701")).toBe(false);
+  operationRef.current = null; expect(isAuthorized("701")).toBe(false);
 });
