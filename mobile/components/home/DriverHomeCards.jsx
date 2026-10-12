@@ -10,6 +10,7 @@ import { moderateScale } from '../../lib/scaling';
 import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
 import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel } from '../../lib/load-presentation.js';
 import { homeMaterials as clayMaterials } from './materials';
+import { ClayCard } from '../clay';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
 import { CoachMarkTarget, useCoachMarkActions, useCoachMarkStatus } from '../coachmarks';
@@ -29,7 +30,7 @@ const MAP_IMAGE = require('../../assets/images/map.png');
 // Memoized presentational layer: Home re-renders on 30 s ticks, poster and
 // notification publishes — cards with stable props skip reconciliation. The
 // countdown-driven trip cards still update via nowMs (by design).
-export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed, profileConfirmed, onTrips, onHistory, onVehicle }) {
+export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed, profileConfirmed, onTrips, onHistory, onVehicle, workspaceMode = 'passenger' }) {
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
   const { settings } = useSettings();
@@ -47,18 +48,18 @@ export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, c
   return <View style={[s.heroShell, { ...mats.clayShade, shadowColor: colors.shadow, backgroundColor: colors.surfaceContainerLow }]}>
     <View style={s.hero}>
       {/* 3D Hotel Background Scenery matching reference 1:1 */}
-      <Image
+      {workspaceMode === 'passenger' ? <Image
         source={HOTEL_IMAGE}
         resizeMode="contain"
         accessible={false}
         style={[s.hotelBg, isDark && { opacity: 0.65 }]}
-      />
+      /> : null}
 
       {/* Header Text */}
-      <View style={s.heroHeader}>
+      <View style={[s.heroHeader, workspaceMode !== 'passenger' && { maxWidth: '100%' }]}>
         <Text style={[type.caption, s.heroDate, { color: colors.primary }]}>{date.toLocaleUpperCase()}</Text>
         <Text style={[type.body, s.heroSubtitle, { color: colors.onSurfaceVariant }]}>
-          Smooth rides. Happy guests.
+          {workspaceMode === 'cargo' ? 'Cargo work. Clear deliveries.' : workspaceMode === 'passenger' ? 'Smooth rides. Happy guests.' : 'Your workday at a glance.'}
         </Text>
       </View>
 
@@ -92,6 +93,42 @@ export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, c
       </Pressable>
     </View>
   </View>;
+});
+
+// Vehicle operational use chooses this workspace; service metadata only labels its source.
+export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace, trip, assignedVehicle }) {
+  const { colors, type } = useTheme();
+  const cargo = workspace.mode === 'cargo';
+  const unassigned = workspace.mode === 'unassigned';
+  const blocked = trip && workspace.tripReady === false;
+  // Never borrow the standing plate for a different active-trip vehicle.
+  const plate = trip ? trip.vehicle_plate || trip.plate_number : assignedVehicle?.plate || assignedVehicle?.plateNumber || assignedVehicle?.plate_number;
+  const service = `${trip?.service_code || ''} ${trip?.service_name || ''}`;
+  const source = /\bRESTAURANT(?:_|\b)/i.test(service) ? 'Restaurant cargo' : /\bHOTEL(?:_|\b)/i.test(service) ? 'Hotel cargo' : 'Cargo assignment';
+  const heading = unassigned ? 'Assignment not ready' : cargo ? 'Cargo workspace' : 'Passenger workspace';
+  const problem = unassigned
+    ? workspace.reason === 'no_vehicle' ? 'No vehicle is assigned. Ask Fleet or Dispatch to assign your vehicle.' : 'Your vehicle work type is missing. Ask Fleet or Dispatch to confirm Cargo or Passenger use.'
+    : workspace.reason === 'trip_type_mismatch' ? 'The saved trip type does not match the vehicle. Ask Fleet or Dispatch to correct the assignment before continuing.'
+    : 'The saved trip type is missing. Ask Fleet or Dispatch to confirm it before continuing.';
+  return <ClayCard variant="standard">
+    <View style={[s.row, { alignItems: 'flex-start' }]}>
+      <Ionicons name={unassigned ? 'help-circle-outline' : cargo ? 'cube-outline' : 'car-outline'} size={24} color={colors.primary} accessible={false} />
+      <View style={s.flex}>
+        <Text style={[type.cardTitle, { color: colors.onSurface }]}>{heading}</Text>
+        {plate ? <Text style={[type.labelLg, { color: colors.onSurfaceVariant }]}>{plate}</Text> : null}
+      </View>
+    </View>
+    {unassigned || blocked ? <Text style={[type.supporting, { color: colors.onSurface }]} accessibilityLiveRegion="polite">{problem}</Text> : trip ? <>
+      <Text style={[type.labelLg, { color: colors.primary }]}>{cargo ? source : 'Hotel transportation'}</Text>
+      <Text style={[type.cardTitle, { color: colors.onSurface }]}>{loadTitle(trip)}</Text>
+      {loadSubtitle(trip) ? <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>{loadSubtitle(trip)}</Text> : null}
+      {!cargo && trip.is_vip ? <Text style={[type.labelLg, { color: colors.primary }]}>VIP guest</Text> : null}
+      <Text style={[type.supporting, { color: colors.onSurface }]}>{tripStatusLabel(trip.trip_status, cargo ? 'Cargo' : 'Passenger')}</Text>
+    </> : <>
+      <Text style={[type.labelLg, { color: colors.onSurface }]}>{cargo ? 'No active cargo trip' : 'No active passenger trip'}</Text>
+      <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>{cargo ? 'Your cargo manifest and pickup or delivery progress will appear here when a trip begins.' : 'Your hotel transportation and guest transfer details will appear here when a trip begins.'}</Text>
+    </>}
+  </ClayCard>;
 });
 
 // One molded icon treatment for the Home metrics, vehicle and shortcuts.
@@ -214,7 +251,7 @@ const VARIANT = {
   upcoming: { label: 'UPCOMING', isCurrent: false },
 };
 
-export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true, emptyState = null }) {
+export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true, emptyState = null, workspaceBlocked = false }) {
   const { colors, type, scheme } = useTheme();
   const { width, fontScale } = useWindowDimensions();
   const { settings } = useSettings();
@@ -237,10 +274,11 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
   // Live trip status — the real trip_status, never a hardcoded label.
   const sc = statusColorForTone(colors, tripStatusTone(trip?.trip_status));
   const horizontal = width >= 420 && fontScale < 1.2 && settings.textSize !== 'large';
+  const cargo = isCargoLoad(trip);
   const stops = useMemo(() => [
     { label: 'Pickup', value: trip?.origin, time: depTime, first: true },
-    { label: 'Drop-off', value: trip?.destination, time: null, first: false },
-  ], [trip?.origin, trip?.destination, depTime]);
+    { label: cargo ? 'Delivery' : 'Drop-off', value: trip?.destination, time: null, first: false },
+  ], [trip?.origin, trip?.destination, cargo, depTime]);
 
   return <View style={[s.trip, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
     {/* Inner top highlight — clay's "light from above". Skipped in
@@ -317,6 +355,7 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
           {/* Cargo rows show kilograms, never a guest count; a missing weight
               renders nothing rather than a fabricated zero. */}
           {(() => {
+            if (workspaceBlocked) return null;
             if (isCargoLoad(trip)) {
               const subtitle = loadSubtitle(trip);
               return <View style={s.row}><Ionicons name="cube" size={16} color={accent} /><Text style={type.supporting}>{loadTitle(trip)}{subtitle ? ` · ${subtitle}` : ""}</Text></View>;
@@ -327,9 +366,9 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
         <View style={horizontal ? { width: '42%', gap: 12 } : { gap: 12 }}>
           {/* ponytail: one interactive route preview on Home; secondary cards stay static until native polyline rendering exists. */}
           <TripMapPreview staticMode={!interactivePreview} key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}:${interactivePreview}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} />
-      <Pressable onPress={() => isCurrent && canManage && action !== 'Trip Details' ? onAction(trip) : onDetails(trip)} disabled={busy} accessibilityRole="button" accessibilityLabel={isCurrent && canManage ? action : 'Trip Details'} accessibilityState={{ disabled: !!busy, busy: !!busy }} style={({ pressed }) => [s.cta, raised, { backgroundColor: colors.primary, shadowColor: colors.shadow }, busy ? { opacity: 0.6 } : pressed ? s.ctaPressed : null]}>
+      <Pressable onPress={() => !workspaceBlocked && (isCurrent && canManage && action !== 'Trip Details' ? onAction(trip) : onDetails(trip))} disabled={busy || workspaceBlocked} accessibilityRole="button" accessibilityLabel={workspaceBlocked ? 'Trip action unavailable' : isCurrent && canManage ? action : 'Trip Details'} accessibilityState={{ disabled: !!busy || workspaceBlocked, busy: !!busy }} style={({ pressed }) => [s.cta, raised, { backgroundColor: colors.primary, shadowColor: colors.shadow }, busy || workspaceBlocked ? { opacity: 0.6 } : pressed ? s.ctaPressed : null]}>
         {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Ionicons name={isCurrent && action !== 'Trip Details' ? 'play' : 'document-text-outline'} size={20} color={colors.onPrimary} />}
-        <Text style={[type.labelLg, { color: colors.onPrimary }]}>{isCurrent && canManage ? action : 'Trip Details'}</Text>
+        <Text style={[type.labelLg, { color: colors.onPrimary }]}>{workspaceBlocked ? 'Trip action unavailable' : isCurrent && canManage ? action : 'Trip Details'}</Text>
         <Ionicons name="chevron-forward" size={18} color={colors.onPrimary} />
       </Pressable>
         </View>

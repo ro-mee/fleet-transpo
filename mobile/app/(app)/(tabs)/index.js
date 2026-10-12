@@ -24,8 +24,9 @@ import { useNotificationFeed } from "../../../context/notification-feed";
 import { TOUCH_TARGET } from "../../../lib/theme";
 import { ErrorNotice } from "../../../components/ui";
 import { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT } from "../../../lib/home-trips";
+import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
 import { resolveVehicleContext } from "../../../lib/driver-context";
-import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
+import { DriverHeroCard, DriverWorkspaceCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
 import { useCoachMarkActions, useCoachMarkStatus } from "../../../components/coachmarks/CoachMarkProvider";
 import { CoachMarkTarget } from "../../../components/coachmarks/CoachMarkTarget";
 import { usePreShift } from "../../../lib/use-pre-shift";
@@ -58,7 +59,7 @@ import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview, preShiftPassed = true }) {
   const { colors, type } = useTheme();
   return <>
-    {trips.map((trip, i) => <DriverTripCard key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
+    {trips.map((trip, i) => <DriverTripCard workspaceBlocked={resolveDriverWorkspace({ trip }).tripReady === false} key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
       offline={offline} nowMs={nowMs} canManage={canManage} busy={busy} preShiftPassed={preShiftPassed}
       onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview} />)}
     {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
@@ -224,6 +225,7 @@ export default function Home() {
   ]);
   const homeEmptyState = emptyStateKey ? DUTY_EMPTY_STATES[emptyStateKey] : null;
 
+  const workspace = resolveDriverWorkspace({ trip: activeTrip, assignedVehicle: driverProfile?.assignedVehicle });
   const canManageTrip = canAction(user, ACTIONS.MANAGE_TRIP);
   const canReportLocation = canAction(user, ACTIONS.REPORT_LOCATION);
   const canReportFuel = canAction(user, ACTIONS.REPORT_FUEL);
@@ -366,7 +368,7 @@ export default function Home() {
   }, [load]);
 
   const handleTripAction = useCallback(async (trip) => {
-    if (!canManageTrip) return;
+    if (!canManageTrip || resolveDriverWorkspace({ trip }).tripReady !== true) return;
     const nextObj = await getNextStatus(trip.trip_status);
     if (!nextObj || !nextObj.status) {
       AppAlert.alert("Trip Completed or Paused", "No further action is required for this trip at this time.");
@@ -671,11 +673,13 @@ export default function Home() {
         ) : null}
         {loading ? <DriverHeroCardSkeleton pulse={skeletonPulse} /> : <DriverHeroCard
           upcoming={upcoming.length} capped={trips.length >= 50}
-          completed={completed} vehicle={vehicle}
+          completed={completed} vehicle={vehicle} workspaceMode={workspace.mode}
           confirmed={tripsSyncedAt != null} profileConfirmed={meSyncedAt != null}
           onTrips={goTrips}
           onHistory={goHistory} onVehicle={goVehicle}
         />}
+
+        {!loading ? <DriverWorkspaceCard workspace={workspace} trip={activeTrip} assignedVehicle={driverProfile?.assignedVehicle} /> : null}
 
         {/* Unsent incident reports — quarantined offline, surfaced globally */}
         {deadLetterCount > 0 && (
@@ -727,7 +731,7 @@ export default function Home() {
               cards, and all confirmed/offline/not-synced copy stay exactly as
               they were. Dynamic layout below only runs with trip data. */}
           <AssignmentsHeading onPress={goTrips} />
-          <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
+          <DriverTripCard workspaceBlocked={workspace.tripReady === false} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             emptyState={homeEmptyState}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview={Boolean(activeTrip)}
@@ -738,7 +742,7 @@ export default function Home() {
             interactivePreview={!activeTrip}
             onAction={handleTripAction} onDetails={goDetails} />
         </> : <>
-          {activeTrip ? <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
+          {activeTrip ? <DriverTripCard workspaceBlocked={workspace.tripReady === false} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
