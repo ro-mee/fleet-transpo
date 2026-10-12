@@ -7,57 +7,35 @@ function getVehicleId(vehicle, isTrip) {
   return vehicle?.vehicleId ?? vehicle?.vehicle_id ?? vehicle?.id ?? null;
 }
 
-function getMode(operationalUse) {
-  if (operationalUse === 'Cargo') return 'cargo';
-  if (operationalUse === 'Passenger') return 'passenger';
-  return 'unassigned';
-}
-
-export function resolveDriverWorkspace({ trip, assignedVehicle } = {}) {
+export function resolveDriverWorkspace({ driverType, trip, assignedVehicle } = {}) {
   const hasTrip = trip != null;
   const vehicle = hasTrip ? trip : assignedVehicle;
   const source = hasTrip ? 'trip' : vehicle ? 'standing_assignment' : null;
   const vehicleId = getVehicleId(vehicle, hasTrip);
   const operationalUse = getOperationalUse(vehicle);
-  const mode = getMode(operationalUse);
-  const tripReadyWhenSupplied = hasTrip ? false : null;
+  const mode = driverType === 'Passenger' ? 'passenger' : driverType === 'Cargo' ? 'cargo' : 'unclassified';
+  const tripReady = hasTrip ? false : null;
+  const result = (reason, ready = tripReady) => ({
+    mode,
+    tripReady: ready,
+    vehicleId,
+    operationalUse,
+    source,
+    reason,
+  });
 
-  if (!vehicleId) {
-    return {
-      mode: 'unassigned',
-      tripReady: tripReadyWhenSupplied,
-      vehicleId: null,
-      operationalUse,
-      source,
-      reason: 'no_vehicle',
-    };
+  if (mode === 'unclassified') {
+    return result(driverType == null || driverType === '' ? 'missing_driver_type' : 'unsupported_driver_type');
   }
-
-  if (mode === 'unassigned') {
-    return {
-      mode,
-      tripReady: tripReadyWhenSupplied,
-      vehicleId,
-      operationalUse,
-      source,
-      reason: 'missing_operational_use',
-    };
-  }
-
-  if (!hasTrip) {
-    return { mode, tripReady: null, vehicleId, operationalUse, source, reason: null };
-  }
+  if (!vehicleId) return result('no_vehicle');
+  if (operationalUse !== 'Passenger' && operationalUse !== 'Cargo') return result('missing_operational_use');
+  if (operationalUse !== driverType) return result('driver_vehicle_mismatch');
+  if (!hasTrip) return result(null);
 
   if (trip.load_type == null || trip.load_type === '') {
-    if (operationalUse === 'Cargo') {
-      return { mode, tripReady: false, vehicleId, operationalUse, source, reason: 'missing_trip_type' };
-    }
-    return { mode, tripReady: true, vehicleId, operationalUse, source, reason: null };
+    return driverType === 'Passenger' ? result(null, true) : result('missing_trip_type');
   }
+  if (trip.load_type !== driverType) return result('trip_type_mismatch');
 
-  if (trip.load_type !== operationalUse) {
-    return { mode, tripReady: false, vehicleId, operationalUse, source, reason: 'trip_type_mismatch' };
-  }
-
-  return { mode, tripReady: true, vehicleId, operationalUse, source, reason: null };
+  return result(null, true);
 }
