@@ -32,7 +32,7 @@ import {
 } from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
-import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
+import { loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { cargoApi } from "../../../lib/cargo-api";
 import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from "../../../lib/cargo-sync";
 import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
@@ -229,7 +229,7 @@ const RADAR_THEME = {
 //     to switch them on, and it is off in production.
 const DEMO_ENTITY_MODE = __DEV__;
 
-function getOperationalRadarMarkers(userLocation, pendingTrips) {
+function getOperationalRadarMarkers(userLocation, pendingTrips, driverType) {
   const list = [];
   if (!userLocation) return list;
   const { lat, lng } = userLocation;
@@ -250,7 +250,7 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
       list.push({
         id: `trip_${t.trip_id}`,
         type: 'assignment',
-        title: isCargoLoad(t) ? `${loadTitle(t)} (${t.origin || 'Pickup'})` : t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer'),
+        title: driverType === "Cargo" ? `${loadTitle({ ...t, load_type: driverType })} (${t.origin || 'Pickup'})` : driverType !== "Passenger" ? "Driver type needs setup" : t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer'),
         subtitle: t.destination ? `To ${t.destination}` : 'Scheduled Dispatch',
         priority: isEmergency ? 'emergency' : 'normal',
         lat: tLat,
@@ -468,7 +468,9 @@ export default function MapTab() {
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
   const duty = useDuty();
-  const { profile } = useDriverProfile();
+  const { profile, serverConfirmed, reload: reloadProfile } = useDriverProfile();
+  const [tripSession, setTripSession] = useState(null);
+  const tripConfirmed = isCurrentCargoSession(tripSession);
   const [activeTrip, setActiveTrip] = useState(null);
 
   const emptyStateKey = useMemo(() => {
@@ -547,7 +549,19 @@ export default function MapTab() {
   const [legendExpanded, setLegendExpanded] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const [nearbyTrips, setNearbyTrips] = useState([]);
-  const markerWorkspace = resolveDriverWorkspace({ trip: nearbyTrips.find(trip => selectedMarker?.tripId != null && String(trip.trip_id) === String(selectedMarker.tripId)) });
+  const markerWorkspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip: nearbyTrips.find(trip => selectedMarker?.tripId != null && String(trip.trip_id) === String(selectedMarker.tripId)) });
+  const operationRef = useRef(null);
+  useEffect(() => {
+    operationRef.current = { profile, serverConfirmed, tripConfirmed, connectivity, session: tripSession, trips: [activeTrip, ...nearbyTrips].filter(Boolean) };
+  }, [profile, serverConfirmed, tripConfirmed, connectivity, tripSession, activeTrip, nearbyTrips]);
+  const assertCurrentOperation = trip => {
+    const current = operationRef.current;
+    const assigned = current?.trips.find(row => String(row.trip_id) === String(trip?.trip_id));
+    if (!current?.serverConfirmed || !current.tripConfirmed || current.connectivity !== "online" || !isCurrentCargoSession(current.session) || !assigned || resolveDriverWorkspace({ driverType: current.profile?.driverType, trip: assigned }).tripReady !== true) {
+      throw new Error("Connect online and refresh your profile and current trip. Dispatch must correct any driver, vehicle, or trip type mismatch before continuing.");
+    }
+  };
+
   const [recentNotification, setRecentNotification] = useState(null);
   const [acceptingTripId, setAcceptingTripId] = useState(null);
   const [coverageVisibility, setCoverageVisibility] = useState({
@@ -789,10 +803,18 @@ export default function MapTab() {
   }, []);
 
   const prevTripIdsRef = useRef(new Set());
+  const tripRequest = useRef(0);
 
   const loadTrip = useCallback(async () => {
+    const snapshot = captureCargoSession(user?.employeeId);
+    if (!snapshot) return;
+    const request = ++tripRequest.current;
+    const current = () => request === tripRequest.current && isCurrentCargoSession(snapshot);
+    setTripSession(null);
     try {
       const data = await api.get("/api/mobile/driver/trips");
+      if (!current()) return;
+      setTripSession(snapshot);
 
       // Pick the trip the map should be driving BEFORE anything else. The
       // server returns rows ordered by `scheduled_departure ASC NULLS LAST`,
@@ -824,11 +846,12 @@ export default function MapTab() {
       prevTripIdsRef.current = currentIds;
       
     } catch (e) {
+      if (current()) setTripSession(null);
       console.warn("Could not load trip for map", e);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.employeeId]);
 
   // `duty` is a fresh object every render (useDuty spreads state), so it must
   // never appear in a dep array — only the stable `refresh` callback.
@@ -839,12 +862,13 @@ export default function MapTab() {
     try {
       await Promise.allSettled([
         dutyRefresh?.(),
+        reloadProfile(),
         loadTrip(),
       ]);
     } finally {
       setEmptyRefreshing(false);
     }
-  }, [dutyRefresh, loadTrip]);
+  }, [dutyRefresh, loadTrip, reloadProfile]);
 
   useEffect(() => {
     if (
@@ -958,9 +982,9 @@ export default function MapTab() {
   const radarGridLng = driverLocation?.lng != null ? Number(driverLocation.lng).toFixed(4) : null;
   const radarMarkers = useMemo(() => {
     if (!driverLocation) return [];
-    return getOperationalRadarMarkers(driverLocation, nearbyTrips);
+    return getOperationalRadarMarkers(driverLocation, nearbyTrips, profile?.driverType);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- quantized grid only; identity churns per fix
-  }, [radarGridLat, radarGridLng, nearbyTrips]);
+  }, [radarGridLat, radarGridLng, nearbyTrips, profile?.driverType]);
 
   const filteredRadarMarkers = useMemo(() => {
     return radarMarkers.filter((m) => {
@@ -973,12 +997,14 @@ export default function MapTab() {
 
   const handleAcceptAssignment = async (tripId) => {
     if (!tripId) return;
+    if (!serverConfirmed || !tripConfirmed || connectivity !== "online") { AppAlert.alert("Refresh required", "Connect online and refresh your profile and current trip before continuing."); return; }
     const assignment = nearbyTrips.find(trip => String(trip.trip_id) === String(tripId));
-    const workspace = resolveDriverWorkspace({ trip: assignment });
+    const workspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip: assignment });
     if (workspace.tripReady !== true) { AppAlert.alert("Assignment needs review", workspaceBlockReason(workspace)); return; }
     try {
       setAcceptingTripId(tripId);
-      const res = await api.put(`/api/mobile/driver/trips/${tripId}/accept`, { accept: true });
+      assertCurrentOperation(assignment);
+      const res = await api.put(`/api/mobile/driver/trips/${tripId}/accept`, { accept: true }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
       if (wasQueued(res)) {
         announceSavedForSync();
       } else {
@@ -1856,7 +1882,7 @@ export default function MapTab() {
                   </Pressable>
 
                   <Pressable
-                    disabled={markerWorkspace.tripReady !== true}
+                    disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || markerWorkspace.tripReady !== true}
                     accessibilityState={{ disabled: markerWorkspace.tripReady !== true }}
                     onPress={() => handleAcceptAssignment(selectedMarker.tripId)}
                     style={[styles.markerCardPriBtn, { backgroundColor: rTheme.primary, opacity: markerWorkspace.tripReady === true ? 1 : 0.5 }]}
@@ -1930,7 +1956,7 @@ export default function MapTab() {
 
   // Departure-window gate for the START ROUTE button. When earliest_start is
   // null (no scheduled departure / no ETA) the window is open — fail-open.
-  const workspace = resolveDriverWorkspace({ trip: activeTrip });
+  const workspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip: activeTrip });
   const earliestStart = activeTrip?.earliest_start
     ? new Date(activeTrip.earliest_start).getTime()
     : null;
@@ -2131,8 +2157,8 @@ export default function MapTab() {
                     ) : (
                       <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
                         <Text style={[type.cardTitle, { color: colors.primary }]}>
-                          {isCargoLoad(activeTrip)
-                            ? loadSubtitle(activeTrip) || 'Cargo consignment'
+                          {(profile?.driverType === "Cargo")
+                            ? loadSubtitle({ ...activeTrip, load_type: profile?.driverType }) || 'Cargo consignment'
                             : `${activeTrip.passenger_count || 1} ${activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}`}
                         </Text>
                         <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
@@ -2188,6 +2214,8 @@ export default function MapTab() {
           )}
           <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
             <Text style={[type.labelLg, { color: colors.onSurface }]}>{workspaceModeLabel(workspace)}</Text>
+            {(!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true) && <ClayButton label="Refresh assignment" onPress={() => Promise.allSettled([reloadProfile(), loadTrip()])} />}
+            {workspace.tripReady === true && (!serverConfirmed || !tripConfirmed || connectivity !== "online") && <Text accessibilityRole="alert" style={type.supporting}>Connect online and refresh your profile and current trip before continuing.</Text>}
             {workspace.tripReady !== true && <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant, marginTop: 8 }]}>{workspaceBlockReason(workspace)}</Text>}
           </View>
           {preDeparture ? (
@@ -2219,24 +2247,26 @@ export default function MapTab() {
                   (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
                   (isPending || isDriverAccepted) && preTripDone && !windowOpen ? `OPENS AT ${new Date(earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}` :
                   (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
-                  tripActionLabel(activeTrip.trip_status, activeTrip.load_type)
+                  tripActionLabel(activeTrip.trip_status, profile?.driverType)
                 }
-                disabled={workspace.tripReady !== true || ((isPending || isDriverAccepted) && preTripDone && !windowOpen)}
+                disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || ((isPending || isDriverAccepted) && preTripDone && !windowOpen)}
                 busy={inFlight}
                 backgroundColor={colors.primary}
                 textColor={colors.onPrimary}
                 onSwipeSuccess={async () => {
                   if (inFlight) return;
-                  const currentWorkspace = resolveDriverWorkspace({ trip: activeTrip });
+                  if (!serverConfirmed || !tripConfirmed || connectivity !== "online") { AppAlert.alert("Refresh required", "Connect online and refresh your profile and current trip before continuing."); return; }
+                  const currentWorkspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip: activeTrip });
                   if (currentWorkspace.tripReady !== true) {
                     AppAlert.alert("Assignment needs review", workspaceBlockReason(currentWorkspace));
                     return;
                   }
                   setInFlight(true);
                   try {
-                    if (isCargoLoad(activeTrip)) {
+                    if (currentWorkspace.mode === "cargo") {
                       const snapshot = captureCargoSession(user?.employeeId);
                       const gate = await resolveCargoMapGate(activeTrip, {
+                        driverType: profile?.driverType,
                         offline: connectivity === "offline",
                         readExecution: () => cargoApi.getExecution(activeTrip.trip_id, user?.employeeId, snapshot?.signal),
                         readSyncState: () => getCargoSyncState(user?.employeeId, activeTrip.trip_id),
@@ -2259,7 +2289,8 @@ export default function MapTab() {
                         // network — the driver saw a failure for an action that
                         // is really two ordered steps. A genuine accept failure
                         // still throws to the catch below and is reported once.
-                        const acceptRes = await api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true });
+                        assertCurrentOperation(activeTrip);
+                        const acceptRes = await api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                         if (wasQueued(acceptRes)) announceSavedForSync();
                       }
                       if (!preTripDone) {
@@ -2267,7 +2298,8 @@ export default function MapTab() {
                           return;
                         }
                         if (!windowOpen) return;
-                        const startRes = await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined });
+                        assertCurrentOperation(activeTrip);
+                        const startRes = await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                         if (wasQueued(startRes)) announceSavedForSync();
                         loadTrip();
                       } else if (isState1) {
@@ -2293,7 +2325,8 @@ export default function MapTab() {
                           return;
                         }
                         try {
-                          const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
+                          assertCurrentOperation(activeTrip);
+                        const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(pickupRes)) announceSavedForSync();
                         } catch (e) {
                           // Check→PUT race (a new fix landed between the two
@@ -2329,9 +2362,11 @@ export default function MapTab() {
                           return;
                         }
                         try {
-                          const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
+                          assertCurrentOperation(activeTrip);
+                        const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           // En Route is the ungated mid-leg consequence of onboard.
-                          const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                          assertCurrentOperation(activeTrip);
+                        const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
                         } catch (e) {
                           if (e?.status === 409) {
@@ -2370,9 +2405,11 @@ export default function MapTab() {
                         try {
                           let legRes = null;
                           if (activeTrip.trip_status === "Passenger Onboard") {
-                            legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                            assertCurrentOperation(activeTrip);
+                        legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           }
-                          const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
+                          assertCurrentOperation(activeTrip);
+                        const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
                         } catch (e) {
                           if (e?.status === 409) {
@@ -2488,13 +2525,15 @@ export default function MapTab() {
                         activeTripRef.current = null;
                         updateLegContext({ tripId: null, leg: null }).catch(() => {});
                         stopBackgroundTracking().catch(() => {});
+                        assertCurrentOperation(activeTrip);
                         setActiveTrip(null);
 
+                        assertCurrentOperation(activeTrip);
                         api.put(`/api/trips/${activeTrip.trip_id}/complete`, {
                           distance: totalKm,
                           start_odometer: startOdo,
                           end_odometer: endOdo,
-                        }).then((res) => {
+                        }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal }).then((res) => {
                           if (wasQueued(res)) announceSavedForSync();
                         }).catch((e) => {
                           AppAlert.alert("Error", e.message || "Could not complete trip");
@@ -2522,19 +2561,19 @@ export default function MapTab() {
             <View style={[styles.detailCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
               <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant }]}>
                 <Ionicons name="person" size={16} color={colors.onSurfaceVariant} />
-                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>{isCargoLoad(activeTrip) ? 'Cargo Info' : 'Passenger Info'}</Text>
+                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>{(profile?.driverType === "Cargo") ? 'Cargo Info' : 'Passenger Info'}</Text>
               </View>
               <View style={styles.cardBody}>
                 <View style={[styles.avatar, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
                   <Text style={[styles.avatarText, { color: colors.onSurface }]}>
-                    {(isCargoLoad(activeTrip) ? loadTitle(activeTrip) : (activeTrip.passenger_name || 'G'))[0].toUpperCase()}
+                    {((profile?.driverType === "Cargo") ? loadTitle({ ...activeTrip, load_type: profile?.driverType }) : (activeTrip.passenger_name || 'G'))[0].toUpperCase()}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.detailTitle, { color: colors.onSurface }]}>{isCargoLoad(activeTrip) ? loadTitle(activeTrip) : (activeTrip.passenger_name || 'Guest')}</Text>
+                  <Text style={[styles.detailTitle, { color: colors.onSurface }]}>{(profile?.driverType === "Cargo") ? loadTitle({ ...activeTrip, load_type: profile?.driverType }) : (activeTrip.passenger_name || 'Guest')}</Text>
                   {(() => {
-                    const sub = isCargoLoad(activeTrip)
-                      ? loadSubtitle(activeTrip)
+                    const sub = (profile?.driverType === "Cargo")
+                      ? loadSubtitle({ ...activeTrip, load_type: profile?.driverType })
                       : `${activeTrip.passenger_count || 1} Pax`;
                     return sub ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
@@ -2544,8 +2583,8 @@ export default function MapTab() {
                     ) : null;
                   })()}
                 </View>
-                {isCargoLoad(activeTrip) && workspace.tripReady === true && <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${["Drop-off", "Arrived"].includes(activeTrip.trip_status) ? "cargo-delivery" : activeTrip.trip_status === "At Pickup" ? "cargo-pickup" : "cargo"}`)} />}
-                {!isCargoLoad(activeTrip) && workspace.tripReady === true && <Pressable
+                {(profile?.driverType === "Cargo") && serverConfirmed && tripConfirmed && connectivity === "online" && workspace.tripReady === true && <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${["Drop-off", "Arrived"].includes(activeTrip.trip_status) ? "cargo-delivery" : activeTrip.trip_status === "At Pickup" ? "cargo-pickup" : "cargo"}`)} />}
+                {(profile?.driverType === "Passenger") && serverConfirmed && tripConfirmed && connectivity === "online" && workspace.tripReady === true && <Pressable
                   style={({ pressed }) => [
                     styles.iconButton,
                     mats.clayTile,
@@ -2592,7 +2631,7 @@ export default function MapTab() {
                     return (
                       <View style={[styles.statusBadge, { backgroundColor: sc.bg, flexDirection: 'row', alignItems: 'center', gap: 5 }]}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sc.dot }} />
-                        <Text style={[styles.statusBadgeText, { color: sc.fg }]}>{tripStatusLabel(activeTrip.trip_status, activeTrip.load_type)}</Text>
+                        <Text style={[styles.statusBadgeText, { color: sc.fg }]}>{tripStatusLabel(activeTrip.trip_status, profile?.driverType)}</Text>
                       </View>
                     );
                   })()}

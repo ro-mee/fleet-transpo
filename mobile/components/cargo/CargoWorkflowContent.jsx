@@ -6,13 +6,13 @@ import { CargoReceiptSummary } from "./CargoReceiptSummary";
 import { CargoDecisionStatus } from "./CargoDecisionStatus";
 import { cargoFormHasIssue } from "../../lib/cargo-view-model";
 import { CargoIssueSheet } from "./CargoIssueSheet";
-export function CargoWorkflowContent({ mode, execution, trip, view, form, errors, issueLine, review, loading, busy, pending, stale, error, message, onRefresh, onOpen, onChange, onIssue, onIssueChange, onPhoto, onCloseIssue, onReview, onSubmit, onRecount }) {
+export function CargoWorkflowContent({ canOperate = false, mode, execution, trip, view, form, errors, issueLine, review, loading, busy, pending, stale, error, message, onRefresh, onOpen, onChange, onIssue, onIssueChange, onPhoto, onCloseIssue, onReview, onSubmit, onRecount }) {
   const { type, colors } = useTheme();
   const manifest = execution?.manifest;
   const stage = mode === "delivery" ? "DELIVERY" : "PICKUP";
   const hasIssue = cargoFormHasIssue(execution, form, stage);
   const atStage = stage === "PICKUP" ? trip?.trip_status === "At Pickup" : ["Drop-off", "Arrived"].includes(trip?.trip_status);
-  const canObserve = execution?.capabilities?.observe === true && atStage && !stale;
+  const canObserve = view.canSubmit === true && execution?.capabilities?.observe === true && atStage && !stale;
   const editable = canObserve && !busy && !pending;
   return <View style={{ gap: 24 }}>
     {loading && <Text accessibilityLiveRegion="polite" style={type.bodyMd}>Loading cargo verification…</Text>}
@@ -40,7 +40,7 @@ export function CargoWorkflowContent({ mode, execution, trip, view, form, errors
         {!atStage && <Text style={type.bodyMd}>This observation is available {stage === "PICKUP" ? "at pickup" : "at delivery"}. Return to the map to follow the trip.</Text>}
         {stale && <Text style={[type.bodyMd, { color: colors.error }]}>The manifest changed. Your earlier count is preserved; begin a new count against this revision.</Text>}
         {pending && <Text style={type.bodyMd}>This saved submission is locked for retry. Quantities and submission identity stay unchanged.</Text>}
-        {issueLine ? <CargoIssueSheet line={manifest.lines.find(line => line.line_id === issueLine)} issue={form.issues?.[issueLine]} onChange={onIssueChange} onPhoto={onPhoto} onClose={onCloseIssue} busy={busy} /> : review ? <>
+        {issueLine ? <CargoIssueSheet line={manifest.lines.find(line => line.line_id === issueLine)} issue={form.issues?.[issueLine]} onChange={onIssueChange} onPhoto={onPhoto} onClose={onCloseIssue} busy={busy || !canObserve} /> : review ? <>
           <CargoReceiptSummary manifest={manifest} lines={execution.lines} counts={form.counts} stage={stage} />
           <ClayButton label="Back to counts" variant="tonal" onPress={() => onReview(false)} disabled={busy} />
         </> : <CargoManifestList manifest={manifest} lines={execution.lines} evidence={execution.evidence} counts={form.counts} issues={form.issues} errors={errors || {}} stage={stage} onChange={onChange} onIssue={onIssue} editable={editable} />}
@@ -60,7 +60,7 @@ export function CargoWorkflowContent({ mode, execution, trip, view, form, errors
             <Text style={type.supporting}>Receiver name and method: unavailable in the current server contract.</Text>
             <ClayButton label={view.canConfirmDelivery ? "Delivery confirmed by server" : "Confirm delivery"} disabled />
           </>}
-          {(stale || form.pendingSubmissionId) && <ClayButton label="Begin a new count" variant="tonal" onPress={onRecount} disabled={busy || (pending && !stale)} />}
+          {(stale || form.pendingSubmissionId) && <ClayButton label="Begin a new count" variant="tonal" onPress={onRecount} disabled={!canOperate || busy || (pending && !stale)} />}
         </>}
       </>}
     </>}

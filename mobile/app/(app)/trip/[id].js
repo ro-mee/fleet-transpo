@@ -6,6 +6,8 @@ import { Ionicons } from "@expo/vector-icons";
 import TripMapPreview from "../../../components/TripMapPreview";
 import RouteTimeline from "../../../components/RouteTimeline";
 import { api, wasQueued } from "../../../lib/api";
+import { useDriverProfile } from "../../../lib/driver-profile";
+import { captureCargoSession, isCurrentCargoSession } from "../../../lib/cargo-sync";
 import { useAuth } from "../../../lib/auth";
 import { CACHE_KEYS, getCached, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
 import { useConnectivity } from "../../../lib/connectivity-context";
@@ -56,6 +58,10 @@ export default function TripDetailsScreen() {
   const [lastSynced, setLastSynced] = useState(null);
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
+  const { profile, serverConfirmed, reload: reloadProfile } = useDriverProfile();
+  const [tripSession, setTripSession] = useState(null);
+  const requestNumber = useRef(0);
+  const tripConfirmed = isCurrentCargoSession(tripSession);
   // Unstable counts as online (the amber banner speaks for it); only a fully
   // offline verdict switches this screen to saved data.
   const { status } = useConnectivity();
@@ -80,6 +86,11 @@ export default function TripDetailsScreen() {
   }, [trip?.trip_status]);
 
   const load = useCallback(async () => {
+    const snapshot = captureCargoSession(user?.employeeId);
+    if (!snapshot) return;
+    const request = ++requestNumber.current;
+    const current = () => request === requestNumber.current && isCurrentCargoSession(snapshot);
+    setTripSession(null);
     // Offline Read Mode: list-cache-first. The shared TRIPS_ALL snapshot is
     // the primary source; the per-trip key covers trips opened before that
     // list was ever cached.
@@ -100,7 +111,7 @@ export default function TripDetailsScreen() {
           cachedSyncedAt = singleCached.syncedAt;
         }
       }
-      if (cachedTrip) {
+      if (cachedTrip && current()) {
         setTrip(cachedTrip);
         setLastSynced(cachedSyncedAt);
         setLoading(false);
@@ -113,11 +124,14 @@ export default function TripDetailsScreen() {
       // trip source — the old /api/trips/{id} fallback required
       // trips:read_all (drivers get 403), so it could never succeed here.
       const data = await api.get("/api/mobile/driver/trips?status=all&limit=100");
+      if (!current()) return;
       const list = Array.isArray(data) ? data : [];
       // Display-only: refresh both the shared list and this trip's key.
       if (driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
+      if (!current()) return;
       const found = list.find((t) => String(t.trip_id) === String(id));
       if (found) {
+        setTripSession(snapshot);
         setTrip(found);
         if (driverId) await setCached(driverId, tripCacheKey(id), found);
         setLastSynced(Date.now());
@@ -132,28 +146,33 @@ export default function TripDetailsScreen() {
       // Offline with NO cached copy → the never-synced card. Online failure
       // with no cache → error + retry. With a cached copy → keep showing it;
       // the connectivity banner owns transport failures.
-      if (!cachedTrip && !offlineRef.current) {
+      if (current() && !cachedTrip && !offlineRef.current) {
         setLoadError(e.message || "Could not load this trip.");
       }
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
-  }, [id, driverId]);
+  }, [id, driverId, user?.employeeId]);
 
   useEffect(() => {
     // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
     const t = setTimeout(load, 0);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); requestNumber.current += 1; };
   }, [load]);
 
   const retry = () => {
     setLoading(true);
     setNotFound(false);
     setLoadError(null);
-    load();
+    Promise.allSettled([load(), reloadProfile()]);
   };
 
-  const workspace = resolveDriverWorkspace({ trip });
+  const workspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip });
+  const canOperate = String(trip?.trip_id) === String(id) && workspace.tripReady === true && serverConfirmed && tripConfirmed && status === "online";
+  const operationRef = useRef(null);
+  useEffect(() => {
+    operationRef.current = { profile, trip, canOperate, session: tripSession };
+  }, [profile, trip, canOperate, tripSession]);
   const action = detailPrimaryAction(trip); // 'accept-start' | 'navigate' | 'closed'
   const isPreStart = action === "accept-start";
   const isTerminal = action === "closed";
@@ -189,7 +208,7 @@ export default function TripDetailsScreen() {
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.
   const handleAcceptStart = async () => {
-    if (resolveDriverWorkspace({ trip }).tripReady !== true) return;
+    if (!canOperate || resolveDriverWorkspace({ driverType: profile?.driverType, trip }).tripReady !== true) return;
     // The guide explains how to start this trip and the driver just started it,
     // so retire it now. Accepting flips this screen out of its pre-start
     // presentation, which unmounts the controls every step targets — the overlay
@@ -201,10 +220,12 @@ export default function TripDetailsScreen() {
     try {
       let queued = false;
       if (!isAccepted) {
-        const acceptRes = await api.put(`/api/trips/${id}/accept`, { accept: true });
+        const acceptRes = await api.put(`/api/trips/${id}/accept`, { accept: true }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
         queued = wasQueued(acceptRes);
       }
-      const startRes = await api.put(`/api/trips/${id}/start`, { odometer: Number(trip?.current_mileage) || undefined });
+      const current = operationRef.current;
+      if (!current?.canOperate || !isCurrentCargoSession(current.session) || String(current.trip?.trip_id) !== String(id) || resolveDriverWorkspace({ driverType: current.profile?.driverType, trip: current.trip }).tripReady !== true) return;
+      const startRes = await api.put(`/api/trips/${id}/start`, { odometer: Number(trip?.current_mileage) || undefined }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
       // PR #3.1: queued reached the outbox, not the server — say so.
       if (queued || wasQueued(startRes)) {
         AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
@@ -220,7 +241,7 @@ export default function TripDetailsScreen() {
         : [{ text: "OK" }];
       AppAlert.alert("Cannot Start Trip", msg, buttons, { type: 'error' });
       setAccepting(false);
-    }
+    } finally { setAccepting(false); }
   };
 
   // Active trips: navigation only.
@@ -313,10 +334,10 @@ export default function TripDetailsScreen() {
   const ctaNavigates =
     ready.unavailableReason === "pre_shift" || ready.unavailableReason === "inspection";
   const ctaActive = ready.startReady || ctaNavigates;
-  const ctaDisabled = accepting || !ctaActive || workspace.tripReady !== true;
+  const ctaDisabled = accepting || !ctaActive || !canOperate;
 
   const handlePrimary = () => {
-    if (workspace.tripReady !== true) return;
+    if (!canOperate) return;
     if (ready.unavailableReason === "pre_shift") {
       router.push({ pathname: "/inspection", params: { mode: "preshift" } });
       return;
@@ -335,10 +356,11 @@ export default function TripDetailsScreen() {
   const pax = passengerSummary(trip);
   // Cargo rows name the consignment in kilograms — never a guest name and
   // never a "Passengers: 0" fabrication. Passenger rendering is unchanged.
-  const isCargo = isCargoLoad(trip);
-  const loadName = isCargo ? loadTitle(trip) : pax.name || "Passenger not listed";
+  const isCargo = isTerminal ? isCargoLoad(trip) : workspace.mode === "cargo";
+  const displayTrip = isTerminal ? trip : { ...trip, load_type: profile?.driverType };
+  const loadName = !isTerminal && workspace.mode === "unclassified" ? "Driver type needs setup" : isCargo ? loadTitle(displayTrip) : pax.name || "Passenger not listed";
   const loadCount = isCargo
-    ? loadSubtitle(trip)
+    ? loadSubtitle(displayTrip)
     : pax.count != null ? `${pax.count} ${pax.count === 1 ? "passenger" : "passengers"}` : "Passenger count not listed";
   const tone = tripStatusTone(trip.trip_status);
 
@@ -355,11 +377,13 @@ export default function TripDetailsScreen() {
 
         <Text style={[type.labelLg, { color: colors.onSurface, marginBottom: 8 }]}>{workspaceModeLabel(workspace)}</Text>
         {!isTerminal && workspace.tripReady !== true && <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant, marginBottom: 16 }]}>{workspaceBlockReason(workspace)}</Text>}
+        {!isTerminal && !canOperate && <ClayButton label="Refresh assignment" onPress={retry} />}
+        {!isTerminal && workspace.tripReady === true && !canOperate && <Text accessibilityRole="alert" style={type.supporting}>Connect online and refresh your profile and current trip before continuing.</Text>}
         {/* Summary card */}
         <ClayCard style={styles.card}>
           <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
             <ClayBadge
-              text={String(tripStatusLabel(trip.trip_status, trip.load_type)).toUpperCase()}
+              text={String(tripStatusLabel(trip.trip_status, isTerminal ? trip.load_type : profile?.driverType)).toUpperCase()}
               tone={tone}
             />
             <Text style={[type.caption, { color: colors.primary }]}>Trip #{String(id)}</Text>
@@ -370,7 +394,7 @@ export default function TripDetailsScreen() {
           </View>
         </ClayCard>
 
-        {isCargo && workspace.tripReady === true && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
+        {isCargo && canOperate && !isTerminal && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
 
         {/* Readiness panel (pre-start) or completion summary (terminal) */}
         {isTerminal ? (

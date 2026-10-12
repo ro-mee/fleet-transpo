@@ -4,8 +4,8 @@ const SERVICES = { RESTAURANT_SUPPLY_PICKUP: "Restaurant supply pickup", RESTAUR
 const SYNC = { NONE: "No observation saved", DEVICE_SAVED: "Saved on this device", FLEET_SAVED: "Saved to Fleet", STALE_REVIEW: "Manifest changed — review your count", TERMINAL_REVIEW: "Saved draft needs Fleet review", REAUTHENTICATION_REQUIRED: "Sign in again to sync" };
 const FEEDBACK = { ACKNOWLEDGED: "Partner acknowledged receipt — not approval", PENDING: "Partner receipt pending", LEASED: "Sending partner receipt", RETRY: "Partner receipt will retry", FAILED: "Partner receipt failed", NOT_QUEUED: "Partner receipt not queued" };
 const LEGACY_HOLD = "This legacy In Progress cargo trip needs Fleet review. Delivery observations can only be attached at Drop-off or Arrived. Contact Fleet to review the trip status and custody before continuing; this screen cannot change its status.";
-export function cargoMapAction(trip) {
-  if (!resolveDriverWorkspace({ trip }).tripReady || trip?.load_type !== "Cargo") return null;
+export function cargoMapAction(trip, driverType) {
+  if (!resolveDriverWorkspace({ driverType, trip }).tripReady || trip?.load_type !== "Cargo") return null;
   if (trip.trip_status === "At Pickup") return "cargo-pickup";
   if (["Passenger Onboard", "In Progress"].includes(trip.trip_status)) return "cargo";
   if (["Drop-off", "Arrived"].includes(trip.trip_status)) return "cargo-delivery";
@@ -32,9 +32,10 @@ export function validateCargoCounts(manifest, counts = {}) {
 function validManifest(manifest) {
   return Boolean(manifest?.manifest_ref?.hash && SERVICES[manifest.service_code] && manifest.lines?.length && manifest.lines.every(line => line.line_id && line.name && line.unit && cargoQuantity(line.expected_quantity, line) != null));
 }
-export function buildCargoViewModel(execution, { offline = false, syncState = {}, fresh = true, tripStatus = null, trip = undefined } = {}) {
-  const workspace = trip === undefined ? null : resolveDriverWorkspace({ trip });
-  if (workspace && (workspace.tripReady !== true || workspace.mode !== "cargo" || trip?.load_type !== "Cargo")) {
+export function buildCargoViewModel(execution, { offline = false, syncState = {}, fresh = true, trip, driverType } = {}) {
+  const workspace = resolveDriverWorkspace({ driverType, trip });
+  const tripStatus = trip?.trip_status;
+  if (workspace.tripReady !== true || workspace.mode !== "cargo") {
     return { stage: "UNAVAILABLE", primaryAction: "Review assignment", canSubmit: false, canDepart: false, canConfirmDelivery: false, legacyHold: null, summary: { modeLabel: workspaceModeLabel(workspace) }, blockers: [{ code: "VEHICLE_ASSIGNMENT_REQUIRED", message: workspaceBlockReason(workspace) || "This Passenger vehicle uses hotel transportation. Open Trip Details for this trip." }] };
   }
   const view = execution?.data ?? execution;
@@ -55,7 +56,7 @@ export function buildCargoViewModel(execution, { offline = false, syncState = {}
   if (view.delivery_state === "CONFIRMED" && canConfirmDelivery) stage = "CONFIRMED";
   if (atDelivery && !canConfirmDelivery && !blockers.some(row => row.code === "CARGO_RECEIVER_CONFIRMATION_REQUIRED")) blockers.push({ code: "CARGO_RECEIVER_CONFIRMATION_REQUIRED", message: "Receiver authority has not been confirmed by the server. Delivery observations remain pending review." });
   const legacyHold = tripStatus === "In Progress" && !canConfirmDelivery ? LEGACY_HOLD : null;
-  return { stage, legacyHold, primaryAction: stage === "PICKUP" ? "Record pickup" : stage === "READY" ? "Review departure" : stage === "DELIVERY" ? "Record delivery observation" : "Refresh status", canSubmit: !offline && fresh && !pending && view.capabilities?.observe === true && (tripStatus == null || tripStatus === "At Pickup" || atDelivery), canDepart, canConfirmDelivery,
+  return { stage, legacyHold, primaryAction: stage === "PICKUP" ? "Record pickup" : stage === "READY" ? "Review departure" : stage === "DELIVERY" ? "Record delivery observation" : "Refresh status", canSubmit: !offline && fresh && !pending && view.capabilities?.observe === true && (tripStatus === "At Pickup" || atDelivery), canDepart, canConfirmDelivery,
     summary: { serviceLabel: SERVICES[manifest.service_code], sourceLabel: `${manifest.source_ref?.system || "Source"} · ${manifest.source_ref?.external_request_id || "Reference unavailable"}`, itemCount: manifest.lines.length, revision: manifest.manifest_ref.revision, syncLabel: SYNC[state] || "Save state unavailable", feedbackLabel: FEEDBACK[view.feedback?.state] || "Partner receipt state unavailable", sourceDecisionLabel: view.source_decision?.action === "ACCEPT_OBSERVED" ? "Source accepted the observed amount" : view.source_decision?.action === "REJECT_PICKUP" ? "Source rejected pickup" : ["WAITING", "AWAITING_DECISION"].includes(view.pickup_state) ? "Awaiting source decision or Fleet clearance" : "No source decision recorded", clearanceLabel: canDepart ? "Fleet departure clearance confirmed" : "Fleet clearance required", securementLabel: view.securement_confirmed === true ? "Server verified post-load securement" : "Post-load securement required", receiverLabel: view.receiver_confirmed === true ? "Receiver confirmation verified by server" : "Receiver authority unavailable", progress: canConfirmDelivery ? "Pickup verified · Delivery confirmed" : view.pickup_receipt ? "Pickup recorded · Delivery pending" : "Pickup pending · Delivery pending" }, blockers };
 }
 export function buildCargoReceipt(execution, { stage, counts, issues = {}, observedAt = new Date().toISOString(), confirm = false, reportIssue = false }) {
@@ -92,37 +93,39 @@ export function cargoFormHasIssue(execution, { counts = {}, issues = {} } = {}, 
   });
 }
 export function workspaceModeLabel(workspace) {
-  return workspace.mode === "cargo" ? "Cargo vehicle" : workspace.mode === "passenger" ? "Passenger vehicle" : "Vehicle assignment unavailable";
+  return workspace.mode === "cargo" ? "Cargo driver" : workspace.mode === "passenger" ? "Passenger driver" : "Driver type needs setup";
 }
 export function workspaceBlockReason(workspace) {
-  if (workspace.reason === "trip_type_mismatch") return "The saved trip type does not match the vehicle. Ask Fleet or Dispatch to correct the assignment before continuing.";
+  if (["missing_driver_type", "unsupported_driver_type"].includes(workspace.reason)) return "Driver type needs setup. Ask Dispatch to save Passenger or Cargo before continuing.";
+  if (workspace.reason === "driver_vehicle_mismatch") return "The vehicle does not match your saved driver type. Ask Dispatch to correct the driver, vehicle, or trip type before continuing.";
+  if (workspace.reason === "trip_type_mismatch") return "The saved trip type does not match your driver type and vehicle. Ask Dispatch to correct the driver, vehicle, or trip type before continuing.";
   if (workspace.reason === "missing_trip_type") return "This cargo vehicle's trip type is missing. Ask Fleet or Dispatch to confirm the cargo assignment.";
   if (workspace.reason === "missing_operational_use") return "The vehicle work type is missing. Ask Fleet or Dispatch to confirm Cargo or Passenger use.";
   if (workspace.reason === "no_vehicle" || workspace.tripReady !== true) return "No verified vehicle is assigned to this trip. Ask Fleet or Dispatch to review the assignment.";
   return null;
 }
 // Reads only. Existing map controls remain the sole trip-transition writer.
-export async function resolveCargoMapGate(trip, { offline = false, readExecution, readSyncState } = {}) {
-  const workspace = resolveDriverWorkspace({ trip });
+export async function resolveCargoMapGate(trip, { driverType, offline = false, readExecution, readSyncState } = {}) {
+  const workspace = resolveDriverWorkspace({ driverType, trip });
   if (workspace.tripReady !== true) return { allowed: false, route: null, reason: workspaceBlockReason(workspace) };
   if (trip?.load_type !== "Cargo" || !["At Pickup", "Passenger Onboard", "Drop-off", "Arrived", "In Progress"].includes(trip.trip_status)) return { allowed: true };
-  const route = cargoMapAction(trip);
+  const route = cargoMapAction(trip, driverType);
   const legacyHold = trip.trip_status === "In Progress" ? LEGACY_HOLD : null;
   if (offline) return { allowed: false, route, reason: legacyHold ? `Offline. ${legacyHold}` : "Reconnect to check the current cargo decision before continuing." };
   try {
     const [execution, syncState] = await Promise.all([readExecution(), readSyncState ? readSyncState() : Promise.resolve({})]);
-    const view = buildCargoViewModel(execution, { fresh: true, syncState, tripStatus: trip.trip_status });
+    const view = buildCargoViewModel(execution, { driverType, trip, fresh: true, syncState });
     const delivery = ["Drop-off", "Arrived", "In Progress"].includes(trip.trip_status);
     return (delivery ? view.canConfirmDelivery : view.canDepart) ? { allowed: true } : { allowed: false, route, reason: legacyHold || (delivery ? "Verify the delivery observation and wait for server-confirmed receiver authority before completing the trip." : "Verify pickup and wait for current source acceptance, Fleet clearance and separate post-load securement before departure.") };
   } catch { return { allowed: false, route, reason: legacyHold ? `Cargo verification is unavailable. ${legacyHold}` : "Cargo verification is unavailable. Retry online or contact Fleet. Your trip movement was not confirmed." }; }
 }
 
 // Keep trip identity/status even when the independently read cargo provider is unavailable.
-export async function readCargoScreenSources(tripId, { readExecution, readTrips }) {
+export async function readCargoScreenSources(tripId, { driverType, readExecution, readTrips }) {
   const [execution, trips] = await Promise.allSettled([readExecution(), readTrips()]);
   const rows = trips.status === "fulfilled" && Array.isArray(trips.value) ? trips.value : [];
   const trip = rows.find(row => String(row.trip_id) === String(tripId)) || null;
-  const workspace = resolveDriverWorkspace({ trip });
+  const workspace = resolveDriverWorkspace({ driverType, trip });
   const cargoAllowed = workspace.tripReady === true && workspace.mode === "cargo" && trip?.load_type === "Cargo";
   return { execution: cargoAllowed && execution.status === "fulfilled" ? execution.value : null, executionError: execution.status === "rejected" ? execution.reason : null, trip, workspace, cargoAllowed };
 }

@@ -5,10 +5,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { parse } from "espree";
 import { createRequire } from "node:module";
-import { resolveCargoMapGate, buildCargoViewModel, workspaceBlockReason } from "./cargo-view-model";
+import { resolveCargoMapGate, buildCargoViewModel, workspaceBlockReason, workspaceModeLabel } from "./cargo-view-model";
 import { normalizeRadarMarkers } from "./map-webview-data";
 import { resolveDriverWorkspace } from "./driver-workspace";
-import { isCargoLoad } from "./load-presentation";
+import { isCargoLoad, loadTitle, loadSubtitle } from "./load-presentation";
 import { resolve, dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 const cache = new Map();
@@ -49,34 +49,37 @@ describe("rendered native cargo components", () => {
 describe("cargo workflow screen actions", () => {
   it.each(["RESTAURANT_SUPPLY_PICKUP", "RESTAURANT_FOOD_DELIVERY", "HOTEL_SUPPLY_TRANSFER"])("renders the same driver controls for %s", async service_code => {
     const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
-    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest: { ...manifest, service_code }, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { stage: "PICKUP", summary: {}, blockers: [] }, form: { counts: { boxes: "" }, issues: {} }, onIssue: () => {} }));
+    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest: { ...manifest, service_code }, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: true, stage: "PICKUP", summary: {}, blockers: [] }, form: { counts: { boxes: "" }, issues: {} }, onIssue: () => {} }));
     expect(html).toContain("Review counts"); expect(html).toContain("Report issue: Fresh produce"); expect(html).not.toMatch(/passenger|Call guest/i);
   });
   it("blocks clean pickup confirmation on a shortage and exposes the separate report action", async () => {
     const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
-    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "9" }, issues: { boxes: { remarks: "One box missing" } } } }));
+    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: true, stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "9" }, issues: { boxes: { remarks: "One box missing" } } } }));
     expect(html).toContain('<button disabled="">Confirm pickup'); expect(html).toContain('<button>Report pickup issue');
   });
   it("keeps delivery observation separate from unavailable receiver confirmation", async () => {
     const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
-    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "delivery", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "Drop-off" }, view: { stage: "DELIVERY", canConfirmDelivery: false, summary: { receiverLabel: "Receiver authority unavailable" }, blockers: [] }, review: true, form: { counts: { boxes: "9" }, issues: {} } }));
+    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "delivery", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "Drop-off" }, view: { canSubmit: true, stage: "DELIVERY", canConfirmDelivery: false, summary: { receiverLabel: "Receiver authority unavailable" }, blockers: [] }, review: true, form: { counts: { boxes: "9" }, issues: {} } }));
     expect(html).toContain("Record delivery observation"); expect(html).toContain('<button disabled="">Confirm delivery'); expect(html).toContain("pending review");
   });
 });
 
 const mapSource = readFileSync(new URL("../app/(app)/(tabs)/map.js", import.meta.url), "utf8");
 const mapTree = parse(mapSource, { ecmaVersion: "latest", sourceType: "module", ecmaFeatures: { jsx: true }, range: true });
-let swipeHandler;
+let swipeHandler, operationAssertion;
 function visit(node) {
   if (!node || typeof node !== "object") return;
+  if (node.type === "VariableDeclarator" && node.id.name === "assertCurrentOperation") operationAssertion = mapSource.slice(...node.init.range);
   if (node.type === "JSXAttribute" && node.name.name === "onSwipeSuccess") swipeHandler = mapSource.slice(...node.value.expression.range);
   for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(visit); else if (value && typeof value === "object") visit(value);
 }
 visit(mapTree);
-async function runMapAction({ cargo = true, status = "At Pickup", clearance = null, captureAlerts = false, operationalUse = cargo ? "Cargo" : "Passenger" } = {}) {
+async function runMapAction({ cargo = true, status = "At Pickup", clearance = null, captureAlerts = false, operationalUse = cargo ? "Cargo" : "Passenger", driverType = cargo ? "Cargo" : "Passenger", serverConfirmed = true, tripConfirmed = true, connectivity = "online", afterRead } = {}) {
   const writes = [], navigations = [], alerts = [];
   const trip = { trip_id: 701, vehicle_id: 3, operational_use: operationalUse, load_type: cargo ? "Cargo" : "Passenger", trip_status: status };
-  const action = runInNewContext(`(${swipeHandler})`, { resolveDriverWorkspace, workspaceBlockReason, inFlight: false, setInFlight: () => {}, activeTrip: trip, isCargoLoad, user: { employeeId: 12 }, connectivity: "online", captureCargoSession: () => ({}), isCurrentCargoSession: () => true, resolveCargoMapGate, cargoApi: { getExecution: async () => { if (!clearance) throw new Error("Disabled"); return clearance; } }, getCargoSyncState: async () => ({ state: "NONE" }), AppAlert: { alert: (title, message) => alerts.push(message) }, router: { push: path => navigations.push(path) }, isPending: false, isDriverAccepted: false, isState1: status === "Trip Started", isState2: status === "At Pickup", isState3: status === "En Route", isState4: status === "Drop-off", api: { get: async () => ({ state: "inside" }), put: async path => { writes.push(path); return {}; } }, wasQueued: () => false, loadTrip: () => {} });
+  const operationRef = { current: { profile: { driverType }, serverConfirmed, tripConfirmed, connectivity, trips: [trip], session: {} } };
+  const assertCurrentOperation = runInNewContext(`(${operationAssertion})`, { operationRef, isCurrentCargoSession: () => true, resolveDriverWorkspace });
+  const action = runInNewContext(`(${swipeHandler})`, { assertCurrentOperation, resolveDriverWorkspace, workspaceBlockReason, profile: { driverType }, serverConfirmed, tripConfirmed, inFlight: false, setInFlight: () => {}, activeTrip: trip, isCargoLoad, user: { employeeId: 12 }, connectivity, tripSession: {}, captureCargoSession: () => ({}), isCurrentCargoSession: () => true, resolveCargoMapGate, cargoApi: { getExecution: async () => { if (!clearance) throw new Error("Disabled"); return clearance; } }, getCargoSyncState: async () => ({ state: "NONE" }), AppAlert: { alert: (title, message) => alerts.push(message) }, router: { push: path => navigations.push(path) }, isPending: false, isDriverAccepted: false, isState1: status === "Trip Started", isState2: status === "At Pickup", isState3: status === "En Route", isState4: status === "Drop-off", api: { get: async () => { afterRead?.(operationRef.current); return { state: "inside" }; }, put: async path => { writes.push(path); return {}; } }, wasQueued: () => false, loadTrip: () => {} });
   await action(); return { writes, navigations, ...(captureAlerts ? { alerts } : {}) };
 }
 describe("real map event integration", () => {
@@ -104,14 +107,14 @@ describe("real map event integration", () => {
 describe("reviewed cargo rendered actions", () => {
   it("keeps equal-count notes on clean pickup and disables report issue", async () => {
     const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
-    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "10" }, issues: { boxes: { reported: true, remarks: "Packaging checked" } } } }));
+    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: true, stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "10" }, issues: { boxes: { reported: true, remarks: "Packaging checked" } } } }));
     expect(html).toContain('<button>Confirm pickup'); expect(html).toContain('<button disabled="">Report pickup issue');
   });
   it.each([true, false])("shows a legacy hold in the overview with manifest %s", async available => {
     const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
     const execution = available ? { manifest: { ...manifest, manifest_ref: { hash: "a".repeat(64) }, service_code: "RESTAURANT_SUPPLY_PICKUP" }, capabilities: { observe: true } } : null;
-    const trip = { trip_status: "In Progress" };
-    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "overview", execution, trip, view: buildCargoViewModel(execution, { tripStatus: trip.trip_status }), form: { counts: {}, issues: {} } }));
+    const trip = { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "In Progress" };
+    const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "overview", execution, trip, view: buildCargoViewModel(execution, { driverType: "Cargo", trip }), form: { counts: {}, issues: {} } }));
     expect(html).toMatch(/In Progress/); expect(html).toMatch(/Drop-off.*Arrived/); expect(html).toMatch(/Fleet/); expect(html).not.toContain('>Verify delivery<');
   });
   it("blocks the real map legacy action with an actionable hold and no writes", async () => {
@@ -122,7 +125,7 @@ describe("reviewed cargo rendered actions", () => {
 
 it.each([[true, "Passenger"], [false, "Cargo"]])("real map refuses mismatched cargo=%s", async (cargo, operationalUse) => {
   const result = await runMapAction({ cargo, operationalUse, captureAlerts: true });
-  expect(result.writes).toEqual([]); expect(result.navigations).toEqual([]); expect(result.alerts[0]).toMatch(/saved trip type.*vehicle/i);
+  expect(result.writes).toEqual([]); expect(result.navigations).toEqual([]); expect(result.alerts[0]).toMatch(/vehicle.*saved driver type/i);
 });
 
 describe("direct cargo screen rendered assignment gate", () => {
@@ -138,9 +141,9 @@ describe("direct cargo screen rendered assignment gate", () => {
     find(tree); expect(branch).toBeTruthy();
     const { code } = await transform(`module.exports = (${branch});`, { loader: "jsx", format: "cjs" });
     for (const [operational_use, load_type] of [["Cargo", "Passenger"], ["Passenger", "Cargo"]]) {
-      const workspace = resolveDriverWorkspace({ trip: { vehicle_id: 3, operational_use, load_type } });
+      const workspace = resolveDriverWorkspace({ driverType: operational_use, trip: { vehicle_id: 3, operational_use, load_type } });
       const scope = { exports: null };
-      runInNewContext(code, { module: scope, React, mode, active: true, screen: { loading: false }, cargoAllowed: false, workspace, workspaceBlockReason, type: theme.type, colors: theme.colors, View: primitive("div"), Text: primitive("span"), ClayButton: ({ label }) => React.createElement("button", null, label), load: () => {}, router: {}, id: 701 });
+      runInNewContext(code, { module: scope, React, mode, active: true, screen: { loading: false }, cargoAllowed: false, workspace, workspaceBlockReason, type: theme.type, colors: theme.colors, View: primitive("div"), Text: primitive("span"), ClayButton: ({ label }) => React.createElement("button", null, label), load: () => {}, refresh: () => {}, router: {}, id: 701 });
       const html = renderToStaticMarkup(scope.exports);
       expect(html).toMatch(/saved trip type.*vehicle/i); expect(html).toContain("Refresh assignment"); expect(html).not.toMatch(/Confirm pickup|Record delivery|Review counts|Verify pickup/);
     }
@@ -161,11 +164,109 @@ describe("normalized radar assignment selection", () => {
     }
     find(mapTree);
     const nearbyTrips = [trip], writes = [], alerts = [];
-    const workspace = runInNewContext(workspaceExpression, { resolveDriverWorkspace, selectedMarker, nearbyTrips });
+    const workspace = runInNewContext(workspaceExpression, { resolveDriverWorkspace, profile: { driverType: operational_use }, selectedMarker, nearbyTrips });
     expect(workspace.mode).toBe(operational_use.toLowerCase()); expect(workspace.tripReady).toBe(allowed);
-    const accept = runInNewContext(`(${acceptExpression})`, { nearbyTrips, resolveDriverWorkspace, workspaceBlockReason, setAcceptingTripId: () => {}, setSelectedMarker: () => {}, loadTrip: async () => {}, wasQueued: () => false, AppAlert: { alert: (title, message) => alerts.push(message) }, api: { put: async path => { writes.push(path); return {}; } } });
+    const accept = runInNewContext(`(${acceptExpression})`, { assertCurrentOperation: () => {}, nearbyTrips, profile: { driverType: operational_use }, serverConfirmed: true, tripConfirmed: true, connectivity: "online", resolveDriverWorkspace, workspaceBlockReason, setAcceptingTripId: () => {}, setSelectedMarker: () => {}, loadTrip: async () => {}, wasQueued: () => false, AppAlert: { alert: (title, message) => alerts.push(message) }, user: { employeeId: 12 }, tripSession: {}, api: { put: async path => { writes.push(path); return {}; } } });
     await accept(selectedMarker.tripId);
     expect(writes).toEqual(allowed ? ["/api/mobile/driver/trips/701/accept"] : []);
     if (!allowed) expect(alerts[0]).toMatch(/saved trip type.*vehicle/i);
   });
+});
+
+it.each([ { driverType: "Cargo", cargo: false }, { driverType: "Passenger", cargo: true }, { driverType: null }, { serverConfirmed: false }, { tripConfirmed: false }, { connectivity: "offline" }, { connectivity: "unstable" } ])("real map blocks incompatible or unconfirmed profile/trip %j", async options => {
+  const result = await runMapAction({ ...options, captureAlerts: true });
+  expect(result.writes).toEqual([]); expect(result.navigations).toEqual([]); expect(result.alerts.length).toBe(1);
+});
+
+it("renders compatible cached cargo as read only until profile and trip are confirmed online", async () => {
+  const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+  const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: false, stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "10" }, issues: {} } }));
+  expect(html).toContain('<button disabled="">Confirm pickup');
+  expect(html).toContain('<button disabled="">Report pickup issue');
+});
+
+it.each(["offline", "driver-type", "removed-trip"])("real map rechecks %s after an awaited geofence read before writing", async change => {
+  const result = await runMapAction({ cargo: false, status: "Trip Started", afterRead: context => {
+    if (change === "offline") context.connectivity = "offline";
+    if (change === "driver-type") context.profile.driverType = "Cargo";
+    if (change === "removed-trip") context.trips = [];
+  } });
+  expect(result.writes).toEqual([]);
+});
+
+function screenVariable(path, name) {
+  const source = readFileSync(new URL(path, import.meta.url), "utf8");
+  const tree = parse(source, { ecmaVersion: "latest", sourceType: "module", ecmaFeatures: { jsx: true }, range: true });
+  let expression;
+  function find(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "VariableDeclarator" && node.id.name === name) expression = source.slice(...node.init.range);
+    for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(find); else if (value && typeof value === "object") find(value);
+  }
+  find(tree);
+  if (!expression) throw new Error(`Missing screen expression ${name}`);
+  return expression;
+}
+
+describe("trip details action guard", () => {
+  const path = "../app/(app)/trip/[id].js";
+  it.each([["Cargo", "Passenger"], ["Passenger", "Cargo"], [null, "Passenger"]])("blocks saved driver %s against exact %s trip", async (driverType, vehicleType) => {
+    const trip = { trip_id: 701, vehicle_id: 3, operational_use: vehicleType, load_type: vehicleType, trip_status: "Assigned" };
+    const workspace = runInNewContext(screenVariable(path, "workspace"), { resolveDriverWorkspace, profile: { driverType }, trip });
+    const canOperate = runInNewContext(screenVariable(path, "canOperate"), { workspace, trip, id: 701, serverConfirmed: true, tripConfirmed: true, status: "online" });
+    expect(workspace.mode).toBe(driverType ? driverType.toLowerCase() : "unclassified");
+    expect(workspaceBlockReason(workspace)).toMatch(/Dispatch/); expect(canOperate).toBe(false);
+    expect(runInNewContext(screenVariable(path, "ctaDisabled"), { accepting: false, ctaActive: true, canOperate })).toBe(true);
+    const start = runInNewContext(`(${screenVariable(path, "handleAcceptStart")})`, { canOperate });
+    await start(); // Reaching any write would raise an undefined-reference error.
+  });
+  it.each([{ serverConfirmed: false }, { tripConfirmed: false }, { status: "offline" }, { status: "unstable" }])("blocks otherwise compatible unconfirmed detail %j", values => {
+    const trip = { trip_id: 701, vehicle_id: 3, operational_use: "Passenger", load_type: "Passenger" };
+    const workspace = resolveDriverWorkspace({ driverType: "Passenger", trip });
+    const canOperate = runInNewContext(screenVariable(path, "canOperate"), { workspace, trip, id: 701, serverConfirmed: true, tripConfirmed: true, status: "online", ...values });
+    expect(canOperate).toBe(false);
+  });
+});
+
+describe("Trips renders the saved driver workspace", () => {
+  it.each([["Cargo", "Passenger"], ["Passenger", "Cargo"], ["Cargo", "Cargo"], ["Passenger", "Passenger"], [null, "Cargo"]])("renders driver %s against trip %s", async (driverType, vehicleType) => {
+    const expression = screenVariable("../app/(app)/(tabs)/trips.js", "TripCard");
+    const { code } = await transform(`module.exports = ${expression};`, { loader: "jsx", format: "cjs" });
+    const scope = { exports: null };
+    runInNewContext(code, { module: scope, React, memo: component => component, useMemo: callback => callback(), resolveDriverWorkspace, workspaceModeLabel, workspaceBlockReason, formatWhen: () => null, bucketTone: () => "primary", PRE_START: ["Assigned"], preTripChipLabel: () => "Pre-trip check", isCargoLoad, loadTitle, loadSubtitle, styles: {}, View: primitive("div"), Text: primitive("span"), ClayCard: primitive("section"), ClayBadge: ({ label }) => React.createElement("span", null, label), ClayButton: ({ label }) => React.createElement("button", null, label), RouteTimeline: () => null, Ionicons: () => null });
+    const trip = { trip_id: 701, vehicle_id: 3, operational_use: vehicleType, load_type: vehicleType, trip_status: "Assigned", passenger_name: "VIP guest", cargo_description: "Hotel supplies" };
+    const html = renderToStaticMarkup(React.createElement(scope.exports, { driverType, trip, display: "Assigned", router: {}, ...theme }));
+    expect(html).toContain(driverType ? `${driverType} driver` : "Driver type needs setup");
+    if (driverType !== vehicleType) expect(html).toContain("Dispatch");
+    if (driverType === "Cargo") { expect(html).toContain("Hotel supplies"); expect(html).not.toContain("VIP guest"); }
+    if (driverType === "Passenger") expect(html).toContain("VIP guest");
+    expect(html).not.toMatch(/ACCEPT|START ROUTE|Confirm pickup/);
+  });
+});
+
+it.each(["submit", "photo", "recount", "edit"])("direct Cargo route blocks %s when current login profile/trip is unconfirmed", async name => {
+  const expression = screenVariable("../components/cargo/CargoWorkflowScreen.jsx", name);
+  const action = runInNewContext(`(${expression})`, { inFlight: { current: false }, active: true, canOperate: false });
+  await action({});
+});
+
+it("detail rechecks driver type after accept before start", async () => {
+  const path = "../app/(app)/trip/[id].js", writes = [];
+  const trip = { trip_id: 701, vehicle_id: 3, operational_use: "Passenger", load_type: "Passenger", trip_status: "Assigned" };
+  const operationRef = { current: { profile: { driverType: "Passenger" }, trip, canOperate: true, session: {} } };
+  const action = runInNewContext(`(${screenVariable(path, "handleAcceptStart")})`, { canOperate: true, resolveDriverWorkspace, profile: { driverType: "Passenger" }, trip, operationRef, dismiss: async () => {}, setAccepting: () => {}, isAccepted: false, id: 701, user: { employeeId: 12 }, tripSession: {}, isCurrentCargoSession: () => true, status: "online", api: { put: async path => { writes.push(path); operationRef.current.profile.driverType = "Cargo"; return {}; } }, wasQueued: () => false, router: { replace: () => {} }, AppAlert: { alert: () => {} } });
+  await action();
+  expect(writes).toEqual(["/api/trips/701/accept"]);
+});
+
+it("detail never authorizes a previous route's trip for a new deep link", () => {
+  const trip = { trip_id: 701, vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo" };
+  const workspace = resolveDriverWorkspace({ driverType: "Cargo", trip });
+  expect(runInNewContext(screenVariable("../app/(app)/trip/[id].js", "canOperate"), { workspace, trip, id: 702, serverConfirmed: true, tripConfirmed: true, status: "online" })).toBe(false);
+});
+
+it.each([true, false])("a stale cargo count can restart only with current online assignment authority %s", async canOperate => {
+  const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+  const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", canOperate, stale: true, pending: true, execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: false, stage: "STALE_REVIEW", summary: {}, blockers: [] }, form: { counts: { boxes: "10" }, issues: {} } }));
+  expect(html).toContain(canOperate ? '<button>Begin a new count' : '<button disabled="">Begin a new count');
 });

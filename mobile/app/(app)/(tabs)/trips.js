@@ -36,8 +36,11 @@ function formatWhen(value) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-const TripCard = memo(function TripCard({ trip, display, router, colors, type }) {
-  const workspace = resolveDriverWorkspace({ trip });
+const TripCard = memo(function TripCard({ trip, driverType, display, router, colors, type }) {
+  const workspace = resolveDriverWorkspace({ driverType, trip });
+  const historical = ["Completed", "Cancelled"].includes(trip.trip_status);
+  const cargo = historical ? isCargoLoad(trip) : workspace.mode === "cargo";
+  const displayTrip = historical ? trip : { ...trip, load_type: driverType };
   const when = formatWhen(trip.departure_time);
   const isOverdue = display === "OVERDUE · ACTION REQUIRED";
   const tone = trip.trip_status === 'Completed' ? 'primary' : bucketTone(display);
@@ -79,14 +82,14 @@ const TripCard = memo(function TripCard({ trip, display, router, colors, type })
         <View style={styles.metaLeft}>
           <Ionicons name="person-outline" size={16} color={colors.onSurfaceVariant} />
           <Text style={[type.supporting, { color: colors.onSurface, flexShrink: 1 }]}>
-            {isCargoLoad(trip) ? loadTitle(trip) : trip?.passenger_name ? String(trip.passenger_name) : trip?.passenger_count != null ? "Passengers" : "Passenger not listed"}
+            {!historical && workspace.mode === "unclassified" ? "Driver type needs setup" : cargo ? loadTitle(displayTrip) : trip?.passenger_name ? String(trip.passenger_name) : trip?.passenger_count != null ? "Passengers" : "Passenger not listed"}
           </Text>
           {(() => {
-            const subtitle = isCargoLoad(trip)
-              ? loadSubtitle(trip)
+            const subtitle = cargo
+              ? loadSubtitle(displayTrip)
               : Number(trip?.passenger_count) > 1 ? `${trip.passenger_count} pax` : null;
             return subtitle ? (
-              <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>{isCargoLoad(trip) ? subtitle : `· ${subtitle}`}</Text>
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>{cargo ? subtitle : `· ${subtitle}`}</Text>
             ) : null;
           })()}
         </View>
@@ -318,7 +321,7 @@ export default function TripsTab() {
               <View key={section.bucket}>
                 <Text style={[type.sectionTitle, { color: colors.onSurfaceVariant, textTransform: "uppercase", marginTop: 2, marginBottom: 8 }]}>{section.label}</Text>
                 {section.items.map((trip) => (
-                  <TripCard key={trip.trip_id} trip={trip} display={section.label} router={router} colors={colors} type={type} />
+                  <TripCard key={trip.trip_id} trip={trip} driverType={profile?.driverType} display={section.label} router={router} colors={colors} type={type} />
                 ))}
               </View>
             ))}
