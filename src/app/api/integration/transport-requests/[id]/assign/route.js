@@ -12,6 +12,7 @@ import { writeAudit } from "@/lib/audit";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { verifyPlanToken } from '@/services/dispatch-plan-evidence.service';
 import { isFuelNoise } from '@/lib/dispatch/decision';
+import { assertStoredVehicleLoadCompatibility } from '@/lib/trips/vehicle-load-compatibility';
 
 // NOTE: the §4.8.3 travel+buffer signals are no longer built from the request
 // body. `body.travel` is still accepted, but only as a cross-check against the
@@ -169,6 +170,7 @@ export async function PUT(req, { params }) {
       writeAssignment: (sql, values, event) => commitDispatchEvidence(pairCheck.commitToken, async tx => {
         // Recheck under the existing operational locks, before the assignment.
         if (body.plan_token !== undefined) await verifyPlanToken(body.plan_token, planSelection, tx);
+        await assertStoredVehicleLoadCompatibility({ db: tx, driverId, vehicleId, requestId: id });
         const updated = await tx.query(sql,values);
         if (!updated.rows[0]) return updated;
         committedDispatch = await createDispatchForRequest({ request:assignmentRequest,vehicleId,driverId,session,tx });

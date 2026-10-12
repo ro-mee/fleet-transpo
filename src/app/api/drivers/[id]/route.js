@@ -14,6 +14,66 @@ import { notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/rec
 import { driverReinstatedDriver, driverReinstatedStaff } from "@/lib/notifications/copy";
 import { validateLicenseDetails, normalizeLicenseClasses, normalizeLicenseType, licenseCalendarDay } from "@/lib/drivers/license-eligibility";
 import { rateLimit } from "@/lib/rate-limit";
+import { LIVE_TRIP_STATUSES } from "@/lib/constants";
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
+
+function throwDriverTypeCompatibility(reason) {
+  throw new AuthError(vehicleLoadCompatibilityMessage(reason), 409, "VEHICLE_LOAD_INCOMPATIBLE");
+}
+
+async function guardDriverTypeChange(tx, driverId, driverType) {
+  const { rows: pairRows } = await tx.query(
+    `SELECT v.vehicle_id, v.operational_use
+       FROM driver_vehicle_assignments a
+       JOIN vehicles v ON v.vehicle_id = a.vehicle_id AND v.deleted_at IS NULL
+      WHERE a.driver_id = $1 AND a.assigned_until IS NULL
+      FOR SHARE OF a, v`,
+    [driverId]
+  );
+  for (const pair of pairRows) {
+    const verdict = checkVehicleLoadCompatibility({
+      driverType,
+      operationalUse: pair.operational_use,
+      loadType: null,
+      requireTypedLoad: false,
+    });
+    if (!verdict.ok) throwDriverTypeCompatibility(verdict.reason);
+  }
+
+  const { rows: trips } = await tx.query(
+    `SELECT t.trip_id,
+            (SELECT ds.request_id FROM dispatchschedules ds
+              WHERE ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL) AS request_id,
+            v.operational_use
+       FROM trips t
+       JOIN vehicles v ON v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL
+      WHERE t.driver_id = $1 AND t.trip_status = ANY($2::text[]) AND t.deleted_at IS NULL
+      FOR SHARE OF t, v`,
+    [driverId, LIVE_TRIP_STATUSES]
+  );
+  for (const trip of trips) {
+    let loadType = null;
+    if (trip.request_id != null) {
+      const { rows } = await tx.query(
+        `SELECT load_type FROM transportation_requests
+          WHERE request_id = $1 AND deleted_at IS NULL
+          FOR SHARE`,
+        [trip.request_id]
+      );
+      if (!rows[0]) throwDriverTypeCompatibility("request_not_found");
+      loadType = rows[0].load_type ?? null;
+    }
+    const verdict = checkVehicleLoadCompatibility({
+      driverType,
+      operationalUse: trip.operational_use,
+      loadType,
+      // A live trip is real work, so Cargo cannot rely on the no-request
+      // exception used for a custodian/vehicle pairing.
+      requireTypedLoad: true,
+    });
+    if (!verdict.ok) throwDriverTypeCompatibility(verdict.reason);
+  }
+}
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -421,6 +481,19 @@ export async function PUT(req, { params }) {
     // Keep the driver row, linked employee, credential revocation, and event in
     // one transaction so a required audit failure rolls the edit back.
     await withTransaction(async (tx) => {
+    if (driver_type !== undefined) {
+      // Match dispatch writes: acquire the driver table lock before the row
+      // lock, then inspect stored work under the same transaction.
+      await tx.query("LOCK TABLE drivers IN SHARE ROW EXCLUSIVE MODE");
+      const { rows: lockedDrivers } = await tx.query(
+        `SELECT driver_id, driver_type FROM drivers WHERE driver_id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [id]
+      );
+      if (!lockedDrivers[0]) throw new AuthError("Driver not found", 404);
+      if (lockedDrivers[0].driver_type !== driverPayload.driver_type) {
+        await guardDriverTypeChange(tx, id, driverPayload.driver_type);
+      }
+    }
     if (residential.value) driverPayload.address_id = await saveAddress(residential.value, { tx });
     if (emergency.value) driverPayload.emergency_contact_address_id = await saveAddress(emergency.value, { tx });
 

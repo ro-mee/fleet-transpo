@@ -175,7 +175,7 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
     ),
 
     query(
-      `SELECT d.driver_id,d.driver_status,d.license_number,d.license_type,d.license_class,
+      `SELECT d.driver_id,d.driver_type,d.driver_status,d.license_number,d.license_type,d.license_class,
               d.license_expiry,d.license_verified_at,d.license_verified_by,d.license_verification_method,
               d.years_of_experience,
               e.first_name,

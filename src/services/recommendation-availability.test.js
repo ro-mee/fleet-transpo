@@ -13,10 +13,10 @@ afterEach(()=>vi.unstubAllEnvs());
 beforeEach(()=>{
   vi.clearAllMocks(); category=1;
   record={request_id:3,fleet_status:'Pending',passenger_count:8,requested_category_id:1,pickup_datetime:'2026-09-14T02:00:00Z'};
-  driver={driver_id:7,driver_status:'Available',license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2028-01-01',license_verified_at:'2026-09-27T10:00:00+08:00',license_verified_by:1,license_verification_method:'physical_card'};
+  driver={driver_id:7,driver_type:'Passenger',driver_status:'Available',license_number:'N04-19-013583',license_type:'Professional',license_class:'B',license_expiry:'2028-01-01',license_verified_at:'2026-09-27T10:00:00+08:00',license_verified_by:1,license_verification_method:'physical_card'};
   query.mockImplementation(async sql=>{
     if(sql.includes('FROM transportation_requests r'))return {rows:[record]};
-    if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,category_id:category,vehicle_status:'Available',seating_capacity:10,required_license_class:'B'}]};
+    if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,category_id:category,operational_use:'Passenger',vehicle_status:'Available',seating_capacity:10,required_license_class:'B'}]};
     if(sql.includes('FROM drivers d'))return {rows:[driver]};
     return {rows:[]};
   });
@@ -41,6 +41,38 @@ it('reloads linked request requirements and uses the actual service window',asyn
 it('rejects cancelled requests and incompatible classes before route evaluation',async()=>{
   record.fleet_status='Cancelled';expect((await check()).ok).toBe(false);
   record.fleet_status='Pending';category=2;expect((await check()).ok).toBe(false);
+  expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
+});
+it('rejects a stored driver and vehicle classification mismatch before route evaluation',async()=>{
+  record={...record,load_type:'Cargo',passenger_count:null,cargo_weight_kg:300,cargo_description:'Rice'};
+  driver={...driver,driver_type:'Passenger'};
+  query.mockImplementation(async sql=>{
+    if(sql.includes('FROM transportation_requests r'))return {rows:[record]};
+    if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,plate_number:'TRK5678',category_id:1,operational_use:'Cargo',cargo_capacity_kg:1000,vehicle_status:'Available',required_license_class:'B'}]};
+    if(sql.includes('FROM drivers d'))return {rows:[driver]};
+    return {rows:[]};
+  });
+
+  const result=await validatePairAvailability({request:{...record,load_type:'Passenger'},vehicleId:2,driverId:7,allowReview:true});
+
+  expect(result).toMatchObject({ok:false,conflict:{type:'vehicle_load_compatibility',severity:'blocking'}});
+  expect(result.conflict.message).toMatch(/classification does not match/i);
+  expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
+});
+it('blocks a stored untyped Cargo request even when the caller supplies Passenger',async()=>{
+  record={...record,load_type:null,passenger_count:null,cargo_weight_kg:null};
+  driver={...driver,driver_type:'Cargo'};
+  query.mockImplementation(async sql=>{
+    if(sql.includes('FROM transportation_requests r'))return {rows:[record]};
+    if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,plate_number:'TRK5678',category_id:1,operational_use:'Cargo',cargo_capacity_kg:1000,vehicle_status:'Available',required_license_class:'B'}]};
+    if(sql.includes('FROM drivers d'))return {rows:[driver]};
+    return {rows:[]};
+  });
+
+  const result=await validatePairAvailability({request:{...record,load_type:'Passenger'},vehicleId:2,driverId:7});
+
+  expect(result).toMatchObject({ok:false,conflict:{type:'vehicle_load_compatibility',severity:'blocking'}});
+  expect(result.conflict.message).toMatch(/marked as Cargo/i);
   expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
 });
 it('never treats a failed authoritative request lookup as permission to assign',async()=>{
@@ -69,6 +101,7 @@ it('rejects license class that does not cover the selected vehicle',async()=>{
 });
 it('blocks an overweight cargo pair with the shared gate message before candidate evaluation',async()=>{
   record.load_type='Cargo';record.passenger_count=null;record.cargo_weight_kg=1800;record.cargo_description='Rice';
+  driver={...driver,driver_type:'Cargo'};
   query.mockImplementation(async sql=>{
     if(sql.includes('FROM transportation_requests r'))return {rows:[record]};
     if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,plate_number:'TRK 5678',category_id:category,vehicle_status:'Available',operational_use:'Cargo',cargo_capacity_kg:1000,required_license_class:'B'}]};
@@ -99,13 +132,15 @@ it('blocks a capacity-eligible typed pair without commissioned verified road evi
 
 it('allows complete typed cargo evidence and pins the stored weight over stale caller input', async()=>{
  record={...record,load_type:'Cargo',passenger_count:null,cargo_weight_kg:650,cargo_description:'Rice',pickup_datetime:'2027-02-01T02:00:00Z'};
+ driver={...driver,driver_type:'Cargo'};
  const vehicle={vehicle_id:2,plate_number:'TRK5678',vehicle_status:'Registration Expired',registration_expiry:'2000-01-01',insurance_expiry:'2000-01-01',fleet_asset_code:'FLT-002',category_id:1,operational_use:'Cargo',commissioning_status:'Ready',cargo_capacity_kg:1000,required_license_class:'B'};
  const documents=['OR_CR','Insurance'].map(document_type=>({document_type,verification_status:'Verified',verified_by:8,verified_at:'2026-09-01T00:00:00Z',expiry_date:'2028-01-01'}));
  query.mockImplementation(async sql=>({rows:sql.includes('FROM transportation_requests r')?[record]:sql.includes('FROM vehicles WHERE')?[vehicle]:sql.includes('FROM vehicledocuments')?documents:sql.includes('FROM drivers d')?[driver]:[]}));
  evaluateDispatchCandidate.mockResolvedValue({checks:[{id:'request',status:'verified'},{id:'road_readiness',status:'verified'}],reviewable:false,dispatchContext:{mode:'SCHEDULED'},readiness:'VERIFIED',feasibility:{verdict:'SAFE',reasons:[]}});
- expect((await validatePairAvailability({request:{...record,cargo_weight_kg:1},vehicleId:2,driverId:7})).ok).toBe(true);
+ expect((await validatePairAvailability({request:{...record,load_type:'Passenger',cargo_weight_kg:1},vehicleId:2,driverId:7})).ok).toBe(true);
  expect(query.mock.calls.find(([sql])=>sql.includes('FROM vehicles WHERE'))[0]).toMatch(/fleet_asset_code/);
  expect(evaluateDispatchCandidate.mock.calls[0][0].request.cargo_weight_kg).toBe(650);
+ expect(evaluateDispatchCandidate.mock.calls[0][0].request.load_type).toBe('Cargo');
  record.cargo_weight_kg=1800;
  const result=await validatePairAvailability({request:{...record,cargo_weight_kg:1},vehicleId:2,driverId:7,allowReview:true});
  expect(result.conflict.message).toBe('Vehicle TRK5678 cargo capacity 1000 kg, request needs 1800 kg (over by 800 kg).');

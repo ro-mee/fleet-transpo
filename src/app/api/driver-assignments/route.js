@@ -2,6 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 import { evaluateDriverLicenseEligibility, licenseNumberEvidence } from "@/lib/drivers/license-eligibility";
+import { assertStoredVehicleLoadCompatibility, checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
 // Custodial driver ↔ vehicle pairings (migration 017).
 //
@@ -96,7 +97,7 @@ export async function POST(req) {
     // as a raw FK violation from Postgres instead of a readable message.
     const [{ rows: dRows }, { rows: vRows }] = await Promise.all([
       query(
-        `SELECT d.driver_id, e.first_name, e.last_name, d.license_number,
+        `SELECT d.driver_id, d.driver_type, e.first_name, e.last_name, d.license_number,
                 d.license_type, d.license_class, d.license_expiry,
                 d.license_verified_at, d.license_verified_by, d.license_verification_method
            FROM drivers d
@@ -105,13 +106,21 @@ export async function POST(req) {
         [driverId]
       ),
       query(
-        `SELECT vehicle_id, plate_number, vehicle_status, required_license_class
+        `SELECT vehicle_id, plate_number, vehicle_status, operational_use, required_license_class
            FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
         [vehicleId]
       ),
     ]);
     if (!dRows.length) return err("Driver not found.", 404);
     if (!vRows.length) return err("Vehicle not found.", 404);
+
+    const compatibility = checkVehicleLoadCompatibility({
+      driverType: dRows[0].driver_type,
+      operationalUse: vRows[0].operational_use,
+      loadType: null,
+      requireTypedLoad: false,
+    });
+    if (!compatibility.ok) return err(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
 
     const licenseEligibility = evaluateDriverLicenseEligibility(dRows[0], vRows[0]);
     if (!licenseEligibility.eligible) {
@@ -150,6 +159,7 @@ export async function POST(req) {
     }
 
     const assignment = await withTransaction(async (tx) => {
+      await assertStoredVehicleLoadCompatibility({ db: tx, driverId, vehicleId });
       // Close every active pairing that stands in the way — the driver's own car
       // and, when forced, the vehicle's current custodian.
       await tx.query(
@@ -193,6 +203,7 @@ export async function POST(req) {
     const { license_number: _licenseNumber, ...safeCreated } = created[0];
     return ok({ assignment: safeCreated, replaced: current.map((a) => a.assignment_id) }, 201);
   } catch (e) {
+    if (e?.code === "VEHICLE_LOAD_INCOMPATIBLE") return err(e.message, 409);
     // The partial unique indexes are the real guard; if a concurrent request
     // wins the race, surface that as a conflict rather than a 500.
     if (e?.code === "23505") {

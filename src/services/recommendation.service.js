@@ -15,6 +15,7 @@ import { LOCATION_POLICY_VERSION } from '@/lib/dispatch/location-relevance';
 import { readDispatchRevision } from '@/services/dispatch-evidence.service';
 import { loadQualificationContext, driverQualificationFinding } from './driver-qualification-boundaries.service';
 import { groupForService } from '@/lib/drivers/service-qualifications';
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
 // recommendations (migration 027).
@@ -239,6 +240,23 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
 
   const vehicle = vehicleRows[0] ?? null;
   if (!vehicle) return { ok:false,conflict:{ type:'vehicle_missing',severity:'blocking',message:'Vehicle no longer exists.' } };
+  const { rows: classificationRows } = await query(
+    `SELECT d.driver_type
+       FROM drivers d
+      WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
+    [driverId]
+  );
+  const compatibility = checkVehicleLoadCompatibility({
+    driverType: classificationRows[0]?.driver_type,
+    operationalUse: vehicle.operational_use,
+    loadType: request?.load_type ?? null,
+    requireTypedLoad: Boolean(request?.request_id),
+  });
+  if (!compatibility.ok) return { ok:false, conflict:{
+    type:'vehicle_load_compatibility', severity:'blocking',
+    code:'VEHICLE_LOAD_INCOMPATIBLE', reason:compatibility.reason,
+    message:vehicleLoadCompatibilityMessage(compatibility.reason),
+  } };
   if (request?.requested_category_id && Number(vehicle.category_id)!==Number(request.requested_category_id))
     return { ok:false,conflict:{type:'vehicle_category',severity:'blocking',message:'Vehicle does not match the requested class.'} };
   if (vehicle && !vehicleOperationallyAvailable(vehicle, request)) {

@@ -12,6 +12,7 @@ import {
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { numberCodingBlockReason } from "@/lib/uvvrp/availability-reason";
 import { loadQualificationContext, driverQualificationFinding, qualificationSummary, storedQualificationService } from '@/services/driver-qualification-boundaries.service';
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 
 // Pair-coupled availability for the Resource Availability board.
 //
@@ -79,7 +80,7 @@ export async function GET(req) {
     const [vehiclesRes, driversRes, pairsRes, subsRes, clashesRes] = await Promise.all([
       query(
         `SELECT v.vehicle_id, v.vehicle_name, v.plate_number, v.vehicle_status,
-                v.seating_capacity, v.registration_expiry, v.insurance_expiry,
+                v.seating_capacity, v.operational_use, v.registration_expiry, v.insurance_expiry,
                 v.category_id, v.required_license_class, vc.category_name
            FROM vehicles v
            LEFT JOIN vehiclecategories vc ON vc.category_id = v.category_id
@@ -89,7 +90,7 @@ export async function GET(req) {
         [categoryId]
       ),
       query(
-        `SELECT d.driver_id, d.driver_status, d.license_number, d.license_type,
+        `SELECT d.driver_id, d.driver_type, d.driver_status, d.license_number, d.license_type,
                 d.license_class, d.license_expiry, d.license_verified_at,
                 d.license_verified_by, d.license_verification_method, d.face_image_url,
                 e.first_name, e.last_name, e.avatar_url
@@ -149,7 +150,17 @@ export async function GET(req) {
 
     const scheduleCtx = await loadDriverScheduleContext(drivers.map((d) => d.driver_id));
     const qualificationContext = await loadQualificationContext(drivers.map(d => d.driver_id));
-    const serviceCode = await storedQualificationService(new URL(req.url).searchParams.get('request_id'));
+    const requestId = sp.get('request_id');
+    const serviceCode = await storedQualificationService(requestId);
+    let selectedRequest = null;
+    if (requestId) {
+      const { rows } = await query(
+        `SELECT request_id, load_type FROM transportation_requests
+          WHERE request_id = $1 AND deleted_at IS NULL`,
+        [requestId]
+      );
+      selectedRequest = rows[0] ?? null;
+    }
     // Travel-date context (coding / registration / insurance / paired driver).
     // Failure-tolerant: a ctx read error degrades to the pairing-only check.
     let travelCtx = null;
@@ -243,7 +254,22 @@ export async function GET(req) {
         continue;
       }
 
-      const qualification = new URL(req.url).searchParams.has('request_id') ? driverQualificationFinding(qualificationContext, pairing.driver.driver_id, serviceCode) : null;
+      const compatibility = !selectedRequest && requestId
+        ? { ok: false, reason: 'request_not_found' }
+        : checkVehicleLoadCompatibility({
+          driverType: pairing.driver.driver_type,
+          operationalUse: v.operational_use,
+          loadType: selectedRequest?.load_type ?? null,
+          requireTypedLoad: Boolean(requestId),
+        });
+      if (!compatibility.ok) {
+        const reason = vehicleLoadCompatibilityMessage(compatibility.reason);
+        blocked.push({ vehicle: slimVehicle(v), driver: slimDriver(pairing.driver), pairing_kind: pairing.kind,
+          block_reason: reason, unpaired: false, action: actionFor({ reason, vehicleId }), clashes: tripClashes });
+        continue;
+      }
+
+      const qualification = requestId ? driverQualificationFinding(qualificationContext, pairing.driver.driver_id, serviceCode) : null;
       if (qualification?.severity === 'blocking') {
         blocked.push({ vehicle: slimVehicle(v), driver: slimDriver(pairing.driver), pairing_kind: pairing.kind,
           block_reason: qualification.message, qualification, unpaired: false, action: null, clashes: tripClashes });

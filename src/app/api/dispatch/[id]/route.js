@@ -14,6 +14,7 @@ import { validatePairAvailability } from "@/services/recommendation.service";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { assertCargoCheckpoint, cargoLifecycleEnabled, prepareCargoLifecycle } from '@/services/cargo-execution.service';
 import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
+import { assertStoredVehicleLoadCompatibility } from '@/lib/trips/vehicle-load-compatibility';
 
 const NON_DISPATCHABLE_VEHICLE = ["Under Maintenance", "Decommissioned", "Registration Expired"];
 const NON_DISPATCHABLE_DRIVER = ["Suspended", "On Leave", "Off Duty"];
@@ -283,6 +284,10 @@ export async function PUT(req, { params }) {
         const trips = (await db.query('SELECT * FROM trips WHERE dispatch_id=$1 AND deleted_at IS NULL ORDER BY trip_id', [id])).rows;
         for (const trip of trips) await assertCargoCheckpoint(trip, { to: 'Reassign', session, patch: { driver_id: effDriverId, vehicle_id: effVehicleId } }, db);
       }
+      if (effVehicleId && effDriverId) {
+        await assertStoredVehicleLoadCompatibility({ db, driverId: effDriverId, vehicleId: effVehicleId,
+          requestId: before[0]?.request_id ?? null, requireTypedLoad: true });
+      }
       return db.query(`UPDATE dispatchschedules SET ${assignments.join(", ")} WHERE dispatch_id = $${values.length + 1} AND deleted_at IS NULL RETURNING *`, [...values, id]);
     };
     const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,update)
@@ -303,5 +308,8 @@ export async function PUT(req, { params }) {
     const vid = body.vehicle_id || before[0]?.vehicle_id, did = body.driver_id || before[0]?.driver_id;
     const p = []; if (vid) p.push(syncVehicleStatus(vid)); if (did) p.push(syncDriverStatus(did)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(id)); await Promise.all(p);
     return ok(rows[0]);
-  } catch (e) { return handleError(e); }
+  } catch (e) {
+    if (e?.code === 'VEHICLE_LOAD_INCOMPATIBLE') return err(e.message, 409);
+    return handleError(e);
+  }
 }

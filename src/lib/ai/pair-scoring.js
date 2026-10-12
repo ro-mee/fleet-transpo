@@ -12,6 +12,7 @@ import { RISK } from "@/lib/ai/predictive-maintenance";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { driverDayEligibility } from "@/lib/scheduling/day-eligibility";
 import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
 /**
  * Fleet-Pair Recommendation Engine — scores vehicle+driver as ONE unit.
@@ -709,6 +710,18 @@ export function buildFleetPairRecommendations({
     }
 
     const chosen = pairing.driver;
+    const compatibility = checkVehicleLoadCompatibility({
+      driverType: chosen.driver_type,
+      operationalUse: vehicle.operational_use,
+      loadType: request?.load_type ?? null,
+      requireTypedLoad: Boolean(request?.request_id),
+    });
+    if (!compatibility.ok) {
+      skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number,
+        driver_id: chosen.driver_id, driver_name: pairDriverName(chosen),
+        reason: vehicleLoadCompatibilityMessage(compatibility.reason) });
+      continue;
+    }
     const qualification = qualificationFinding({ serviceCode: request?.service_code,
       qualifications: qualificationContext?.qualifications?.get(Number(chosen.driver_id)) ?? [],
       ...(qualificationContext ? { rollout: qualificationContext.rollout } : {}) });

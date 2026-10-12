@@ -102,7 +102,7 @@ const isEmergencyPick = (value) =>
  * `driverUpdates` collects every `UPDATE drivers SET …` the route issues, which
  * is where "did this edit touch the address ids?" is answered.
  */
-function installDb({ failOn, existing: existingOverride } = {}) {
+function installDb({ failOn, existing: existingOverride, activePairs = [], liveTrips = [], requestLoadType = null } = {}) {
   const driverUpdates = [];
   const employeeUpdates = [];
   const state = { committed: false, rolledBack: false };
@@ -126,6 +126,7 @@ function installDb({ failOn, existing: existingOverride } = {}) {
           employee_position: "Driver",
           employee_avatar_url: null,
           license_number: "N04-19-013583",
+          driver_type: "Passenger",
           driver_status: "Available",
           years_of_experience: 0,
           address: null,
@@ -164,6 +165,14 @@ function installDb({ failOn, existing: existingOverride } = {}) {
         rowCount: 1,
       };
     }
+    if (text.includes("SELECT driver_id, driver_type FROM drivers")) {
+      return { rows: [{ driver_id: DRIVER_ID, driver_type: existingOverride?.driver_type ?? "Passenger" }], rowCount: 1 };
+    }
+    if (text.includes("FROM driver_vehicle_assignments a")) return { rows: activePairs, rowCount: activePairs.length };
+    if (text.includes("FROM trips t") && text.includes("trip_status")) return { rows: liveTrips, rowCount: liveTrips.length };
+    if (text.includes("FROM transportation_requests") && text.includes("load_type")) {
+      return { rows: [{ request_id: 13, load_type: requestLoadType }], rowCount: 1 };
+    }
     if (text.includes("UPDATE employees SET")) {
       employeeUpdates.push({ sql: text, params });
       return { rows: [], rowCount: 1 };
@@ -176,7 +185,7 @@ function installDb({ failOn, existing: existingOverride } = {}) {
       }
       driverUpdates.push({ sql: text, params });
       const assignments = text.match(/UPDATE drivers SET ([\s\S]*?) WHERE/)?.[1] || "";
-      const updated = { sex: null, license_class: "B", license_type: "Professional" };
+      const updated = { sex: null, license_class: "B", license_type: "Professional", driver_type: "Passenger" };
       assignments
         .split(",")
         .map((assignment) => assignment.trim())
@@ -185,7 +194,7 @@ function installDb({ failOn, existing: existingOverride } = {}) {
           const column = assignment.split("=")[0].trim();
           if (Object.hasOwn(updated, column)) updated[column] = params[index];
         });
-      return { rows: [{ sex: updated.sex, license_class: updated.license_class, license_type: updated.license_type }], rowCount: 1 };
+      return { rows: [{ sex: updated.sex, license_class: updated.license_class, license_type: updated.license_type, driver_type: updated.driver_type }], rowCount: 1 };
     }
     // The response SELECT.
     return { rows: [{ driver_id: DRIVER_ID, first_name: "Juan" }], rowCount: 1 };
@@ -207,7 +216,7 @@ function installDb({ failOn, existing: existingOverride } = {}) {
     }
   });
 
-  return { driverUpdates, employeeUpdates, state };
+  return { driverUpdates, employeeUpdates, state, get txQuery() { return txQuery; } };
 }
 
 /** The last `UPDATE drivers SET …` as a column→value map. */
@@ -550,5 +559,36 @@ describe("strict driver classification", () => {
     const response = await PUT(request({ driver_type }), context());
     expect(response.status).toBe(400);
     expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects a type change that conflicts with an active custodial vehicle inside the transaction", async () => {
+    const installed = installDb({
+      existing: { driver_type: "Passenger" },
+      activePairs: [{ vehicle_id: 9, operational_use: "Passenger" }],
+    });
+
+    const response = await PUT(request({ driver_type: "Cargo" }), context());
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/classification does not match/i);
+    expect(installed.driverUpdates).toHaveLength(0);
+    expect(installed.state.rolledBack).toBe(true);
+    expect(installed.txQuery.mock.calls[0][0]).toBe("LOCK TABLE drivers IN SHARE ROW EXCLUSIVE MODE");
+    expect(installed.txQuery.mock.calls[1][0]).toMatch(/FOR UPDATE/);
+  });
+
+  it("rejects a type change that conflicts with an in-progress trip's stored load, even when forced", async () => {
+    const { driverUpdates, state } = installDb({
+      existing: { driver_type: "Passenger" },
+      liveTrips: [{ trip_id: 5, request_id: 13, operational_use: "Cargo" }],
+      requestLoadType: "Passenger",
+    });
+
+    const response = await PUT(request({ driver_type: "Cargo", force: true }), context());
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/load type does not match/i);
+    expect(driverUpdates).toHaveLength(0);
+    expect(state.rolledBack).toBe(true);
   });
 });

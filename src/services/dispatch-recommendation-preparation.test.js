@@ -157,6 +157,7 @@ describe("fetchCandidates prefiltered", () => {
       "d.license_verified_at",
       "d.license_verified_by",
       "d.license_verification_method",
+      "d.driver_type",
     ]) {
       expect(String(rosterCall[0])).toContain(column);
     }

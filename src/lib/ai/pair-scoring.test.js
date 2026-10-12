@@ -19,6 +19,7 @@ const mkVehicle = (over = {}) => ({
   vehicle_id: 1,
   plate_number: "XYZ 5678",
   vehicle_name: "Sedan",
+  operational_use: "Passenger",
   seating_capacity: 4,
   fuel_level: 80,
   vehicle_status: "Available",
@@ -29,6 +30,7 @@ const mkVehicle = (over = {}) => ({
 
 const mkDriver = (over = {}) => ({
   driver_id: 1,
+  driver_type: "Passenger",
   driver_status: DRIVER_STATUS.AVAILABLE,
   license_expiry: "2030-01-01",
   years_of_experience: 5,
@@ -143,6 +145,48 @@ describe("scoreFleetPair", () => {
   });
 });
 
+describe("driver type compatibility in recommendations", () => {
+  it.each([
+    ["Passenger", "Passenger", "Passenger", true],
+    ["Cargo", "Cargo", "Cargo", true],
+    ["Passenger", "Cargo", "Passenger", false],
+    ["Cargo", "Passenger", "Cargo", false],
+    ["Cargo", "Cargo", "Passenger", false],
+  ])("offers only compatible %s / %s / %s pairs", (driverType, operationalUse, loadType, allowed) => {
+    const result = buildFleetPairRecommendations({
+      request: mkRequest({ load_type: loadType }),
+      vehicles: [mkVehicle({ operational_use: operationalUse })],
+      drivers: [mkDriver({ driver_type: driverType })],
+      activePairs: [{ driver_id: 1, vehicle_id: 1 }],
+      now: NOW,
+    });
+    expect(result.recommended?.driver?.driver_id ?? null).toBe(allowed ? 1 : null);
+    if (!allowed) expect(result.skipped[0]?.reason).toMatch(/classification|load type/i);
+  });
+
+  it("allows a matching Cargo custodian pair before any request has a load type", () => {
+    const result = buildFleetPairRecommendations({
+      request: { pickup_datetime: NOW },
+      vehicles: [mkVehicle({ operational_use: "Cargo" })],
+      drivers: [mkDriver({ driver_type: "Cargo" })],
+      activePairs: [{ driver_id: 1, vehicle_id: 1 }],
+      now: NOW,
+    });
+    expect(result.recommended?.driver?.driver_id).toBe(1);
+  });
+
+  it("does not recommend a Cargo request whose saved load type is missing", () => {
+    const result = buildFleetPairRecommendations({
+      request: mkRequest({ load_type: null }),
+      vehicles: [mkVehicle({ operational_use: "Cargo" })],
+      drivers: [mkDriver({ driver_type: "Cargo" })],
+      activePairs: [{ driver_id: 1, vehicle_id: 1 }],
+      now: NOW,
+    });
+    expect(result.recommended).toBeNull();
+    expect(result.skipped[0]?.reason).toMatch(/marked as Cargo/i);
+  });
+});
 describe("buildFleetPairRecommendations", () => {
   it("recommends the designated driver first even if another scores higher raw", () => {
     const designated = mkDriver({ driver_id: 5, avg_guest_rating: 4, years_of_experience: 3 });
@@ -729,8 +773,6 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.skipped.map((s) => s.plate)).toEqual(["AAA 111", "BBB 222", "CCC 333"]);
   });
 });
-
-
 describe("dayScope (today-overview interpretation)", () => {
   // Tuesday 2026-08-04, shift 06:00-22:00 � a full-day review window can never
   // fit inside it, which is exactly the collision dayScope resolves.

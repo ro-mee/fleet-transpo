@@ -12,6 +12,7 @@ function request(body) {
 
 const DRIVER = {
   driver_id: 7,
+  driver_type: "Passenger",
   first_name: "Sam",
   last_name: "Driver",
   license_number: "A12-34-567890",
@@ -24,6 +25,7 @@ const DRIVER = {
 };
 const VEHICLE = {
   vehicle_id: 9,
+  operational_use: "Passenger",
   plate_number: "ABC-1234",
   vehicle_status: "Available",
   required_license_class: "B",
@@ -59,7 +61,9 @@ function setup({ driver = DRIVER, vehicle = VEHICLE } = {}) {
     return { rows: [] };
   });
   vi.spyOn(db, "withTransaction").mockImplementation(async (fn) => fn({
-    query: vi.fn().mockResolvedValue({ rows: [{ assignment_id: 71 }] }),
+    query: vi.fn(async (sql) => sql.includes("SELECT d.driver_type")
+      ? { rows: [{ driver_type: "Passenger", operational_use: "Passenger" }] }
+      : { rows: [{ assignment_id: 71 }] }),
   }));
   vi.spyOn(audit, "writeAudit").mockResolvedValue();
 }
@@ -85,6 +89,35 @@ describe("POST /api/driver-assignments license eligibility", () => {
     expect(response.status).toBe(409);
     expect(body.error).toContain("License class does not cover this vehicle");
     expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects an incompatible driver and vehicle classification even when forced", async () => {
+    setup({ driver: { ...DRIVER, driver_type: "Passenger" }, vehicle: { ...VEHICLE, operational_use: "Cargo" } });
+    vi.mocked(apiUtils.parseBody).mockResolvedValue({ driver_id: 7, vehicle_id: 9, force: true });
+
+    const response = await POST(request({ driver_id: 7, vehicle_id: 9, force: true }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toMatch(/classification does not match/i);
+    expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rechecks classifications inside the transaction before closing the old custodian", async () => {
+    setup();
+    const txQuery = vi.fn(async sql => sql.includes("SELECT d.driver_type")
+      ? { rows: [{ driver_type: "Passenger", operational_use: "Cargo" }] }
+      : { rows: [{ assignment_id: 71 }] });
+    vi.mocked(db.withTransaction).mockImplementationOnce(async fn => fn({ query: txQuery }));
+
+    const response = await POST(request({ driver_id: 7, vehicle_id: 9 }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toMatch(/classification does not match/i);
+    expect(txQuery).toHaveBeenCalledOnce();
+    expect(txQuery.mock.calls[0][0]).toMatch(/FOR SHARE OF d, v/);
+    expect(txQuery.mock.calls.some(([sql]) => sql.includes("UPDATE driver_vehicle_assignments"))).toBe(false);
   });
 
   it("allows a verified eligible pairing", async () => {

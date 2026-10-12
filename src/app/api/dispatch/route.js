@@ -14,6 +14,7 @@ import { validatePairAvailability } from "@/services/recommendation.service";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { DISPATCH_SERVICE_TYPE, RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
+import { assertStoredVehicleLoadCompatibility } from "@/lib/trips/vehicle-load-compatibility";
 
 const JOIN_SELECT = `ds.*, row_to_json(v.*) as vehicles, row_to_json(d.*) as drivers, row_to_json(tr.*) as transportation_requests, row_to_json(r.*) as routes`;
 const JOINS = `FROM dispatchschedules ds LEFT JOIN vehicles v ON ds.vehicle_id = v.vehicle_id LEFT JOIN drivers d ON ds.driver_id = d.driver_id LEFT JOIN transportation_requests tr ON ds.request_id = tr.request_id LEFT JOIN routes r ON ds.route_id = r.route_id`;
@@ -189,7 +190,13 @@ export async function POST(req) {
       }
     }
     const k = Object.keys(body), v = Object.values(body);
-    const insert = db => db.query(`INSERT INTO dispatchschedules (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
+    const insert = async db => {
+      if (body.vehicle_id && body.driver_id) {
+        await assertStoredVehicleLoadCompatibility({ db, driverId: body.driver_id, vehicleId: body.vehicle_id,
+          requestId: transportRequest?.request_id ?? null, requireTypedLoad: true });
+      }
+      return db.query(`INSERT INTO dispatchschedules (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
+    };
     const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,insert)
       : await withQualificationWrite({ driverId: body.driver_id, requestId: transportRequest?.request_id }, insert);
     const p = []; if (rows[0]?.vehicle_id) p.push(syncVehicleStatus(rows[0].vehicle_id)); if (rows[0]?.driver_id) p.push(syncDriverStatus(rows[0].driver_id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(rows[0].dispatch_id)); await Promise.all(p);
@@ -233,5 +240,8 @@ export async function POST(req) {
     try { await flushOutbox(); } catch (e) { console.warn("dispatch push failed:", e?.message || e); }
 
     return ok(rows[0], 201);
-  } catch (e) { return handleError(e, { req }); }
+  } catch (e) {
+    if (e?.code === 'VEHICLE_LOAD_INCOMPATIBLE') return err(e.message, 409);
+    return handleError(e, { req });
+  }
 }

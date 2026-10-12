@@ -64,6 +64,23 @@ it('preserves the shared cargo capacity blocker exactly, including on forced rev
  expect((await response.json()).error).toBe(message);
  expect(advanceReservation).not.toHaveBeenCalled();
 });
+it('rechecks stored classifications under the commit locks and force cannot bypass them',async()=>{
+ const tx={query:vi.fn(async sql=>{
+  if(sql.includes('SELECT d.driver_type'))return {rows:[{driver_type:'Passenger',operational_use:'Cargo'}]};
+  if(sql.includes('FROM transportation_requests'))return {rows:[{request_id:1,load_type:'Cargo'}]};
+  return {rows:[{request_id:1}]};
+ })};
+ commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
+ advanceReservation.mockImplementation(async ({writeAssignment})=>writeAssignment('UPDATE transportation_requests',[]));
+ const req=new Request('http://localhost/assign',{method:'PUT',body:JSON.stringify({vehicle_id:2,driver_id:3,plan_token:'signed',force:true,override_reason:'Reviewed the proposed pair'})});
+
+ const response=await PUT(req,params);
+
+ expect(response.status).toBe(409);
+ expect((await response.json()).error).toMatch(/classification does not match/i);
+ expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE transportation_requests'))).toBe(false);
+ expect(createDispatchForRequest).not.toHaveBeenCalled();
+});
 it('rechecks the plan inside the locked commit before writing if state races after the initial check',async()=>{
   const tx={query:vi.fn()};
   commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
