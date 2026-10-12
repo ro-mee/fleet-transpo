@@ -30,7 +30,7 @@ const MAP_IMAGE = require('../../assets/images/map.png');
 // Memoized presentational layer: Home re-renders on 30 s ticks, poster and
 // notification publishes — cards with stable props skip reconciliation. The
 // countdown-driven trip cards still update via nowMs (by design).
-export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed, profileConfirmed, onTrips, onHistory, onVehicle, workspaceMode = 'passenger' }) {
+export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed, profileConfirmed, onTrips, onHistory, onVehicle, workspaceMode = 'unclassified' }) {
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
   const { settings } = useSettings();
@@ -96,28 +96,30 @@ export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, c
 });
 
 function workspaceHeading(workspace) {
-  return workspace.mode === 'unassigned' ? 'Assignment not ready' : workspace.mode === 'cargo' ? 'Cargo workspace' : 'Passenger workspace';
+  return workspace.mode === 'unclassified' ? 'Driver type needs setup' : workspace.mode === 'cargo' ? 'Cargo workspace' : 'Passenger workspace';
 }
 
 function workspaceProblem(workspace) {
+  if (workspace.reason === 'missing_driver_type' || workspace.reason === 'unsupported_driver_type') return 'Ask Fleet or Dispatch to set your driver type to Cargo or Passenger before continuing.';
+  if (workspace.reason === 'driver_vehicle_mismatch') return 'The vehicle work type does not match your driver type. Ask Fleet or Dispatch to correct the assignment before continuing.';
   if (workspace.reason === 'no_vehicle') return 'No vehicle is assigned. Ask Fleet or Dispatch to assign your vehicle.';
   if (workspace.reason === 'missing_operational_use') return 'Your vehicle work type is missing. Ask Fleet or Dispatch to confirm Cargo or Passenger use.';
-  if (workspace.reason === 'trip_type_mismatch') return 'The saved trip type does not match the vehicle. Ask Fleet or Dispatch to correct the assignment before continuing.';
+  if (workspace.reason === 'trip_type_mismatch') return 'The saved trip type does not match your driver type. Ask Fleet or Dispatch to correct the assignment before continuing.';
   return 'The saved trip type is missing. Ask Fleet or Dispatch to confirm it before continuing.';
 }
 
-// Vehicle operational use chooses this workspace; service metadata only labels its source.
-export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace, trip, assignedVehicle }) {
+// Saved driver type chooses this workspace; service metadata only labels its source.
+export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace, trip, assignedVehicle, loading = false }) {
   const { colors, type } = useTheme();
   const cargo = workspace.mode === 'cargo';
-  const unassigned = workspace.mode === 'unassigned';
-  const blocked = trip && workspace.tripReady === false;
+  const unassigned = workspace.mode === 'unclassified';
+  const blocked = workspace.reason != null;
   // Never borrow the standing plate for a different active-trip vehicle.
   const plate = trip ? trip.vehicle_plate || trip.plate_number : assignedVehicle?.plate || assignedVehicle?.plateNumber || assignedVehicle?.plate_number;
   const service = `${trip?.service_code || ''} ${trip?.service_name || ''}`;
   const source = /\bRESTAURANT(?:_|\b)/i.test(service) ? 'Restaurant cargo' : /\bHOTEL(?:_|\b)/i.test(service) ? 'Hotel cargo' : 'Cargo assignment';
-  const heading = workspaceHeading(workspace);
-  const problem = workspaceProblem(workspace);
+  const heading = loading ? "Checking driver type" : workspaceHeading(workspace);
+  const problem = loading ? "Confirming your saved driver profile." : workspaceProblem(workspace);
   return <ClayCard variant="standard">
     <View style={[s.row, { alignItems: 'flex-start' }]}>
       <Ionicons name={unassigned ? 'help-circle-outline' : cargo ? 'cube-outline' : 'car-outline'} size={24} color={colors.primary} accessible={false} />

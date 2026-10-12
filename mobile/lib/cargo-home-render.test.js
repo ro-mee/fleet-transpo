@@ -49,7 +49,7 @@ describe("rendered cargo Home card", () => {
 });
 
 const cargoTrip = { trip_id: 701, vehicle_id: 12, vehicle_plate: "ABC-123", operational_use: "Cargo", load_type: "Cargo", trip_status: "Passenger Onboard", cargo_description: "Fresh vegetables", cargo_weight_kg: 650, passenger_name: "Ghost Guest", passenger_count: 0 };
-const renderWorkspace = (trip, assignedVehicle) => renderToStaticMarkup(React.createElement(DriverWorkspaceCard, { workspace: resolveDriverWorkspace({ trip, assignedVehicle }), trip, assignedVehicle }));
+const renderWorkspace = (trip, assignedVehicle, driverType = "Cargo") => renderToStaticMarkup(React.createElement(DriverWorkspaceCard, { workspace: resolveDriverWorkspace({ driverType, trip, assignedVehicle }), trip, assignedVehicle }));
 describe("rendered driver workspace", () => {
   it.each([["RESTAURANT_SUPPLY_PICKUP", "Restaurant cargo"], ["HOTEL_CARGO", "Hotel cargo"]])("labels cargo from %s service metadata", (service_code, label) => {
     const html = renderWorkspace({ ...cargoTrip, service_code });
@@ -62,7 +62,7 @@ describe("rendered driver workspace", () => {
     expect(html).not.toContain("Restaurant cargo"); expect(html).not.toContain("Hotel cargo");
   });
   it("shows passenger transfer details and VIP cue", () => {
-    const html = renderWorkspace({ ...cargoTrip, operational_use: "Passenger", load_type: "Passenger", guest_name: "Jane Santos", passenger_count: 2, is_vip: true });
+    const html = renderWorkspace({ ...cargoTrip, operational_use: "Passenger", load_type: "Passenger", guest_name: "Jane Santos", passenger_count: 2, is_vip: true }, undefined, "Passenger");
     for (const text of ["Passenger workspace", "Hotel transportation", "Jane Santos", "2 passengers", "VIP"]) expect(html).toContain(text);
     expect(html).not.toContain("Fresh vegetables");
   });
@@ -72,13 +72,13 @@ describe("rendered driver workspace", () => {
   });
   it.each([null, { vehicleId: 12 }])("explains absent assignment/use without enabled actions", assignedVehicle => {
     const html = renderWorkspace(null, assignedVehicle);
-    expect(html).toContain("Assignment not ready"); expect(html).toContain("Fleet or Dispatch"); expect(html).not.toContain("<button");
+    expect(html).toContain("Cargo workspace"); expect(html).toContain("Fleet or Dispatch"); expect(html).not.toContain("<button");
   });
   it("keeps cargo vehicle mode visible and locks mismatched trip actions", () => {
     const trip = { ...cargoTrip, load_type: "Passenger" };
-    const workspace = resolveDriverWorkspace({ trip });
+    const workspace = resolveDriverWorkspace({ driverType: "Cargo", trip });
     const html = renderWorkspace(trip);
-    expect(html).toContain("Cargo workspace"); expect(html).toContain("saved trip type does not match the vehicle"); expect(html).not.toContain("Ghost Guest");
+    expect(html).toContain("Cargo workspace"); expect(html).toContain("saved trip type does not match your driver type"); expect(html).not.toContain("Ghost Guest");
     const card = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, current: true, nowMs: Date.now(), canManage: true, workspace }));
     expect(card).toContain('disabled=""'); expect(card).toContain("Trip action unavailable"); expect(workspace.tripReady).toBe(false);
   });
@@ -103,15 +103,36 @@ it("labels cargo route stops as pickup and delivery", () => {
 });
 
 it.each([
-  [{ ...cargoTrip, load_type: "Passenger" }, "Cargo workspace", "saved trip type does not match the vehicle"],
-  [{ ...cargoTrip, vehicle_id: null }, "Assignment not ready", "No vehicle is assigned"],
-  [{ ...cargoTrip, operational_use: null }, "Assignment not ready", "work type is missing"],
+  [{ ...cargoTrip, load_type: "Passenger" }, "Cargo workspace", "saved trip type does not match your driver type"],
+  [{ ...cargoTrip, vehicle_id: null }, "Cargo workspace", "No vehicle is assigned"],
+  [{ ...cargoTrip, operational_use: null }, "Cargo workspace", "work type is missing"],
   [{ ...cargoTrip, load_type: null }, "Cargo workspace", "saved trip type is missing"],
 ])("explains each blocked upcoming assignment beside its disabled action", (trip, mode, reason) => {
   const assignedVehicle = { vehicleId: 99, operationalUse: "Passenger", plate: "STAND-99" };
-  const workspace = resolveDriverWorkspace({ trip, assignedVehicle });
+  const workspace = resolveDriverWorkspace({ driverType: "Cargo", trip, assignedVehicle });
   const html = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, variant: "next", nowMs: Date.now(), canManage: true, workspace }));
   expect(html).toContain(mode); expect(html).toContain(reason); expect(html).toContain("Fleet or Dispatch");
   expect(html).toContain('disabled=""'); expect(html).toContain("Trip action unavailable");
   expect(html).not.toContain("Ghost Guest"); expect(html).not.toContain("STAND-99");
+});
+
+it.each(["Cargo", "Passenger"])("keeps %s workspace with absent or mismatched vehicle", driverType => {
+  for (const vehicle of [null, { vehicleId: 12, operationalUse: driverType === "Cargo" ? "Passenger" : "Cargo" }]) {
+    const html = renderWorkspace(null, vehicle, driverType);
+    expect(html).toContain(`${driverType} workspace`);
+    expect(html).toContain("Fleet or Dispatch");
+    expect(html).not.toContain("<button");
+  }
+});
+it.each([null, "Other"])("shows type setup instead of Passenger for %s", driverType => {
+  const html = renderWorkspace(null, null, driverType);
+  expect(html).toContain("Driver type needs setup");
+  expect(html).not.toContain("Passenger workspace");
+});
+
+it("keeps the profile loading presentation neutral", () => {
+  const html = renderToStaticMarkup(React.createElement(DriverWorkspaceCard, { workspace: resolveDriverWorkspace(), loading: true }));
+  expect(html).toContain("Checking driver type");
+  expect(html).not.toContain("Passenger workspace");
+  expect(html).not.toContain("Driver type needs setup");
 });

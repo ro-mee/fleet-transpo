@@ -44,6 +44,7 @@ import {
   retryIncidentDeadLetters,
 } from "../../../lib/sync";
 import { QUICK_ACTION_ROUTES } from "../../../lib/prefetch-routes";
+import { captureCargoSession, isCurrentCargoSession } from "../../../lib/cargo-sync";
 import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 
 
@@ -56,10 +57,10 @@ import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 // compiling under the strict preserve-manual-memoization rule): first card
 // NEXT TRIP, the rest UPCOMING, plus a "+N more" footer reusing the same
 // /trips destination as the section heading.
-const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview, preShiftPassed = true }) {
+const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview, preShiftPassed = true, driverType }) {
   const { colors, type } = useTheme();
   return <>
-    {trips.map((trip, i) => <DriverTripCard workspace={resolveDriverWorkspace({ trip })} key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
+    {trips.map((trip, i) => <DriverTripCard workspace={resolveDriverWorkspace({ driverType, trip })} key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
       offline={offline} nowMs={nowMs} canManage={canManage} busy={busy} preShiftPassed={preShiftPassed}
       onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview} />)}
     {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
@@ -82,6 +83,7 @@ export default function Home() {
   const [trips, setTrips] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
   const [driverProfile, setDriverProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const skeletonPulse = useSharedSkeletonPulse(loading);
   const [refreshing, setRefreshing] = useState(false);
@@ -140,6 +142,8 @@ export default function Home() {
   const [tripsSyncedAt, setTripsSyncedAt] = useState(null);
   const [meSyncedAt, setMeSyncedAt] = useState(null);
   const driverId = resolveDriverId(user);
+  const [confirmedSession, setConfirmedSession] = useState(null);
+  const liveConfirmed = isCurrentCargoSession(confirmedSession);
   // Unstable counts as online (the amber banner speaks for it) — only a fully
   // offline verdict switches the dashboard to saved data.
   const { status } = useConnectivity();
@@ -225,8 +229,8 @@ export default function Home() {
   ]);
   const homeEmptyState = emptyStateKey ? DUTY_EMPTY_STATES[emptyStateKey] : null;
 
-  const workspace = resolveDriverWorkspace({ trip: activeTrip, assignedVehicle: driverProfile?.assignedVehicle });
-  const canManageTrip = canAction(user, ACTIONS.MANAGE_TRIP);
+  const workspace = resolveDriverWorkspace({ driverType: driverProfile?.driverType, trip: activeTrip, assignedVehicle: driverProfile?.assignedVehicle });
+  const canManageTrip = canAction(user, ACTIONS.MANAGE_TRIP) && !offline && liveConfirmed;
   const canReportLocation = canAction(user, ACTIONS.REPORT_LOCATION);
   const canReportFuel = canAction(user, ACTIONS.REPORT_FUEL);
 
@@ -247,19 +251,23 @@ export default function Home() {
   );
 
   const load = useCallback(async () => {
+    const session = captureCargoSession(user?.employeeId);
+    if (!session) return;
     // Offline Read Mode: show last-known home data instantly (offline
     // included), then revalidate. Statuses are local constants — no fetch.
-    if (driverId) {
+    if (driverId && !isCurrentCargoSession(confirmedSession)) {
       const [tripsC, meC] = await Promise.all([
         getCached(driverId, CACHE_KEYS.HOME_TRIPS),
         getCached(driverId, CACHE_KEYS.DRIVER_ME),
       ]);
+      if (!isCurrentCargoSession(session)) return;
       if (tripsC) {
         setTrips(Array.isArray(tripsC.data) ? tripsC.data : []);
         setTripsSyncedAt(tripsC.syncedAt ?? Date.now());
       }
       if (meC?.data) {
         setDriverProfile(meC.data);
+        setProfileLoading(false);
         setMeSyncedAt(meC.syncedAt ?? Date.now());
       }
       try {
@@ -280,10 +288,12 @@ export default function Home() {
           getActiveStatuses(),
           api.get("/api/driver/me"),
         ]);
+        if (!isCurrentCargoSession(session)) return;
         const list = Array.isArray(data) ? data : [];
         setTrips(list);
         setActiveStatuses(active);
         setDriverProfile(me);
+        setProfileLoading(false);
         // Display-only: refresh the cache, never treat it as authority.
         // Confirmed empty counts too — the server answered; stamp it, so the
         // hero's "All clear" claim stays honest offline.
@@ -291,10 +301,14 @@ export default function Home() {
           await setCached(driverId, CACHE_KEYS.HOME_TRIPS, list);
           if (me) await setCached(driverId, CACHE_KEYS.DRIVER_ME, me);
         }
+        if (!isCurrentCargoSession(session)) return;
+        setConfirmedSession(me ? session : null);
         setTripsSyncedAt(Date.now());
         if (me) setMeSyncedAt(Date.now());
         return;
       } catch (e) {
+        if (!isCurrentCargoSession(session)) return;
+        setConfirmedSession(null);
         if (attempt === 0 && shouldAutoRetry(e)) {
           await new Promise((r) => setTimeout(r, LIST_AUTO_RETRY_MS));
           continue;
@@ -306,15 +320,18 @@ export default function Home() {
         if (!isTransportFailure(e)) setError(e.message || "Could not load your trips.");
         return;
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (isCurrentCargoSession(session)) {
+          setLoading(false);
+          setProfileLoading(false);
+          setRefreshing(false);
+        }
       }
     }
-  }, [driverId]);
+  }, [driverId, user?.employeeId, confirmedSession]);
 
   useFocusEffect(
     useCallback(() => {
-      if (!shouldRevalidateHome(tripsSyncedAt)) {
+      if (liveConfirmed && !shouldRevalidateHome(tripsSyncedAt)) {
         getIncidentDeadLetters().then((list) => setDeadLetterCount(list.length)).catch(() => {});
         return;
       }
@@ -323,7 +340,7 @@ export default function Home() {
       });
       getIncidentDeadLetters().then((list) => setDeadLetterCount(list.length)).catch(() => {});
       return () => task?.cancel?.();
-    }, [load, tripsSyncedAt])
+    }, [load, tripsSyncedAt, liveConfirmed])
   );
 
   const onRetryDeadLetters = async () => {
@@ -338,6 +355,7 @@ export default function Home() {
   };
 
   const doAction = useCallback(async (trip, nextObj) => {
+    if (!canManageTrip || !isCurrentCargoSession(confirmedSession) || resolveDriverWorkspace({ driverType: driverProfile?.driverType, trip }).tripReady !== true) return;
     setActingOn(trip.trip_id);
     try {
       const action = nextObj?.action || "start";
@@ -356,7 +374,7 @@ export default function Home() {
                     ? `/api/trips/${trip.trip_id}/dropoff`
                     : `/api/trips/${trip.trip_id}/start`;
       const body = action === "accept" ? { accept: true } : {};
-      const res = await api.put(path, body);
+      const res = await api.put(path, body, { queueOnFailure: false });
       // PR #3.1: queued reached the outbox, not the server — say so.
       if (wasQueued(res)) AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
       await load();
@@ -365,11 +383,12 @@ export default function Home() {
     } finally {
       setActingOn(null);
     }
-  }, [load]);
+  }, [load, canManageTrip, confirmedSession, driverProfile?.driverType]);
 
   const handleTripAction = useCallback(async (trip) => {
-    if (!canManageTrip || resolveDriverWorkspace({ trip }).tripReady !== true) return;
+    if (!canManageTrip || resolveDriverWorkspace({ driverType: driverProfile?.driverType, trip }).tripReady !== true) return;
     const nextObj = await getNextStatus(trip.trip_status);
+    if (!isCurrentCargoSession(confirmedSession)) return;
     if (!nextObj || !nextObj.status) {
       AppAlert.alert("Trip Completed or Paused", "No further action is required for this trip at this time.");
       return;
@@ -393,8 +412,9 @@ export default function Home() {
     if (isPreStartTrip && nextObj.action === "accept" && trip.pre_trip_status === "Passed" && preShiftPassed) {
       setActingOn(trip.trip_id);
       try {
-        const acceptRes = await api.put(`/api/trips/${trip.trip_id}/accept`, { accept: true });
-        const startRes = await api.put(`/api/trips/${trip.trip_id}/start`, { odometer: Number(trip.current_mileage) || undefined });
+        const acceptRes = await api.put(`/api/trips/${trip.trip_id}/accept`, { accept: true }, { queueOnFailure: false });
+        if (!isCurrentCargoSession(confirmedSession)) return;
+        const startRes = await api.put(`/api/trips/${trip.trip_id}/start`, { odometer: Number(trip.current_mileage) || undefined }, { queueOnFailure: false });
         if (wasQueued(acceptRes) || wasQueued(startRes)) {
           AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
         }
@@ -407,9 +427,10 @@ export default function Home() {
       return;
     }
     doAction(trip, nextObj);
-  }, [canManageTrip, doAction, load, preShiftPassed]);
+  }, [canManageTrip, confirmedSession, driverProfile?.driverType, doAction, load, preShiftPassed]);
 
   const submitOdometer = async () => {
+    if (!canManageTrip || !isCurrentCargoSession(confirmedSession) || resolveDriverWorkspace({ driverType: driverProfile?.driverType, trip: completingTrip }).tripReady !== true) return;
     const val = parseFloat(odometerInput);
     if (!val || isNaN(val) || val <= 0) {
       setOdometerError("Enter a valid odometer reading.");
@@ -427,7 +448,8 @@ export default function Home() {
       setOdometerSaving(true);
       const completeRes = await api.put(
         `/api/trips/${completingTrip.trip_id}/complete`,
-        { end_odometer: val }
+        { end_odometer: val },
+        { queueOnFailure: false }
       );
       if (wasQueued(completeRes)) {
         AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
@@ -679,7 +701,7 @@ export default function Home() {
           onHistory={goHistory} onVehicle={goVehicle}
         />}
 
-        {!loading ? <DriverWorkspaceCard workspace={workspace} trip={activeTrip} assignedVehicle={driverProfile?.assignedVehicle} /> : null}
+        {!loading ? <DriverWorkspaceCard loading={profileLoading && !driverProfile} workspace={workspace} trip={activeTrip} assignedVehicle={driverProfile?.assignedVehicle} /> : null}
 
         {/* Unsent incident reports — quarantined offline, surfaced globally */}
         {deadLetterCount > 0 && (
@@ -748,7 +770,7 @@ export default function Home() {
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} /> : null}
           <AssignmentsHeading onPress={goTrips} title="Upcoming Trips" />
-          <UpcomingTripList trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
+          <UpcomingTripList driverType={driverProfile?.driverType} trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!offline} />
         </>)}
