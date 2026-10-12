@@ -73,3 +73,13 @@ Which vehicle a driver is assigned is **not** a column here — it's [[driver_ve
 ## Related
 
 [[Driver Management]] · [[Driver Consent]] · [[employees]] · [[driver_vehicle_assignments]] · [[vehicles]] · [[Database Overview]] · [[ERD]]
+
+## Driver classification prerequisite — prepared 2026-10-12
+
+Staff can select Passenger or Cargo when adding or editing a driver. Add Driver replaces Initial Duty Status with Driver Classification and submits Available for the initial status. Directory badges, CSV export and profile credentials show classification. Classification is separate from service qualifications and does not grant dispatch approval.
+
+Shared form validation defaults an omitted classification to Passenger. Create defaults only an omitted driver_type; edit leaves it unchanged when omitted. Both APIs reject explicit null, blank, false, zero, wrong-case and unsupported classifications before writes. Edit verifies classification in its existing persisted-field check.
+
+The approved prerequisite prepares idempotent runtime column ensuring for drivers.driver_type VARCHAR(50) DEFAULT 'Passenger' and chk_driver_type CHECK (driver_type IN ('Passenger', 'Cargo')) in both staff driver routes. No migration was added or applied. The offline schema.sql and migration files do not contain this field; runtime DDL was tested only through mocked database boundaries and was not executed against live storage. The generated schema was not hand-edited.
+
+Verification: the three new schema tests failed before implementation; strict API regressions then failed for null, blank, false and zero before correction. Final focused verification passed 62 tests across six files, including connected create/edit/list/detail and shared schemas. Touched-file ESLint passed with zero warnings. No browser, device, provider, upload or live database verification was performed. Mobile workspace routing is a later task.

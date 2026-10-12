@@ -95,6 +95,7 @@ export default function EditDriverPage() {
       license_type: "",
       license_class: "",
       years_of_experience: 0,
+      driver_type: "Passenger",
       driver_status: "Available",
       license_image_url: "",
       license_back_image_url: "",
@@ -164,6 +165,7 @@ export default function EditDriverPage() {
       license_type: normalizeLicenseType(driver.license_type) || driver.license_type || "",
       license_class: driver.license_class || "",
       years_of_experience: driver.years_of_experience ?? 0,
+      driver_type: driver.driver_type || "Passenger",
       driver_status: driver.driver_status || "Available",
       license_image_url: imgUrl,
       license_back_image_url: backUrl,
@@ -326,7 +328,7 @@ export default function EditDriverPage() {
   const updateMutation = useMutation({
     mutationFn: (payload) => updateDriver(id, payload),
     onSuccess: (updatedDriver, payload) => {
-      const persistedFields = ["sex", "license_class", "license_type"];
+      const persistedFields = ["sex", "license_class", "license_type", "driver_type"];
       const mismatch = persistedFields.some(
         (field) => updatedDriver?.[field] !== (payload[field] ?? null)
       );
@@ -368,6 +370,7 @@ export default function EditDriverPage() {
       last_name: data.last_name.trim(),
       license_number: data.license_number.trim(),
       years_of_experience: data.years_of_experience ?? 0,
+      driver_type: data.driver_type || "Passenger",
       position: data.position?.trim() || "Driver",
       license_image_url: licenseImagePreview || data.license_image_url || null,
       license_back_image_url: licenseBackImagePreview || data.license_back_image_url || null,
@@ -555,7 +558,7 @@ export default function EditDriverPage() {
                   <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
                     <IdCard className="w-4 h-4" />
                   </div>
-                  Driver&apos;s License &amp; Duty Status
+                  Driver&apos;s License &amp; Classification
                 </CardTitle>
                 <CardDescription className="text-xs">
                   Official LTO License credentials and employment status.
@@ -641,7 +644,24 @@ export default function EditDriverPage() {
                     <input id="years_of_experience" type="number" min="0" {...form.register("years_of_experience")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data" />
                   </FloatingField>
 
-
+                  <Controller
+                    control={form.control}
+                    name="driver_type"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="Driver Classification"
+                        icon={Briefcase}
+                        className="md:col-span-2"
+                        id="driver_type"
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        error={form.formState.errors.driver_type?.message}
+                      >
+                        <SelectItem value="Passenger">Passenger Driver (Guest &amp; VIP Transport)</SelectItem>
+                        <SelectItem value="Cargo">Cargo Logistics Driver (Supply &amp; Deliveries)</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
                 </div>
               </CardContent>
             </Card>

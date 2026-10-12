@@ -23,7 +23,7 @@ import { WorkScheduleCard } from "@/components/drivers/work-schedule-card";
 import { ServiceQualifications } from "@/components/drivers/service-qualifications";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { getInitials, formatDate } from "@/lib/utils";
+import { getInitials, formatDate, cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -474,7 +474,7 @@ export default function DriverDetailPage() {
                       <div className="p-2 rounded-[12px] bg-blue-500/10 text-blue-500 shadow-xs">
                         <IdCard className="w-4 h-4" />
                       </div>
-                      License &amp; Credentials
+                      License &amp; Classification
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       {driver.license_verified_at ? (
@@ -520,7 +520,18 @@ export default function DriverDetailPage() {
                       </span>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/40">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-border/40">
+                    <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
+                      <span className="text-xs font-semibold text-foreground-muted">Classification</span>
+                      <span className={cn(
+                        "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold tracking-wide uppercase w-max",
+                        driver.driver_type === "Cargo"
+                          ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30"
+                          : "bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-500/30"
+                      )}>
+                        {driver.driver_type === "Cargo" ? "Cargo Logistics" : "Passenger Driver"}
+                      </span>
+                    </div>
                     <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
                       <span className="text-xs font-semibold text-foreground-muted">Class</span>
                       <Badge variant="outline" className="w-max rounded-lg px-2.5 py-0.5 text-xs font-bold border-border/60">{driver.license_class ? `Class ${driver.license_class}` : "Not recorded"}</Badge>

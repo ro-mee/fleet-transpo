@@ -26,7 +26,15 @@ async function ensureDriverColumnsExist() {
       ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(50),
       ADD COLUMN IF NOT EXISTS emergency_contact_address TEXT,
       ADD COLUMN IF NOT EXISTS license_image_url TEXT,
-      ADD COLUMN IF NOT EXISTS license_back_image_url TEXT;
+      ADD COLUMN IF NOT EXISTS license_back_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS driver_type VARCHAR(50) DEFAULT 'Passenger';
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_driver_type') THEN
+          ALTER TABLE drivers ADD CONSTRAINT chk_driver_type CHECK (driver_type IN ('Passenger', 'Cargo'));
+        END IF;
+      END $$;
     `);
     migrationRan = true;
   } catch (err) {
@@ -249,6 +257,9 @@ export async function PUT(req, { params }) {
     const { id } = await params;
     const body = await parseBody(req);
 
+    if (Object.prototype.hasOwnProperty.call(body, "driver_type") && !["Passenger", "Cargo"].includes(body.driver_type)) {
+      return errValidation({ driver_type: "Driver classification must be Passenger or Cargo." });
+    }
     const errors = validateBody(body, {
       first_name: { type: "name", label: "First name", maxLength: 100 },
       last_name: { type: "name", label: "Last name", maxLength: 100 },
@@ -260,6 +271,9 @@ export async function PUT(req, { params }) {
       license_image_url: { type: "mediaUrl", label: "License front scan" },
       license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
+      driver_type: {
+        validate: (v) => (["Passenger", "Cargo"].includes(v) ? null : "Driver classification must be Passenger or Cargo."),
+      },
       driver_status: { maxLength: 30, label: "Driver status" },
       birthdate: {
         type: "date",
@@ -302,6 +316,7 @@ export async function PUT(req, { params }) {
       license_type,
       license_class,
       years_of_experience,
+      driver_type,
       driver_status,
       license_image_url,
       license_back_image_url,
@@ -325,7 +340,7 @@ export async function PUT(req, { params }) {
       `SELECT d.driver_id, d.employee_id, e.email, e.first_name AS employee_first_name,
               e.last_name AS employee_last_name, e.phone AS employee_phone,
               e.position AS employee_position, e.avatar_url AS employee_avatar_url,
-              d.license_number, d.driver_status, d.years_of_experience, d.address,
+              d.license_number, d.driver_type, d.driver_status, d.years_of_experience, d.address,
               d.license_expiry::text AS license_expiry,
               d.license_type, d.license_class, d.license_image_url, d.license_back_image_url,
               d.sex, d.birthdate::text AS birthdate, d.nationality,
@@ -352,6 +367,7 @@ export async function PUT(req, { params }) {
       const exp = Number(years_of_experience);
       driverPayload.years_of_experience = Number.isFinite(exp) ? exp : 0;
     }
+    if (driver_type !== undefined) driverPayload.driver_type = driver_type ?? "Passenger";
     if (driver_status !== undefined) driverPayload.driver_status = driver_status;
     // A picked address WINS over the submitted string, for the same reason it
     // does on POST: the server composed it from its own resolution of the
@@ -422,7 +438,7 @@ export async function PUT(req, { params }) {
       const vals = driverKeys.map((key) => driverPayload[key]);
       const { rows: persistedRows } = await tx.query(
         `UPDATE drivers SET ${setClause} WHERE driver_id = $${driverKeys.length + 1}
-         RETURNING sex, license_class, license_type`,
+         RETURNING sex, license_class, license_type, driver_type`,
         [...vals, id]
       );
       const persisted = persistedRows[0];
@@ -432,7 +448,7 @@ export async function PUT(req, { params }) {
       // these controlled fields must round-trip exactly to what the editor sent.
       // Returning them from the UPDATE makes the check refer to the row that was
       // just written, not a later read that could race another edit.
-      const persistedFields = ["sex", "license_class", "license_type"];
+      const persistedFields = ["sex", "license_class", "license_type", "driver_type"];
       const failedField = persistedFields.find(
         (field) => Object.prototype.hasOwnProperty.call(body, field)
           && persisted[field] !== (driverPayload[field] ?? null)

@@ -196,6 +196,7 @@ export const driverSchema = z.object({
     (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
     z.number().int().min(0, "Years of experience must be a positive number.").max(70).optional()
   ),
+  driver_type: z.enum(["Passenger", "Cargo"]).default("Passenger"),
   driver_status: z.string().default("Available"),
   license_image_url: z.string().optional(),
   license_back_image_url: z.string().optional(),

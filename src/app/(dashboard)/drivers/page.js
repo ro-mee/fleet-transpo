@@ -158,6 +158,7 @@ export default function DriversPage() {
         { label: "License Expiry", key: "license_expiry" },
         { label: "License Class", key: "license_class" },
         { label: "Experience (yrs)", key: "years_of_experience" },
+        { label: "Classification", accessor: (d) => d.driver_type === "Cargo" ? "Cargo Logistics Driver" : "Passenger Driver" },
         { label: "Status", key: "driver_status" },
       ]);
       toast.success(`Exported ${drivers.length} driver${drivers.length === 1 ? "" : "s"}`);
@@ -215,7 +216,17 @@ export default function DriversPage() {
             )}
             <div>
               <p className="font-bold text-sm text-foreground">{name}</p>
-              <p className="text-xs text-foreground-muted font-medium">Driver profile</p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={cn(
+                  "inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase",
+                  row.driver_type === "Cargo"
+                    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30"
+                    : "bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-500/30"
+                )}>
+                  {row.driver_type === "Cargo" ? "Cargo Logistics" : "Passenger"}
+                </span>
+                <span className="text-xs text-foreground-muted font-medium">• Driver profile</span>
+              </div>
             </div>
           </div>
         );

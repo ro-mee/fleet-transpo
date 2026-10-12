@@ -85,6 +85,7 @@ export default function NewDriverPage() {
       license_type: "",
       license_class: "",
       years_of_experience: 0,
+      driver_type: "Passenger",
       driver_status: "Available",
       license_image_url: "",
       license_back_image_url: "",
@@ -266,7 +267,8 @@ export default function NewDriverPage() {
       last_name: data.last_name.trim(),
       license_number: data.license_number.trim(),
       years_of_experience: data.years_of_experience ?? 0,
-      driver_status: data.driver_status || "Available",
+      driver_type: data.driver_type || "Passenger",
+      driver_status: "Available",
       position: data.position || "Driver",
       license_image_url: licenseImagePreview || data.license_image_url || null,
       license_back_image_url: licenseBackImagePreview || data.license_back_image_url || null,
@@ -470,7 +472,7 @@ export default function NewDriverPage() {
               <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
                 <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
                   <IdCard className="w-4 h-4 text-blue-500" />
-                  Driver&apos;s License &amp; Duty Status
+                  Driver&apos;s License &amp; Classification
                 </CardTitle>
                 <CardDescription className="text-xs">
                   Official LTO Driver&apos;s License credentials and employment status.
@@ -568,21 +570,19 @@ export default function NewDriverPage() {
 
                     <Controller
                       control={form.control}
-                      name="driver_status"
+                      name="driver_type"
                       render={({ field }) => (
                         <FloatingSelect
-                          label="Initial Duty Status"
-                          icon={UserCheck}
+                          label="Driver Classification"
+                          icon={Briefcase}
                           className="md:col-span-2"
-                          id="driver_status"
+                          id="driver_type"
                           value={field.value}
                           onValueChange={field.onChange}
+                          error={form.formState.errors.driver_type?.message}
                         >
-                          <SelectItem value="Available">Available (Ready for Dispatch)</SelectItem>
-                          <SelectItem value="On Trip">On Trip</SelectItem>
-                          <SelectItem value="Off Duty">Off Duty (Resting)</SelectItem>
-                          <SelectItem value="On Leave">On Leave</SelectItem>
-                          <SelectItem value="Suspended">Suspended</SelectItem>
+                          <SelectItem value="Passenger">Passenger Driver (Guest &amp; VIP Transport)</SelectItem>
+                          <SelectItem value="Cargo">Cargo Logistics Driver (Supply &amp; Deliveries)</SelectItem>
                         </FloatingSelect>
                       )}
                     />

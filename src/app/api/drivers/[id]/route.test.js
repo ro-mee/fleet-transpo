@@ -543,3 +543,12 @@ describe("PUT /api/drivers/[id] — a failure fails hard", () => {
     expect(driverUpdates).toHaveLength(0);
   });
 });
+
+describe("strict driver classification", () => {
+  it.each([null, "", false, 0, "Motorcycle", "cargo"])("rejects explicit unsupported classification %s", async (driver_type) => {
+    installDb();
+    const response = await PUT(request({ driver_type }), context());
+    expect(response.status).toBe(400);
+    expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+});

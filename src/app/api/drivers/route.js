@@ -34,7 +34,15 @@ async function ensureDriverColumnsExist() {
       ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(50),
       ADD COLUMN IF NOT EXISTS emergency_contact_address TEXT,
       ADD COLUMN IF NOT EXISTS license_image_url TEXT,
-      ADD COLUMN IF NOT EXISTS license_back_image_url TEXT;
+      ADD COLUMN IF NOT EXISTS license_back_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS driver_type VARCHAR(50) DEFAULT 'Passenger';
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_driver_type') THEN
+          ALTER TABLE drivers ADD CONSTRAINT chk_driver_type CHECK (driver_type IN ('Passenger', 'Cargo'));
+        END IF;
+      END $$;
     `);
     migrationRan = true;
   } catch (err) {
@@ -71,6 +79,7 @@ export async function GET(req) {
         d.license_verified_by,
         d.license_verification_method,
         d.years_of_experience,
+        d.driver_type,
         d.driver_status,
         d.current_latitude,
         d.current_longitude,
@@ -268,6 +277,7 @@ export async function POST(req) {
       license_type,
       license_class,
       years_of_experience,
+      driver_type,
       driver_status,
       license_image_url,
       license_back_image_url,
@@ -284,6 +294,9 @@ export async function POST(req) {
     } = body;
 
     // Validate required fields
+    if (Object.prototype.hasOwnProperty.call(body, "driver_type") && !["Passenger", "Cargo"].includes(body.driver_type)) {
+      return errValidation({ driver_type: "Driver classification must be Passenger or Cargo." });
+    }
     const errors = validateBody(body, {
       first_name: { required: true, type: "name", label: "First name", maxLength: 100 },
       last_name: { required: true, type: "name", label: "Last name", maxLength: 100 },
@@ -296,6 +309,9 @@ export async function POST(req) {
       license_image_url: { type: "mediaUrl", label: "License front scan" },
       license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
+      driver_type: {
+        validate: (v) => (["Passenger", "Cargo"].includes(v) ? null : "Driver classification must be Passenger or Cargo."),
+      },
       birthdate: {
         type: "date",
         label: "Birthdate",
@@ -480,11 +496,11 @@ export async function POST(req) {
         const { rows: driverRows } = await tx.query(
           `INSERT INTO drivers
              (employee_id, license_number, license_expiry, license_type, license_class,
-              years_of_experience, driver_status, address, sex, birthdate, nationality,
+              years_of_experience, driver_type, driver_status, address, sex, birthdate, nationality,
               license_image_url, license_back_image_url, emergency_contact_name,
               emergency_contact_phone, emergency_contact_address,
               address_id, emergency_contact_address_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
            RETURNING driver_id`,
           [
             empId,
@@ -493,6 +509,7 @@ export async function POST(req) {
             normalizeLicenseType(license_type),
             normalizeLicenseClasses(license_class)?.join(", ") || null,
             years_of_experience ? Number(years_of_experience) : 0,
+            driver_type ?? "Passenger",
             driver_status || "Available",
             residentialText,
             sex || null,
@@ -517,7 +534,7 @@ export async function POST(req) {
           action: "create",
           resource: "drivers",
           resourceId: newDriverId,
-          newValues: { changed_fields: ["employee", "license", "profile"], driver_status: driver_status || "Available", outcome: "created" },
+          newValues: { changed_fields: ["employee", "license", "profile"], driver_type: driver_type ?? "Passenger", driver_status: driver_status || "Available", outcome: "created" },
         });
 
         return newDriverId;

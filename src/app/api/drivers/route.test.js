@@ -522,3 +522,12 @@ describe("POST /api/drivers — the payload the address form actually builds", (
     expect(columns.address_id).toBe(RESIDENTIAL_ID);
   });
 });
+
+describe("strict driver classification", () => {
+  it.each([null, "", false, 0, "Motorcycle", "cargo"])("rejects explicit unsupported classification %s", async (driver_type) => {
+    installDb();
+    const response = await POST(request(baseBody({ driver_type })));
+    expect(response.status).toBe(400);
+    expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+});
