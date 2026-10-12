@@ -611,3 +611,17 @@ The public `/cargo-demo` route is linked from sign-in and uses the same static s
 The screen is a read-only showcase. Scenario and timeline selection change only component state; this route does not use the cargo API, cargo form drafts, sync queues, device storage, photo uploads or partner messaging. Its notice labels all examples as simulated and says no real trip or order changes. Source references and evidence remain absent. Production cargo endpoints and source thumbnails remain disabled under the existing approval and provider gates.
 
 Verification: 16 focused fixture, presentation and rendered-screen tests passed; the full mobile regression passed **632/632 across59 files**; touched ESLint had zero warnings; Android, iOS and web Expo export succeeded. Native-device acceptance remains a separate check.
+
+## Driver workspace routing by vehicle operational use — implemented 2026-10-12
+
+The driver's active trip selects the mobile workspace from that trip's assigned vehicle. When Home has no active trip, it uses the driver's current standing vehicle assignment; completed trips never choose the workspace. `/api/driver/me` returns the standing vehicle's `operationalUse`. The mobile trips feed returns each trip vehicle's `operational_use` and the transportation request's explicit `is_vip` flag when present.
+
+A Passenger vehicle opens the hotel guest transportation workspace, with the supplied guest, passenger count and VIP cue. A Cargo vehicle opens one shared hotel and restaurant cargo workspace. Service code/name may label the cargo source; they do not select a separate workflow. Both modes keep the existing driver account role and shared Home, Map, Trips and Profile navigation.
+
+Map, Trips, Trip Details and direct cargo routes resolve the exact trip's vehicle. The stored `load_type` remains the source for trip content and historical labels. A typed trip must match the vehicle's operational use before acceptance or start. Missing vehicle/use, missing Cargo trip type and mismatches show a Fleet/Dispatch explanation and disable the affected actions; direct cargo links hide manifest and verification controls for incompatible trips. Legacy untyped trips remain Passenger-only. Both accept routes and trip start enforce this rule before their status write, while the existing qualification, cargo, geofence and trip state-machine checks remain active. Declining remains available.
+
+No schema migration was needed. Cargo provider access and source-image references remain disabled under their existing policies; no provider, media permission, driver-role or trip-state policy was enabled by this routing change. The screens reuse the existing Clay theme, semantic colors, Plus Jakarta Sans typography and accessible touch targets.
+
+Verification: the affected mobile/API regression passed **840 tests across 71 files**; strict lint passed with zero warnings; Android Expo JavaScript export succeeded. The export reports the existing missing `services/google-services.json` configuration. Native acceptance remains pending because neither `adb` nor an Android emulator is available; contrast, large-text, landscape, safe-area and screen-reader behavior were not checked on device. No live database or production cargo provider was used.
+
+Implementation plan: `docs/superpowers/plans/2026-10-12-mobile-ui-by-vehicle-operational-use.md`.

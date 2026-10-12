@@ -108,3 +108,17 @@ Both notices are computed from the **loaded row** (`storedCategoryMissing` / `st
 The root cause of the reproducible path is a **warm react-query cache**: `/fleet/vehicles/[id]` and `/fleet/vehicles/[id]/edit` share the `["vehicle", id]` key, so "Edit Details" mounts the form with the row already available on the first render — before any effect can run. The form now derives its `useForm` `defaultValues` from that cached row (a shared `vehicleToFormValues` mapper also used by the reset effect), so the correct values are present from the first paint. A cold load, where the row is not cached, still gates on a loading state until the reset effect has run, and offers retry/back actions if loading fails. `vehicleId` is captured in the initial `initializedVehicleId` state so the gate is satisfied on the warm path without an effect.
 
 No database change was needed. The 5 `fleet/vehicles/new/page.test.js` tests (which pin the "never recorded" copy and fail if the gate blocks the form) pass, along with scoped ESLint. A post-fix browser recheck remains pending because the local app session expired.
+
+## Driver workspace follows vehicle operational use — implemented 2026-10-12
+
+The vehicle's existing `operational_use` (`Passenger` or `Cargo`) selects the driver's mobile workspace. An active trip always uses its own assigned vehicle; Home uses the driver's current standing vehicle only when there is no active trip. Completed trips and the driver's account role do not select the workspace.
+
+Passenger vehicles use the hotel guest transportation flow. Cargo vehicles use one shared hotel/restaurant supply flow. Service code and service name can label the source on Cargo screens, but cannot change the workflow. The mobile trips feed exposes the explicit request VIP flag for passenger presentation when available.
+
+For typed work, the request's stored `load_type` must match the assigned vehicle's `operational_use` before the driver can accept or start. The regular and mobile accept routes and trip-start route enforce the same rule before writing the trip status. A missing vehicle/use, missing Cargo type or mismatch is shown to the driver with a Fleet/Dispatch next step, and affected accept/start/cargo actions remain disabled. A legacy untyped request remains supported only for a Passenger vehicle; declining a trip remains supported.
+
+The existing trip, qualification and cargo lifecycle rules remain active. No database migration, provider enablement or source-image permission was added. This routing uses the current vehicle and request fields plus the existing Clay mobile design system.
+
+Verification: **840 affected tests across 71 files**, strict lint with zero warnings, and successful Android Expo JavaScript export. The export reports the existing absent `services/google-services.json`; native device/emulator acceptance remains pending because `adb` and emulator tooling are unavailable. No live database or production cargo provider was used.
+
+Implementation plan: `docs/superpowers/plans/2026-10-12-mobile-ui-by-vehicle-operational-use.md`.
