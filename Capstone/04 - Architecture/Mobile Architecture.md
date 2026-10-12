@@ -625,3 +625,13 @@ The shared server evaluator compares saved driver_type, vehicle operational_use 
 The existing qualification, duty, trip-state, inspection, GPS, geofence, privacy and cargo lifecycle checks remain active. No database migration was added or applied, no live database was changed, and production Cargo providers and source-image references remain disabled. The driver_type runtime column setup has only been tested through mocked database boundaries.
 
 Verification: 567 affected automated tests passed across 37 files; strict ESLint passed with zero warnings; the Android JavaScript export completed successfully. Expo reported that mobile/services/google-services.json is absent. Native acceptance was not run because adb and emulator tooling are unavailable.
+
+### Review fix round — 2026-10-13
+
+Independent review found one correctness defect and test gaps; fixed in commit `aa9a8701`.
+
+* **Stored trip type on blocked mismatch.** Home, Map, Trips and Trip Detail previously overwrote the presented trip `load_type` with the driver's own classification while still blocking the action, so a blocked Cargo trip could show a passenger label. Presentation now renders the stored `trip.load_type` whenever `workspace.tripReady === false`; the driver-mode label is reserved for the workspace heading. Blocking logic and the server evaluator are unchanged.
+* **Pinned offline and cache-miss gates.** New Home render tests prove a cached known type still renders its workspace while offline but every trip action stays disabled, and that a missing cached profile stays unclassified (`profile == null && serverConfirmed == false`) with no Passenger default.
+* **Pinned server input classes.** New route tests cover a Passenger-driver/Cargo-vehicle dispatch create (409, no insert) and saved unsupported/empty driver_type values on web accept, mobile accept and start (409, no state write). The transport-request assignment force-override case already existed.
+
+Verification: focused re-run after the fix passed **251 tests across 11 files** (driver-workspace, cargo-home-render, driver-profile, cargo-view-model, cargo-verification-render, driver/me, vehicle-load-compatibility, driver-assignments, dispatch route, trips accept, trips start). Mutation checks confirmed the new tests fail when their guarded condition is removed.

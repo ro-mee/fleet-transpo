@@ -768,6 +768,8 @@ The approved prerequisite prepares idempotent runtime column ensuring for driver
 
 Verification: the three new schema tests failed before implementation; strict API regressions then failed for null, blank, false and zero before correction. Final focused verification passed 62 tests across six files, including connected create/edit/list/detail and shared schemas. Touched-file ESLint passed with zero warnings. No browser, device, provider, upload or live database verification was performed. Mobile workspace routing is documented below and in [[Mobile Architecture]].
 
+Independent review of the mobile workspace implementation found one presentation defect (blocked mismatches showed the driver-mode label instead of the stored trip type) plus test gaps for the offline action gate, missing cached profile, and server input classes. Fix commit `aa9a8701` renders the stored trip type on blocked mismatch and adds the missing cases; focused verification after the fix passed 251 tests across 11 files. See [[Mobile Architecture]] "Review fix round — 2026-10-13".
+
 ## Driver type selects the mobile workspace — 2026-10-12
 
 The saved drivers.driver_type from the authenticated profile selects the signed-in driver's mobile workspace: Passenger opens guest and VIP transportation; Cargo opens one shared hotel and restaurant supplies workspace. Vehicle use, trip load, service name and employee role do not select a different workspace.
