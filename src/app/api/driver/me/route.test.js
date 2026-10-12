@@ -144,7 +144,12 @@ describe("GET /api/driver/me", () => {
         return { rows: [] };
       }
       if (text.includes("FROM vehicleassignments") || text.includes("FROM driver_vehicle_assignments")) {
-        return { rows: [] };
+        return { rows: [{
+          vehicle_id: 31,
+          plate_number: "ABC-1234",
+          model: "Isuzu NKR",
+          operational_use: "Cargo",
+        }] };
       }
       if (text.includes("FROM policy_consents") || text.includes("FROM driver_consents")) {
         return { rows: [] };
@@ -176,5 +181,8 @@ describe("GET /api/driver/me", () => {
     expect(body.sex).toBe("M");
     expect(body.nationality).toBe("FILIPINO");
     expect(body.position).toBe("Driver");
+    expect(body.assignedVehicle.operationalUse).toBe("Cargo");
+    const assignmentSelect = mocks.query.mock.calls.find(([sql]) => String(sql).includes("FROM driver_vehicle_assignments"))?.[0] ?? "";
+    expect(assignmentSelect).toContain("v.operational_use");
   });
 });

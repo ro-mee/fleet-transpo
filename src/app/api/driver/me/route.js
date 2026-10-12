@@ -112,7 +112,7 @@ export async function GET(req) {
     try {
       const { rows: av } = await query(
         `SELECT a.assignment_id, a.assigned_from,
-                v.vehicle_id, v.plate_number, v.model, v.vehicle_status,
+                v.vehicle_id, v.plate_number, v.model, v.operational_use, v.vehicle_status,
                 v.seating_capacity, v.vehicle_name, v.image_url
            FROM driver_vehicle_assignments a
            JOIN vehicles v ON v.vehicle_id = a.vehicle_id AND v.deleted_at IS NULL
@@ -211,6 +211,7 @@ export async function GET(req) {
             vehicleId: assignedVehicle.vehicle_id,
             plateNumber: assignedVehicle.plate_number,
             model: assignedVehicle.model,
+            operationalUse: assignedVehicle.operational_use,
             name: assignedVehicle.vehicle_name,
             vehicleStatus: assignedVehicle.vehicle_status,
             seatingCapacity: assignedVehicle.seating_capacity,
