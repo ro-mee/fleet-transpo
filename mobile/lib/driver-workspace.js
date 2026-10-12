@@ -13,7 +13,7 @@ function getMode(operationalUse) {
   return 'unassigned';
 }
 
-function resolveDriverWorkspace({ trip, assignedVehicle } = {}) {
+export function resolveDriverWorkspace({ trip, assignedVehicle } = {}) {
   const hasTrip = trip != null;
   const vehicle = hasTrip ? trip : assignedVehicle;
   const source = hasTrip ? 'trip' : vehicle ? 'standing_assignment' : null;
@@ -61,5 +61,3 @@ function resolveDriverWorkspace({ trip, assignedVehicle } = {}) {
 
   return { mode, tripReady: true, vehicleId, operationalUse, source, reason: null };
 }
-
-module.exports = { resolveDriverWorkspace };
