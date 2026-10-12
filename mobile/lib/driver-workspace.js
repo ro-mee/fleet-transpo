@@ -1,23 +1,25 @@
-const MODES_BY_OPERATIONAL_USE = {
-  Cargo: 'cargo',
-  Passenger: 'passenger',
-};
-
 function getOperationalUse(vehicle) {
   return vehicle?.operational_use ?? vehicle?.operationalUse ?? null;
 }
 
-function getVehicleId(vehicle) {
-  return vehicle?.vehicle_id ?? vehicle?.id ?? null;
+function getVehicleId(vehicle, isTrip) {
+  if (isTrip) return vehicle?.vehicle_id ?? null;
+  return vehicle?.vehicleId ?? vehicle?.vehicle_id ?? vehicle?.id ?? null;
+}
+
+function getMode(operationalUse) {
+  if (operationalUse === 'Cargo') return 'cargo';
+  if (operationalUse === 'Passenger') return 'passenger';
+  return 'unassigned';
 }
 
 function resolveDriverWorkspace({ trip, assignedVehicle } = {}) {
   const hasTrip = trip != null;
   const vehicle = hasTrip ? trip : assignedVehicle;
   const source = hasTrip ? 'trip' : vehicle ? 'standing_assignment' : null;
-  const vehicleId = getVehicleId(vehicle);
+  const vehicleId = getVehicleId(vehicle, hasTrip);
   const operationalUse = getOperationalUse(vehicle);
-  const mode = MODES_BY_OPERATIONAL_USE[operationalUse] ?? 'unassigned';
+  const mode = getMode(operationalUse);
   const tripReadyWhenSupplied = hasTrip ? false : null;
 
   if (!vehicleId) {
