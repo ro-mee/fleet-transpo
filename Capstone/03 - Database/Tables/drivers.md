@@ -5,7 +5,7 @@ tags: [database, table, drivers]
 source:
   - src/lib/consent/driver-visibility.js
   - src/lib/driver/
-last_verified: 2026-09-27
+last_verified: 2026-10-12
 ---
 
 # Table: `drivers`
@@ -82,4 +82,4 @@ Shared form validation defaults an omitted classification to Passenger. Create d
 
 The approved prerequisite prepares idempotent runtime column ensuring for drivers.driver_type VARCHAR(50) DEFAULT 'Passenger' and chk_driver_type CHECK (driver_type IN ('Passenger', 'Cargo')) in both staff driver routes. No migration was added or applied. The offline schema.sql and migration files do not contain this field; runtime DDL was tested only through mocked database boundaries and was not executed against live storage. The generated schema was not hand-edited.
 
-Verification: the three new schema tests failed before implementation; strict API regressions then failed for null, blank, false and zero before correction. Final focused verification passed 62 tests across six files, including connected create/edit/list/detail and shared schemas. Touched-file ESLint passed with zero warnings. No browser, device, provider, upload or live database verification was performed. Mobile workspace routing is a later task.
+Verification: the three new schema tests failed before implementation; strict API regressions then failed for null, blank, false and zero before correction. Final focused verification passed 62 tests across six files, including connected create/edit/list/detail and shared schemas. Touched-file ESLint passed with zero warnings. No browser, device, provider, upload or live database verification was performed. The saved classification now selects the mobile workspace; vehicle use and stored request load are separate compatibility checks. See [[Driver Management]] and [[Mobile Architecture]].

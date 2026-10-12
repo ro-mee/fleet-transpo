@@ -12,11 +12,18 @@ source:
   - mobile/lib/tracking.js
   - src/app/api/mobile/driver/inspections/route.js
   - src/lib/inspections/checklists.js
-last_verified: 2026-10-08
+last_verified: 2026-10-12
 related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 ---
 
 # Feature: Trips
+
+## Stored driver type on accept and start — 2026-10-12
+
+Web accept, mobile accept, and trip start re-read the saved driver classification, the operational use of the vehicle ID stored on the trip, and the persisted request load inside the existing write transaction. The shared compatibility evaluator returns HTTP 409 before the trip status changes when the driver, vehicle, and load do not agree, when the saved classification is missing or unsupported, or when a Cargo trip has no typed load. A client-supplied `driverType` cannot override the saved value. Legacy Passenger trips with a null load type remain allowed. Existing qualification, trip-state, cargo checkpoint, manifest, and start-inspection gates remain in their existing paths.
+
+Verification: the focused evaluator, state-machine, transition-service, accept, and start run passed 103 tests across 6 files; strict ESLint passed with zero warnings; `git diff --check` passed. No migration, live database, or provider was activated.
+
 
 ## Staff cargo review and source links — Task 11, 2026-10-11
 

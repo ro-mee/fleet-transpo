@@ -6,7 +6,7 @@ source:
   - src/app/api/vehicles
   - src/app/(dashboard)/fleet
   - src/lib/vehicles/odometer.js
-last_verified: 2026-08-11
+last_verified: 2026-10-12
 related: ["[[Dispatch]]", "[[Maintenance]]"]
 ---
 
@@ -109,16 +109,12 @@ The root cause of the reproducible path is a **warm react-query cache**: `/fleet
 
 No database change was needed. The 5 `fleet/vehicles/new/page.test.js` tests (which pin the "never recorded" copy and fail if the gate blocks the form) pass, along with scoped ESLint. A post-fix browser recheck remains pending because the local app session expired.
 
-## Driver workspace follows vehicle operational use — implemented 2026-10-12
+## Driver and vehicle compatibility — corrected 2026-10-12
 
-The vehicle's existing `operational_use` (`Passenger` or `Cargo`) selects the driver's mobile workspace. An active trip always uses its own assigned vehicle; Home uses the driver's current standing vehicle only when there is no active trip. Completed trips and the driver's account role do not select the workspace.
+The saved driver type selects the mobile workspace. A Passenger driver stays in guest and VIP transportation, and a Cargo driver stays in the one shared hotel and restaurant supplies flow, regardless of the assigned vehicle. Vehicle operational_use and the request's stored load_type decide whether that particular pairing may operate; they never change the driver's workspace.
 
-Passenger vehicles use the hotel guest transportation flow. Cargo vehicles use one shared hotel/restaurant supply flow. Service code and service name can label the source on Cargo screens, but cannot change the workflow. The mobile trips feed exposes the explicit request VIP flag for passenger presentation when available.
+The shared server check uses stored database values during staff assignment, dispatch creation or reassignment, and trip accept/start. Incompatible pairings return HTTP 409 before the write. The force option cannot bypass the check. Incompatible suggestions are filtered from recommendations and availability, and changing a driver's type is blocked while it would conflict with an active vehicle pairing or in-progress trip.
 
-For typed work, the request's stored `load_type` must match the assigned vehicle's `operational_use` before the driver can accept or start. The regular and mobile accept routes and trip-start route enforce the same rule before writing the trip status. A missing vehicle/use, missing Cargo type or mismatch is shown to the driver with a Fleet/Dispatch next step, and affected accept/start/cargo actions remain disabled. A legacy untyped request remains supported only for a Passenger vehicle; declining a trip remains supported.
+A Cargo custodian may be paired with a Cargo vehicle without a trip. Actual Cargo work requires a stored Cargo load type. Legacy untyped work remains supported only for Passenger driver/vehicle pairings. A missing or unsupported driver type, missing vehicle use, or other mismatch blocks the affected work and sends staff to resolve the assignment.
 
-The existing trip, qualification and cargo lifecycle rules remain active. No database migration, provider enablement or source-image permission was added. This routing uses the current vehicle and request fields plus the existing Clay mobile design system.
-
-Verification: **840 affected tests across 71 files**, strict lint with zero warnings, and successful Android Expo JavaScript export. The export reports the existing absent `services/google-services.json`; native device/emulator acceptance remains pending because `adb` and emulator tooling are unavailable. No live database or production cargo provider was used.
-
-Implementation plan: `docs/superpowers/plans/2026-10-12-mobile-ui-by-vehicle-operational-use.md`.
+Existing vehicle qualification and readiness rules remain separate. No migration or live database change was made, and no production Cargo provider or source-image access was enabled. See [[Driver Management]], [[Mobile Architecture]] and [[Trips]].

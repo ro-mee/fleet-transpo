@@ -17,7 +17,7 @@ source:
   - src/services/driver-schedule.service.js
   - src/services/driver-qualification.service.js
   - src/components/drivers/service-qualifications.jsx
-last_verified: 2026-10-09
+last_verified: 2026-10-12
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -766,4 +766,16 @@ Shared form validation defaults an omitted classification to Passenger. Create d
 
 The approved prerequisite prepares idempotent runtime column ensuring for drivers.driver_type VARCHAR(50) DEFAULT 'Passenger' and chk_driver_type CHECK (driver_type IN ('Passenger', 'Cargo')) in both staff driver routes. No migration was added or applied. The offline schema.sql and migration files do not contain this field; runtime DDL was tested only through mocked database boundaries and was not executed against live storage. The generated schema was not hand-edited.
 
-Verification: the three new schema tests failed before implementation; strict API regressions then failed for null, blank, false and zero before correction. Final focused verification passed 62 tests across six files, including connected create/edit/list/detail and shared schemas. Touched-file ESLint passed with zero warnings. No browser, device, provider, upload or live database verification was performed. Mobile workspace routing is a later task.
+Verification: the three new schema tests failed before implementation; strict API regressions then failed for null, blank, false and zero before correction. Final focused verification passed 62 tests across six files, including connected create/edit/list/detail and shared schemas. Touched-file ESLint passed with zero warnings. No browser, device, provider, upload or live database verification was performed. Mobile workspace routing is documented below and in [[Mobile Architecture]].
+
+## Driver type selects the mobile workspace — 2026-10-12
+
+The saved drivers.driver_type from the authenticated profile selects the signed-in driver's mobile workspace: Passenger opens guest and VIP transportation; Cargo opens one shared hotel and restaurant supplies workspace. Vehicle use, trip load, service name and employee role do not select a different workspace.
+
+A missing or unsupported driver type shows setup guidance and blocks work. A known cached type may show its workspace while offline, but operational actions stay disabled until the current profile and assignment are confirmed by the server. A missing vehicle or a mismatched vehicle or trip load keeps the driver's workspace visible and blocks actions for that assignment.
+
+The shared server check compares the stored driver type, vehicle operational_use and persisted request load_type. Staff assignment, dispatch creation/reassignment, and trip accept/start reject incompatible pairings with HTTP 409; force does not bypass a type mismatch. The check filters incompatible recommendations and availability. A driver type edit is rejected while it would conflict with an active vehicle pairing or in-progress trip. A matching Cargo custody pair without a trip is allowed, while actual Cargo work requires a typed Cargo load. Legacy untyped work remains a narrow Passenger-only case.
+
+Existing qualification, duty, trip-state, inspection, GPS, geofence and cargo lifecycle gates remain separate. No migration was added or applied; runtime column setup was tested through mocks and not against live storage. Cargo providers and source-image references remain disabled.
+
+Verification for the completed workspace plan: 567 affected regression tests passed across 37 files; strict lint passed with zero warnings; Android JavaScript export succeeded. No Android device or emulator was available for native acceptance. See [[Mobile Architecture]], [[Fleet And Vehicles]], and [[Trips]].

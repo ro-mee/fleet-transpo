@@ -30,7 +30,7 @@ source:
   - mobile/app/(app)/(tabs)/map.js
   - mobile/lib/storage.js
   - mobile/AGENTS.md
-last_verified: 2026-09-27
+last_verified: 2026-10-12
 ---
 
 # Mobile Architecture
@@ -612,16 +612,16 @@ The screen is a read-only showcase. Scenario and timeline selection change only 
 
 Verification: 16 focused fixture, presentation and rendered-screen tests passed; the full mobile regression passed **632/632 across59 files**; touched ESLint had zero warnings; Android, iOS and web Expo export succeeded. Native-device acceptance remains a separate check.
 
-## Driver workspace routing by vehicle operational use — implemented 2026-10-12
+## Driver workspace routing by saved driver type — implemented 2026-10-12
 
-The driver's active trip selects the mobile workspace from that trip's assigned vehicle. When Home has no active trip, it uses the driver's current standing vehicle assignment; completed trips never choose the workspace. `/api/driver/me` returns the standing vehicle's `operationalUse`. The mobile trips feed returns each trip vehicle's `operational_use` and the transportation request's explicit `is_vip` flag when present.
+The saved drivers.driver_type from the authenticated profile is the only selector for the mobile workspace. GET /api/driver/me returns that value as driverType; the assigned vehicle provides vehicle details and assignment status, but does not choose Passenger or Cargo. The type stays fixed when a trip, vehicle or service label changes.
 
-A Passenger vehicle opens the hotel guest transportation workspace, with the supplied guest, passenger count and VIP cue. A Cargo vehicle opens one shared hotel and restaurant cargo workspace. Service code/name may label the cargo source; they do not select a separate workflow. Both modes keep the existing driver account role and shared Home, Map, Trips and Profile navigation.
+Passenger drivers use the guest and VIP transportation workspace. Cargo drivers use one shared supplies workspace for hotel and restaurant work; trusted service metadata may label the source but never creates a second Cargo mode. Shared navigation and the driver's account role remain unchanged.
 
-Map, Trips, Trip Details and direct cargo routes resolve the exact trip's vehicle. The stored `load_type` remains the source for trip content and historical labels. A typed trip must match the vehicle's operational use before acceptance or start. Missing vehicle/use, missing Cargo trip type and mismatches show a Fleet/Dispatch explanation and disable the affected actions; direct cargo links hide manifest and verification controls for incompatible trips. Legacy untyped trips remain Passenger-only. Both accept routes and trip start enforce this rule before their status write, while the existing qualification, cargo, geofence and trip state-machine checks remain active. Declining remains available.
+For a missing or unsupported type, Home shows setup guidance and operational actions are disabled. A known cached type may render its workspace while offline, but actions require a current server-confirmed profile and assignment. With no assigned vehicle, the correct type-specific workspace remains visible with work blocked. A mismatch never changes the workspace; it blocks the affected trip actions and directs the driver to Dispatch.
 
-No schema migration was needed. Cargo provider access and source-image references remain disabled under their existing policies; no provider, media permission, driver-role or trip-state policy was enabled by this routing change. The screens reuse the existing Clay theme, semantic colors, Plus Jakarta Sans typography and accessible touch targets.
+The shared server evaluator compares saved driver_type, vehicle operational_use and persisted request load_type. Assignment, dispatch, accept and start routes re-read those stored values before their final write and return 409 for a mismatch; a client-supplied type and the dispatcher's force option cannot override the rule. Recommendations and availability filter incompatible pairs. Driver-type edits are blocked when they would invalidate an active vehicle pairing or in-progress trip. A Cargo custodian and Cargo vehicle may be paired without a trip; actual Cargo work requires a typed Cargo load. Legacy untyped work is allowed only for Passenger driver/vehicle pairings.
 
-Verification: the affected mobile/API regression passed **840 tests across 71 files**; strict lint passed with zero warnings; Android Expo JavaScript export succeeded. The export reports the existing missing `services/google-services.json` configuration. Native acceptance remains pending because neither `adb` nor an Android emulator is available; contrast, large-text, landscape, safe-area and screen-reader behavior were not checked on device. No live database or production cargo provider was used.
+The existing qualification, duty, trip-state, inspection, GPS, geofence, privacy and cargo lifecycle checks remain active. No database migration was added or applied, no live database was changed, and production Cargo providers and source-image references remain disabled. The driver_type runtime column setup has only been tested through mocked database boundaries.
 
-Implementation plan: `docs/superpowers/plans/2026-10-12-mobile-ui-by-vehicle-operational-use.md`.
+Verification: 567 affected automated tests passed across 37 files; strict ESLint passed with zero warnings; the Android JavaScript export completed successfully. Expo reported that mobile/services/google-services.json is absent. Native acceptance was not run because adb and emulator tooling are unavailable.
