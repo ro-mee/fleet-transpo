@@ -101,6 +101,39 @@ describe("GET /api/driver/me", () => {
     mocks.requireDriver.mockResolvedValue({ user: { employeeId: 10, role: "driver" } });
   });
 
+  it.each(["Passenger", "Cargo"])("returns saved %s classification from the authenticated profile query", async (driverType) => {
+    mocks.query.mockImplementation(async (sql) => ({
+      rows: String(sql).includes("FROM employees e")
+        ? [{ employee_id: 10, driver_id: 59, driver_type: driverType, first_name: "Driver" }]
+        : [],
+    }));
+
+    const response = await GET(new Request("https://fleet.test/api/driver/me?employeeId=999&driverType=Passenger"));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.driverType).toBe(driverType);
+    expect(body.employeeId).toBe(10);
+    expect(body.driverId).toBe(59);
+    expect(body.firstName).toBe("Driver");
+    expect(body.assignedVehicle).toBeNull();
+    const profileQueries = mocks.query.mock.calls.filter(([sql]) => String(sql).includes("FROM employees e"));
+    expect(profileQueries).toHaveLength(1);
+    expect(profileQueries[0][0]).toContain("d.driver_type");
+    expect(profileQueries[0][0]).toContain("WHERE e.employee_id = $1 AND e.deleted_at IS NULL");
+    expect(profileQueries[0][1]).toEqual([10]);
+  });
+
+  it.each([undefined, null, "", "Unsupported", "passenger", " Cargo "])("returns null for unusable saved classification %s", async (driverType) => {
+    mocks.query.mockImplementation(async (sql) => ({
+      rows: String(sql).includes("FROM employees e")
+        ? [{ employee_id: 10, driver_id: 59, driver_type: driverType }]
+        : [],
+    }));
+
+    const response = await GET(new Request("https://fleet.test/api/driver/me"));
+    expect(response.status).toBe(200);
+    expect((await response.json()).driverType).toBeNull();
+  });
   it("returns full personal details including address and emergency contact", async () => {
     const mockDriver = {
       employee_id: 10,

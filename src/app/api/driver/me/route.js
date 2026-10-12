@@ -48,7 +48,7 @@ export async function GET(req) {
 
     const { rows } = await query(
       `SELECT e.employee_id, e.email, e.first_name, e.last_name, e.phone, e.position, e.avatar_url,
-              d.driver_id, d.driver_status, d.license_number, d.license_type,
+              d.driver_id, d.driver_status, d.driver_type, d.license_number, d.license_type,
               d.license_class, d.license_expiry, d.years_of_experience,
               d.face_image_url, d.license_image_url, d.license_back_image_url,
               d.address, d.sex, d.birthdate, d.nationality,
@@ -166,6 +166,7 @@ export async function GET(req) {
       phone: driver.phone,
       driverId: driver.driver_id,
       driverStatus: driver.driver_status,
+      driverType: ["Passenger", "Cargo"].includes(driver.driver_type) ? driver.driver_type : null,
       position: driver.position || "Driver",
       address: driver.address || null,
       sex: driver.sex || null,
