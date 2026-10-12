@@ -356,9 +356,13 @@ export default function TripDetailsScreen() {
   const pax = passengerSummary(trip);
   // Cargo rows name the consignment in kilograms — never a guest name and
   // never a "Passengers: 0" fabrication. Passenger rendering is unchanged.
-  const isCargo = isTerminal ? isCargoLoad(trip) : workspace.mode === "cargo";
-  const displayTrip = isTerminal ? trip : { ...trip, load_type: profile?.driverType };
-  const loadName = !isTerminal && workspace.mode === "unclassified" ? "Driver type needs setup" : isCargo ? loadTitle(displayTrip) : pax.name || "Passenger not listed";
+  // Blocked mismatches render the STORED trip type so the driver can tell
+  // Dispatch what the trip actually is; the driver-mode label lives only in
+  // the workspace heading above. History/terminal rows already use stored.
+  const blocked = !isTerminal && workspace.tripReady === false;
+  const isCargo = isTerminal || blocked ? isCargoLoad(trip) : workspace.mode === "cargo";
+  const displayTrip = isTerminal || blocked ? trip : { ...trip, load_type: profile?.driverType };
+  const loadName = !isTerminal && workspace.mode === "unclassified" && !blocked ? "Driver type needs setup" : isCargo ? loadTitle(displayTrip) : pax.name || "Passenger not listed";
   const loadCount = isCargo
     ? loadSubtitle(displayTrip)
     : pax.count != null ? `${pax.count} ${pax.count === 1 ? "passenger" : "passengers"}` : "Passenger count not listed";
@@ -383,7 +387,7 @@ export default function TripDetailsScreen() {
         <ClayCard style={styles.card}>
           <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
             <ClayBadge
-              text={String(tripStatusLabel(trip.trip_status, isTerminal ? trip.load_type : profile?.driverType)).toUpperCase()}
+              text={String(tripStatusLabel(trip.trip_status, isTerminal || workspace.tripReady === false ? trip.load_type : profile?.driverType)).toUpperCase()}
               tone={tone}
             />
             <Text style={[type.caption, { color: colors.primary }]}>Trip #{String(id)}</Text>

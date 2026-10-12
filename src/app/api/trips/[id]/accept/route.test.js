@@ -37,3 +37,13 @@ it.each([
  expect(compatibilityQuery[0]).toContain('d.driver_type');
  expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
 });
+it.each([
+ ['Heavy','an unsupported',/not supported/i],
+ ['','an empty',/needs setup/i],
+])('rejects %s saved driver type before changes',async(driver_type,label,message)=>{
+ assignment={trip_status:'Assigned',driver_type,load_type:'Cargo',operational_use:'Cargo'};
+ const response=await run();
+ expect(response.status).toBe(409);
+ expect((await response.json()).error).toMatch(message);
+ expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});

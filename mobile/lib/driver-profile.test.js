@@ -49,6 +49,15 @@ it('same-account login must refresh even with fresh module memory', async () => 
   await vi.waitFor(() => expect(h.render().profile.driverType).toBe("Passenger"));
   expect(h.render().serverConfirmed).toBe(true);
 });
+it('stays unclassified when no cached profile exists', async () => {
+  const h = harness();
+  h.cached.mockResolvedValue(null);
+  h.get.mockRejectedValue(new Error('offline'));
+  await h.render().reload();
+  expect(h.render().profile).toBeNull();
+  expect(h.render().serverConfirmed).toBe(false);
+  expect(h.writes).not.toHaveBeenCalled();
+});
 it('discards a profile response after the account changes', async () => {
   const h = harness(); let resolve;
   h.get.mockImplementationOnce(() => new Promise(r => { resolve = r; }));

@@ -204,3 +204,15 @@ it.each([
  expect(compatibilityQuery[0]).toContain('d.driver_type');
  expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE')||sql.includes('cargo_receipt'))).toBe(false);
 });
+
+it.each([
+ ['Heavy','an unsupported',/not supported/i],
+ ['','an empty',/needs setup/i],
+])('rejects a saved %s driver type inside the final start transaction before any write',async(driver_type,label,message)=>{
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{driver_type,load_type:'Cargo',operational_use:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
+ const response=await run();
+ expect(response.status).toBe(409);
+ expect((await response.json()).error).toMatch(message);
+ expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE')||sql.includes('cargo_receipt'))).toBe(false);
+});

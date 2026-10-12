@@ -59,3 +59,17 @@ it('blocks a direct Cargo dispatch with no linked typed request before inserting
   expect((await response.json()).error).toMatch(/marked as Cargo/i);
   expect(tx.query.mock.calls.some(([sql]) => sql.startsWith('INSERT INTO dispatchschedules'))).toBe(false);
 });
+
+it('blocks a Passenger driver on a Cargo vehicle before inserting the dispatch', async () => {
+  const tx = { query: vi.fn(async sql => {
+    if (sql.includes('SELECT d.driver_type')) return { rows: [{ driver_type: 'Passenger', operational_use: 'Cargo' }] };
+    return { rows: [{ dispatch_id: 30 }] };
+  }) };
+  commitDispatchEvidence.mockImplementation(async (_token, write) => write(tx));
+
+  const response = await POST(request());
+
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toMatch(/does not match this vehicle/i);
+  expect(tx.query.mock.calls.some(([sql]) => sql.startsWith('INSERT INTO dispatchschedules'))).toBe(false);
+});

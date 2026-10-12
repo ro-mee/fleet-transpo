@@ -32,7 +32,7 @@ import {
 } from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
-import { loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
+import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { cargoApi } from "../../../lib/cargo-api";
 import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from "../../../lib/cargo-sync";
 import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
@@ -247,10 +247,17 @@ function getOperationalRadarMarkers(userLocation, pendingTrips, driverType) {
       if (!Number.isFinite(tLat) || !Number.isFinite(tLng)) return;
       const d = haversineKm(lat, lng, tLat, tLng);
       const isEmergency = t.special_requests?.toLowerCase().includes('emergency') || t.notes?.toLowerCase().includes('emergency');
+      // Blocked mismatches render the STORED trip type so the driver can tell
+      // Dispatch what the trip actually is; the driver-mode label lives only in
+      // the workspace heading. Blocking logic still uses the original trip.
+      const markerBlocked = resolveDriverWorkspace({ driverType, trip: t }).tripReady === false;
+      const markerTitle = markerBlocked
+        ? (isCargoLoad(t) ? `${loadTitle(t)} (${t.origin || 'Pickup'})` : t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer'))
+        : driverType === "Cargo" ? `${loadTitle({ ...t, load_type: driverType })} (${t.origin || 'Pickup'})` : driverType !== "Passenger" ? "Driver type needs setup" : t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer');
       list.push({
         id: `trip_${t.trip_id}`,
         type: 'assignment',
-        title: driverType === "Cargo" ? `${loadTitle({ ...t, load_type: driverType })} (${t.origin || 'Pickup'})` : driverType !== "Passenger" ? "Driver type needs setup" : t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer'),
+        title: markerTitle,
         subtitle: t.destination ? `To ${t.destination}` : 'Scheduled Dispatch',
         priority: isEmergency ? 'emergency' : 'normal',
         lat: tLat,
@@ -1957,6 +1964,9 @@ export default function MapTab() {
   // Departure-window gate for the START ROUTE button. When earliest_start is
   // null (no scheduled departure / no ETA) the window is open — fail-open.
   const workspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip: activeTrip });
+  // Blocked mismatches render the STORED trip type (never the driver-mode
+  // label) so the driver can tell Dispatch what the trip actually is.
+  const activeBlocked = workspace.tripReady === false;
   const earliestStart = activeTrip?.earliest_start
     ? new Date(activeTrip.earliest_start).getTime()
     : null;
@@ -2157,8 +2167,8 @@ export default function MapTab() {
                     ) : (
                       <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
                         <Text style={[type.cardTitle, { color: colors.primary }]}>
-                          {(profile?.driverType === "Cargo")
-                            ? loadSubtitle({ ...activeTrip, load_type: profile?.driverType }) || 'Cargo consignment'
+                          {(activeBlocked ? isCargoLoad(activeTrip) : profile?.driverType === "Cargo")
+                            ? loadSubtitle(activeBlocked ? activeTrip : { ...activeTrip, load_type: profile?.driverType }) || 'Cargo consignment'
                             : `${activeTrip.passenger_count || 1} ${activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}`}
                         </Text>
                         <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
@@ -2561,19 +2571,19 @@ export default function MapTab() {
             <View style={[styles.detailCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
               <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant }]}>
                 <Ionicons name="person" size={16} color={colors.onSurfaceVariant} />
-                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>{(profile?.driverType === "Cargo") ? 'Cargo Info' : 'Passenger Info'}</Text>
+                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>{(activeBlocked ? isCargoLoad(activeTrip) : profile?.driverType === "Cargo") ? 'Cargo Info' : 'Passenger Info'}</Text>
               </View>
               <View style={styles.cardBody}>
                 <View style={[styles.avatar, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
                   <Text style={[styles.avatarText, { color: colors.onSurface }]}>
-                    {((profile?.driverType === "Cargo") ? loadTitle({ ...activeTrip, load_type: profile?.driverType }) : (activeTrip.passenger_name || 'G'))[0].toUpperCase()}
+                    {((activeBlocked ? isCargoLoad(activeTrip) : profile?.driverType === "Cargo") ? loadTitle(activeBlocked ? activeTrip : { ...activeTrip, load_type: profile?.driverType }) : (activeTrip.passenger_name || 'G'))[0].toUpperCase()}
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.detailTitle, { color: colors.onSurface }]}>{(profile?.driverType === "Cargo") ? loadTitle({ ...activeTrip, load_type: profile?.driverType }) : (activeTrip.passenger_name || 'Guest')}</Text>
+                  <Text style={[styles.detailTitle, { color: colors.onSurface }]}>{(activeBlocked ? isCargoLoad(activeTrip) : profile?.driverType === "Cargo") ? loadTitle(activeBlocked ? activeTrip : { ...activeTrip, load_type: profile?.driverType }) : (activeTrip.passenger_name || 'Guest')}</Text>
                   {(() => {
-                    const sub = (profile?.driverType === "Cargo")
-                      ? loadSubtitle({ ...activeTrip, load_type: profile?.driverType })
+                    const sub = (activeBlocked ? isCargoLoad(activeTrip) : profile?.driverType === "Cargo")
+                      ? loadSubtitle(activeBlocked ? activeTrip : { ...activeTrip, load_type: profile?.driverType })
                       : `${activeTrip.passenger_count || 1} Pax`;
                     return sub ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
@@ -2631,7 +2641,7 @@ export default function MapTab() {
                     return (
                       <View style={[styles.statusBadge, { backgroundColor: sc.bg, flexDirection: 'row', alignItems: 'center', gap: 5 }]}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sc.dot }} />
-                        <Text style={[styles.statusBadgeText, { color: sc.fg }]}>{tripStatusLabel(activeTrip.trip_status, profile?.driverType)}</Text>
+                        <Text style={[styles.statusBadgeText, { color: sc.fg }]}>{tripStatusLabel(activeTrip.trip_status, activeBlocked ? activeTrip.load_type : profile?.driverType)}</Text>
                       </View>
                     );
                   })()}

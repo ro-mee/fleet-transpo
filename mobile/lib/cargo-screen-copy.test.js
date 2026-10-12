@@ -12,8 +12,10 @@ describe("cargo screen copy", () => {
   it("wires map actions and both status badges to load-aware presentation", () => {
     const map = screen("app/(app)/(tabs)/map.js");
     expect(map.includes("tripActionLabel(activeTrip.trip_status, profile?.driverType)")).toBe(true);
-    expect(map).toContain("tripStatusLabel(activeTrip.trip_status, profile?.driverType)");
-    expect(screen("app/(app)/trip/[id].js").includes("tripStatusLabel(trip.trip_status, isTerminal ? trip.load_type : profile?.driverType)")).toBe(true);
+    // Blocked mismatches present the STORED trip type on the status badge; the
+    // driver-mode label is reserved for the workspace heading.
+    expect(map).toContain("tripStatusLabel(activeTrip.trip_status, activeBlocked ? activeTrip.load_type : profile?.driverType)");
+    expect(screen("app/(app)/trip/[id].js").includes("tripStatusLabel(trip.trip_status, isTerminal || workspace.tripReady === false ? trip.load_type : profile?.driverType)")).toBe(true);
     expect(map).not.toContain('isState2 ? "PICKED UP GUEST"');
   });
   it("does not offer a passenger call action on a cargo consignment", () => {

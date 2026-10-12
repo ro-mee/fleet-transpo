@@ -39,8 +39,9 @@ function formatWhen(value) {
 const TripCard = memo(function TripCard({ trip, driverType, display, router, colors, type }) {
   const workspace = resolveDriverWorkspace({ driverType, trip });
   const historical = ["Completed", "Cancelled"].includes(trip.trip_status);
-  const cargo = historical ? isCargoLoad(trip) : workspace.mode === "cargo";
-  const displayTrip = historical ? trip : { ...trip, load_type: driverType };
+  const blocked = workspace.tripReady === false;
+  const cargo = historical || blocked ? isCargoLoad(trip) : workspace.mode === "cargo";
+  const displayTrip = historical || blocked ? trip : { ...trip, load_type: driverType };
   const when = formatWhen(trip.departure_time);
   const isOverdue = display === "OVERDUE · ACTION REQUIRED";
   const tone = trip.trip_status === 'Completed' ? 'primary' : bucketTone(display);
@@ -82,7 +83,7 @@ const TripCard = memo(function TripCard({ trip, driverType, display, router, col
         <View style={styles.metaLeft}>
           <Ionicons name="person-outline" size={16} color={colors.onSurfaceVariant} />
           <Text style={[type.supporting, { color: colors.onSurface, flexShrink: 1 }]}>
-            {!historical && workspace.mode === "unclassified" ? "Driver type needs setup" : cargo ? loadTitle(displayTrip) : trip?.passenger_name ? String(trip.passenger_name) : trip?.passenger_count != null ? "Passengers" : "Passenger not listed"}
+            {!historical && workspace.mode === "unclassified" && !blocked ? "Driver type needs setup" : cargo ? loadTitle(displayTrip) : trip?.passenger_name ? String(trip.passenger_name) : trip?.passenger_count != null ? "Passengers" : "Passenger not listed"}
           </Text>
           {(() => {
             const subtitle = cargo

@@ -238,8 +238,11 @@ describe("Trips renders the saved driver workspace", () => {
     const html = renderToStaticMarkup(React.createElement(scope.exports, { driverType, trip, display: "Assigned", router: {}, ...theme }));
     expect(html).toContain(driverType ? `${driverType} driver` : "Driver type needs setup");
     if (driverType !== vehicleType) expect(html).toContain("Dispatch");
-    if (driverType === "Cargo") { expect(html).toContain("Hotel supplies"); expect(html).not.toContain("VIP guest"); }
-    if (driverType === "Passenger") expect(html).toContain("VIP guest");
+    // A blocked mismatch presents the STORED trip type (the driver can tell
+    // Dispatch what the trip actually is); the driver-mode label is reserved
+    // for the workspace heading above. Matching pairs keep the mode content.
+    if (driverType !== vehicleType ? vehicleType === "Cargo" : driverType === "Cargo") { expect(html).toContain("Hotel supplies"); expect(html).not.toContain("VIP guest"); }
+    if (driverType !== vehicleType ? vehicleType === "Passenger" : driverType === "Passenger") expect(html).toContain("VIP guest");
     expect(html).not.toMatch(/ACCEPT|START ROUTE|Confirm pickup/);
   });
 });
