@@ -59,7 +59,7 @@ import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview, preShiftPassed = true }) {
   const { colors, type } = useTheme();
   return <>
-    {trips.map((trip, i) => <DriverTripCard workspaceBlocked={resolveDriverWorkspace({ trip }).tripReady === false} key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
+    {trips.map((trip, i) => <DriverTripCard workspace={resolveDriverWorkspace({ trip })} key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
       offline={offline} nowMs={nowMs} canManage={canManage} busy={busy} preShiftPassed={preShiftPassed}
       onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview} />)}
     {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
@@ -731,7 +731,7 @@ export default function Home() {
               cards, and all confirmed/offline/not-synced copy stay exactly as
               they were. Dynamic layout below only runs with trip data. */}
           <AssignmentsHeading onPress={goTrips} />
-          <DriverTripCard workspaceBlocked={workspace.tripReady === false} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
+          <DriverTripCard workspace={workspace} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             emptyState={homeEmptyState}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview={Boolean(activeTrip)}
@@ -742,7 +742,7 @@ export default function Home() {
             interactivePreview={!activeTrip}
             onAction={handleTripAction} onDetails={goDetails} />
         </> : <>
-          {activeTrip ? <DriverTripCard workspaceBlocked={workspace.tripReady === false} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
+          {activeTrip ? <DriverTripCard workspace={workspace} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}

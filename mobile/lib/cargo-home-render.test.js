@@ -79,7 +79,7 @@ describe("rendered driver workspace", () => {
     const workspace = resolveDriverWorkspace({ trip });
     const html = renderWorkspace(trip);
     expect(html).toContain("Cargo workspace"); expect(html).toContain("saved trip type does not match the vehicle"); expect(html).not.toContain("Ghost Guest");
-    const card = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, current: true, nowMs: Date.now(), canManage: true, workspaceBlocked: true }));
+    const card = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, current: true, nowMs: Date.now(), canManage: true, workspace }));
     expect(card).toContain('disabled=""'); expect(card).toContain("Trip action unavailable"); expect(workspace.tripReady).toBe(false);
   });
 });
@@ -100,4 +100,18 @@ it.each([
 it("labels cargo route stops as pickup and delivery", () => {
   const html = renderToStaticMarkup(React.createElement(DriverTripCard, { trip: cargoTrip, current: true, nowMs: Date.now(), canManage: true }));
   expect(html).toContain("Delivery"); expect(html).not.toContain("Drop-off");
+});
+
+it.each([
+  [{ ...cargoTrip, load_type: "Passenger" }, "Cargo workspace", "saved trip type does not match the vehicle"],
+  [{ ...cargoTrip, vehicle_id: null }, "Assignment not ready", "No vehicle is assigned"],
+  [{ ...cargoTrip, operational_use: null }, "Assignment not ready", "work type is missing"],
+  [{ ...cargoTrip, load_type: null }, "Cargo workspace", "saved trip type is missing"],
+])("explains each blocked upcoming assignment beside its disabled action", (trip, mode, reason) => {
+  const assignedVehicle = { vehicleId: 99, operationalUse: "Passenger", plate: "STAND-99" };
+  const workspace = resolveDriverWorkspace({ trip, assignedVehicle });
+  const html = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, variant: "next", nowMs: Date.now(), canManage: true, workspace }));
+  expect(html).toContain(mode); expect(html).toContain(reason); expect(html).toContain("Fleet or Dispatch");
+  expect(html).toContain('disabled=""'); expect(html).toContain("Trip action unavailable");
+  expect(html).not.toContain("Ghost Guest"); expect(html).not.toContain("STAND-99");
 });

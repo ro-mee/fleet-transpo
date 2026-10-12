@@ -95,6 +95,17 @@ export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, c
   </View>;
 });
 
+function workspaceHeading(workspace) {
+  return workspace.mode === 'unassigned' ? 'Assignment not ready' : workspace.mode === 'cargo' ? 'Cargo workspace' : 'Passenger workspace';
+}
+
+function workspaceProblem(workspace) {
+  if (workspace.reason === 'no_vehicle') return 'No vehicle is assigned. Ask Fleet or Dispatch to assign your vehicle.';
+  if (workspace.reason === 'missing_operational_use') return 'Your vehicle work type is missing. Ask Fleet or Dispatch to confirm Cargo or Passenger use.';
+  if (workspace.reason === 'trip_type_mismatch') return 'The saved trip type does not match the vehicle. Ask Fleet or Dispatch to correct the assignment before continuing.';
+  return 'The saved trip type is missing. Ask Fleet or Dispatch to confirm it before continuing.';
+}
+
 // Vehicle operational use chooses this workspace; service metadata only labels its source.
 export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace, trip, assignedVehicle }) {
   const { colors, type } = useTheme();
@@ -105,11 +116,8 @@ export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace
   const plate = trip ? trip.vehicle_plate || trip.plate_number : assignedVehicle?.plate || assignedVehicle?.plateNumber || assignedVehicle?.plate_number;
   const service = `${trip?.service_code || ''} ${trip?.service_name || ''}`;
   const source = /\bRESTAURANT(?:_|\b)/i.test(service) ? 'Restaurant cargo' : /\bHOTEL(?:_|\b)/i.test(service) ? 'Hotel cargo' : 'Cargo assignment';
-  const heading = unassigned ? 'Assignment not ready' : cargo ? 'Cargo workspace' : 'Passenger workspace';
-  const problem = unassigned
-    ? workspace.reason === 'no_vehicle' ? 'No vehicle is assigned. Ask Fleet or Dispatch to assign your vehicle.' : 'Your vehicle work type is missing. Ask Fleet or Dispatch to confirm Cargo or Passenger use.'
-    : workspace.reason === 'trip_type_mismatch' ? 'The saved trip type does not match the vehicle. Ask Fleet or Dispatch to correct the assignment before continuing.'
-    : 'The saved trip type is missing. Ask Fleet or Dispatch to confirm it before continuing.';
+  const heading = workspaceHeading(workspace);
+  const problem = workspaceProblem(workspace);
   return <ClayCard variant="standard">
     <View style={[s.row, { alignItems: 'flex-start' }]}>
       <Ionicons name={unassigned ? 'help-circle-outline' : cargo ? 'cube-outline' : 'car-outline'} size={24} color={colors.primary} accessible={false} />
@@ -251,7 +259,8 @@ const VARIANT = {
   upcoming: { label: 'UPCOMING', isCurrent: false },
 };
 
-export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true, emptyState = null, workspaceBlocked = false }) {
+export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true, emptyState = null, workspace = null }) {
+  const workspaceBlocked = workspace?.tripReady === false;
   const { colors, type, scheme } = useTheme();
   const { width, fontScale } = useWindowDimensions();
   const { settings } = useSettings();
@@ -366,6 +375,10 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
         <View style={horizontal ? { width: '42%', gap: 12 } : { gap: 12 }}>
           {/* ponytail: one interactive route preview on Home; secondary cards stay static until native polyline rendering exists. */}
           <TripMapPreview staticMode={!interactivePreview} key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}:${interactivePreview}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} />
+      {workspaceBlocked ? <View style={{ gap: 8 }}>
+        <Text style={[type.labelLg, { color: colors.onSurface }]}>{workspaceHeading(workspace)}</Text>
+        <Text style={[type.supporting, { color: colors.onSurfaceVariant }]} accessibilityLiveRegion="polite">{workspaceProblem(workspace)}</Text>
+      </View> : null}
       <Pressable onPress={() => !workspaceBlocked && (isCurrent && canManage && action !== 'Trip Details' ? onAction(trip) : onDetails(trip))} disabled={busy || workspaceBlocked} accessibilityRole="button" accessibilityLabel={workspaceBlocked ? 'Trip action unavailable' : isCurrent && canManage ? action : 'Trip Details'} accessibilityState={{ disabled: !!busy || workspaceBlocked, busy: !!busy }} style={({ pressed }) => [s.cta, raised, { backgroundColor: colors.primary, shadowColor: colors.shadow }, busy || workspaceBlocked ? { opacity: 0.6 } : pressed ? s.ctaPressed : null]}>
         {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Ionicons name={isCurrent && action !== 'Trip Details' ? 'play' : 'document-text-outline'} size={20} color={colors.onPrimary} />}
         <Text style={[type.labelLg, { color: colors.onPrimary }]}>{workspaceBlocked ? 'Trip action unavailable' : isCurrent && canManage ? action : 'Trip Details'}</Text>
