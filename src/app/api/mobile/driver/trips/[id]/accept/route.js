@@ -40,7 +40,7 @@ export async function PUT(req, { params }) {
     const writeAcceptance = async db => {
       if (body.accept) {
         const { rows: assignmentRows } = await db.query(
-          `SELECT tr.load_type, v.operational_use
+          `SELECT d.driver_type, tr.load_type, v.operational_use
              FROM trips t
              LEFT JOIN LATERAL (
                SELECT ds.request_id FROM dispatchschedules ds
@@ -54,10 +54,15 @@ export async function PUT(req, { params }) {
                SELECT v.operational_use FROM vehicles v
                 WHERE v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL FOR SHARE
              ) v ON TRUE
+             LEFT JOIN LATERAL (
+               SELECT d.driver_type FROM drivers d
+                WHERE d.driver_id = t.driver_id AND d.deleted_at IS NULL FOR SHARE
+             ) d ON TRUE
             WHERE t.trip_id = $1 AND t.deleted_at IS NULL
             FOR UPDATE OF t`, [id]
         );
         const compatibility = checkVehicleLoadCompatibility({
+          driverType: assignmentRows[0]?.driver_type,
           loadType: assignmentRows[0]?.load_type,
           operationalUse: assignmentRows[0]?.operational_use,
         });
