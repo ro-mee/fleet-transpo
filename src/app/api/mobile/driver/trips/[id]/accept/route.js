@@ -1,9 +1,10 @@
-import { query } from "@/lib/db";
-import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
+import { query, withTransaction } from "@/lib/db";
+import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 import { TRIP_STATUS } from "@/lib/constants";
-import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
+import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
 
 /**
  * PUT /api/mobile/driver/trips/[id]/accept
@@ -37,34 +38,62 @@ export async function PUT(req, { params }) {
     const target = body.accept ? TRIP_STATUS.DRIVER_ACCEPTED : TRIP_STATUS.CANCELLED;
 
     const writeAcceptance = async db => {
-    const check = canTransitionTrip(current, target);
-    if (!check.ok) {
-      // Accepting from a legacy ingest status: bridge through Assigned first.
-      if (body.accept && canTransitionTrip(current, TRIP_STATUS.ASSIGNED).ok) {
-        const { rows: bridged } = await db.query(
-          `UPDATE trips SET trip_status = $1, updated_at = NOW() WHERE trip_id = $2 RETURNING *`,
-          [TRIP_STATUS.ASSIGNED, id]
+      if (body.accept) {
+        const { rows: assignmentRows } = await db.query(
+          `SELECT tr.load_type, v.operational_use
+             FROM trips t
+             LEFT JOIN LATERAL (
+               SELECT ds.request_id FROM dispatchschedules ds
+                WHERE ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL FOR SHARE
+             ) ds ON TRUE
+             LEFT JOIN LATERAL (
+               SELECT tr.load_type FROM transportation_requests tr
+                WHERE tr.request_id = ds.request_id AND tr.deleted_at IS NULL FOR SHARE
+             ) tr ON TRUE
+             LEFT JOIN LATERAL (
+               SELECT v.operational_use FROM vehicles v
+                WHERE v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL FOR SHARE
+             ) v ON TRUE
+            WHERE t.trip_id = $1 AND t.deleted_at IS NULL
+            FOR UPDATE OF t`, [id]
         );
-        if (!bridged[0]) return err("Trip not found", 404);
-      } else {
-        return err(
-          `Cannot accept or decline a trip with status '${current}'`,
-          409
-        );
+        const compatibility = checkVehicleLoadCompatibility({
+          loadType: assignmentRows[0]?.load_type,
+          operationalUse: assignmentRows[0]?.operational_use,
+        });
+        if (!compatibility.ok) throw new AuthError(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
       }
-    }
+      const check = canTransitionTrip(current, target);
+      if (!check.ok) {
+        // Accepting from a legacy ingest status: bridge through Assigned first.
+        if (body.accept && canTransitionTrip(current, TRIP_STATUS.ASSIGNED).ok) {
+          const { rows: bridged } = await db.query(
+            `UPDATE trips SET trip_status = $1, updated_at = NOW() WHERE trip_id = $2 RETURNING *`,
+            [TRIP_STATUS.ASSIGNED, id]
+          );
+          if (!bridged[0]) return err("Trip not found", 404);
+        } else {
+          return err(
+            `Cannot accept or decline a trip with status '${current}'`,
+            409
+          );
+        }
+      }
 
-    const { rows } = await db.query(
-      `UPDATE trips
-          SET trip_status = $1, updated_at = NOW(), updated_by = $2
-        WHERE trip_id = $3
-        RETURNING *`,
-      [target, session.user.employeeId, id]
-    );
+      const { rows } = await db.query(
+        `UPDATE trips
+            SET trip_status = $1, updated_at = NOW(), updated_by = $2
+          WHERE trip_id = $3
+          RETURNING *`,
+        [target, session.user.employeeId, id]
+      );
 
-    return ok(rows[0]);
+      return ok(rows[0]);
     };
-    return body.accept ? await withQualificationWrite({ driverId: trip.driver_id, tripId: id }, writeAcceptance)
+    return body.accept ? await withTransaction(async tx => {
+      await guardDriverQualification({ driverId: trip.driver_id, tripId: id }, tx);
+      return writeAcceptance(tx);
+    })
       : await writeAcceptance({ query });
   } catch (e) {
     return handleError(e);

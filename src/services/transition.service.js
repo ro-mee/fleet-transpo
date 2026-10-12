@@ -66,9 +66,10 @@ function formatGateDistance(meters) {
  * @param {boolean}  [params.busy]          run the In-Progress dispatch/request sync
  * @param {boolean}  [params.geofenceOverride]  arrival far from the geofenced point
  * @param {string}   [params.geofenceReason]    required when geofenceOverride is true
+ * @param {Function} [params.beforeWrite] server-only guard, run inside the write transaction
  * @returns {Promise<object>} updated trip row
  */
-export async function setTripStatus({ tripId, to, session, reason = null, extra = {}, busy = false, geofenceOverride = false, geofenceReason = "" }) {
+export async function setTripStatus({ tripId, to, session, reason = null, extra = {}, busy = false, geofenceOverride = false, geofenceReason = "", beforeWrite = null }) {
   if (!isValidTripStatus(to)) {
     throw new AuthError(`"${to}" is not a valid trip status.`, 400);
   }
@@ -124,13 +125,17 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
   values.push(tripId);
   const requiresQualification = ['Assigned', 'Driver Accepted', 'Trip Started', 'Passenger Onboard', 'En Route', 'In Progress', 'Arrived'].includes(to);
   const updateTrip = async db => {
+    if (beforeWrite) await beforeWrite(db);
     await assertCargoCheckpoint(before[0], { to, session, patch: extra }, db);
     if (cargoLifecycleEnabled(db) && requiresQualification) await guardDriverQualification({ driverId: before[0].driver_id, tripId }, db);
     return db.query(`UPDATE trips SET ${sets.join(", ")} WHERE trip_id = $${values.length} RETURNING *`, values);
   };
-  const { rows } = cargoLifecycleEnabled()
+  const { rows } = cargoLifecycleEnabled() || beforeWrite
     ? await withTransaction(async tx => {
       await prepareCargoLifecycle(tx);
+      if (beforeWrite && requiresQualification && !cargoLifecycleEnabled(tx)) {
+        await guardDriverQualification({ driverId: before[0].driver_id, tripId }, tx);
+      }
       return updateTrip(tx);
     })
     : requiresQualification

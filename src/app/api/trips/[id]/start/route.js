@@ -1,3 +1,4 @@
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 import { query, withTransaction } from "@/lib/db";
 import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
 import { assertCargoCheckpoint, prepareCargoLifecycle } from '@/services/cargo-execution.service';
@@ -30,7 +31,7 @@ export async function PUT(req, { params }) {
     if (!gate.ok) return err(gate.reason, 409);
 
     if (!trip.vehicle_id || !trip.driver_id) {
-      return err("A vehicle and driver must both be assigned before a trip can start.", 400);
+      return err("A vehicle and driver must both be assigned before a trip can start. Ask Dispatch to review the assignment.", 409);
     }
 
     const { rows: startLoadRows } = await query(
@@ -51,7 +52,7 @@ export async function PUT(req, { params }) {
         [trip.vehicle_id]
       );
       const vehicle = vehicles[0];
-      if (!vehicle) return err("Vehicle not found. Trip cannot start.", 404);
+      if (!vehicle) return err("The assigned vehicle is no longer available. Ask Dispatch to review the assignment.", 409);
       startVehicle = vehicle;
       vehicleMileage = vehicle?.mileage ?? null;
       if (!typedLoad && isExpired(vehicle?.registration_expiry)) {
@@ -237,6 +238,29 @@ export async function PUT(req, { params }) {
     // back) together. The derived statuses run after COMMIT, best-effort.
     const commitStart = startEvidence ? write => commitDispatchEvidence(startEvidence,write) : withTransaction;
     const { rows } = await commitStart(async (tx) => {
+      const { rows: assignmentRows } = await tx.query(
+        `SELECT tr.load_type, v.operational_use
+           FROM trips t
+           LEFT JOIN LATERAL (
+             SELECT ds.request_id FROM dispatchschedules ds
+              WHERE ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL FOR SHARE
+           ) ds ON TRUE
+           LEFT JOIN LATERAL (
+             SELECT tr.load_type FROM transportation_requests tr
+              WHERE tr.request_id = ds.request_id AND tr.deleted_at IS NULL FOR SHARE
+           ) tr ON TRUE
+           LEFT JOIN LATERAL (
+             SELECT v.operational_use FROM vehicles v
+              WHERE v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL FOR SHARE
+           ) v ON TRUE
+          WHERE t.trip_id = $1 AND t.deleted_at IS NULL
+          FOR UPDATE OF t`, [id]
+      );
+      const compatibility = checkVehicleLoadCompatibility({
+        loadType: assignmentRows[0]?.load_type,
+        operationalUse: assignmentRows[0]?.operational_use,
+      });
+      if (!compatibility.ok) throw new AuthError(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
       if (await prepareCargoLifecycle(tx)) await assertCargoCheckpoint(trip, { to: 'Trip Started', session }, tx);
       await guardDriverQualification({ driverId: trip.driver_id, tripId: id }, tx);
       const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 AND trip_status = $3 RETURNING *`, [rawOdometer, id, trip.trip_status]);

@@ -1,4 +1,5 @@
-import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
+import { requirePermission, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { query } from "@/lib/db";
 import { setTripStatus } from "@/services/transition.service";
@@ -28,11 +29,36 @@ export async function PUT(req, { params }) {
       const from = before[0]?.trip_status;
       if (!from) return err("Trip not found", 404);
 
+      const beforeWrite = async db => {
+        const { rows: assignmentRows } = await db.query(
+          `SELECT tr.load_type, v.operational_use
+             FROM trips t
+             LEFT JOIN LATERAL (
+               SELECT ds.request_id FROM dispatchschedules ds
+                WHERE ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL FOR SHARE
+             ) ds ON TRUE
+             LEFT JOIN LATERAL (
+               SELECT tr.load_type FROM transportation_requests tr
+                WHERE tr.request_id = ds.request_id AND tr.deleted_at IS NULL FOR SHARE
+             ) tr ON TRUE
+             LEFT JOIN LATERAL (
+               SELECT v.operational_use FROM vehicles v
+                WHERE v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL FOR SHARE
+             ) v ON TRUE
+            WHERE t.trip_id = $1 AND t.deleted_at IS NULL
+            FOR UPDATE OF t`, [id]
+        );
+        const compatibility = checkVehicleLoadCompatibility({
+          loadType: assignmentRows[0]?.load_type,
+          operationalUse: assignmentRows[0]?.operational_use,
+        });
+        if (!compatibility.ok) throw new AuthError(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
+      };
       // Bridge legacy ingest statuses through Assigned into the live chain.
       if (from !== TRIP_STATUS.ASSIGNED && canTransitionTrip(from, TRIP_STATUS.ASSIGNED).ok) {
-        await setTripStatus({ tripId: id, to: TRIP_STATUS.ASSIGNED, session });
+        await setTripStatus({ tripId: id, to: TRIP_STATUS.ASSIGNED, session, beforeWrite });
       }
-      return ok(await setTripStatus({ tripId: id, to: TRIP_STATUS.DRIVER_ACCEPTED, session }));
+      return ok(await setTripStatus({ tripId: id, to: TRIP_STATUS.DRIVER_ACCEPTED, session, beforeWrite }));
     }
     return ok(await cancelTrip(id, session, { reason: body.reason }));
   } catch (e) { return handleError(e); }

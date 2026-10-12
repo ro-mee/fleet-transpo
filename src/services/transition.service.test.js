@@ -11,7 +11,7 @@
 // produced — and it produced it while cancelling the guest's transport).
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import * as db from "@/lib/db";
-import { setDispatchStatus } from "./transition.service";
+import { setDispatchStatus, setTripStatus } from "./transition.service";
 
 vi.mock("@/services/status.service", () => ({
   syncVehicleStatus: vi.fn(async () => null),
@@ -221,4 +221,24 @@ describe("setDispatchStatus — cancellation releases the request", () => {
     expect(recordReservationEvent).not.toHaveBeenCalled();
     expect(writeAudit).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('setTripStatus acceptance write hook',()=>{
+ it('runs a rejecting guard inside the transaction before any trip write or audit',async()=>{
+  vi.spyOn(db,'query').mockResolvedValue({rows:[{trip_id:7,trip_status:'Assigned',driver_id:2,vehicle_id:3}]});
+  const tx={query:vi.fn()};vi.spyOn(db,'withTransaction').mockImplementation(async write=>write(tx));
+  const beforeWrite=vi.fn(async()=>{throw new Error('assignment mismatch');});
+  await expect(setTripStatus({tripId:7,to:'Driver Accepted',session:SESSION,beforeWrite})).rejects.toThrow('assignment mismatch');
+  expect(beforeWrite).toHaveBeenCalledWith(tx);expect(tx.query).not.toHaveBeenCalled();expect(writeAudit).not.toHaveBeenCalled();
+ });
+});
+
+it('uses the same transaction for the accepted guard and UPDATE when qualification is OFF',async()=>{
+ vi.spyOn(db,'query').mockResolvedValue({rows:[{trip_id:7,trip_status:'Assigned',driver_id:2,vehicle_id:3}]});
+ const tx={query:vi.fn(async()=>({rows:[{trip_id:7,trip_status:'Driver Accepted'}]}))};
+ vi.spyOn(db,'withTransaction').mockImplementation(async write=>write(tx));
+ const beforeWrite=vi.fn(async received=>{expect(received).toBe(tx);expect(tx.query).not.toHaveBeenCalled();});
+ const result=await setTripStatus({tripId:7,to:'Driver Accepted',session:SESSION,beforeWrite});
+ expect(result.trip_status).toBe('Driver Accepted');expect(beforeWrite).toHaveBeenCalledOnce();
+ expect(tx.query.mock.calls[0][0]).toMatch(/^UPDATE trips/);expect(db.query).toHaveBeenCalledOnce();expect(writeAudit).toHaveBeenCalledOnce();
 });
