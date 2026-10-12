@@ -1,10 +1,11 @@
+import { resolveDriverWorkspace } from "./driver-workspace";
 // Display facts from CargoExecutionView; never grant source, Fleet or receiver authority.
 const SERVICES = { RESTAURANT_SUPPLY_PICKUP: "Restaurant supply pickup", RESTAURANT_FOOD_DELIVERY: "Restaurant food delivery", HOTEL_SUPPLY_TRANSFER: "Hotel supply transfer" };
 const SYNC = { NONE: "No observation saved", DEVICE_SAVED: "Saved on this device", FLEET_SAVED: "Saved to Fleet", STALE_REVIEW: "Manifest changed — review your count", TERMINAL_REVIEW: "Saved draft needs Fleet review", REAUTHENTICATION_REQUIRED: "Sign in again to sync" };
 const FEEDBACK = { ACKNOWLEDGED: "Partner acknowledged receipt — not approval", PENDING: "Partner receipt pending", LEASED: "Sending partner receipt", RETRY: "Partner receipt will retry", FAILED: "Partner receipt failed", NOT_QUEUED: "Partner receipt not queued" };
 const LEGACY_HOLD = "This legacy In Progress cargo trip needs Fleet review. Delivery observations can only be attached at Drop-off or Arrived. Contact Fleet to review the trip status and custody before continuing; this screen cannot change its status.";
 export function cargoMapAction(trip) {
-  if (trip?.load_type !== "Cargo") return null;
+  if (!resolveDriverWorkspace({ trip }).tripReady || trip?.load_type !== "Cargo") return null;
   if (trip.trip_status === "At Pickup") return "cargo-pickup";
   if (["Passenger Onboard", "In Progress"].includes(trip.trip_status)) return "cargo";
   if (["Drop-off", "Arrived"].includes(trip.trip_status)) return "cargo-delivery";
@@ -31,7 +32,11 @@ export function validateCargoCounts(manifest, counts = {}) {
 function validManifest(manifest) {
   return Boolean(manifest?.manifest_ref?.hash && SERVICES[manifest.service_code] && manifest.lines?.length && manifest.lines.every(line => line.line_id && line.name && line.unit && cargoQuantity(line.expected_quantity, line) != null));
 }
-export function buildCargoViewModel(execution, { offline = false, syncState = {}, fresh = true, tripStatus = null } = {}) {
+export function buildCargoViewModel(execution, { offline = false, syncState = {}, fresh = true, tripStatus = null, trip = undefined } = {}) {
+  const workspace = trip === undefined ? null : resolveDriverWorkspace({ trip });
+  if (workspace && (workspace.tripReady !== true || workspace.mode !== "cargo" || trip?.load_type !== "Cargo")) {
+    return { stage: "UNAVAILABLE", primaryAction: "Review assignment", canSubmit: false, canDepart: false, canConfirmDelivery: false, legacyHold: null, summary: { modeLabel: workspaceModeLabel(workspace) }, blockers: [{ code: "VEHICLE_ASSIGNMENT_REQUIRED", message: workspaceBlockReason(workspace) || "This Passenger vehicle uses hotel transportation. Open Trip Details for this trip." }] };
+  }
   const view = execution?.data ?? execution;
   if (!validManifest(view?.manifest)) return { stage: "UNAVAILABLE", primaryAction: "Retry", canSubmit: false, canDepart: false, canConfirmDelivery: false, legacyHold: tripStatus === "In Progress" ? LEGACY_HOLD : null, summary: {}, blockers: [{ code: "CARGO_UNAVAILABLE", message: "Cargo verification is unavailable. Retry online or contact Fleet." }] };
   const manifest = view.manifest;
@@ -86,8 +91,20 @@ export function cargoFormHasIssue(execution, { counts = {}, issues = {} } = {}, 
     return actual != null && expected != null && compareCargoQuantities(actual, expected) !== 0;
   });
 }
+export function workspaceModeLabel(workspace) {
+  return workspace.mode === "cargo" ? "Cargo vehicle" : workspace.mode === "passenger" ? "Passenger vehicle" : "Vehicle assignment unavailable";
+}
+export function workspaceBlockReason(workspace) {
+  if (workspace.reason === "trip_type_mismatch") return "The saved trip type does not match the vehicle. Ask Fleet or Dispatch to correct the assignment before continuing.";
+  if (workspace.reason === "missing_trip_type") return "This cargo vehicle's trip type is missing. Ask Fleet or Dispatch to confirm the cargo assignment.";
+  if (workspace.reason === "missing_operational_use") return "The vehicle work type is missing. Ask Fleet or Dispatch to confirm Cargo or Passenger use.";
+  if (workspace.reason === "no_vehicle" || workspace.tripReady !== true) return "No verified vehicle is assigned to this trip. Ask Fleet or Dispatch to review the assignment.";
+  return null;
+}
 // Reads only. Existing map controls remain the sole trip-transition writer.
 export async function resolveCargoMapGate(trip, { offline = false, readExecution, readSyncState } = {}) {
+  const workspace = resolveDriverWorkspace({ trip });
+  if (workspace.tripReady !== true) return { allowed: false, route: null, reason: workspaceBlockReason(workspace) };
   if (trip?.load_type !== "Cargo" || !["At Pickup", "Passenger Onboard", "Drop-off", "Arrived", "In Progress"].includes(trip.trip_status)) return { allowed: true };
   const route = cargoMapAction(trip);
   const legacyHold = trip.trip_status === "In Progress" ? LEGACY_HOLD : null;
@@ -104,5 +121,8 @@ export async function resolveCargoMapGate(trip, { offline = false, readExecution
 export async function readCargoScreenSources(tripId, { readExecution, readTrips }) {
   const [execution, trips] = await Promise.allSettled([readExecution(), readTrips()]);
   const rows = trips.status === "fulfilled" && Array.isArray(trips.value) ? trips.value : [];
-  return { execution: execution.status === "fulfilled" ? execution.value : null, executionError: execution.status === "rejected" ? execution.reason : null, trip: rows.find(row => String(row.trip_id) === String(tripId)) || null };
+  const trip = rows.find(row => String(row.trip_id) === String(tripId)) || null;
+  const workspace = resolveDriverWorkspace({ trip });
+  const cargoAllowed = workspace.tripReady === true && workspace.mode === "cargo" && trip?.load_type === "Cargo";
+  return { execution: cargoAllowed && execution.status === "fulfilled" ? execution.value : null, executionError: execution.status === "rejected" ? execution.reason : null, trip, workspace, cargoAllowed };
 }

@@ -7,7 +7,7 @@ describe("driver cargo view model", () => {
     const view = buildCargoViewModel({ ...execution, driver_group: "BOTH", manifest: { ...manifest, service_code } }, { tripStatus: "At Pickup" });
     expect(view.stage).toBe("PICKUP"); expect(view.primaryAction).toBe("Record pickup"); expect(view.summary.serviceLabel).toMatch(/Restaurant|Hotel/); expect(view.canSubmit).toBe(true);
   });
-  it("starts travel before cargo pickup is required", () => { expect(cargoMapAction({ load_type: "Cargo", trip_status: "Driver Accepted" })).toBe(null); expect(cargoMapAction({ load_type: "Cargo", trip_status: "Trip Started" })).toBe(null); expect(cargoMapAction({ load_type: "Cargo", trip_status: "At Pickup" })).toBe("cargo-pickup"); expect(cargoMapAction({ load_type: "Passenger", trip_status: "At Pickup" })).toBe(null); });
+  it("starts travel before cargo pickup is required", () => { expect(cargoMapAction({ vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "Driver Accepted" })).toBe(null); expect(cargoMapAction({ vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "Trip Started" })).toBe(null); expect(cargoMapAction({ vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "At Pickup" })).toBe("cargo-pickup"); expect(cargoMapAction({ vehicle_id: 3, operational_use: "Passenger", load_type: "Passenger", trip_status: "At Pickup" })).toBe(null); });
   it("starts counts blank, validates integer package counts and preserves explicit zero", () => {
     expect(blankCargoCounts(manifest)).toEqual({ boxes: "" });
     for (const value of ["", "-1", "1.5", "ten", "1e3", "1,000"]) expect(validateCargoCounts(manifest, { boxes: value }).valid).toBe(false);
@@ -34,14 +34,14 @@ describe("driver cargo view model", () => {
 });
 
 describe("existing map cargo transition guards", () => {
-  it("leaves passenger, Start Trip and arrival-to-pickup behavior unchanged", async () => { for (const trip of [{ load_type: "Passenger", trip_status: "At Pickup" }, { load_type: "Cargo", trip_status: "Driver Accepted" }, { load_type: "Cargo", trip_status: "Trip Started" }]) expect(await resolveCargoMapGate(trip, {})).toEqual({ allowed: true }); });
+  it("leaves passenger, Start Trip and arrival-to-pickup behavior unchanged", async () => { for (const trip of [{ vehicle_id: 3, operational_use: "Passenger", load_type: "Passenger", trip_status: "At Pickup" }, { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "Driver Accepted" }, { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "Trip Started" }]) expect(await resolveCargoMapGate(trip, {})).toEqual({ allowed: true }); });
   it("refuses pickup departure without a fresh server view and securement", async () => {
-    const trip = { load_type: "Cargo", trip_status: "At Pickup" };
+    const trip = { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "At Pickup" };
     for (const options of [{ offline: true }, { readExecution: async () => { throw new Error("Disabled"); } }, { readExecution: async () => ({ ...execution, pickup_state: "READY", can_depart: true, securement_confirmed: false }) }]) expect((await resolveCargoMapGate(trip, options)).allowed).toBe(false);
     expect((await resolveCargoMapGate(trip, { readExecution: async () => ({ ...execution, pickup_state: "READY", can_depart: true, securement_confirmed: true }), readSyncState: async () => ({ state: "NONE" }) })).allowed).toBe(true);
   });
   it("opens delivery verification until the server confirms completion", async () => {
-    const trip = { load_type: "Cargo", trip_status: "Drop-off" };
+    const trip = { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "Drop-off" };
     expect((await resolveCargoMapGate(trip, { readExecution: async () => execution })).route).toBe("cargo-delivery");
     expect((await resolveCargoMapGate(trip, { readExecution: async () => ({ ...execution, delivery_state: "CONFIRMED", can_complete: true, receiver_confirmed: true }) })).allowed).toBe(true);
   });
@@ -73,7 +73,7 @@ describe("legacy cargo receipt hold", () => {
     }
   });
   it("routes legacy completion to the explained hold until the server verifies delivery", async () => {
-    const trip = { load_type: "Cargo", trip_status: "In Progress" };
+    const trip = { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "In Progress" };
     const gate = await resolveCargoMapGate(trip, { readExecution: async () => execution });
     expect(gate.allowed).toBe(false); expect(gate.route).toBe("cargo"); expect(gate.reason).toMatch(/In Progress.*Fleet/);
     const confirmed = { ...execution, can_complete: true, receiver_confirmed: true, delivery_state: "CONFIRMED" };
@@ -87,4 +87,31 @@ it("retains legacy trip status when the execution provider is unavailable", asyn
   const sources = await readCargoScreenSources("701", { readExecution: async () => { throw unavailable; }, readTrips: async () => [{ trip_id: 701, load_type: "Cargo", trip_status: "In Progress" }] });
   expect(sources.trip.trip_status).toBe("In Progress"); expect(sources.executionError).toBe(unavailable);
   expect(buildCargoViewModel(sources.execution, { tripStatus: sources.trip.trip_status }).legacyHold).toMatch(/Fleet/);
+});
+
+describe("vehicle compatibility guards", () => {
+  it.each([["Cargo", "Passenger"], ["Passenger", "Cargo"]])("blocks %s vehicle with %s trip before reads", async (operational_use, load_type) => {
+    const trip = { trip_id: 701, vehicle_id: 3, operational_use, load_type, trip_status: "At Pickup" };
+    const gate = await resolveCargoMapGate(trip, { readExecution: () => { throw new Error("must not read"); } });
+    expect(gate.allowed).toBe(false); expect(gate.reason).toMatch(/saved trip type.*vehicle/i); expect(gate.route).toBeNull(); expect(cargoMapAction(trip)).toBeNull();
+  });
+  it.each(["Passenger", "Cargo"])("direct cargo route blocks %s vehicle with Passenger load", async operational_use => {
+    const sources = await readCargoScreenSources(701, { readExecution: async () => execution, readTrips: async () => [{ trip_id: 701, vehicle_id: 3, operational_use, load_type: "Passenger" }] });
+    expect(sources.cargoAllowed).toBe(false); expect(sources.execution).toBeNull(); expect(sources.workspace.mode).toBe(operational_use.toLowerCase());
+  });
+  it("requires the exact trip even with a manifest", async () => {
+    const sources = await readCargoScreenSources(701, { readExecution: async () => execution, readTrips: async () => [] });
+    expect(sources.cargoAllowed).toBe(false); expect(sources.execution).toBeNull();
+  });
+  it("retains valid cargo pickup and delivery", () => {
+    const trip = { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo" };
+    expect(cargoMapAction({ ...trip, trip_status: "At Pickup" })).toBe("cargo-pickup"); expect(cargoMapAction({ ...trip, trip_status: "Drop-off" })).toBe("cargo-delivery");
+  });
+});
+
+it.each([["Cargo", "Passenger"], ["Passenger", "Cargo"], [null, "Cargo"]])("cargo view cannot grant actions for vehicle %s and load %s", (operational_use, load_type) => {
+  const trip = { vehicle_id: 3, operational_use, load_type, trip_status: "At Pickup" };
+  const view = buildCargoViewModel({ ...execution, pickup_state: "READY", can_depart: true, securement_confirmed: true }, { trip });
+  expect(view.canSubmit).toBe(false); expect(view.canDepart).toBe(false); expect(view.canConfirmDelivery).toBe(false);
+  expect(view.blockers[0].message).toMatch(/vehicle|trip type/i);
 });

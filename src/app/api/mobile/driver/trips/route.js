@@ -120,6 +120,7 @@ export async function GET(req) {
               r.route_id, r.route_name,
               ds.dispatch_number,
               ds.scheduled_departure AS departure_time,
+              tr.is_vip,
               tr.guest_name AS passenger_name,
               tr.passenger_count,
               tr.load_type,

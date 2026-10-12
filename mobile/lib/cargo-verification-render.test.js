@@ -5,7 +5,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { parse } from "espree";
 import { createRequire } from "node:module";
-import { resolveCargoMapGate, buildCargoViewModel } from "./cargo-view-model";
+import { resolveCargoMapGate, buildCargoViewModel, workspaceBlockReason } from "./cargo-view-model";
+import { resolveDriverWorkspace } from "./driver-workspace";
 import { isCargoLoad } from "./load-presentation";
 import { resolve, dirname } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -71,10 +72,10 @@ function visit(node) {
   for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(visit); else if (value && typeof value === "object") visit(value);
 }
 visit(mapTree);
-async function runMapAction({ cargo = true, status = "At Pickup", clearance = null, captureAlerts = false } = {}) {
+async function runMapAction({ cargo = true, status = "At Pickup", clearance = null, captureAlerts = false, operationalUse = cargo ? "Cargo" : "Passenger" } = {}) {
   const writes = [], navigations = [], alerts = [];
-  const trip = { trip_id: 701, load_type: cargo ? "Cargo" : "Passenger", trip_status: status };
-  const action = runInNewContext(`(${swipeHandler})`, { inFlight: false, setInFlight: () => {}, activeTrip: trip, isCargoLoad, user: { employeeId: 12 }, connectivity: "online", captureCargoSession: () => ({}), isCurrentCargoSession: () => true, resolveCargoMapGate, cargoApi: { getExecution: async () => { if (!clearance) throw new Error("Disabled"); return clearance; } }, getCargoSyncState: async () => ({ state: "NONE" }), AppAlert: { alert: (title, message) => alerts.push(message) }, router: { push: path => navigations.push(path) }, isPending: false, isDriverAccepted: false, isState1: status === "Trip Started", isState2: status === "At Pickup", isState3: status === "En Route", isState4: status === "Drop-off", api: { get: async () => ({ state: "inside" }), put: async path => { writes.push(path); return {}; } }, wasQueued: () => false, loadTrip: () => {} });
+  const trip = { trip_id: 701, vehicle_id: 3, operational_use: operationalUse, load_type: cargo ? "Cargo" : "Passenger", trip_status: status };
+  const action = runInNewContext(`(${swipeHandler})`, { resolveDriverWorkspace, workspaceBlockReason, inFlight: false, setInFlight: () => {}, activeTrip: trip, isCargoLoad, user: { employeeId: 12 }, connectivity: "online", captureCargoSession: () => ({}), isCurrentCargoSession: () => true, resolveCargoMapGate, cargoApi: { getExecution: async () => { if (!clearance) throw new Error("Disabled"); return clearance; } }, getCargoSyncState: async () => ({ state: "NONE" }), AppAlert: { alert: (title, message) => alerts.push(message) }, router: { push: path => navigations.push(path) }, isPending: false, isDriverAccepted: false, isState1: status === "Trip Started", isState2: status === "At Pickup", isState3: status === "En Route", isState4: status === "Drop-off", api: { get: async () => ({ state: "inside" }), put: async path => { writes.push(path); return {}; } }, wasQueued: () => false, loadTrip: () => {} });
   await action(); return { writes, navigations, ...(captureAlerts ? { alerts } : {}) };
 }
 describe("real map event integration", () => {
@@ -115,5 +116,32 @@ describe("reviewed cargo rendered actions", () => {
   it("blocks the real map legacy action with an actionable hold and no writes", async () => {
     const result = await runMapAction({ status: "In Progress", captureAlerts: true });
     expect(result.writes).toEqual([]); expect(result.navigations).toEqual(["/trip/701/cargo"]); expect(result.alerts[0]).toMatch(/In Progress.*Fleet/);
+  });
+});
+
+it.each([[true, "Passenger"], [false, "Cargo"]])("real map refuses mismatched cargo=%s", async (cargo, operationalUse) => {
+  const result = await runMapAction({ cargo, operationalUse, captureAlerts: true });
+  expect(result.writes).toEqual([]); expect(result.navigations).toEqual([]); expect(result.alerts[0]).toMatch(/saved trip type.*vehicle/i);
+});
+
+describe("direct cargo screen rendered assignment gate", () => {
+  it.each(["overview", "pickup", "delivery"])("renders a mismatch explanation without cargo controls in %s", async mode => {
+    const source = readFileSync(new URL("../components/cargo/CargoWorkflowScreen.jsx", import.meta.url), "utf8");
+    const tree = parse(source, { ecmaVersion: "latest", sourceType: "module", ecmaFeatures: { jsx: true }, range: true });
+    let branch;
+    function find(node) {
+      if (!node || typeof node !== "object") return;
+      if (node.type === "ConditionalExpression" && source.slice(...node.test.range) === "active && !screen.loading && !cargoAllowed") branch = source.slice(...node.range);
+      for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(find); else if (value && typeof value === "object") find(value);
+    }
+    find(tree); expect(branch).toBeTruthy();
+    const { code } = await transform(`module.exports = (${branch});`, { loader: "jsx", format: "cjs" });
+    for (const [operational_use, load_type] of [["Cargo", "Passenger"], ["Passenger", "Cargo"]]) {
+      const workspace = resolveDriverWorkspace({ trip: { vehicle_id: 3, operational_use, load_type } });
+      const scope = { exports: null };
+      runInNewContext(code, { module: scope, React, mode, active: true, screen: { loading: false }, cargoAllowed: false, workspace, workspaceBlockReason, type: theme.type, colors: theme.colors, View: primitive("div"), Text: primitive("span"), ClayButton: ({ label }) => React.createElement("button", null, label), load: () => {}, router: {}, id: 701 });
+      const html = renderToStaticMarkup(scope.exports);
+      expect(html).toMatch(/saved trip type.*vehicle/i); expect(html).toContain("Refresh assignment"); expect(html).not.toMatch(/Confirm pickup|Record delivery|Review counts|Verify pickup/);
+    }
   });
 });

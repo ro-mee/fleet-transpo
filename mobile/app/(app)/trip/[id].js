@@ -14,6 +14,8 @@ import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
+import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
+import { workspaceModeLabel, workspaceBlockReason } from "../../../lib/cargo-view-model";
 import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { usePreShift } from "../../../lib/use-pre-shift";
 import { clayMaterials } from "../../../lib/clay";
@@ -151,6 +153,7 @@ export default function TripDetailsScreen() {
     load();
   };
 
+  const workspace = resolveDriverWorkspace({ trip });
   const action = detailPrimaryAction(trip); // 'accept-start' | 'navigate' | 'closed'
   const isPreStart = action === "accept-start";
   const isTerminal = action === "closed";
@@ -186,6 +189,7 @@ export default function TripDetailsScreen() {
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.
   const handleAcceptStart = async () => {
+    if (resolveDriverWorkspace({ trip }).tripReady !== true) return;
     // The guide explains how to start this trip and the driver just started it,
     // so retire it now. Accepting flips this screen out of its pre-start
     // presentation, which unmounts the controls every step targets — the overlay
@@ -309,9 +313,10 @@ export default function TripDetailsScreen() {
   const ctaNavigates =
     ready.unavailableReason === "pre_shift" || ready.unavailableReason === "inspection";
   const ctaActive = ready.startReady || ctaNavigates;
-  const ctaDisabled = accepting || !ctaActive;
+  const ctaDisabled = accepting || !ctaActive || workspace.tripReady !== true;
 
   const handlePrimary = () => {
+    if (workspace.tripReady !== true) return;
     if (ready.unavailableReason === "pre_shift") {
       router.push({ pathname: "/inspection", params: { mode: "preshift" } });
       return;
@@ -348,6 +353,8 @@ export default function TripDetailsScreen() {
           <SyncNote syncedAt={lastSynced} label="trip details" />
         ) : null}
 
+        <Text style={[type.labelLg, { color: colors.onSurface, marginBottom: 8 }]}>{workspaceModeLabel(workspace)}</Text>
+        {!isTerminal && workspace.tripReady !== true && <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant, marginBottom: 16 }]}>{workspaceBlockReason(workspace)}</Text>}
         {/* Summary card */}
         <ClayCard style={styles.card}>
           <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
@@ -363,7 +370,7 @@ export default function TripDetailsScreen() {
           </View>
         </ClayCard>
 
-        {isCargo && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
+        {isCargo && workspace.tripReady === true && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
 
         {/* Readiness panel (pre-start) or completion summary (terminal) */}
         {isTerminal ? (
@@ -624,7 +631,7 @@ export default function TripDetailsScreen() {
               ) : (
                 <>
                   <Text style={[type.labelLg, { color: ctaActive ? colors.onPrimary : colors.onSurfaceVariant, textAlign: "center", flexShrink: 1 }]}>
-                    {ctaLabel}
+                    {workspace.tripReady === true ? ctaLabel : "TRIP ACTION UNAVAILABLE"}
                   </Text>
                   <Ionicons
                     name={ready.startReady ? "car-outline" : ctaNavigates ? "arrow-forward-outline" : "lock-closed-outline"}
@@ -640,11 +647,12 @@ export default function TripDetailsScreen() {
             <Pressable
               style={({ pressed }) => [styles.cta, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 }, mats.clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 }]}
               onPress={handleContinue}
-              disabled={accepting}
+              disabled={accepting || workspace.tripReady !== true}
+              accessibilityState={{ disabled: accepting || workspace.tripReady !== true }}
               accessibilityRole="button"
               accessibilityLabel="Continue to map"
             >
-              <Text style={[type.labelLg, { color: colors.onPrimary }]}>CONTINUE TO MAP</Text>
+              <Text style={[type.labelLg, { color: colors.onPrimary }]}>{workspace.tripReady === true ? "CONTINUE TO MAP" : "TRIP ACTION UNAVAILABLE"}</Text>
               <Ionicons name="navigate-outline" size={19} color={colors.onPrimary} />
             </Pressable>
           </CoachMarkTarget>

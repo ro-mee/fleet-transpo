@@ -23,6 +23,8 @@ import { useConnectivity } from "../../../lib/connectivity-context";
 import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-state";
 import { groupTrips, bucketTone, OPEN_BUCKETS, PRE_START, preTripChipLabel } from "../../../lib/trips-queue";
 import { isCargoLoad, loadTitle, loadSubtitle } from "../../../lib/load-presentation";
+import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
+import { workspaceModeLabel, workspaceBlockReason } from "../../../lib/cargo-view-model";
 import RouteTimeline from "../../../components/RouteTimeline";
 import RadarPulse from "../../../components/RadarPulse";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
@@ -35,6 +37,7 @@ function formatWhen(value) {
 }
 
 const TripCard = memo(function TripCard({ trip, display, router, colors, type }) {
+  const workspace = resolveDriverWorkspace({ trip });
   const when = formatWhen(trip.departure_time);
   const isOverdue = display === "OVERDUE · ACTION REQUIRED";
   const tone = trip.trip_status === 'Completed' ? 'primary' : bucketTone(display);
@@ -65,6 +68,8 @@ const TripCard = memo(function TripCard({ trip, display, router, colors, type })
         ) : null}
       </View>
 
+      <Text style={[type.labelLg, { color: colors.onSurface }]}>{workspaceModeLabel(workspace)}</Text>
+      {workspace.tripReady === false && !["Completed", "Cancelled"].includes(trip.trip_status) && <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant, marginTop: 8 }]}>{workspaceBlockReason(workspace)}</Text>}
       <RouteTimeline
         accent={isOverdue ? colors.danger : colors.primary}
         stops={stops}

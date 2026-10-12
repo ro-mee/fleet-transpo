@@ -323,3 +323,10 @@ describe("GET /api/mobile/driver/trips — endpoint coordinate fallback", () => 
     expect(tripSelect).toContain("LEFT JOIN service_types st ON st.service_type_id = tr.service_type_id");
   });
 });
+
+it.each([true, false])("preserves explicit VIP flag %s and projects it", async is_vip => {
+  vi.spyOn(apiUtils, "requireDriver").mockResolvedValue({ user: { driverId: 7 } });
+  const query = mockQuery([tripRow({ is_vip })]);
+  const row = (await (await GET(mockReq())).json())[0]; expect(row.is_vip).toBe(is_vip);
+  expect(query.mock.calls.find(([sql]) => sql.includes("FROM trips t"))[0]).toContain("tr.is_vip");
+});

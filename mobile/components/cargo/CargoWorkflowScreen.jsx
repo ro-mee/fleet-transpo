@@ -1,9 +1,11 @@
 import { useCallback, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
+import { ClayButton } from "../clay";
+import { resolveDriverWorkspace } from "../../lib/driver-workspace";
 import ClayScreenHeader from "../ClayScreenHeader";
 import { CargoWorkflowContent } from "./CargoWorkflowContent";
 import { useAuth } from "../../lib/auth";
@@ -13,13 +15,13 @@ import { api } from "../../lib/api";
 import { cargoApi } from "../../lib/cargo-api";
 import { getCargoSyncState, captureCargoSession, isCurrentCargoSession } from "../../lib/cargo-sync";
 import { readCargoForm, saveCargoForm, submitCargoObservation } from "../../lib/cargo-form-state";
-import { blankCargoCounts, buildCargoViewModel, buildCargoReceipt, validateCargoCounts, readCargoScreenSources } from "../../lib/cargo-view-model";
+import { blankCargoCounts, buildCargoViewModel, buildCargoReceipt, validateCargoCounts, readCargoScreenSources, workspaceModeLabel, workspaceBlockReason } from "../../lib/cargo-view-model";
 const EMPTY_FORM = { counts: {}, issues: {} };
 export default function CargoWorkflowScreen({ mode = "overview" }) {
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
   const actorId = user?.employeeId;
-  const { status } = useConnectivity(), router = useRouter(), insets = useSafeAreaInsets(), { colors } = useTheme();
+  const { status } = useConnectivity(), router = useRouter(), insets = useSafeAreaInsets(), { colors, type } = useTheme();
   const offline = status === "offline", stage = mode === "delivery" ? "DELIVERY" : "PICKUP";
   const identity = `${actorId}:${id}:${stage}`;
   const [screen, setScreen] = useState({ identity: null, execution: null, trip: null, fresh: false, syncState: {}, loading: true, error: null });
@@ -40,11 +42,14 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
         try {
           const sources = await readCargoScreenSources(id, { readExecution: () => cargoApi.getExecution(id, actorId, snapshot.signal), readTrips: () => api.get("/api/mobile/driver/trips?status=all&limit=100") });
           if (!current()) return;
-          trip = sources.trip || trip;
-          if (sources.executionError) throw sources.executionError;
-          execution = sources.execution?.data ?? sources.execution;
+          trip = sources.trip;
+          if (!sources.cargoAllowed) {
+            execution = null;
+            error = workspaceBlockReason(sources.workspace) || "This Passenger vehicle uses hotel transportation. Open Trip Details for this trip.";
+          } else if (sources.executionError) throw sources.executionError;
+          execution = sources.cargoAllowed ? sources.execution?.data ?? sources.execution : null;
           fresh = sources.trip != null;
-          if (trip?.load_type !== "Cargo") { execution = null; error = "This trip has no assigned cargo workflow. Use Trip Details for passenger trips."; }
+
         } catch (failure) {
           if (!current()) return;
           error = failure.status === 503 ? "Cargo verification is unavailable. The service is not enabled. Retry online or contact Fleet." : failure.kind === "reauthentication" ? "Sign in again to refresh cargo verification. Your saved draft is retained." : failure.kind === "stale_manifest" ? "The manifest changed. Refresh before a new count." : failure.message || "Cargo status could not be refreshed. Your saved draft is retained.";
@@ -63,16 +68,18 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
   }, [actorId, id, stage, identity, offline]);
   useFocusEffect(useCallback(() => { const timer = setTimeout(load, 0); return () => { clearTimeout(timer); requestNumber.current += 1; }; }, [load]));
   const active = screen.identity === identity;
-  const execution = active ? screen.execution : null;
+  const workspace = resolveDriverWorkspace({ trip: active ? screen.trip : null });
+  const cargoAllowed = workspace.tripReady === true && workspace.mode === "cargo" && screen.trip?.load_type === "Cargo";
+  const execution = active && cargoAllowed ? screen.execution : null;
   const visibleForm = active ? form : EMPTY_FORM;
   const stale = !!(execution && visibleForm.manifestHash && visibleForm.manifestHash !== execution.manifest?.manifest_ref?.hash);
   const pendingRow = active ? screen.syncState.drafts?.find(row => row.submissionId === visibleForm.pendingSubmissionId) : null;
   const pending = !!(pendingRow && pendingRow.syncState !== "FLEET_SAVED");
   const localState = stale ? { state: "STALE_REVIEW" } : pendingRow ? { state: pendingRow.syncState } : screen.syncState;
-  const view = buildCargoViewModel(execution, { offline, fresh: active && screen.fresh, syncState: localState, tripStatus: screen.trip?.trip_status });
+  const view = buildCargoViewModel(execution, { offline, fresh: active && screen.fresh, syncState: localState, trip: active ? screen.trip : null, tripStatus: screen.trip?.trip_status });
   const edit = next => { setErrors({}); setReview(false); persist(next).catch(failure => setMessage(`Could not save on this device: ${failure.message}. Keep this screen open and retry.`)); };
   const submit = async reportIssue => {
-    if (inFlight.current || !active) return;
+    if (inFlight.current || !active || !cargoAllowed) return;
     const validation = validateCargoCounts(execution?.manifest, formRef.current.counts);
     setErrors(validation.errors);
     if (!validation.valid) { setReview(false); setMessage("Check each actual count. Zero is allowed; a blank count is not."); return; }
@@ -90,7 +97,7 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
     finally { inFlight.current = false; setBusy(false); }
   };
   const photo = async () => {
-    if (inFlight.current || !issueLine) return;
+    if (inFlight.current || !cargoAllowed || !issueLine) return;
     const snapshot = captureCargoSession(actorId), lineId = issueLine;
     inFlight.current = true; setBusy(true);
     try {
@@ -111,12 +118,17 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
     finally { inFlight.current = false; setBusy(false); }
   };
   const back = async () => { try { if (active) await saveCargoForm({ ...context, form: formRef.current }); router.back(); } catch (failure) { setMessage(`Your count could not be saved: ${failure.message}. Retry before leaving.`); } };
-  const recount = async () => { if (inFlight.current || (pending && !stale)) return; try { await persist({ execution, trip: screen.trip, manifestHash: execution.manifest.manifest_ref.hash, counts: blankCargoCounts(execution.manifest), issues: {} }); setReview(false); setIssueLine(null); setErrors({}); setMessage("New count started. Earlier observations remain saved."); } catch (failure) { setMessage(failure.message); } };
+  const recount = async () => { if (inFlight.current || !cargoAllowed || !execution || (pending && !stale)) return; try { await persist({ execution, trip: screen.trip, manifestHash: execution.manifest.manifest_ref.hash, counts: blankCargoCounts(execution.manifest), issues: {} }); setReview(false); setIssueLine(null); setErrors({}); setMessage("New count started. Earlier observations remain saved."); } catch (failure) { setMessage(failure.message); } };
   return <View style={[styles.root, { backgroundColor: colors.background }]}>
     <ClayScreenHeader title={mode === "overview" ? "Cargo manifest" : mode === "delivery" ? "Verify delivery" : "Verify pickup"} onBack={back} />
     <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
-        <CargoWorkflowContent mode={mode} execution={execution} trip={active ? screen.trip : null} view={view} form={visibleForm} errors={errors} issueLine={execution?.manifest?.lines?.some(line => line.line_id === issueLine) ? issueLine : null} review={review} loading={!active || screen.loading} busy={busy} pending={pending} stale={stale} error={active ? screen.error : null} message={active ? message : null} onRefresh={load} onOpen={route => router.push(`/trip/${id}/${route}`)} onChange={(lineId, value) => edit({ ...formRef.current, counts: { ...formRef.current.counts, [lineId]: value } })} onIssue={setIssueLine} onIssueChange={issue => edit({ ...formRef.current, issues: { ...formRef.current.issues, [issueLine]: issue } })} onPhoto={photo} onCloseIssue={() => setIssueLine(null)} onReview={setReview} onSubmit={submit} onRecount={recount} />
+        <Text style={[type.labelLg, { color: colors.onSurface, marginBottom: 12 }]}>{workspaceModeLabel(workspace)}</Text>
+        {active && !screen.loading && !cargoAllowed ? <View style={{ gap: 16 }}>
+          <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant }]}>{workspaceBlockReason(workspace) || "This Passenger vehicle uses hotel transportation. Open Trip Details for this trip."}</Text>
+          <ClayButton label="Refresh assignment" onPress={load} />
+          <ClayButton label="Open Trip Details" onPress={() => router.push(`/trip/${id}`)} />
+        </View> : <CargoWorkflowContent mode={mode} execution={execution} trip={active ? screen.trip : null} view={view} form={visibleForm} errors={errors} issueLine={execution?.manifest?.lines?.some(line => line.line_id === issueLine) ? issueLine : null} review={review} loading={!active || screen.loading} busy={busy} pending={pending} stale={stale} error={active ? screen.error : null} message={active ? message : null} onRefresh={load} onOpen={route => router.push(`/trip/${id}/${route}`)} onChange={(lineId, value) => edit({ ...formRef.current, counts: { ...formRef.current.counts, [lineId]: value } })} onIssue={setIssueLine} onIssueChange={issue => edit({ ...formRef.current, issues: { ...formRef.current.issues, [issueLine]: issue } })} onPhoto={photo} onCloseIssue={() => setIssueLine(null)} onReview={setReview} onSubmit={submit} onRecount={recount} />}
       </ScrollView>
     </KeyboardAvoidingView>
   </View>;

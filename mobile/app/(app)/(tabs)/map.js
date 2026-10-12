@@ -35,7 +35,8 @@ import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-
 import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { cargoApi } from "../../../lib/cargo-api";
 import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from "../../../lib/cargo-sync";
-import { resolveCargoMapGate } from "../../../lib/cargo-view-model";
+import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
+import { resolveCargoMapGate, workspaceModeLabel, workspaceBlockReason } from "../../../lib/cargo-view-model";
 import { ClayButton } from "../../../components/clay/ClayButton";
 import {
   startBackgroundTracking,
@@ -545,6 +546,7 @@ export default function MapTab() {
   const radarRadiusKm = 5;
   const [legendExpanded, setLegendExpanded] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
+  const markerWorkspace = resolveDriverWorkspace({ trip: selectedMarker?.rawData });
   const [nearbyTrips, setNearbyTrips] = useState([]);
   const [recentNotification, setRecentNotification] = useState(null);
   const [acceptingTripId, setAcceptingTripId] = useState(null);
@@ -971,6 +973,9 @@ export default function MapTab() {
 
   const handleAcceptAssignment = async (tripId) => {
     if (!tripId) return;
+    const assignment = nearbyTrips.find(trip => String(trip.trip_id) === String(tripId));
+    const workspace = resolveDriverWorkspace({ trip: assignment });
+    if (workspace.tripReady !== true) { AppAlert.alert("Assignment needs review", workspaceBlockReason(workspace)); return; }
     try {
       setAcceptingTripId(tripId);
       const res = await api.put(`/api/mobile/driver/trips/${tripId}/accept`, { accept: true });
@@ -1833,6 +1838,10 @@ export default function MapTab() {
               </View>
             </View>
 
+            {selectedMarker.tripId && <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+              <Text style={{ fontFamily: fonts.bodySemiBold, color: colors.onSurface }}>{workspaceModeLabel(markerWorkspace)}</Text>
+              {markerWorkspace.tripReady !== true && <Text accessibilityRole="alert" style={{ fontFamily: fonts.body, color: colors.onSurfaceVariant, marginTop: 8 }}>{workspaceBlockReason(markerWorkspace)}</Text>}
+            </View>}
             {/* Actions Row: Strictly enforce that only dispatcher/admin trips can be accepted */}
             <View style={styles.markerCardActionsRow}>
               {selectedMarker.tripId ? (
@@ -1847,13 +1856,15 @@ export default function MapTab() {
                   </Pressable>
 
                   <Pressable
+                    disabled={markerWorkspace.tripReady !== true}
+                    accessibilityState={{ disabled: markerWorkspace.tripReady !== true }}
                     onPress={() => handleAcceptAssignment(selectedMarker.tripId)}
-                    style={[styles.markerCardPriBtn, { backgroundColor: rTheme.primary }]}
+                    style={[styles.markerCardPriBtn, { backgroundColor: rTheme.primary, opacity: markerWorkspace.tripReady === true ? 1 : 0.5 }]}
                     accessibilityRole="button"
                     accessibilityLabel="Accept assignment"
                   >
                     <Text style={[styles.markerCardPriBtnText, { color: colors.onPrimary }]}>
-                      {acceptingTripId === selectedMarker.tripId ? "ACCEPTING..." : "ACCEPT"}
+                      {markerWorkspace.tripReady !== true ? "UNAVAILABLE" : acceptingTripId === selectedMarker.tripId ? "ACCEPTING..." : "ACCEPT"}
                     </Text>
                   </Pressable>
                 </>
@@ -1919,6 +1930,7 @@ export default function MapTab() {
 
   // Departure-window gate for the START ROUTE button. When earliest_start is
   // null (no scheduled departure / no ETA) the window is open — fail-open.
+  const workspace = resolveDriverWorkspace({ trip: activeTrip });
   const earliestStart = activeTrip?.earliest_start
     ? new Date(activeTrip.earliest_start).getTime()
     : null;
@@ -2174,6 +2186,10 @@ export default function MapTab() {
               </View>
             </View>
           )}
+          <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
+            <Text style={[type.labelLg, { color: colors.onSurface }]}>{workspaceModeLabel(workspace)}</Text>
+            {workspace.tripReady !== true && <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant, marginTop: 8 }]}>{workspaceBlockReason(workspace)}</Text>}
+          </View>
           {preDeparture ? (
             <Pressable 
               style={({ pressed }) => [
@@ -2197,6 +2213,7 @@ export default function MapTab() {
             <CoachMarkTarget targetId="map.trip_progression">
               <SwipeButton
                 title={
+                  workspace.tripReady !== true ? "TRIP ACTION UNAVAILABLE" :
                   // Single clock gate: label AND disabled state both derive from
                   // earliest_start/windowOpen so they can never disagree.
                   (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
@@ -2204,12 +2221,17 @@ export default function MapTab() {
                   (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
                   tripActionLabel(activeTrip.trip_status, activeTrip.load_type)
                 }
-                disabled={(isPending || isDriverAccepted) && preTripDone && !windowOpen}
+                disabled={workspace.tripReady !== true || ((isPending || isDriverAccepted) && preTripDone && !windowOpen)}
                 busy={inFlight}
                 backgroundColor={colors.primary}
                 textColor={colors.onPrimary}
                 onSwipeSuccess={async () => {
                   if (inFlight) return;
+                  const currentWorkspace = resolveDriverWorkspace({ trip: activeTrip });
+                  if (currentWorkspace.tripReady !== true) {
+                    AppAlert.alert("Assignment needs review", workspaceBlockReason(currentWorkspace));
+                    return;
+                  }
                   setInFlight(true);
                   try {
                     if (isCargoLoad(activeTrip)) {
@@ -2522,8 +2544,8 @@ export default function MapTab() {
                     ) : null;
                   })()}
                 </View>
-                {isCargoLoad(activeTrip) && <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${["Drop-off", "Arrived"].includes(activeTrip.trip_status) ? "cargo-delivery" : activeTrip.trip_status === "At Pickup" ? "cargo-pickup" : "cargo"}`)} />}
-                {!isCargoLoad(activeTrip) && <Pressable
+                {isCargoLoad(activeTrip) && workspace.tripReady === true && <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${["Drop-off", "Arrived"].includes(activeTrip.trip_status) ? "cargo-delivery" : activeTrip.trip_status === "At Pickup" ? "cargo-pickup" : "cargo"}`)} />}
+                {!isCargoLoad(activeTrip) && workspace.tripReady === true && <Pressable
                   style={({ pressed }) => [
                     styles.iconButton,
                     mats.clayTile,
