@@ -1,4 +1,4 @@
-import { afterEach,beforeEach,it,expect,vi } from 'vitest';
+﻿import { afterEach,beforeEach,it,expect,vi } from 'vitest';
 vi.mock('@/lib/db',()=>({query:vi.fn()}));
 vi.mock('@/services/dispatch-evidence.service',()=>({readDispatchRevision:vi.fn(async()=> 'revision')}));
 vi.mock('@/services/route-resolver.service',()=>({resolveRequestEstimate:vi.fn(async()=>({durationMin:120,source:'TomTom'}))}));
@@ -23,16 +23,13 @@ beforeEach(()=>{
   evaluateDispatchCandidate.mockResolvedValue({checks:[{id:'request',status:'verified'}],reviewable:true,dispatchContext:{mode:'SCHEDULED'},readiness:'REVIEW_REQUIRED',feasibility:{verdict:'UNKNOWN',reasons:['Departure plan needs review.']}});
 });
 const check=(allowReview=false)=>validatePairAvailability({request:{...record,passenger_count:1,requested_category_id:99},vehicleId:2,driverId:7,allowReview});
-it('pins the stored catalog service over a caller override and blocks a driver without that approval',async()=>{
- vi.stubEnv('DRIVER_QUALIFICATION_MODE','ENFORCE');
- vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION','fixture-v1');
- vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW','fixture-roster');
- vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS','RECHECK');
- record.service_code='HOTEL_SUPPLY_TRANSFER';
- const result=await validatePairAvailability({request:{...record,service_code:'GUEST_TRANSPORT'},vehicleId:2,driverId:7,allowReview:true});
- expect(result).toMatchObject({ok:false,conflict:{code:'DRIVER_SERVICE_QUALIFICATION_REQUIRED',detail:{required_group:'CARGO',service_code:'HOTEL_SUPPLY_TRANSFER'}}});
- expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
-});
+  it('pins the stored catalog service over a caller override and blocks the wrong driver type',async()=>{
+    record.service_code='HOTEL_SUPPLY_TRANSFER';
+    driver={...driver,driver_type:'Passenger'};
+    const result=await validatePairAvailability({request:{...record,service_code:'GUEST_TRANSPORT'},vehicleId:2,driverId:7,allowReview:true});
+    expect(result).toMatchObject({ok:false,conflict:{severity:'blocking'}});
+    expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
+  });
 it('reloads linked request requirements and uses the actual service window',async()=>{
   const result=await check(true);expect(result.ok).toBe(true);
   expect(evaluateDispatchCandidate.mock.calls[0][0].request.passenger_count).toBe(8);

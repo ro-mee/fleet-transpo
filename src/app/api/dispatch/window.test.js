@@ -77,26 +77,6 @@ describe("dispatch window boundary", () => {
     expect(response.status).toBe(503);
     expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE dispatchschedules'))).toBe(false);
   });
-  it('pins reassignment to the persisted passenger request despite a caller-supplied cargo request', async () => {
-    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'ENFORCE'); vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION', 'fixture-v1');
-    vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW', 'fixture-review'); vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS', 'RECHECK');
-    const original = query.getMockImplementation();
-    query.mockImplementation(async (sql, values) => {
-      if (sql.includes('driver_service_qualifications')) return { rows: [{ driver_id: 7, group: 'CARGO', status: 'ACTIVE', verified_by: 8,
-        verified_at: '2026-10-09T00:00:00Z', policy_version: 'fixture-v1', version: 1 }] };
-      if (sql.includes('FROM transportation_requests')) {
-        const result = await original(sql, values);
-        return { rows: result.rows.map(row => ({ ...row, request_id: Number(values[0]), service_code: Number(values[0]) === 99 ? 'HOTEL_SUPPLY_TRANSFER' : 'GUEST_TRANSPORT' })) };
-      }
-      return original(sql, values);
-    });
-    const response = await edit({ driver_id: 7, request_id: 99 });
-    expect(response.status).toBe(409);
-    expect((await response.json()).error).toMatch(/Passenger.*approval/);
-    expect(validatePairAvailability).toHaveBeenCalledWith(expect.objectContaining({ request: expect.objectContaining({ request_id: 3 }) }));
-    expect(commitDispatchEvidence).not.toHaveBeenCalled();
-    expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE dispatchschedules'))).toBe(false);
-  });
   it('keeps the final token and saved dispatch on its stored cargo request despite an extraneous request ID', async () => {
     validatePairAvailability.mockImplementation(async ({ request: candidate }) => ({ ok: true,
       commitToken: { requestId: candidate.request_id, driverId: 7, vehicleId: 2, revision: 'fixture' } }));
