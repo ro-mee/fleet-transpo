@@ -14,4 +14,13 @@ When assisting with any coding tasks, architecture changes, or complex debugging
 2. **Update** the relevant markdown notes inside the `Capstone/` folder AFTER you have successfully implemented the changes. Keep the documentation perfectly in sync with the codebase.
 
 3. **UPDATE** System.md
+
+## UI/UX alignment owner
+
+When adding or changing a table, pagination, calendar/date picker, modal/dialog, dropdown/select, or menu, take the UI/UX alignment owner role for that work. Before implementation, read `docs/design-system.md` and the relevant Capstone feature note, then inspect an existing example of the same component in this app.
+
+- Reuse the shared component or established page pattern first (`src/components/ui`, `src/components/tables`, and existing calendar/date-picker patterns). Avoid browser-native controls or one-off styling when the surrounding interface uses a shared component; retain native controls only where the product already deliberately uses them for that task.
+- Match existing semantic colors, typography, spacing, control heights/radii, density, theme behavior, responsive layout, focus treatment, and interaction conventions. Preserve accessible names, keyboard operation, touch targets, and the established dialog/menu open-close and focus behavior.
+- Keep the feature's data, permissions, and workflow semantics intact. Add a new shared primitive only when the existing system cannot express the need, and document why it is reusable.
+- Review the rendered target surface when browser access is available and run the focused non-test checks appropriate to the change. Report any visual or device acceptance that remains unverified.
 <!-- END:obsidian-vault-rule -->

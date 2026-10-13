@@ -20,6 +20,10 @@ related: ["[[Dispatch]]", "[[System Boundaries]]"]
 
 # Feature: Reservations
 
+## Cargo draft controls aligned to the shared UI system - 2026-10-13
+
+The Quantity basis, Package orientation and Temperature requirement choices in the unsaved cargo contents editor use the shared Radix Select control (`src/components/ui/select.jsx`). They inherit FleetOps control height, radius, semantic surface/text colors, focus behavior, menu placement and keyboard interaction instead of browser-native option menus. Draft values and manifest semantics are unchanged. Future common controls follow the UI/UX alignment owner rule in `.agents/AGENTS.md`.
+
 **Current passenger/cargo closeout — 2026-10-08:** [[FleetOps Passenger Cargo Review Closeout 2026-10-08]] supersedes the historical prepared/unapplied checkpoint below. The final branch also integrates main `11191bb0`, preserving Copilot incomplete-proposal, closed-trip restore, avatar and conversation changes alongside typed cargo labels and overload recovery. The panel conflict retained both branches' tests: 39 panel tests plus nine decision tests passed, and scoped strict lint passed. Main's browser acceptance remains separately pending.
 
 **Migration checkpoint (2026-10-07):** Provisional passenger/cargo drafts 144/145/146 are now 150/151/152, still unapplied. Historical references below retain their earlier names. Number collisions with applied supply work are resolved; this does not enable request revisions/cancellation or cargo dispatch. The recorded-origin SCM sandbox workflow is separate from this authenticated PMS/POS request path. See [[FleetOps Migration Reconciliation 2026-10-07]] for remaining merge/live/dispatch gates.
