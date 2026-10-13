@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./route";
 import { fetchReferencePrice } from "@/lib/fuel/providers/official-reference";
+import { fetchNcrPage, fetchPdfBytes, extractPdfText } from "@/lib/fuel/providers/doe-pdf";
 
 const fake = vi.hoisted(() => ({ rows: [], writes: 0 }));
 vi.mock("@/lib/api/utils", () => ({ AuthError: class extends Error { constructor(message, status) { super(message); this.status = status; } }, ok: (body, status = 200) => Response.json(body, { status }), err: (error, status) => Response.json({ error }, { status }), handleError: (e) => Response.json({ error: e.message }, { status: e.status || 500 }) }));
 vi.mock("@/lib/fuel/providers/official-reference", async (original) => ({ ...(await original()), fetchReferencePrice: vi.fn() }));
+vi.mock("@/lib/fuel/providers/doe-pdf", () => ({ fetchNcrPage: vi.fn(), fetchPdfBytes: vi.fn(), extractPdfText: vi.fn(), extractNcrPdfLinks: (html) => (html.includes("LATEST") ? ["https://cdn.example/f/NCR%20Sep%201-7%202026.pdf"] : []), parseWeekRange: () => ({ startISO: "2026-09-01", endISO: "2026-09-07" }), buildPdfAnnouncements: (input) => (input.text === "PARSEABLE" ? { ok: true, announcements: [{ fuel_product: "Diesel", region: "NCR", reference_price: 62.25, prior_price: null, announced_at: null, effective_at: "2026-09-01T00:00:00+08:00", source_url: "https://cdn.example/f/NCR%20Sep%201-7%202026.pdf" }] } : { ok: false, reason: "No usable company prices parsed." }) }));
 vi.mock("@/lib/db", () => {
   const query = async (sql, p) => {
     if (sql.includes("INSERT INTO fuel_price_snapshots")) {
@@ -25,9 +27,10 @@ const activate = () => {
   process.env.FUEL_PRICE_PROVIDER_ENABLED = "1"; process.env.FUEL_PRICE_SOURCE_VERIFIED = "1";
   process.env.FUEL_PRICE_SOURCE_ID = "fixture-only"; process.env.FUEL_PRICE_SOURCE_URL = "https://official.example/doe";
 };
+const activatePdf = () => { process.env.FUEL_PRICE_PDF_ENABLED = "1"; process.env.FUEL_PRICE_SOURCE_VERIFIED = "1"; process.env.FUEL_PRICE_NCR_PAGE_URL = "https://official.example/ncr-pump-prices"; process.env.FUEL_PRICE_PDF_CDN = "https://cdn.example"; };
 beforeEach(() => {
   vi.clearAllMocks(); fake.rows = []; fake.writes = 0; process.env.CRON_SECRET = "test-only-secret";
-  for (const key of ["FUEL_PRICE_PROVIDER_ENABLED", "FUEL_PRICE_SOURCE_VERIFIED", "FUEL_PRICE_SOURCE_ID", "FUEL_PRICE_SOURCE_URL"]) delete process.env[key];
+  for (const key of ["FUEL_PRICE_PROVIDER_ENABLED", "FUEL_PRICE_SOURCE_VERIFIED", "FUEL_PRICE_SOURCE_ID", "FUEL_PRICE_SOURCE_URL", "FUEL_PRICE_PDF_ENABLED", "FUEL_PRICE_NCR_PAGE_URL", "FUEL_PRICE_PDF_CDN"]) delete process.env[key];
 });
 describe("protected provider cron through real auth and repository", () => {
   it("rejects a wrong or missing configured cron secret before external fetch", async () => {
@@ -62,5 +65,34 @@ describe("protected provider cron through real auth and repository", () => {
     fetchReferencePrice.mockResolvedValue({ ok: true, data: { ...payload, effective_at: "2030-10-05T00:00:00+08:00" } });
     expect(await (await call()).json()).toMatchObject({ outcome: "retained", persisted: false });
     expect(fake.writes).toBe(0); expect(fake.rows).toHaveLength(2);
+  });
+});
+describe("pdf provider branch", () => {
+  it("stays on the legacy path until the pdf branch is explicitly enabled", async () => {
+    activate(); fetchReferencePrice.mockResolvedValue({ ok: true, data: payload });
+    const body = await (await call()).json(); expect(body.snapshot.fuel_product).toBe("Diesel");
+    expect(fetchNcrPage).not.toHaveBeenCalled();
+  });
+  it("records parsed pdf announcements pending through the real repository", async () => {
+    activatePdf();
+    fetchNcrPage.mockResolvedValue({ ok: true, html: "LATEST" });
+    fetchPdfBytes.mockResolvedValue({ ok: true, bytes: new Uint8Array([9]) });
+    extractPdfText.mockResolvedValue("PARSEABLE");
+    const body = await (await call()).json();
+    expect(body).toMatchObject({ outcome: "recorded", persisted: true });
+    expect(body.products).toMatchObject([{ fuel_product: "Diesel", outcome: "recorded" }]);
+    expect(fake.writes).toBe(1);
+  });
+  it("retains on page, download, parse and plausibility failures without writing", async () => {
+    activatePdf(); fake.rows = [{ ...payload, reference_price: 62, effective_at: "2029-10-01T00:00:00Z" }];
+    fetchNcrPage.mockResolvedValue({ ok: false, reason: "page down" });
+    expect(await (await call()).json()).toMatchObject({ outcome: "retained", persisted: false });
+    fetchNcrPage.mockResolvedValue({ ok: true, html: "LATEST" });
+    fetchPdfBytes.mockResolvedValue({ ok: false, reason: "cdn down" });
+    expect(await (await call()).json()).toMatchObject({ outcome: "retained", persisted: false });
+    fetchPdfBytes.mockResolvedValue({ ok: true, bytes: new Uint8Array([9]) });
+    extractPdfText.mockResolvedValue("GARBAGE");
+    expect(await (await call()).json()).toMatchObject({ outcome: "retained", persisted: false });
+    expect(fake.writes).toBe(0);
   });
 });

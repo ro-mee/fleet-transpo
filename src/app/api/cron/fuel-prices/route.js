@@ -5,6 +5,7 @@ import {
   parseOfficialReference,
 } from "@/lib/fuel/providers/official-reference";
 import { fuelPrices, fuelSchemaError } from "@/lib/fuel/price-repository";
+import { fetchNcrPage, fetchPdfBytes, extractPdfText, extractNcrPdfLinks, parseWeekRange, buildPdfAnnouncements } from "@/lib/fuel/providers/doe-pdf";
 
 // Official price-provider sync (Release D Task 12).
 //
@@ -32,10 +33,64 @@ function activation() {
   return { id, origin };
 }
 
+function pdfActivation() {
+  if (process.env.FUEL_PRICE_PDF_ENABLED !== "1" || process.env.FUEL_PRICE_SOURCE_VERIFIED !== "1") return null;
+  const pageUrl = String(process.env.FUEL_PRICE_NCR_PAGE_URL ?? "").trim();
+  const cdn = String(process.env.FUEL_PRICE_PDF_CDN ?? "").trim();
+  try {
+    const page = new URL(pageUrl); const pdf = new URL(cdn);
+    if (page.protocol !== "https:" || pdf.protocol !== "https:") return null;
+    return { pageUrl: page.toString(), pdfOrigins: [pdf.origin] };
+  } catch { return null; }
+}
+
+function latestWeekPdf(pdfUrls) {
+  const dated = [];
+  for (const pdfUrl of pdfUrls) {
+    let label = "";
+    try { label = decodeURIComponent(new URL(pdfUrl).pathname.split("/").pop() ?? ""); } catch { continue; }
+    const range = parseWeekRange(label);
+    if (!range) continue;
+    dated.push({ pdfUrl, endISO: range.endISO });
+  }
+  dated.sort((a, b) => (a.endISO < b.endISO ? 1 : -1));
+  return dated[0]?.pdfUrl ?? null;
+}
+
 export async function GET(req) {
   try {
     const authz = verifyServiceToken(req, process.env.CRON_SECRET);
     if (!authz.ok) return err(authz.message, authz.status);
+
+    const pdf = pdfActivation();
+    if (pdf) {
+      await fuelPrices.activateDue();
+      const page = await fetchNcrPage({ pageUrl: pdf.pageUrl });
+      if (!page.ok) return ok({ outcome: "retained", reason: page.reason, persisted: false, products: [] });
+      const pdfUrl = latestWeekPdf(extractNcrPdfLinks(page.html, { pageUrl: pdf.pageUrl, pdfOrigins: pdf.pdfOrigins }));
+      if (!pdfUrl) return ok({ outcome: "retained", reason: "No dated weekly PDF found.", persisted: false, products: [] });
+      const downloaded = await fetchPdfBytes({ pdfUrl, allowedOrigins: pdf.pdfOrigins });
+      if (!downloaded.ok) return ok({ outcome: "retained", reason: downloaded.reason, persisted: false, products: [] });
+      let text;
+      try { text = await extractPdfText(downloaded.bytes); } catch (e) { return ok({ outcome: "retained", reason: "PDF text unreadable.", persisted: false, products: [] }); }
+      let label = "";
+      try { label = decodeURIComponent(new URL(pdfUrl).pathname.split("/").pop() ?? ""); } catch { label = ""; }
+      const built = buildPdfAnnouncements({ text, pdfUrl, weekLabel: label });
+      if (!built.ok) return ok({ outcome: "retained", reason: built.reason, persisted: false, products: [] });
+      const products = [];
+      for (const announcement of built.announcements) {
+        try {
+          const result = await fuelPrices.record(announcement, { automatic: true });
+          products.push({ fuel_product: announcement.fuel_product, outcome: result.duplicate ? "duplicate" : "recorded" });
+        } catch (error) {
+          if ([400, 409].includes(error.status)) { products.push({ fuel_product: announcement.fuel_product, outcome: "retained", reason: error.message }); continue; }
+          throw error;
+        }
+      }
+      const persisted = products.some((p) => p.outcome === "recorded");
+      const allDuplicate = products.length > 0 && products.every((p) => p.outcome === "duplicate");
+      return ok({ outcome: allDuplicate ? "duplicate" : persisted ? "recorded" : "retained", persisted, products });
+    }
 
     const source = activation();
     if (!source) {

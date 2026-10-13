@@ -1,0 +1,34 @@
+# Weekly fuel price sync — triggers the DOE PDF provider cron.
+#
+# Setup (one time, repository settings):
+#   1. Settings → Secrets → Actions → New secret: CRON_SECRET = same value as the
+#      server's CRON_SECRET env (the endpoint rejects anything else with 401/403).
+#   2. Settings → Variables → Actions → New variable: APP_URL = production origin,
+#      e.g. https://your-app.vercel.app (no trailing slash).
+#   3. Merge this file to the DEFAULT branch — GitHub only runs schedules from there.
+#   4. Server env gates must be on or every run just retains:
+#      FUEL_PRICE_PDF_ENABLED=1, FUEL_PRICE_SOURCE_VERIFIED=1,
+#      FUEL_PRICE_NCR_PAGE_URL + FUEL_PRICE_PDF_CDN (https).
+#
+# A `retained` outcome is NORMAL (DOE hasn't posted yet, parse drift, plausibility
+# hold) — the job only fails on transport/HTTP errors so a bad secret or dead app
+# pages someone. `workflow_dispatch` allows manual runs from the Actions tab.
+name: Weekly fuel price sync
+
+on:
+  schedule:
+    # Monday 21:30 UTC = Tuesday 05:30 Asia/Manila, after the DOE weekly post.
+    - cron: "30 21 * * 1"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Trigger fuel price sync
+        run: |
+          response=$(curl -sS -f --max-time 300 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ vars.APP_URL }}/api/cron/fuel-prices")
+          echo "$response"

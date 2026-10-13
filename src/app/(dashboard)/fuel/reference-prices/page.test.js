@@ -5,7 +5,7 @@ const view = vi.hoisted(() => ({ canEdit: true, query: { data: { rows: [], regio
 vi.mock("@/hooks/use-role-access", () => ({ useRequireRole: () => ({ authorized: true }), useRoleAccess: () => ({ loading: false, can: (_resource, action) => action === "read" || view.canEdit }) }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => view.query, useQueryClient: () => ({ invalidateQueries: () => {} }), useMutation: () => ({ mutate: () => {}, isPending: false }) }));
 vi.stubGlobal("React", React);
-const { default: ReferencePricesPage, ReferencePriceHistory, manualSnapshotBody } = await import("./page");
+const { default: ReferencePricesPage, ReferencePriceHistory, manualSnapshotBody, pdfImportBody } = await import("./page");
 beforeEach(() => { view.canEdit = true; view.query = { data: { rows: [], region: "NCR" } }; });
 describe("reference-price review surface", () => {
   it("renders the manager workflow and hides write controls from observers", () => {
@@ -27,5 +27,17 @@ describe("reference-price review surface", () => {
     const form = new FormData();
     for (const [key, value] of Object.entries({ fuel_product: "Diesel", region: "NCR", reference_price: "62.70", effective_at: "2026-10-01T00:00", source_url: "https://official.example/prices", verified_by: "999" })) form.set(key, value);
     expect(manualSnapshotBody(form)).toEqual({ fuel_product: "Diesel", region: "NCR", reference_price: "62.70", prior_price: null, announced_at: null, effective_at: "2026-10-01T00:00:00+08:00", source_url: "https://official.example/prices" });
+  });
+  it("builds the pdf import body without client verification authority", async () => {
+    const { pdfImportBody } = await import("./page");
+    const form = new FormData();
+    form.set("pdf_url", "https://cdn.example/f/NCR%20Sep%201-7%202026.pdf"); form.set("week_label", "");
+    expect(pdfImportBody(form)).toEqual({ pdf_url: "https://cdn.example/f/NCR%20Sep%201-7%202026.pdf", week_label: null });
+  });
+  it("shows the pdf import card only to editors", () => {
+    let markup = renderToStaticMarkup(<ReferencePricesPage />);
+    expect(markup).toContain("Import from DOE PDF"); expect(markup).toContain('id="pdf-url"');
+    view.canEdit = false; markup = renderToStaticMarkup(<ReferencePricesPage />);
+    expect(markup).not.toContain("Import from DOE PDF");
   });
 });

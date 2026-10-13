@@ -16,6 +16,11 @@ export function manualSnapshotBody(form) {
   return { fuel_product: form.get("fuel_product"), region: form.get("region"), reference_price: form.get("reference_price"), prior_price: form.get("prior_price") || null, announced_at: manilaInstant(form.get("announced_at")), effective_at: manilaInstant(form.get("effective_at")), source_url: form.get("source_url") };
 }
 
+export function pdfImportBody(form) {
+  const week = form.get("week_label");
+  return { pdf_url: form.get("pdf_url"), week_label: week == null || String(week).trim() === "" ? null : String(week).trim() };
+}
+
 export function ReferencePriceHistory({ rows = [] }) {
   if (!rows.length) return <p className="py-6 text-muted-foreground" role="status">No verified reference prices yet. Add a dated price from an official source.</p>;
   return <div className="overflow-x-auto"><table className="w-full text-left text-sm">
@@ -41,6 +46,7 @@ export default function ReferencePricesPage() {
   const prices = useQuery({ queryKey: ["fuel-reference-prices"], queryFn: () => apiFetch("/api/fuel/reference-prices"), enabled: canRead });
   const save = useMutation({ mutationFn: (body) => apiFetch("/api/fuel/reference-prices", { method: "POST", body }), onSuccess: () => cache.invalidateQueries({ queryKey: ["fuel-reference-prices"] }) });
   const setRegion = useMutation({ mutationFn: (region) => apiFetch("/api/fuel/reference-prices", { method: "PATCH", body: { region } }), onSuccess: () => cache.invalidateQueries({ queryKey: ["fuel-reference-prices"] }) });
+  const importPdf = useMutation({ mutationFn: (body) => apiFetch("/api/fuel/reference-prices/import-pdf", { method: "POST", body }), onSuccess: () => cache.invalidateQueries({ queryKey: ["fuel-reference-prices"] }) });
   if (loading) return <p role="status">Loading access…</p>;
   if (!canRead) return <p role="alert">You do not have permission to view reference prices.</p>;
   return <div className="space-y-6">
@@ -70,6 +76,16 @@ export default function ReferencePricesPage() {
           <Button disabled={save.isPending}>{save.isPending ? "Recording…" : "Record verified price"}</Button>
           {save.error ? <p role="alert" className="text-destructive">{save.error.message}</p> : null}
           {save.isSuccess ? <p role="status">{save.data.duplicate ? "This price was already recorded." : "Verified price recorded."}</p> : null}
+        </form>
+      </CardContent></Card> : null}
+      {canEdit ? <Card><CardHeader><CardTitle>Import from DOE PDF</CardTitle></CardHeader><CardContent>
+        <p className="mb-4 text-sm text-muted-foreground">Paste the weekly NCR monitoring PDF link. The server averages company Diesel and Gasoline prices and records them as pending snapshots with you as verifier. Anything it cannot parse is reported, never guessed.</p>
+        <form className="space-y-4" onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; importPdf.mutate(pdfImportBody(new FormData(form)), { onSuccess: () => form.reset() }); }}>
+          <div className="space-y-2"><Label htmlFor="pdf-url">Weekly NCR PDF URL</Label><Input id="pdf-url" name="pdf_url" type="url" required maxLength={2000} placeholder="https://…/NCR Liquid Fuel Price Monitoring 29 Sep to 5 Oct 2026.pdf" /></div>
+          <div className="space-y-2"><Label htmlFor="week-label">Week label override (optional)</Label><Input id="week-label" name="week_label" maxLength={200} placeholder="NCR Price Monitoring Sep 1-7 2026.pdf" /></div>
+          <Button disabled={importPdf.isPending}>{importPdf.isPending ? "Importing…" : "Import weekly PDF"}</Button>
+          {importPdf.error ? <p role="alert" className="text-destructive">{importPdf.error.message}</p> : null}
+          {importPdf.isSuccess ? <p role="status">{importPdf.data.persisted ? "Weekly PDF imported." : `Import finished without new prices: ${importPdf.data.reason ?? importPdf.data.products.map((p) => `${p.fuel_product}: ${p.reason ?? p.outcome}`).join("; ")}`}</p> : null}
         </form>
       </CardContent></Card> : null}
       <Card><CardHeader><CardTitle>Verified history</CardTitle></CardHeader><CardContent><ReferencePriceHistory rows={prices.data.rows} /></CardContent></Card>
