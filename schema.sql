@@ -179,6 +179,234 @@ CREATE TABLE booking_channels (
   CONSTRAINT booking_channels_pkey PRIMARY KEY (channel_id)
 );
 
+CREATE TABLE cargo_decision_inbox (
+  inbox_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  source_system text NOT NULL,
+  source_organization_id text NOT NULL,
+  event_id uuid NOT NULL,
+  payload_hash text NOT NULL,
+  response jsonb NOT NULL,
+  receipt_id uuid NOT NULL,
+  actor_ref text NOT NULL,
+  decision_id uuid NOT NULL,
+  received_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_decision_inbox_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_decision_inbox_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text]))),
+  CONSTRAINT cargo_decision_inbox_pkey PRIMARY KEY (inbox_id),
+  CONSTRAINT cargo_decision_inbox_source_system_source_organization_id_e_key UNIQUE (source_system, source_organization_id, event_id)
+);
+
+CREATE TABLE cargo_decisions (
+  decision_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  receipt_id uuid NOT NULL,
+  execution_version integer NOT NULL,
+  action text NOT NULL,
+  manifest_hash text NOT NULL,
+  source_system text NOT NULL,
+  source_organization_id text NOT NULL,
+  principal_ref text NOT NULL,
+  reason text NOT NULL,
+  event_id uuid NOT NULL,
+  payload_hash text NOT NULL,
+  payload jsonb NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_decisions_action_check CHECK ((action = ANY (ARRAY['WAIT'::text, 'ACCEPT_OBSERVED'::text, 'REJECT_PICKUP'::text]))),
+  CONSTRAINT cargo_decisions_check CHECK (((((payload ->> 'receipt_id'::text) = (receipt_id)::text) AND ((payload ->> 'action'::text) = action) AND ((payload ->> 'manifest_hash'::text) = manifest_hash) AND ((payload ->> 'reason'::text) = reason) AND ((payload ->> 'event_id'::text) = (event_id)::text)) IS TRUE)),
+  CONSTRAINT cargo_decisions_execution_version_check CHECK ((execution_version > 0)),
+  CONSTRAINT cargo_decisions_manifest_hash_check CHECK ((manifest_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_decisions_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_decisions_principal_ref_check CHECK (((length(btrim(principal_ref)) >= 1) AND (length(btrim(principal_ref)) <= 255))),
+  CONSTRAINT cargo_decisions_reason_check CHECK (((length(btrim(reason)) >= 1) AND (length(btrim(reason)) <= 2000))),
+  CONSTRAINT cargo_decisions_source_organization_id_check CHECK (((length(btrim(source_organization_id)) >= 1) AND (length(btrim(source_organization_id)) <= 128))),
+  CONSTRAINT cargo_decisions_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text]))),
+  CONSTRAINT cargo_decisions_pkey PRIMARY KEY (decision_id),
+  CONSTRAINT cargo_decisions_decision_id_receipt_id_key UNIQUE (decision_id, receipt_id),
+  CONSTRAINT cargo_decisions_source_system_source_organization_id_event__key UNIQUE (source_system, source_organization_id, event_id)
+);
+
+CREATE TABLE cargo_evidence (
+  evidence_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  execution_id uuid NOT NULL,
+  uploader_employee_id integer NOT NULL,
+  uploader_driver_id integer NOT NULL,
+  submission_id uuid NOT NULL,
+  bucket text DEFAULT 'cargo-evidence'::text NOT NULL,
+  object_key text NOT NULL,
+  mime_type text NOT NULL,
+  byte_length integer NOT NULL,
+  content_hash text NOT NULL,
+  state text DEFAULT 'STAGED'::text NOT NULL,
+  retention_state text DEFAULT 'AWAITING_APPROVED_POLICY'::text NOT NULL,
+  receipt_id uuid,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_evidence_bucket_check CHECK ((bucket = 'cargo-evidence'::text)),
+  CONSTRAINT cargo_evidence_byte_length_check CHECK (((byte_length >= 1) AND (byte_length <= 5242880))),
+  CONSTRAINT cargo_evidence_check CHECK ((object_key = ((((((execution_id)::text || '/'::text) || (submission_id)::text) || '/'::text) || (evidence_id)::text) ||
+CASE
+    WHEN (mime_type = 'image/jpeg'::text) THEN '.jpg'::text
+    ELSE '.png'::text
+END))),
+  CONSTRAINT cargo_evidence_check1 CHECK (((state = 'ATTACHED'::text) = (receipt_id IS NOT NULL))),
+  CONSTRAINT cargo_evidence_content_hash_check CHECK ((content_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_evidence_mime_type_check CHECK ((mime_type = ANY (ARRAY['image/jpeg'::text, 'image/png'::text]))),
+  CONSTRAINT cargo_evidence_retention_state_check CHECK ((retention_state = 'AWAITING_APPROVED_POLICY'::text)),
+  CONSTRAINT cargo_evidence_state_check CHECK ((state = ANY (ARRAY['STAGED'::text, 'READY'::text, 'ORPHANED'::text, 'ATTACHED'::text]))),
+  CONSTRAINT cargo_evidence_pkey PRIMARY KEY (evidence_id),
+  CONSTRAINT cargo_evidence_execution_id_uploader_employee_id_submission_key UNIQUE (execution_id, uploader_employee_id, submission_id, content_hash),
+  CONSTRAINT cargo_evidence_object_key_key UNIQUE (object_key)
+);
+
+CREATE TABLE cargo_execution_commands (
+  command_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  execution_id uuid NOT NULL,
+  command_kind text NOT NULL,
+  command_key text NOT NULL,
+  payload_hash text NOT NULL,
+  receipt_id uuid,
+  decision_id uuid,
+  clearance_id uuid,
+  audit_log_id bigint NOT NULL,
+  response jsonb NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  evidence_id uuid,
+  CONSTRAINT cargo_commands_decision_kind CHECK (((command_kind = ANY (ARRAY['DECISION'::text, 'MANUAL_DECISION'::text])) = (decision_id IS NOT NULL))),
+  CONSTRAINT cargo_commands_evidence_kind CHECK ((((command_kind = 'EVIDENCE'::text) = (evidence_id IS NOT NULL)) AND ((command_kind = 'EVIDENCE'::text) = (receipt_id IS NULL)))),
+  CONSTRAINT cargo_execution_commands_check1 CHECK (((command_kind = 'CLEARANCE'::text) = (clearance_id IS NOT NULL))),
+  CONSTRAINT cargo_execution_commands_command_key_check CHECK (((length(command_key) >= 1) AND (length(command_key) <= 255))),
+  CONSTRAINT cargo_execution_commands_command_kind_check CHECK ((command_kind = ANY (ARRAY['RECEIPT'::text, 'DECISION'::text, 'CLEARANCE'::text, 'MANUAL_DECISION'::text, 'EVIDENCE'::text]))),
+  CONSTRAINT cargo_execution_commands_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_execution_commands_response_check CHECK ((jsonb_typeof(response) = 'object'::text)),
+  CONSTRAINT cargo_execution_commands_pkey PRIMARY KEY (command_id),
+  CONSTRAINT cargo_execution_commands_audit_log_id_key UNIQUE (audit_log_id),
+  CONSTRAINT cargo_execution_commands_execution_id_command_kind_command__key UNIQUE (execution_id, command_kind, command_key)
+);
+
+CREATE TABLE cargo_feedback_outbox (
+  event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  execution_id uuid NOT NULL,
+  execution_version integer NOT NULL,
+  source_system text NOT NULL,
+  source_organization_id text NOT NULL,
+  event_type text NOT NULL,
+  receipt_id uuid,
+  decision_id uuid,
+  payload jsonb NOT NULL,
+  payload_hash text NOT NULL,
+  status text DEFAULT 'PENDING'::text NOT NULL,
+  attempts integer DEFAULT 0 NOT NULL,
+  next_attempt_at timestamptz DEFAULT now() NOT NULL,
+  lease_token uuid,
+  lease_expires_at timestamptz,
+  acknowledgement jsonb,
+  acknowledged_at timestamptz,
+  last_error_code varchar(64),
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_feedback_outbox_attempts_check CHECK ((attempts >= 0)),
+  CONSTRAINT cargo_feedback_outbox_check CHECK (((lease_token IS NULL) = (lease_expires_at IS NULL))),
+  CONSTRAINT cargo_feedback_outbox_check1 CHECK (((event_type = 'SOURCE_DECISION_RECORDED'::text) = (decision_id IS NOT NULL))),
+  CONSTRAINT cargo_feedback_outbox_check2 CHECK (((event_type = 'TRANSPORT_CLOSED'::text) OR (receipt_id IS NOT NULL))),
+  CONSTRAINT cargo_feedback_outbox_event_type_check CHECK ((event_type = ANY (ARRAY['PICKUP_RECORDED'::text, 'DISCREPANCY_REPORTED'::text, 'SOURCE_DECISION_RECORDED'::text, 'DELIVERY_RECORDED'::text, 'TRANSPORT_CLOSED'::text]))),
+  CONSTRAINT cargo_feedback_outbox_execution_version_check CHECK ((execution_version > 0)),
+  CONSTRAINT cargo_feedback_outbox_last_error_code_check CHECK (((last_error_code IS NULL) OR ((last_error_code)::text ~ '^[A-Z][A-Z0-9_]{0,63}$'::text))),
+  CONSTRAINT cargo_feedback_outbox_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_feedback_outbox_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text]))),
+  CONSTRAINT cargo_feedback_outbox_status_check CHECK ((status = ANY (ARRAY['PENDING'::text, 'ACKNOWLEDGED'::text, 'FAILED'::text]))),
+  CONSTRAINT cargo_feedback_outbox_pkey PRIMARY KEY (event_id),
+  CONSTRAINT cargo_feedback_outbox_execution_id_execution_version_event__key UNIQUE NULLS NOT DISTINCT (execution_id, execution_version, event_type, receipt_id)
+);
+
+CREATE TABLE cargo_fleet_clearances (
+  clearance_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  execution_id uuid NOT NULL,
+  receipt_id uuid NOT NULL,
+  decision_id uuid,
+  authorized_employee_id integer NOT NULL,
+  version integer NOT NULL,
+  manifest_hash text NOT NULL,
+  safety_evidence_ref text,
+  reason text NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_fleet_clearances_manifest_hash_check CHECK ((manifest_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_fleet_clearances_reason_check CHECK (((length(btrim(reason)) >= 1) AND (length(btrim(reason)) <= 2000))),
+  CONSTRAINT cargo_fleet_clearances_safety_evidence_ref_check CHECK (((safety_evidence_ref IS NULL) OR ((length(btrim(safety_evidence_ref)) >= 1) AND (length(btrim(safety_evidence_ref)) <= 255)))),
+  CONSTRAINT cargo_fleet_clearances_version_check CHECK ((version > 0)),
+  CONSTRAINT cargo_fleet_clearances_pkey PRIMARY KEY (clearance_id),
+  CONSTRAINT cargo_fleet_clearances_receipt_id_version_key UNIQUE (receipt_id, version)
+);
+
+CREATE TABLE cargo_manual_decision_provenance (
+  decision_id uuid NOT NULL,
+  execution_id uuid NOT NULL,
+  receipt_id uuid NOT NULL,
+  recording_employee_id integer NOT NULL,
+  source_system text NOT NULL,
+  source_organization_id text NOT NULL,
+  external_request_id text NOT NULL,
+  approver_identity text NOT NULL,
+  approver_reference text NOT NULL,
+  communicated_at timestamptz NOT NULL,
+  communication_evidence_ids uuid[] NOT NULL,
+  authority_reference text NOT NULL,
+  authority_approval_ref text NOT NULL,
+  authority_proof jsonb NOT NULL,
+  command_payload jsonb NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_manual_decision_provenan_communication_evidence_ids_check CHECK (((cardinality(communication_evidence_ids) >= 1) AND (cardinality(communication_evidence_ids) <= 5))),
+  CONSTRAINT cargo_manual_decision_provenance_approver_identity_check CHECK (((length(btrim(approver_identity)) >= 1) AND (length(btrim(approver_identity)) <= 255))),
+  CONSTRAINT cargo_manual_decision_provenance_approver_reference_check CHECK (((length(btrim(approver_reference)) >= 1) AND (length(btrim(approver_reference)) <= 255))),
+  CONSTRAINT cargo_manual_decision_provenance_authority_approval_ref_check CHECK (((length(btrim(authority_approval_ref)) >= 1) AND (length(btrim(authority_approval_ref)) <= 255))),
+  CONSTRAINT cargo_manual_decision_provenance_authority_proof_check CHECK ((jsonb_typeof(authority_proof) = 'object'::text)),
+  CONSTRAINT cargo_manual_decision_provenance_authority_reference_check CHECK (((length(btrim(authority_reference)) >= 1) AND (length(btrim(authority_reference)) <= 255))),
+  CONSTRAINT cargo_manual_decision_provenance_command_payload_check CHECK ((jsonb_typeof(command_payload) = 'object'::text)),
+  CONSTRAINT cargo_manual_decision_provenance_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text]))),
+  CONSTRAINT cargo_manual_decision_provenance_pkey PRIMARY KEY (decision_id)
+);
+
+CREATE TABLE cargo_receipts (
+  receipt_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  execution_id uuid NOT NULL,
+  execution_version integer NOT NULL,
+  stage text NOT NULL,
+  manifest_ref jsonb NOT NULL,
+  manifest_hash text NOT NULL,
+  submission_id uuid NOT NULL,
+  payload_hash text NOT NULL,
+  payload jsonb NOT NULL,
+  lines jsonb NOT NULL,
+  reporter_employee_id integer NOT NULL,
+  reporter_driver_id integer NOT NULL,
+  observed_at timestamptz NOT NULL,
+  received_at timestamptz DEFAULT now() NOT NULL,
+  receiver_confirmation_ref uuid,
+  CONSTRAINT cargo_receipts_check CHECK (((((payload -> 'manifest_ref'::text) = manifest_ref) AND ((manifest_ref ->> 'hash'::text) = manifest_hash) AND ((payload -> 'lines'::text) = lines) AND ((payload ->> 'stage'::text) = stage) AND ((payload ->> 'submission_id'::text) = (submission_id)::text)) IS TRUE)),
+  CONSTRAINT cargo_receipts_execution_version_check CHECK ((execution_version > 0)),
+  CONSTRAINT cargo_receipts_lines_check CHECK (((jsonb_typeof(lines) = 'array'::text) AND ((jsonb_array_length(lines) >= 1) AND (jsonb_array_length(lines) <= 500)))),
+  CONSTRAINT cargo_receipts_manifest_hash_check CHECK ((manifest_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_receipts_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_receipts_stage_check CHECK ((stage = ANY (ARRAY['PICKUP'::text, 'DELIVERY'::text]))),
+  CONSTRAINT cargo_receipts_pkey PRIMARY KEY (receipt_id),
+  CONSTRAINT cargo_receipts_execution_id_execution_version_key UNIQUE (execution_id, execution_version),
+  CONSTRAINT cargo_receipts_execution_id_submission_id_key UNIQUE (execution_id, submission_id),
+  CONSTRAINT cargo_receipts_receipt_id_execution_id_key UNIQUE (receipt_id, execution_id)
+);
+
+CREATE TABLE cargo_trip_executions (
+  execution_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  trip_id integer NOT NULL,
+  request_manifest_id uuid,
+  supply_allocation_id uuid,
+  manifest jsonb NOT NULL,
+  version integer DEFAULT 1 NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_trip_executions_check CHECK ((num_nonnulls(request_manifest_id, supply_allocation_id) = 1)),
+  CONSTRAINT cargo_trip_executions_manifest_check CHECK ((jsonb_typeof(manifest) = 'object'::text)),
+  CONSTRAINT cargo_trip_executions_version_check CHECK ((version > 0)),
+  CONSTRAINT cargo_trip_executions_pkey PRIMARY KEY (execution_id),
+  CONSTRAINT cargo_trip_executions_trip_id_key UNIQUE (trip_id)
+);
+
 CREATE TABLE company_card_assignments (
   id integer DEFAULT nextval('company_card_assignments_id_seq'::regclass) NOT NULL,
   company_card_id integer NOT NULL,
@@ -244,6 +472,33 @@ CREATE TABLE dispatchschedules (
   CONSTRAINT dispatchschedules_dispatch_number_key UNIQUE (dispatch_number)
 );
 
+CREATE TABLE document_uploads (
+  upload_id uuid NOT NULL,
+  owner_id integer NOT NULL,
+  resource text NOT NULL,
+  kind text NOT NULL,
+  target_id integer,
+  attached_record_id integer,
+  bucket text NOT NULL,
+  object_key text NOT NULL,
+  file_name varchar(255) NOT NULL,
+  content_type text NOT NULL,
+  size_bytes integer NOT NULL,
+  sha256 text NOT NULL,
+  state text DEFAULT 'uploading'::text NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  expires_at timestamptz DEFAULT (now() + '24:00:00'::interval) NOT NULL,
+  attached_at timestamptz,
+  CONSTRAINT document_uploads_bucket_check CHECK ((bucket = ANY (ARRAY['driver-licenses'::text, 'vehicle-documents'::text]))),
+  CONSTRAINT document_uploads_check CHECK ((((resource = 'drivers'::text) AND (kind = ANY (ARRAY['license_front'::text, 'license_back'::text])) AND (bucket = 'driver-licenses'::text)) OR ((resource = 'vehicles'::text) AND (kind = ANY (ARRAY['OR_CR'::text, 'Insurance'::text])) AND (bucket = 'vehicle-documents'::text)))),
+  CONSTRAINT document_uploads_kind_check CHECK ((kind = ANY (ARRAY['license_front'::text, 'license_back'::text, 'OR_CR'::text, 'Insurance'::text]))),
+  CONSTRAINT document_uploads_resource_check CHECK ((resource = ANY (ARRAY['drivers'::text, 'vehicles'::text]))),
+  CONSTRAINT document_uploads_size_bytes_check CHECK (((size_bytes > 0) AND (size_bytes <= 10485760))),
+  CONSTRAINT document_uploads_state_check CHECK ((state = ANY (ARRAY['uploading'::text, 'ready'::text, 'attached'::text, 'cancelled'::text, 'deleted'::text]))),
+  CONSTRAINT document_uploads_pkey PRIMARY KEY (upload_id),
+  CONSTRAINT document_uploads_object_key_key UNIQUE (object_key)
+);
+
 CREATE TABLE driver_consents (
   consent_id integer DEFAULT nextval('driver_consents_consent_id_seq'::regclass) NOT NULL,
   driver_id integer NOT NULL,
@@ -283,53 +538,6 @@ CREATE TABLE driver_leave_requests (
   CONSTRAINT chk_leave_interval CHECK ((end_date >= start_date)),
   CONSTRAINT driver_leave_requests_status_check CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Declined'::character varying])::text[]))),
   CONSTRAINT driver_leave_requests_pkey PRIMARY KEY (leave_request_id)
-);
-
-CREATE TABLE driver_service_qualification_events (
-  event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  qualification_id uuid NOT NULL,
-  driver_id integer NOT NULL,
-  actor_id integer NOT NULL,
-  old_group text,
-  new_group text NOT NULL,
-  old_status text,
-  new_status text NOT NULL,
-  reason text NOT NULL,
-  policy_version text,
-  version integer NOT NULL,
-  occurred_at timestamptz DEFAULT now() NOT NULL,
-  CONSTRAINT driver_service_qualification_events_check CHECK (((new_status <> 'ACTIVE'::text) OR (policy_version IS NOT NULL))),
-  CONSTRAINT driver_service_qualification_events_new_group_check CHECK ((new_group = ANY (ARRAY['PASSENGER'::text, 'CARGO'::text]))),
-  CONSTRAINT driver_service_qualification_events_new_status_check CHECK ((new_status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'REVOKED'::text]))),
-  CONSTRAINT driver_service_qualification_events_old_group_check CHECK ((old_group = ANY (ARRAY['PASSENGER'::text, 'CARGO'::text]))),
-  CONSTRAINT driver_service_qualification_events_old_status_check CHECK ((old_status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'REVOKED'::text]))),
-  CONSTRAINT driver_service_qualification_events_policy_version_check CHECK (((policy_version IS NULL) OR ((length(btrim(policy_version)) > 0) AND (length(policy_version) <= 128)))),
-  CONSTRAINT driver_service_qualification_events_reason_check CHECK (((length(btrim(reason)) > 0) AND (length(reason) <= 2000))),
-  CONSTRAINT driver_service_qualification_events_version_check CHECK ((version > 0)),
-  CONSTRAINT driver_service_qualification_events_pkey PRIMARY KEY (event_id),
-  CONSTRAINT driver_service_qualification_event_qualification_id_version_key UNIQUE (qualification_id, version)
-);
-
-CREATE TABLE driver_service_qualifications (
-  qualification_id uuid DEFAULT gen_random_uuid() NOT NULL,
-  driver_id integer NOT NULL,
-  qualification_group text NOT NULL,
-  status text NOT NULL,
-  policy_version text,
-  verified_by integer,
-  verified_at timestamptz,
-  reason text NOT NULL,
-  version integer DEFAULT 1 NOT NULL,
-  created_at timestamptz DEFAULT now() NOT NULL,
-  updated_at timestamptz DEFAULT now() NOT NULL,
-  CONSTRAINT driver_service_qualifications_check CHECK (((status <> 'ACTIVE'::text) OR ((verified_by IS NOT NULL) AND (verified_by > 0) AND (verified_at IS NOT NULL) AND isfinite(verified_at) AND (policy_version IS NOT NULL)))),
-  CONSTRAINT driver_service_qualifications_policy_version_check CHECK (((policy_version IS NULL) OR ((length(btrim(policy_version)) > 0) AND (length(policy_version) <= 128)))),
-  CONSTRAINT driver_service_qualifications_qualification_group_check CHECK ((qualification_group = ANY (ARRAY['PASSENGER'::text, 'CARGO'::text]))),
-  CONSTRAINT driver_service_qualifications_reason_check CHECK (((length(btrim(reason)) > 0) AND (length(reason) <= 2000))),
-  CONSTRAINT driver_service_qualifications_status_check CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'SUSPENDED'::text, 'REVOKED'::text]))),
-  CONSTRAINT driver_service_qualifications_version_check CHECK ((version > 0)),
-  CONSTRAINT driver_service_qualifications_pkey PRIMARY KEY (qualification_id),
-  CONSTRAINT driver_service_qualifications_driver_id_qualification_group_key UNIQUE (driver_id, qualification_group)
 );
 
 CREATE TABLE driver_vehicle_assignments (
@@ -499,7 +707,9 @@ CREATE TABLE drivers (
   license_verified_at timestamptz,
   license_verified_by integer,
   license_verification_method varchar(30),
+  driver_type varchar(50) DEFAULT 'Passenger'::character varying,
   CONSTRAINT chk_driver_status CHECK (((driver_status)::text = ANY ((ARRAY['Available'::character varying, 'On Trip'::character varying, 'Off Duty'::character varying, 'On Leave'::character varying, 'Suspended'::character varying])::text[]))),
+  CONSTRAINT chk_driver_type CHECK (((driver_type)::text = ANY ((ARRAY['Passenger'::character varying, 'Cargo'::character varying])::text[]))),
   CONSTRAINT chk_drivers_license_verification_method CHECK (((license_verification_method IS NULL) OR ((license_verification_method)::text = ANY ((ARRAY['physical_card'::character varying, 'lto_digital_id'::character varying])::text[])))),
   CONSTRAINT chk_drivers_license_verification_record CHECK (((license_verified_at IS NULL) OR ((license_verified_by IS NOT NULL) AND (license_verification_method IS NOT NULL)))),
   CONSTRAINT drivers_pkey PRIMARY KEY (driver_id)
@@ -926,6 +1136,29 @@ CREATE TABLE recommendation_snapshots (
   created_at timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT recommendation_snapshots_reason_type_check CHECK (((reason_type)::text = ANY ((ARRAY['designated'::character varying, 'replacement'::character varying])::text[]))),
   CONSTRAINT recommendation_snapshots_pkey PRIMARY KEY (snapshot_id)
+);
+
+CREATE TABLE request_cargo_manifest_revisions (
+  request_cargo_manifest_revision_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  request_id integer NOT NULL,
+  revision integer NOT NULL,
+  manifest_hash text NOT NULL,
+  source_system text NOT NULL,
+  source_organization_id text NOT NULL,
+  source_external_request_id text NOT NULL,
+  source_event_id text NOT NULL,
+  manifest_snapshot jsonb NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT request_cargo_manifest_revisio_source_external_request_id_check CHECK (((length(btrim(source_external_request_id)) >= 1) AND (length(btrim(source_external_request_id)) <= 255))),
+  CONSTRAINT request_cargo_manifest_revisions_check CHECK ((((jsonb_typeof(manifest_snapshot) = 'object'::text) AND (jsonb_typeof((manifest_snapshot -> 'lines'::text)) = 'array'::text) AND ((jsonb_array_length((manifest_snapshot -> 'lines'::text)) >= 1) AND (jsonb_array_length((manifest_snapshot -> 'lines'::text)) <= 500)) AND (((manifest_snapshot -> 'source_ref'::text) ->> 'system'::text) = source_system) AND (((manifest_snapshot -> 'source_ref'::text) ->> 'organization_id'::text) = source_organization_id) AND (((manifest_snapshot -> 'source_ref'::text) ->> 'external_request_id'::text) = source_external_request_id) AND (manifest_snapshot ?& ARRAY['source_ref'::text, 'service_code'::text, 'lines'::text])) IS TRUE)),
+  CONSTRAINT request_cargo_manifest_revisions_manifest_hash_check CHECK ((manifest_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT request_cargo_manifest_revisions_revision_check CHECK ((revision > 0)),
+  CONSTRAINT request_cargo_manifest_revisions_source_event_id_check CHECK (((length(btrim(source_event_id)) >= 1) AND (length(btrim(source_event_id)) <= 255))),
+  CONSTRAINT request_cargo_manifest_revisions_source_organization_id_check CHECK (((length(btrim(source_organization_id)) >= 1) AND (length(btrim(source_organization_id)) <= 128))),
+  CONSTRAINT request_cargo_manifest_revisions_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text]))),
+  CONSTRAINT request_cargo_manifest_revisions_pkey PRIMARY KEY (request_cargo_manifest_revision_id),
+  CONSTRAINT request_cargo_manifest_revisi_source_system_source_organiza_key UNIQUE (source_system, source_organization_id, source_event_id),
+  CONSTRAINT request_cargo_manifest_revisions_request_id_revision_key UNIQUE (request_id, revision)
 );
 
 CREATE TABLE reservation_events (
@@ -1575,6 +1808,39 @@ CREATE TABLE web_sessions (
 ALTER TABLE addresses ADD CONSTRAINT addresses_psgc_barangay_code_fkey FOREIGN KEY (psgc_barangay_code) REFERENCES ph_barangays(psgc_code) ON DELETE SET NULL;
 ALTER TABLE ai_recommendations ADD CONSTRAINT ai_recommendations_user_id_fkey FOREIGN KEY (user_id) REFERENCES employees(employee_id);
 ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
+ALTER TABLE cargo_decision_inbox ADD CONSTRAINT cargo_decision_inbox_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
+ALTER TABLE cargo_decision_inbox ADD CONSTRAINT cargo_decision_inbox_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES cargo_receipts(receipt_id);
+ALTER TABLE cargo_decisions ADD CONSTRAINT cargo_decisions_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES cargo_receipts(receipt_id);
+ALTER TABLE cargo_evidence ADD CONSTRAINT cargo_evidence_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
+ALTER TABLE cargo_evidence ADD CONSTRAINT cargo_evidence_receipt_id_execution_id_fkey FOREIGN KEY (receipt_id, execution_id) REFERENCES cargo_receipts(receipt_id, execution_id);
+ALTER TABLE cargo_evidence ADD CONSTRAINT cargo_evidence_uploader_driver_id_fkey FOREIGN KEY (uploader_driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE cargo_evidence ADD CONSTRAINT cargo_evidence_uploader_employee_id_fkey FOREIGN KEY (uploader_employee_id) REFERENCES employees(employee_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_audit_log_id_fkey FOREIGN KEY (audit_log_id) REFERENCES audit_logs(log_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_clearance_id_fkey FOREIGN KEY (clearance_id) REFERENCES cargo_fleet_clearances(clearance_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES cargo_decisions(decision_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_evidence_id_fkey FOREIGN KEY (evidence_id) REFERENCES cargo_evidence(evidence_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_receipt_id_execution_id_fkey FOREIGN KEY (receipt_id, execution_id) REFERENCES cargo_receipts(receipt_id, execution_id);
+ALTER TABLE cargo_feedback_outbox ADD CONSTRAINT cargo_feedback_outbox_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
+ALTER TABLE cargo_feedback_outbox ADD CONSTRAINT cargo_feedback_outbox_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
+ALTER TABLE cargo_feedback_outbox ADD CONSTRAINT cargo_feedback_outbox_receipt_id_execution_id_fkey FOREIGN KEY (receipt_id, execution_id) REFERENCES cargo_receipts(receipt_id, execution_id);
+ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_authorized_employee_id_fkey FOREIGN KEY (authorized_employee_id) REFERENCES employees(employee_id);
+ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
+ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
+ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_receipt_id_execution_id_fkey FOREIGN KEY (receipt_id, execution_id) REFERENCES cargo_receipts(receipt_id, execution_id);
+ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES cargo_receipts(receipt_id);
+ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES cargo_decisions(decision_id);
+ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
+ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
+ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_receipt_id_execution_id_fkey FOREIGN KEY (receipt_id, execution_id) REFERENCES cargo_receipts(receipt_id, execution_id);
+ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_recording_employee_id_fkey FOREIGN KEY (recording_employee_id) REFERENCES employees(employee_id);
+ALTER TABLE cargo_receipts ADD CONSTRAINT cargo_receipts_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_receipts ADD CONSTRAINT cargo_receipts_reporter_driver_id_fkey FOREIGN KEY (reporter_driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE cargo_receipts ADD CONSTRAINT cargo_receipts_reporter_employee_id_fkey FOREIGN KEY (reporter_employee_id) REFERENCES employees(employee_id);
+ALTER TABLE cargo_trip_executions ADD CONSTRAINT cargo_trip_executions_request_manifest_id_fkey FOREIGN KEY (request_manifest_id) REFERENCES request_cargo_manifest_revisions(request_cargo_manifest_revision_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_trip_executions ADD CONSTRAINT cargo_trip_executions_supply_allocation_id_fkey FOREIGN KEY (supply_allocation_id) REFERENCES supply_dispatch_allocations(supply_dispatch_allocation_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_trip_executions ADD CONSTRAINT cargo_trip_executions_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id) ON DELETE RESTRICT;
 ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES employees(employee_id);
 ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_company_card_id_fkey FOREIGN KEY (company_card_id) REFERENCES company_cards(id);
 ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
@@ -1586,15 +1852,11 @@ ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_request_id_fkey F
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_route_id_fkey FOREIGN KEY (route_id) REFERENCES routes(route_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE document_uploads ADD CONSTRAINT document_uploads_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES employees(employee_id);
 ALTER TABLE driver_consents ADD CONSTRAINT driver_consents_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_leave_balances ADD CONSTRAINT driver_leave_balances_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
-ALTER TABLE driver_service_qualification_events ADD CONSTRAINT driver_service_qualification_events_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES employees(employee_id);
-ALTER TABLE driver_service_qualification_events ADD CONSTRAINT driver_service_qualification_events_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
-ALTER TABLE driver_service_qualification_events ADD CONSTRAINT driver_service_qualification_events_qualification_id_fkey FOREIGN KEY (qualification_id) REFERENCES driver_service_qualifications(qualification_id);
-ALTER TABLE driver_service_qualifications ADD CONSTRAINT driver_service_qualifications_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
-ALTER TABLE driver_service_qualifications ADD CONSTRAINT driver_service_qualifications_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -1663,6 +1925,7 @@ ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_des
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_request_id_fkey FOREIGN KEY (request_id) REFERENCES transportation_requests(request_id) ON DELETE CASCADE;
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE request_cargo_manifest_revisions ADD CONSTRAINT request_cargo_manifest_revisions_request_id_fkey FOREIGN KEY (request_id) REFERENCES transportation_requests(request_id) ON DELETE RESTRICT;
 ALTER TABLE reservation_events ADD CONSTRAINT reservation_events_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES employees(employee_id);
 ALTER TABLE reservation_events ADD CONSTRAINT reservation_events_request_id_fkey FOREIGN KEY (request_id) REFERENCES transportation_requests(request_id) ON DELETE CASCADE;
 ALTER TABLE routes ADD CONSTRAINT routes_destination_location_id_fkey FOREIGN KEY (destination_location_id) REFERENCES locations(location_id);
@@ -1729,6 +1992,8 @@ ALTER TABLE web_sessions ADD CONSTRAINT web_sessions_employee_id_fkey FOREIGN KE
 -- ============================ INDEXES ===========================
 -- Constraint-backed indexes omitted: the constraints create them.
 
+CREATE INDEX document_uploads_expiry_idx ON public.document_uploads USING btree (expires_at) WHERE (state = ANY (ARRAY['uploading'::text, 'ready'::text, 'cancelled'::text]));
+CREATE INDEX document_uploads_record_idx ON public.document_uploads USING btree (resource, attached_record_id) WHERE (state = 'attached'::text);
 CREATE INDEX idx_addresses_psgc_barangay_code ON public.addresses USING btree (psgc_barangay_code);
 CREATE INDEX idx_addresses_verified ON public.addresses USING btree (verified) WHERE verified;
 CREATE INDEX idx_ai_reference ON public.ai_recommendations USING btree (reference_type, reference_id);
@@ -2171,6 +2436,222 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.guard_cargo_clearance_binding()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  PERFORM 1 FROM public.cargo_trip_executions e JOIN public.cargo_receipts r USING(execution_id)
+    WHERE e.execution_id=NEW.execution_id AND e.version=NEW.version AND r.receipt_id=NEW.receipt_id
+      AND r.manifest_hash=NEW.manifest_hash AND e.manifest->'manifest_ref'->>'hash'=NEW.manifest_hash
+      AND NOT EXISTS(SELECT 1 FROM public.cargo_receipts newer WHERE newer.execution_id=r.execution_id AND newer.stage=r.stage AND newer.execution_version>r.execution_version)
+      AND NEW.decision_id IS NOT DISTINCT FROM (SELECT d.decision_id FROM public.cargo_decisions d WHERE d.receipt_id=r.receipt_id ORDER BY d.execution_version DESC LIMIT 1)
+      FOR UPDATE OF e;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Stale cargo clearance binding' USING ERRCODE='23514'; END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_command_binding()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE e public.cargo_trip_executions; a public.audit_logs; c public.cargo_fleet_clearances; r public.cargo_receipts; d public.cargo_decisions; p public.cargo_manual_decision_provenance; photo public.cargo_evidence;
+BEGIN
+  SELECT * INTO e FROM public.cargo_trip_executions WHERE execution_id=NEW.execution_id FOR UPDATE;
+  SELECT * INTO a FROM public.audit_logs WHERE log_id=NEW.audit_log_id;
+  IF (NEW.response->>'execution_id'=e.execution_id::text AND NEW.response->>'trip_id'=e.trip_id::text
+    AND NEW.response->>'version'=e.version::text AND NEW.response->'manifest'=e.manifest
+    AND a.resource='cargo_execution' AND a.resource_id=e.trip_id
+    AND a.action=CASE NEW.command_kind WHEN 'RECEIPT' THEN 'cargo_receipt' WHEN 'DECISION' THEN 'cargo_decision' WHEN 'MANUAL_DECISION' THEN 'cargo_manual_decision' WHEN 'EVIDENCE' THEN 'cargo_evidence' ELSE 'cargo_clearance' END
+    AND a.new_values->>'command_id'=NEW.command_id::text) IS NOT TRUE THEN
+    RAISE EXCEPTION 'Cargo command response or audit mismatch' USING ERRCODE='23514';
+  END IF;
+  IF NEW.command_kind='EVIDENCE' THEN
+    SELECT * INTO photo FROM public.cargo_evidence WHERE evidence_id=NEW.evidence_id;
+    IF (photo.execution_id=e.execution_id AND photo.state IN ('READY','ATTACHED') AND photo.uploader_employee_id=a.employee_id
+      AND NEW.command_key=photo.evidence_id::text AND NEW.payload_hash=photo.content_hash AND NEW.response->'evidence_upload'->>'evidence_id'=photo.evidence_id::text) IS NOT TRUE THEN
+      RAISE EXCEPTION 'Cargo command evidence mismatch' USING ERRCODE='23514'; END IF;
+  ELSIF NEW.clearance_id IS NOT NULL THEN
+    SELECT * INTO c FROM public.cargo_fleet_clearances WHERE clearance_id=NEW.clearance_id;
+    IF c.execution_id IS DISTINCT FROM NEW.execution_id OR c.receipt_id IS DISTINCT FROM NEW.receipt_id OR c.version<>e.version
+      OR a.employee_id IS DISTINCT FROM c.authorized_employee_id OR NEW.response->'fleet_clearance'->>'clearance_id' IS DISTINCT FROM c.clearance_id::text THEN
+      RAISE EXCEPTION 'Cargo command clearance mismatch' USING ERRCODE='23514'; END IF;
+  ELSIF NEW.command_kind='RECEIPT' THEN
+    SELECT * INTO r FROM public.cargo_receipts WHERE receipt_id=NEW.receipt_id;
+    IF r.execution_version<>e.version OR NEW.command_key IS DISTINCT FROM r.submission_id::text
+      OR NEW.payload_hash IS DISTINCT FROM r.payload_hash OR a.employee_id IS DISTINCT FROM r.reporter_employee_id
+      OR NEW.response->(CASE r.stage WHEN 'PICKUP' THEN 'pickup_receipt' ELSE 'delivery_receipt' END)->>'receipt_id' IS DISTINCT FROM r.receipt_id::text THEN
+      RAISE EXCEPTION 'Cargo command receipt mismatch' USING ERRCODE='23514'; END IF;
+  ELSE
+    SELECT * INTO d FROM public.cargo_decisions WHERE decision_id=NEW.decision_id;
+    IF d.execution_version<>e.version OR NEW.command_key IS DISTINCT FROM d.event_id::text OR NEW.payload_hash IS DISTINCT FROM d.payload_hash
+      OR NEW.response->'source_decision'->>'decision_id' IS DISTINCT FROM d.decision_id::text THEN
+      RAISE EXCEPTION 'Cargo command decision mismatch' USING ERRCODE='23514'; END IF;
+    SELECT * INTO p FROM public.cargo_manual_decision_provenance WHERE decision_id=d.decision_id;
+    IF NEW.command_kind='MANUAL_DECISION' THEN
+      IF p.decision_id IS NULL OR p.execution_id IS DISTINCT FROM e.execution_id OR a.employee_id IS DISTINCT FROM p.recording_employee_id
+        OR NEW.response->'source_decision'->'manual_provenance' IS DISTINCT FROM to_jsonb(p) THEN
+        RAISE EXCEPTION 'Cargo manual command provenance mismatch' USING ERRCODE='23514'; END IF;
+    ELSIF a.employee_id IS NOT NULL OR p.decision_id IS NOT NULL THEN
+      RAISE EXCEPTION 'Cargo machine command actor mismatch' USING ERRCODE='23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_evidence_identity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP='DELETE' OR (to_jsonb(NEW)-ARRAY['state','receipt_id','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['state','receipt_id','updated_at'])
+    OR OLD.state='ATTACHED' THEN RAISE EXCEPTION 'Cargo evidence identity is immutable' USING ERRCODE='55000'; END IF;
+  IF NEW.receipt_id IS NOT NULL THEN
+    PERFORM 1 FROM public.cargo_receipts r WHERE r.receipt_id=NEW.receipt_id AND r.execution_id=NEW.execution_id
+      AND r.submission_id=NEW.submission_id AND r.reporter_employee_id=NEW.uploader_employee_id AND r.reporter_driver_id=NEW.uploader_driver_id;
+    IF NOT FOUND OR OLD.state<>'READY' THEN RAISE EXCEPTION 'Evidence attachment mismatch' USING ERRCODE='23514'; END IF;
+  END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_execution_binding()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE ref jsonb; snapshot jsonb;
+BEGIN
+  IF TG_OP='DELETE' OR (TG_OP='UPDATE' AND (NEW.trip_id,NEW.request_manifest_id,NEW.supply_allocation_id,NEW.manifest,NEW.created_at)
+    IS DISTINCT FROM (OLD.trip_id,OLD.request_manifest_id,OLD.supply_allocation_id,OLD.manifest,OLD.created_at)) THEN
+    RAISE EXCEPTION 'Cargo execution identity is immutable' USING ERRCODE='55000';
+  END IF;
+  IF TG_OP='UPDATE' THEN RETURN NEW; END IF;
+  IF NEW.request_manifest_id IS NOT NULL THEN
+    SELECT jsonb_build_object('kind','REQUEST','id',m.request_cargo_manifest_revision_id,'revision',m.revision,'hash',m.manifest_hash), m.manifest_snapshot INTO ref,snapshot
+      FROM public.trips t JOIN public.dispatchschedules d ON d.dispatch_id=t.dispatch_id
+      JOIN public.request_cargo_manifest_revisions m ON m.request_id=d.request_id
+      WHERE t.trip_id=NEW.trip_id AND m.request_cargo_manifest_revision_id=NEW.request_manifest_id AND d.service_type IS DISTINCT FROM 'SUPPLY_DELIVERY'
+      AND NOT EXISTS(SELECT 1 FROM public.request_cargo_manifest_revisions newer WHERE newer.request_id=m.request_id AND newer.revision>m.revision)
+      FOR UPDATE OF t,d;
+    IF ref IS NULL OR (NEW.manifest IS DISTINCT FROM snapshot||jsonb_build_object('manifest_ref',ref)) THEN
+      RAISE EXCEPTION 'Cargo request manifest does not belong to this trip' USING ERRCODE='23514'; END IF;
+  ELSE
+    SELECT jsonb_build_object('kind','SUPPLY','id',m.supply_manifest_revision_id,'revision',m.manifest_revision,'hash',m.manifest_hash) INTO ref
+      FROM public.trips t JOIN public.dispatchschedules d ON d.dispatch_id=t.dispatch_id
+      JOIN public.supply_dispatch_allocations a ON a.dispatch_id=d.dispatch_id
+      JOIN public.supply_manifest_revisions m ON m.supply_shipment_id=a.supply_shipment_id AND m.manifest_revision=a.manifest_revision
+      WHERE t.trip_id=NEW.trip_id AND d.request_id IS NULL AND d.service_type='SUPPLY_DELIVERY'
+        AND a.supply_dispatch_allocation_id=NEW.supply_allocation_id AND a.allocation_status='ASSIGNED' FOR UPDATE OF t,d,a;
+    IF ref IS NULL OR NEW.manifest->'manifest_ref' IS DISTINCT FROM ref THEN
+      RAISE EXCEPTION 'Cargo supply allocation does not belong to this trip' USING ERRCODE='23514'; END IF;
+  END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_history()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN RAISE EXCEPTION 'Cargo history is immutable' USING ERRCODE='55000'; END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_manual_provenance()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE e public.cargo_trip_executions; d public.cargo_decisions; r public.cargo_receipts; a jsonb; n integer;
+BEGIN
+  SELECT * INTO e FROM public.cargo_trip_executions WHERE execution_id=NEW.execution_id FOR UPDATE;
+  SELECT * INTO d FROM public.cargo_decisions WHERE decision_id=NEW.decision_id;
+  SELECT * INTO r FROM public.cargo_receipts WHERE receipt_id=NEW.receipt_id;
+  a:=NEW.authority_proof;
+  IF (r.execution_id=e.execution_id AND r.stage='PICKUP' AND d.receipt_id=r.receipt_id
+    AND d.source_system=NEW.source_system AND d.source_organization_id=NEW.source_organization_id
+    AND d.principal_ref=NEW.approver_reference AND d.manifest_hash=r.manifest_hash
+    AND e.manifest->'source_ref'=jsonb_build_object('system',NEW.source_system,'organization_id',NEW.source_organization_id,'external_request_id',NEW.external_request_id)
+    AND a->>'kind'='SOURCE_COMMUNICATION' AND a->>'method'='simulated-fixture' AND a->>'simulated'='true'
+    AND a->'source_ref'=e.manifest->'source_ref' AND a->>'receipt_id'=r.receipt_id::text
+    AND a->>'manifest_hash'=d.manifest_hash AND a->>'action'=d.action AND a->>'reason'=d.reason AND a->>'approval_ref'=NEW.authority_approval_ref AND a->>'reference'=NEW.authority_reference
+    AND a->>'approver_identity'=NEW.approver_identity AND a->>'approver_reference'=NEW.approver_reference
+    AND (a->>'communicated_at')::timestamptz=NEW.communicated_at AND a->'evidence_ids'=to_jsonb(NEW.communication_evidence_ids)
+    AND NEW.command_payload->>'event_id'=d.event_id::text AND NEW.command_payload->>'receipt_id'=r.receipt_id::text
+    AND NEW.command_payload->>'manifest_hash'=d.manifest_hash AND NEW.command_payload->>'action'=d.action
+    AND NEW.command_payload->>'reason'=d.reason AND NEW.command_payload->>'approver_identity'=NEW.approver_identity
+    AND NEW.command_payload->>'approver_reference'=NEW.approver_reference
+    AND (NEW.command_payload->>'communicated_at')::timestamptz=NEW.communicated_at
+    AND NEW.command_payload->'communication_evidence_ids'=to_jsonb(NEW.communication_evidence_ids)) IS NOT TRUE THEN
+    RAISE EXCEPTION 'Cargo manual authority binding mismatch' USING ERRCODE='23514';
+  END IF;
+  SELECT count(DISTINCT evidence_id) INTO n FROM public.cargo_evidence
+    WHERE evidence_id=ANY(NEW.communication_evidence_ids) AND execution_id=NEW.execution_id AND state IN ('READY','ATTACHED');
+  IF n<>cardinality(NEW.communication_evidence_ids) THEN
+    RAISE EXCEPTION 'Cargo communication evidence mismatch' USING ERRCODE='23514';
+  END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_outbox_identity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP='DELETE' OR (to_jsonb(NEW)-ARRAY['status','attempts','next_attempt_at','lease_token','lease_expires_at','acknowledgement','acknowledged_at','last_error_code'])
+    IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['status','attempts','next_attempt_at','lease_token','lease_expires_at','acknowledgement','acknowledged_at','last_error_code']) THEN
+    RAISE EXCEPTION 'Cargo event identity is immutable' USING ERRCODE='55000'; END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_parent_linkage()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_TABLE_NAME='trips' THEN
+    IF NEW.dispatch_id IS DISTINCT FROM OLD.dispatch_id AND EXISTS(SELECT 1 FROM public.cargo_trip_executions WHERE trip_id=OLD.trip_id) THEN
+      RAISE EXCEPTION 'Cargo trip linkage is locked' USING ERRCODE='55000'; END IF;
+  ELSIF TG_TABLE_NAME='dispatchschedules' THEN
+    IF (NEW.request_id,NEW.service_type) IS DISTINCT FROM (OLD.request_id,OLD.service_type)
+      AND EXISTS(SELECT 1 FROM public.cargo_trip_executions e JOIN public.trips t USING(trip_id) WHERE t.dispatch_id=OLD.dispatch_id) THEN
+      RAISE EXCEPTION 'Cargo dispatch linkage is locked' USING ERRCODE='55000'; END IF;
+  ELSE
+    IF (NEW.dispatch_id,NEW.supply_shipment_id,NEW.manifest_revision,NEW.allocation_status)
+      IS DISTINCT FROM (OLD.dispatch_id,OLD.supply_shipment_id,OLD.manifest_revision,OLD.allocation_status)
+      AND EXISTS(SELECT 1 FROM public.cargo_trip_executions WHERE supply_allocation_id=OLD.supply_dispatch_allocation_id) THEN
+      RAISE EXCEPTION 'Cargo allocation linkage is locked' USING ERRCODE='55000'; END IF;
+  END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_record_binding()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE bound public.cargo_trip_executions;
+BEGIN
+  IF TG_TABLE_NAME='cargo_receipts' THEN
+    SELECT * INTO bound FROM public.cargo_trip_executions WHERE execution_id=NEW.execution_id FOR UPDATE;
+    IF bound.execution_id IS NULL OR NEW.execution_version<>bound.version+1 OR NEW.manifest_ref IS DISTINCT FROM bound.manifest->'manifest_ref' THEN
+      RAISE EXCEPTION 'Receipt manifest mismatch' USING ERRCODE='23514'; END IF;
+    PERFORM 1 FROM public.trips t JOIN public.drivers d ON d.driver_id=t.driver_id WHERE t.trip_id=bound.trip_id
+      AND d.driver_id=NEW.reporter_driver_id AND d.employee_id=NEW.reporter_employee_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Receipt reporter mismatch' USING ERRCODE='23514'; END IF;
+  ELSE
+    SELECT e.* INTO bound FROM public.cargo_receipts r JOIN public.cargo_trip_executions e USING(execution_id)
+      WHERE r.receipt_id=NEW.receipt_id AND r.manifest_hash=NEW.manifest_hash;
+    IF bound.execution_id IS NULL OR NEW.execution_version<>bound.version+1 OR NEW.source_system IS DISTINCT FROM bound.manifest->'source_ref'->>'system'
+      OR NEW.source_organization_id IS DISTINCT FROM bound.manifest->'source_ref'->>'organization_id' THEN
+      RAISE EXCEPTION 'Decision source or manifest mismatch' USING ERRCODE='23514'; END IF;
+  END IF;
+  RETURN NEW;
+END $function$
+;
+
 CREATE OR REPLACE FUNCTION public.guard_dispatch_overlap()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -2227,6 +2708,38 @@ BEGIN
   RETURN NEW;
 END;
 $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_request_cargo_manifest_revision()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF TG_OP <> 'INSERT' THEN
+    RAISE EXCEPTION 'Cargo manifest revisions are immutable' USING ERRCODE='55000';
+  END IF;
+  PERFORM 1 FROM public.transportation_requests r JOIN public.service_types s ON s.service_type_id=r.service_type_id
+    WHERE r.request_id=NEW.request_id AND r.source_system=NEW.source_system
+      AND r.external_request_id=NEW.source_external_request_id AND r.load_type='Cargo' AND r.deleted_at IS NULL
+      AND s.service_code=NEW.manifest_snapshot->>'service_code'
+      AND s.service_code IN ('RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER') FOR UPDATE OF r;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Cargo manifest request identity mismatch' USING ERRCODE='23514'; END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_request_cargo_source_identity()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  IF (NEW.source_system IS DISTINCT FROM OLD.source_system OR NEW.external_request_id IS DISTINCT FROM OLD.external_request_id
+      OR NEW.load_type IS DISTINCT FROM OLD.load_type OR NEW.service_type_id IS DISTINCT FROM OLD.service_type_id)
+     AND EXISTS (SELECT 1 FROM public.request_cargo_manifest_revisions WHERE request_id=OLD.request_id) THEN
+    RAISE EXCEPTION 'Manifest-bound request source and service are immutable' USING ERRCODE='55000';
+  END IF;
+  RETURN NEW;
+END $function$
 ;
 
 CREATE OR REPLACE FUNCTION public.guard_supply_dispatch_allocation_update()
@@ -2440,16 +2953,6 @@ END;
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION public.reject_driver_qualification_event_changes()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-BEGIN
-  RAISE EXCEPTION 'Driver qualification history is append-only' USING ERRCODE = '55000';
-END;
-$function$
-;
-
 CREATE OR REPLACE FUNCTION public.update_incident_sla_breaches()
  RETURNS void
  LANGUAGE plpgsql
@@ -2480,8 +2983,25 @@ $function$
 
 -- =========================== TRIGGERS ===========================
 
-CREATE TRIGGER qualification_events_immutable BEFORE DELETE OR UPDATE ON public.driver_service_qualification_events FOR EACH ROW EXECUTE FUNCTION reject_driver_qualification_event_changes();
-CREATE TRIGGER qualification_events_no_truncate BEFORE TRUNCATE ON public.driver_service_qualification_events FOR EACH STATEMENT EXECUTE FUNCTION reject_driver_qualification_event_changes();
+CREATE TRIGGER cargo_allocation_linkage BEFORE UPDATE ON public.supply_dispatch_allocations FOR EACH ROW EXECUTE FUNCTION guard_cargo_parent_linkage();
+CREATE TRIGGER cargo_clearance_binding BEFORE INSERT ON public.cargo_fleet_clearances FOR EACH ROW EXECUTE FUNCTION guard_cargo_clearance_binding();
+CREATE TRIGGER cargo_clearance_immutable BEFORE DELETE OR UPDATE ON public.cargo_fleet_clearances FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
+CREATE TRIGGER cargo_command_binding BEFORE INSERT ON public.cargo_execution_commands FOR EACH ROW EXECUTE FUNCTION guard_cargo_command_binding();
+CREATE TRIGGER cargo_command_immutable BEFORE DELETE OR UPDATE ON public.cargo_execution_commands FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
+CREATE TRIGGER cargo_decision_binding BEFORE INSERT ON public.cargo_decisions FOR EACH ROW EXECUTE FUNCTION guard_cargo_record_binding();
+CREATE TRIGGER cargo_decision_immutable BEFORE DELETE OR UPDATE ON public.cargo_decisions FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
+CREATE TRIGGER cargo_dispatch_linkage BEFORE UPDATE ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION guard_cargo_parent_linkage();
+CREATE TRIGGER cargo_evidence_identity BEFORE DELETE OR UPDATE ON public.cargo_evidence FOR EACH ROW EXECUTE FUNCTION guard_cargo_evidence_identity();
+CREATE TRIGGER cargo_execution_binding BEFORE INSERT OR DELETE OR UPDATE ON public.cargo_trip_executions FOR EACH ROW EXECUTE FUNCTION guard_cargo_execution_binding();
+CREATE TRIGGER cargo_inbox_immutable BEFORE DELETE OR UPDATE ON public.cargo_decision_inbox FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
+CREATE TRIGGER cargo_manual_provenance_binding BEFORE INSERT ON public.cargo_manual_decision_provenance FOR EACH ROW EXECUTE FUNCTION guard_cargo_manual_provenance();
+CREATE TRIGGER cargo_manual_provenance_immutable BEFORE DELETE OR UPDATE ON public.cargo_manual_decision_provenance FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
+CREATE TRIGGER cargo_outbox_identity BEFORE DELETE OR UPDATE ON public.cargo_feedback_outbox FOR EACH ROW EXECUTE FUNCTION guard_cargo_outbox_identity();
+CREATE TRIGGER cargo_receipt_binding BEFORE INSERT ON public.cargo_receipts FOR EACH ROW EXECUTE FUNCTION guard_cargo_record_binding();
+CREATE TRIGGER cargo_receipt_immutable BEFORE DELETE OR UPDATE ON public.cargo_receipts FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
+CREATE TRIGGER cargo_trip_linkage BEFORE UPDATE ON public.trips FOR EACH ROW EXECUTE FUNCTION guard_cargo_parent_linkage();
+CREATE TRIGGER request_cargo_manifest_guard BEFORE INSERT OR DELETE OR UPDATE ON public.request_cargo_manifest_revisions FOR EACH ROW EXECUTE FUNCTION guard_request_cargo_manifest_revision();
+CREATE TRIGGER request_cargo_source_identity_guard BEFORE UPDATE ON public.transportation_requests FOR EACH ROW EXECUTE FUNCTION guard_request_cargo_source_identity();
 CREATE CONSTRAINT TRIGGER supply_allocation_dispatch_consistency AFTER INSERT OR DELETE OR UPDATE ON public.supply_dispatch_allocations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION enforce_supply_dispatch_allocation();
 CREATE TRIGGER supply_allocation_identity_guard BEFORE UPDATE ON public.supply_dispatch_allocations FOR EACH ROW EXECUTE FUNCTION guard_supply_dispatch_allocation_update();
 CREATE CONSTRAINT TRIGGER supply_dispatch_allocation_consistency AFTER INSERT OR UPDATE ON public.dispatchschedules DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION enforce_supply_dispatch_allocation();
