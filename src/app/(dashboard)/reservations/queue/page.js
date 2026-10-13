@@ -46,8 +46,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const REFETCH_MS = 30_000;
+const ALL_FILTERS_VALUE = "__all_filters__";
 
 export function resolveCommittedRequest({ selectedRequest, committedSuccessForId, freshSelectedRequest }) {
   if (!committedSuccessForId) return selectedRequest;
@@ -439,12 +441,27 @@ export default function UnifiedQueuePage() {
           {[['load_type', 'Load type', [['Passenger', 'Passengers'], ['Cargo', 'Cargo / Supply Chain']]],
             ['service_code', 'Service', CARGO_SERVICE_OPTIONS],
             ['source_system', 'Source', [['PMS', 'PMS'], ['POS', 'POS'], ['MANUAL', 'Manual history']]]].map(([key, label, options]) => (
-            <select key={key} aria-label={`Filter by ${label.toLowerCase()}`} value={cargoFilters[key]} disabled={!!lockedRequest}
-              onChange={event => { setCargoFilters(current => ({ ...current, [key]: event.target.value })); setPage(1); }}
-              className="min-h-[44px] max-w-full rounded-xl border border-border/80 bg-surface px-2 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-primary">
-              <option value="">All {label.toLowerCase()}s</option>
-              {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
-            </select>
+            <div key={key} className="min-w-0 max-w-full">
+              <Select
+                value={cargoFilters[key] || ALL_FILTERS_VALUE}
+                disabled={!!lockedRequest}
+                onValueChange={value => {
+                  setCargoFilters(current => ({ ...current, [key]: value === ALL_FILTERS_VALUE ? '' : value }));
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger
+                  aria-label={`Filter by ${label.toLowerCase()}`}
+                  className="h-11 w-auto min-w-[9rem] max-w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTERS_VALUE}>All {label.toLowerCase()}s</SelectItem>
+                  {options.map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           ))}
           <div className="relative flex-1 sm:w-64">
             <Search

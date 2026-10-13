@@ -20,6 +20,10 @@ related: ["[[Dispatch]]", "[[System Boundaries]]"]
 
 # Feature: Reservations
 
+## Transportation Queue filter dropdowns aligned to shared UI - 2026-10-13
+
+The Load type, Service and Source filters on `/reservations/queue` now use the shared Radix Select primitive (`src/components/ui/select.jsx`) instead of browser-native selects. They retain their existing options, server-side filter values, page reset behavior and locked-request disabled state; the `__all_filters__` UI value maps back to the existing empty filter value. The controls use the established 44px height and shared menu, focus, theme and keyboard behavior. Browser review confirmed the aligned toolbar and styled Service menu; scoped ESLint and `git diff --check` passed. Automated tests were not run.
+
 ## Cargo draft controls aligned to the shared UI system - 2026-10-13
 
 The Quantity basis, Package orientation and Temperature requirement choices in the unsaved cargo contents editor use the shared Radix Select control (`src/components/ui/select.jsx`). They inherit FleetOps control height, radius, semantic surface/text colors, focus behavior, menu placement and keyboard interaction instead of browser-native option menus. Draft values and manifest semantics are unchanged. Future common controls follow the UI/UX alignment owner rule in `.agents/AGENTS.md`.
