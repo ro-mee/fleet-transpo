@@ -181,6 +181,7 @@ export async function GET(req) {
           NULL AS license_verified_by,
           NULL AS license_verification_method,
           0 AS years_of_experience,
+          NULL::VARCHAR(50) AS driver_type,
           'Incomplete' AS driver_status,
           NULL AS current_latitude,
           NULL AS current_longitude,
