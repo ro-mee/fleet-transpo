@@ -363,7 +363,14 @@ describe('SEC-DISP-003 — the write is always routed through the TOCTOU-guarded
     // production) is what provides the transaction the write executes inside.
     let guardedTx = null;
     commitDispatchEvidence.mockImplementationOnce(async (token, write) => {
-      guardedTx = { query: vi.fn(async () => ({ rows: [{ request_id: 502 }] })) };
+      // The in-tx stored-type gate runs before the write: feed it a coherent
+      // Passenger/Passenger/Passenger fixture (this file's request is a legacy
+      // passenger request) so the test keeps proving write-routing, not gating.
+      guardedTx = { query: vi.fn(async (sql) => {
+        if (String(sql).includes('FROM drivers')) return { rows: [{ driver_id: 4, driver_type: 'Passenger', operational_use: 'Passenger' }] };
+        if (String(sql).includes('FROM transportation_requests')) return { rows: [{ request_id: 502, load_type: 'Passenger' }] };
+        return { rows: [{ request_id: 502 }] };
+      }) };
       return write(guardedTx);
     });
     await args.writeAssignment('UPDATE transportation_requests SET vehicle_id=$1, driver_id=$2', [7, 4], { eventType: 'VEHICLE_ASSIGNED' });
@@ -371,7 +378,8 @@ describe('SEC-DISP-003 — the write is always routed through the TOCTOU-guarded
     expect(commitDispatchEvidence).toHaveBeenCalledTimes(1);
     expect(commitDispatchEvidence.mock.calls[0][0]).toMatchObject({ revision: 'r1' });
     expect(guardedTx.query).toHaveBeenCalled();
-    expect(guardedTx.query.mock.calls[0][0]).toMatch(/UPDATE transportation_requests/i);
+    const updateCall = guardedTx.query.mock.calls.find(([sql]) => /UPDATE transportation_requests/i.test(String(sql)));
+    expect(updateCall).toBeTruthy();
   });
 
   it('the guard is what performs the write — the route cannot bypass it', async () => {
