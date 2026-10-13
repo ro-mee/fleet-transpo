@@ -28,7 +28,17 @@ jobs:
     steps:
       - name: Trigger fuel price sync
         run: |
-          response=$(curl -sS -f --max-time 300 \
+          # The cron returns 503 `disabled` while the server env gates are off
+          # (designed-off state, not a failure). Only transport/HTTP errors
+          # and non-disabled 5xx page someone.
+          response=$(curl -sS --max-time 300 -w '\n%{http_code}' \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ vars.APP_URL }}/api/cron/fuel-prices")
-          echo "$response"
+          code=$(printf '%s' "$response" | tail -n 1)
+          body=$(printf '%s' "$response" | head -n -1)
+          echo "$body"
+          if [ "$code" = "503" ] && printf '%s' "$body" | grep -q '"outcome"[[:space:]]*:[[:space:]]*"disabled"'; then
+            echo "Fuel sync disabled by server env gates; not a failure."
+            exit 0
+          fi
+          [ "$code" -lt 400 ]

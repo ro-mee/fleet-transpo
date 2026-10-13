@@ -41,6 +41,7 @@ const WO = (over = {}) => ({
   repair_completed_at: null,
   repair_completed_by: null,
   source_inspection_id: 42,
+  source_incident_id: 17,
   ageMinutes: 90,
   vehicle: { plate_number: "ABC 1234", vehicle_name: "HiAce" },
   ...over,
@@ -66,7 +67,7 @@ function stubSummary({ queueRows = [WO(), WO({ maintenance_id: 6, status: "Sched
       };
     }
     if (/AS\s+assigned/.test(String(sql))) {
-      return { rows: [{ assigned: "3", inProgress: "1", waitingApproval: "1", urgent: "2", overdue: "1" }] };
+      return { rows: [{ assigned: "3", scheduled: "1", inProgress: "1", waitingApproval: "1", urgent: "2", overdue: "1" }] };
     }
     return { rows: queueRows };
   });
@@ -93,17 +94,17 @@ describe("GET /api/mechanic/summary (Task 4)", () => {
     const body = await res.json();
 
     expect(Object.keys(body).sort()).toEqual(["attention", "counts", "queue", "upNext", "upcoming"]);
-    expect(body.counts).toEqual({ assigned: 3, inProgress: 1, waitingApproval: 1, urgent: 2, overdue: 1 });
+    expect(body.counts).toEqual({ assigned: 3, scheduled: 1, inProgress: 1, waitingApproval: 1, urgent: 2, overdue: 1 });
 
     // upNext is the head of the queue: same row shape, identical content.
     expect(body.upNext).toEqual(body.queue[0]);
     for (const row of [body.upNext, ...body.queue]) {
       expect(Object.keys(row).sort()).toEqual([
-        "ageMinutes", "assigned_at", "completed_date", "diagnosis",
+        "ageMinutes", "assigned_at", "completed_date", "description", "diagnosis",
         "labor_hours", "maintenance_date", "maintenance_id",
-        "maintenance_type", "parts_replaced", "priority",
+        "maintenance_type", "mileage_at_service", "parts_replaced", "priority",
         "rejection_reason", "repair_completed_at", "repair_completed_by",
-        "repair_started_at", "source_inspection_id",
+        "repair_started_at", "source_incident_id", "source_inspection_id",
         "status", "vehicle", "vehicle_id",
       ]);
       for (const key of EVIDENCE_KEYS) {
@@ -121,6 +122,7 @@ describe("GET /api/mechanic/summary (Task 4)", () => {
         expect(String(sql)).toContain(key);
       }
       expect(String(sql)).toContain("source_inspection_id");
+      expect(String(sql)).toContain("source_incident_id");
     }
     expect(body.upNext).toMatchObject({
       maintenance_id: 5,

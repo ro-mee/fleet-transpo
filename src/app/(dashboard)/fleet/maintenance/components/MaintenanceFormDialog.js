@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -7,30 +7,39 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { createMaintenanceRecord, updateMaintenanceRecord } from "@/services/maintenance.service";
+import { MechanicAssignmentField } from "@/components/maintenance/mechanic-assignment-field";
+import { createMaintenanceRecord, updateMaintenanceRecord, getMechanics } from "@/services/maintenance.service";
 import { getVehicles } from "@/services/vehicle.service";
+import { useAuth } from "@/hooks/use-auth";
+import { normalizeMaintenanceMileage, normalizeVehicleId, selectMaintenanceVehicle } from "@/lib/maintenance/vehicle-selection";
 import { toast } from "@/components/ui/toast";
 
 export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) {
   const queryClient = useQueryClient();
   const isEditing = !!initialData?.maintenance_id;
-  const isCompletion = initialData?.status === "Scheduled" || initialData?.status === "In Progress";
+  // P0 mechanic integration: assignment UI is staff-only â€” never render it
+  // for the mechanic role (the server whitelist strips it regardless).
+  const { employee } = useAuth();
+  const canAssignMechanic = ["super_admin", "admin", "fleet_manager"].includes(employee?.roles?.role_name);
   
   const [loading, setLoading] = useState(false);
   const [pendingCancellationData, setPendingCancellationData] = useState(null);
   const [formData, setFormData] = useState({
-    vehicle_id: initialData?.vehicle_id || "",
+    vehicle_id: normalizeVehicleId(initialData?.vehicle_id),
     maintenance_type: initialData?.maintenance_type || "Routine",
     status: initialData?.status || "Scheduled",
     priority: initialData?.priority || "Normal",
     maintenance_date: initialData?.maintenance_date ? initialData.maintenance_date.split('T')[0] : new Date().toISOString().split('T')[0],
     description: initialData?.description || "",
     cost: initialData?.cost || "",
-    service_provider: initialData?.service_provider || "",
-    mileage_at_service: initialData?.mileage_at_service || "",
+    mileage_at_service: normalizeMaintenanceMileage(initialData?.mileage_at_service),
     completed_date: initialData?.completed_date ? initialData.completed_date.split('T')[0] : "",
-    remarks: initialData?.remarks || ""
+    remarks: initialData?.remarks || "",
+    // Staff assign-mechanic select value: "" = unassigned. Seeded from the
+    // row on edit so an untouched select never drops the current assignee.
+    assigned_mechanic_id: initialData?.assigned_mechanic_id != null && initialData?.assigned_mechanic_id !== ""
+      ? String(initialData.assigned_mechanic_id)
+      : ""
   });
 
   const { data: vehicles = [] } = useQuery({
@@ -39,18 +48,49 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
     staleTime: 60_000,
   });
 
+  // Active-mechanic directory. Staff-only query: disabled for any other role
+  // so no request fires where the UI (and the endpoint guard) refuses it.
+  const mechanicsQuery = useQuery({
+    queryKey: ["mechanics-for-maintenance"],
+    queryFn: getMechanics,
+    enabled: canAssignMechanic,
+    staleTime: 60_000,
+  });
+
   const handleChange = (e) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    const { name, value } = e.target;
+    if (name === "vehicle_id") {
+      setFormData((prev) => selectMaintenanceVehicle(prev, value, vehicles));
+      return;
+    }
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const saveRecord = async (data, { showErrorToast = true } = {}) => {
     setLoading(true);
+    // P0: fold the assign-mechanic select into the payload. Create sends the
+    // id only when a mechanic is chosen; edit sends it only when the
+    // selection changed â€” "" back to null is an explicit unassign, an
+    // untouched select stays out of the PUT entirely.
+    const payload = { ...formData };
+    const selected = payload.assigned_mechanic_id === "unassigned" ? "" : payload.assigned_mechanic_id;
+    if (isEditing) {
+      const before = initialData?.assigned_mechanic_id != null && initialData?.assigned_mechanic_id !== ""
+        ? String(initialData.assigned_mechanic_id)
+        : "";
+      if (selected === before) delete payload.assigned_mechanic_id;
+      else payload.assigned_mechanic_id = selected === "" ? null : Number(selected);
+    } else if (selected === "") {
+      delete payload.assigned_mechanic_id;
+    } else {
+      payload.assigned_mechanic_id = Number(selected);
+    }
     try {
       if (isEditing) {
-        await updateMaintenanceRecord(initialData.maintenance_id, data);
+        await updateMaintenanceRecord(initialData.maintenance_id, payload);
         toast.success("Maintenance updated successfully");
       } else {
-        await createMaintenanceRecord(data);
+        await createMaintenanceRecord(payload);
         toast.success("Maintenance scheduled successfully");
       }
       queryClient.invalidateQueries(["maintenance-records"]);
@@ -86,31 +126,31 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <Field label="Vehicle">
-              <Select name="vehicle_id" value={formData.vehicle_id} onChange={handleChange} required disabled={isEditing}>
+              <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Vehicle" name="vehicle_id" value={formData.vehicle_id} onChange={handleChange} required disabled={isEditing}>
                 <option value="">Select a vehicle...</option>
                 {vehicles.map(v => (
-                  <option key={v.vehicle_id} value={v.vehicle_id}>{v.plate_number} - {v.vehicle_name}</option>
+                  <option key={v.vehicle_id} value={String(v.vehicle_id)}>{v.plate_number} - {v.vehicle_name}</option>
                 ))}
-              </Select>
+              </select>
             </Field>
 
             <div className="grid grid-cols-2 gap-4">
               <Field label="Type">
-                <Select name="maintenance_type" value={formData.maintenance_type} onChange={handleChange} required>
+                <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Maintenance type" name="maintenance_type" value={formData.maintenance_type} onChange={handleChange} required>
                   <option value="Routine">Routine</option>
                   <option value="Corrective">Corrective</option>
                   <option value="Preventive">Preventive</option>
                   <option value="Emergency">Emergency</option>
-                </Select>
+                </select>
               </Field>
               <Field label="Status">
-                <Select name="status" value={formData.status} onChange={handleChange} required>
+                <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Status" name="status" value={formData.status} onChange={handleChange} required>
                   <option value="Scheduled">Scheduled</option>
                   <option value="In Progress">In Progress</option>
                   <option value="Pending Inspection">Pending Inspection</option>
                   <option value="Completed">Completed</option>
                   <option value="Cancelled">Cancelled</option>
-                </Select>
+                </select>
               </Field>
             </div>
 
@@ -118,12 +158,31 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
               <Input type="date" name="maintenance_date" value={formData.maintenance_date} onChange={handleChange} required />
             </Field>
 
-            <Field label="Service Provider / Center">
-              <Input type="text" name="service_provider" value={formData.service_provider} onChange={handleChange} placeholder="e.g. Toyota Alabang" />
-            </Field>
+            {canAssignMechanic && (
+              <MechanicAssignmentField
+                value={formData.assigned_mechanic_id}
+                onValueChange={(value) => setFormData((prev) => ({ ...prev, assigned_mechanic_id: value }))}
+                directory={mechanicsQuery}
+              />
+            )}
 
             <Field label="Description">
               <Input type="text" name="description" value={formData.description} onChange={handleChange} placeholder="Brief description of service needed/done" />
+            </Field>
+
+            <Field
+              label="Mileage at Service (km)"
+              hint="Prefilled from the vehicleâ€™s saved mileage; adjust it if the odometer reading at service differs."
+            >
+              <Input
+                type="number"
+                step="1"
+                min="0"
+                name="mileage_at_service"
+                value={formData.mileage_at_service}
+                onChange={handleChange}
+                placeholder="Odometer reading"
+              />
             </Field>
 
             {formData.status === "Completed" && (
@@ -131,11 +190,8 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
                 <Field label="Completed Date">
                   <Input type="date" name="completed_date" value={formData.completed_date} onChange={handleChange} required={formData.status === 'Completed'} />
                 </Field>
-                <Field label="Cost (₱)">
+                <Field label="Cost (â‚±)">
                   <Input type="number" step="0.01" min="0" name="cost" value={formData.cost} onChange={handleChange} placeholder="0.00" />
-                </Field>
-                <Field label="Mileage at Service (km)" className="col-span-2">
-                  <Input type="number" step="1" min="0" name="mileage_at_service" value={formData.mileage_at_service} onChange={handleChange} placeholder="Odometer reading" />
                 </Field>
               </div>
             )}

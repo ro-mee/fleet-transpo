@@ -1,4 +1,4 @@
----
+﻿---
 type: feature
 status: working
 tags: [feature, drivers, ocr, consent]
@@ -23,31 +23,30 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 
 # Feature: Driver Management
 
-<<<<<<< HEAD
-## Service qualification foundation — 2026-10-09
+## Driver classification & duty status onboarding â€” 2026-10-12
 
-Migration 156 adds explicit PASSENGER and CARGO reviews. PASSENGER covers Guest Transport and VIP Guest Transport; CARGO covers Restaurant Supply Pickup, Restaurant Food Delivery and Hotel Supply Transfer. The two groups are independent, so one approval cannot authorize the other. License, consent, schedule and vehicle checks remain separate.
+The "Add Driver" onboarding flow (`/drivers/new`) no longer prompts for an initial duty status. All newly registered drivers default automatically to `Available` in the database.
 
-The internal qualification service requires the dedicated `driver_qualifications/manage` staff permission, a review reason and authenticated employee identity. ACTIVE approval requires an exact match to configured `DRIVER_QUALIFICATION_POLICY_VERSION`, without a default policy. Staff identity and review time come from the server. Current review, append-only history and required audit commit together or all roll back. Optional `expectedVersion` prevents stale edits (0 means a first review). Removed drivers are excluded from loads and updates.
+In its place, staff select the driver's operational **Driver Classification** (`driver_type`), aligning with vehicle operational typing:
+- **Passenger Driver** (`Passenger`): for guest and VIP passenger transport services.
+- **Cargo Logistics Driver** (`Cargo`): for restaurant supply pickup, food delivery, and hotel supply transfers.
 
-Assignment enforcement and supply dispatch activation remain unchanged, and neither migration nor service automatically qualifies a roster. The live new tables were verified empty. No pending external owner worksheet approval was changed. The staff API/UI is now implemented as described below; rollout guards are a separate later task.
+The classification is persisted to `drivers.driver_type` (default `'Passenger'`, with `chk_driver_type` constraint ensuring `'Passenger'` or `'Cargo'`). The classification can be reviewed and edited in `/drivers/[id]/edit`, is displayed as a badge in the Drivers Directory (`/drivers`) under the driver name and in the CSV export, and is shown in the Driver Overview card (`/drivers/[id]`).
 
-Verification: pure service mapping/provenance tests and real PostgreSQL tests in a rollback-only isolated schema; migration executed twice there to verify idempotence. Live checks found RLS on, no policies and no anon/authenticated grants on both new tables; the public-key probe explicitly refused both with HTTP 401/42501. The live schema contract reported zero violations. See [[driver_service_qualifications]] for storage details and test evidence.
+### Fix â€” 2026-10-13: `GET /api/drivers?includeUnlinked=1` 500 (UNION column mismatch)
 
-## Service qualification profile management — 2026-10-09
+The `driver_type` column added to the linked-drivers SELECT was missing from the unlinked (incomplete-account) `UNION ALL` branch, so PostgreSQL rejected the query (`42601: each UNION query must have the same number of columns`). The unlinked branch now projects `'Passenger' AS driver_type` in the same position (between `years_of_experience` and `driver_status`), restoring the 21-column alignment and matching the UI/design-Â§4 treatment of a missing type as Passenger. The same change split the inline `ensureDriverColumnsExist()` guard in `src/app/api/drivers/route.js` and `src/app/api/drivers/[id]/route.js` into two single-statement `query()` calls â€” a combined `ALTER ...; DO ...` string resolved to the `DO` result (no `rows` array) and tripped `result.rows.length` in `src/lib/db.js` on every request; `query()`/`tx.query` are now null-safe for utility statements. Pinned by two regression tests in `route-list.test.js` (UNION alignment, single-statement guards). Verified: `route-list` 4/4, `route` 14/14, `[id]` route 13/13 + get 9/9, `driver-type` 3/3; ESLint clean on all touched files.
 
-The driver profile Overview now contains Passenger Driver and Cargo Logistics Driver sections. Each shows its allowed services, stored status, last approval reviewer/date (Manila time), policy version and separate immutable review history. A missing record is displayed as **Not approved**, never treated as an automatic roster qualification. Cargo approval covers all three cargo services with no restaurant/hotel subgroup.
 
-`GET /api/drivers/[id]/qualifications` returns both groups, history, the configured approval policy version and server-derived management permission. The dedicated `driver_qualifications/read` permission allows super_admin, admin, fleet_manager, dispatcher and management. The conservative `driver_qualifications/manage` grant is only admin plus the existing super_admin bypass. Fleet managers, dispatchers and management are read-only; drivers and mechanics cannot read this staff endpoint or self-approve. Broad trip editing authority does not grant qualification management, and this permission does not authorize source-side shortage acceptance.
+## Service qualifications â€” REMOVED 2026-10-13, replaced by the driver_type gate
 
-`PUT` accepts only `group`, `status`, `policy_version`, `reason` and mandatory `expected_version`. Unknown fields, including spoofed reviewer/time, are rejected. Missing/archived drivers return 404 before policy-dependent writes. The service still locks the driver/current record and checks the expected version; conflicting edits return 409. ACTIVE requires the exact configured approved policy version and returns 503 when unavailable. There is no default policy, and the current environment has none configured. The UI disables approval in that case while allowing authorized suspension/revocation with a reason.
+The PASSENGER/CARGO review system added 2026-10-09 (migration 156, `driver_service_qualifications` + events tables, qualifications API/UI, rollout modes) is removed. Reason: the fleet has no dual-role drivers â€” every driver is strictly Passenger or Cargo â€” so a static classification gate covers the actual rule with no review ceremony, no policy env, and no extra tables. Migration `162_drop_driver_service_qualifications` drops both tables and the append-only trigger; the live tables were empty.
 
-Saving does not optimistically show approval. It waits for an authoritative GET refresh; a refused save preserves selected action and reason. If a save commits but its refresh fails, the UI explains that the review was saved and requires reload, without reporting a refreshed success state. An initial read failure shows retry feedback. A failed refresh with cached data keeps the same mounted review form, draft and feedback visible, marks the displayed qualifications as the last loaded state, and disables further editing/saving until an authoritative reload succeeds. It never substitutes a fabricated missing approval.
+What enforces the partition now: `drivers.driver_type` (`Passenger`|`Cargo`, default `Passenger`) is checked in the deterministic engine on every assignment path. `groupForService()` maps the stored catalog service to a group (`src/lib/drivers/service-groups.js`); a mismatch returns a blocking `driver_type_mismatch` conflict (`Driver Type Mismatch` chip) from `evaluateRequestConflicts()` and `validatePairAvailability()`, which every commit (assign, dispatch create/edit, trip start) funnels through. Unknown services (legacy/custom rows with no group) and drivers with no recorded type skip, never block. Direct trip writes are gated too: `POST /api/trips`, `PUT /api/trips/[id]` (on the merged driver/dispatch pair) and mobile accept all 409 through the same rule via `tripDriverTypeMismatch()` (`src/lib/drivers/trip-type-gate.js`, pure + unit-tested) â€” the service always resolves from the stored dispatch â†’ request â†’ catalog chain, never caller input. Trip status transitions other than accept do not re-check: the assignment gate is authoritative.
 
-Verification: focused route/component/evaluator tests, opt-in rollback-only PostgreSQL route and existing service tests, touched-file ESLint and authorization audit. A read-only live query check verified active-driver/missing-driver reads, empty reviews/history and absent policy configuration. It found and fixed an ambiguous joined `status` column; the PostgreSQL route fixture includes employee status and stored review/history data to prevent recurrence. No real qualification or production policy was created. Browser/device acceptance is not claimed: the available browser session is a mechanic account without driver-profile access. The component tests render the UI and exercise save/refetch callbacks through the existing mocked-hook harness; they do not replace browser accessibility or responsive review.
+Operational note: enforcement is always on, so the roster labels must be right â€” a cargo driver still labeled `Passenger` (the column default) is blocked from cargo work until relabeled in `/drivers/[id]/edit`. Live audit 2026-10-13 found 1 Cargo / 10 Passenger / 1 Suspended-Passenger active rows.
 
 Review round 1 verified the installed TanStack observer preserves data while reporting a refetch error. A regression using that real observer rerenders the parent on query notifications and models React component identity/state destruction on removal or key/type change. It failed when the original error branch removed the form, then passed with retained draft/feedback, blocked duplicate save and successful reload recovery. Focused component tests: 9/9; touched-file ESLint passed. No API/auth/database change or new test dependency.
-=======
 ## 2026-10-09 - Private license upload drafts
 
 Driver create/edit now shares `DocumentUploadField` and `useDocumentUpload` for front/back scans: one JPG/PNG up to 10MB, browse/drop, destination, filename/type/size, real XHR transfer progress, storage confirmation, retry, cancellation and replacement. Small screens place Remove/Cancel below the filename. Selection creates an owner-scoped private `driver-licenses` draft; **Uploaded - awaiting Save** does not mean record persistence or license verification. Save binds the draft inside the driver/employee/address/audit transaction, checking owner, resource, kind, target, matching reference, readiness and expiry. Failed saves roll binding back.
@@ -57,15 +56,15 @@ Cancelling a replacement restores the saved file; leaving attempts pending-draft
 Verification: 206 focused tests across 18 files, strict changed-file ESLint, production build, auth audit (317/317) and migration gates passed. Authenticated synthetic-file browser checks covered keyboard selection, progress, stored previews, cancellation and removal; vehicle checks cover the shared retry/PDF/responsive UI. No existing driver was changed. Physical drag/drop and live record save/reopen remain acceptance checks. See [[document_uploads]] for expiry/cleanup and access.
 
 Size-limit follow-up (2026-10-09): raised both license scans from 5MB to 10MB in the shared UI/server policy. Existing multipart, ledger, storage and AI scan limits permit 10MB without a migration. All 17 focused policy/API tests and strict changed-file lint passed, including exact 10MB multipart uploads in create/edit contexts and rejection one byte over the limit. Browser/build checks above describe the original upload implementation; they were not repeated for this policy-only adjustment.
->>>>>>> 18c7d8aa4c2f5053a9e374b1bf8592931b5bbc4c
+Verification: new `driver-type-gate` pure tests (5/5), rewritten `recommendation-availability` (13/13 incl. stored-service-wins + match-pass cases), `pair-scoring` substitute gate (53/53), dispatch `window` reassignment block (19/19), trips `start` (17/17); full suite 4746 passed with only 10 pre-existing mechanic/fuel failures untouched by this change; route-auth audit 331/331; `db:contract` 0 violations; ESLint clean on all touched files.
 
 **Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old operational data was cleaned, and ten new intended defense drivers were seeded. The live driver roster contains exactly those ten profiles and ten active driver-role accounts; the 23 old driver employees and six retired driver profiles were later hard-deleted by exact FK-checked cleanup. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
 
 ## What it does
 
-Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. The current defense roster contains 10 drivers (D01–D10).
+Driver records, licences (with OCR), documents, availability, incidents, consent, and performance. The current defense roster contains 10 drivers (D01â€“D10).
 
-## Driver license eligibility — 2026-09-27
+## Driver license eligibility â€” 2026-09-27
 
 **Redacted roster evidence (2026-10-02):** The driver list and assignment/substitute APIs deliberately omit `license_number`. They now include separate presence and syntax-validity booleans so the client-side assignment warnings do not call a stored number "missing." The full number remains unavailable on these list responses; server-side assignment checks continue to read the stored number. A present number may still be malformed or fail the separate type, class, expiry, staff-review, and vehicle-class checks. See [[Assignments]].
 
@@ -77,7 +76,7 @@ seats, GVW at most 5,000 kg), following the LTO code table. The license number i
 for an expiry date: the date is entered separately, and Gemini image-scan suggestions must be
 checked against the card.
 
-## Editing driver records — save feedback and optional clears (2026-09-30)
+## Editing driver records â€” save feedback and optional clears (2026-09-30)
 
 The edit form uses the same `driverEditSchema` as driver creation. Under the license policy above, a missing or invalid license number, expiry, type, or class blocks the save. The form now shows the license number and class errors inline and reports the first client validation error in a toast, so a blocked submit is visible. The validation requirements and server-side eligibility checks are unchanged.
 
@@ -87,7 +86,7 @@ Verification: source review confirmed the edit form's invalid-submit path, nulla
 
 **Edit reopening and save confirmation, 2026-09-30:** The reported Sex, LTO code, and type did persist for driver 19, but the edit form could reopen from a stale TanStack Query row. Its one-time form seed then ignored the fresh response. The edit page now fetches on mount and waits for that fetch before seeding or showing the form. The detail API returns license expiry and birthdate as date-only strings; a PostgreSQL `DATE` serialized as a UTC timestamp had also put the previous day into the edit form. The edit form sends Sex explicitly, and the API and page compare submitted Sex, class, and type with persisted values before reporting success. These changes apply to the shared edit path for all drivers. See [[Bugs]] for live-row evidence and verification limits.
 
-**Front license scan preview fix & driver profile enrichment (2026-10-03):** Fixed a presentation defect on `/drivers/[id]` (`src/app/(dashboard)/drivers/[id]/page.js`) where `licenseImage` previously defaulted to `driver.face_image_url || emp.avatar_url || driver.license_image_url`. This caused the "Front of License" document card in Tab 4 to render the driver's face portrait instead of the actual front license scan. Separated the header avatar (`driverPhoto = driver.face_image_url || emp.avatar_url`) from the license card scan (`licenseImage = driver.license_image_url`). Populated the 10 demo drivers with complete Philippine phone numbers, birthdates, sex, emergency contacts, and residential addresses in `employees` and `drivers`. Reclassified the 5 MPVs (Toyota Zenix, Toyota Alphard, and 3 Toyota Innovas) to `required_license_class = 'B'` (Category M1, ≤8 passenger seats) in both live database and `scripts/defense-seed/writer.mjs`, correcting the previous seed formula `v.seats >= 6 ? "B1" : "B"` to `v.seats > 8 ? "B1" : "B"`. Verified with Vitest suites and ESLint.
+**Front license scan preview fix & driver profile enrichment (2026-10-03):** Fixed a presentation defect on `/drivers/[id]` (`src/app/(dashboard)/drivers/[id]/page.js`) where `licenseImage` previously defaulted to `driver.face_image_url || emp.avatar_url || driver.license_image_url`. This caused the "Front of License" document card in Tab 4 to render the driver's face portrait instead of the actual front license scan. Separated the header avatar (`driverPhoto = driver.face_image_url || emp.avatar_url`) from the license card scan (`licenseImage = driver.license_image_url`). Populated the 10 demo drivers with complete Philippine phone numbers, birthdates, sex, emergency contacts, and residential addresses in `employees` and `drivers`. Reclassified the 5 MPVs (Toyota Zenix, Toyota Alphard, and 3 Toyota Innovas) to `required_license_class = 'B'` (Category M1, â‰¤8 passenger seats) in both live database and `scripts/defense-seed/writer.mjs`, correcting the previous seed formula `v.seats >= 6 ? "B1" : "B"` to `v.seats > 8 ? "B1" : "B"`. Verified with Vitest suites and ESLint.
 
 The driver detail readiness card now requires a recorded staff license review along with a current expiry date, available status, and no active trip. It shows expiry and review as separate checks; an expiry date alone is not called an active license. A passing card says "Basic checks passed" because vehicle code compatibility is determined at assignment and trip start.
 
@@ -125,11 +124,11 @@ unsupported pending confirmation of the fleet registrations and license-policy n
 
 **License-view audit coverage (2026-10-01):** General driver roster/profile APIs omit the license number. A dedicated staff endpoint records deliberate masked views for visible directory rows, and the self-service license endpoint records an intentional masked screen view before returning it. The mobile License & Compliance screen queues deliberate opens locally when offline and replays them in bounded batches under the same authenticated driver account. Full-number responses use the required audit path before disclosure, including the staff edit form's authorized fresh load. Audit metadata contains field names and outcome only, never a license value or scan. See [[Audit Logging Coverage and Load Plan]] for queue limits and the remaining staging load gate.
 
-## Driver ≠ employee, exactly
+## Driver â‰  employee, exactly
 
-A driver **is** an employee with a `drivers` row. Credentials and `role_id` live on [[employees]]; licence, availability and performance on `drivers`. Mobile login authenticates against `employees`, then resolves a `driverId`. → [[Authentication]]
+A driver **is** an employee with a `drivers` row. Credentials and `role_id` live on [[employees]]; licence, availability and performance on `drivers`. Mobile login authenticates against `employees`, then resolves a `driverId`. â†’ [[Authentication]]
 
-## Driver login invitations — IMPLEMENTED (2026-09-28)
+## Driver login invitations â€” IMPLEMENTED (2026-09-28)
 
 The driver detail page's **Enable Login** action emails a generated temporary
 password through `PUT /api/drivers/[id]/account` (`{ sendInvite: true }`). It is
@@ -151,38 +150,38 @@ Staff should confirm that `employees.email` reaches the driver's real inbox.
 Driver creation may synthesize `first.last@fleetops.ph` when no email is
 provided. Full route and token details are in [[Authentication]].
 
-## Licence scan — Gemini extraction (replaced Tesseract 2026-08-25)
+## Licence scan â€” Gemini extraction (replaced Tesseract 2026-08-25)
 
-`src/lib/ai/gemini-document.js` sends the licence photo to **Gemini structured output** (`gemini-3.1-flash-lite`, 12-second timeout, JSON `responseSchema`) and returns normalized fields directly — no OCR text, no regex parsing. `tesseract.js` was removed from the app entirely; scanning now happens **only server-side** in `/api/ai/scan-document` and `/api/driver/license-scan`.
+`src/lib/ai/gemini-document.js` sends the licence photo to **Gemini structured output** (`gemini-3.1-flash-lite`, 12-second timeout, JSON `responseSchema`) and returns normalized fields directly â€” no OCR text, no regex parsing. `tesseract.js` was removed from the app entirely; scanning now happens **only server-side** in `/api/ai/scan-document` and `/api/driver/license-scan`.
 
-Unreadable or absent fields come back `null`, never guessed. If Gemini is unconfigured, rate-limited, or times out, the endpoint returns empty extracted data with a validation issue and the user types the details — same graceful-degradation contract as before, one fewer moving part. → [[Graceful Degradation]]
+Unreadable or absent fields come back `null`, never guessed. If Gemini is unconfigured, rate-limited, or times out, the endpoint returns empty extracted data with a validation issue and the user types the details â€” same graceful-degradation contract as before, one fewer moving part. â†’ [[Graceful Degradation]]
 
 Model selection: env `GEMINI_DOCUMENT_MODEL` overrides, then a gemini-2.5/3.x model configured on the provider row, else `gemini-3.1-flash-lite` (the only model confirmed working + fast for this API key on 2026-08-22).
 
-## Licence image entry — URL paste removed 2026-09-18
+## Licence image entry â€” URL paste removed 2026-09-18
 
-The admin driver forms (`drivers/new/page.js`, `drivers/[id]/edit/page.js`) each carried **two free-text inputs** — "Or paste Front/Back License Image URL..." — that accepted any string and bound anything starting with `http` straight to an `<img src>` preview on keystroke, with no host validation. All four are removed (47 lines, no additions). Upload, Gemini scan, rotate, the preview and the enlarge modal are unaffected: the value is still set programmatically by the upload path (`new:200/233`, `edit:101/225/260`), never by typing.
+The admin driver forms (`drivers/new/page.js`, `drivers/[id]/edit/page.js`) each carried **two free-text inputs** â€” "Or paste Front/Back License Image URL..." â€” that accepted any string and bound anything starting with `http` straight to an `<img src>` preview on keystroke, with no host validation. All four are removed (47 lines, no additions). Upload, Gemini scan, rotate, the preview and the enlarge modal are unaffected: the value is still set programmatically by the upload path (`new:200/233`, `edit:101/225/260`), never by typing.
 
-**The paste inputs were only one of two ways in — the second is now closed too.** The write path accepted the field as well: `POST /api/drivers` destructured `license_image_url` from the request body and wrote it unvalidated, with the field absent from `validateBody` (`route.js:251`) entirely; the `employees.avatar_url` copy (`:339`) checked only `startsWith("http") && length <= 512`, a scheme check wearing a host check's clothing. `PUT /api/drivers/[id]` matched (`[id]/route.js:202, 228` — the export is **PUT**). So a direct API call could store a foreign host; removing the inputs was a UI change, and that distinction was the point.
+**The paste inputs were only one of two ways in â€” the second is now closed too.** The write path accepted the field as well: `POST /api/drivers` destructured `license_image_url` from the request body and wrote it unvalidated, with the field absent from `validateBody` (`route.js:251`) entirely; the `employees.avatar_url` copy (`:339`) checked only `startsWith("http") && length <= 512`, a scheme check wearing a host check's clothing. `PUT /api/drivers/[id]` matched (`[id]/route.js:202, 228` â€” the export is **PUT**). So a direct API call could store a foreign host; removing the inputs was a UI change, and that distinction was the point.
 
-**Closed 2026-09-18 — SEC-UPLOAD-008 (MEDIUM).** Both schemas now carry `license_image_url` / `license_back_image_url` as a `mediaUrl` type, and both `avatar_url` copies route through the same rule. `isAllowedStoredImageRef` (`src/lib/validation/index.js`) accepts an inline base64 image or a URL on a fleet-controlled origin, and routes `data:` to the **strict** `isBase64DataUrl` — the guard alone returns true for any `data:image/` prefix (`remote-url.js:34`), which would admit `data:image/svg+xml,<svg …>`. The 512-char cap on the avatar copy is kept deliberately: it is why a multi-megabyte scan never lands in `employees.avatar_url`.
+**Closed 2026-09-18 â€” SEC-UPLOAD-008 (MEDIUM).** Both schemas now carry `license_image_url` / `license_back_image_url` as a `mediaUrl` type, and both `avatar_url` copies route through the same rule. `isAllowedStoredImageRef` (`src/lib/validation/index.js`) accepts an inline base64 image or a URL on a fleet-controlled origin, and routes `data:` to the **strict** `isBase64DataUrl` â€” the guard alone returns true for any `data:image/` prefix (`remote-url.js:34`), which would admit `data:image/svg+xml,<svg â€¦>`. The 512-char cap on the avatar copy is kept deliberately: it is why a multi-megabyte scan never lands in `employees.avatar_url`.
 
-The writer must already hold `drivers:create`/`update`, and the self-service route was always strict (`driver/me:219,253`), so a driver could never set a foreign host — the gap was defence-in-depth, with the CSP `img-src` narrowing as the only line behind it. `next.config.mjs` and this rule now draw from the **same** env-derived allow-list, so the browser-side and server-side lists cannot drift.
+The writer must already hold `drivers:create`/`update`, and the self-service route was always strict (`driver/me:219,253`), so a driver could never set a foreign host â€” the gap was defence-in-depth, with the CSP `img-src` narrowing as the only line behind it. `next.config.mjs` and this rule now draw from the **same** env-derived allow-list, so the browser-side and server-side lists cannot drift.
 
-A live census (40 driver rows) found **zero** stored licence references, so this never manifested in data. Full record, the fail-before caveat, and what stays open: → [[Bugs]] SEC-UPLOAD-008. **SEC-UPLOAD-003** (ten-year signed TTLs) and **SEC-UPLOAD-006** (`getPublicUrl` on the private `driver-licenses` bucket) remain open.
+A live census (40 driver rows) found **zero** stored licence references, so this never manifested in data. Full record, the fail-before caveat, and what stays open: â†’ [[Bugs]] SEC-UPLOAD-008. **SEC-UPLOAD-003** (ten-year signed TTLs) and **SEC-UPLOAD-006** (`getPublicUrl` on the private `driver-licenses` bucket) remain open.
 
-## Licence media: the column holds an OBJECT KEY, not a URL — 2026-09-18
+## Licence media: the column holds an OBJECT KEY, not a URL â€” 2026-09-18
 
-**SEC-UPLOAD-006 is closed. SEC-UPLOAD-003 is PARTIALLY CLOSED** — both phases of
+**SEC-UPLOAD-006 is closed. SEC-UPLOAD-003 is PARTIALLY CLOSED** â€” both phases of
 the storage remediation landed on 2026-09-18. The code no longer mints or
 persists a long-lived URL; the ten-year tokens already sitting in
 `drivers.face_image_url` and `employees.avatar_url` (1 row each, measured) were
 **not** revoked, because revoking them is a production-data action that needs its
-own approval. See → [[Bugs]] for the full record and the census.
+own approval. See â†’ [[Bugs]] for the full record and the census.
 
 The four media columns on a driver (`face_image_url`, `license_image_url`,
 `license_back_image_url`) and the `employees.avatar_url` mirror now hold a
-**bucket-qualified object key** — `driver-licenses/12/6f1c….jpg` — and the route
+**bucket-qualified object key** â€” `driver-licenses/12/6f1câ€¦.jpg` â€” and the route
 mints a short-lived signed URL (1 hour) when it serializes the row. The four
 columns that bear a driver's face or licence are in **private** buckets, so a
 stored URL is a bearer credential written down; a key has no scheme, no host, no
@@ -198,7 +197,7 @@ token and no expiry, so there is nothing to leak and nothing to revoke.
 **Readers sign at the API boundary, so no UI component changed.**
 `drivers/route.js`, `drivers/[id]/route.js`, `auth/profile/route.js` and
 `driver/me/route.js` each resolve before responding, which covers every
-downstream consumer — `drivers/[id]/page.js:121`, the edit form, `use-auth`,
+downstream consumer â€” `drivers/[id]/page.js:121`, the edit form, `use-auth`,
 `app-shell.jsx:348`, `user-dropdown.jsx:52`. They still receive a URL; it just
 expires now.
 
@@ -206,19 +205,19 @@ expires now.
 either side alone, which is why they are written down here:
 
 1. **A legacy URL is RECOVERED, never passed through.** Both storage URL shapes
-   (`/object/public/…`, `/object/sign/…`) carry the object key in their path, so
+   (`/object/public/â€¦`, `/object/sign/â€¦`) carry the object key in their path, so
    the reader recovers the key and re-signs. Handing the URL back because its
    host is allow-listed is exactly the bug: a `getPublicUrl` value's host *is*
    the Supabase URL, and on a private bucket that URL authorizes nothing.
-   Unrecoverable → `null` **and a warning**, never passed and never silently
+   Unrecoverable â†’ `null` **and a warning**, never passed and never silently
    dropped.
 2. **The write path canonicalises.** The admin edit form seeds from the loaded
    driver and submits it back on **every** save (`edit/page.js:116,295`), so
    without `toStoredMediaRef` each save would persist whichever short-lived URL
-   the reader just minted — re-creating SEC-UPLOAD-003 through the read path.
+   the reader just minted â€” re-creating SEC-UPLOAD-003 through the read path.
    `driver/me`'s `face_image_url` PATCH is canonicalised for the same reason.
 
-`employees.avatar_url` is the one column whose bucket cannot be assumed — it
+`employees.avatar_url` is the one column whose bucket cannot be assumed â€” it
 receives keys from both `face-captures` (the driver's own photo) and
 `driver-licenses` (the front-scan mirror). That is why stored values carry their
 bucket as a prefix, and why the reader treats a qualified prefix as
@@ -227,7 +226,7 @@ authoritative over the column it was found in.
 `vehicle-images` is deliberately **not** in the key vocabulary: it is public by
 design (migration 050) and is read by URL, not signed.
 
-## Consent and self-service visibility — CONFIRMED
+## Consent and self-service visibility â€” CONFIRMED
 
 `src/lib/consent/driver-visibility.js`:
 
@@ -238,17 +237,17 @@ DRIVER_SELF_EDITABLE_FIELDS = ["phone", "face_image_url",
 LICENSE_REUPLOAD_WINDOW_DAYS = 30
 ```
 
-An **allow-list**, not a deny-list. A driver can edit exactly four fields; anything new added to the table is not editable until someone deliberately adds it. That's the safe default. → [[Fail Closed By Default]]
+An **allow-list**, not a deny-list. A driver can edit exactly four fields; anything new added to the table is not editable until someone deliberately adds it. That's the safe default. â†’ [[Fail Closed By Default]]
 
 > **Face photo self-service (2026-09-13):** `face_image_url` was whitelisted
 > for years but no client could set it (PATCH takes a URL; nothing minted
 > one). Now `POST /api/driver/face-photo` + the Profile-tab pencil badge
-> close the loop — one upload fills the avatar AND the attendance
-> face-verification reference. Full flow: → [[Driver Consent]]
+> close the loop â€” one upload fills the avatar AND the attendance
+> face-verification reference. Full flow: â†’ [[Driver Consent]]
 >
 > **Web sync (2026-09-13, display-only):** the photo renders across all web
-> surfaces with initials fallbacks — staff detail header (`AvatarImage` on
-> the existing `face → avatar → license` chain), staff list name cell,
+> surfaces with initials fallbacks â€” staff detail header (`AvatarImage` on
+> the existing `face â†’ avatar â†’ license` chain), staff list name cell,
 > performance table (report payload extended additively; Excel ignores the
 > extra keys), the driver's own `/driver/profile` header, the global
 > `UserDropdown` (trigger and dropdown card header), and the `AppShell`
@@ -256,7 +255,7 @@ An **allow-list**, not a deny-list. A driver can edit exactly four fields; anyth
 > ensure live sync without requiring re-login. Mobile `DriverHomeHeader` also
 > reflects the uploaded face photo.
 >
-> **Full sweep (2026-09-16):** the same `face_image_url → avatar_url →
+> **Full sweep (2026-09-16):** the same `face_image_url â†’ avatar_url â†’
 > initials` chain now renders on EVERY staff surface that names a driver via
 > the shared `src/components/drivers/driver-avatar.jsx` (`resolveDriverPhotoUrl`
 > + `DriverAvatar`, broken-URL falls back to initials): incidents table +
@@ -269,45 +268,45 @@ An **allow-list**, not a deny-list. A driver can edit exactly four fields; anyth
 > (trips, dispatch by-status/[id]/calendar/availability-pairs,
 > incidents + [id], documents/expiring, fuel + fuel-requests, assignments,
 > substitute schedules, leave list, transport-requests list/card/[id],
-> search) behind the existing `requirePermission` guards — RBAC unchanged,
+> search) behind the existing `requirePermission` guards â€” RBAC unchanged,
 > driver role still excluded from roster reads. Verified: ESLint clean,
 > 180 tests pass, route-auth audit 270/270.
 
-`canUpdateLicenseScan()` used to enforce a 30-day re-upload window — removed 2026-08-25: re-upload is allowed anytime, gated instead by Gemini's authenticity/readability check. → [[ADR-012 Anytime Self-Service License Renewal]]
+`canUpdateLicenseScan()` used to enforce a 30-day re-upload window â€” removed 2026-08-25: re-upload is allowed anytime, gated instead by Gemini's authenticity/readability check. â†’ [[ADR-012 Anytime Self-Service License Renewal]]
 
-## The Sev-1 bug — FIXED 2026-08-11
+## The Sev-1 bug â€” FIXED 2026-08-11
 
-`shouldGroundVehicle()` **grounded every vehicle on any incident**, ignoring `incidentType` and `severity` — and its test asserted that was correct. The rule it was supposed to implement was written in its own docstring the whole time.
+`shouldGroundVehicle()` **grounded every vehicle on any incident**, ignoring `incidentType` and `severity` â€” and its test asserted that was correct. The rule it was supposed to implement was written in its own docstring the whole time.
 
 Now: grounds on a breakdown-type report **or** Major/Critical severity, and never without a `vehicleId`.
 
-→ [[BUG shouldGroundVehicle Is A Stub]] · [[Tests Can Encode Bugs]]
+â†’ [[BUG shouldGroundVehicle Is A Stub]] Â· [[Tests Can Encode Bugs]]
 
-## Incidents were broken once already — CONFIRMED
+## Incidents were broken once already â€” CONFIRMED
 
 Migration `024_driverincidents.sql` recreates a table that `005` dropped:
 
 > *"The driver portal and /api/driver/incidents still reference it, so it was missing at runtime and incident reporting was broken."*
 
-A migration removed a table that live code still used, and nothing caught it. → [[Migrations]]
+A migration removed a table that live code still used, and nothing caught it. â†’ [[Migrations]]
 
-## Incident lifecycle — CONFIRMED 2026-08-23
+## Incident lifecycle â€” CONFIRMED 2026-08-23
 
-Report → ground → resolve is now a closed loop with the driver. Resolving restores
+Report â†’ ground â†’ resolve is now a closed loop with the driver. Resolving restores
 vehicle availability, requires a documented `actions_taken`, notifies the reporter,
 and offline submissions are idempotent (`client_submission_id`). Full rules and
-remaining limits: → [[Incidents]]
+remaining limits: â†’ [[Incidents]]
 
-## License-compliance suspension — CONFIRMED 2026-08-23
+## License-compliance suspension â€” CONFIRMED 2026-08-23
 
-Expired license ⇒ auto-`Suspended`, now **with an inverse**: `drivers.suspension_reason`
+Expired license â‡’ auto-`Suspended`, now **with an inverse**: `drivers.suspension_reason`
 (migration 064) marks compliance suspensions (`license_expired`), and saving a valid
-future expiry reinstates automatically — audit + staff notification on both the suspend
+future expiry reinstates automatically â€” audit + staff notification on both the suspend
 and the reinstate. Manual/legacy suspensions (reason NULL) are never touched by code.
 Pure rule in `src/lib/drivers/compliance.js`; driver page carries a Reinstate banner
-for the lingering-flag case. → [[GAP Compliance Suspension Had No Inverse]]
+for the lingering-flag case. â†’ [[GAP Compliance Suspension Had No Inverse]]
 
-## Legal age — enforced 2026-09-23
+## Legal age â€” enforced 2026-09-23
 
 `drivers.birthdate` carries a **legal-age floor of 18 years**. PH LTO issues a
 professional driver's licence from 18 and every row in this registry is a licensed
@@ -328,7 +327,7 @@ Enforced at three layers, all reading the same rule:
 | The API rejects it | `validate: (v) => isAtLeastAge(...)` on the `birthdate` spec in both `POST /api/drivers` and `PUT /api/drivers/[id]` |
 
 **The API layer is the one that matters.** `driverSchema` is only the form's
-resolver — it never runs on the server, because no application code runs on a
+resolver â€” it never runs on the server, because no application code runs on a
 direct API call. The routes validate through the declarative `validateBody` spec
 in `src/lib/validation/helpers.js`, so the rule is attached as that spec's
 `validate` hook rather than assumed to travel with the zod schema.
@@ -336,32 +335,32 @@ in `src/lib/validation/helpers.js`, so the rule is attached as that spec's
 **Why `legalAgeCutoff` builds a date from calendar parts instead of subtracting.**
 On Feb 29 a naive 18-year subtraction rolls to Mar 1, admitting a birthdate one
 day too young. The cutoff clamps the day to the target month's length and
-compares year → month → day, so a leap day cannot widen the floor. A person whose
+compares year â†’ month â†’ day, so a leap day cannot widen the floor. A person whose
 18th birthday is today passes; one day later does not.
 
-Blank stays valid — the field is optional, and the rule only ever restricts a date
+Blank stays valid â€” the field is optional, and the rule only ever restricts a date
 that was actually supplied. A live census before the change found **55 driver rows,
 53 with a null birthdate and 0 underage**, so no existing record is blocked by it.
 
 ## Database tables used
 
-`drivers` (23) · [[employees]] (47) · [[driver_vehicle_assignments]] · `driverincidents` · `driver_documents` · `driver_consents` · `driverattendance` **0 rows** · `driver_stats` (view) · [[mobile_refresh_tokens]] (57)
+`drivers` (23) Â· [[employees]] (47) Â· [[driver_vehicle_assignments]] Â· `driverincidents` Â· `driver_documents` Â· `driver_consents` Â· `driverattendance` **0 rows** Â· `driver_stats` (view) Â· [[mobile_refresh_tokens]] (57)
 
-> **2026-09-24 — the two address surfaces are migrated onto the [[addresses]] registry.** `drivers.address_id` and `drivers.emergency_contact_address_id` existed since migration `122` and **nothing had ever read or written either**; both are now written. The Address inputs on `/drivers/new` and `/drivers/[id]/edit` are no longer text boxes — the operator picks through the Region → Province → City/Municipality → Barangay cascade, and `POST`/`PUT /api/drivers` resolve the pick **server-side**, deriving the geography from the barangay code rather than believing the text sent beside it.
+> **2026-09-24 â€” the two address surfaces are migrated onto the [[addresses]] registry.** `drivers.address_id` and `drivers.emergency_contact_address_id` existed since migration `122` and **nothing had ever read or written either**; both are now written. The Address inputs on `/drivers/new` and `/drivers/[id]/edit` are no longer text boxes â€” the operator picks through the Region â†’ Province â†’ City/Municipality â†’ Barangay cascade, and `POST`/`PUT /api/drivers` resolve the pick **server-side**, deriving the geography from the barangay code rather than believing the text sent beside it.
 >
-> **No migration was needed** — the columns, their FK to `addresses(address_id)` and the index all already existed. This was an application change only.
+> **No migration was needed** â€” the columns, their FK to `addresses(address_id)` and the index all already existed. This was an application change only.
 >
-> **The composed address is mirrored into `drivers.address` / `emergency_contact_address`**, the same maintained denormalization `locations.address` is. That is what keeps every existing reader working unchanged: `/drivers/[id]` still renders those two text columns and was not touched. The pick WINS over the submitted string when both arrive, because the server composed it from its own resolution — so the text and the registry row it points at are guaranteed to describe the same place.
+> **The composed address is mirrored into `drivers.address` / `emergency_contact_address`**, the same maintained denormalization `locations.address` is. That is what keeps every existing reader working unchanged: `/drivers/[id]` still renders those two text columns and was not touched. The pick WINS over the submitted string when both arrive, because the server composed it from its own resolution â€” so the text and the registry row it points at are guaranteed to describe the same place.
 >
-> **This is the first surface where the map pin is enabled.** The canonical-location and hotel dialogs pass `showPinMap={false}` because the location already owns a point; a driver's home has no other coordinate owner — `drivers` carries live and standby positions, never a residential one. It is also the first live exercise of `chk_addresses_coords_pair`'s both-present branch, since the address rows written before this were all NULL/NULL. `forcedType="home"` with the type selector hidden, the mirror image of the canonical-location surface forcing `operational`.
+> **This is the first surface where the map pin is enabled.** The canonical-location and hotel dialogs pass `showPinMap={false}` because the location already owns a point; a driver's home has no other coordinate owner â€” `drivers` carries live and standby positions, never a residential one. It is also the first live exercise of `chk_addresses_coords_pair`'s both-present branch, since the address rows written before this were all NULL/NULL. `forcedType="home"` with the type selector hidden, the mirror image of the canonical-location surface forcing `operational`.
 >
-> **Both routes fail hard, and that is now the point rather than a nicety.** `PUT` was already close, and its shape is worth stating exactly: the two registry rows are written in **one** `withTransaction` and the driver `UPDATE` runs *after* it, so a registry refusal refuses the whole request with nothing written at all. The one gap is the converse — if the driver `UPDATE` fails *after* the addresses commit, those rows are orphaned. Harmless by construction: the registry is append-only and nothing joins to it by value, and the caller still gets a failure. **`POST` was not atomic at all, and was restructured to become so.** Its employee and driver inserts went through the Supabase client (PostgREST over HTTPS), which cannot be enrolled in a `pg` `BEGIN`/`COMMIT` — a separate HTTP service is not a transaction handle — so the addresses were written in a *second* transaction and a failure there left a committed driver with both ids NULL, reported as a `warning`. Both inserts now run on `tx.query` inside one transaction, the addresses are written **before** the driver row so their ids go straight into its column list, and any failure rolls back all of it: no employee, no driver, no registry rows. The `warning` field and the old soft-delete-the-employee compensation are both gone. Neither insert needed anything only PostgREST provides — both are plain INSERTs with a `RETURNING` and a unique-violation check. See [[ADR-015 Address Owns Administration, Location Owns The Point]].
+> **Both routes fail hard, and that is now the point rather than a nicety.** `PUT` was already close, and its shape is worth stating exactly: the two registry rows are written in **one** `withTransaction` and the driver `UPDATE` runs *after* it, so a registry refusal refuses the whole request with nothing written at all. The one gap is the converse â€” if the driver `UPDATE` fails *after* the addresses commit, those rows are orphaned. Harmless by construction: the registry is append-only and nothing joins to it by value, and the caller still gets a failure. **`POST` was not atomic at all, and was restructured to become so.** Its employee and driver inserts went through the Supabase client (PostgREST over HTTPS), which cannot be enrolled in a `pg` `BEGIN`/`COMMIT` â€” a separate HTTP service is not a transaction handle â€” so the addresses were written in a *second* transaction and a failure there left a committed driver with both ids NULL, reported as a `warning`. Both inserts now run on `tx.query` inside one transaction, the addresses are written **before** the driver row so their ids go straight into its column list, and any failure rolls back all of it: no employee, no driver, no registry rows. The `warning` field and the old soft-delete-the-employee compensation are both gone. Neither insert needed anything only PostgREST provides â€” both are plain INSERTs with a `RETURNING` and a unique-violation check. See [[ADR-015 Address Owns Administration, Location Owns The Point]].
 >
-> **Not backfilled.** Existing drivers keep `address_id = NULL` and keep reading from their text columns; a driver is upgraded when a human next edits them, the same rule ADR-015 point (6) set for the locations. Design intent retained from the original note: a personal address is still **advisory** — an unverified address saves rather than blocks.
+> **Not backfilled.** Existing drivers keep `address_id = NULL` and keep reading from their text columns; a driver is upgraded when a human next edits them, the same rule ADR-015 point (6) set for the locations. Design intent retained from the original note: a personal address is still **advisory** â€” an unverified address saves rather than blocks.
 
-> **Address checks and manual pin behavior — 2026-09-27.** The shared structured-address form now checks a four-digit ZIP against the PHLPost locality snapshot when that locality is covered. A covered mismatch blocks save; absent directory coverage or lookup failure is shown as unknown and remains saveable. The snapshot currently has no Caloocan row, so the existing Caloocan + 4122 value is not declared valid or invalid from this source. Map search is an explicit **Find on map** action sent through the authenticated server route; it can center the viewport or offer candidates, but never sets the pin or verifies the address. A manually placed pin is cleared when location details or geography change, while landmark and delivery-note edits preserve it. See [[Address Validation and Map Sync Analysis]] for routes, source, security controls and test evidence.
+> **Address checks and manual pin behavior â€” 2026-09-27.** The shared structured-address form now checks a four-digit ZIP against the PHLPost locality snapshot when that locality is covered. A covered mismatch blocks save; absent directory coverage or lookup failure is shown as unknown and remains saveable. The snapshot currently has no Caloocan row, so the existing Caloocan + 4122 value is not declared valid or invalid from this source. Map search is an explicit **Find on map** action sent through the authenticated server route; it can center the viewport or offer candidates, but never sets the pin or verifies the address. A manually placed pin is cleared when location details or geography change, while landmark and delivery-note edits preserve it. See [[Address Validation and Map Sync Analysis]] for routes, source, security controls and test evidence.
 
-## Weekly work schedules & leave — CONFIRMED 2026-08-15
+## Weekly work schedules & leave â€” CONFIRMED 2026-08-15
 
 Migration `049_driver_work_schedule_and_leave.sql` adds `driver_work_schedules`
 (one row per driver per `day_of_week`, `shift_start`/`shift_end`/`break_start`/
@@ -373,40 +372,40 @@ Rules:
 
 - **Fleet manager owns the schedule.** Only `system_admin`/`fleet_manager` write
   (`PUT /api/driver-work-schedules`); admin observes. Write policies in 049 are
-  `system_admin` + `fleet_manager` only — matching the directive that admin is
-  never the schedule writer. → [[Why RLS Is Not A Boundary]]
+  `system_admin` + `fleet_manager` only â€” matching the directive that admin is
+  never the schedule writer. â†’ [[Why RLS Is Not A Boundary]]
 - **Fail-closed availability.** A driver with no schedule row is **not assignable**
   ("No work schedule"). Fail-open only when a caller never loaded schedule context
   (`driverBlockReason` returns null on `!ctx?.schedules`); fail-closed whenever
   context was loaded and the map is empty. Pure core: `scheduleBlockReason`
-  (`src/lib/scheduling/driver-schedule.js`). → [[Fail Closed By Default]]
-- **Blocking rule order**: approved leave covers the date → block; no row for that
-  `day_of_week` → block; rest day → block; window not fully inside shift
-  (`!(pickup >= shift_start && returnAt <= shift_end)`) → block; half-open break
-  overlap (`break_start < returnAt && break_end > pickup`) → block.
+  (`src/lib/scheduling/driver-schedule.js`). â†’ [[Fail Closed By Default]]
+- **Blocking rule order**: approved leave covers the date â†’ block; no row for that
+  `day_of_week` â†’ block; rest day â†’ block; window not fully inside shift
+  (`!(pickup >= shift_start && returnAt <= shift_end)`) â†’ block; half-open break
+  overlap (`break_start < returnAt && break_end > pickup`) â†’ block.
 - **Leave lifecycle**: driver files via `POST /api/driver/leave` (self, Pending);
   admin or fleet manager approves/declines via
   `PATCH /api/driver-leave-requests/[id]`
   (409 if an overlapping request is already Approved). Driver withdraws Pending
   via `DELETE /api/driver/leave`. Only **Approved** leave blocks assignment.
-  *(Admin gained `update` on 2026-10-03 — previously review was fleet_manager
+  *(Admin gained `update` on 2026-10-03 â€” previously review was fleet_manager
   only, so leave stalled whenever the fleet manager was unavailable.)*
 - **Server TZ is Asia/Manila.** `localDayOfWeek`/`localTimeOfDay` use Date local
   getters, consistent with the `toCalendarDay` convention.
-- Backfilled **49 rows** (drivers 1, 2, 19, 20, 21, 22, 26 × 7 days, 06:00–22:00,
-  break 12:00–13:00, no rest days) so live enforcement could be verified without
+- Backfilled **49 rows** (drivers 1, 2, 19, 20, 21, 22, 26 Ã— 7 days, 06:00â€“22:00,
+  break 12:00â€“13:00, no rest days) so live enforcement could be verified without
   inventing a rest-day policy.
 
-### Staggered lunch breaks & staggered rest days — IMPLEMENTED 2026-10-03
+### Staggered lunch breaks & staggered rest days â€” IMPLEMENTED 2026-10-03
 
 To prevent fleet unavailability during lunch hours and avoid dead days where all drivers are off on Sunday, organizational shift policies and individual schedule tooling support automated staggering:
 
 1. **Staggered lunch breaks across drivers (`staggerBreaks`):**
    - Rotating slots (`src/lib/work-shift-policy.js` `DEFAULT_BREAK_SLOTS`):
-     - Slot 1: `11:30–12:30` (Early Lunch)
-     - Slot 2: `12:00–13:00` (Standard Lunch)
-     - Slot 3: `12:30–13:30` (Mid Lunch)
-     - Slot 4: `13:00–14:00` (Late Lunch)
+     - Slot 1: `11:30â€“12:30` (Early Lunch)
+     - Slot 2: `12:00â€“13:00` (Standard Lunch)
+     - Slot 3: `12:30â€“13:30` (Mid Lunch)
+     - Slot 4: `13:00â€“14:00` (Late Lunch)
    - When active, batch application (`applyWorkShiftPolicyToDrivers`) assigns drivers round-robin across the 4 slots (`driverIndex % 4`). If one driver is taking lunch between 12:00 PM and 1:00 PM, other drivers on slots 1, 3, or 4 remain available to catch bookings.
 2. **Staggered rest days across drivers (`staggerRestDays`):**
    - Rotates days off across all 7 weekdays (`driverIndex % 7`):
@@ -474,40 +473,40 @@ fleet_manager, with "Use System Default Routine" prefill action), `/drivers/leav
 > page-role list currently deny that action; clarify this if permissions are
 > revisited.
 
-**Staff leave sidebar removal (2026-10-07):** Removed the `/drivers/leave` navigation item from the Super Admin, Admin, and Fleet Manager workspace sidebars. The route entry in `NAV_ROLES`, `/drivers/leave` page, API routes, permission matrix, notification target, Workforce exceptions card, and Fleet Manager dashboard shortcut remain unchanged so current leave functions remain available. The driver's separate “My Schedule & Leave” navigation entry is unchanged. This navigation change does not implement the future HR integration or remove the current local leave workflow.
+**Staff leave sidebar removal (2026-10-07):** Removed the `/drivers/leave` navigation item from the Super Admin, Admin, and Fleet Manager workspace sidebars. The route entry in `NAV_ROLES`, `/drivers/leave` page, API routes, permission matrix, notification target, Workforce exceptions card, and Fleet Manager dashboard shortcut remain unchanged so current leave functions remain available. The driver's separate â€œMy Schedule & Leaveâ€ navigation entry is unchanged. This navigation change does not implement the future HR integration or remove the current local leave workflow.
 
-## The duty session — Start Duty / End Duty, and its three gates — 2026-09-23
+## The duty session â€” Start Duty / End Duty, and its three gates â€” 2026-09-23
 
-**Answered: `driverattendance` does have a writer.** It is the duty session —
-one row per `(driver_id, date)`, `time_in` / `time_out` / `remarks` — written by
+**Answered: `driverattendance` does have a writer.** It is the duty session â€”
+one row per `(driver_id, date)`, `time_in` / `time_out` / `remarks` â€” written by
 `setDuty` and `endDutyWithReport` in `src/services/standby.service.js`. The same
 transaction sets `drivers.standby_tracking_enabled` and `standby_session_family`,
 which is what makes a checked-in driver's GPS publish as **standby** (consumed by
 the dispatch radar); `setDuty` is also the only thing that ever clears them.
 
-**Start duty — `setDuty(driverId, true)` — has three gates, in this order.** The
+**Start duty â€” `setDuty(driverId, true)` â€” has three gates, in this order.** The
 order is load-bearing, not incidental:
 
-1. **Roster / leave** (`driverBlockReason`) → `409 DUTY_UNAVAILABLE`
-2. **Privacy consent** → `403`
-3. **Today's Pre-Shift baseline** → `409 PRESHIFT_REQUIRED`
+1. **Roster / leave** (`driverBlockReason`) â†’ `409 DUTY_UNAVAILABLE`
+2. **Privacy consent** â†’ `403`
+3. **Today's Pre-Shift baseline** â†’ `409 PRESHIFT_REQUIRED`
 
 The baseline check sits **after** the roster check deliberately: a driver on rest
 day or approved leave must be told `DUTY_UNAVAILABLE`, not sent to inspect a
 vehicle for a shift they are not working. It tests the row's **existence**, not
-its verdict — "indication" in the owner's words — so a `Failed` baseline still
+its verdict â€” "indication" in the owner's words â€” so a `Failed` baseline still
 opens a duty session (recorded as an open policy fork in [[Trips]]). The gate is
 what makes the Pre-Shift check load-bearing rather than advisory; the previous
 "UI-only" stance is reversed and the note in [[Trips]] rewritten to match.
 
-**Completing the Pre-Shift check is what calls it — there is no Start Duty control
+**Completing the Pre-Shift check is what calls it â€” there is no Start Duty control
 anywhere in the app (2026-09-23).** `POST /api/mobile/driver/inspections` with
 `inspection_type: "Pre-Shift"` runs `setDuty(driverId, true)` **after** the
 inspection row commits, and returns `duty: { started, code, message }` so the app
 can confirm it or act on the refusal. The order is not stylistic: the third gate
 reads the baseline back, so the row has to be durable before `setDuty` runs. It is
-called on retries as well as first inserts — a retry is precisely the case where
-the first response was lost — which is safe because the attendance upsert is
+called on retries as well as first inserts â€” a retry is precisely the case where
+the first response was lost â€” which is safe because the attendance upsert is
 guarded by `time_out IS NOT NULL OR time_in IS NULL` and will not re-stamp
 `time_in` while the driver is already on duty. A refusal (rest day, leave, consent)
 does **not** fail the inspection: the safety record is already committed and is the
@@ -515,12 +514,12 @@ more important write, so the reason travels back to the app instead of
 un-recording a finished check.
 
 **Profile carries no duty surface at all**, by owner decision on 2026-09-23: the
-"Driver duty" card — title, status caption, and its Start/End button — was removed
+"Driver duty" card â€” title, status caption, and its Start/End button â€” was removed
 outright rather than relabelled, along with the `useDuty` import that fed it.
 Starting a shift and ending one each have exactly one door now.
 
-**End duty — `endDutyWithReport({driverId, vehicleId, report, clientSubmissionId})`
-— is one transaction, and the report is what ends it.** It inserts the
+**End duty â€” `endDutyWithReport({driverId, vehicleId, report, clientSubmissionId})`
+â€” is one transaction, and the report is what ends it.** It inserts the
 `Post-Shift` `vehicleinspection` row, closes `time_out`, and clears standby
 tracking together. There is no path that ends duty without a report and none that
 files a report against an open shift. `400 REPORT_INVALID` when the report is
@@ -532,11 +531,11 @@ both).
 pairing) cannot have a report filed. Rather than trap them in the app, duty ends
 and the gap is stamped onto `driverattendance.remarks` ("Ended duty with no
 vehicle pairing; no End Duty report recorded"). A driver who ended duty with a
-report already on file — a retried submit — gets the first record back, not a
+report already on file â€” a retried submit â€” gets the first record back, not a
 second one (`client_submission_id` + a partial unique index).
 
 **The no-vehicle close is a fixed point keyed on the submission id, and that is
-load-bearing rather than tidy — 2026-09-25.** The close writes
+load-bearing rather than tidy â€” 2026-09-25.** The close writes
 `driverattendance.end_duty_submission_id` (migration `129`; the branch files no
 inspection row, so it had nowhere else to record an id), and a request carrying
 an id that already closed a day short-circuits to the recorded outcome before
@@ -545,7 +544,7 @@ any vehicle is consulted. Two reasons it is id-keyed and not day-keyed: the day
 date-blind, so a replay whose pairing has since become resolvable would otherwise
 take the reported branch and file a Post-Shift report against a vehicle never
 driven that day; and a retry can resolve a **different** day than the attempt it
-retries — a shift closed at 00:05 on the 24th closes the 23rd, and the retry
+retries â€” a shift closed at 00:05 on the 24th closes the 23rd, and the retry
 resolves the 24th. The read keeps a second, day-scoped arm for a request arriving
 under a *fresh* id, gated on `time_out IS NOT NULL` so it cannot fire on a row
 `setDuty` has reopened. `setDuty`'s reopen clears `end_duty_outcome` for the
@@ -559,21 +558,21 @@ cannot replay an atomic server transaction, so queueing would tell a driver thei
 shift had ended while they were still checked in.
 
 **Home is the only duty surface, and it offers two doors.** `GET
-/api/mobile/driver/duty` returns `{checkedIn, busy, preshiftRequired, today}` —
+/api/mobile/driver/duty` returns `{checkedIn, busy, preshiftRequired, today}` â€”
 `today` being `driverDayEligibility`'s verdict for rest day / approved leave /
-missing schedule — and `mobile/lib/use-duty.js` is the single hook that reads it,
+missing schedule â€” and `mobile/lib/use-duty.js` is the single hook that reads it,
 so no screen re-derives either the duty state or the roster window. Two
 affordances consume it:
 
 - The **End Duty quick action**, leading the Home quick-action row whenever
   `checkedIn`. This is the early clock-out path, and it exists because the report
   card below is gated on the 30-minute window: without it a driver sent home
-  mid-shift — sick, emergency — has no way to end duty at all once Profile's card
+  mid-shift â€” sick, emergency â€” has no way to end duty at all once Profile's card
   is gone. It shows for the whole session rather than only outside the window, so
   the row does not reshuffle under the driver's thumb when the card appears. The
   cost, accepted deliberately: on narrow phones Fuel moves behind "More" while on
   duty, because the row shows four tiles plus More.
-- The **End Duty card**, only when `due` — which
+- The **End Duty card**, only when `due` â€” which
   `mobile/lib/use-duty.js` composes as `loaded && checkedIn && !busy &&
   window.due`. The window comes from `mobile/lib/end-duty.js` applied to the
   server's own `today.duty.end`: 30 minutes before out-time, and still open
@@ -583,10 +582,10 @@ Both are fail-quiet. `checkedIn` is false whenever the duty fetch has not
 succeeded, so an offline or unresolved read hides the quick action rather than
 offering to end a shift the app cannot confirm is running.
 
-## Driver punctuality — replaces the performance score (2026-09-30)
+## Driver punctuality â€” replaces the performance score (2026-09-30)
 
 The Performance Center (`/drivers/performance`) no longer shows a Driver
-Performance Score. `AVG(smooth_driving_score)` mixed an uncalibrated 1–5
+Performance Score. `AVG(smooth_driving_score)` mixed an uncalibrated 1â€“5
 tap-rating with real lateness into one number, so it now shows two honest
 concepts instead: **Completed Trips** (activity) + **Pickup Punctuality**
 (arriving at the pickup on time).
@@ -597,19 +596,19 @@ concepts instead: **Completed Trips** (activity) + **Pickup Punctuality**
   fallback. Dispatch plan wins when present.
 - **Grace:** one named constant, `PUNCTUALITY_GRACE_MINUTES = 5`
   (`src/lib/reports/operational-reports.js`). Arrival at or before
-  scheduled + 5 min is on-time; arriving early — even hours early — is
-  on-time. 10:00 scheduled vs 09:58 → on-time; 10:05 → on-time; 10:06 → late.
+  scheduled + 5 min is on-time; arriving early â€” even hours early â€” is
+  on-time. 10:00 scheduled vs 09:58 â†’ on-time; 10:05 â†’ on-time; 10:06 â†’ late.
 - **Authoritative stamp:** `trips.at_pickup_at` (migration
   `139_driver_punctuality`, plus `at_pickup_override`), written server-side
   by `setTripStatus()` on the `At Pickup` transition in the SAME statement
   as the status flip, first-write-wins (`COALESCE(at_pickup_at, NOW())`) so
   retries never rewrite history. Trips that skip the pickup hop
-  (`IN_PROGRESS → PASSENGER_ONBOARD`) keep NULL and read as unmeasured.
+  (`IN_PROGRESS â†’ PASSENGER_ONBOARD`) keep NULL and read as unmeasured.
 - **Override handling:** arrivals recorded with `geofence_override=true` are
   claims, not geofence-proven arrivals. They latch `at_pickup_override`,
   count in `completed` + `overrideTrips`, and are EXCLUDED from on-time/late.
 - **Missing is never late:** the on-time rate divides by *measured* trips
-  only. Zero measured trips renders `—` ("No pickup timing measurements
+  only. Zero measured trips renders `â€”` ("No pickup timing measurements
   available"), never `0%`. Old completed rows from before the stamp existed
   correctly read as Not Measured; no backfill was needed (throwaway data).
 - **Not deleted, just unused here:** `smooth_driving_score`,
@@ -618,7 +617,7 @@ concepts instead: **Completed Trips** (activity) + **Pickup Punctuality**
 
 Verified: `transition-punctuality.test.js` (stamp + first-write-wins),
 `driver-punctuality.test.js` (grain + math incl. the soft-deleted-driver
-guard on the trip-grain query), live `verify-reports.mjs` §6 (15 checks of
+guard on the trip-grain query), live `verify-reports.mjs` Â§6 (15 checks of
 the route against independent SQL, all passing), `db:contract` 0 violations,
 `verify:anon` 0 EXPOSED. Full suite 3288/3288.
 
@@ -633,7 +632,7 @@ rendered "Not enough completed trips").
   with the same definition as the report (`punctuality_completed/measured/
   on_time/late/override/unmeasured/rate`, grace 5 min, override excluded,
   rate divides by measured only).
-- The card shows `punctuality_rate` + `on_time of measured`, with `— No
+- The card shows `punctuality_rate` + `on_time of measured`, with `â€” No
   measured trips` as the empty state, plus a link to `/drivers/performance`.
 - `total_trips` / `total_distance` still come from `driver_stats` (the
   performance report carries no distance).
@@ -642,8 +641,8 @@ rendered "Not enough completed trips").
 
 `scoreDispatchDrivers` (`src/lib/ai/rule-engine.js`) no longer adds +25/+18/
 +8 for `avg_guest_rating` or +15/+8 for `avg_driving_score`. It applies a
-punctuality tie-breaker over the last 90 days (±3 max: +3 at ≥95%, +1 at
-≥85%, −3 below 70%, minimum 5 measured trips) so feasibility and workload
+punctuality tie-breaker over the last 90 days (Â±3 max: +3 at â‰¥95%, +1 at
+â‰¥85%, âˆ’3 below 70%, minimum 5 measured trips) so feasibility and workload
 fairness still dominate. The prep query
 (`dispatch-recommendation-preparation.service.js`) supplies `punct_measured/
 on_time/late/rate` instead of the two AVG columns; `dispatch-advisor.js`
@@ -693,10 +692,10 @@ Verified with unit tests (`src/app/api/driver/me/route.test.js` - 1/1 pass, driv
 
 The mobile driver app's Personal Information screen (`mobile/app/(app)/profile/personal.js`) now renders:
 - Driver Position (`profile?.position || "Driver"`).
-- Birthdate (`profile?.birthdate || "—"`).
-- Formatted Sex (`profile?.sex === 'M' ? 'Male' : profile?.sex === 'F' ? 'Female' : (profile?.sex || "—")`).
+- Birthdate (`profile?.birthdate || "â€”"`).
+- Formatted Sex (`profile?.sex === 'M' ? 'Male' : profile?.sex === 'F' ? 'Female' : (profile?.sex || "â€”")`).
 - Nationality (`profile?.nationality || 'Filipino'`).
-- Residential Address (`profile?.address || "—"`).
+- Residential Address (`profile?.address || "â€”"`).
 - A dedicated Emergency Contact `ClayCard` section displaying Contact Name, Phone Number, and Address when emergency contact data is present on file.
 
 Verified with mobile test suite: 46 test files passed, 525 tests passed in `mobile/lib/`.
@@ -704,39 +703,39 @@ Verified with mobile test suite: 46 test files passed, 525 tests passed in `mobi
 ## Open questions
 
 - The old "Standard Morning Shift" card was replaced by the real schedule; the
-  static 06:00–02:00 assumption is gone. Backfilled hours are a neutral default,
-  **not** a policy — the fleet manager should set real shifts via the editor.
+  static 06:00â€“02:00 assumption is gone. Backfilled hours are a neutral default,
+  **not** a policy â€” the fleet manager should set real shifts via the editor.
 - **Overnight shifts are not expressible.** The roster stores a pair of `TIME`
-  columns with no day-crossing flag, so a 22:00–06:00 span resolves its end to
+  columns with no day-crossing flag, so a 22:00â€“06:00 span resolves its end to
   *this morning* and the nudge window reads as long past. `setDuty` tests the
-  current time against the same columns, so the nudge and the gate agree — they
+  current time against the same columns, so the nudge and the gate agree â€” they
   are both wrong about that shift in the same direction. A real overnight crew
   needs a day-crossing flag on `driver_work_schedules`, not a client-side fix.
 
 ## Related
 
-[[employees]] · [[driver_vehicle_assignments]] · [[Mobile Architecture]] · [[Driver Consent]] · [[Feature Index]]
+[[employees]] Â· [[driver_vehicle_assignments]] Â· [[Mobile Architecture]] Â· [[Driver Consent]] Â· [[Feature Index]]
 
-## Driver Performance "All Time" — 2026-10-01 (verified, no change)
+## Driver Performance "All Time" â€” 2026-10-01 (verified, no change)
 
 Reported as *"All Time shows 0 completed trips while shorter periods show 4"*. It is **not reproducible at the API layer**, and the page needed no formula change. Read-only probe against live on 2026-10-01:
 
 | Window | `getDriverPerformanceReport().totalCompletedTrips` |
 |---|---|
-| `1970-01-01 → 2100-01-01` (All Time) | 4 |
+| `1970-01-01 â†’ 2100-01-01` (All Time) | 4 |
 | trailing 30 days | 4 |
 
 Completed trips by `end_time` without the driver join: 6 all-time vs 4 for 30 days. So All Time already contains every shorter window, and `resolvePresetRange("all")` spans the epoch to `2100-01-01` at both ends.
 
-What *was* worth pinning is the invariant, now covered by tests: `resolvePresetRange("all")` must contain `30d`/`90d`/`year`; the page must render the server's `totalCompletedTrips` unchanged (it must never re-derive a total for the `all` preset); and every `getDriverPerformanceReport` query must keep the same half-open `end_time >= $1::date AND < ($2::date + 1)` predicate so widening `$1/$2` can only add rows. The genuine cross-report inconsistency — different reports windowing on different date columns (`start_time` for fleet utilisation, `end_time` here, `maintenance_date` for maintenance, `created_at` for request volume) — is named in [[Reports]] rather than papered over.
+What *was* worth pinning is the invariant, now covered by tests: `resolvePresetRange("all")` must contain `30d`/`90d`/`year`; the page must render the server's `totalCompletedTrips` unchanged (it must never re-derive a total for the `all` preset); and every `getDriverPerformanceReport` query must keep the same half-open `end_time >= $1::date AND < ($2::date + 1)` predicate so widening `$1/$2` can only add rows. The genuine cross-report inconsistency â€” different reports windowing on different date columns (`start_time` for fleet utilisation, `end_time` here, `maintenance_date` for maintenance, `created_at` for request volume) â€” is named in [[Reports]] rather than papered over.
 
-## Defense account roster cleanup — 2026-10-03
+## Defense account roster cleanup â€” 2026-10-03
 
-The live defense roster now has exactly ten active driver accounts (D01–D10). The guarded old-account cleanup removed 54 already-deleted no-role harness accounts, then the exact hard-delete workflow removed all 23 retired pre-defense driver employees and six linked retired driver profiles. Audit rows were preserved with detached nullable actor links; no unrelated staff, role, or defense rows were deleted. The ten defense logins use the approved name-based Gmail mapping; password hashes were preserved and account versions were bumped during rotation. Their schedules use distributed rest days and staggered lunch windows within 06:00–22:00. See [[Defense Demo Data Implementation Plan]] for the digests and recovery snapshots.
+The live defense roster now has exactly ten active driver accounts (D01â€“D10). The guarded old-account cleanup removed 54 already-deleted no-role harness accounts, then the exact hard-delete workflow removed all 23 retired pre-defense driver employees and six linked retired driver profiles. Audit rows were preserved with detached nullable actor links; no unrelated staff, role, or defense rows were deleted. The ten defense logins use the approved name-based Gmail mapping; password hashes were preserved and account versions were bumped during rotation. Their schedules use distributed rest days and staggered lunch windows within 06:00â€“22:00. See [[Defense Demo Data Implementation Plan]] for the digests and recovery snapshots.
 
-A subsequent request proposes direct `firstname.lastname@gmail.com` logins for D04–D10, including D04 `nico.bautista@gmail.com`. The read-only exact-ID plan reports no database collision. The seven standalone inboxes are not recorded as owned in local OTP configuration, so the live plus-alias logins remain in place pending inbox confirmation. `scripts/defense-seed/direct-driver-emails.mjs` provides guarded apply, verify, and rollback without changing D01–D03 or passwords.
+A subsequent request proposes direct `firstname.lastname@gmail.com` logins for D04â€“D10, including D04 `nico.bautista@gmail.com`. The read-only exact-ID plan reports no database collision. The seven standalone inboxes are not recorded as owned in local OTP configuration, so the live plus-alias logins remain in place pending inbox confirmation. `scripts/defense-seed/direct-driver-emails.mjs` provides guarded apply, verify, and rollback without changing D01â€“D03 or passwords.
 
-Read-only driver-ID check on 2026-10-03: `drivers` contains exactly ten rows, all active, with numeric `driver_id` values 87–96. IDs 1–10 are vacant, but 18 live foreign-key constraints reference `drivers`; changing the primary keys requires an exact transactional rekey of every related row and the defense seed ledger. D01–D10 are semantic scenario labels rather than current database primary keys. No IDs were changed during this check.
+Read-only driver-ID check on 2026-10-03: `drivers` contains exactly ten rows, all active, with numeric `driver_id` values 87â€“96. IDs 1â€“10 are vacant, but 18 live foreign-key constraints reference `drivers`; changing the primary keys requires an exact transactional rekey of every related row and the defense seed ledger. D01â€“D10 are semantic scenario labels rather than current database primary keys. No IDs were changed during this check.
 
 ## Fleet Manager live-use remediation - 2026-10-03
 
@@ -746,7 +745,7 @@ Summary cards and the Drivers report explicitly count **linked driver profiles**
 
 The driver detail lookup intentionally returns the same not-found response for archived and nonexistent IDs. Its unavailable state now explains that the profile may have been archived, deleted, or the link may be out of date. The reported driver #58 is archived and still has one assignment and two fuel-request references. No row was restored or changed. The message helper's focused regression tests pass.
 
-## HR leave ownership and Fleet availability projection — target, 2026-10-07
+## HR leave ownership and Fleet availability projection â€” target, 2026-10-07
 
 **Target boundary:** HR owns employee leave requests, decisions, cancellations, balances, and evidence. FleetOps consumes only the minimum effective leave status needed for operational availability and a driver's own status view. Weekly driver work schedules remain Fleet-owned unless separately decided. This is an ownership direction, not an approved HR contract or an active connection.
 
@@ -754,13 +753,12 @@ Current local leave submission, withdrawal, approval, balance updates, and dispa
 
 HR worker identity mapping, status vocabulary, interval/timezone rules, sync method, freshness/outage behavior, privacy scope, and corrections/revocations remain undecided. Do not cut over or disable local writes until HR operates the source or an HR-owned interim handoff exists, records are reconciled, and dispatch-conflict handling is approved. In particular, current approval logic can clear a driver from an in-progress dispatch; that behavior must not be carried into an HR event handler without a separate operational decision.
 
-<<<<<<< HEAD
 ### Admin browser acceptance checkpoint — 2026-10-09
 
 The user supplied an admin login for browser verification. Read-only localhost inspection confirmed the two qualification sections, the shared three-service Cargo list, honest missing-review fields, and disabled ACTIVE approval while policy is absent. No qualification was saved. Captured browser logs contained no warnings/errors at this checkpoint. A 375 px responsive check found no horizontal overflow in qualification paragraphs or controls; the browser viewport was restored. Desktop qualification screenshot was inspected. This does not verify a real approval/save or native mobile behavior. Credentials were not written to project files.
 
 
-## Shared qualification eligibility boundaries — 2026-10-09
+## Shared qualification eligibility boundaries â€” 2026-10-09
 
 Task 3 applies the same PASSENGER/CARGO evaluator to dispatch pairing, conflicts, Copilot, final dispatch writes, trip start, departure/legacy progress, generic trip assignment/status writers and mobile acceptance. Reassignment checks the effective replacement driver; substitute availability checks the selected substitute. The canonical service comes from the stored request's service catalog, never a caller override. No service-specific request means availability exposes both group summaries instead of claiming blanket service approval.
 
@@ -771,7 +769,7 @@ Verification: inherited checkpoint passed 117 tests across eight compatibility s
 **Task 3 review correction, round 1 (2026-10-09):** General dispatch reassignment now builds its validation input from writable fields only and pins the stored request ID. A caller cannot select another genuine cargo request for a passenger dispatch's qualification/token checks. Actual PUT-route regression first returned 200 for the bypass, then returned 409 after the fix; a companion success test confirms the final token and stored dispatch keep the original request ID and ignore an extraneous service override.
 
 The final dispatch transaction now takes its existing drivers table SHARE ROW EXCLUSIVE lock before the driver row lock, then locks the remaining fleet tables and rechecks qualification. This preserves missing-approval/revocation protection while matching ordinary UPDATE drivers table-before-row ordering. A deterministic separate-session fixture first reproduced deadlock 40P01 against an ordinary status update, then passed with both transactions committing. All three database concurrency checks passed, including both earlier revocation races. Affected dispatch-evidence/start/boundary/window run passed 47 tests; final expanded window suite passed 18 tests. Changed-file lint and the 323-method auth audit passed. No activation/configuration or production operational rows changed; coarse small-fleet locks and previous release acceptance limits remain.
-## Driver classification prerequisite — prepared 2026-10-12
+## Driver classification prerequisite â€” prepared 2026-10-12
 
 Staff can select Passenger or Cargo when adding or editing a driver. Add Driver replaces Initial Duty Status with Driver Classification and submits Available for the initial status. Directory badges, CSV export and profile credentials show classification. Classification is separate from service qualifications and does not grant dispatch approval.
 
@@ -781,9 +779,9 @@ The approved prerequisite prepares idempotent runtime column ensuring for driver
 
 Verification: the three new schema tests failed before implementation; strict API regressions then failed for null, blank, false and zero before correction. Final focused verification passed 62 tests across six files, including connected create/edit/list/detail and shared schemas. Touched-file ESLint passed with zero warnings. No browser, device, provider, upload or live database verification was performed. Mobile workspace routing is documented below and in [[Mobile Architecture]].
 
-Independent review of the mobile workspace implementation found one presentation defect (blocked mismatches showed the driver-mode label instead of the stored trip type) plus test gaps for the offline action gate, missing cached profile, and server input classes. Fix commit `aa9a8701` renders the stored trip type on blocked mismatch and adds the missing cases; focused verification after the fix passed 251 tests across 11 files. See [[Mobile Architecture]] "Review fix round — 2026-10-13".
+Independent review of the mobile workspace implementation found one presentation defect (blocked mismatches showed the driver-mode label instead of the stored trip type) plus test gaps for the offline action gate, missing cached profile, and server input classes. Fix commit `aa9a8701` renders the stored trip type on blocked mismatch and adds the missing cases; focused verification after the fix passed 251 tests across 11 files. See [[Mobile Architecture]] "Review fix round â€” 2026-10-13".
 
-## Driver type selects the mobile workspace — 2026-10-12
+## Driver type selects the mobile workspace â€” 2026-10-12
 
 The saved drivers.driver_type from the authenticated profile selects the signed-in driver's mobile workspace: Passenger opens guest and VIP transportation; Cargo opens one shared hotel and restaurant supplies workspace. Vehicle use, trip load, service name and employee role do not select a different workspace.
 
@@ -794,11 +792,9 @@ The shared server check compares the stored driver type, vehicle operational_use
 Existing qualification, duty, trip-state, inspection, GPS, geofence and cargo lifecycle gates remain separate. No migration was added or applied; runtime column setup was tested through mocks and not against live storage. Cargo providers and source-image references remain disabled.
 
 Verification for the completed workspace plan: 567 affected regression tests passed across 37 files; strict lint passed with zero warnings; Android JavaScript export succeeded. No Android device or emulator was available for native acceptance. See [[Mobile Architecture]], [[Fleet And Vehicles]], and [[Trips]].
-=======
 ## Driver archive reconsideration - 2026-10-09
 
 The directory and driver-detail archive confirmations now wait five seconds before calling the existing archive mutation. During that window the action becomes Undo; Escape or the secondary Cancel closes the decision without sending a request. The directory dialog names the selected driver and states that the profile leaves active dispatch selection. After the delay, the existing API authorization and audit behavior remain authoritative; success feedback follows the mutation, and a failure stays visible in the dialog. This uses the shared `FuseButton` and `ConfirmDialog` opt-in; ordinary dialog dismissal elsewhere is unchanged. Changed-file ESLint passed, and the local directory dialog plus Undo-to-unarmed behavior were checked without archiving a profile. Escape handling was changed afterward but was not browser-accepted because the local dev page remained in `Compiling...`. The full production build remains unverified because another Next build held the shared lock.
->>>>>>> 18c7d8aa4c2f5053a9e374b1bf8592931b5bbc4c
 
 ## Retired service-roster consistency - 2026-10-13
 

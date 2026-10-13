@@ -2,6 +2,7 @@ import { appendTripFilters, validateServiceCode } from "@/lib/trips/filters";
 import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
+import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
 
 const ACTIVE_STATUSES = [
   "In Progress",
@@ -176,6 +177,13 @@ export async function POST(req) {
       }
     }
     if (columns.length === 0) return err("No valid fields provided", 400);
+    // Static classification gate: a mismatched driver/dispatch pair cannot be
+    // created directly (dispatch create/edit and trip start already block via
+    // validatePairAvailability; this is the direct-write equivalent).
+    if (body.driver_id != null && body.dispatch_id != null) {
+      const mismatch = await tripDriverTypeMismatch({ query }, { driverId: body.driver_id, dispatchId: body.dispatch_id });
+      if (mismatch) return err(mismatch.message, 409);
+    }
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const { rows } = await query(`INSERT INTO trips (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
     return ok(rows[0], 201);

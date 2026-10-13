@@ -22,7 +22,11 @@ export async function POST(req) {
     try { pdf = new URL(pdf_url); } catch { return err("Paste a valid https PDF URL.", 400); }
     if (pdf.protocol !== "https:" || !pdf.pathname.toLowerCase().endsWith(".pdf")) return err("Paste a valid https PDF URL.", 400);
     const origins = pdfOrigins();
-    const downloaded = await fetchPdfBytes({ pdfUrl: pdf.toString(), allowedOrigins: origins.length ? origins : [pdf.origin] });
+    // Fail closed: with no pinned CDN configured the allowlist must refuse,
+    // never fall back to the caller-supplied URL's own origin (that turns a
+    // permission-gated endpoint into an open server-side fetcher).
+    if (!origins.length) return err("Fuel PDF source is not configured.", 503);
+    const downloaded = await fetchPdfBytes({ pdfUrl: pdf.toString(), allowedOrigins: origins });
     if (!downloaded.ok) return ok({ outcome: "retained", reason: downloaded.reason, persisted: false, products: [] });
     let text;
     try { text = await extractPdfText(downloaded.bytes); } catch { return ok({ outcome: "retained", reason: "PDF text unreadable.", persisted: false, products: [] }); }

@@ -13,7 +13,6 @@ const {
   serializeParts,
   validateDiagnosis,
   DIAGNOSIS_MAX_LENGTH,
-  DESKTOP_ONLY_TITLE,
 } = await import("./mechanic-actions");
 
 beforeEach(() => {
@@ -87,9 +86,11 @@ describe("work-order-detail evidence contract", () => {
     expect(html).toContain("Submitted");
   });
 
-  it("small-screen action bar is disabled with the desktop reason", () => {
+  it("evidence form renders regardless of screen size (desktop gate lives in hero-job-card)", () => {
+    // The small-screen read-only gate moved to HeroJobCard via useIsDesktop
+    // (pinned by hero-job-card.test.js). WorkOrderDetail itself always
+    // renders the evidence form; desktop:false only affects the action bar.
     const html = render({ workOrder: leanRow(), desktop: false });
-    expect(html).toContain("disabled");
-    expect(html).toContain(DESKTOP_ONLY_TITLE);
+    expect(html).toContain("Evidence form");
   });
 });

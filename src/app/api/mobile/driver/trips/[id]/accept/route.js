@@ -1,9 +1,10 @@
-import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
-import { query, withTransaction } from "@/lib/db";
+﻿import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
+import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 import { TRIP_STATUS } from "@/lib/constants";
+import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
 
 /**
  * PUT /api/mobile/driver/trips/[id]/accept
@@ -14,11 +15,11 @@ import { TRIP_STATUS } from "@/lib/constants";
  * Body: { accept: true | false }
  *
  * Accepting transitions to "Driver Accepted". Declining transitions to
- * "Cancelled" — trips have no "Rejected" state per the chk_trip_status
+ * "Cancelled" â€” trips have no "Rejected" state per the chk_trip_status
  * constraint in 012_status_constraints.sql.
  *
  * The state machine (canTransitionTrip) is the single authority: accept is only
- * legal from Assigned. Legacy ingest statuses (Pending/Approved/…/Dispatched)
+ * legal from Assigned. Legacy ingest statuses (Pending/Approved/â€¦/Dispatched)
  * are bridged through Assigned first, then advance to "Driver Accepted".
  */
 
@@ -35,6 +36,14 @@ export async function PUT(req, { params }) {
     const trip = await assertTripOwnership(session, id);
     const current = trip.trip_status;
     const target = body.accept ? TRIP_STATUS.DRIVER_ACCEPTED : TRIP_STATUS.CANCELLED;
+
+    // Static classification gate on accept (declines always pass): accepting
+    // a mismatched pair would put the wrong driver type on the road. The
+    // service resolves from the stored dispatch chain, never caller input.
+    if (body.accept) {
+      const mismatch = await tripDriverTypeMismatch({ query }, { driverId: trip.driver_id, dispatchId: trip.dispatch_id });
+      if (mismatch) return err(mismatch.message, 409);
+    }
 
     const writeAcceptance = async db => {
       if (body.accept) {
@@ -94,10 +103,14 @@ export async function PUT(req, { params }) {
 
       return ok(rows[0]);
     };
+<<<<<<< HEAD
     return body.accept ? await withTransaction(async tx => {
       return writeAcceptance(tx);
     })
       : await writeAcceptance({ query });
+=======
+    return writeAcceptance({ query });
+>>>>>>> fabce8cc (fix: close review gaps across drivers, fuel, trips, and mechanic suites)
   } catch (e) {
     return handleError(e);
   }

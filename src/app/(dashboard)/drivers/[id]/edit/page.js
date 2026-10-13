@@ -27,7 +27,6 @@ import {
   Globe,
   Phone,
   Mail,
-  UserCheck,
   ShieldAlert,
   ShieldCheck,
   RotateCw,

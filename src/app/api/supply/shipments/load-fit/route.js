@@ -8,7 +8,7 @@ const requestSchema = z.object({
 }).strict();
 
 const NOT_EVALUATED = [
-  "driver qualification, license class, training, duty, leave, and work schedule",
+  "driver classification (Passenger/Cargo), license class, training, duty, leave, and work schedule",
   "shared vehicle and driver dispatch-overlap checks",
   "route and delivery-window feasibility",
   "vehicle documents, inspection, and live roadworthiness evidence",

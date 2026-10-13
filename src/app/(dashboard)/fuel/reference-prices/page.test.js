@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const view = vi.hoisted(() => ({ canEdit: true, query: { data: { rows: [], region: "NCR" } } }));
 vi.mock("@/hooks/use-role-access", () => ({ useRequireRole: () => ({ authorized: true }), useRoleAccess: () => ({ loading: false, can: (_resource, action) => action === "read" || view.canEdit }) }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => view.query, useQueryClient: () => ({ invalidateQueries: () => {} }), useMutation: () => ({ mutate: () => {}, isPending: false }) }));
+vi.mock("@/hooks/use-theme", () => ({ useTheme: () => ({ theme: "light", setTheme: vi.fn(), toggleTheme: vi.fn() }) }));
 vi.stubGlobal("React", React);
 const { default: ReferencePricesPage, ReferencePriceHistory, manualSnapshotBody, pdfImportBody } = await import("./page");
 beforeEach(() => { view.canEdit = true; view.query = { data: { rows: [], region: "NCR" } }; });
@@ -22,6 +23,11 @@ describe("reference-price review surface", () => {
   it("shows source, effectivity, verifier and lifecycle rather than disguising an estimate as a receipt", () => {
     const markup = renderToStaticMarkup(<ReferencePriceHistory rows={[{ snapshot_id: 4, fuel_product: "Diesel", region: "NCR", reference_price: 62.7, source_url: "https://official.example/prices", effective_at: "2026-10-01T00:00:00+08:00", verification_method: "Manual", verified_by: 3, lifecycle: "Historical" }]} />);
     expect(markup).toContain("official.example"); expect(markup).toContain("Historical"); expect(markup).toContain("Manual"); expect(markup).toContain("Verifier 3"); expect(markup).toContain("Effectivity");
+  });
+  it("shows the verifier name when known and previews the source inline", () => {
+    const markup = renderToStaticMarkup(<ReferencePriceHistory rows={[{ snapshot_id: 5, fuel_product: "Diesel", region: "NCR", reference_price: 94.8, source_url: "https://cdn.example/f/ncr.pdf", effective_at: "2026-09-29T00:00:00+08:00", verification_method: "Manual", verified_by: 48, verifier_name: "Juan Cruz", lifecycle: "Active" }]} />);
+    expect(markup).toContain("Juan Cruz"); expect(markup).not.toContain("Verifier 48");
+    expect(markup).toContain('target="_blank"'); expect(markup).toContain(">Preview<");
   });
   it("turns Manila form timestamps into explicit instants without client verification authority", () => {
     const form = new FormData();

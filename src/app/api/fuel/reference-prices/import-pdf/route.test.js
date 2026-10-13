@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "./route";
 
 vi.mock("@/lib/api/utils", () => ({ AuthError: class extends Error { constructor(message, status) { super(message); this.status = status; } }, requirePermission: vi.fn(async () => ({ user: { employeeId: 7 } })), parseBody: vi.fn(), ok: (body, status = 200) => Response.json(body, { status }), err: (error, status) => Response.json({ error }, { status }), handleError: (e) => Response.json({ error: e.message }, { status: e.status || 500 }) }));
@@ -14,7 +14,13 @@ import { fuelPrices } from "@/lib/fuel/price-repository";
 const pdfUrl = "https://cdn.example/f/NCR%20Sep%201-7%202026.pdf";
 const announcement = { fuel_product: "Diesel", region: "NCR", reference_price: 62.25, prior_price: null, announced_at: null, effective_at: "2026-09-01T00:00:00+08:00", source_url: pdfUrl };
 const post = (body) => { parseBody.mockResolvedValue(body); return POST(new Request("https://local/api/fuel/reference-prices/import-pdf", { method: "POST" })); };
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Pin the CDN allowlist so the fail-closed unconfigured path is not hit by
+  // the happy-path tests (see the 503 test below for the unset case).
+  process.env.FUEL_PRICE_PDF_CDN = "https://cdn.example";
+});
+afterEach(() => { delete process.env.FUEL_PRICE_PDF_CDN; });
 
 describe("manual pdf import", () => {
   it("records parsed announcements with the signed-in verifier", async () => {
@@ -32,6 +38,13 @@ describe("manual pdf import", () => {
     expect(bad.status).toBe(400); expect(fuelPrices.record).not.toHaveBeenCalled();
     fetchPdfBytes.mockResolvedValue({ ok: false, reason: "cdn down" });
     expect(await (await post({ pdf_url: pdfUrl })).json()).toMatchObject({ outcome: "retained", persisted: false });
+    expect(fuelPrices.record).not.toHaveBeenCalled();
+  });
+  it("fails closed with 503 when no PDF CDN is configured", async () => {
+    delete process.env.FUEL_PRICE_PDF_CDN;
+    const response = await post({ pdf_url: pdfUrl });
+    expect(response.status).toBe(503);
+    expect(fetchPdfBytes).not.toHaveBeenCalled();
     expect(fuelPrices.record).not.toHaveBeenCalled();
   });
 });
