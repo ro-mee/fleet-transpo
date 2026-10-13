@@ -162,7 +162,6 @@ export async function GET(req) {
       serviceCode = svcRows[0]?.service_code ?? null;
       selectedRequest = svcRows[0] ?? null;
     }
-    }
     // Travel-date context (coding / registration / insurance / paired driver).
     // Failure-tolerant: a ctx read error degrades to the pairing-only check.
     let travelCtx = null;

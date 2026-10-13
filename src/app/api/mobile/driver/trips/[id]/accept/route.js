@@ -1,5 +1,6 @@
-﻿import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
-import { query } from "@/lib/db";
+﻿ï»¿import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
+import { query, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
@@ -15,11 +16,11 @@ import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
  * Body: { accept: true | false }
  *
  * Accepting transitions to "Driver Accepted". Declining transitions to
- * "Cancelled" â€” trips have no "Rejected" state per the chk_trip_status
+ * "Cancelled" Ã¢â‚¬â€ trips have no "Rejected" state per the chk_trip_status
  * constraint in 012_status_constraints.sql.
  *
  * The state machine (canTransitionTrip) is the single authority: accept is only
- * legal from Assigned. Legacy ingest statuses (Pending/Approved/â€¦/Dispatched)
+ * legal from Assigned. Legacy ingest statuses (Pending/Approved/Ã¢â‚¬Â¦/Dispatched)
  * are bridged through Assigned first, then advance to "Driver Accepted".
  */
 
@@ -103,14 +104,10 @@ export async function PUT(req, { params }) {
 
       return ok(rows[0]);
     };
-<<<<<<< HEAD
     return body.accept ? await withTransaction(async tx => {
       return writeAcceptance(tx);
     })
       : await writeAcceptance({ query });
-=======
-    return writeAcceptance({ query });
->>>>>>> fabce8cc (fix: close review gaps across drivers, fuel, trips, and mechanic suites)
   } catch (e) {
     return handleError(e);
   }
