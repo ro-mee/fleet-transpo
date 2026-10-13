@@ -7,6 +7,7 @@
 // missing so the queue never depends on the admin having saved a policy.
 
 import { normalizeTiers } from "@/lib/scheduling/departure-alerts";
+import { cargoPhysicalPolicy } from '@/lib/cargo/physical-policy';
 
 export const DEFAULT_DISPATCH_POLICY = {
   shortNoticeHorizonMinutes: 90,
@@ -82,6 +83,12 @@ export function mergeDispatchPolicy(stored) {
 
 /** Validate an incoming threshold set; returns { ok, error? }. */
 export function validateDispatchPolicy(policy) {
+  if (policy?.cargoPhysical !== undefined) {
+    if (!policy.cargoPhysical || typeof policy.cargoPhysical !== 'object' || Array.isArray(policy.cargoPhysical) ||
+        !['OFF', 'SHADOW', 'ENFORCE'].includes(policy.cargoPhysical.mode) || !cargoPhysicalPolicy(policy).configured) {
+      return { ok: false, error: 'Cargo physical checks require a valid mode, policy version and applicable source, vehicle-standard and mass-basis approval references.' };
+    }
+  }
   for (const key of ["criticalMinutes", "highMinutes", "mediumMinutes", "shortNoticeHorizonMinutes", "efficiencyTieMinutes"]) {
     const v = policy?.[key];
     if (v === undefined || v === null) continue;

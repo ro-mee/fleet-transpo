@@ -1,4 +1,4 @@
-﻿---
+---
 type: feature
 status: working
 tags: [feature, vehicles, fleet]
@@ -129,3 +129,7 @@ Existing vehicle qualification and readiness rules remain separate. No migration
 ## Fleet archive reconsideration - 2026-10-09
 
 Vehicle list/detail archive, vehicle-category archive, and maintenance-record archive confirmations now defer their existing mutation for five seconds and offer Undo/Escape before the request. Each dialog keeps the existing record-specific consequence and API checks. This does not add restore behavior or change archive semantics. Changed-file ESLint passed; production build validation remains blocked by an already-running Next build, and no fleet record was archived for browser testing.
+
+## Cargo capability consolidation - 2026-10-13
+
+Saved Cargo vehicle editing now owns the reusable measured capability editor formerly in Supply Deliveries. New/unsaved Cargo vehicles show save-first guidance. It displays derived usable payload, legacy kg disagreement, save provenance and expiry without copying values or implying independent approval. Existing vehicles.update permission and profile API validation remain. Enhanced physical eligibility uses measured profiles only under explicitly configured dispatch-policy enforcement; OFF preserves the existing transition. See [[Supply Chain Consolidation Implementation 2026-10-13]].

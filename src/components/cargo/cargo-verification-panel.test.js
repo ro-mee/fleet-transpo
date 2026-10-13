@@ -55,6 +55,19 @@ it("does not show decision controls unless the server returned those capabilitie
   expect(markup).not.toContain("Approval recorded");
 });
 
+it("labels physical facts as source requirements without enabling closed review actions", () => {
+  const current = view({ read: true });
+  current.manifest = { ...manifest, physical_contract_version: 1, lines: [{ ...manifest.lines[0], physical: {
+    transport_package_count: 10, package_description: null, gross_weight_kg_per_package: "12",
+    dimensions_m: { length: "0.5", width: "0.4", height: "0.3" }, package_can_rotate: true, temperature_c: null,
+  } }] };
+  const markup = renderToStaticMarkup(React.createElement(CargoVerificationPanelContent, { tripId: 42, view: current }));
+  expect(markup).toContain("source-declared transport requirements");
+  expect(markup).toContain("no requirement declared");
+  expect(markup).not.toContain("Record Fleet clearance");
+  expect(markup).not.toContain("Save source decision");
+});
+
 it("keeps reviewer input and error visible, and disables stale resubmission after rejection", () => {
   const draft = {
     ...initialCargoReviewState,

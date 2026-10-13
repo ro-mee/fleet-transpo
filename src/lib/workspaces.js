@@ -40,7 +40,6 @@ import {
   Activity,
   ListTodo,
   Layers,
-  PackageCheck,
 } from "lucide-react";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 
@@ -76,7 +75,6 @@ export const WORKS = {
               { href: "/reservations", label: "Reservations" },
               { href: "/reservations/queue", label: "Request Queue" },
               { href: "/dispatch/calendar", label: "Dispatch" },
-              { href: "/supply-deliveries", label: "Supply Deliveries" },
               { href: "/trips", label: "Trips" },
               { href: "/routes", label: "Routes" },
               { href: "/incidents", label: "Incidents" },
@@ -109,6 +107,7 @@ export const WORKS = {
         label: "Platform",
         items: [
           { href: "/settings/ai", label: "AI Providers", icon: Brain },
+          { href: "/settings/api", label: "API & Integrations", icon: Database },
           { href: "/settings/general", label: "System Configuration", icon: Settings },
         ],
       },
@@ -144,7 +143,6 @@ export const WORKS = {
           { href: "/reservations", label: "Reservations", icon: CalendarCheck },
           { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
           { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
-          { href: "/supply-deliveries", label: "Supply Deliveries", icon: PackageCheck },
           { href: "/trips", label: "Trips", icon: ClipboardList },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
@@ -189,6 +187,7 @@ export const WORKS = {
               { href: "/settings/number-coding", label: "Number Coding" },
               { href: "/settings/dispatch", label: "Dispatch Policy" },
               { href: "/settings/fuel", label: "Fuel Policy" },
+              { href: "/supply-deliveries", label: "Supply source records" },
               { href: "/notifications/templates", label: "Notification Templates" },
             ],
           },
@@ -209,7 +208,6 @@ export const WORKS = {
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
           { href: "/fleet/assignments", label: "Driver Assignments", icon: ClipboardCheck },
-          { href: "/supply-deliveries", label: "Cargo Capability", icon: PackageCheck },
         ],
       },
       {
@@ -247,7 +245,6 @@ export const WORKS = {
         items: [
           { href: "/reservations/queue", label: "Reservation Queue", icon: Inbox },
           { href: "/dispatch/calendar", label: "Dispatch", icon: Send },
-          { href: "/supply-deliveries", label: "Supply Deliveries", icon: PackageCheck },
           { href: "/dispatch/availability", label: "Resource Availability", icon: Users },
           { href: "/trips", label: "Trips", icon: ClipboardList },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },

@@ -23,14 +23,13 @@ beforeEach(()=>{
   evaluateDispatchCandidate.mockResolvedValue({checks:[{id:'request',status:'verified'}],reviewable:true,dispatchContext:{mode:'SCHEDULED'},readiness:'REVIEW_REQUIRED',feasibility:{verdict:'UNKNOWN',reasons:['Departure plan needs review.']}});
 });
 const check=(allowReview=false)=>validatePairAvailability({request:{...record,passenger_count:1,requested_category_id:99},vehicleId:2,driverId:7,allowReview});
-it('pins the stored catalog service over a caller override and blocks a driver without that approval',async()=>{
+it('refuses retired qualification activation before ranking or accepting a caller service override',async()=>{
  vi.stubEnv('DRIVER_QUALIFICATION_MODE','ENFORCE');
  vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION','fixture-v1');
  vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW','fixture-roster');
  vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS','RECHECK');
  record.service_code='HOTEL_SUPPLY_TRANSFER';
- const result=await validatePairAvailability({request:{...record,service_code:'GUEST_TRANSPORT'},vehicleId:2,driverId:7,allowReview:true});
- expect(result).toMatchObject({ok:false,conflict:{code:'DRIVER_SERVICE_QUALIFICATION_REQUIRED',detail:{required_group:'CARGO',service_code:'HOTEL_SUPPLY_TRANSFER'}}});
+ await expect(validatePairAvailability({request:{...record,service_code:'GUEST_TRANSPORT'},vehicleId:2,driverId:7,allowReview:true})).rejects.toMatchObject({status:503,code:'QUALIFICATION_ROSTER_RETIRED'});
  expect(evaluateDispatchCandidate).not.toHaveBeenCalled();
 });
 it('reloads linked request requirements and uses the actual service window',async()=>{

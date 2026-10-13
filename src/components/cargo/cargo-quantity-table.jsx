@@ -64,7 +64,16 @@ export function CargoQuantityTable({ manifest, pickup, delivery }) {
             const deliveryShortage = difference(picked, delivered, line.quantity_basis);
             return (
               <tr key={line.line_id} className="align-top">
-                <th scope="row" className="max-w-[300px] px-3 py-2.5 font-medium text-foreground break-words">{line.name || "Unnamed item"}</th>
+                <th scope="row" className="max-w-[300px] px-3 py-2.5 font-medium text-foreground break-words">
+                  {line.name || "Unnamed item"}
+                  {line.physical && <div className="mt-2 space-y-1 text-xs font-normal text-foreground-secondary">
+                    <p className="font-data">{line.physical.transport_package_count ?? "Count unavailable"} packages{line.physical.package_description ? ` (${line.physical.package_description})` : ""} · {line.physical.gross_weight_kg_per_package ?? "Weight unavailable"} kg/package</p>
+                    <p className="font-data">Package: {line.physical.dimensions_m ? `${line.physical.dimensions_m.length} × ${line.physical.dimensions_m.width} × ${line.physical.dimensions_m.height} m` : "dimensions unavailable"}</p>
+                    <p>Rotation: {line.physical.package_can_rotate === true ? "permitted" : line.physical.package_can_rotate === false ? "not permitted" : "not recorded"}</p>
+                    <p className="font-data">Temperature: {line.physical.temperature_c ? `${line.physical.temperature_c.min_c} to ${line.physical.temperature_c.max_c} °C` : line.physical.temperature_c === null ? "no requirement declared" : "not recorded"}</p>
+                    {!!line.handling?.length && <p>Handling: {line.handling.map(code => code.replaceAll("_", " ").toLowerCase()).join(", ")}</p>}
+                  </div>}
+                </th>
                 <td className="px-3 py-2.5"><Quantity value={line.expected_quantity ?? null} /></td>
                 <td className="px-3 py-2.5"><Quantity value={picked} /></td>
                 <td className="px-3 py-2.5"><Quantity value={delivered} /></td>

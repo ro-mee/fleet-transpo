@@ -2,16 +2,18 @@ import { query, withTransaction } from '@/lib/db';
 import { AuthError } from '@/lib/api/utils';
 import { qualificationRollout } from '@/lib/drivers/qualification-rollout';
 import { guardDriverQualification } from './driver-qualification-boundaries.service';
+import { assertCargoPhysicalAssignment } from './cargo-physical.service';
 
 // Hash operational inputs, never save exact standby coordinates in an audit record.
 export async function readDispatchRevision({ driverId, vehicleId, requestId = null, tripId = null }, db = { query }) {
-  const rollout = qualificationRollout();
-  const qualificationRevision = rollout.mode === 'ENFORCE' && rollout.configured
-    ? "'qualifications',(SELECT jsonb_agg(to_jsonb(q) ORDER BY qualification_group) FROM driver_service_qualifications q WHERE driver_id=$1)," : '';
   const { rows } = await db.query(`SELECT md5(jsonb_build_object(
-    ${qualificationRevision}
     'driver',(SELECT to_jsonb(d) FROM drivers d WHERE driver_id=$1),
     'vehicle',(SELECT to_jsonb(v) FROM vehicles v WHERE vehicle_id=$2),
+    'cargoProfile',(SELECT to_jsonb(p) FROM vehicle_cargo_profiles p WHERE vehicle_id=$2),
+    'cargoManifest',(SELECT jsonb_agg(to_jsonb(m) ORDER BY revision) FROM request_cargo_manifest_revisions m WHERE request_id=$3),
+    'supplyAllocations',(SELECT jsonb_agg(to_jsonb(a) ORDER BY supply_dispatch_allocation_id) FROM supply_dispatch_allocations a WHERE dispatch_id IN (SELECT dispatch_id FROM trips WHERE trip_id=$4)),
+    'supplyManifests',(SELECT jsonb_agg(to_jsonb(m) ORDER BY supply_manifest_revision_id) FROM supply_manifest_revisions m WHERE supply_shipment_id IN (SELECT a.supply_shipment_id FROM supply_dispatch_allocations a JOIN trips t ON t.dispatch_id=a.dispatch_id WHERE t.trip_id=$4)),
+    'supplyShipments',(SELECT jsonb_agg(to_jsonb(s) ORDER BY supply_shipment_id) FROM supply_shipments s WHERE supply_shipment_id IN (SELECT a.supply_shipment_id FROM supply_dispatch_allocations a JOIN trips t ON t.dispatch_id=a.dispatch_id WHERE t.trip_id=$4)),
     'documents',(SELECT jsonb_agg(to_jsonb(d) ORDER BY document_id) FROM vehicledocuments d WHERE vehicle_id=$2),
     'tripGps',(SELECT to_jsonb(g) FROM gpstracking g WHERE g.trip_id=$4 AND g.vehicle_id=$2 ORDER BY g.recorded_at DESC,g.tracking_id DESC LIMIT 1),
     'maintenance',(SELECT jsonb_agg(to_jsonb(m) ORDER BY maintenance_id) FROM vehiclemaintenance m WHERE vehicle_id=$2),
@@ -51,10 +53,13 @@ export async function commitDispatchEvidence(token, write) {
     await tx.query(`LOCK TABLE drivers,vehicles,vehiclecategories,dispatchschedules,driver_vehicle_assignments,
       substitute_vehicle_schedules,driver_work_schedules,driver_leave_requests,driverattendance,
       driver_consents,employees,mobile_refresh_tokens,trips,driverincidents,transportation_requests,
-      routes,locations,vehiclemaintenance,vehicledocuments,system_settings,gpstracking
+      routes,locations,vehiclemaintenance,vehicledocuments,system_settings,gpstracking,
+      vehicle_cargo_profiles,request_cargo_manifest_revisions,supply_shipments,
+      supply_manifest_revisions,supply_dispatch_allocations
       IN SHARE ROW EXCLUSIVE MODE`);
     if (!Number.isFinite(new Date(token.expiresAt).getTime()) || new Date(token.expiresAt).getTime() <= Date.now() || await readDispatchRevision(token,tx) !== token.revision)
       throw new AuthError('Dispatch evidence changed. Refresh and review this pair again.',409,'STALE_DISPATCH_EVIDENCE');
+    await assertCargoPhysicalAssignment({ requestId: token.requestId, vehicleId: token.vehicleId, returnAt: token.cargoReturnAt }, tx);
     const qualification = await guardDriverQualification(token, tx);
     if (qualificationRollout().mode === 'ENFORCE' && qualification && token.qualification && (qualification.service_code !== token.qualification.service_code
       || qualification.qualification_version !== token.qualification.qualification_version))

@@ -258,6 +258,7 @@ function toPairCandidate(pair, request, trip) {
     is_designated: pair.is_designated,
     reason_type: pair.reason_type,
     replacement_reason: pair.replacement_reason ?? null,
+    ...(pair.vehicle?.cargoPhysical ? { cargoPhysical: pair.vehicle.cargoPhysical } : {}),
     ...(pair.qualification ? { qualification: pair.qualification } : {}),
     score: pair.score,
     confidence: Number(pair.confidence),

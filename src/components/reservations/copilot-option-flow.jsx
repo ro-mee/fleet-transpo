@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { CopilotAvatar } from './copilot-avatar';
 import { ArrowRight, CarFront, Check, ChevronDown, Circle, CircleAlert, UserRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { candidateCapacityLabel } from '@/lib/cargo/cargo-draft';
 
 export function CopilotBubble({children}) {
   return <div className="flex items-start gap-2.5" data-copilot-message="true">
@@ -13,6 +14,17 @@ export function CopilotBubble({children}) {
   </div>;
 }
 const duration = n => n == null ? 'Unverified' : `${Math.floor(Math.abs(n) / 60) ? `${Math.floor(Math.abs(n) / 60)}h ` : ''}${Math.abs(n) % 60}m${n < 0 ? ' short' : ''}`;
+export function CargoPhysicalSummary({ physical }) {
+  if (!physical) return null;
+  const status = { PASS: 'Recorded measurements pass', BLOCK: 'Cargo measurements conflict', UNKNOWN: 'Cargo measurements need review' }[physical.status] || 'Cargo measurements unavailable';
+  return <div className="space-y-1 border-t border-border pt-3 text-xs text-foreground-secondary">
+    <p className="font-medium text-foreground">{status}{physical.mode === 'SHADOW' ? ' · Advisory' : ''}</p>
+    <p>{physical.totals?.gross_weight_kg != null ? `${physical.totals.gross_weight_kg} kg required` : 'Required gross kg unknown'} · {physical.usable_payload_kg != null ? `${physical.usable_payload_kg} kg usable` : 'Usable payload unknown'}{physical.remaining_payload_kg != null ? ` · ${physical.remaining_payload_kg} kg remaining` : ''}</p>
+    {physical.totals?.nominal_volume_m3 != null && <p>Nominal cargo volume: {physical.totals.nominal_volume_m3} m³</p>}
+    {(physical.checks || []).filter(check => check.status !== 'PASS').map(check => <p key={check.id}>{check.reason || `${check.id}: ${check.status}`}</p>)}
+    <p>Measurements do not confirm load arrangement or completed securement.</p>
+  </div>;
+}
 export function PairTemporalFacts({pair, now}) {
   const context = pair.temporalContext;
   const planning = ['FUTURE','SAME_DAY'].includes(context?.horizon);
@@ -54,6 +66,7 @@ export function SelectedPairSummary({pair, optionNumber, pending, now}) {
       <div className="flex items-start gap-3"><CarFront className="mt-0.5 size-4 shrink-0 text-foreground-secondary" aria-hidden="true"/><div className="min-w-0"><dt className="text-xs text-foreground-secondary">Vehicle</dt><dd className="break-words text-base font-semibold">{pair.vehicle?.plate_number || `Vehicle #${pair.vehicle_id}`}</dd></div></div>
       <div className="flex items-start gap-3"><UserRound className="mt-0.5 size-4 shrink-0 text-foreground-secondary" aria-hidden="true"/><div className="min-w-0"><dt className="text-xs text-foreground-secondary">Driver</dt><dd className="break-words text-sm font-medium">{pair.driver?.driver_name || `Driver #${pair.driver_id}`}</dd></div></div>
     </dl>
+    <CargoPhysicalSummary physical={pair.cargoPhysical} />
     {pending ? <p role="status" className="text-sm text-foreground-secondary">Rechecking current assignment evidence against the schedule and queue.</p> : <>
       <section aria-label="Schedule summary" className="space-y-3">
         <h3 className="text-sm font-semibold">Schedule &amp; workload</h3>
@@ -159,7 +172,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
             <div className="min-w-0">
               <p className="text-[11px] text-foreground-secondary">Vehicle</p>
               <p className="break-words font-data text-sm font-semibold leading-tight">{p.vehicle?.plate_number || `Vehicle #${p.vehicle_id}`}</p>
-              <p className="mt-0.5 text-xs text-foreground-secondary">{[p.vehicle?.vehicle_name,p.vehicle?.seating_capacity != null ? `${p.vehicle.seating_capacity} seats` : null].filter(Boolean).join(' · ') || 'Details unavailable'}</p>
+              <p className="mt-0.5 text-xs text-foreground-secondary">{[p.vehicle?.vehicle_name,candidateCapacityLabel(p)].filter(Boolean).join(' · ') || 'Details unavailable'}</p>
             </div>
           </div>
           <div className="flex min-w-0 items-center gap-2 border-l border-border pl-3">
@@ -167,6 +180,7 @@ export function CopilotOptionFlow({options, exclusionReason, busy, onChoose, now
             <div className="min-w-0"><p className="text-[11px] text-foreground-secondary">Driver</p><p className="break-words text-sm font-semibold leading-tight">{p.driver?.driver_name || `Driver #${p.driver_id}`}</p></div>
           </div>
         </div>
+        <CargoPhysicalSummary physical={p.cargoPhysical} />
         <ul className="mb-3 space-y-1.5 text-xs text-foreground-secondary">{checks.slice(0,3).map(c => <li key={c.id} className="flex items-start gap-2">
           {c.status === 'verified' ? <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white"><Check className="size-3" aria-hidden="true"/></span> : <CircleAlert className="size-4 shrink-0 text-warning-700" aria-hidden="true"/>}
           <span>{c.label}: {c.message || (c.status === 'verified' ? 'Verified for the booking window' : 'Needs verification')}</span>

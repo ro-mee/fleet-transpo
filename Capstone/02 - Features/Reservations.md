@@ -352,3 +352,7 @@ The queue accepts `filter=departing-soon` alongside its Today tab. The API appli
 ## Request cancellation reconsideration - 2026-10-09
 
 The reservation queue and request-detail cancellation confirmations now wait five seconds before the existing cancellation request is sent. Required reason text is locked while the timer is armed and remains part of the mutation; Undo/Escape or ordinary dismissal sends nothing. The existing booking-notification result and request/dispatch/trip cascade remain unchanged and are reported only after the server responds. Changed-file ESLint passed; no reservation was cancelled during browser review, and production build acceptance remains pending because of the shared Next build lock.
+
+## Cargo consolidation - 2026-10-13
+
+Canonical Supply Chain services now reveal a local item/package/physical-requirements draft in the existing simulator. Cargo review sends no partial request while manifest intake is unavailable; Passenger simulation is typed PMS-only and excludes hidden cargo fields. Queue/detail/Copilot use cargo kg/contents summaries, and queue load/service/source filters are server-side. Source manifests are read through a request-scoped, hash/identity-validated projection without private image access. See [[Supply Chain Consolidation Implementation 2026-10-13]] for checks and activation limits.

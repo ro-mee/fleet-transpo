@@ -36,22 +36,17 @@ describe('qualification eligibility boundaries', () => {
     vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'SHADOW');
     expect(qualificationFinding({ serviceCode: 'HOTEL_SUPPLY_TRANSFER' })).toMatchObject({ severity: 'warning' });
   });
-  it('loads effective substitute drivers once and exposes both group summaries without treating custody as approval', async () => {
+  it('refuses retired roster activation without reading substitute approval rows', async () => {
     enforce();
     db.query.mockResolvedValue({ rows: [{ ...approved, driver_id: 9 }] });
-    const context = await loadQualificationContext([9, 9, 12]);
-    expect(db.query).toHaveBeenCalledTimes(1);
-    expect(db.query.mock.calls[0][1]).toEqual([[9, 12]]);
-    expect(qualificationSummary(context, 9)).toEqual([
-      { group: 'PASSENGER', status: 'NOT_APPROVED', policy_version: null, version: 0 },
-      { group: 'CARGO', status: 'ACTIVE', policy_version: 'fixture-v1', version: 2 },
-    ]);
-    expect(qualificationSummary(context, 12).every(row => row.status === 'NOT_APPROVED')).toBe(true);
+    await expect(loadQualificationContext([9, 9, 12])).rejects.toMatchObject({ status: 503, code: 'QUALIFICATION_ROSTER_RETIRED' });
+    expect(db.query).not.toHaveBeenCalled();
+    expect(qualificationSummary(null, 9)).toBeUndefined();
   });
   it('locks the driver before resolving stored service and refuses revoked approval before the write', async () => {
     enforce();
     db.query.mockImplementation(async sql => ({ rows: sql.includes('FROM drivers') ? [{ driver_id: 7 }] : sql.includes('transportation_requests') ? [{ service_code: 'HOTEL_SUPPLY_TRANSFER' }] : [{ ...approved, status: 'REVOKED', driver_id: 7 }] }));
-    await expect(guardDriverQualification({ driverId: 7, requestId: 3, serviceCode: 'GUEST_TRANSPORT' }, db)).rejects.toMatchObject({ code: 'DRIVER_SERVICE_QUALIFICATION_REQUIRED', status: 409 });
+    await expect(guardDriverQualification({ driverId: 7, requestId: 3, serviceCode: 'GUEST_TRANSPORT' }, db)).rejects.toMatchObject({ code: 'QUALIFICATION_ROSTER_RETIRED', status: 503 });
     expect(db.query.mock.calls[0][0]).toContain('FROM drivers');
     expect(db.query.mock.calls[0][0]).toContain('FOR UPDATE');
   });

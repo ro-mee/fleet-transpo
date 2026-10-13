@@ -177,6 +177,15 @@ describe("authenticated integration POST", () => {
 });
 
 describe("GET /api/integration/transport-requests departing-soon filter", () => {
+  it('uses parameterized cargo/service/source filters for rows and counts', async () => {
+    requirePermission.mockResolvedValue({ user: { role: 'dispatcher' } });
+    query.mockClear(); query.mockResolvedValue({ rows: [] });
+    const response = await GET(new Request('http://localhost/api/integration/transport-requests?load_type=Cargo&service_code=HOTEL_SUPPLY_TRANSFER&source_system=PMS'));
+    expect(response.status).toBe(200);
+    const filtered = query.mock.calls.filter(([sql]) => sql.includes('tr.load_type = $'));
+    expect(filtered.length).toBeGreaterThan(0);
+    for (const [sql, values] of filtered) { expect(sql).toContain('st.service_code = $'); expect(values).toEqual(expect.arrayContaining(['Cargo', 'HOTEL_SUPPLY_TRANSFER', 'PMS'])); }
+  });
   it("uses one exact SQL set for the queue rows and total", async () => {
     requirePermission.mockResolvedValue({ user: { role: "dispatcher" } });
     query.mockClear();

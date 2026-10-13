@@ -122,4 +122,17 @@ describe("fleet cargo utilization", () => {
     const report = await getFleetUtilizationReport("2026-10-01", "2026-10-07");
     expect(report.cargoUtilization).toEqual({ trips: 0, average_pct: null, byTrip: [] });
   });
+  it('uses current measured profile capacity for the enforced physical cohort and omits expired evidence', async () => {
+    const profile = { supports_supply_delivery: true, rated_payload_kg: 500, gross_vehicle_weight_limit_kg: 2000, operating_mass_kg: 1500, operational_reserve_kg: 0,
+      verified_by: 7, verified_at: '2020-01-01', verification_reference: 'simulated:measurement', verification_valid_until: '2099-01-01' };
+    const rows = [ { trip_id: 11, trip_status: 'Completed', load_type: 'Cargo', vehicle_id: 12, cargo_weight_kg: 250, cargo_capacity_kg: 10000,
+      cargo_physical_contract_version: '1', cargo_profile: profile, vehicles: { plate_number: 'TRK 9' } },
+      { trip_id: 12, trip_status: 'Completed', load_type: 'Cargo', vehicle_id: 12, cargo_weight_kg: 250, cargo_capacity_kg: 10000,
+        cargo_physical_contract_version: '1', cargo_profile: { ...profile, verification_valid_until: '2000-01-01' } } ];
+    query.mockImplementation(async sql => ({ rows: sql.includes('row_to_json(v.*)') ? rows : sql.includes('system_settings') ? [{ setting_value: { cargoPhysical: {
+      mode: 'ENFORCE', version: 'simulated:v1', sourceContractApprovalRef: 'simulated:source', vehicleStandardsApprovalRef: 'simulated:vehicles', massBasisApprovalRef: 'simulated:mass' } } }] : vehicles }));
+    const report = await getFleetUtilizationReport('2026-10-01', '2026-10-07');
+    expect(report.cargoUtilization).toMatchObject({ trips: 1, average_pct: 50 });
+    expect(report.cargoUtilization.byTrip[0].capacity_kg).toBe(500);
+  });
 });

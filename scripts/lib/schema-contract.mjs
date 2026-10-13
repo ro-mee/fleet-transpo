@@ -72,7 +72,6 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Owner-scoped private document drafts, attachment metadata and storage keys. Access only through authorized APIs.",
   },
-  },
   // --- auth & identity -----------------------------------------------------
   roles: {
     classification: CLASSIFICATION.PRIVATE,
@@ -455,6 +454,16 @@ export const TABLES = Object.freeze({
     rlsNote: "Applied 2026-10-08 through migration 154. Live contract confirms RLS enabled and no anon policy or table grant; anon probe explicitly refused access (42501).",
   },
 
+  // Applied 158-161: catalog verified 2026-10-13. Runtime authority stays closed.
+  request_cargo_manifest_revisions: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Immutable source-owned cargo manifests, bound to exact requests and source event identity.",
+  },
+  ...Object.fromEntries(['cargo_trip_executions', 'cargo_receipts', 'cargo_decisions', 'cargo_fleet_clearances', 'cargo_evidence', 'cargo_feedback_outbox', 'cargo_decision_inbox', 'cargo_execution_commands', 'cargo_manual_decision_provenance'].map(name => [name, {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: 'Private cargo execution, evidence, immutable command history and source communication; operational providers remain unconfigured.',
+  }])),
+
   // --- audit & tooling -----------------------------------------------------
   audit_logs: {
     classification: CLASSIFICATION.PRIVATE,
@@ -513,28 +522,7 @@ export const tableNames = () => Object.keys(TABLES).sort();
 // Reviewed PREPARED objects are deliberately separate from the applied dump.
 // The offline gate verifies each exact migration; the live gate still demands
 // these objects exist with the declared protection before release.
-export const PENDING_TABLES = Object.freeze({
-  cargo_manual_decision_provenance: {
-    classification: CLASSIFICATION.PRIVATE,
-    migration: '161_cargo_manual_provenance.sql',
-    reason: 'Candidate unapplied immutable source communication proof and recording-employee provenance, bound to existing decisions and snapshots. Real approvals and activation remain held.',
-  },
-  cargo_execution_commands: {
-    classification: CLASSIFICATION.PRIVATE,
-    migration: '160_cargo_execution_commands.sql',
-    reason: 'Unapplied immutable cargo command responses, bound to mandatory existing audit records; operational authority remains disabled.',
-  },
-  ...Object.fromEntries(['cargo_trip_executions', 'cargo_receipts', 'cargo_decisions', 'cargo_fleet_clearances', 'cargo_evidence', 'cargo_feedback_outbox', 'cargo_decision_inbox'].map(name => [name, {
-    classification: CLASSIFICATION.PRIVATE,
-    migration: '159_cargo_execution_storage.sql',
-    reason: 'Unapplied cargo storage candidate; server-scoped immutable history and private evidence. D01-D10 activation is held.',
-  }])),
-  request_cargo_manifest_revisions: {
-    classification: CLASSIFICATION.PRIVATE,
-    migration: '158_request_cargo_manifest_revisions.sql',
-    reason: 'Candidate unapplied immutable source cargo manifests; source-scoped server access only. D01-D10 approvals and activation remain held.',
-  },
-});
+export const PENDING_TABLES = Object.freeze({});
 export const contractTableNames = () => [...tableNames(), ...Object.keys(PENDING_TABLES)].sort();
 
 /** Every classified view name, sorted. */

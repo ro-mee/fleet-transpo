@@ -259,6 +259,7 @@ export function CargoVerificationPanelContent({
             <div className="space-y-2">
               <h3 className="text-xs font-semibold text-foreground">Quantity comparison</h3>
               <CargoQuantityTable manifest={manifest} pickup={pickup} delivery={delivery} />
+              {manifest.physical_contract_version === 1 && <p className="text-xs text-foreground-secondary">Package facts are the source-declared transport requirements. They do not replace vehicle capacity checks, Fleet clearance or post-load securement.</p>}
             </div>
 
             <PrivateCargoPhotos tripId={tripId} pickup={pickup} delivery={delivery} reviewerState={reviewerState} />

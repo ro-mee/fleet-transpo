@@ -16,6 +16,8 @@ import { readDispatchRevision } from '@/services/dispatch-evidence.service';
 import { loadQualificationContext, driverQualificationFinding } from './driver-qualification-boundaries.service';
 import { groupForService } from '@/lib/drivers/service-qualifications';
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
+import { loadCargoPhysicalAssessments } from './cargo-physical.service';
+import { vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
 // recommendations (migration 027).
@@ -211,6 +213,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   const windowStart = request?.pickup_datetime ? new Date(request.pickup_datetime).toISOString() : null;
   const estimate = await resolveRequestEstimate(request, { query }, { persistRoute: false });
   const windowEnd = serviceEnd(request, estimate)?.toISOString() ?? null;
+  commitToken.cargoReturnAt = windowEnd;
   // A supplied end is a plan to validate, never permission to silently extend it.
   if (request?.scheduled_arrival != null && (!Number.isFinite(+new Date(request.scheduled_arrival))
     || +new Date(request.scheduled_arrival) <= +new Date(request.pickup_datetime))) {
@@ -238,8 +241,13 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     ),
   ]);
 
-  const vehicle = vehicleRows[0] ?? null;
+  let vehicle = vehicleRows[0] ?? null;
   if (!vehicle) return { ok:false,conflict:{ type:'vehicle_missing',severity:'blocking',message:'Vehicle no longer exists.' } };
+  if (request?.load_type === 'Cargo') {
+    const physical = await loadCargoPhysicalAssessments({ ...request, scheduled_arrival: windowEnd }, [vehicleId], { now });
+    const result = physical.results.get(Number(vehicleId));
+    vehicle = vehicleWithCargoPhysical(vehicle, result);
+  }
   const { rows: classificationRows } = await query(
     `SELECT d.driver_type
        FROM drivers d

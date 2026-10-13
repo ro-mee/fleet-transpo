@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { resolveShipmentDetailSelection } from "@/lib/supply/shipment-detail-selection";
@@ -35,69 +36,6 @@ function getLocationSearch() {
 function getServerLocationSearch() {
   return "";
 }
-
-const HANDLING_CAPABILITIES = [
-  ["FRAGILE", "Fragile"],
-  ["NO_STACK", "No stacking"],
-  ["FOOD_SEPARATION", "Food separation"],
-  ["SECURE_LOAD", "Secured load"],
-  ["SPILL_CONTAINMENT", "Spill containment"],
-];
-
-const PROFILE_FIELDS = [
-  ["rated_payload_kg", "Rated payload", "kg"],
-  ["gross_vehicle_weight_limit_kg", "Gross vehicle weight limit", "kg"],
-  ["operating_mass_kg", "Operating mass", "kg"],
-  ["operational_reserve_kg", "Crew and equipment reserve", "kg"],
-  ["usable_volume_m3", "Usable cargo volume", "m³"],
-  ["compartment_length_m", "Compartment length", "m"],
-  ["compartment_width_m", "Compartment width", "m"],
-  ["compartment_height_m", "Compartment height", "m"],
-  ["opening_length_m", "Opening length", "m"],
-  ["opening_width_m", "Opening width", "m"],
-  ["opening_height_m", "Opening height", "m"],
-];
-
-const PROFILE_FIELD_LIMITS = {
-  rated_payload_kg: 1000000,
-  gross_vehicle_weight_limit_kg: 1000000,
-  operating_mass_kg: 1000000,
-  operational_reserve_kg: 1000000,
-  usable_volume_m3: 10000,
-  compartment_length_m: 100,
-  compartment_width_m: 100,
-  compartment_height_m: 100,
-  opening_length_m: 100,
-  opening_width_m: 100,
-  opening_height_m: 100,
-};
-const PROFILE_ERROR_KEYS = [
-  ...PROFILE_FIELDS.map(([key]) => key),
-  "temperature_min_c",
-  "temperature_max_c",
-  "verification_reference",
-  "verification_valid_until",
-];
-
-const blankProfile = {
-  supports_supply_delivery: false,
-  rated_payload_kg: "",
-  gross_vehicle_weight_limit_kg: "",
-  operating_mass_kg: "",
-  operational_reserve_kg: "",
-  usable_volume_m3: "",
-  compartment_length_m: "",
-  compartment_width_m: "",
-  compartment_height_m: "",
-  opening_length_m: "",
-  opening_width_m: "",
-  opening_height_m: "",
-  temperature_min_c: "",
-  temperature_max_c: "",
-  handling_capabilities: [],
-  verification_reference: "",
-  verification_valid_until: "",
-};
 
 function manilaTime(daysAhead, hour) {
   const date = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
@@ -146,103 +84,6 @@ function syntheticEvent() {
   };
 }
 
-function nextUtcDate() {
-  const date = new Date();
-  date.setUTCHours(0, 0, 0, 0);
-  date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
-}
-
-function isCalendarDate(value) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
-function validateProfile(form) {
-  const errors = {};
-  for (const [key, label] of PROFILE_FIELDS) {
-    const raw = form[key].trim();
-    const max = PROFILE_FIELD_LIMITS[key];
-    if (!raw) {
-      errors[key] = `${label} is required when enabling supply delivery.`;
-      continue;
-    }
-    const value = Number(raw);
-    if (!Number.isFinite(value)) {
-      errors[key] = `${label} must be a valid number.`;
-    } else if (key === "operational_reserve_kg" ? value < 0 : value <= 0) {
-      errors[key] = key === "operational_reserve_kg" ? "Must be zero or greater." : "Must be greater than zero.";
-    } else if (value > max) {
-      errors[key] = `Must be ${max.toLocaleString("en-PH")} or less.`;
-    }
-  }
-
-  const grossWeight = Number(form.gross_vehicle_weight_limit_kg);
-  const operatingMass = Number(form.operating_mass_kg);
-  if (
-    form.gross_vehicle_weight_limit_kg !== "" && form.operating_mass_kg !== "" &&
-    Number.isFinite(grossWeight) && Number.isFinite(operatingMass) && grossWeight <= operatingMass &&
-    !errors.gross_vehicle_weight_limit_kg
-  ) {
-    errors.gross_vehicle_weight_limit_kg = "Gross vehicle weight must exceed operating mass.";
-  }
-
-  for (const [key, label] of [["temperature_min_c", "Minimum temperature"], ["temperature_max_c", "Maximum temperature"]]) {
-    const raw = form[key].trim();
-    if (!raw) continue;
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value < -80 || value > 80) {
-      errors[key] = `${label} must be between -80 and 80 °C.`;
-    }
-  }
-  const minTemperature = Number(form.temperature_min_c);
-  const maxTemperature = Number(form.temperature_max_c);
-  if (
-    form.temperature_min_c !== "" && form.temperature_max_c !== "" &&
-    Number.isFinite(minTemperature) && Number.isFinite(maxTemperature) && minTemperature > maxTemperature &&
-    !errors.temperature_max_c
-  ) {
-    errors.temperature_max_c = "Maximum temperature must not be below minimum temperature.";
-  }
-
-  const reference = form.verification_reference.trim();
-  if (reference.length < 3) errors.verification_reference = "Use at least 3 non-space characters.";
-  else if (reference.length > 255) errors.verification_reference = "Use no more than 255 characters.";
-
-  const validUntil = form.verification_valid_until;
-  if (!validUntil) errors.verification_valid_until = "Verification expiry is required when enabling supply delivery.";
-  else if (!isCalendarDate(validUntil)) errors.verification_valid_until = "Enter a real calendar date.";
-  else if (validUntil <= new Date().toISOString().slice(0, 10)) {
-    errors.verification_valid_until = "Verification must remain valid beyond today (UTC).";
-  }
-
-  return errors;
-}
-
-function profileInputId(key) {
-  if (key === "temperature_min_c") return "cargo-temperature-min";
-  if (key === "temperature_max_c") return "cargo-temperature-max";
-  if (key === "verification_reference") return "cargo-verification-reference";
-  if (key === "verification_valid_until") return "cargo-verification-valid-until";
-  return `cargo-${key}`;
-}
-
-function focusProfileErrors(errors) {
-  const firstKey = Object.keys(errors)[0];
-  if (firstKey) requestAnimationFrame(() => document.getElementById(profileInputId(firstKey))?.focus());
-}
-
-function recordedAt(value) {
-  const date = new Date(value);
-  if (!value || !Number.isFinite(date.getTime())) return "time unavailable";
-  return new Intl.DateTimeFormat("en-PH", {
-    timeZone: "Asia/Manila",
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 async function requestJson(url, options) {
   const response = await fetch(url, {
     ...options,
@@ -256,16 +97,6 @@ async function requestJson(url, options) {
     throw error;
   }
   return body;
-}
-
-function profileToForm(profile) {
-  if (!profile) return { ...blankProfile };
-  return Object.fromEntries(Object.keys(blankProfile).map((key) => {
-    const value = profile[key];
-    if (key === "supports_supply_delivery") return [key, value === true];
-    if (key === "handling_capabilities") return [key, Array.isArray(value) ? value : []];
-    return [key, value == null ? "" : String(value).slice(0, key === "verification_valid_until" ? 10 : undefined)];
-  }));
 }
 
 function numberText(value, maximumFractionDigits = 2) {
@@ -318,32 +149,6 @@ function checkTone(status) {
   return "border-warning/30 bg-warning/10 text-amber-800 dark:text-amber-200";
 }
 
-function Field({ id, label, unit, value, onChange, type = "number", required = false, min, max, minLength, maxLength, error, step = "any" }) {
-  return (
-    <div className="min-w-0 space-y-1.5">
-      <Label htmlFor={id} className="flex items-baseline justify-between gap-2 text-xs font-medium text-foreground-secondary">
-        <span>{label}{required ? <span className="text-danger"> *</span> : null}</span>
-        {unit ? <span className="text-[11px] text-foreground-muted">{unit}</span> : null}
-      </Label>
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        min={min}
-        max={max}
-        minLength={minLength}
-        maxLength={maxLength}
-        step={type === "number" ? step : undefined}
-        required={required}
-        invalid={Boolean(error)}
-        aria-describedby={error ? `${id}-error` : undefined}
-        onChange={onChange}
-      />
-      {error && <span id={`${id}-error`} className="block text-xs text-danger-800 dark:text-rose-200">{error}</span>}
-    </div>
-  );
-}
-
 export default function SupplyDeliveriesPage() {
   useRequireRole();
   const { employee } = useAuth();
@@ -354,9 +159,6 @@ export default function SupplyDeliveriesPage() {
   const locationSearch = useSyncExternalStore(subscribeToLocationSearch, getLocationSearch, getServerLocationSearch);
   const requestedShipmentId = new URLSearchParams(locationSearch).get("shipmentId") || "";
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
-  const [profileVehicleId, setProfileVehicleId] = useState("");
-  const [profileForm, setProfileForm] = useState({ ...blankProfile });
-  const [profileErrors, setProfileErrors] = useState({});
   const [importJson, setImportJson] = useState("");
   const [importError, setImportError] = useState("");
   const [evaluation, setEvaluation] = useState(null);
@@ -405,7 +207,6 @@ export default function SupplyDeliveriesPage() {
   const effectiveSelectedShipmentId = selectedShipmentId || shipmentLinkSelection.selectedId;
   const selectedShipment = shipments.find((item) => item.supply_shipment_id === effectiveSelectedShipmentId) ?? shipments[0] ?? null;
   const selectedVehicle = profiles.find((item) => String(item.vehicle_id) === selectedVehicleId) ?? null;
-  const profileVehicle = profiles.find((item) => String(item.vehicle_id) === profileVehicleId) ?? null;
   const evaluationSelectionRef = useRef({ shipmentId: null, vehicleId: null });
   const evaluationSelection = useMemo(() => ({
     shipmentId: selectedShipmentId || selectedShipment?.supply_shipment_id || null,
@@ -416,7 +217,6 @@ export default function SupplyDeliveriesPage() {
   useLayoutEffect(() => {
     evaluationSelectionRef.current = evaluationSelection;
   }, [evaluationSelection]);
-  const hydratedProfileVehicleRef = useRef("");
   const visibleFleetLoadFit = fleetLoadFit?.shipment_id === selectedShipment?.supply_shipment_id ? fleetLoadFit : null;
   const siteMappingKeyIsValid = siteTargets.some((item) => item.key === siteMappingKey);
   const effectiveSiteMappingKey = siteMappingKeyIsValid ? siteMappingKey : siteTargets[0]?.key || "";
@@ -443,41 +243,11 @@ export default function SupplyDeliveriesPage() {
   useEffect(() => {
     startTransition(() => {
       if (!profilesQuery.isSuccess) return;
-      if (profiles.length === 0) {
-        if (selectedVehicleId) setSelectedVehicleId("");
-        if (profileVehicleId) {
-          setProfileVehicleId("");
-          setProfileErrors({});
-        }
-        return;
-      }
-
-      const firstVehicleId = String(profiles[0].vehicle_id);
       if (!profiles.some((item) => String(item.vehicle_id) === selectedVehicleId)) {
-        setSelectedVehicleId(firstVehicleId);
-      }
-      if (!profiles.some((item) => String(item.vehicle_id) === profileVehicleId)) {
-        setProfileVehicleId(firstVehicleId);
+        setSelectedVehicleId(profiles[0] ? String(profiles[0].vehicle_id) : "");
       }
     });
-  }, [profiles, profilesQuery.isSuccess, selectedVehicleId, profileVehicleId]);
-
-  useEffect(() => {
-    startTransition(() => {
-      if (!profilesQuery.isSuccess) return;
-      if (!profileVehicleId) {
-        setProfileForm({ ...blankProfile });
-        setProfileErrors({});
-        hydratedProfileVehicleRef.current = "";
-        return;
-      }
-      if (hydratedProfileVehicleRef.current === profileVehicleId) return;
-
-      setProfileForm(profileToForm(profileVehicle));
-      setProfileErrors({});
-      hydratedProfileVehicleRef.current = profileVehicleId;
-    });
-  }, [profileVehicleId, profileVehicle, profilesQuery.isSuccess]);
+  }, [profiles, profilesQuery.isSuccess, selectedVehicleId]);
 
   useEffect(() => {
     startTransition(() => {
@@ -545,28 +315,6 @@ export default function SupplyDeliveriesPage() {
     },
   });
 
-  const profileMutation = useMutation({
-    mutationFn: (body) => requestJson("/api/supply/vehicles/cargo-profile", {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
-    onSuccess: () => {
-      toast.success("Vehicle cargo profile saved");
-      setProfileErrors({});
-      queryClient.invalidateQueries({ queryKey: ["supply-cargo-profiles"] });
-      setEvaluation(null);
-      setFleetLoadFit(null);
-    },
-    onError: (error) => {
-      const fieldErrors = error.errors && typeof error.errors === "object"
-        ? Object.fromEntries(Object.entries(error.errors).filter(([key, message]) => PROFILE_ERROR_KEYS.includes(key) && typeof message === "string"))
-        : {};
-      setProfileErrors(fieldErrors);
-      focusProfileErrors(fieldErrors);
-      toast.error(error.message);
-    },
-  });
-
   const siteMappingMutation = useMutation({
     mutationFn: saveSupplySiteMapping,
     onSuccess: () => {
@@ -599,33 +347,6 @@ export default function SupplyDeliveriesPage() {
     (canImportSandbox && siteMappingsQuery.isFetching);
   const requestCountsUnavailable = shipmentsQuery.isLoading || (shipmentsQuery.isError && !shipmentsQuery.data);
 
-  function setProfileField(key, value) {
-    setProfileForm((current) => ({ ...current, [key]: value }));
-    setProfileErrors((current) => {
-      if (key === "supports_supply_delivery" && !value) return {};
-      const next = { ...current };
-      delete next[key];
-      if (
-        (key === "gross_vehicle_weight_limit_kg" || key === "operating_mass_kg") &&
-        next.gross_vehicle_weight_limit_kg === "Gross vehicle weight must exceed operating mass."
-      ) delete next.gross_vehicle_weight_limit_kg;
-      if (
-        (key === "temperature_min_c" || key === "temperature_max_c") &&
-        next.temperature_max_c === "Maximum temperature must not be below minimum temperature."
-      ) delete next.temperature_max_c;
-      return next;
-    });
-  }
-
-  function toggleCapability(code) {
-    setProfileForm((current) => ({
-      ...current,
-      handling_capabilities: current.handling_capabilities.includes(code)
-        ? current.handling_capabilities.filter((item) => item !== code)
-        : [...current.handling_capabilities, code],
-    }));
-  }
-
   function submitSandboxImport(event) {
     event.preventDefault();
     setImportError("");
@@ -637,25 +358,6 @@ export default function SupplyDeliveriesPage() {
       return;
     }
     importMutation.mutate(value);
-  }
-
-  function submitProfile(event) {
-    event.preventDefault();
-    setProfileErrors({});
-    if (!profileForm.supports_supply_delivery) {
-      profileMutation.mutate({ vehicle_id: Number(profileVehicleId), supports_supply_delivery: false });
-      return;
-    }
-    const errors = validateProfile(profileForm);
-    if (Object.keys(errors).length > 0) {
-      setProfileErrors(errors);
-      focusProfileErrors(errors);
-      return;
-    }
-    const numericFields = PROFILE_FIELDS.map(([key]) => key).concat(["temperature_min_c", "temperature_max_c"]);
-    const body = { ...profileForm, vehicle_id: Number(profileVehicleId) };
-    for (const key of numericFields) body[key] = profileForm[key] === "" ? null : Number(profileForm[key]);
-    profileMutation.mutate(body);
   }
 
   function submitSiteMapping(event) {
@@ -683,9 +385,9 @@ export default function SupplyDeliveriesPage() {
     <div className="space-y-6">
       <HeroHeader
         icon={PackageCheck}
-        title="Supply Deliveries"
+        title="Supply source history"
         badge="Sandbox"
-        description="Inspect approved transport snapshots and measure physical load fit."
+        description="Review original shipment snapshots and sandbox integration records."
         actions={(
           <Button type="button" variant="outline" className={cn("h-10", heroButtonOutlineClass)} onClick={refreshPageData} disabled={isRefreshingPageData}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshingPageData ? "animate-spin motion-reduce:animate-none" : ""}`} aria-hidden="true" />
@@ -697,9 +399,9 @@ export default function SupplyDeliveriesPage() {
       <div className="flex gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm text-amber-900 dark:text-amber-100" role="status">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden="true" />
         <div>
-          <p className="font-semibold">Sandbox planning only</p>
+          <p className="font-semibold">Source records and planning checks</p>
           <p className="mt-1 leading-relaxed text-amber-900/80 dark:text-amber-100/80">
-            SCM is not connected. This page stores approved sample snapshots and checks cargo measurements; it does not assign a trip, collect receiving evidence, or post inventory.
+            Cargo work is managed through Reservations, Dispatch and Trips. This retained source view supports sandbox records and measurement checks. SCM assignment and inventory posting remain unavailable.
           </p>
         </div>
       </div>
@@ -1168,119 +870,12 @@ export default function SupplyDeliveriesPage() {
       )}
 
       {canManageProfiles && (
-        <Card className="overflow-hidden rounded-3xl">
-            <CardHeader className="border-b border-border/60 bg-muted/20 px-5 py-4">
-              <CardTitle className="text-[15px] tracking-tight">Vehicle cargo capability</CardTitle>
-              <p className="text-xs text-foreground-secondary">Only enable a vehicle when each measurement and its verification reference are confirmed by Fleet.</p>
-            </CardHeader>
-            <CardContent>
-              {profilesQuery.isLoading ? (
-                <div className="space-y-3" aria-busy="true" aria-label="Loading fleet vehicles">
-                  <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
-                  <div className="h-10 animate-pulse rounded-xl bg-muted/60 motion-reduce:animate-none" />
-                </div>
-              ) : profilesQuery.isError ? (
-                <div className="flex flex-col items-start gap-3" role="alert">
-                  <p className="text-sm text-danger-800 dark:text-rose-200">Fleet vehicles could not be loaded.</p>
-                  <Button type="button" variant="outline" onClick={refreshPageData}>
-                    <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Try again
-                  </Button>
-                </div>
-              ) : profiles.length === 0 ? (
-                <EmptyState
-                  icon={Truck}
-                  title="No vehicles to configure"
-                  description="Add a fleet vehicle before recording its cargo capabilities."
-                  variant="first-run"
-                  size="compact"
-                />
-              ) : (
-                <form className="space-y-4" onSubmit={submitProfile} noValidate>
-                  <label className="block space-y-1.5 text-xs font-medium text-foreground-secondary">
-                    <span>Vehicle</span>
-                    <Select value={profileVehicleId} onValueChange={(value) => { setProfileErrors({}); setProfileVehicleId(value); }} required>
-                      <SelectTrigger className="h-10 text-sm">
-                        <SelectValue className="min-w-0 truncate" placeholder="Select a vehicle" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {profiles.map((vehicle) => (
-                          <SelectItem key={vehicle.vehicle_id} value={String(vehicle.vehicle_id)}>
-                            {vehicle.plate_number} · {vehicle.vehicle_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </label>
-                  <label className="flex items-start gap-3 rounded-xl border border-border p-3 text-sm">
-                    <input type="checkbox" checked={profileForm.supports_supply_delivery} onChange={(event) => setProfileField("supports_supply_delivery", event.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" />
-                    <span><span className="font-medium text-foreground">Enable supply delivery</span><span className="mt-0.5 block text-xs text-foreground-secondary">Requires current measured capacity and verification. Passenger vehicles are not enabled automatically.</span></span>
-                  </label>
-                  {profileForm.supports_supply_delivery && (
-                    <div className="space-y-5">
-                      <fieldset className="min-w-0 space-y-3">
-                        <legend className="text-sm font-semibold text-foreground">Capacity measurements</legend>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          {PROFILE_FIELDS.slice(0, 5).map(([key, label, unit]) => (
-                            <Field key={key} id={`cargo-${key}`} label={label} unit={unit} required value={profileForm[key]} onChange={(event) => setProfileField(key, event.target.value)} min="0" max={PROFILE_FIELD_LIMITS[key]} error={profileErrors[key]} />
-                          ))}
-                        </div>
-                      </fieldset>
-                      <fieldset className="min-w-0 space-y-3 border-t border-border/70 pt-4">
-                        <legend className="text-sm font-semibold text-foreground">Compartment dimensions</legend>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          {PROFILE_FIELDS.slice(5).map(([key, label, unit]) => (
-                            <Field key={key} id={`cargo-${key}`} label={label} unit={unit} required value={profileForm[key]} onChange={(event) => setProfileField(key, event.target.value)} min="0" max={PROFILE_FIELD_LIMITS[key]} error={profileErrors[key]} />
-                          ))}
-                        </div>
-                      </fieldset>
-                      <fieldset className="min-w-0 space-y-3 border-t border-border/70 pt-4">
-                        <legend className="text-sm font-semibold text-foreground">Temperature and handling</legend>
-                        <p className="text-xs text-foreground-secondary">Temperature limits are optional. Leave both blank when no temperature range is recorded.</p>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <Field id="cargo-temperature-min" label="Temperature minimum" unit="°C" value={profileForm.temperature_min_c} onChange={(event) => setProfileField("temperature_min_c", event.target.value)} min="-80" max="80" error={profileErrors.temperature_min_c} />
-                          <Field id="cargo-temperature-max" label="Temperature maximum" unit="°C" value={profileForm.temperature_max_c} onChange={(event) => setProfileField("temperature_max_c", event.target.value)} min="-80" max="80" error={profileErrors.temperature_max_c} />
-                        </div>
-                        <div className="space-y-2 pt-1">
-                          <p className="text-xs font-medium text-foreground-secondary">Handling capabilities</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-2">
-                            {HANDLING_CAPABILITIES.map(([code, label]) => (
-                              <label key={code} className="inline-flex min-h-8 items-center gap-2 text-xs text-foreground">
-                                <input type="checkbox" checked={profileForm.handling_capabilities.includes(code)} onChange={() => toggleCapability(code)} className="h-4 w-4 accent-primary" />
-                                {label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      </fieldset>
-                      <fieldset className="min-w-0 space-y-3 border-t border-border/70 pt-4">
-                        <legend className="text-sm font-semibold text-foreground">Verification record</legend>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <Field id="cargo-verification-reference" label="Verification reference" type="text" required minLength={3} maxLength={255} value={profileForm.verification_reference} onChange={(event) => setProfileField("verification_reference", event.target.value)} error={profileErrors.verification_reference} />
-                          <Field id="cargo-verification-valid-until" label="Verification valid until" type="date" required min={nextUtcDate()} value={profileForm.verification_valid_until} onChange={(event) => setProfileField("verification_valid_until", event.target.value)} error={profileErrors.verification_valid_until} />
-                        </div>
-                      </fieldset>
-                    </div>
-                  )}
-                  {profileVehicle?.supports_supply_delivery && (
-                    <div className="rounded-xl border border-border bg-muted/30 p-3 text-xs text-foreground-secondary">
-                      <p className="font-medium text-foreground">
-                        Latest recorded save: {profileVehicle.verified_by == null || profileVehicle.verified_by === "" ? "employee ID unavailable" : `employee ID ${profileVehicle.verified_by}`} · {recordedAt(profileVehicle.verified_at)} · Reference: {profileVehicle.verification_reference || "unavailable"}
-                      </p>
-                      <p className="mt-1">This record shows who saved the profile and when. It is not a separate compliance approval.</p>
-                    </div>
-                  )}
-                  <div className="flex justify-end">
-                    <Button type="submit" disabled={!profileVehicleId || profileMutation.isPending}>
-                      <Truck className="mr-2 h-4 w-4" aria-hidden="true" />
-                      {profileMutation.isPending ? "Saving…" : "Save cargo profile"}
-                    </Button>
-                  </div>
-                </form>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        <p className="text-sm text-foreground-secondary">
+          Cargo measurements and verification records are maintained in{' '}
+          <Link href="/fleet/vehicles" className="font-medium text-foreground underline underline-offset-4">Fleet vehicles</Link>.
+          {' '}Open a saved Cargo vehicle to update its capability profile.
+        </p>
+      )}
       <p className="flex items-start gap-2 text-xs leading-relaxed text-foreground-muted">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         Shipment snapshots are separate from passenger bookings. This capability check does not reserve a driver or vehicle, and trip completion cannot create a receiving or inventory event.

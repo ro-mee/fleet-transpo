@@ -7,6 +7,8 @@ import { resolveRequestEstimate } from '@/services/route-resolver.service';
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { comparePairEvidence } from '@/lib/dispatch/recommendation-ranking';
 import { evaluateVehicleCapacity } from '@/lib/scheduling/load-capacity';
+import { loadCargoPhysicalAssessments } from './cargo-physical.service';
+import { vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
 
 // Scoped evidence resolvers (Phase B1). Every query selects explicit
 // display-safe columns only (allowlist at SQL level) and is scoped to the
@@ -130,7 +132,7 @@ export async function resolveCompliance(db, { vehicleId, driverId, bookingDate, 
   return { verdict: expired ? 'blocked' : 'clear', subject: 'driver', bookingDate, ...item, items: [item] };
 }
 
-export async function resolveCapacity(db, { vehicleId, passengerCount, loadType, cargoWeightKg }) {
+export async function resolveCapacity(db, { vehicleId, passengerCount, loadType, cargoWeightKg, requestRow, requestId, endAt }) {
   // Typed rows resolve through the shared Task 5 gate so the drawer, the
   // queue chip and the commit 409 report one verdict. Untyped rows keep the
   // exact historical seats evidence. The capability columns exist only after
@@ -139,12 +141,16 @@ export async function resolveCapacity(db, { vehicleId, passengerCount, loadType,
     const { rows } = await db.query(
       `SELECT plate_number, seating_capacity, operational_use, cargo_capacity_kg FROM vehicles WHERE vehicle_id=$1 AND deleted_at IS NULL`, [vehicleId]);
     if (!rows[0]) throw new Error('Record not found.');
+    const context = loadType === 'Cargo' ? await loadCargoPhysicalAssessments({ ...requestRow, request_id: requestRow?.request_id ?? requestId, load_type: 'Cargo', scheduled_arrival: endAt }, [vehicleId], { db }) : null;
+    const physical = context?.results.get(Number(vehicleId));
+    const vehicle = vehicleWithCargoPhysical(rows[0], physical);
+    const currentWeight = physical?.mode === 'ENFORCE' ? physical.totals.gross_weight_kg : cargoWeightKg;
     const verdict = evaluateVehicleCapacity(
-      { load_type: loadType, passenger_count: passengerCount ?? null, cargo_weight_kg: cargoWeightKg ?? null },
-      rows[0]
+      { load_type: loadType, passenger_count: passengerCount ?? null, cargo_weight_kg: currentWeight ?? null },
+      vehicle
     );
-    const weight = Number(cargoWeightKg);
-    const payload = rows[0].cargo_capacity_kg == null ? null : Number(rows[0].cargo_capacity_kg);
+    const weight = currentWeight == null ? NaN : Number(currentWeight);
+    const payload = vehicle.cargo_capacity_kg == null ? null : Number(vehicle.cargo_capacity_kg);
     return {
       verdict: verdict.eligible ? 'clear' : 'blocked', plate: rows[0].plate_number,
       requestedSeats: loadType === "Passenger" ? Number(passengerCount) : null,
@@ -152,6 +158,8 @@ export async function resolveCapacity(db, { vehicleId, passengerCount, loadType,
       recordedSeats: rows[0].seating_capacity == null ? null : Number(rows[0].seating_capacity),
       loadType, requiredKg: loadType === "Cargo" && Number.isFinite(weight) ? weight : null,
       recordedKg: payload,
+      ...(physical ? { physicalStatus: physical.status, nominalVolumeM3: physical.totals.nominal_volume_m3,
+        remainingKg: physical.remaining_payload_kg, capacityBasis: physical.mode === 'ENFORCE' ? 'Measured cargo profile' : 'Advisory physical comparison' } : {}),
       capacityCode: verdict.code,
       result: verdict.eligible ? 'Eligible' : 'Not eligible',
     };

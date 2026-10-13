@@ -23,6 +23,7 @@ import { QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
 import { QUEUE_FALLBACK_TAB, queueTabBadges, resolveQueueTabView } from "@/lib/scheduling/smart-default-tab";
 import { describeBookingNotify } from "@/lib/integration/booking-notify";
 import { cn } from "@/lib/utils";
+import { CARGO_SERVICE_OPTIONS } from '@/lib/cargo/cargo-draft';
 import {
   CalendarClock,
   CalendarDays,
@@ -141,6 +142,7 @@ export default function UnifiedQueuePage() {
   // constant that function uses, so the two can never disagree.
   const fetchTab = departingSoonFilter ? "today" : tabOverride ?? QUEUE_FALLBACK_TAB;
   const [search, setSearch] = useState("");
+  const [cargoFilters, setCargoFilters] = useState({ load_type: '', service_code: '', source_system: '' });
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -189,7 +191,7 @@ export default function UnifiedQueuePage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch, queueFilter],
+    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch, queueFilter, cargoFilters],
     queryFn: () =>
       getTransportRequests({
         tab: fetchTab,
@@ -198,6 +200,7 @@ export default function UnifiedQueuePage() {
         search: debouncedSearch || undefined,
         with_conflicts: "true",
         filter: queueFilter || undefined,
+        ...cargoFilters,
       }),
     refetchInterval: REFETCH_MS,
   });
@@ -432,7 +435,17 @@ export default function UnifiedQueuePage() {
           })}
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {[['load_type', 'Load type', [['Passenger', 'Passengers'], ['Cargo', 'Cargo / Supply Chain']]],
+            ['service_code', 'Service', CARGO_SERVICE_OPTIONS],
+            ['source_system', 'Source', [['PMS', 'PMS'], ['POS', 'POS'], ['MANUAL', 'Manual history']]]].map(([key, label, options]) => (
+            <select key={key} aria-label={`Filter by ${label.toLowerCase()}`} value={cargoFilters[key]} disabled={!!lockedRequest}
+              onChange={event => { setCargoFilters(current => ({ ...current, [key]: event.target.value })); setPage(1); }}
+              className="min-h-[44px] max-w-full rounded-xl border border-border/80 bg-surface px-2 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-primary">
+              <option value="">All {label.toLowerCase()}s</option>
+              {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+            </select>
+          ))}
           <div className="relative flex-1 sm:w-64">
             <Search
               className="absolute left-3 top-1/2 w-3.5 h-3.5 -translate-y-1/2 text-foreground-muted"

@@ -121,8 +121,12 @@ const migrationFiles = readdirSync(MIGRATIONS_DIR)
 // ---------------------------------------------------------------------------
 
 describe("SEC-DB-005 the schema contract is well-formed", () => {
-  it("allows prepared SQL only for exact reviewed migration-backed private tables", () => {
-    expect(Object.keys(PENDING_TABLES).sort()).toEqual(['cargo_decision_inbox', 'cargo_decisions', 'cargo_evidence', 'cargo_execution_commands', 'cargo_feedback_outbox', 'cargo_fleet_clearances', 'cargo_manual_decision_provenance', 'cargo_receipts', 'cargo_trip_executions', 'request_cargo_manifest_revisions']);
+  it("classifies the applied cargo storage as private and includes it in the generated dump", () => {
+    expect(Object.keys(PENDING_TABLES)).toEqual([]);
+    for (const name of ['cargo_decision_inbox', 'cargo_decisions', 'cargo_evidence', 'cargo_execution_commands', 'cargo_feedback_outbox', 'cargo_fleet_clearances', 'cargo_manual_decision_provenance', 'cargo_receipts', 'cargo_trip_executions', 'request_cargo_manifest_revisions']) {
+      expect(TABLES[name].classification).toBe(CLASSIFICATION.PRIVATE);
+      expect(schemaTables().has(name)).toBe(true);
+    }
     expect(TABLES.fuel_price_snapshots.classification).toBe(CLASSIFICATION.PRIVATE);
     expect(schemaTables().has("fuel_price_snapshots")).toBe(true);
     for (const [name, entry] of Object.entries(PENDING_TABLES)) {

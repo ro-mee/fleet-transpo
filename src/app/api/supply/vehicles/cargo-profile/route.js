@@ -84,6 +84,10 @@ export async function PUT(req) {
     }
     const profile = parsed.data;
     const saved = await withTransaction(async (tx) => {
+      // Match dispatch evidence's table-before-row order. Taking the vehicle
+      // row first can deadlock a commit waiting on that row while this writer
+      // waits to acquire the cargo-profile table's write lock.
+      await tx.query('LOCK TABLE vehicles, vehicle_cargo_profiles IN SHARE ROW EXCLUSIVE MODE');
       const { rows: vehicles } = await tx.query(
         `SELECT vehicle_id FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [profile.vehicle_id]

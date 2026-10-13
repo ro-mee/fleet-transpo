@@ -10,6 +10,8 @@ import { resolveSubstituteForDate, resolveVehiclePairing, vehicleOperationallyAv
 import { shouldGroundVehicle } from "@/lib/driver/grounding";
 import { vehicleRisks } from "@/lib/ai/dispatch-advisor";
 import { getDispatchPolicy } from "@/services/dispatch-settings.service";
+import { loadCargoPhysicalAssessments, loadCargoPhysicalBatch } from '@/services/cargo-physical.service';
+import { cargoPhysicalPolicy, cargoPhysicalConflict, vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
 import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
 import { travelBufferBlocked } from "@/lib/scheduling/travel-buffer";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
@@ -508,7 +510,7 @@ export async function detectRequestConflicts(request, opts = {}) {
   const pickup = request.pickup_datetime || null;
 
   // Run every probe concurrently; each resolves to rows or a null/[] fallback.
-  const [overlap, vehicleRow, driverRow, maintenance, assignments, substitutes, prevEnds] = await Promise.all([
+  const [overlap, storedVehicleRow, driverRow, maintenance, assignments, substitutes, prevEnds] = await Promise.all([
     // 1+2. Vehicle / driver already committed to an overlapping dispatch.
     pickup && (vehicleId || driverId)
       ? findDispatchConflicts({
@@ -612,6 +614,9 @@ export async function detectRequestConflicts(request, opts = {}) {
   // rows handed to the evaluator are pre-filtered; re-checking there is
   // harmless and keeps the batch path (which fetches a wider window) honest.
   const policy = opts.policy ?? await getDispatchPolicy().catch(error => { if (opts.strict) throw error; return null; });
+  const cargo = await loadCargoPhysicalAssessments(request, vehicleId ? [vehicleId] : [], { policy });
+  const cargoPhysical = cargo.results.get(Number(vehicleId));
+  const vehicleRow = vehicleWithCargoPhysical(storedVehicleRow, cargoPhysical);
 
   // Attach the §4.8.3 signals so the pure evaluator can run the travel+buffer
   // gate. A caller that resolved them server-side (lib/scheduling/travel-signals)
@@ -650,6 +655,8 @@ export async function detectRequestConflicts(request, opts = {}) {
     safetyBufferMinutes: policy?.safetyBufferMinutes,
     bufferFloorMinutes: policy?.bufferFloorMinutes,
   });
+  const physicalConflict = cargoPhysicalConflict(cargoPhysical, cargo.policy);
+  if (physicalConflict) findings.push(physicalConflict);
   if (!opts.includeEvidence) return findings;
   // This mode is authoritative: callers must use strict probes, never fallbacks.
   if (!opts.strict) throw new Error('Decision evidence requires strict conflict probes.');
@@ -700,7 +707,11 @@ export async function detectRequestConflicts(request, opts = {}) {
   const types = {capacity:['capacity_mismatch'],registration:['registration_expired'],insurance:['insurance_expired'],license:['license_expired','driver_license_ineligible'],pairing:['pairing'],schedule:['driver_unavailable','driver_conflict','vehicle_conflict','vehicle_status'],maintenance:['maintenance_conflict'],incidents:['incident'],category:['category']};
   types.road_readiness = ['road_readiness'];
   if (request.requested_category_id) known.push(['category','Requested vehicle class',!!vehicleRow?.category_id]);
-  return { conflicts:findings, checks:known.map(([id,label,present]) => {
+  if (cargoPhysical) {
+    known.push(['cargo_physical', 'Cargo contents and measured capability', cargoPhysical.eligible]);
+    types.cargo_physical = ['cargo_physical'];
+  }
+  return { conflicts:findings, ...(cargoPhysical ? { cargoPhysical } : {}), checks:known.map(([id,label,present]) => {
     const blocked = findings.find(f => f.severity==='blocking' && types[id]?.includes(f.type));
     return {id,label,status:blocked?'blocking':present?'verified':'missing',message:blocked?.message ?? (present?`${label}: source records checked.`:`${label} could not be verified.`)};
   }) };
@@ -818,9 +829,11 @@ export async function detectConflictsForRequests(requests = []) {
     : new Set();
   // §4.8.3 safety-buffer config — passed to the evaluator for consistency.
   const dispatchPolicy = await getDispatchPolicy().catch(() => null);
+  const physicalByRequest = await loadCargoPhysicalBatch(requests, { policy: dispatchPolicy });
 
   for (const r of requests) {
-    const vehicle = r.vehicle_id ? vehicleById.get(r.vehicle_id) ?? null : null;
+    const physical = physicalByRequest.get(Number(r.request_id));
+    const vehicle = vehicleWithCargoPhysical(r.vehicle_id ? vehicleById.get(r.vehicle_id) ?? null : null, physical);
     const driver = r.driver_id ? driverById.get(r.driver_id) ?? null : null;
 
     // Narrow the shared dispatch pool to the ones touching THIS request's
@@ -853,7 +866,7 @@ export async function detectConflictsForRequests(requests = []) {
       // previous-end/ETA signals would be an N+1 fetch); it stays advisory on
       // the queue and is enforced hard at the assign gate, which is the
       // authoritative 409 — matching how the queue chips never block.
-      evaluateRequestConflicts(r, {
+      [...evaluateRequestConflicts(r, {
         qualificationContext,
         vehicle,
         driver,
@@ -866,7 +879,7 @@ export async function detectConflictsForRequests(requests = []) {
         travelBufferEnabled: dispatchPolicy?.travelBufferEnabled,
         safetyBufferMinutes: dispatchPolicy?.safetyBufferMinutes,
         bufferFloorMinutes: dispatchPolicy?.bufferFloorMinutes,
-      })
+      }), ...[cargoPhysicalConflict(physical, cargoPhysicalPolicy(dispatchPolicy))].filter(Boolean)]
     );
   }
 

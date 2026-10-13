@@ -36,3 +36,28 @@ it("keeps expected, pickup, and delivery counts separate and labels each shortag
   expect(markup).toContain(">0</span>");
   expect(markup).toContain("box");
 });
+
+it("shows source physical package facts without converting ordered units into packages", () => {
+  const markup = renderToStaticMarkup(React.createElement(CargoQuantityTable, { manifest: {
+    ...manifest,
+    physical_contract_version: 1,
+    lines: [{ ...manifest.lines[0], expected_quantity: "100", quantity_basis: "UNIT", unit: "bottles", handling: ["FOOD_SEPARATION"], physical: {
+      transport_package_count: 10, package_description: "sealed box", gross_weight_kg_per_package: "12",
+      dimensions_m: { length: "0.5", width: "0.4", height: "0.3" }, package_can_rotate: false, temperature_c: { min_c: 2, max_c: 8 },
+    } }],
+  } }));
+  expect(markup).toContain("10 packages (sealed box) · 12 kg/package");
+  expect(markup).toContain("0.5 × 0.4 × 0.3 m");
+  expect(markup).toContain("Rotation: not permitted");
+  expect(markup).toContain("Temperature: 2 to 8 °C");
+  expect(markup).toContain("food separation");
+  expect(markup).toContain(">100</span>");
+  expect(markup).toContain("bottles");
+});
+
+it("preserves historical quantity-only presentation without inventing physical facts", () => {
+  const markup = renderToStaticMarkup(React.createElement(CargoQuantityTable, { manifest }));
+  expect(markup).not.toContain("kg/package");
+  expect(markup).not.toContain("Temperature:");
+  expect(markup).toContain("Cooking oil");
+});

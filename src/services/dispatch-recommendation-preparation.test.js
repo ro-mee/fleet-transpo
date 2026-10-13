@@ -29,6 +29,7 @@ const TRIP = { distanceKm: 10, durationMin: 30 };
 
 function mockDb({ prefiltered = [] } = {}) {
   query.mockImplementation(async (sql) => {
+    if (sql.includes('FROM system_settings')) return { rows: [] };
     if (sql.includes("WITH usage")) return { rows: [] };
     if (sql.includes("FROM drivers d")) return { rows: [] };
     if (sql.includes("vehicle_status = ANY")) return { rows: prefiltered };

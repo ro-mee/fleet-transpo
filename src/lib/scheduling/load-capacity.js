@@ -21,6 +21,7 @@ export const CAPACITY_CODES = {
   USE_MISMATCH: "USE_MISMATCH",
   CAPACITY_UNKNOWN: "CAPACITY_UNKNOWN",
   OVER_CAPACITY: "OVER_CAPACITY",
+  PHYSICAL_REQUIRED: "CARGO_PHYSICAL_REQUIRED",
 };
 
 function toPositiveNumber(value) {
@@ -79,7 +80,12 @@ export function evaluateVehicleCapacity(request = {}, vehicle = {}) {
   if (veh.operational_use !== "Cargo") {
     return { eligible: false, code: CAPACITY_CODES.USE_MISMATCH, required: weight, capacity: null, unit: "kg" };
   }
-  const payload = toPositiveNumber(veh.cargo_capacity_kg);
+  const physical = veh.cargoPhysical;
+  if (physical?.mode === 'ENFORCE' && !physical.eligible) {
+    return { eligible: false, code: CAPACITY_CODES.PHYSICAL_REQUIRED, required: weight,
+      capacity: physical.usable_payload_kg ?? null, unit: 'kg', message: physical.blocker };
+  }
+  const payload = toPositiveNumber(physical?.mode === 'ENFORCE' ? physical.usable_payload_kg : veh.cargo_capacity_kg);
   if (payload === null) {
     return { eligible: false, code: CAPACITY_CODES.CAPACITY_UNKNOWN, required: weight, capacity: null, unit: "kg" };
   }
@@ -97,6 +103,8 @@ export function evaluateVehicleCapacity(request = {}, vehicle = {}) {
 export function formatCapacityBlocker(result, vehicleLabel = "Vehicle") {
   const label = vehicleLabel || "Vehicle";
   switch (result?.code) {
+    case CAPACITY_CODES.PHYSICAL_REQUIRED:
+      return result.message || 'Cargo contents and measured vehicle capability require review.';
     case CAPACITY_CODES.OVER_CAPACITY:
       if (result.unit === "kg") {
         const over = result.required - result.capacity;
