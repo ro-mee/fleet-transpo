@@ -1,3 +1,4 @@
+import { fanoutMaintenanceNotification } from "@/lib/maintenance/notifications";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
@@ -17,7 +18,6 @@ import {
 import {
   notificationRolesFor,
   resolveNotificationRecipients,
-  dedupeEmployeeIds,
 } from "@/lib/notifications/recipients";
 import { writeAppError } from "@/lib/app-errors";
 import { writeAuditRequired } from "@/lib/audit";
@@ -27,8 +27,7 @@ import { writeAuditRequired } from "@/lib/audit";
 // writable on POST.
 //
 // The real column names are accepted alongside the API aliases because the
-// maintenance page posts service_provider / service_center / remarks directly.
-// deleted_at is PUT-only: archiveVehicleMaintenance in vehicle.service.js soft
+// maintenance page posts remarks directly. deleted_at is PUT-only: archiveVehicleMaintenance in vehicle.service.js soft
 // deletes by sending nothing else, so without it every archive would be
 // rejected as "No writable fields were provided".
 const FIELD_TO_COLUMN = {
@@ -41,15 +40,11 @@ const FIELD_TO_COLUMN = {
   mileage_at_service: "mileage_at_service",
   next_service_date: "next_schedule_date",
   next_service_mileage: "next_schedule_mileage",
-  technician_name: "service_provider",
-  service_center_name: "service_center",
   priority: "priority",
   completed_date: "completed_date",
   notes: "remarks",
   next_schedule_date: "next_schedule_date",
   next_schedule_mileage: "next_schedule_mileage",
-  service_provider: "service_provider",
-  service_center: "service_center",
   remarks: "remarks",
   deleted_at: "deleted_at",
   // Task-1 work-order columns. assigned_at / repair_started_at are
@@ -82,7 +77,7 @@ const STAFF_TRANSITIONS = {
 // FIELD_TO_COLUMN mapping). Everything else — cost, vehicle_id, priority,
 // deleted_at, next_schedule_*, assigned_mechanic_id, assigned_at — is stripped.
 const MECHANIC_WRITABLE = new Set(["status", "description", "remarks", "mileage_at_service",
-  "service_provider", "service_center", "technician_name", "service_center_name", "notes",
+  "notes",
   "diagnosis", "parts_replaced", "labor_hours"]);
 
 // Task 4b — scoped single-record read for the Task 6 detail page. Mechanic
@@ -102,8 +97,8 @@ export async function GET(req, { params }) {
     }
     const { rows } = await query(
       `SELECT vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
-         vm.completed_date, vm.status, vm.priority, vm.cost, vm.service_provider,
-         vm.service_center, vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
+         vm.completed_date, vm.status, vm.priority, vm.cost,
+         vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
          vm.source_incident_id, vm.source_inspection_id,
          vm.assigned_mechanic_id, vm.assigned_at, vm.repair_started_at,
          vm.repair_completed_at, vm.repair_completed_by, vm.diagnosis,
@@ -139,15 +134,11 @@ export async function PUT(req, { params }) {
       mileage_at_service: { type: "positiveNumber", label: "Mileage at service", max: MAX_ODOMETER_KM },
       next_service_date: { type: "date", label: "Next service date" },
       next_service_mileage: { type: "positiveNumber", label: "Next service mileage", max: MAX_ODOMETER_KM },
-      technician_name: { maxLength: 255, label: "Technician name" },
-      service_center_name: { maxLength: 255, label: "Service center" },
       priority: { maxLength: 30, label: "Priority" },
       completed_date: { type: "date", label: "Completed date", validate: completionDateRule },
       notes: { maxLength: 1000, label: "Notes" },
       next_schedule_date: { type: "date", label: "Next service date" },
       next_schedule_mileage: { type: "positiveNumber", label: "Next service mileage", max: MAX_ODOMETER_KM },
-      service_provider: { maxLength: 255, label: "Technician name" },
-      service_center: { maxLength: 255, label: "Service center" },
       remarks: { maxLength: 1000, label: "Notes" },
       deleted_at: { type: "date", label: "Archived at" },
       assigned_mechanic_id: { type: "id", label: "Assigned mechanic" },
@@ -194,7 +185,11 @@ export async function PUT(req, { params }) {
         if (body[field] === undefined) continue;
         if (seen.has(column)) continue;
         seen.add(column);
-        values.push(body[field] === "" ? null : body[field]);
+        const value = body[field] === "" ? null : body[field];
+        // node-postgres maps JS arrays to PostgreSQL array literals. The
+        // parts_replaced column is JSONB, so pass JSON text for the validated
+        // JSON array instead of letting the driver build an array literal.
+        values.push(field === "parts_replaced" && value != null ? JSON.stringify(value) : value);
         sets.push(`${column} = $${values.length}`);
       }
       if (sets.length === 0) return { error: err("No writable fields were provided", 400) };
@@ -277,8 +272,12 @@ export async function PUT(req, { params }) {
 
       // Assigning a mechanic stamps the assignment moment. Only staff reach
       // here with assigned_mechanic_id (mechanics have it stripped by Rule 2).
-      if (!isMechanic && body.assigned_mechanic_id !== undefined && body.assigned_mechanic_id !== null && body.assigned_mechanic_id !== "") {
+      // An explicit unassign (null) clears the stamp: no assignee means no
+      // assignment moment, not a stale one.
+      if (!isMechanic && body.assigned_mechanic_id !== undefined && body.assigned_mechanic_id !== "" && body.assigned_mechanic_id !== null) {
         sets.push(`assigned_at = CURRENT_TIMESTAMP`);
+      } else if (!isMechanic && body.assigned_mechanic_id === null) {
+        sets.push(`assigned_at = NULL`);
       }
 
       // Returning a record to In Progress is a rejection: it requires a reason.
@@ -333,7 +332,7 @@ export async function PUT(req, { params }) {
     // Guard behavior above is untouched — this only reads the committed row.
     // Mechanic-audience rows use reference_type "mechanic_maintenance" so
     // mechanic taps resolve to /mechanic/work-orders/:id (Task 6) while staff
-    // taps on the same WO keep resolving to /fleet/vehicles/:id.
+    // taps on the same WO open the maintenance register.
     const after = rows[0];
     const afterStatus = after?.status;
     const afterAssignee = after?.assigned_mechanic_id ?? null;
@@ -358,7 +357,6 @@ export async function PUT(req, { params }) {
 
     if (newlyAssigned || reassigned || escalatedToUrgent || readyForInspection || returnedForRework || approvedCompletion || assignedOrderEdited || completingSourced) {
       try {
-        const { sendPush } = await import("@/services/push.service");
         const plate = (await query(
           `SELECT plate_number FROM vehicles WHERE vehicle_id = $1`,
           [after.vehicle_id]
@@ -369,35 +367,12 @@ export async function PUT(req, { params }) {
         // ::varchar casts: Postgres deduces SELECT-list parameters as text but
         // the NOT EXISTS comparison as varchar, and the 42P08 conflict fails
         // the whole statement at parse time (see maintenance.js notifiers).
-        const fanout = async ({ employeeIds, copy, referenceType, referenceId, type = "Info" }) => {
-          const targets = dedupeEmployeeIds(employeeIds);
-          if (!targets.length) return;
-          const pushed = [];
-          for (const employeeId of targets) {
-            const { rows: done } = await query(
-              `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
-               SELECT $1, $2::varchar, $3, $4, $5::varchar, $6
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM notifications
-                   WHERE employee_id = $1 AND title = $2::varchar
-                     AND reference_type = $5::varchar AND reference_id = $6
-                )
-               RETURNING employee_id`,
-              [employeeId, copy.title, copy.message, type, referenceType, referenceId]
-            );
-            if (done[0]) pushed.push(employeeId);
-          }
-          if (pushed.length) {
-            await sendPush({
-              employeeIds: pushed,
-              title: copy.title,
-              body: copy.pushBody,
-              data: { reference_type: referenceType, reference_id: referenceId },
-            });
-          }
-        };
+        const fanout = fanoutMaintenanceNotification;
 
-        if (newlyAssigned) {
+        if (newlyAssigned && !escalatedToUrgent) {
+          // One ping, not two: when this same PUT also escalates to urgent,
+          // the Alert below carries the assignment — the plain Assigned note
+          // would be a second push for the same event.
           await fanout({ employeeIds: [afterAssignee], copy: maintenanceAssigned({ plate }), referenceType: "mechanic_maintenance", referenceId: woId });
         }
         if (reassigned) {

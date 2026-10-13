@@ -603,8 +603,6 @@ describe("GET /api/vehicle-maintenance/[id] scoped single-record read (Task 4b)"
     status: "Pending Inspection",
     priority: "High",
     cost: "1500",
-    service_provider: "Shop",
-    service_center: "Center",
     mileage_at_service: "10000",
     description: "worn pads",
     remarks: "r1",

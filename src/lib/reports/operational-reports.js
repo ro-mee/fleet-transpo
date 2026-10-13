@@ -35,7 +35,7 @@ export async function getMaintenanceReport(from = DEFAULT_REPORT_FROM, to = DEFA
   const { rows: records } = await query(
     `SELECT m.maintenance_id, m.vehicle_id, m.maintenance_type, m.description,
             m.maintenance_date, m.completed_date, m.cost, m.mileage_at_service,
-            m.service_provider, m.service_center, m.next_schedule_date,
+            m.next_schedule_date,
             m.next_schedule_mileage, m.status, m.priority, m.is_recurring,
             m.recurring_interval_days, m.recurring_interval_km, m.remarks,
             m.deleted_at, v.plate_number, v.vehicle_name, v.manufacturer, v.model

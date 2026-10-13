@@ -1,4 +1,4 @@
----
+﻿---
 type: feature
 status: partial
 tags: [feature, maintenance]
@@ -8,12 +8,12 @@ source:
   - src/app/(dashboard)/maintenance/page.js
   - src/app/api/vehicle-maintenance/[id]/route.js
   - supabase/migrations/114_maintenance_repairer_identity.sql
-last_verified: 2026-10-02
+last_verified: 2026-10-09
 ---
 
 # Feature: Maintenance
 
-## Predictive view zero-state follow-up — 2026-10-02
+## Predictive view zero-state follow-up â€” 2026-10-02
 
 Read-only live SQL found 37 non-deleted work orders and 22 non-deleted, non-decommissioned vehicles. These are different populations: the predictive endpoint returns one computed assessment per eligible vehicle, while the maintenance register counts work orders. The prediction page previously rendered five zero KPI cards before its query resolved. It now shows a loading skeleton, then the real counters; a successful empty eligible fleet gets an explicit explanation that work orders are counted separately. The existing request-error retry panel remains. The scoring engine and database are unchanged. Component tests, ESLint and production build passed; the deployed default view still needs an authenticated replay.
 
@@ -21,33 +21,33 @@ Read-only live SQL found 37 non-deleted work orders and 22 non-deleted, non-deco
 
 Tracks vehicle servicing, handles emergency repairs from incidents, provides an operational dashboard for the Fleet Manager, and flags vehicles approaching a service threshold.
 
-## What's real — CONFIRMED
+## What's real â€” CONFIRMED
 
 | Piece | State |
 |---|---|
-| `src/lib/ai/predictive-maintenance.js` | ✅ Pure scoring module, feeds [[AI Advisory]] |
-| `trigger_notify_maintenance_due` | ✅ DB trigger writes a [[Notifications]] row |
-| `src/app/(dashboard)/fleet/maintenance/` | ✅ **Fully operational dashboard** (history, active repairs, predictive schedule) |
-| `vehiclemaintenance` State Machine | ✅ `Completed` is a terminal state. Strict completion audit trail (`completed_by`, `completed_at`) enforced server-side. Separation of duties keyed to `repair_completed_by` (migration 114). |
-| ~~Manager inspection gate~~ | ❌ **REMOVED 2026-09-16** — required `inspection_completed_at`, which nothing in the app could ever write. See the bug record below. |
+| `src/lib/ai/predictive-maintenance.js` | âœ… Pure scoring module, feeds [[AI Advisory]] |
+| `trigger_notify_maintenance_due` | âœ… DB trigger writes a [[Notifications]] row |
+| `src/app/(dashboard)/fleet/maintenance/` | âœ… **Fully operational dashboard** (history, active repairs, predictive schedule) |
+| `vehiclemaintenance` State Machine | âœ… `Completed` is a terminal state. Strict completion audit trail (`completed_by`, `completed_at`) enforced server-side. Separation of duties keyed to `repair_completed_by` (migration 114). |
+| ~~Manager inspection gate~~ | âŒ **REMOVED 2026-09-16** â€” required `inspection_completed_at`, which nothing in the app could ever write. See the bug record below. |
 
 ## The Fleet Maintenance Dashboard
 
 The Fleet Maintenance dashboard allows the Fleet Manager to view active repairs, historical records, and the upcoming predictive maintenance schedule. The system strictly governs the state of a maintenance record:
 
 ### State Machine & Completion Audit
-A maintenance record transitions from `Scheduled` → `In Progress` → `Completed`.
+A maintenance record transitions from `Scheduled` â†’ `In Progress` â†’ `Completed`.
 The intermediate state `Pending Inspection` is available and reachable from the
-maintenance page, but is **optional** — a record may go straight from
+maintenance page, but is **optional** â€” a record may go straight from
 `In Progress` to `Completed`.
-* **Immutability:** Once a record reaches `Completed` (or `Cancelled`), the full row is frozen — any PUT without `deleted_at` returns 409; only a staff archive passes.
+* **Immutability:** Once a record reaches `Completed` (or `Cancelled`), the full row is frozen â€” any PUT without `deleted_at` returns 409; only a staff archive passes.
 * **Audit Trail:** When a record is completed (via `PUT /api/vehicle-maintenance/[id]`), the system securely injects the authenticated user's ID (`completed_by`) and the precise database timestamp (`completed_at`). The `POST` creation endpoint forces all new records to `Scheduled` to prevent audit bypass.
 
-### Mechanic work-order lifecycle — ADDED 2026-10-06 (PUT hardening, Task 3)
+### Mechanic work-order lifecycle â€” ADDED 2026-10-06 (PUT hardening, Task 3)
 
 The `mechanic` role (id 10, migration 143) works its own queue under five PUT
 guards in `src/app/api/vehicle-maintenance/[id]/route.js`, verified by Tests
-15–22 in `route.test.js` (amended Test 6 pins the freeze):
+15â€“22 in `route.test.js` (amended Test 6 pins the freeze):
 
 1. **Ownership.** A mechanic session may touch only rows where
    `assigned_mechanic_id` equals their own employee id (403 otherwise;
@@ -56,29 +56,31 @@ guards in `src/app/api/vehicle-maintenance/[id]/route.js`, verified by Tests
    (`status`, notes/diagnosis/evidence fields); `cost`, `vehicle_id`,
    `priority`, `deleted_at`, assignment and stamp columns never reach the SET
    list. Archive-by-mechanic therefore dies as 400 "No writable fields".
-3. **Per-role transitions.** Mechanic: `Scheduled → In Progress → Pending
+3. **Per-role transitions.** Mechanic: `Scheduled â†’ In Progress â†’ Pending
    Inspection` only (no direct completion, no skips). Staff keep the direct
-   `Scheduled → Completed` edge for externally-completed work, plus
+   `Scheduled â†’ Completed` edge for externally-completed work, plus
    `Cancelled`; illegal edges 409 naming both states. The completion role
    guard still runs first, so a mechanic attempting `Completed` gets its 403.
 4. **Terminal freeze.** `Completed` and `Cancelled` rows reject every PUT
-   without `deleted_at` (409 "… maintenance records are read-only."). Only a
+   without `deleted_at` (409 "â€¦ maintenance records are read-only."). Only a
    staff archive passes a frozen row.
-5. **Server stamps.** `Scheduled → In Progress` sets `repair_started_at` once
+5. **Server stamps.** `Scheduled â†’ In Progress` sets `repair_started_at` once
    (never overwritten); staff assigning `assigned_mechanic_id` get
-   `assigned_at = NOW()` (any client value stripped); returning
-   `Pending Inspection → In Progress` is a rejection and requires a non-empty
+   `assigned_at = NOW()` (any client value stripped); an explicit staff
+   unassign (`assigned_mechanic_id: null`) clears `assigned_at = NULL` so no
+   stale assignment moment survives; returning
+   `Pending Inspection â†’ In Progress` is a rejection and requires a non-empty
    `rejection_reason` (400 otherwise).
 
 Task 5 (notifications) builds its fan-out on these transitions; the route
 preserves the `beforeStatus` return and `isTransitioningTo*` flags for it.
 
-### Separation of duties — CONFIRMED 2026-09-16
+### Separation of duties â€” CONFIRMED 2026-09-16
 
 Two guards run on the `Completed` transition, in this order:
 
-1. **Role gate.** `hasRole(session.user, ["system_admin", "admin", "fleet_manager"])` — everything else (including `driver`) gets `403`.
-2. **Four-eyes gate.** The person who declared the repair finished cannot also approve it: `repair_completed_by === session.user.employeeId` → `403 "The person who completed this repair cannot approve its completion."`
+1. **Role gate.** `hasRole(session.user, ["system_admin", "admin", "fleet_manager"])` â€” everything else (including `driver`) gets `403`.
+2. **Four-eyes gate.** The person who declared the repair finished cannot also approve it: `repair_completed_by === session.user.employeeId` â†’ `403 "The person who completed this repair cannot approve its completion."`
 
 `repair_completed_by` is stamped by the server on the transition **into**
 `Pending Inspection` (migration 114), together with `repair_completed_at`. That
@@ -88,17 +90,17 @@ the only honest key the guard can use.
 **`created_by` is deliberately not a fallback.** It records the work order's
 provenance, and on an incident-sourced ticket (`src/lib/incidents/maintenance.js`
 passes `session.user.employeeId`) it names **whoever resolved the incident**, not
-the mechanic — that mis-keying is exactly what the pre-2026-09-16 guard denied on.
-A row whose `repair_completed_by` is `NULL` — every record predating migration
-114, and any record that skipped `Pending Inspection` — is **not blocked**: there
+the mechanic â€” that mis-keying is exactly what the pre-2026-09-16 guard denied on.
+A row whose `repair_completed_by` is `NULL` â€” every record predating migration
+114, and any record that skipped `Pending Inspection` â€” is **not blocked**: there
 is no evidence of who did the work, so the guard stays silent rather than guess.
 No backfill was performed, for the same reason.
 
-### The inspection gate — ADDED 2026-09-04, REMOVED 2026-09-16
+### The inspection gate â€” ADDED 2026-09-04, REMOVED 2026-09-16
 
 Migration 097 added `inspection_required BOOLEAN DEFAULT TRUE` and the route
 required `inspection_completed_at` to be set before `Completed`. Nothing could
-ever set it — see the bug record below — so the gate denied every user on every
+ever set it â€” see the bug record below â€” so the gate denied every user on every
 record. It, and the now-dead `inspection_required` / `inspection_completed_at` /
 `inspection_notes` allowlist entries, are gone. The DB columns remain (dropping
 them is a separate decision, and `inspection_required` now defaults `FALSE`).
@@ -106,30 +108,30 @@ them is a separate decision, and `inspection_required` now defaults `FALSE`).
 This is the **second** time inspection columns were tried on `vehiclemaintenance`:
 migration 005 merged the whole `vehicleinspection` table in (adding
 `inspection_checklist`, `inspection_findings`, `severity`), and `018b` dropped
-them again. The lesson is not "inspection is hard" — it is that a gate whose
+them again. The lesson is not "inspection is hard" â€” it is that a gate whose
 input has no writer is indistinguishable from a gate that denies everyone.
 
-## Emergency repairs from incidents — CONFIRMED 2026-08-23
+## Emergency repairs from incidents â€” CONFIRMED 2026-08-23
 
 `POST /api/incidents/[id]/maintenance` writes an `Emergency Repair` row (In
 Progress, High priority, `created_by` = resolving staff) and resolves the
-incident in **one transaction** — the old client-side two-call chain could orphan
+incident in **one transaction** â€” the old client-side two-call chain could orphan
 or duplicate the repair. `syncVehicleStatus` keeps the vehicle grounded while the
 record is active; completing it restores availability.
 
 Since migration 063 the row carries **`source_incident_id`** (FK, backfilled from
 the description prefix), the register renders an `Incident #N` chip per linked
 record, and completing a linked record notifies the reporting driver that the
-vehicle is back in service. → [[Incidents]]
+vehicle is back in service. â†’ [[Incidents]]
 
-## End Duty driver reports — second auto-generated source, 2026-09-23
+## End Duty driver reports â€” second auto-generated source, 2026-09-23
 
 The **only other** path that writes a work order without a human in the office
 authoring it. When a driver ends duty with a description of something wrong
 (`POST /api/mobile/driver/duty {active:false, report:{findings}}`), the inserted
 `Post-Shift` inspection raises a `Repair` order through
 `ensureInspectionMaintenance` (`src/lib/inspections/maintenance.js`), mirroring
-`src/lib/incidents/maintenance.js` deliberately — same `withTransaction` + row
+`src/lib/incidents/maintenance.js` deliberately â€” same `withTransaction` + row
 lock, same `ON CONFLICT DO NOTHING` + recovery re-read when the insert loses a
 race.
 
@@ -141,11 +143,11 @@ idempotent under a retried mobile submit. There is deliberately **no
 question in reverse, and the register renders provenance that way.
 
 **Grounding is keyword-decided, and the keyword only sets urgency.** A finding
-matching `shouldGroundReportedDefect` (`src/lib/driver/grounding.js` — English
+matching `shouldGroundReportedDefect` (`src/lib/driver/grounding.js` â€” English
 breakdown/damage terms plus the Filipino words drivers actually type: `preno`,
 `gulong`, `manibela`, `makina`, `baterya`, `usok`, `tagas`, `basag`) writes
 `status='In Progress'` + `priority='High'`; anything else writes
-`Scheduled` + `Normal`. `status` is the operational lever —
+`Scheduled` + `Normal`. `status` is the operational lever â€”
 `GET /api/vehicles/available` excludes `In Progress` and `Pending Inspection`, so
 `In Progress` is what actually removes the vehicle from dispatch. **A report the
 keywords do not match still files a `Scheduled` order for a human to read**; the
@@ -154,52 +156,52 @@ unusual" files nothing.
 
 **The order is raised after the clock-out transaction commits, and never
 throws.** A maintenance failure must not strand a driver at the end of their
-shift — the failure is logged via `writeAppError` (work-order and notification
+shift â€” the failure is logged via `writeAppError` (work-order and notification
 failures logged separately) rather than surfaced. The driver's shift ends either
 way; a missing order shows up as an inspection row with no linked record, which
 is exactly the state the register's provenance chip makes visible.
 
 Notifications go to **`notificationRolesFor("incidents","route_to_maintenance")`**
-— reused rather than adding an `inspections` resource to the `can()` matrix,
+â€” reused rather than adding an `inspections` resource to the `can()` matrix,
 since the function's own contract is "the roles that own the maintenance queue"
 and it is source-agnostic. The notifier carries its **own title** so it cannot
 collide with the incident notifier's title+reference dedup key, and it inherits
 that module's documented `::varchar` cast requirement (see the 42P08 bug in the
-notifier below) — without the casts the statement fails to parse and the
+notifier below) â€” without the casts the statement fails to parse and the
 notification is lost silently.
 
-## Vehicle problem queue — `/maintenance/problems`, 2026-09-26
+## Vehicle problem queue â€” `/maintenance/problems`, 2026-09-26
 
 A single office worklist of vehicle problems **nobody is following up**, at
 `/maintenance/problems`, backed by `GET /api/vehicle-inspections/problems`
 (`src/lib/inspections/problem-queue.js`) and a partial index from migration `131`
-(renumbered up from the plan's `127`/`128` at execution time — those numbers were
+(renumbered up from the plan's `127`/`128` at execution time â€” those numbers were
 spent by other workstreams) so the scan does not walk the whole inspection table.
-In the nav under Maintenance → Problem Queue for the admin and fleet_manager
-workspaces (`src/lib/workspaces.js`) — added 2026-09-28, the page shipped without
+In the nav under Maintenance â†’ Problem Queue for the admin and fleet_manager
+workspaces (`src/lib/workspaces.js`) â€” added 2026-09-28, the page shipped without
 a nav entry so only the direct URL reached it.
 
 **Three buckets, in the order the page renders them:**
 
 | Bucket | What it means | Counted on the dashboard? |
 | --- | --- | --- |
-| `reported_untracked` | A driver reported a fault (Post-Shift `status='Reported'`) and the automatic raise produced **no** work order — the failure was logged and swallowed. Unanswered by any person. | **Yes** — admin's attention strip and fleet_manager's maintenance card both show `counts.reportedUntracked`. |
-| `failed_untracked` | A checklist inspection the driver failed (`status='Failed'`). Closable by hand, already notified when it happened. | No — the office was told the moment it failed; a usually-positive count is one the strip gets ignored for. |
+| `reported_untracked` | A driver reported a fault (Post-Shift `status='Reported'`) and the automatic raise produced **no** work order â€” the failure was logged and swallowed. Unanswered by any person. | **Yes** â€” admin's attention strip and fleet_manager's maintenance card both show `counts.reportedUntracked`. |
+| `failed_untracked` | A checklist inspection the driver failed (`status='Failed'`). Closable by hand, already notified when it happened. | No â€” the office was told the moment it failed; a usually-positive count is one the strip gets ignored for. |
 | `tracked` | The problem **does** have a work order. | n/a |
 
 **Resolution is provenance, not a flag.** There is no `is_tracked` column and no
 status on the inspection. "Has a work order" is the existence of a
-`vehiclemaintenance.source_inspection_id` row pointing at the inspection — the
+`vehiclemaintenance.source_inspection_id` row pointing at the inspection â€” the
 same link the End Duty path writes, and the reason creation stays idempotent under
 a retried submit. A problem leaves the queue the moment that link exists.
 
 **Who raises what.** Only an **End Duty** report raises a work order
 automatically. The office can now raise one by hand for **any** flagged inspection
-from the queue page — one button, `POST /api/vehicle-inspections/[id]/work-order`,
+from the queue page â€” one button, `POST /api/vehicle-inspections/[id]/work-order`,
 idempotent, so a double-click resolves to the existing ticket. A hand-raised order
 for a failed **checklist** files as `Scheduled` and is dated **tomorrow**
-(`buildChecklistMaintenancePayload` → `nextCalendarDay()`), which is what keeps it
-out of `GET /api/vehicles/available` — that predicate drops a vehicle when
+(`buildChecklistMaintenancePayload` â†’ `nextCalendarDay()`), which is what keeps it
+out of `GET /api/vehicles/available` â€” that predicate drops a vehicle when
 `status IN ('In Progress','Pending Inspection')` **or**
 `(status='Scheduled' AND maintenance_date <= CURRENT_DATE)`, so `Scheduled` with a
 future date is still dispatchable. That non-grounding promise holds for checklist
@@ -207,17 +209,17 @@ rows **only**. A hand-raised order for a **reported** Post-Shift defect takes th
 End Duty branch instead (`buildInspectionMaintenancePayload`): a severe-keyword
 match files `In Progress` (grounded at once), and even a routine filing is dated
 today, which the same predicate reads as out of service. The page states the
-matching version next to each button — fixed 2026-09-26, when one shared sentence
-wrongly promised both — because the natural assumption is the opposite.
+matching version next to each button â€” fixed 2026-09-26, when one shared sentence
+wrongly promised both â€” because the natural assumption is the opposite.
 
 **Authorization: `maintenance:read` for the queue, `maintenance:create` for the
 raise.** The existing `maintenance` resource is reused rather than adding an
 `inspections` resource to the `can()` matrix. That is *not* in conflict with
 `notifyMaintenanceTeam`, which uses `notificationRolesFor("incidents",
 "route_to_maintenance")`: the two answer different questions. The notifier asks
-"who owns the maintenance queue" — a **routing** question that is source-agnostic
+"who owns the maintenance queue" â€” a **routing** question that is source-agnostic
 and has no session attached to it. The queue asks "may this session read the
-maintenance register" — a **permission** question about an existing resource. One
+maintenance register" â€” a **permission** question about an existing resource. One
 is who gets told; the other is who may look and act.
 
 **The residual, now narrower but still standing:** a failed Pre-Shift / Pre-Trip
@@ -227,46 +229,46 @@ is not Post-Shift, on purpose. What changed is that the row is now visible in on
 place and closable by a person. Whether the automatic path should widen is the
 separate conversation that code defers, and it stays deferred.
 
-## Bug: every PUT 500'd with "could not determine data type of parameter $1" — FIXED 2026-09-15
+## Bug: every PUT 500'd with "could not determine data type of parameter $1" â€” FIXED 2026-09-15
 
 `PUT /api/vehicle-maintenance/[id]` built the SET `values` array first, then
 appended the record `id` and ran the pre-check
-`SELECT ... WHERE maintenance_id = $N` with the **whole array** — leaving
+`SELECT ... WHERE maintenance_id = $N` with the **whole array** â€” leaving
 `$1..$N-1` unreferenced, which Postgres rejects at parse time. Every edit
-(including Edit → Complete) returned `500 Internal server error`.
+(including Edit â†’ Complete) returned `500 Internal server error`.
 
 Fix: the pre-check now runs first with `[id]` only; the `id` is appended last
 for the `UPDATE` so every `$n` lines up with `values[n-1]`. No guard behavior
 changed (terminal-state 409 and role 403 intact; the inspection 400 that was
-also listed here was **removed** on 2026-09-16 — see below).
+also listed here was **removed** on 2026-09-16 â€” see below).
 Regression test: `route.test.js` "Test 9: pre-check SELECT uses only [id]".
 Verified: 21/21 maintenance tests pass
 (`[id]/route.test.js` 7, `route.test.js` 5, `maintenance-schedule.service.test.js` 9),
 ESLint clean on both touched files.
 
-## Bug: completion guard denied every role, including admin — FIXED 2026-09-15
+## Bug: completion guard denied every role, including admin â€” FIXED 2026-09-15
 
-Symptom: Edit → Complete returned `403 "Only a Fleet Manager or Admin can
+Symptom: Edit â†’ Complete returned `403 "Only a Fleet Manager or Admin can
 approve maintenance completion"` even for a real `admin` account.
 
 Cause: `hasRole()` (`src/lib/auth/permissions.js`) only read
 `employee.roles.role_name` (the client/NextAuth shape), but
-`requirePermission` → `resolveCurrentIdentity` (`src/lib/api/utils.js:161`)
-returns a server identity with a **flat `role` string** and no `roles` object —
+`requirePermission` â†’ `resolveCurrentIdentity` (`src/lib/api/utils.js:161`)
+returns a server identity with a **flat `role` string** and no `roles` object â€”
 so the guard returned `false` for everyone. The route's unit tests masked it by
 mocking the session with the client shape.
 
 Fix: `hasRole` now accepts the flat `role` string first, then falls back to
-`roles.role_name` (string, object, or array form) — backward compatible with
+`roles.role_name` (string, object, or array form) â€” backward compatible with
 all client callers (`use-role-access.js`, `role-guard.js`). Test mock switched
 to the real flat-role shape plus a new "Test 10" asserting a driver session is
 rejected with the guard message.
 Verified: 40/40 pass (maintenance 22 + auth 18), ESLint clean on all 3 touched
 files. Only server caller of `hasRole` is this route, so blast radius is one
-endpoint. (`can()` has the same single-shape assumption but no server callers —
+endpoint. (`can()` has the same single-shape assumption but no server callers â€”
 left untouched.)
 
-## Bug: no maintenance record could be completed, by anyone, since 2026-09-04 — FIXED 2026-09-16
+## Bug: no maintenance record could be completed, by anyone, since 2026-09-04 â€” FIXED 2026-09-16
 
 Two stacked guards on the `Completed` transition, each keyed to the wrong thing.
 Both had to be wrong at once for the symptom to look like this, and the symptom
@@ -277,20 +279,20 @@ was **role-dependent**, which is what made it read as a permissions bug.
 | `admin` | `403 "Mechanics cannot approve their own repairs. Manager inspection required."` |
 | `fleet_manager` | `400 "Inspection must be completed before marking as Completed"` |
 
-**Guard 1 — the repairer was identified as `created_by`.** The guard compared
+**Guard 1 â€” the repairer was identified as `created_by`.** The guard compared
 `beforeRow.created_by` against the session. But on an incident-sourced work order
 `created_by` is the **incident resolver** (`src/lib/incidents/maintenance.js:71`),
 not the mechanic. The live rows that prompted the report (`maintenance_id`
-39/40/44/45) all carry `created_by = 48` — the `admin` account. That admin was
+39/40/44/45) all carry `created_by = 48` â€” the `admin` account. That admin was
 therefore permanently locked out of work orders it had opened itself, while a
 `fleet_manager` who had never touched them sailed past the guard and hit the
 second one.
 
-**Guard 2 — the inspection gate was unsatisfiable.** Migration 097 made
+**Guard 2 â€” the inspection gate was unsatisfiable.** Migration 097 made
 `inspection_required` default `TRUE` on every row, and the route required
 `inspection_completed_at` before `Completed`. A repo-wide grep found that column
 written **nowhere** outside the route, its test, `schema.sql`, and the migration
-itself — no UI, service, or endpoint could supply it. Every record was gated on a
+itself â€” no UI, service, or endpoint could supply it. Every record was gated on a
 field the application had no writer for.
 
 **Why it went unnoticed for 12 days.** Migration 097 applied 2026-09-04, and live
@@ -298,27 +300,27 @@ data confirms nothing had completed since: 0 rows with `manager_approved_by`, 0
 with `inspection_completed_at`, `max(completed_at)` still `NULL`, 8 records
 stuck `In Progress`. The unit tests stayed green because `mockRecord` carried
 neither `created_by` nor `inspection_required`, so both guards resolved to
-`undefined` and never armed — and Test 9 sent `inspection_required: false`, a
+`undefined` and never armed â€” and Test 9 sent `inspection_required: false`, a
 field the real UI never sends. The suite was asserting against a session and a
 payload that production never produces.
 
 **Fix.**
-- Migration **114** adds `vehiclemaintenance.repair_completed_by` (FK →
+- Migration **114** adds `vehiclemaintenance.repair_completed_by` (FK â†’
   `employees`) and flips `inspection_required` to `DEFAULT FALSE`.
 - The route stamps `repair_completed_by` / `repair_completed_at` on the
   transition into `Pending Inspection`, and the four-eyes guard now compares
-  **that** column. `NULL` never blocks (no backfill — see above).
+  **that** column. `NULL` never blocks (no backfill â€” see above).
 - The inspection gate is deleted, along with its three now-dead allowlist and
   validator entries, so a client can no longer send those fields and leave a row
   looking inspected.
 - `Pending Inspection` was added to both status dropdowns (maintenance page and
   `MaintenanceFormDialog`) and to the `maintenance` tone map in
-  `status-badge.jsx` — it was a state the route understood but no UI could reach.
+  `status-badge.jsx` â€” it was a state the route understood but no UI could reach.
 - The in-progress counter in `GET /api/vehicle-maintenance` now counts
   `IN ('In Progress', 'Pending Inspection')`, so a record waiting on approval is
   not reported as finished work that does not exist.
 
-**Verified.** New tests 11–14 in `[id]/route.test.js` pin the guard's three
+**Verified.** New tests 11â€“14 in `[id]/route.test.js` pin the guard's three
 cases (repairer blocked; uninvolved manager allowed; the incident resolver
 allowed) plus the `NULL` case and the `Pending Inspection` stamp. The tests were
 proven to have teeth by reverting the route to its pre-fix revision and
@@ -336,23 +338,23 @@ runs were replayed against live and return correct shapes.
 
 **Schedule Clamp:** `recomputeVehicleSchedule()` updates a vehicle's next service date and mileage when a maintenance record is `Completed`. To prevent illegal tampering, this function uses a PostgreSQL `GREATEST()` clamp. If a user modifies an older completed maintenance record with a lower odometer reading, the clamp discards the edit and preserves the furthest advanced predictive schedule, keeping the risk scores strictly safe and forward-moving.
 
-## Inspections do not ground a vehicle — 2026-09-23
+## Inspections do not ground a vehicle â€” 2026-09-23
 
-Inspection failures (Quick Pre-Trip / Pre-Shift) create severity-classified findings + dispatch notifications **only** — `vehicle_status` is never flipped by an inspection. Grounding stays with the incident/maintenance flow (`src/lib/incidents/grounding.js`), so a driver reporting a FAIL cannot take a vehicle out of service on their own, and a reader looking at an inspection `severity = 'High'` row should not conclude the vehicle was pulled. Repeated findings are recorded in `vehicleinspection.checklist` for a future condition-signal wiring (not yet wired — see [[Trips]]).
+Inspection failures (Quick Pre-Trip / Pre-Shift) create severity-classified findings + dispatch notifications **only** â€” `vehicle_status` is never flipped by an inspection. Grounding stays with the incident/maintenance flow (`src/lib/incidents/grounding.js`), so a driver reporting a FAIL cannot take a vehicle out of service on their own, and a reader looking at an inspection `severity = 'High'` row should not conclude the vehicle was pulled. Repeated findings are recorded in `vehicleinspection.checklist` for a future condition-signal wiring (not yet wired â€” see [[Trips]]).
 
-**One exception, and it is narrower than it looks (2026-09-23):** an **End Duty** report *can* ground a vehicle, but never by flipping `vehicle_status`. It writes a `vehiclemaintenance` row in `In Progress`, and `GET /api/vehicles/available` excludes that status — so the vehicle leaves dispatch through the maintenance register, the same lever a human-authored order uses, and only when the driver's own words match a breakdown/damage keyword. A checklist FAIL still grounds nothing. → see the End Duty section above and [[Trips]]
+**One exception, and it is narrower than it looks (2026-09-23):** an **End Duty** report *can* ground a vehicle, but never by flipping `vehicle_status`. It writes a `vehiclemaintenance` row in `In Progress`, and `GET /api/vehicles/available` excludes that status â€” so the vehicle leaves dispatch through the maintenance register, the same lever a human-authored order uses, and only when the driver's own words match a breakdown/damage keyword. A checklist FAIL still grounds nothing. â†’ see the End Duty section above and [[Trips]]
 
-Note for anyone rendering inspection severity: `vehicleinspection.severity` carries **three vocabularies at once** and has no CHECK to settle them — the mobile route writes `None|Medium|High`, the demo seed writes `Minor|Moderate`, and the column default is `Minor`. Render it through the shared severity grammar (`status-badge.jsx`, `entity="severity"`) rather than a local ladder; the driver-portal card had a hand-written `Critical|Major` mapping that matched none of them and sent every real row to a grey "info" chip.
+Note for anyone rendering inspection severity: `vehicleinspection.severity` carries **three vocabularies at once** and has no CHECK to settle them â€” the mobile route writes `None|Medium|High`, the demo seed writes `Minor|Moderate`, and the column default is `Minor`. Render it through the shared severity grammar (`status-badge.jsx`, `entity="severity"`) rather than a local ladder; the driver-portal card had a hand-written `Critical|Major` mapping that matched none of them and sent every real row to a grey "info" chip.
 
-## Manual follow-up: “0 health records” not reproduced — 2026-10-01
+## Manual follow-up: â€œ0 health recordsâ€ not reproduced â€” 2026-10-01
 
 `GET /api/ai/predictive-maintenance` was replayed read-only against live and returned **21 predictions**: 21 low-risk rows, 19 with no schedule/basis and 2 genuinely scheduled/healthy. The default page computes Healthy as `low - unscheduled`, therefore 2; with All/default selected the list should be 21, not 0. A selected empty risk filter legitimately changes the heading count to 0 because the heading uses `filteredPredictions.length`.
 
-“Vehicle Telemetry Health Records” is misleading terminology: these rows are computed predictions, not persisted health records. They are generated even with no maintenance history. The vehicle grounded by incident #110 is present, but has risk `low`, score 50, no basis and a recommendation to add service date/mileage. That is not a contradiction: incident grounding is current operational state and an active repair; predictive risk is derived from next-service schedule/usage. The screens need clearer scope wording.
+â€œVehicle Telemetry Health Recordsâ€ is misleading terminology: these rows are computed predictions, not persisted health records. They are generated even with no maintenance history. The vehicle grounded by incident #110 is present, but has risk `low`, score 50, no basis and a recommendation to add service date/mileage. That is not a contradiction: incident grounding is current operational state and an active repair; predictive risk is derived from next-service schedule/usage. The screens need clearer scope wording.
 
-**Fixed the same day.** The heading now reads **“Vehicle Health Predictions (N)”**, and a filtered view reads `(N of total)` so an empty filter cannot be mistaken for an empty fleet. Engine, KPI band and scoring are untouched, and the reported default-view zero was never reproduced (the endpoint returns 21 predictions: 19 unscheduled, 2 scheduled/healthy). Full evidence: [[Manual Functional Testing Follow-up Audit]].
+**Fixed the same day.** The heading now reads **â€œVehicle Health Predictions (N)â€**, and a filtered view reads `(N of total)` so an empty filter cannot be mistaken for an empty fleet. Engine, KPI band and scoring are untouched, and the reported default-view zero was never reproduced (the endpoint returns 21 predictions: 19 unscheduled, 2 scheduled/healthy). Full evidence: [[Manual Functional Testing Follow-up Audit]].
 
-## Mechanic workshop — shipped 2026-10-06 (Tasks 1–7)
+## Mechanic workshop â€” shipped 2026-10-06 (Tasks 1â€“7)
 
 The seventh role (`mechanic`, id 10) works an assignee-scoped web-only queue.
 Registry detail lives in [[RBAC]]; PUT-guard detail under "State Machine &
@@ -368,9 +370,9 @@ Completion Audit" above; the seven notification titles in [[Notifications]].
   (`db:contract` clean for `vehiclemaintenance`).
 - **Registry (Task 2).** `ROLE_IDS.mechanic = 10`, `WORKS.mechanic`
   ("Mechanic Workshop", home `/mechanic`), `MATRIX.mechanic` (explicit grants
-  only — vehicles/read, maintenance read+update, incidents read-only,
+  only â€” vehicles/read, maintenance read+update, incidents read-only,
   notifications read/update/delete, device_tokens, search, employees/read,
-  system deny), four `/mechanic/*` NAV keys, `/dashboard` → `/mechanic`
+  system deny), four `/mechanic/*` NAV keys, `/dashboard` â†’ `/mechanic`
   redirect, `MAINTENANCE_STATUS.PENDING_INSPECTION`, seven `work_*`
   notification events. super_admin and admin assign mechanic; fleet_manager
   assigns nothing; driver accounts stay in the Drivers Directory.
@@ -378,30 +380,30 @@ Completion Audit" above; the seven notification titles in [[Notifications]].
   workspace.
 - **Session + redirect gaps closed 2026-10-08.** The heartbeat admitted staff
   roles only, so mechanic/driver web sessions 403'd on every heartbeat
-  (`last_seen_at` never slid → idle-logout while active); both roles are now
-  admitted (`route.roles.test.js` pins the list — the endpoint only
+  (`last_seen_at` never slid â†’ idle-logout while active); both roles are now
+  admitted (`route.roles.test.js` pins the list â€” the endpoint only
   reads/slides the caller's own session row). Post-login and denied-route
   redirects also knew only the driver home, so a mechanic landed on
   staff-only `/dashboard` (restricted panel + bounce to the same page);
   `role-guard.js` and `return-to.js` now route mechanics to `/mechanic`,
   mirroring the driver precedent (pinned in `return-to.test.js`).
-- **Per-role transition maps (Task 3 + human rulings C1–C3).** Mechanic:
-  `Scheduled → In Progress → Pending Inspection` only (no completion, no
-  skips). Staff: `Scheduled → In Progress/Cancelled/Completed`,
-  `In Progress → Pending Inspection/Completed`,
-  `Pending Inspection → Completed/In Progress`; `Completed`/`Cancelled` carry
-  empty edge lists. Rulings: staff keep the direct `Scheduled → Completed`
+- **Per-role transition maps (Task 3 + human rulings C1â€“C3).** Mechanic:
+  `Scheduled â†’ In Progress â†’ Pending Inspection` only (no completion, no
+  skips). Staff: `Scheduled â†’ In Progress/Cancelled/Completed`,
+  `In Progress â†’ Pending Inspection/Completed`,
+  `Pending Inspection â†’ Completed/In Progress`; `Completed`/`Cancelled` carry
+  empty edge lists. Rulings: staff keep the direct `Scheduled â†’ Completed`
   edge for externally-completed work (Test 7 pins it); `Completed` and
-  `Cancelled` rows are full-row frozen — any PUT without `deleted_at` 409s
+  `Cancelled` rows are full-row frozen â€” any PUT without `deleted_at` 409s
   and only a staff archive passes (amended Test 6 + Test 23 pin it, including
   the `""` bypass); `Cancelled` is terminal like `Completed`.
-- **Return-for-rework loop.** `Pending Inspection → In Progress` is a
+- **Return-for-rework loop.** `Pending Inspection â†’ In Progress` is a
   rejection and requires a non-empty `rejection_reason` (400 otherwise); the
   assignee is paged ("Maintenance Returned for Rework").
 - **Stamps.** Staff assigning `assigned_mechanic_id` get `assigned_at = NOW()`
-  (client values stripped); `Scheduled → In Progress` sets `repair_started_at`
+  (client values stripped); `Scheduled â†’ In Progress` sets `repair_started_at`
   once (never overwritten); entering `Pending Inspection` stamps
-  `repair_completed_by/at` — the four-eyes key (the completer cannot approve
+  `repair_completed_by/at` â€” the four-eyes key (the completer cannot approve
   their own work: 403).
 - **Scoped reads (Task 4, corrected 2026-10-07).** Mechanic list/counts carry
   `AND vm.assigned_mechanic_id = $n` (paginated and non-paginated, lean
@@ -414,7 +416,7 @@ Completion Audit" above; the seven notification titles in [[Notifications]].
   + latest 8 notifications + `upcoming: []`. `assigned` counts actionable
   (Scheduled/In Progress/Pending Inspection) only so the Today's Line
   EmptyState gate stays honest; `overdue` includes Pending Inspection past
-  `maintenance_date`. Non-mechanic → 403.
+  `maintenance_date`. Non-mechanic â†’ 403.
 - **Single-record GET (Task 4b).** `GET /api/vehicle-maintenance/[id]`
   (mechanic 403 unless assignee; staff read-only superset; lean columns incl.
   cost + `source_inspection_id`; vehicle = plate + name only). List and
@@ -422,10 +424,10 @@ Completion Audit" above; the seven notification titles in [[Notifications]].
   detail agree.
 - **Workshop UI (Task 6, web-only, corrected 2026-10-07).** `/mechanic` (Today's Line),
   `/mechanic/work-orders`, `/mechanic/work-orders/[id]`,
-  `/mechanic/problems` (read-only, no raise button — `maintenance:create` is
+  `/mechanic/problems` (read-only, no raise button â€” `maintenance:create` is
   FM-only), `/mechanic/history` (Completed/Cancelled, cost display-only,
   parts rendered from `parts_replaced`, "Not recorded" only when absent).
-  Hero shows Start / Mark Ready only — Approve/Complete have no
+  Hero shows Start / Mark Ready only â€” Approve/Complete have no
   representation; mutating actions disable below 1024px with the desktop
   reason. Detail timeline prefers `repair_completed_at` with `completed_date`
   fallback for staff-direct completions; `Cancelled` maps to milestone 0.
@@ -433,29 +435,29 @@ Completion Audit" above; the seven notification titles in [[Notifications]].
   cross-role link resolves to null instead of a guard redirect. Task 7 polish: queue rows drop `shadow-xs`, problem chips reuse
   `StatusBadge` tones, the parts dot never falls back to `labor_hours`.
 - **Demo seed (Task 7).** `scripts/seed-mechanic-demo.mjs`
-  (`seed:mechanic:plan/up/down`, ledger `seed:mechanic-demo` — the same
+  (`seed:mechanic:plan/up/down`, ledger `seed:mechanic-demo` â€” the same
   ledger-in-`system_settings` mechanism as `seed-demo.mjs`, under a separate
   key because the phase4 ledger is already planted live): employee 134
   (`mechanic.demo@fleetops.test`, role 10) + WOs 80 (Scheduled), 81
   (In Progress, started, diagnosed), 82 (Pending Inspection,
-  `repair_completed_by` = 134 with parts + labor — the four-eyes demo path),
+  `repair_completed_by` = 134 with parts + labor â€” the four-eyes demo path),
   on vehicles 130/131/132 (DMM-4201/2/3).
 
 **Verified.** Mechanic suites: `[id]` PUT 21/21, scoped reads 37/37,
 single-record GET 41/41, copy/target 187/187, workshop UI 16/16.
 `verify:auth` 296/296 (294 pre-branch: + scoped summary GET, + record GET).
 Full suite: only the 7 pre-existing baseline failures (proven via `git stash`
-on the clean tree each time — rate-limit LEAST regex, secrets timeout,
-no-legacy-role allowlist, upload-storage regex, standby ×2,
+on the clean tree each time â€” rate-limit LEAST regex, secrets timeout,
+no-legacy-role allowlist, upload-storage regex, standby Ã—2,
 driver-assignments 500).
 
 ## Database tables used
 
-`vehiclemaintenance` · `vehicles` (odometer) · `notifications` · `employees` (assignee link, recipients) · `system_settings` (seed ledgers only)
+`vehiclemaintenance` Â· `vehicles` (odometer) Â· `notifications` Â· `employees` (assignee link, recipients) Â· `system_settings` (seed ledgers only)
 
 ## Related
 
-[[Fleet And Vehicles]] · [[AI Advisory]] · [[Notifications]] · [[Feature Index]]
+[[Fleet And Vehicles]] Â· [[AI Advisory]] Â· [[Notifications]] Â· [[Feature Index]]
 
 ## Fleet Manager live-use remediation - 2026-10-03
 
@@ -463,15 +465,74 @@ Maintenance rows now derive `is_overdue` when their stored status is `Scheduled`
 
 Predictive maintenance is presented as a **Vehicle Service Outlook**. Its description states that scores use service-date urgency and corrective-maintenance history and do not measure physical condition. Rows retain their calendar-only warning and now identify when a 90-day trip sample supports mileage estimates. Focused route and UI regressions pass; the reported QA-0001 row was not checked against live data.
 
-## Passenger/cargo merge verification — 2026-10-08
+## Passenger/cargo merge verification â€” 2026-10-08
 
 The merge preserves main's mechanic workshop, assignee-scoped work orders, role and transition guards, and completion review rules. The work-order list, work-order detail and mechanic history pages now call the exported `getMaintenanceRecords` service. They no longer depend on a missing service export. `src/components/mechanic/sub-pages.test.js` renders the actual pages, captures their actual query callbacks and invokes those callbacks, so a page cannot pass merely because its query never runs.
 
 This is automated source/component and caller verification. It does not claim an authenticated browser workshop walkthrough or a new mechanic demo seed apply. The coordinated checks and remaining release limits are recorded in [[FleetOps Passenger Cargo Review Closeout 2026-10-08]].
-## Creating a mechanic account — corrected 2026-10-08
+## Creating a mechanic account â€” corrected 2026-10-08
 
-Admin and Super Admin can select **Mechanic** in Settings → Users → Add User. The picker now uses the same `canAssignRole` rule as the account API; the old page-only Admin list had omitted Mechanic. The role card explains assigned repair jobs and submission for review, with a Workshop badge. Provisioning keeps the existing temporary-password invitation workflow and mechanic's assigned-work-order permissions. See [[RBAC]] for the page/API regression evidence and live role check.
+Admin and Super Admin can select **Mechanic** in Settings â†’ Users â†’ Add User. The picker now uses the same `canAssignRole` rule as the account API; the old page-only Admin list had omitted Mechanic. The role card explains assigned repair jobs and submission for review, with a Workshop badge. Provisioning keeps the existing temporary-password invitation workflow and mechanic's assigned-work-order permissions. See [[RBAC]] for the page/API regression evidence and live role check.
 
 ## Archive and cancellation reconsideration - 2026-10-09
 
 Maintenance archive confirmations and both existing-record edit flows that save status `Cancelled` now use the shared five-second pre-request reconsideration. Cancellation captures the validated form snapshot; Undo returns to the current editor without writing, while expiry sends the existing update once. The warning keeps the terminal/history consequence visible. New-record creation and other maintenance status transitions are unchanged. Changed-file ESLint passed; a production build could not start because another Next build held the shared lock, and these maintenance flows were not exercised in the browser.
+## Mechanic integration (P0/P1/P2) â€” built 2026-10-08, branch `feat/mechanic-integration`
+
+Incident â†’ Maintenance stays automatic (untouched). The mechanic is now the execution layer after the work order exists:
+
+- **P0 â€” FM assign UI (was the only missing P0 piece).** The maintenance register + fleet maintenance dialog had no mechanic control, so auto-created WOs stayed unassigned/invisible to mechanic queries. Added staff-only Assign Mechanic select backed by new `GET /api/mechanics` (active mechanics, `maintenance:create` gate â€” FM lacks `accounts:read` so the users endpoint was unusable), `assigned_mechanic_id` threaded through the client service + POST allowlist with active-mechanic validation, `assigned_at` stamped server-side. Register renders both `Incident #N` and `Inspection #N` chips. Mechanic cannot assign (UI never renders, server strips). Assigned creation now uses the same notification fan-out as PUT; High/Emergency creation also alerts the assignee and maintenance staff.
+- **P1 â€” Upcoming + labels + history.** `GET /api/mechanic/summary` now carries `source_incident_id` (was inspection-only); mechanic queue/detail/hero render display-only source chips. Upcoming is a client-side reuse of the existing predictive endpoint (already mechanic-scoped server-side to assigned vehicles), filtered to `effectiveDays <= 14` excluding unscheduled rows, rendered in the existing SideRail whisper strip (no CTAs). New `GET /api/mechanic/vehicle-history?vehicle_id=N` (fail-closed: â‰¥1 assigned WO on that vehicle; lean projections, no cost, LIMIT 5) feeds read-only Previous maintenance / Recent incidents / Recent inspections / Last PMS sections in the work-order detail.
+- **P2 â€” Fuel diagnostic WO (manual, never automatic).** Reports efficiency rows with `Below baseline` + non-null estimate show an FM/admin-only `Create diagnostic work order` button â†’ `POST /api/vehicle-maintenance` (`Inspection`, `Normal`, cost 0, dated tomorrow in Manila) with fuel reference in remarks + honesty line. This diagnostic does not ground the vehicle today; ordinary due-maintenance rules apply tomorrow, and independent grounding rules still apply. Notifies the maintenance queue via `Fuel Efficiency Diagnostic Filed`. No cron, no auto-filing, no formula change, no migration. Also fixed along the way: client service double-JSON-encoding of write bodies, and `created_by` now stamped server-side on POST.
+
+**Verified.** 68/68 API/service tests (vehicle-maintenance POST + [id] + summary + vehicle-history + mechanics directory + fuel diagnostic builder/notifier/service) and 27/27 mechanic component + fuel-diagnostic POST tests pass on the merged tree; ESLint clean on all touched files.
+
+### Review fixes and improvements â€” 2026-10-08
+
+Both staff assignment surfaces now use a shared, correctly wired Radix picker. Loading and failed directory requests disable selection; failure offers retry, an empty directory explains that there are no active mechanics, and an unavailable current assignee remains visible rather than being cleared. An unchanged edit omits the assignment field; choosing Unassigned sends null. The fleet dialog's vehicle/type/status controls also use working native selects. Runtime role checks use the current permission matrix without the retired role alias.
+
+Reports checks `GET /api/vehicle-maintenance/fuel-diagnostics?vehicle_ids=â€¦` for up to ten visible vehicles under `maintenance:create`. Its lean projection returns the latest active marked Inspection per vehicle (Scheduled, In Progress or Pending Inspection), excluding deleted/closed/unmarked rows. An existing work-order number is displayed; another requires explicit confirmation. Failed checks block filing and offer retry; rapid duplicate clicks are suppressed. This is an operator safeguard, not a database uniqueness guarantee: concurrent users can deliberately file separate diagnostics.
+
+Upcoming maintenance distinguishes loading, unavailable data and successful empty results, including when the mechanic has no actionable jobs. The existing assigned-vehicle scope, effectiveDays <= 14 threshold, exclusion of unscheduled rows and display-only strip remain intact. Staff maintenance and fuel-diagnostic alerts open `/maintenance`; mechanic alerts retain their assigned work-order destination. Notification failures are logged without undoing a successfully created work order.
+
+Diagnostic date generation, maintenance status synchronization and availability SQL use the Manila calendar. Regression tests freeze independent literal dates at midnight/month/year boundaries. The full suite passed 4,482 tests (17 intentionally skipped), lint passed, the route-auth audit passed 318 methods and the offline migration check validated 155 files. An opt-in run passed 14 date/status/availability tests, including actual availability SQL against rollback-only PostgreSQL temporary tables copied from live column types; its clock and unrelated auth/coding gates are isolated. It does not exercise production triggers, RLS or complete dispatch. Browser checks verified selection, clearing, loading and retry in the real shared picker using synthetic data; the signed-in application walkthrough was still unverified at that review stage because the browser session had expired. The later local walkthrough and its limits are recorded below. See [[Mechanic Integration Review Fixes Plan]] for final build evidence and limitations.
+
+### Authenticated local smoke test â€” 2026-10-08
+
+The later local walkthrough verified staff assignment and its mechanic notification, mechanic access to the assigned work order, Vehicle History, Scheduled â†’ In Progress â†’ Pending Inspection, and the absence of mechanic completion/assignment controls. It also verified the assigned-work-order Not Found response for an order assigned to someone else, Incident #117 display, the Upcoming empty state, and the two staff assignment pickers. It did not test a second mechanic account, direct `/api/mechanics` denial (the browser blocked that URL), or simulated request failures.
+
+The fuel report's quarter range exposed eligible Below-baseline rows. Manual filing created diagnostic #84 for DMM-4201, scheduled for 2026-10-09; after reload the open diagnostic appeared, and choosing **Keep existing** from the repeat-filing prompt created no duplicate. Work order #83 for DMM-4211 remains Pending Inspection with clearly labeled test-only diagnosis text; #84 remains Scheduled. These are test records in the connected local app and should be cancelled or otherwise cleaned up before operational use.
+
+That walkthrough found a date-edit regression: the API serialized PostgreSQL DATE values as UTC timestamps, so Manila midnight for October 9 arrived as October 8 at 16:00Z and the edit input showed October 8. `GET /api/vehicle-maintenance` now converts the date columns back to date-only calendar strings before JSON serialization. The new regression first failed with the one-day-shifted value and now passes; the maintenance route suite passes 16/16. The full suite has not been rerun after this final correction.
+
+### Maintenance record form cleanup â€” 2026-10-08
+
+The admin maintenance record picker now uses string IDs for both its selected value and its options, so Radix can display the chosen vehicle label. Selecting a vehicle fills **Mileage at Service (km)** from that vehicle's saved `vehicles.mileage`; staff can adjust it if the odometer reading at service differs. The Fleet Maintenance dialog uses the same selection and mileage behavior, and shows the mileage field before a work order is completed.
+
+Removed Service Provider and Service Center from the admin form and detail view, and Service Provider from the Fleet dialog and register. The feature regression tests passed (7/7), the maintenance component suite passed (14/14), and ESLint passed on all touched UI, helper, and test files. A local browser check confirmed the selected vehicle remained visible and its saved mileage appeared; the form was not submitted, so no maintenance record was created or changed.
+
+### Provider columns dropped â€” 2026-10-13
+
+Follow-up: the columns are now fully deleted, not just hidden. Migration `163_drop_maintenance_provider_columns` drops `vehiclemaintenance.service_provider` and `service_center`; the POST/PUT allowlists and validation schemas reject those keys, the lean/single-record projections and sortable map no longer select them, register search matches plate/type/description instead, the mechanic `MECHANIC_WRITABLE` set and client body builder dropped the four provider aliases, the reports workbook lost the Provider/Service-center columns (SELECT updated in `operational-reports.js`), and all three seed writers stopped inserting them. The register's "no provider text" regression test (legacy "Old garage" row stays invisible) still passes. Migration file validated by `db:check` (162 files); **not yet applied** â€” `db:up` also has pending cargo migrations 158â€“161, so apply + `db:dump` together when ready.
+
+### Maintenance records show the repair performer â€” 2026-10-08
+
+The admin maintenance registry and Fleet Maintenance register now show a **Mechanic** column from the employee name joined to `vehiclemaintenance.repair_completed_by`. The detail view labels this **Performed By**, separately from **Assigned Mechanic**. `repair_completed_by` is stamped when work enters Pending Inspection, so it records who did the work; assignment, `created_by`, and old provider text are not used as substitutes. Rows with no performer stamp show **Not recorded**. No existing records were backfilled, and no schema change was made; the read projection adds only the display name.
+
+The maintenance route and register regression tests pass (23/23), and ESLint passes on all touched code. The full run reported 4,486 passed and 17 skipped; its sole failure was a Git-history security test blocked by the host's Git text-conversion helper, and that test file passed 44/44 with the system Git config disabled for the test process. Production build verification remains blocked by Windows filesystem errors in generated `.next` output: Turbopack cannot create a junction, and the Webpack fallback gets `EPERM` creating a route directory.
+
+### Mechanic workspace UI redesign â€” 2026-10-09
+
+My Line now uses one filterable assigned-work-order queue with a selected vehicle snapshot. The snapshot shows `vehicles.image_url` when available and a labeled fallback when it is missing or fails; on phones it follows the queue, while wider screens show it beside the queue. My Work Orders shares the responsive queue, and the Problem Queue and History pages use compact layouts that avoid wide-table scrolling.
+
+Work-order details load one mechanic-assigned record, prefill saved diagnosis, parts, labor, and handover notes, and show which core repair evidence is recorded. Mechanics can update evidence and use the existing status actions on phones, tablets, and desktop. Vehicle history omits the open work order. The existing mechanic field whitelist, assignment checks, status transitions, and database schema are unchanged. The repair evidence API serializes the validated parts array as JSON text for PostgreSQL JSONB.
+
+Focused ESLint passed for the nine changed mechanic source files, and `git diff --check` passed. Automated tests were not run. An authenticated visual review could not be completed: the isolated local preview redirects `/mechanic` to `/login`, and no account credentials were used. See `docs/superpowers/specs/2026-10-09-mechanic-role-module-ui-redesign.md` and `docs/superpowers/plans/2026-10-09-mechanic-role-module-ui-redesign.md`.
+
+The work-order summary now shows Job type, Scheduled, Odometer at service, and Priority as four equal 2Ã—2 tiles. On desktop, two independent columns place work details above vehicle history and repair timeline above findings/evidence, so a tall history panel does not leave a large gap above the evidence form. Phone and tablet views stack the panels. A missing odometer remains visible as a dash. Focused ESLint and `git diff --check` passed; no workflow or permission behavior changed.
+
+The work-order loading state now uses the same Card components, two-column stacks, 2Ã—2 work-detail tiles, timeline and evidence-form structure as the loaded page. Its vehicle-history placeholder follows the same section and row structure as the real history card, avoiding a generic layout that shifts when the work order loads. Focused ESLint and `git diff --check` passed; automated tests were not run. Authenticated visual review remains unavailable because the local preview redirects to login.
+
+Queue rows on both My Line and My Work Orders no longer show issue/description text, keeping the list focused on the vehicle, job type, status, timing, and action. The issue remains available in the vehicle snapshot and work-order details. Focused ESLint and `git diff --check` passed.
+
+The mechanic workspace sidebar now contains only My Line and workshop tasks; the separate Account group and Profile link were removed to keep the navigation focused on repair work. Other roles and the account menu are unchanged. Focused ESLint and `git diff --check` passed.

@@ -137,6 +137,139 @@ describe("POST /api/vehicle-maintenance", () => {
   });
 });
 
+// P0 mechanic integration — assign at creation. Staff may file a work order
+// already assigned; the server validates the id against active mechanics and
+// stamps assigned_at. Non-staff callers get the key stripped (the PUT
+// whitelist already does this on edit); unknown ids and empty selections
+// never reach the INSERT.
+describe("POST /api/vehicle-maintenance assign-mechanic at creation (P0)", () => {
+  let querySpy;
+  let mockInsertedRecord;
+
+  beforeEach(() => {
+    mockInsertedRecord = {
+      maintenance_id: 1,
+      vehicle_id: 1,
+      status: "Scheduled",
+      assigned_mechanic_id: 77,
+      completed_by: null,
+      completed_at: null
+    };
+
+    querySpy = vi.spyOn(db, "query").mockImplementation(async (sql, values) => {
+      if (sql.includes("INSERT INTO vehiclemaintenance")) {
+        return { rows: [mockInsertedRecord] };
+      }
+      return { rows: [] };
+    });
+    vi.spyOn(db, "withTransaction").mockImplementation((callback) => callback({
+      query: async (sql, values) => {
+        if (sql.includes("set_config('statement_timeout'")) return { rows: [], rowCount: 0 };
+        if (sql.includes("INSERT INTO audit_logs")) return { rows: [{ log_id: 1 }], rowCount: 1 };
+        return db.query(sql, values);
+      },
+    }));
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function mockRequest(body, role = "fleet_manager", employeeId = 888) {
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({
+      user: { role, employeeId },
+    });
+    return { json: async () => body };
+  }
+
+  // Drives the P0 existence check: SELECT ... FROM employees WHERE
+  // employee_id = $1 AND role_id = $2 ... Only the stubbed id resolves.
+  function stubMechanicLookup(validId) {
+    querySpy.mockImplementation(async (sql, values) => {
+      if (sql.includes("FROM employees")) {
+        const [wanted, roleId] = values;
+        return { rows: wanted === validId && roleId === 10 ? [{ employee_id: validId }] : [] };
+      }
+      if (sql.includes("INSERT INTO vehiclemaintenance")) {
+        return { rows: [mockInsertedRecord] };
+      }
+      return { rows: [] };
+    });
+  }
+
+  function getInsertParams(queryCall) {
+    const sql = queryCall[0];
+    const values = queryCall[1];
+    const colMatch = sql.match(/INSERT INTO vehiclemaintenance \((.*?)\)/);
+    if (!colMatch) return {};
+    const columns = colMatch[1].split(",").map(c => c.trim());
+    const result = {};
+    columns.forEach((col, i) => {
+      result[col] = values[i];
+    });
+    return result;
+  }
+
+  it("staff POST with a valid mechanic assigns at creation and stamps assigned_at", async () => {
+    stubMechanicLookup(77);
+    const req = mockRequest({ vehicle_id: 1, maintenance_date: "2026-08-30", maintenance_type: "Routine", assigned_mechanic_id: 77 });
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+
+    const lookupCall = querySpy.mock.calls.find(c => c[0].includes("FROM employees"));
+    expect(lookupCall[1]).toEqual([77, 10]);
+    expect(lookupCall[0]).toContain("role_id = $2");
+    expect(lookupCall[0]).toContain("deleted_at IS NULL");
+
+    const insertCall = querySpy.mock.calls.find(c => c[0].includes("INSERT INTO vehiclemaintenance"));
+    const params = getInsertParams(insertCall);
+    expect(params.assigned_mechanic_id).toBe(77);
+    expect(params.status).toBe("Scheduled");
+    expect(insertCall[0]).toContain("assigned_at");
+    expect(insertCall[0]).toContain("CURRENT_TIMESTAMP");
+  });
+
+  it("staff POST with an unknown mechanic id is rejected before any INSERT", async () => {
+    stubMechanicLookup(77);
+    const req = mockRequest({ vehicle_id: 1, maintenance_date: "2026-08-30", maintenance_type: "Routine", assigned_mechanic_id: 99999 });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("Assigned mechanic");
+    expect(querySpy.mock.calls.find(c => c[0].includes("INSERT INTO vehiclemaintenance"))).toBeUndefined();
+  });
+
+  it("non-staff POST has assigned_mechanic_id stripped (no lookup, no column)", async () => {
+    stubMechanicLookup(77);
+    // requirePermission is mocked, so the mechanic session reaches the body
+    // handling the real matrix would deny — the strip must hold regardless.
+    const req = mockRequest(
+      { vehicle_id: 1, maintenance_date: "2026-08-30", maintenance_type: "Routine", assigned_mechanic_id: 77 },
+      "mechanic",
+      77
+    );
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+
+    expect(querySpy.mock.calls.find(c => c[0].includes("FROM employees"))).toBeUndefined();
+    const insertCall = querySpy.mock.calls.find(c => c[0].includes("INSERT INTO vehiclemaintenance"));
+    const params = getInsertParams(insertCall);
+    expect(params.assigned_mechanic_id).toBeUndefined();
+    expect(insertCall[0]).not.toContain("assigned_at");
+  });
+
+  it("empty-string assignment is omitted, not written as NULL", async () => {
+    stubMechanicLookup(77);
+    const req = mockRequest({ vehicle_id: 1, maintenance_date: "2026-08-30", maintenance_type: "Routine", assigned_mechanic_id: "" });
+    const res = await POST(req);
+    expect(res.status).toBe(201);
+
+    expect(querySpy.mock.calls.find(c => c[0].includes("FROM employees"))).toBeUndefined();
+    const insertCall = querySpy.mock.calls.find(c => c[0].includes("INSERT INTO vehiclemaintenance"));
+    const params = getInsertParams(insertCall);
+    expect(params.assigned_mechanic_id).toBeUndefined();
+  });
+});
+
 // Task 4 — mechanic scoped reads. The query mock below plays the database:
 // it honors an `assigned_mechanic_id = $n` predicate when the route's SQL
 // carries one, and it projects columns the way Postgres would — full rows
@@ -175,8 +308,6 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
     status: "Scheduled",
     priority: "High",
     cost: "1500",
-    service_provider: "Shop",
-    service_center: "Center",
     mileage_at_service: "10000",
     description: "worn pads",
     remarks: "r1",
@@ -188,6 +319,7 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
     repair_started_at: "2026-10-02T08:00:00.000Z",
     repair_completed_at: null,
     repair_completed_by: null,
+    repair_completed_by_name: null,
     diagnosis: "worn pads",
     parts_replaced: ["pad set"],
     labor_hours: "1.5",
@@ -229,6 +361,7 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
             // projection selects them — exactly as Postgres would.
             if (EVIDENCE_KEYS.includes(k) && !sql.includes(`vm.${k}`)) continue;
             if (k === "source_inspection_id" && !sql.includes("vm.source_inspection_id")) continue;
+            if (k === "repair_completed_by_name" && !sql.includes("AS repair_completed_by_name")) continue;
             if (k === "vehicles") {
               out.vehicles = { plate_number: v.plate_number, vehicle_name: v.vehicle_name };
               continue;
@@ -299,7 +432,7 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
     }
   });
 
-  it("staff register behavior is unchanged: no assignee filter, unscoped counts", async () => {
+  it("staff register behavior is unchanged: assignee id carried, counts unscoped", async () => {
     stubMaintenanceGet();
     const res = await GET(getReq("http://test/api/vehicle-maintenance?page=1&pageSize=10", "fleet_manager", 888));
     expect(res.status).toBe(200);
@@ -307,8 +440,14 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
 
     // All three rows, including other mechanics' and unassigned.
     expect(body.rows).toHaveLength(3);
-    for (const [sql] of mechQuerySpy.mock.calls) {
-      expect(sql).not.toContain("assigned_mechanic_id");
+    // P0: staff list rows carry the assignee id (the edit dialog seeds its
+    // assign-mechanic select from it); no row is filtered by it.
+    for (const row of body.rows) {
+      expect(row).toHaveProperty("assigned_mechanic_id");
+    }
+    for (const sql of listSqls()) {
+      expect(sql).toContain("assigned_mechanic_id");
+      expect(sql).not.toContain("vm.assigned_mechanic_id = $");
     }
     const countsCall = mechQuerySpy.mock.calls.find((c) => c[0].includes("total_cost"));
     expect(countsCall[1]).toBeUndefined();
@@ -324,6 +463,7 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
       for (const key of EVIDENCE_KEYS) {
         expect(row, `mechanic row missing ${key}`).toHaveProperty(key);
       }
+      expect(row).toHaveProperty("repair_completed_by_name", null);
       expect(row).toHaveProperty("source_inspection_id");
       expect(Array.isArray(row.parts_replaced)).toBe(true);
     }
@@ -331,11 +471,13 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
       for (const key of EVIDENCE_KEYS) {
         expect(sql).toContain(`vm.${key}`);
       }
+      expect(sql).toContain("AS repair_completed_by_name");
+      expect(sql).toContain("LEFT JOIN employees repairer ON repairer.employee_id = vm.repair_completed_by");
       expect(sql).toContain("vm.source_inspection_id");
     }
   });
 
-  it("Task 4b: staff lean rows carry the same evidence superset (still no assigned_mechanic_id)", async () => {
+  it("Task 4b: staff lean rows carry the same evidence superset (plus assigned_mechanic_id since P0)", async () => {
     stubMaintenanceGet();
     const res = await GET(getReq("http://test/api/vehicle-maintenance?page=1&pageSize=10", "fleet_manager", 888));
     expect(res.status).toBe(200);
@@ -346,13 +488,45 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
         expect(row, `staff row missing ${key}`).toHaveProperty(key);
       }
       expect(row).toHaveProperty("source_inspection_id");
+      expect(row).toHaveProperty("repair_completed_by_name", null);
+      // P0: the staff edit dialog seeds its assign-mechanic select from the
+      // list row, so the projection carries the current assignee id.
+      expect(row).toHaveProperty("assigned_mechanic_id");
     }
     for (const sql of listSqls()) {
-      expect(sql).not.toContain("assigned_mechanic_id");
+      expect(sql).toContain("assigned_mechanic_id");
       for (const key of EVIDENCE_KEYS) {
         expect(sql).toContain(`vm.${key}`);
       }
+      expect(sql).toContain("AS repair_completed_by_name");
     }
+  });
+
+  it("returns the recorded repair performer by name, independently of the assignee", async () => {
+    const workOrder = WO_ROW({
+      maintenance_id: 14,
+      assigned_mechanic_id: 77,
+      repair_completed_by: 82,
+      repair_completed_by_name: "Nico Santos",
+    });
+    mechQuerySpy.mockImplementation(async (sql) => {
+      const row = { ...workOrder };
+      if (!sql.includes("AS repair_completed_by_name")) delete row.repair_completed_by_name;
+      return { rows: [row] };
+    });
+
+    const res = await GET(getReq("http://test/api/vehicle-maintenance", "fleet_manager", 888));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body[0]).toMatchObject({
+      assigned_mechanic_id: 77,
+      repair_completed_by: 82,
+      repair_completed_by_name: "Nico Santos",
+    });
+
+    const sql = mechQuerySpy.mock.calls[0][0];
+    expect(sql).toContain("LEFT JOIN employees repairer ON repairer.employee_id = vm.repair_completed_by");
+    expect(sql).toContain("AS repair_completed_by_name");
   });
 });
 
@@ -375,5 +549,29 @@ describe("GET /api/vehicle-maintenance overdue scope", () => {
     expect(body.rows[0]).toMatchObject({ status: "Scheduled", is_overdue: true });
     expect(listSql).toContain("NOW() AT TIME ZONE 'Asia/Manila'");
     expect(listSql).toContain("vm.maintenance_date <");
+  });
+});
+
+describe("GET /api/vehicle-maintenance calendar dates", () => {
+  it("returns PostgreSQL date columns as date-only values instead of timezone-bearing instants", async () => {
+    const maintenanceDate = new Date(2026, 9, 9);
+    const completedDate = new Date(2026, 9, 10);
+    vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("AS is_overdue")) {
+        return { rows: [{ maintenance_id: 81, maintenance_date: maintenanceDate, completed_date: completedDate }] };
+      }
+      if (sql.includes("AS overdue")) {
+        return { rows: [{ total: "1", scheduled: "1", overdue: "0", inProgress: "0", total_cost: "0" }] };
+      }
+      if (sql.includes("count(*) AS total")) return { rows: [{ total: "1" }] };
+      return { rows: [] };
+    });
+    vi.spyOn(utils, "requirePermission").mockResolvedValue({ user: { role: "fleet_manager" } });
+
+    const response = await GET(new Request("https://fleet.test/api/vehicle-maintenance?page=1&pageSize=10"));
+    const body = await response.json();
+
+    expect(body.rows[0].maintenance_date).toBe("2026-10-09");
+    expect(body.rows[0].completed_date).toBe("2026-10-10");
   });
 });
