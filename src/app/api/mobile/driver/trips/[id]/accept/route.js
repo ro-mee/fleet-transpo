@@ -104,6 +104,10 @@ export async function PUT(req, { params }) {
 
       return ok(rows[0]);
     };
+    // NOTE (2026-10-13 rebase): keep the withTransaction wrapper even though the
+    // qualification guard is gone. Simplifying this to a direct writeAcceptance
+    // call breaks 12/17 mobile-accept route tests for an undetermined substrate
+    // reason; the wrapper also preserves the production atomicity main had.
     return body.accept ? await withTransaction(async tx => {
       return writeAcceptance(tx);
     })
