@@ -800,6 +800,7 @@ export default function FuelPage() {
         actions={
           <div className="flex flex-wrap gap-2">
           {can("fuelallocations", "read") ? <Button asChild variant="outline" className={cn("h-10", heroButtonOutlineClass)}><a href="/fuel/reference-prices">Reference prices</a></Button> : null}
+          {can("reports", "read") ? <Button asChild variant="outline" className={cn("h-10", heroButtonOutlineClass)}><a href="/fuel/estimates">Fuel estimates</a></Button> : null}
           <Button
             variant="outline"
             className={cn("h-10", heroButtonOutlineClass)}

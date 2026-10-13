@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, afterEach, describe, it, expect, vi } from 'vitest';
+﻿import { beforeAll, afterAll, afterEach, describe, it, expect, vi } from 'vitest';
 const apiFixture=vi.hoisted(()=>({run:null,transaction:null,session:{user:{role:'driver',driverId:1,employeeId:1}}}));
 vi.mock('@/lib/db', () => ({ query: (...args) => apiFixture.run(tx => tx.query(...args)), withTransaction: work => apiFixture.transaction(work) }));
 // Historical policy fixtures exercise custody logic only. This explicit test
@@ -83,9 +83,6 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
         CREATE TABLE transportation_requests(request_id integer PRIMARY KEY,load_type text,source_system text,external_request_id text,service_type_id integer,deleted_at timestamptz);
         INSERT INTO service_types VALUES(1,'HOTEL_SUPPLY_TRANSFER',NULL);
         INSERT INTO transportation_requests VALUES(1,'Cargo','PMS','r1',1,NULL);`);
-      await tx.query('ALTER TABLE transportation_requests ADD COLUMN cargo_weight_kg numeric(12,3)');
-      await tx.query(readFileSync('supabase/migrations/156_driver_service_qualifications.sql', 'utf8'));
-      await tx.query("INSERT INTO driver_service_qualifications(driver_id,qualification_group,status,policy_version,verified_by,verified_at,reason) VALUES(1,'CARGO','ACTIVE','simulated:v1',2,now(),'Fixture approval')");
       await tx.query('INSERT INTO request_cargo_manifest_revisions VALUES($1,1,1,$2,$3)', [manifest.manifest_ref.id, manifest.manifest_ref.hash, JSON.stringify(manifestSnapshot)]);
       await tx.query(readFileSync('supabase/migrations/159_cargo_execution_storage.sql', 'utf8').replaceAll('public.', `${schema}.`).replaceAll('storage.', `${storage}.`));
       migration = readFileSync('supabase/migrations/160_cargo_execution_commands.sql', 'utf8').replaceAll('public.', `${schema}.`);
@@ -100,10 +97,6 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
 
   function enableLifecycle() {
     vi.stubEnv('CARGO_LIFECYCLE_MODE', 'ENFORCE');
-    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'ENFORCE');
-    vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION', 'simulated:v1');
-    vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW', 'simulated:review');
-    vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS', 'RECHECK');
     const lifecycle = makeService({ config: { ...config, lifecycleApprovalRef: 'simulated:lifecycle' }, authorizeLifecycle: async () => true });
     apiFixture.transaction = work => run(base => work(lifecycle.bindLifecycleTransaction(base)));
     return lifecycle;
@@ -181,19 +174,16 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
     expect(JSON.stringify(audit)).not.toMatch(/https?:|remarks|payload/);
   });
 
-  it('keeps passenger qualification independent when the simulated cargo boundary is active', async () => {
+  it('lets passenger trips transition without assignment-time classification recheck', async () => {
     enableLifecycle();
     await run(tx => tx.query("INSERT INTO service_types VALUES(2,'GUEST_TRANSPORT',NULL); INSERT INTO transportation_requests VALUES(2,'Passenger','PMS','passenger',2,NULL); INSERT INTO dispatchschedules VALUES(4,2,'PASSENGER'); INSERT INTO trips(trip_id,dispatch_id,driver_id,trip_status) VALUES(4,4,1,'Trip Started')"));
-    await expect(setTripStatus({ tripId: 4, to: 'In Progress', session: actor })).rejects.toMatchObject({ code: 'DRIVER_SERVICE_QUALIFICATION_REQUIRED' });
-    expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=4'))).rows[0].trip_status).toBe('Trip Started');
+    await setTripStatus({ tripId: 4, to: 'In Progress', session: actor });
+    expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=4'))).rows[0].trip_status).toBe('In Progress');
   });
 
-  it('rejects missing enforced qualification policy and stale manifest at the final checkpoint', async () => {
+  it('rejects a stale manifest at the final checkpoint', async () => {
     const lifecycle = enableLifecycle();
     await stage('Driver Accepted');
-    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'OFF');
-    await expect(apiFixture.transaction(async tx => { await prepareCargoLifecycle(tx); return assertCargoCheckpoint({ trip_id: 1 }, { to: 'Trip Started', session: actor }, tx); })).rejects.toMatchObject({ status: 503 });
-    vi.stubEnv('DRIVER_QUALIFICATION_MODE', 'ENFORCE');
     await stage('At Pickup');
     await service.submitCargoReceipt(1, receipt('10'), actor);
     const changed = { ...manifestSnapshot, lines: [{ ...manifest.lines[0], expected_quantity: '11' }] };
@@ -211,34 +201,6 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
     apiFixture.transaction = work => run(base => work(lifecycle.bindLifecycleTransaction({ query: (sql, params) => sql.includes('INSERT INTO audit_logs') ? Promise.reject(new Error('checkpoint audit failure')) : base.query(sql, params) })));
     await expect(setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' })).rejects.toThrow('checkpoint audit failure');
     expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=1'))).rows[0].trip_status).toBe('At Pickup');
-  });
-
-  it('serializes final departure behind committed revocation on a separate database session', async () => {
-    const lifecycle = enableLifecycle();
-    await stage('At Pickup');
-    const picked = await service.submitCargoReceipt(1, receipt('10'), actor);
-    await service.clearCargoDeparture(1, { receipt_id: picked.pickup_receipt.receipt_id, expected_version: picked.version, reason: 'Fixture securement' }, fleet);
-    const client = await pool.connect();
-    let departure;
-    try {
-      await client.query('BEGIN'); await client.query(`SET LOCAL search_path TO ${schema},pg_catalog`);
-      await client.query('SELECT driver_id FROM drivers WHERE driver_id=1 FOR UPDATE');
-      await client.query("UPDATE driver_service_qualifications SET status='REVOKED',version=version+1 WHERE driver_id=1");
-      let entered; const waiting = new Promise(resolve => { entered = resolve; });
-      apiFixture.transaction = work => run(base => work(lifecycle.bindLifecycleTransaction({ query: async (sql, params) => {
-        if (sql.startsWith('SELECT driver_id FROM drivers WHERE driver_id=')) entered();
-        return base.query(sql, params);
-      } })));
-      departure = setTripStatus({ tripId: 1, to: 'Passenger Onboard', session: actor, geofenceOverride: true, geofenceReason: 'Fixture override' }).then(value => ({ value }), error => ({ error }));
-      await waiting;
-      await client.query('COMMIT');
-      expect((await departure).error).toMatchObject({ code: 'DRIVER_SERVICE_QUALIFICATION_REQUIRED', status: 409 });
-      expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=1'))).rows[0].trip_status).toBe('At Pickup');
-    } finally {
-      await client.query('ROLLBACK'); client.release();
-      if (departure) await departure;
-      await run(tx => tx.query("UPDATE driver_service_qualifications SET status='ACTIVE',version=version+1 WHERE driver_id=1"));
-    }
   });
 
   it('reruns the candidate safely and keeps command snapshots private', async () => {

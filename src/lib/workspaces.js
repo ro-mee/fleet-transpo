@@ -152,6 +152,7 @@ export const WORKS = {
         label: "Operations",
         items: [
           { href: "/fuel", label: "Fuel", icon: Fuel },
+          { href: "/fuel/estimates", label: "Fuel Estimates", icon: Gauge },
           {
             href: "/maintenance",
             label: "Maintenance",
@@ -218,7 +219,8 @@ export const WORKS = {
           { href: "/maintenance/problems", label: "Problem Queue", icon: ListTodo },
           { href: "/fuel", label: "Fuel Monitoring", icon: Fuel },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: ChartColumnIncreasing },
-          { href: "/settings/fuel", label: "Fuel Policy", icon: SlidersHorizontal },
+          { href: "/fuel/estimates", label: "Fuel Estimates", icon: Gauge },
+          { href: "/settings/fuel", label: "Fuel Policy", icon: Fuel },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
@@ -309,6 +311,7 @@ export const WORKS = {
           { href: "/reports", label: "Reports Hub", icon: FileChartColumn },
           { href: "/reports/cost", label: "Financial Overview", icon: Wallet },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
+          { href: "/fuel/estimates", label: "Fuel Estimates", icon: Gauge },
           { href: "/dispatch/availability", label: "Resource Availability", icon: Users },
           { href: "/drivers/performance", label: "Driver Performance", icon: Gauge },
         ],
@@ -334,9 +337,6 @@ export const WORKS = {
         { href: "/mechanic/work-orders", label: "My Work Orders", icon: Wrench },
         { href: "/mechanic/problems", label: "Problem Queue", icon: AlertTriangle },
         { href: "/mechanic/history", label: "History", icon: ClipboardList },
-      ]},
-      { label: "Account", items: [
-        { href: "/settings/profile", label: "Profile", icon: UserCog },
       ]},
     ],
   },

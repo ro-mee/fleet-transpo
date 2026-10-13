@@ -413,7 +413,6 @@ export default function DriverDetailPage() {
 
         {/* ── TAB 1: OVERVIEW ── */}
         <TabsContent value="overview" className="space-y-6 mt-2 focus:outline-none">
-          <ServiceQualifications driverId={driver.driver_id} />
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
             {/* Left 7 Cols: Personal & License Details */}

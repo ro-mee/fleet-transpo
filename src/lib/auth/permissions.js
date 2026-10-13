@@ -64,6 +64,7 @@ export const NAV_ROLES = {
   "/routes": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/fuel": ["admin", "super_admin", "fleet_manager"],
   "/fuel/analytics": ["admin", "super_admin", "fleet_manager", "management"],
+  "/fuel/estimates": ["admin", "super_admin", "fleet_manager", "management"],
   "/maintenance": ["admin", "super_admin", "fleet_manager"],
   "/maintenance/predictive": ["admin", "super_admin", "fleet_manager"],
   "/ai": ["admin", "super_admin", "fleet_manager", "management"],
@@ -134,7 +135,6 @@ export function hasRole(employee, roleOrRoles) {
 const MATRIX = {
   admin: {
     cargo: { read: true, observe: false, clearance: true, manual_decision: true },
-    driver_qualifications: { read: true, manage: true },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     driver_assignments: { create: true, read: true, update: true, delete: true },
@@ -189,7 +189,6 @@ const MATRIX = {
   },
   fleet_manager: {
     cargo: { read: true, observe: false, clearance: true, manual_decision: true },
-    driver_qualifications: { read: true, manage: false },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: false },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     // Custodial pairing is a fleet-management decision, so fleet_manager writes
@@ -237,7 +236,6 @@ const MATRIX = {
   },
   dispatcher: {
     cargo: { read: true, observe: false, clearance: true, manual_decision: true },
-    driver_qualifications: { read: true, manage: false },
     vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: false },
     // Read-only: a dispatcher must SEE the pairing to understand the warning
@@ -282,7 +280,6 @@ const MATRIX = {
   },
   driver: {
     cargo: { read: true, observe: true, clearance: false, manual_decision: false },
-    driver_qualifications: { read: false, manage: false },
     vehicles: { read: true },
     reservations: { read: false },
     dispatch: { read: true, update: true },
@@ -312,7 +309,6 @@ const MATRIX = {
   },
   management: {
     cargo: { read: true, observe: false, clearance: false, manual_decision: false },
-    driver_qualifications: { read: true, manage: false },
     vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },
     driver_assignments: { read: true },
@@ -351,7 +347,6 @@ const MATRIX = {
   },
   mechanic: {
     cargo: { read: false, observe: false, clearance: false, manual_decision: false },
-    driver_qualifications: { read: false, manage: false },
     vehicles: { read: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },
     maintenance: { read: true, update: true },

@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+﻿import { query } from "@/lib/db";
 import { buildDispatchRecommendation } from "@/lib/ai/dispatch-advisor";
 import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
 import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
@@ -46,7 +46,7 @@ export async function loadServiceDateWorkload(driverIds, pickupAt) {
  * Reason a vehicle never reached the pair engine, in the engine's own words.
  *
  * The SQL pre-filter drops these rows before scoring, so without this the
- * Copilot (and the "Why options were excluded" panel) cannot explain them —
+ * Copilot (and the "Why options were excluded" panel) cannot explain them â€”
  * e.g. XYZ 5678 sat in the request's category but was Under Maintenance and
  * simply never appeared. Order mirrors buildFleetPairRecommendations: the
  * seats check runs first, so a too-small vehicle reports capacity even when
@@ -64,7 +64,7 @@ export function prefilterReason(vehicle, passengers, request = null) {
   } else {
     const seats = Number(vehicle?.seating_capacity) || 0;
     if (seats > 0 && seats < passengers) {
-      return `Seats ${seats} — too small for ${passengers} passenger(s).`;
+      return `Seats ${seats} â€” too small for ${passengers} passenger(s).`;
     }
   }
   if (vehicle?.vehicle_status) {
@@ -107,14 +107,14 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
   // Two deliberate widenings of the candidate pools, both so the pair engine can
   // apply the real rule instead of inheriting a wrong verdict from a status column:
   //
-  // Vehicles — only statuses that actually ground the vehicle are excluded.
+  // Vehicles â€” only statuses that actually ground the vehicle are excluded.
   // `Reserved` is not one of them: it is written whenever the vehicle has a
   // booking on the current day, so filtering on `= 'Available'` dropped cars that
   // are genuinely free at the requested time. `schedule_load` below already
   // answers the time-specific question by overlap, and the engine treats a
-  // non-zero load as disqualifying — so overlap, not the label, decides.
+  // non-zero load as disqualifying â€” so overlap, not the label, decides.
   //
-  // Drivers — the whole roster, not just `Available` ones. The engine must be
+  // Drivers â€” the whole roster, not just `Available` ones. The engine must be
   // able to SEE that a vehicle's custodian is On Leave; if that row is missing it
   // reads the car as having no custodian and reports the wrong reason. Nothing is
   // loosened by this: `isDriverUnavailableFor` re-checks status, licence and
@@ -267,7 +267,7 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
     // Vehicles the main query filtered out before scoring, fetched cheaply
     // (no usage/history joins) so their absence can be explained instead of
     // silently shrinking `considered`. Same category scope as the main query;
-    // soft-deleted rows stay hidden — a gone vehicle is not an explanation.
+    // soft-deleted rows stay hidden â€” a gone vehicle is not an explanation.
     query(
       `SELECT v.vehicle_id, v.plate_number, v.vehicle_status, v.seating_capacity, v.operational_use, v.cargo_capacity_kg
          FROM vehicles v

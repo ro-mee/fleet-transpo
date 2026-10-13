@@ -5,6 +5,7 @@ import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
 import { employeeIdsForRoles, notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 import { driverAutoSuspendedDriver, driverAutoSuspendedStaff } from "@/lib/notifications/copy";
 import { licenseReferenceCalendarDay } from "@/lib/drivers/license-eligibility";
+import { manilaDateKey } from "@/lib/dates";
 
 function isBeforeToday(dateStr) {
   if (!dateStr) return false;
@@ -45,12 +46,11 @@ export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminC
     .eq("vehicle_id", vehicleId)
     .in("status", ["Scheduled", "In Progress", "Pending Inspection"])
     .is("deleted_at", null);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = manilaDateKey();
   const hasActiveMaintenance = (maintenance || []).some((m) => {
     if (m.status === "In Progress" || m.status === "Pending Inspection") return true;
-    const d = new Date(`${String(m.maintenance_date).slice(0, 10)}T00:00:00`);
-    return !Number.isNaN(d.getTime()) && d.getTime() <= today.getTime();
+    const day = String(m.maintenance_date ?? "").slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(day) && day <= today;
   });
   if (hasActiveMaintenance) {
     await supabase.from("vehicles").update({ vehicle_status: "Under Maintenance" }).eq("vehicle_id", vehicleId);

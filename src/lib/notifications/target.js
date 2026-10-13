@@ -13,7 +13,8 @@ const STAFF_ROUTES = {
   dispatch: (id) => `/dispatch/${id}`,
   trip: (id) => `/trips/${id}`,
   vehicle: (id) => `/fleet/vehicles/${id}`,
-  maintenance: (id) => `/fleet/vehicles/${id}`,
+  maintenance: () => `/maintenance`,
+  fuel_diagnostic: () => `/maintenance`,
   document: () => `/fleet/documents`,
   driver: (id) => `/drivers/${id}`,
   incident: () => `/incidents`,
@@ -68,8 +69,8 @@ export function getNotificationHref(notification = {}, role) {
   }
 
   // Mechanic-audience rows MUST be written with reference_type
-  // "mechanic_maintenance" so staff taps on the same WO keep resolving to
-  // /fleet/vehicles/:id.
+  // "mechanic_maintenance" so mechanic taps reach their work-order detail;
+  // staff maintenance references open the maintenance register.
   if (role === "mechanic") return MECHANIC_ROUTES[type] ? MECHANIC_ROUTES[type](id) : null;
 
   const build = STAFF_ROUTES[type];

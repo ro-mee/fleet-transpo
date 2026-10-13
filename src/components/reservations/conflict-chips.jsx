@@ -24,6 +24,7 @@ const CHIP_ICON = {
   driver_conflict: Users,
   maintenance_conflict: Wrench,
   driver_unavailable: UserX,
+  driver_type_mismatch: IdCard,
   license_expired: IdCard,
   registration_expired: CalendarX,
   capacity_mismatch: Users,

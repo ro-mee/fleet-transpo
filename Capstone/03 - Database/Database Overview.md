@@ -110,9 +110,9 @@ Four objects existed with no migration file and one CHECK constraint differed. *
 
 [[ERD]] · [[Migrations]] · [[Supabase]] · [[Architecture]] · [[Home]]
 
-## Driver qualification tables — 2026-10-09
+## Driver qualification tables — REMOVED 2026-10-13
 
-Migration 156 adds private current reviews and append-only events: [[driver_service_qualifications]]. The live schema was dumped after application; both new tables have RLS and no anon/authenticated grants. No driver was automatically approved and operational qualification enforcement remains off. Current review, event and required audit writes share one transaction.
+Migration 156 added private current reviews and append-only events; migration `162_drop_driver_service_qualifications` drops both tables and the append-only trigger (live rows were empty). Classification is enforced statically via `drivers.driver_type` in the deterministic engine instead — see [[Driver Management]].
 
 ## Supply delivery tables
 

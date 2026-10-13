@@ -1,4 +1,4 @@
-import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
+﻿import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
@@ -150,7 +150,7 @@ export async function PUT(req, { params }) {
       }
     }
 
-    // Status is not a free-form field here (removed from WRITABLE_COLUMNS) —
+    // Status is not a free-form field here (removed from WRITABLE_COLUMNS) â€”
     // it only moves through the transition service. The one structural case is
     // reassigning a Pending Reassignment dispatch: committing a vehicle and/or
     // driver flips it back to Scheduled.
@@ -159,8 +159,8 @@ export async function PUT(req, { params }) {
 
     if (columns.length === 0) return err("No updatable fields provided", 400);
 
-    // Validate the effective final state of the dispatch — body value where
-    // present, else the existing row — so edits cannot bypass the guards that
+    // Validate the effective final state of the dispatch â€” body value where
+    // present, else the existing row â€” so edits cannot bypass the guards that
     // the create path enforces (vehicle/driver status, expiring documents, and
     // double-booking overlap).
     const effVehicleId = body.vehicle_id !== undefined ? body.vehicle_id : before[0]?.vehicle_id;
@@ -226,7 +226,7 @@ export async function PUT(req, { params }) {
       }
     }
 
-    // Designated-driver enforcement — the same guard the create path and the
+    // Designated-driver enforcement â€” the same guard the create path and the
     // assign endpoint apply. A driver must not be dispatched in a different car
     // than the one they are the custodian of, unless that custodian is provably
     // unavailable and a substitute covers the departure date. The reassign

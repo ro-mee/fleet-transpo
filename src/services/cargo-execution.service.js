@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { writeAuditRequired } from '@/lib/audit';
 import { receiptSchema, decisionSchema, validateReceiptAgainstManifest } from '@/lib/cargo/contracts';
@@ -177,12 +177,8 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
       const hop = canTransitionTrip(trip.trip_status, to);
       if (!hop.ok) fail('CARGO_TRANSITION_CONFLICT', hop.reason);
     }
-    if (to !== 'Cancelled' && to !== 'Reassign') {
-      // Cargo lifecycle writes stay disabled pending owner approvals and an
-      // approved provider (the removed qualification-enforcement gate used to
-      // 503 here when unconfigured, which was always, so this is unchanged).
-      fail('CARGO_CONFIGURATION_REQUIRED', 'Cargo lifecycle requires approved configuration.', 503);
-    }
+    // Driver classification is gated at assignment (validatePairAvailability);
+    // trip transitions never re-check it.
     if (['Passenger Onboard', 'En Route', 'In Progress', 'Drop-off', 'Arrived', 'Completed'].includes(to)) {
       if (!current?.pickup_receipt) fail('CARGO_PICKUP_REQUIRED', 'Verify cargo at pickup.');
       if (!current.can_depart) fail('CARGO_PICKUP_NOT_CLEARED', 'Current source acceptance, Fleet clearance and securement are required.');

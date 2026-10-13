@@ -81,6 +81,8 @@ let migrationRan = false;
 async function ensureDriverColumnsExist() {
   if (migrationRan) return;
   try {
+    // Single statements only: see the note in src/app/api/drivers/route.js —
+    // a combined ALTER + DO string resolves to the DO result and warns here.
     await query(`
       ALTER TABLE drivers 
       ADD COLUMN IF NOT EXISTS emergency_contact_name VARCHAR(255),
@@ -89,7 +91,8 @@ async function ensureDriverColumnsExist() {
       ADD COLUMN IF NOT EXISTS license_image_url TEXT,
       ADD COLUMN IF NOT EXISTS license_back_image_url TEXT,
       ADD COLUMN IF NOT EXISTS driver_type VARCHAR(50) DEFAULT 'Passenger';
-
+    `);
+    await query(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_driver_type') THEN
@@ -340,7 +343,7 @@ export async function PUT(req, { params }) {
       license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
       driver_type: {
-        validate: (v) => (["Passenger", "Cargo"].includes(v) ? null : "Driver classification must be Passenger or Cargo."),
+        validate: (v) => (!v || ["Passenger", "Cargo"].includes(v) ? null : "Driver classification must be Passenger or Cargo."),
       },
       driver_status: { maxLength: 30, label: "Driver status" },
       birthdate: {
@@ -435,7 +438,7 @@ export async function PUT(req, { params }) {
       const exp = Number(years_of_experience);
       driverPayload.years_of_experience = Number.isFinite(exp) ? exp : 0;
     }
-    if (driver_type !== undefined) driverPayload.driver_type = driver_type ?? "Passenger";
+    if (driver_type !== undefined) driverPayload.driver_type = driver_type === "Cargo" ? "Cargo" : "Passenger";
     if (driver_status !== undefined) driverPayload.driver_status = driver_status;
     // A picked address WINS over the submitted string, for the same reason it
     // does on POST: the server composed it from its own resolution of the

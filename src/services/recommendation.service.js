@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+﻿import { query } from "@/lib/db";
 import {
   resolveVehiclePairing,
   resolveSubstituteForDate,
@@ -16,8 +16,9 @@ import { readDispatchRevision } from '@/services/dispatch-evidence.service';
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 import { loadCargoPhysicalAssessments } from './cargo-physical.service';
 import { vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
+import { driverTypeFinding } from '@/lib/drivers/service-groups';
 
-// Recommendation snapshot service — the durable store for AI fleet-pair
+// Recommendation snapshot service â€” the durable store for AI fleet-pair
 // recommendations (migration 027).
 //
 // One snapshot per generation. is_consumed flips once the pair is Accepted &
@@ -26,7 +27,7 @@ import { vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
 //
 // Also owns validatePairAvailability(), the assignment-time revalidation:
 // a vehicle may only be committed to a driver who is its designated custodian,
-// or — when that custodian is unavailable — the substitute explicitly assigned
+// or â€” when that custodian is unavailable â€” the substitute explicitly assigned
 // to it for the pickup date. It re-derives everything from the live DB rather
 // than trusting the snapshot or the UI that proposed the pair.
 
@@ -152,11 +153,11 @@ export async function markRecommendationConsumed(requestId, snapshotId) {
  *
  * The rule is the shared one (`resolveVehiclePairing`), so the answer cannot
  * disagree with what the assignment screen and the AI recommendation applied:
- *   - the vehicle's own status must permit dispatch (`Reserved` does — it only
+ *   - the vehicle's own status must permit dispatch (`Reserved` does â€” it only
  *     records a booking during the day; a genuine clash in the requested window
  *     is the caller's double-booking check, which still runs),
- *   - and the driver must be either the vehicle's designated custodian, or —
- *     when that custodian is unavailable — the substitute explicitly assigned to
+ *   - and the driver must be either the vehicle's designated custodian, or â€”
+ *     when that custodian is unavailable â€” the substitute explicitly assigned to
  *     this vehicle for the pickup date, who must themselves be eligible.
  *
  * An arbitrary available driver is never accepted: being free is not the same as
@@ -189,7 +190,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
       return { ok:false,conflict:{type:'request_state',severity:'blocking',message:'The transportation request is no longer actionable.'} };
     request = { ...rows[0],...request,passenger_count:rows[0].passenger_count,requested_category_id:rows[0].requested_category_id };
     // Typed load fields are authoritative from the stored row, never from the
-    // caller — mirroring the passenger_count pin above. A changed weight on a
+    // caller â€” mirroring the passenger_count pin above. A changed weight on a
     // committed pair must re-gate here rather than ride in on stale input.
     request = { ...request, service_code: rows[0].service_code ?? null, load_type: rows[0].load_type ?? null, cargo_weight_kg: rows[0].cargo_weight_kg ?? null, cargo_description: rows[0].cargo_description ?? null };
   }
@@ -302,8 +303,8 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
 
   const pickupDate = request?.pickup_datetime || now;
 
-  // Load every driver the rule could name — the proposed one, the vehicle's
-  // custodian, and its booked substitute — so eligibility is judged on real rows
+  // Load every driver the rule could name â€” the proposed one, the vehicle's
+  // custodian, and its booked substitute â€” so eligibility is judged on real rows
   // rather than on absence of data.
   const designatedId = pairs.find(
     (p) => p.assigned_until == null && Number(p.vehicle_id) === Number(vehicleId)
@@ -312,7 +313,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   const wanted = [...new Set([driverId, designatedId, substituteId].filter((v) => v != null).map(Number))];
 
   const { rows: drivers } = await query(
-    `SELECT d.driver_id, d.driver_status, d.license_number, d.license_type,
+    `SELECT d.driver_id, d.driver_status, d.driver_type, d.license_number, d.license_type,
             d.license_class, d.license_expiry, d.license_verified_at,
             d.license_verified_by, d.license_verification_method,
             COALESCE((
@@ -331,6 +332,18 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     [windowStart, windowEnd, wanted, request?.dispatch_id ?? null, request?.request_id ?? null]
   );
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
+
+  // Static classification gate: the service group comes from the stored row
+  // (authoritative, never the caller's override), and a mismatch blocks before
+  // license, pairing, or evidence checks run. Unknown services and drivers
+  // with no recorded type are skipped, never blocked.
+  if (request?.request_id) {
+    const mismatch = driverTypeFinding({
+      driver: driverById.get(Number(driverId)) ?? null,
+      serviceCode: request.service_code,
+    });
+    if (mismatch) return { ok: false, conflict: mismatch };
+  }
 
   const proposedLicense = evaluateDriverLicenseEligibility(
     driverById.get(Number(driverId)),
@@ -407,7 +420,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     };
   }
 
-  // The vehicle HAS a cleared driver — just not this one. Naming them makes the
+  // The vehicle HAS a cleared driver â€” just not this one. Naming them makes the
   // 409 actionable instead of merely refusing.
   const expected =
     pairing.kind === PAIRING_KIND.DESIGNATED

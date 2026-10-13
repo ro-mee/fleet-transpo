@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+﻿import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
@@ -7,6 +7,7 @@ import { loadRoadReadiness } from "@/lib/vehicles/readiness-server";
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { loadCargoPhysicalAssessments } from '@/services/cargo-physical.service';
 import { cargoPhysicalPolicy, vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
+import { driverTypeFinding } from '@/lib/drivers/service-groups';
 
 export async function GET(req) {
   try {
@@ -15,7 +16,7 @@ export async function GET(req) {
 
     // `Reserved` / `In Use` are not reasons to hide a vehicle from a *windowed*
     // search. status.service.js writes those when the vehicle has an open
-    // booking/dispatch — a whole-day flag, not a slot one. So a vehicle out at
+    // booking/dispatch â€” a whole-day flag, not a slot one. So a vehicle out at
     // 1pm still reads as Reserved/In Use for an 8pm search, and this endpoint
     // used to drop it. The NOT EXISTS below already answers the real question
     // ("is it taken during THIS window?") precisely, so when a window is given
@@ -50,7 +51,7 @@ export async function GET(req) {
 
     // Typed capacity search (Task 5): filter by declared operational use, or by
     // a minimum usable cargo payload. Both predicates reference migration 153
-    // columns — do not deploy this revision before that migration is applied.
+    // columns â€” do not deploy this revision before that migration is applied.
     if (operational_use && ["Passenger", "Cargo"].includes(operational_use)) {
       sql += ` AND v.operational_use = $${idx++}`; params.push(operational_use);
     }
@@ -99,7 +100,7 @@ export async function GET(req) {
           AND vm.deleted_at IS NULL
           AND (
             vm.status IN ('In Progress', 'Pending Inspection')
-            OR (vm.status = 'Scheduled' AND vm.maintenance_date <= CURRENT_DATE)
+            OR (vm.status = 'Scheduled' AND vm.maintenance_date <= (NOW() AT TIME ZONE 'Asia/Manila')::date)
           )
       )
     `;
@@ -130,7 +131,7 @@ export async function GET(req) {
     // custodian, or the substitute covering the date (loadVehicleTravelContext
     // already substituted it into ctx.pairings). A vehicle whose driver has no
     // schedule, a rest day, approved leave, or an out-of-shift window is hidden
-    // — the pair cannot operate in this slot. Custodianless vehicles have no
+    // â€” the pair cannot operate in this slot. Custodianless vehicles have no
     // driver to check and stay listed.
     if (pickupAt && available.length) {
       const effectiveIds = (ctx.pairings || [])
@@ -138,6 +139,20 @@ export async function GET(req) {
         .map((p) => p.driver_id)
         .filter(Boolean);
       const scheduleCtx = await loadDriverScheduleContext(effectiveIds);
+      // Static classification gate: driver types for the effective drivers,
+      // plus the stored request's service (when the caller names one).
+      const [{ rows: typeRows }, { rows: svcRows }] = await Promise.all([
+        effectiveIds.length
+          ? query(`SELECT driver_id, driver_type FROM drivers WHERE driver_id = ANY($1) AND deleted_at IS NULL`, [effectiveIds])
+          : Promise.resolve({ rows: [] }),
+        searchParams.get('request_id')
+          ? query(`SELECT st.service_code FROM transportation_requests r
+              LEFT JOIN service_types st ON st.service_type_id=r.service_type_id AND st.deleted_at IS NULL
+              WHERE r.request_id=$1 AND r.deleted_at IS NULL`, [searchParams.get('request_id')])
+          : Promise.resolve({ rows: [] }),
+      ]);
+      const driverTypeById = new Map(typeRows.map((r) => [Number(r.driver_id), r.driver_type]));
+      const serviceCode = svcRows[0]?.service_code ?? null;
       const pickup = new Date(pickupAt);
       const returnDate = returnAt ? new Date(returnAt) : null;
       const pairByVehicle = new Map(
@@ -154,6 +169,7 @@ export async function GET(req) {
         }
         const block = driverBlockReason({ driverId, pickup, returnAt: returnDate, ctx: scheduleCtx });
         if (block?.blocked) continue;
+        if (serviceCode && driverTypeFinding({ driver: { driver_id: driverId, driver_type: driverTypeById.get(Number(driverId)) ?? null }, serviceCode })) continue;
         filtered.push(v);
       }
       return ok(filtered);

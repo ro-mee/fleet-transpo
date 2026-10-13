@@ -4,19 +4,20 @@ import { useState } from "react";
 import { CheckCircle2, Circle, Minus, Plus, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn, formatDate } from "@/lib/utils";
 import {
-  DESKTOP_ONLY_TITLE,
   buildMechanicUpdateBody,
   jobProblem,
   jobVehicle,
   nextMechanicAction,
   serializeParts,
+  sourceLabels,
   validateDiagnosis,
   DIAGNOSIS_MAX_LENGTH,
 } from "./mechanic-actions";
-import { useIsDesktop } from "./use-is-desktop";
+import { VehicleHistory } from "./vehicle-history";
 
 // Work-order detail for the mechanic: timeline, vehicle snapshot, problem,
 // and the evidence form. The form NEVER renders cost/vehicle/priority/
@@ -28,8 +29,7 @@ import { useIsDesktop } from "./use-is-desktop";
 // evidence keys (diagnosis, parts_replaced, labor_hours, rejection_reason,
 // completed_date), so milestones render real stamps where present and
 // "Not recorded" where a stamp is absent (never a guessed timestamp). The
-// evidence form opens prefilled from the row so the mechanic edits what is
-// already recorded; a scoped single-record read is the follow-up.
+// evidence form opens with the saved diagnosis, parts, labor, and handover note.
 
 const MILESTONES = ["Assigned", "Started", "Submitted"];
 
@@ -143,7 +143,7 @@ function PartsEditor({ rows, onChange, disabled }) {
             variant="outline"
             size="icon"
             disabled={disabled}
-            title={disabled ? DESKTOP_ONLY_TITLE : "Remove part"}
+            title={disabled ? "Saving work order" : "Remove part"}
             aria-label={`Remove part ${i + 1}`}
             onClick={() => removeRow(i)}
             className="h-[44px] w-[44px] shrink-0 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
@@ -157,7 +157,7 @@ function PartsEditor({ rows, onChange, disabled }) {
         variant="outline"
         size="sm"
         disabled={disabled}
-        title={disabled ? DESKTOP_ONLY_TITLE : undefined}
+        title={disabled ? "Saving work order" : undefined}
         onClick={() => onChange([...rows, { name: "", qty: 1 }])}
         className="min-h-[44px] rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       >
@@ -167,25 +167,200 @@ function PartsEditor({ rows, onChange, disabled }) {
   );
 }
 
+function SavedEvidenceCompleteness({ workOrder }) {
+  const items = [
+    { label: "Diagnosis", complete: String(workOrder.diagnosis ?? "").trim().length > 0 },
+    {
+      label: "Parts",
+      complete: Array.isArray(workOrder.parts_replaced)
+        ? workOrder.parts_replaced.length > 0
+        : String(workOrder.parts_replaced ?? "").trim().length > 0,
+    },
+    { label: "Labor", complete: workOrder.labor_hours != null && Number(workOrder.labor_hours) > 0 },
+  ];
+  const completeCount = items.filter((item) => item.complete).length;
+
+  return (
+    <div role="group" aria-label={`Saved evidence completeness: ${completeCount} of ${items.length} recorded`} className="space-y-2 border-b border-border pb-4">
+      <p className="text-xs font-semibold text-foreground">Saved evidence · {completeCount} of {items.length} recorded</p>
+      <ul className="flex list-none flex-wrap gap-x-4 gap-y-2 p-0">
+        {items.map((item) => {
+          const Icon = item.complete ? CheckCircle2 : Circle;
+          return (
+            <li key={item.label} className="inline-flex items-center gap-1.5 text-xs text-foreground-secondary">
+              <Icon className={cn("h-4 w-4", item.complete ? "text-success-700" : "text-foreground-muted")} aria-hidden="true" />
+              {item.label}: {item.complete ? "Saved" : "Missing"}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function partsEditorRows(savedParts) {
+  if (!Array.isArray(savedParts) || savedParts.length === 0) {
+    return [{ name: "", qty: 1 }];
+  }
+  return savedParts.map((part) => {
+    const name = typeof part === "string"
+      ? part
+      : String(part?.name ?? part?.part_name ?? part?.part ?? (part ? JSON.stringify(part) : ""));
+    const qty = typeof part === "object" && part !== null
+      ? part.qty ?? part.quantity ?? 1
+      : 1;
+    return { name, qty: String(qty) };
+  });
+}
+
+function WorkDetailTileSkeleton({ labelWidth = "w-20", valueWidth = "w-28" }) {
+  return (
+    <div className="min-w-0 rounded-control bg-hover p-3">
+      <Skeleton className={`h-3 ${labelWidth}`} />
+      <Skeleton className={`mt-2 h-4 ${valueWidth}`} />
+    </div>
+  );
+}
+
+function TimelineItemSkeleton() {
+  return (
+    <li className="relative flex gap-3 pb-5 last:pb-0">
+      <Skeleton className="h-5 w-5 shrink-0 rounded-full" />
+      <div className="space-y-1.5">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-3 w-28" />
+      </div>
+    </li>
+  );
+}
+
+/** Loading state uses the same cards and responsive columns as the loaded detail. */
+export function WorkOrderDetailSkeleton() {
+  return (
+    <div
+      aria-busy="true"
+      className="grid items-start gap-4 xl:grid-cols-2"
+    >
+      <span role="status" className="sr-only">Loading work order details</span>
+      <div aria-hidden="true" className="min-w-0 space-y-4">
+        <Card className="rounded-card border-border/70 shadow-sm">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Skeleton className="h-5 w-5 rounded" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-32" />
+            </CardTitle>
+            <Skeleton className="h-7 w-28 rounded-full" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <section aria-hidden="true" className="min-w-0">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">Work details</h3>
+              <dl className="grid grid-cols-2 gap-3">
+                <WorkDetailTileSkeleton labelWidth="w-14" valueWidth="w-28" />
+                <WorkDetailTileSkeleton labelWidth="w-16" valueWidth="w-24" />
+                <WorkDetailTileSkeleton labelWidth="w-28" valueWidth="w-20" />
+                <WorkDetailTileSkeleton labelWidth="w-12" valueWidth="w-16" />
+              </dl>
+            </section>
+            <section aria-hidden="true" className="border-t border-border/70 pt-4">
+              <h3 className="text-sm font-semibold text-foreground">Problem reported</h3>
+              <div className="mt-2 space-y-2">
+                <Skeleton className="h-3.5 w-full" />
+                <Skeleton className="h-3.5 w-3/4" />
+              </div>
+            </section>
+          </CardContent>
+        </Card>
+        <VehicleHistory isLoading />
+      </div>
+
+      <div aria-hidden="true" className="min-w-0 space-y-4">
+        <Card className="rounded-card border-border/70 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Repair timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol aria-hidden="true" className="list-none space-y-0 p-0">
+              {MILESTONES.map((milestone) => <TimelineItemSkeleton key={milestone} />)}
+            </ol>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-card border-border/70 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Findings &amp; evidence</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div aria-hidden="true" className="space-y-2 border-b border-border pb-4">
+              <Skeleton className="h-3.5 w-40" />
+              <ul className="flex list-none flex-wrap gap-x-4 gap-y-2 p-0">
+                {["diagnosis", "parts", "labor"].map((item) => (
+                  <li key={item} className="inline-flex items-center gap-1.5">
+                    <Skeleton className="h-4 w-4 rounded-full" />
+                    <Skeleton className="h-3 w-20" />
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div aria-hidden="true" className="space-y-4">
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-[118px] w-full rounded-control" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+
+              <div className="space-y-1.5">
+                <Skeleton className="h-3 w-24" />
+                <div className="flex items-end gap-2">
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <Skeleton className="h-3 w-14" />
+                    <Skeleton className="h-[44px] w-full rounded-control" />
+                  </div>
+                  <div className="w-24 shrink-0 space-y-1">
+                    <Skeleton className="h-3 w-8" />
+                    <Skeleton className="h-[44px] w-full rounded-control" />
+                  </div>
+                  <Skeleton className="h-[44px] w-[44px] shrink-0 rounded-control" />
+                </div>
+                <Skeleton className="h-[44px] w-24 rounded-control" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+
+              <div className="max-w-48 space-y-1.5">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-[44px] w-full rounded-control" />
+              </div>
+
+              <Skeleton className="h-11 w-full rounded-control" />
+              <Skeleton className="h-[44px] w-32 rounded-control" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export function WorkOrderDetail({
   workOrder,
-  desktop,
   onSubmit,
+  onEdit,
   submitting = false,
   serverError = null,
-  initialDiagnosis,
+  saveSuccess = false,
+  history = null,
+  historyLoading = false,
+  historyError = null,
 }) {
-  const detected = useIsDesktop();
-  const isDesktop = desktop ?? detected;
-
   const [diagnosis, setDiagnosis] = useState(
-    initialDiagnosis ?? workOrder?.diagnosis ?? ""
+    workOrder?.diagnosis ?? ""
   );
-  const [parts, setParts] = useState([{ name: "", qty: 1 }]);
+  const [parts, setParts] = useState(() => partsEditorRows(workOrder?.parts_replaced));
   const [laborHours, setLaborHours] = useState(
     workOrder?.labor_hours != null ? String(workOrder.labor_hours) : ""
   );
-  const [remarks, setRemarks] = useState("");
+  const [remarks, setRemarks] = useState(workOrder?.remarks ?? "");
 
   if (!workOrder) return null;
 
@@ -197,8 +372,8 @@ export function WorkOrderDetail({
       ? "Labor hours must be a positive number."
       : null;
   const hasEvidence =
-    String(diagnosis).trim().length > 0 || partsValue.length > 0 || laborHours !== "";
-  const canSave = isDesktop && !submitting && !diagnosisError && !laborError && hasEvidence;
+    String(diagnosis).trim().length > 0 || partsValue.length > 0 || laborHours !== "" || String(remarks).trim().length > 0;
+  const canSave = !submitting && !diagnosisError && !laborError && hasEvidence;
 
   const evidenceBody = () =>
     buildMechanicUpdateBody({
@@ -209,68 +384,101 @@ export function WorkOrderDetail({
     });
 
   const action = nextMechanicAction(workOrder.status);
-  const actionDisabled = !isDesktop || submitting;
+  const actionDisabled = submitting;
   const vehicle = jobVehicle(workOrder);
   const problem = jobProblem(workOrder);
+  const sources = sourceLabels(workOrder);
 
   return (
-    <div className="space-y-4">
-      <Card className="rounded-card border-border/70 shadow-sm">
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Truck className="h-5 w-5 text-foreground-secondary" aria-hidden="true" />
-            {vehicle.plate ?? `WO #${workOrder.maintenance_id}`}
-            {vehicle.name && (
-              <span className="text-sm font-normal text-foreground-secondary">{vehicle.name}</span>
-            )}
-          </CardTitle>
-          <StatusBadge status={workOrder.status} entity="maintenance" />
-        </CardHeader>
-        <CardContent className="grid gap-6 md:grid-cols-2">
-          <Timeline workOrder={workOrder} />
-          <dl className="space-y-2 text-sm">
-            <div className="flex justify-between gap-2">
-              <dt className="text-foreground-muted">Job type</dt>
-              <dd className="font-medium text-foreground">{workOrder.maintenance_type ?? "—"}</dd>
-            </div>
-            <div className="flex justify-between gap-2">
-              <dt className="text-foreground-muted">Scheduled</dt>
-              <dd className="font-medium text-foreground">
-                {workOrder.maintenance_date ? formatDate(workOrder.maintenance_date) : "—"}
-              </dd>
-            </div>
-            {workOrder.mileage_at_service != null && (
-              <div className="flex justify-between gap-2">
-                <dt className="text-foreground-muted">Odometer at service</dt>
-                <dd className="font-data font-semibold tabular-nums text-foreground">
-                  {Number(workOrder.mileage_at_service).toLocaleString()} km
-                </dd>
-              </div>
-            )}
-            <div className="flex justify-between gap-2">
-              <dt className="text-foreground-muted">Priority</dt>
-              <dd className="font-medium text-foreground">{workOrder.priority ?? "—"}</dd>
-            </div>
-          </dl>
-        </CardContent>
-      </Card>
-
-      {problem && (
+    <div className="grid items-start gap-4 xl:grid-cols-2">
+      <div className="min-w-0 space-y-4">
         <Card className="rounded-card border-border/70 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-sm">Problem reported</CardTitle>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Truck className="h-5 w-5 text-foreground-secondary" aria-hidden="true" />
+              {vehicle.plate ?? `WO #${workOrder.maintenance_id}`}
+              {vehicle.name && (
+                <span className="text-sm font-normal text-foreground-secondary">{vehicle.name}</span>
+              )}
+            </CardTitle>
+            <StatusBadge status={workOrder.status} entity="maintenance" />
           </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap break-words text-sm text-foreground">{problem}</p>
+          {sources.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 px-6 pb-1">
+              {sources.map((label) => (
+                <span
+                  key={label}
+                  title="Where this job originated"
+                  className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-foreground-secondary"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
+          <CardContent className="space-y-4">
+            <section aria-labelledby="work-details-heading" className="min-w-0">
+              <h3 id="work-details-heading" className="mb-3 text-sm font-semibold text-foreground">
+                Work details
+              </h3>
+              <dl className="grid grid-cols-2 gap-3">
+                <div className="min-w-0 rounded-control bg-hover p-3">
+                  <dt className="text-xs font-medium text-foreground-secondary">Job type</dt>
+                  <dd className="mt-1 break-words text-sm font-semibold text-foreground">
+                    {workOrder.maintenance_type ?? "—"}
+                  </dd>
+                </div>
+                <div className="min-w-0 rounded-control bg-hover p-3">
+                  <dt className="text-xs font-medium text-foreground-secondary">Scheduled</dt>
+                  <dd className="mt-1 break-words text-sm font-semibold text-foreground">
+                    {workOrder.maintenance_date ? formatDate(workOrder.maintenance_date) : "—"}
+                  </dd>
+                </div>
+                <div className="min-w-0 rounded-control bg-hover p-3">
+                  <dt className="text-xs font-medium text-foreground-secondary">Odometer at service</dt>
+                  <dd className="mt-1 break-words font-data text-sm font-semibold tabular-nums text-foreground">
+                    {workOrder.mileage_at_service != null
+                      ? `${Number(workOrder.mileage_at_service).toLocaleString()} km`
+                      : "—"}
+                  </dd>
+                </div>
+                <div className="min-w-0 rounded-control bg-hover p-3">
+                  <dt className="text-xs font-medium text-foreground-secondary">Priority</dt>
+                  <dd className="mt-1 break-words text-sm font-semibold text-foreground">{workOrder.priority ?? "—"}</dd>
+                </div>
+              </dl>
+            </section>
+            {problem && (
+              <section aria-labelledby="reported-problem-heading" className="border-t border-border/70 pt-4">
+                <h3 id="reported-problem-heading" className="text-sm font-semibold text-foreground">
+                  Problem reported
+                </h3>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm text-foreground-secondary">
+                  {problem}
+                </p>
+              </section>
+            )}
           </CardContent>
         </Card>
-      )}
+        <VehicleHistory history={history} isLoading={historyLoading} loadError={historyError} />
+      </div>
 
-      <Card className="rounded-card border-border/70 shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-sm">Findings &amp; evidence</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <div className="min-w-0 space-y-4">
+        <Card className="rounded-card border-border/70 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Repair timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Timeline workOrder={workOrder} />
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-card border-border/70 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Findings &amp; evidence</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+          <SavedEvidenceCompleteness workOrder={workOrder} />
           <form
             aria-label="Evidence form"
             onSubmit={(e) => {
@@ -288,8 +496,11 @@ export function WorkOrderDetail({
                 id="wo-diagnosis"
                 name="diagnosis"
                 value={diagnosis}
-                disabled={!isDesktop || submitting}
-                onChange={(e) => setDiagnosis(e.target.value)}
+                disabled={submitting}
+                onChange={(e) => {
+                  setDiagnosis(e.target.value);
+                  onEdit?.();
+                }}
                 rows={4}
                 maxLength={DIAGNOSIS_MAX_LENGTH + 500}
                 aria-invalid={diagnosisError ? "true" : undefined}
@@ -311,7 +522,14 @@ export function WorkOrderDetail({
 
             <div className="space-y-1.5">
               <p className="text-xs font-semibold text-foreground">Parts replaced</p>
-              <PartsEditor rows={parts} onChange={setParts} disabled={!isDesktop || submitting} />
+              <PartsEditor
+                rows={parts}
+                onChange={(next) => {
+                  setParts(next);
+                  onEdit?.();
+                }}
+                disabled={submitting}
+              />
               <p className="text-[11px] text-foreground-muted">
                 Saved as a list — empty rows are ignored.
               </p>
@@ -328,8 +546,11 @@ export function WorkOrderDetail({
                 min="0"
                 step="0.25"
                 value={laborHours}
-                disabled={!isDesktop || submitting}
-                onChange={(e) => setLaborHours(e.target.value)}
+                disabled={submitting}
+                onChange={(e) => {
+                  setLaborHours(e.target.value);
+                  onEdit?.();
+                }}
                 aria-invalid={laborError ? "true" : undefined}
                 placeholder="e.g. 2.5"
                 className="h-[44px] w-full rounded-control border border-border bg-surface px-3 text-sm tabular-nums text-foreground placeholder:text-foreground-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60"
@@ -351,8 +572,11 @@ export function WorkOrderDetail({
                   id="wo-remarks"
                   name="remarks"
                   value={remarks}
-                  disabled={!isDesktop || submitting}
-                  onChange={(e) => setRemarks(e.target.value)}
+                  disabled={submitting}
+                  onChange={(e) => {
+                    setRemarks(e.target.value);
+                    onEdit?.();
+                  }}
                   rows={2}
                   placeholder="Anything the inspector should know."
                   className="min-h-[44px] w-full rounded-control border border-border bg-surface px-3 py-2.5 text-sm text-foreground placeholder:text-foreground-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60"
@@ -363,21 +587,24 @@ export function WorkOrderDetail({
             {serverError && (
               <p role="alert" className="text-xs font-medium text-danger-700">{serverError}</p>
             )}
+            {saveSuccess && !submitting && (
+              <p role="status" className="text-xs font-medium text-success-700">Findings saved.</p>
+            )}
 
             <Button
               type="submit"
               disabled={!canSave}
-              title={!isDesktop ? DESKTOP_ONLY_TITLE : undefined}
               className="min-h-[44px] rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               {submitting ? "Saving…" : "Save findings"}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
       {action && (
-        <div className="sticky bottom-0 z-10 rounded-card border border-border/70 bg-surface/95 p-3 shadow-md backdrop-blur motion-reduce:shadow-sm">
+        <div className="sticky bottom-0 z-10 rounded-card border border-border/70 bg-surface/95 p-3 shadow-md backdrop-blur motion-reduce:shadow-sm xl:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-foreground-secondary">
               {action.to === "In Progress"
@@ -387,7 +614,6 @@ export function WorkOrderDetail({
             <Button
               type="button"
               disabled={actionDisabled}
-              title={!isDesktop ? DESKTOP_ONLY_TITLE : undefined}
               onClick={() => onSubmit?.({ ...evidenceBody(), status: action.to })}
               className="min-h-[44px] rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >

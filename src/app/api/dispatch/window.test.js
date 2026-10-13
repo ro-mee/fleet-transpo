@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { query } from "@/lib/db";
 
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
@@ -75,6 +75,23 @@ describe("dispatch window boundary", () => {
     validatePairAvailability.mockResolvedValue({ ok: true, commitToken: { revision: 'fixture' } });
     const response = await edit({ driver_id: 7 });
     expect(response.status).toBe(503);
+    expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE dispatchschedules'))).toBe(false);
+  });
+  it('blocks reassignment when the effective driver type mismatches the stored service', async () => {
+    const original = query.getMockImplementation();
+    query.mockImplementation(async (sql, values) => {
+      if (sql.includes('FROM drivers')) return { rows: [{ driver_id: 7, driver_status: 'Available', driver_type: 'Cargo', license_number: 'N04-19-013583', license_type: 'Professional', license_class: 'B', license_expiry: '2099-01-01', license_verified_at: '2026-01-01T00:00:00Z', license_verified_by: 8, license_verification_method: 'physical_card', _schedule_load: 0 }] };
+      if (sql.includes('FROM transportation_requests')) {
+        const result = await original(sql, values);
+        return { rows: result.rows.map(row => ({ ...row, request_id: Number(values[0]), service_code: 'GUEST_TRANSPORT' })) };
+      }
+      return original(sql, values);
+    });
+    const response = await edit({ driver_id: 7 });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/Passenger driver/);
+    expect(validatePairAvailability).toHaveBeenCalledWith(expect.objectContaining({ request: expect.objectContaining({ request_id: 3 }) }));
+    expect(commitDispatchEvidence).not.toHaveBeenCalled();
     expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE dispatchschedules'))).toBe(false);
   });
   it('keeps the final token and saved dispatch on its stored cargo request despite an extraneous request ID', async () => {

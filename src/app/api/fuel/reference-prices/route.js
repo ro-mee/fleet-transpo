@@ -7,7 +7,10 @@ export async function GET(req) {
   try {
     await requirePermission(req, "fuelallocations", "read");
     await fuelPrices.activateDue();
-    const rows = await fuelPrices.list();
+    const rows = (await fuelPrices.list()).map((r) => ({
+      ...r,
+      verifier_name: r.verifier_first_name ? `${r.verifier_first_name} ${r.verifier_last_name ?? ""}`.trim() : null,
+    }));
     const { rows: settings } = await query("SELECT setting_value FROM system_settings WHERE setting_key = 'fuel_price_region' LIMIT 1");
     return ok({ rows, region: settings[0]?.setting_value ?? null });
   } catch (error) { return handleError(fuelSchemaError(error)); }

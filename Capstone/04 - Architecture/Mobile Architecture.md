@@ -1,4 +1,4 @@
----
+﻿---
 type: architecture
 title: Mobile Architecture
 tags: [architecture, mobile, expo]
@@ -37,9 +37,9 @@ last_verified: 2026-10-12
 
 Expo SDK ~54, expo-router ~6. **Drivers only.** A separate app with a separate auth system, not a wrapper around the web dashboard.
 
-## Navigation — CONFIRMED (`mobile/app/(app)/(tabs)/_layout.js`)
+## Navigation â€” CONFIRMED (`mobile/app/(app)/(tabs)/_layout.js`)
 
-Visible tab order = declaration order (2026-09-10: explicit `trips` entry added — it previously auto-registered with no icon and landed out of order):
+Visible tab order = declaration order (2026-09-10: explicit `trips` entry added â€” it previously auto-registered with no icon and landed out of order):
 
 | Route | Label | Visible |
 |---|---|---|
@@ -48,27 +48,27 @@ Visible tab order = declaration order (2026-09-10: explicit `trips` entry added 
 | `fuel_action` | (center scan FAB, no label) | yes |
 | `trips` | Trips (navigate icon) | yes |
 | `profile` | Profile | yes |
-| `history` | — (`href: null`) | no |
+| `history` | â€” (`href: null`) | no |
 | `notifications` | Alerts (via header bell) | no |
-| `vehicle` | — (`href: null`, via Profile) | no |
+| `vehicle` | â€” (`href: null`, via Profile) | no |
 
 **2026-09-13 Map presentation:** While Map is selected, the shared tab bar hides its scan button, wave and spacer, leaving Home / Map / Trips / Profile below the standby weather. Other tabs retain scan. The map shares the bar's bottom-offset function for safe-area separation.
 
 Shared tab language: icons 24px (focused/outline pairs), labels 11px `bodyMedium`, item height 48, equal `flex: 1` slots; scan FAB is a 56px raised circle (`raisedControl`) centered in its slot.
 
-Three separate documents describe these tabs differently, all wrong. → [[DOC Mobile Tabs Documented Three Ways]]
+Three separate documents describe these tabs differently, all wrong. â†’ [[DOC Mobile Tabs Documented Three Ways]]
 
-## The API client is the most carefully-written file in the mobile app — CONFIRMED
+## The API client is the most carefully-written file in the mobile app â€” CONFIRMED
 
 `mobile/lib/api.js`: `TIMEOUT_MS = 30000`, `MAX_RETRIES = 1`, and a **single-flight refresh promise**. From its docstring:
 
 > *"Without this, a screen firing three requests at once on a stale token would run three refreshes; because refresh is single-use and rotating, the first would succeed and the other two would present an already-revoked token and log the driver out."*
 
-That is a precise description of a real race. The fix — one shared in-flight refresh promise that all callers await — is the standard solution, and the comment explains *why* it's needed rather than just what it does.
+That is a precise description of a real race. The fix â€” one shared in-flight refresh promise that all callers await â€” is the standard solution, and the comment explains *why* it's needed rather than just what it does.
 
-→ [[Token Rotation And Refresh Races]]
+â†’ [[Token Rotation And Refresh Races]]
 
-## Local API reachability — CONFIRMED (2026-09-19)
+## Local API reachability â€” CONFIRMED (2026-09-19)
 
 `EXPO_PUBLIC_API_URL` is bundled into the Expo client. For a physical phone,
 it must use the computer's current LAN IP and the running Next server's port
@@ -108,7 +108,7 @@ sequenceDiagram
     C-->>S2: retry with new token
 ```
 
-## Session management — CONFIRMED (2026-09-19)
+## Session management â€” CONFIRMED (2026-09-19)
 
 The mobile **Devices & Sessions** screen lists active web session IDs and
 mobile refresh-token families. A family ID, not an IP address, identifies a
@@ -119,39 +119,39 @@ to revoke the selected session. Revoking the current mobile family is followed
 by local token/cache cleanup before returning to sign-in. The confirmation
 action uses the concise `Revoke` label.
 
-## Home route preview — CONFIRMED (2026-09-19)
+## Home route preview â€” CONFIRMED (2026-09-19)
 
 The primary Home assignment card uses the existing deferred TomTom WebView
 preview so the pickup-to-drop-off road line is rendered. Secondary assignment
 cards keep the native static-image preview to avoid mounting multiple WebViews;
 the interactive preview is limited to one card per Home render.
 
-## GPS tracking — CONFIRMED
+## GPS tracking â€” CONFIRMED
 
 **Foreground** (`mobile/lib/tracking.js`):
 - `watchPositionAsync({ accuracy: Balanced, distanceInterval: 10 })` writes to a ref
 - A separate interval POSTs the latest fix every **30 s** to `/api/mobile/driver/trips/${tripId}/gps`
 
-**Background** (`mobile/lib/background-tracking.js`, added 2026-08-19): a `expo-task-manager` task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `map.js` starts it on background via `AppState` and stops + merges km on return, so the two never overlap (no double-counted km, no duplicate posts). The foreground watcher remains the source of truth. → [[ADR-011 Background GPS Tracking]]
+**Background** (`mobile/lib/background-tracking.js`, added 2026-08-19): a `expo-task-manager` task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `map.js` starts it on background via `AppState` and stops + merges km on return, so the two never overlap (no double-counted km, no duplicate posts). The foreground watcher remains the source of truth. â†’ [[ADR-011 Background GPS Tracking]]
 
 **Decoupling the sensor from the upload is the right shape**: position updates arrive at whatever rate the GPS produces them, but network traffic is bounded at one request per 30 s.
 
-- **Single publish per tick (2026-09-22):** trip → one full publish; responder → one `lastSentAt` publish; standby → one combined `{standbyObservedAt, lastSentAt, error:null}` publish (the old trailing `!tripId` publish double-fired on standby and re-rendered all subscribers every 30 s). Idle duty GET cadence is unchanged (every 30 s — a move onto the 60 s gate was planned and explicitly rejected to keep standby response ≤30 s).
+- **Single publish per tick (2026-09-22):** trip â†’ one full publish; responder â†’ one `lastSentAt` publish; standby â†’ one combined `{standbyObservedAt, lastSentAt, error:null}` publish (the old trailing `!tripId` publish double-fired on standby and re-rendered all subscribers every 30 s). Idle duty GET cadence is unchanged (every 30 s â€” a move onto the 60 s gate was planned and explicitly rejected to keep standby response â‰¤30 s).
 
-Background tracking **requires a custom dev build** (not Expo Go) — see the "Version warning" note below — and Android production release needs Play Store review. The old foreground-only decision is superseded: [[ADR-010 Foreground Only GPS]] → [[ADR-011 Background GPS Tracking]].
+Background tracking **requires a custom dev build** (not Expo Go) â€” see the "Version warning" note below â€” and Android production release needs Play Store review. The old foreground-only decision is superseded: [[ADR-010 Foreground Only GPS]] â†’ [[ADR-011 Background GPS Tracking]].
 
-### Driver Mobile Map audit — 2026-09-29
+### Driver Mobile Map audit â€” 2026-09-29
 
-Full end-to-end trace of the driver map (screen → hook → API → DB → response →
+Full end-to-end trace of the driver map (screen â†’ hook â†’ API â†’ DB â†’ response â†’
 UI) with six confirmed defects fixed. Architecture, permissions, RBAC, geofence
 enforcement and the server state machine were all preserved; every change is a
-narrow correction. Detail and reasoning → [[Tracking]], filed bugs → [[Bugs]].
+narrow correction. Detail and reasoning â†’ [[Tracking]], filed bugs â†’ [[Bugs]].
 
 - **Live GPS is never queued offline.** The poster already passed
   `queueOnFailure: false` on its responder and standby branches; the **trip**
   branch and the background task did not, so a trip-GPS ping could sit in the
   offline outbox and later overwrite the driver's *current* position on the live
-  map — and supply the geofence/monitor verdicts returned with it. This makes
+  map â€” and supply the geofence/monitor verdicts returned with it. This makes
   "live location is never replayed" true for every operational write, not two
   thirds of them.
 - **One odometer rule set** (`mobile/lib/gps-odometer.js`). The segment rules
@@ -162,7 +162,7 @@ narrow correction. Detail and reasoning → [[Tracking]], filed bugs → [[Bugs]
   applies one rule set: 400 m segment cap, 180 km/h implied-speed cap matching
   the server's own `TRAIL_MAX_KMH`, a 5-minute anchor-gap ceiling, and a
   measured-zero speed that overrides magnitude. Leg assignment is no longer
-  duplicated — `legForStatus()` is the single definition.
+  duplicated â€” `legForStatus()` is the single definition.
 - **WebView document escaping.** The map is one `<script>` block, so one
   unescaped trip value is a whole-map outage. Addresses previously escaped only
   the single quote (a trailing backslash reproduced the exact failure the label
@@ -177,7 +177,7 @@ narrow correction. Detail and reasoning → [[Tracking]], filed bugs → [[Bugs]
   Details and checks: [[Mobile Map WebView and GPS Odometer Safety Implementation Plan]].
 - **Fabricated map entities no longer suppress real ones.** The `__DEV__` gate
   covered the entire radar builder, so production rendered an empty radar and the
-  coverage legend described layers that could not appear — the driver's own real
+  coverage legend described layers that could not appear â€” the driver's own real
   pending assignments were collateral damage of the same gate that hid the fake
   gas stations and fleet drivers. Real assignments always render; a trip without
   coordinates is skipped rather than placed at a guessed offset; only the
@@ -191,38 +191,38 @@ narrow correction. Detail and reasoning → [[Tracking]], filed bugs → [[Bugs]
 confirms the wiring, not that Android/iOS delivers fixes while minimised or
 locked.
 
-## Client-side role decoding — CONFIRMED (`mobile/lib/rbac.js`)
+## Client-side role decoding â€” CONFIRMED (`mobile/lib/rbac.js`)
 
 `decodeJwtRole()` base64url-decodes the JWT payload **without verifying the signature**. The docstring is explicit:
 
 > *"signature verification stays server-side, so this is for reading claims, not trusting them."*
 
-This is correct practice, correctly documented: the client decodes to decide what to *render*; the server verifies to decide what to *allow*. A forged local token changes the UI and nothing else. → [[Client Side Role Decoding Is Not Security]]
+This is correct practice, correctly documented: the client decodes to decide what to *render*; the server verifies to decide what to *allow*. A forged local token changes the UI and nothing else. â†’ [[Client Side Role Decoding Is Not Security]]
 
 ## Auth
 
-Separate from web — 15-minute access tokens, 30-day single-use rotating refresh tokens hashed in `mobile_refresh_tokens`, audience-split. Full detail in [[Authentication]].
+Separate from web â€” 15-minute access tokens, 30-day single-use rotating refresh tokens hashed in `mobile_refresh_tokens`, audience-split. Full detail in [[Authentication]].
 
-## Mobile biometric app lock — REMOVED (2026-09-27)
+## Mobile biometric app lock â€” REMOVED (2026-09-27)
 
-`AppLockProvider`, the signed-in lock screen, and the background privacy veil are removed. The root layout now nests `AuthProvider → SettingsProvider → ThemeProvider`; the signed-in route guard retains its driver-session and consent checks, and the existing root foreground listener continues to run `syncQueue()`.
+`AppLockProvider`, the signed-in lock screen, and the background privacy veil are removed. The root layout now nests `AuthProvider â†’ SettingsProvider â†’ ThemeProvider`; the signed-in route guard retains its driver-session and consent checks, and the existing root foreground listener continues to run `syncQueue()`.
 
 A stored session opens directly into the app on cold start and resume. Active-trip GPS, consent, push setup, offline cache, and sign-out remain on their existing paths. The upgrade cleanup removes the old SecureStore enrollment sentinel and metadata, while preserving the access token, refresh token, and user record. No API or database change was needed. The opt-in lock previously reduced casual access to a signed-in phone; that protection is no longer present. Driver face-photo and attendance logic are unchanged. See [[Authentication]] and [[Biometric App Lock Removal Plan]].
 
 **Notification permission timing & push-token lifecycle (2026-09-26):**
 `signIn()` and session-restore cold-start are strictly decoupled from OS notification permission prompts. They call `registerDeviceTokenIfAuthorized()` only for drivers who are not in forced first-login password setup; that helper checks permission non-promptingly (`hasPushPermission()`). If permission is undetermined or denied, authentication proceeds without prompting. First-time permission prompting occurs during onboarding on the App Permissions screen (`mobile/app/permissions.js`) when the driver taps "Enable Permissions".
 
-## Profile screens share the web driver endpoint — CONFIRMED (`mobile/app/(app)/profile/*.js`)
+## Profile screens share the web driver endpoint â€” CONFIRMED (`mobile/app/(app)/profile/*.js`)
 
-The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** — the same endpoint as the web driver home — not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
+The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** â€” the same endpoint as the web driver home â€” not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
 
-## Driver credential screens — CONFIRMED (2026-09-28)
+## Driver credential screens â€” CONFIRMED (2026-09-28)
 
 Drivers change and recover passwords without the web dashboard, reusing the
 existing credential endpoints (the forced invite flow adds a screen, not a new
-password-change route — full detail in [[Authentication]]):
+password-change route â€” full detail in [[Authentication]]):
 
-- **Change** (`(app)/profile/change-password.js`): top row of Profile →
+- **Change** (`(app)/profile/change-password.js`): top row of Profile â†’
   Privacy & Security. Same `POST /api/auth/change-password` as web Settings >
   Security; success signs out (cache cleared before SecureStore) and returns
   to login on the `signInRequired` contract.
@@ -233,24 +233,24 @@ password-change route — full detail in [[Authentication]]):
   authoritative, and the mobile forced path signs out so the driver logs in
   again with the permanent password.
 - **Recovery** (public, outside the `(app)` guard like login): `forgot-password.js`
-  (email → generic server message; a reset link + paste-able code is emailed
+  (email â†’ generic server message; a reset link + paste-able code is emailed
   when SMTP delivery is configured, administrator wording otherwise) and
   `reset-password.js` (30-min single-use code + new password), linked from a new
-  "Forgot password?" entry on `login.js`. Paste-the-code — no deep-link config.
+  "Forgot password?" entry on `login.js`. Paste-the-code â€” no deep-link config.
 - **Policy + offline rules (locked):** one pure validator
-  (`mobile/lib/password-validation.js`, client≡server parity fuzz-pinned)
+  (`mobile/lib/password-validation.js`, clientâ‰¡server parity fuzz-pinned)
   drives password screens' live checklists and submit gates; every credential
-  mutation uses `queueOnFailure: false` — never queued, offline is a plain
+  mutation uses `queueOnFailure: false` â€” never queued, offline is a plain
   connection error under the global banner. Profile/Settings stay silent about
   caching per the Offline Read Mode UX rule.
-- **Shared auth brand block (2026-09-24, extracted):** the `ClayTile → title →
+- **Shared auth brand block (2026-09-24, extracted):** the `ClayTile â†’ title â†’
   tagline` block that was byte-identical across `login.js`, `forgot-password.js`
   and `reset-password.js` now lives once in
-  `mobile/components/auth/AuthHeader.jsx` — `<AuthHeader icon title tagline />`,
+  `mobile/components/auth/AuthHeader.jsx` â€” `<AuthHeader icon title tagline />`,
   **no back button** (each screen keeps its own above it). The now-unused
   `brand`/`logoTile`/`appName`/`tagline` styles and `ClayTile` imports were
   removed from all three screens. Deliberate, documented deviation: the shared
-  `appName`/`tagline` gain `textAlign: "center"` — single-line renders are
+  `appName`/`tagline` gain `textAlign: "center"` â€” single-line renders are
   pixel-identical to before, and a *wrapped* tagline now centres instead of
    left-aligning under the centred title (the OTP email mask wraps, and
    `reset-password` already did this). Task 1 of the OTP redesign plan; the OTP
@@ -263,16 +263,16 @@ password-change route — full detail in [[Authentication]]):
   into a pure, unit-testable module (the only place `.jsx`-adjacent UI logic
   can be tested, since `vitest.config.mjs` includes `mobile/lib/**`). Two
   exports, both consumed by Task 3's `OtpInput.jsx` rewiring:
-  `otpCellFill({ status, filled, isDark, colors }) → string` implements
-  **recipe B — depth, not hue, carries progress**: filled cells lift
+  `otpCellFill({ status, filled, isDark, colors }) â†’ string` implements
+  **recipe B â€” depth, not hue, carries progress**: filled cells lift
   (`surfaceContainerLowest`), empty cells carve back (`surfaceContainerHigh`),
   light and dark mirrored; error/success keep their pre-existing rgba tints
   (behavioural states, not the progress channel); `focused` is deliberately
-  **not** a parameter — focus draws the ring/cursor and must never introduce a
+  **not** a parameter â€” focus draws the ring/cursor and must never introduce a
   third fill colour. `OTP_DASH = { rowGap: 8, separatorLeft: -8,
   separatorWidth: 8, dashWidth: 7 }` fixes the 3|4 separator overrunning cell 3
-  (was a 12-wide box at left −12 in a gap of 6; box now equals the gap, 7px dash
-  fits with 0.5px clearance either side; raw dp — the component wraps values in
+  (was a 12-wide box at left âˆ’12 in a gap of 6; box now equals the gap, 7px dash
+  fits with 0.5px clearance either side; raw dp â€” the component wraps values in
   `moderateScale()`). Strict TDD: `mobile/lib/otp-cell-style.test.js` written
    first and confirmed failing (module absent), then 6/6 green. Verified:
    `npx vitest run mobile/lib` **35 files / 395 tests** green (+1 file, +6
@@ -281,127 +281,127 @@ password-change route — full detail in [[Authentication]]):
 - **`OtpInput` rewired to the material model (2026-09-24, Task 3):**
   `mobile/components/otp/OtpInput.jsx` now consumes the two Task 2 exports.
   `resolveCellBg` is deleted and its call site replaced by
-  `otpCellFill({ status, filled, isDark, colors })` (recipe B — filled cells
+  `otpCellFill({ status, filled, isDark, colors })` (recipe B â€” filled cells
   lift, empty cells carve; error/success tints unchanged);
   `resolveBorderColor` is untouched, so border colours do not move. The
-  `row`/`separator`/`separatorDash` styles now read `OTP_DASH` (row gap 6→8,
-  separator `left/width` −12/12 → −8/8 so the box equals the gap, dash width
-  `7` from `OTP_DASH.dashWidth` — the dash no longer overruns cell 3). The
+  `row`/`separator`/`separatorDash` styles now read `OTP_DASH` (row gap 6â†’8,
+  separator `left/width` âˆ’12/12 â†’ âˆ’8/8 so the box equals the gap, dash width
+  `7` from `OTP_DASH.dashWidth` â€” the dash no longer overruns cell 3). The
   `cellShadow` `Animated.View` gained a filled-only lift shadow
-  (`filled && !focused && status === "idle"` → `shadowColor: "#000"`,
+  (`filled && !focused && status === "idle"` â†’ `shadowColor: "#000"`,
   offset `{0,2}`, `shadowOpacity: isDark ? 0.32 : 0.16`, `shadowRadius: 4`,
   `elevation: 2`) so the depth channel reads even where the two fills sit
   close in value. Purely visual: verification logic, focus ring, cursor and
-  pop animation are unchanged — Task 4 relies on that. No new unit test
+  pop animation are unchanged â€” Task 4 relies on that. No new unit test
   (`.jsx` is outside vitest's include); the guard is the baseline suite plus
   ESLint. Verified: `npx vitest run mobile/lib` **35 files / 395 tests**
    green before and after (count unchanged); `npx eslint` `--max-warnings 0`
    clean on the file. Device check (plan Step 8) deferred to the human.
    Commit `f083b14` on `feat/otp-redesign`.
-- **OTP view restructured — AuthHeader, one instruction, one meta row
+- **OTP view restructured â€” AuthHeader, one instruction, one meta row
   (2026-09-24, Task 4):** `mobile/components/otp/OtpVerificationView.jsx`
   consumes the Task 1 `AuthHeader` (`icon="shield-checkmark-outline"`,
-  `title="Verify your identity"`, tagline carrying the single instruction —
+  `title="Verify your identity"`, tagline carrying the single instruction â€”
   masked variant now inlines the address: `Enter the N-digit code sent to
   ${masked}`), replacing the intro `View` (title + description + email pill).
   The duplicate-instruction channel is gone: the `notice` prop is removed from
-  the view and `infoMsg` seeds from `useState(null)` instead of the prop —
+  the view and `infoMsg` seeds from `useState(null)` instead of the prop â€”
   the *state* deliberately stays, because the component still assigns it
   itself on MFA_REQUIRED-as-resend and on Resend ("A new code is on its
-  way…"). `login.js` drops all four `mfaNotice` sites in the same commit
+  wayâ€¦"). `login.js` drops all four `mfaNotice` sites in the same commit
   (state, setter call, `notice={mfaNotice}` prop, `setMfaNotice(null)` in
   `onBack`) so the prop never dangles. The card footer collapses from three
   rows + divider (divider / expiry timer / "Didn't receive a code?" resend)
-  into **one meta row** — expiry left, resend right, `space-between` — with
+  into **one meta row** â€” expiry left, resend right, `space-between` â€” with
   the expired copy shortened to `"Code expired"` (the "resend a new code
   below" tail was only there because Resend used to be two rows down) and
-  non-expired copy now `Expires in …` (was `Code expires in …`). Dead
+  non-expired copy now `Expires in â€¦` (was `Code expires in â€¦`). Dead
   styles removed: `intro`, `title`, `description`, `emailPill`,
   `maskedEmail`, `divider`, `timerRow`, `timerText`, `resendRow`,
   `resendHint`, `resendTap`, `resendLink`; added: `metaRow`, `metaItem`,
   `metaText`, `metaLink`, `metaTap`. `card` (padding `18/14`), `statusArea`
   (`minHeight: 26`), `statusRow`, `statusText`, `checkBadge`,
   `recoveryTap`, `recoveryText`, `root`, `header`, `backBtn` untouched, as
-  is all verification logic (state machine, auto-submit, ≥500 ms loader
+  is all verification logic (state machine, auto-submit, â‰¥500 ms loader
   hold, transport-failure `keepCode`, back clearing, timers, recovery path).
   In `login.js`, the one in-scope AA fix: the OTP-branch app-tagline footer
-  `colors.outline` → `colors.onSurfaceVariant` (4.41:1 → 6.21:1); the
+  `colors.outline` â†’ `colors.onSurfaceVariant` (4.41:1 â†’ 6.21:1); the
   form-branch copy of the same footer stays `colors.outline` by explicit
   decision. Verified: `npx vitest run mobile/lib` **35 files / 395 tests**
   green before and after (count unchanged; `otp.test.js` mask-parity pins
-  stay green — mask untouched); `npx eslint` `--max-warnings 0` on both
+  stay green â€” mask untouched); `npx eslint` `--max-warnings 0` on both
   files exits 0 with no output; manual orphan greps for the 12 deleted
   style names and `notice`/`mfaNotice`/`setMfaNotice` are clean (no
   references in either file or elsewhere under `mobile/`; the `fonts`
   import survives on `fonts.body`/`bodySemiBold`/`bodyMedium`). Device
-  checks (plan Steps 8–9) deferred to the human. Commit `3767e85` on
+  checks (plan Steps 8â€“9) deferred to the human. Commit `3767e85` on
   `feat/otp-redesign`.
 
-## OS permission registry — CONFIRMED (`mobile/lib/permissions.js`)
+## OS permission registry â€” CONFIRMED (`mobile/lib/permissions.js`)
 
-All five device permissions (foreground/background location, camera, photo library, notifications) are declared once in a registry with normalized `{ status, canAskAgain }`. Both the onboarding gate (`mobile/app/permissions.js`) and Settings → PERMISSIONS (`mobile/app/(app)/profile/permissions.js`) consume it; see [[Driver Consent]] for the full behavior. Onboarding's "Enable Permissions" iterates the registry to request permissions, registering the push device token when notifications is granted (non-blocking on denial or failure). Background location is listed as its own row (Android's "Allow all the time" is distinct from "While using"; iOS has no separate toggle).
+All five device permissions (foreground/background location, camera, photo library, notifications) are declared once in a registry with normalized `{ status, canAskAgain }`. Both the onboarding gate (`mobile/app/permissions.js`) and Settings â†’ PERMISSIONS (`mobile/app/(app)/profile/permissions.js`) consume it; see [[Driver Consent]] for the full behavior. Onboarding's "Enable Permissions" iterates the registry to request permissions, registering the push device token when notifications is granted (non-blocking on denial or failure). Background location is listed as its own row (Android's "Allow all the time" is distinct from "While using"; iOS has no separate toggle).
 
-## Version warning — CONFIRMED
+## Version warning â€” CONFIRMED
 
-`mobile/AGENTS.md`: *"Expo HAS CHANGED — read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code."*
+`mobile/AGENTS.md`: *"Expo HAS CHANGED â€” read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code."*
 
 Same trap as [[Framework Version Drift]] on the web side.
 
-**Dev-build implication:** background location ([[ADR-011 Background GPS Tracking]]) is not available in Expo Go — it needs a custom build. Since `expo prebuild --clean` on 2026-08-19, `android/` carries the background-location permissions and config, but the installed app on a device still needs a rebuild + reinstall.
+**Dev-build implication:** background location ([[ADR-011 Background GPS Tracking]]) is not available in Expo Go â€” it needs a custom build. Since `expo prebuild --clean` on 2026-08-19, `android/` carries the background-location permissions and config, but the installed app on a device still needs a rebuild + reinstall.
 
-## Connectivity UX — PR #3.1 (2026-09-08)
+## Connectivity UX â€” PR #3.1 (2026-09-08)
 
-Driver-only global connectivity status, mounted once in `mobile/app/(app)/_layout.js` as a layout-participating sibling above the `Stack` (inside `ConnectivityProvider`, inside the existing `NotificationFeedProvider`). The layout's driver-session + consent guards redirect before it, so it never renders on login/consent/setup screens. It pushes content down — map controls and bottom tabs are never covered — and renders nothing when healthy.
+Driver-only global connectivity status, mounted once in `mobile/app/(app)/_layout.js` as a layout-participating sibling above the `Stack` (inside `ConnectivityProvider`, inside the existing `NotificationFeedProvider`). The layout's driver-session + consent guards redirect before it, so it never renders on login/consent/setup screens. It pushes content down â€” map controls and bottom tabs are never covered â€” and renders nothing when healthy.
 
 - **Dependency:** `@react-native-community/netinfo@11.4.1` via `npx expo install` (SDK 54-compatible). No other new dependencies.
-- **State model** (`mobile/lib/connectivity-state.js`, pure + unit-tested): `online | unstable | offline | syncing` from NetInfo reachability + API transport-failure evidence (≥3 in 60 s → unstable; `isConnected`/`isInternetReachable` false → offline). 401/403/5xx never count; one success decisively clears; isolated failures never flicker. Context exposes `{status, isConnected, isInternetReachable, pendingCount, lastSyncedAt, lastFailureAt, lastSuccessAt}` plus transient `phase` (`recovered`/`synced`).
-- **Sequence:** healthy → invisible; trouble → "Connection unstable"; no internet → "You're offline" + "N queued" badge; offline with live trip tracking → "Offline · GPS still recording / Dispatcher may see your last synced location" (only when the poster is genuinely feeding the current trip — never inferred); recovery → "Back online" + "Syncing N updates…"; queue drained to zero → "All updates synced" → auto-dismiss.
+- **State model** (`mobile/lib/connectivity-state.js`, pure + unit-tested): `online | unstable | offline | syncing` from NetInfo reachability + API transport-failure evidence (â‰¥3 in 60 s â†’ unstable; `isConnected`/`isInternetReachable` false â†’ offline). 401/403/5xx never count; one success decisively clears; isolated failures never flicker. Context exposes `{status, isConnected, isInternetReachable, pendingCount, lastSyncedAt, lastFailureAt, lastSuccessAt}` plus transient `phase` (`recovered`/`synced`).
+- **Sequence:** healthy â†’ invisible; trouble â†’ "Connection unstable"; no internet â†’ "You're offline" + "N queued" badge; offline with live trip tracking â†’ "Offline Â· GPS still recording / Dispatcher may see your last synced location" (only when the poster is genuinely feeding the current trip â€” never inferred); recovery â†’ "Back online" + "Syncing N updatesâ€¦"; queue drained to zero â†’ "All updates synced" â†’ auto-dismiss.
 - **Queued-action UX:** `wasQueued()` helper (`mobile/lib/api.js`); trip transitions and completions that land in the outbox announce "Saved for sync / This update will be sent when you're online" instead of implying server confirmation. Advance/queue mechanics unchanged. Screens that already branched on `{queued:true}` (SOS, fuel, inspection, incidents) untouched.
-- **Dedup follow-up:** Home + Trips list `load()` catches suppress inline `ErrorNotice` for transport failures only (`isTransportFailure`, now housed in the pure `connectivity-state.js` and re-exported from `api.js`) — the global banner already speaks for them. Genuine errors still surface; stale lists stay visible offline.
-- **Reconnect auth hardening (driver-reported transient "session" warning, never an actual logout):** refresh POST retries once on transport failure (server 1-min grace covers the duplicate); 429 from refresh throws retryable instead of `clearAll()` + logout; a replay that 401s after a rotation gets one more refresh+replay before surfacing. Covered by `mobile/lib/api-refresh.test.js` (burst single-flight, second chance, 429-no-logout, refresh retry ×2).
-- **Cold-start tolerance:** Home + Trips `load()` auto-retries once (1.5 s) for transient failures via pure `shouldAutoRetry` (transport, 401, 429, 5xx — never 400/403/404) before showing anything. The manual Retry tap the driver used to need is now automatic.
-- **Forced-logout root cause (DB forensics 2026-09-08):** one family showed 63 rotations then a full wipe — the foreground poster and the background GPS task run in SEPARATE JS contexts with independent single-flights, alternating grace-rotations until one landed outside grace. Fix: `ROTATION_COOLDOWN_SECONDS = 10` in POST `/api/mobile/auth/refresh` — a family rotated seconds ago gets a stateless 429 with zero writes (covered by `refresh/route.test.js`: cooldown 429, normal rotation, genuine-replay wipe pinned).
-- **429 silence follow-up (driver-visible "too many requests" on Home):** both 429 paths now carry `retry_after`; the client waits once per the hint (cap 10 s) and retries once silently — only a second consecutive 429 surfaces, session intact. Covered by `api-refresh.test.js` (+2). Full suite 714 passing.
-- **Untouched:** trip lifecycle, auth/refresh/queue semantics, GPS lifecycle, PR #1–#3 logic, geofence rules. Tap detail sheet deferred.
-- **Verified:** `connectivity-state.test.js` (8), full suite 686 passing, eslint warning-clean, `expo export -p android` bundles 1333 modules. Physical-device checklist (airplane-mode, drain, dark mode, map overlap, background→foreground) still requires a device — not claimed.
-- **Outbox gate + cap (2026-09-22):** `sync.js` keeps an in-memory `knownPendingCount` with fail-open `hasPendingWork()`; `api.js` only calls `syncQueue()` when work may exist (was: every success, dead if/else). The queue is capped at 100 — oldest non-incident dropped with a warn, incidents never dropped (soft cap if all incidents). Semantics otherwise locked: auth/FormData never queued, sequential drain, incident dead-letter quarantine.
+- **Dedup follow-up:** Home + Trips list `load()` catches suppress inline `ErrorNotice` for transport failures only (`isTransportFailure`, now housed in the pure `connectivity-state.js` and re-exported from `api.js`) â€” the global banner already speaks for them. Genuine errors still surface; stale lists stay visible offline.
+- **Reconnect auth hardening (driver-reported transient "session" warning, never an actual logout):** refresh POST retries once on transport failure (server 1-min grace covers the duplicate); 429 from refresh throws retryable instead of `clearAll()` + logout; a replay that 401s after a rotation gets one more refresh+replay before surfacing. Covered by `mobile/lib/api-refresh.test.js` (burst single-flight, second chance, 429-no-logout, refresh retry Ã—2).
+- **Cold-start tolerance:** Home + Trips `load()` auto-retries once (1.5 s) for transient failures via pure `shouldAutoRetry` (transport, 401, 429, 5xx â€” never 400/403/404) before showing anything. The manual Retry tap the driver used to need is now automatic.
+- **Forced-logout root cause (DB forensics 2026-09-08):** one family showed 63 rotations then a full wipe â€” the foreground poster and the background GPS task run in SEPARATE JS contexts with independent single-flights, alternating grace-rotations until one landed outside grace. Fix: `ROTATION_COOLDOWN_SECONDS = 10` in POST `/api/mobile/auth/refresh` â€” a family rotated seconds ago gets a stateless 429 with zero writes (covered by `refresh/route.test.js`: cooldown 429, normal rotation, genuine-replay wipe pinned).
+- **429 silence follow-up (driver-visible "too many requests" on Home):** both 429 paths now carry `retry_after`; the client waits once per the hint (cap 10 s) and retries once silently â€” only a second consecutive 429 surfaces, session intact. Covered by `api-refresh.test.js` (+2). Full suite 714 passing.
+- **Untouched:** trip lifecycle, auth/refresh/queue semantics, GPS lifecycle, PR #1â€“#3 logic, geofence rules. Tap detail sheet deferred.
+- **Verified:** `connectivity-state.test.js` (8), full suite 686 passing, eslint warning-clean, `expo export -p android` bundles 1333 modules. Physical-device checklist (airplane-mode, drain, dark mode, map overlap, backgroundâ†’foreground) still requires a device â€” not claimed.
+- **Outbox gate + cap (2026-09-22):** `sync.js` keeps an in-memory `knownPendingCount` with fail-open `hasPendingWork()`; `api.js` only calls `syncQueue()` when work may exist (was: every success, dead if/else). The queue is capped at 100 â€” oldest non-incident dropped with a warn, incidents never dropped (soft cap if all incidents). Semantics otherwise locked: auth/FormData never queued, sequential drain, incident dead-letter quarantine.
 
 ## Offline Read Mode (2026-09-08)
 
-Stale-while-revalidate for the 6 core driver screens in one PR: Trips, History (shares the Trips `TRIPS_ALL` snapshot), Trip Detail (list-cache-first + per-trip `trip:{id}` key), Work Schedule (days/leaves/balances cached independently — one failing never blanks the rest), Activity Logs (submissions + inspections cached independently, rejected sources keep prior state instead of blanking to `[]`), Home (`HOME_TRIPS` + `DRIVER_ME`).
+Stale-while-revalidate for the 6 core driver screens in one PR: Trips, History (shares the Trips `TRIPS_ALL` snapshot), Trip Detail (list-cache-first + per-trip `trip:{id}` key), Work Schedule (days/leaves/balances cached independently â€” one failing never blanks the rest), Activity Logs (submissions + inspections cached independently, rejected sources keep prior state instead of blanking to `[]`), Home (`HOME_TRIPS` + `DRIVER_ME`).
 
-- **Foundation** (`mobile/lib/offline-cache.js`, no new dependencies): entries are `{ data, syncedAt }`, no TTL — last-good kept indefinitely. Every cache call takes an explicit `driverId` (`resolveDriverId`: `employeeId ?? driverId ?? employee_id ?? id ?? driver_id`); the module never imports storage/auth, so no circular dependency. Logout/session-death order is remember-driverId → `clearOfflineCache(driverId)` → `clearAll()` (orchestrated in `auth.js signOut` and a `clearSession()` helper in `api.js` covering both refresh-failure paths) — driver B on a shared phone never sees driver A's trips.
-- **camelCase namespace bug (fixed 2026-09-08, same day):** the login route returns `{ driverId, employeeId, … }` camelCase and `signIn` stores it verbatim, but `resolveDriverId` checked only snake_case — it returned null for every real login, so the cache was never written NOR read on any screen (and `clearOfflineCache` was dead code). The unit tests fed snake_case shapes only, which is exactly how it slipped through. Fix: camelCase first (employeeId preferred — stable server identity matching the logout/login namespace), snake_case kept as fallback for hand-shaped fixtures. Regression-pinned by a test using the exact login-response shape. Lesson: when a resolver dispatches on payload shape, test it against the *wire* shape it actually receives, not the shape you imagined.
-- **4-state offline UX (all 6 cached screens, shared implementation):** logic in the pure, unit-tested `mobile/lib/offline-ux.js` (`offlineViewState` for single-source screens; `combineOfflineSources` for multi-source), visuals in `mobile/components/OfflineStates.jsx` (`SyncNote` + `SavedChip` + `NeverSyncedCard`) — the same two pieces every screen consumes, work-schedule.js included (its local styles were folded into the shared components). State table (locked):
-  - **data** (items exist) → normal; offline → one inline "Using your last synced {label} for offline access." note + `Saved · {age}` chip. ONE note per screen, never per row/bucket.
-  - **empty-confirmed** (`syncedAt != null`, zero items — the server answered, even with `[]`) → online: "No X assigned right now."; offline: "No X were assigned when last synced." + Saved chip — a snapshot is not a current-truth claim.
-  - **never-synced** (offline, `syncedAt == null`) → dedicated `NeverSyncedCard` ("Connect once…"), never rows/skeletons/fabricated shells pretending to be data.
-  - **empty-unconfirmed** (ONLINE, `syncedAt == null` — fetch never confirmed) → "X couldn't be confirmed right now. Pull to refresh or try again." — never "Connect once", the device IS connected.
-  - **partial** (multi-source only: some sources answered, some not) → "Some offline activity may be unavailable. Reconnect to refresh all activity logs." — one unanswered source forbids a confirmed-empty claim.
+- **Foundation** (`mobile/lib/offline-cache.js`, no new dependencies): entries are `{ data, syncedAt }`, no TTL â€” last-good kept indefinitely. Every cache call takes an explicit `driverId` (`resolveDriverId`: `employeeId ?? driverId ?? employee_id ?? id ?? driver_id`); the module never imports storage/auth, so no circular dependency. Logout/session-death order is remember-driverId â†’ `clearOfflineCache(driverId)` â†’ `clearAll()` (orchestrated in `auth.js signOut` and a `clearSession()` helper in `api.js` covering both refresh-failure paths) â€” driver B on a shared phone never sees driver A's trips.
+- **camelCase namespace bug (fixed 2026-09-08, same day):** the login route returns `{ driverId, employeeId, â€¦ }` camelCase and `signIn` stores it verbatim, but `resolveDriverId` checked only snake_case â€” it returned null for every real login, so the cache was never written NOR read on any screen (and `clearOfflineCache` was dead code). The unit tests fed snake_case shapes only, which is exactly how it slipped through. Fix: camelCase first (employeeId preferred â€” stable server identity matching the logout/login namespace), snake_case kept as fallback for hand-shaped fixtures. Regression-pinned by a test using the exact login-response shape. Lesson: when a resolver dispatches on payload shape, test it against the *wire* shape it actually receives, not the shape you imagined.
+- **4-state offline UX (all 6 cached screens, shared implementation):** logic in the pure, unit-tested `mobile/lib/offline-ux.js` (`offlineViewState` for single-source screens; `combineOfflineSources` for multi-source), visuals in `mobile/components/OfflineStates.jsx` (`SyncNote` + `SavedChip` + `NeverSyncedCard`) â€” the same two pieces every screen consumes, work-schedule.js included (its local styles were folded into the shared components). State table (locked):
+  - **data** (items exist) â†’ normal; offline â†’ one inline "Using your last synced {label} for offline access." note + `Saved Â· {age}` chip. ONE note per screen, never per row/bucket.
+  - **empty-confirmed** (`syncedAt != null`, zero items â€” the server answered, even with `[]`) â†’ online: "No X assigned right now."; offline: "No X were assigned when last synced." + Saved chip â€” a snapshot is not a current-truth claim.
+  - **never-synced** (offline, `syncedAt == null`) â†’ dedicated `NeverSyncedCard` ("Connect onceâ€¦"), never rows/skeletons/fabricated shells pretending to be data.
+  - **empty-unconfirmed** (ONLINE, `syncedAt == null` â€” fetch never confirmed) â†’ "X couldn't be confirmed right now. Pull to refresh or try again." â€” never "Connect once", the device IS connected.
+  - **partial** (multi-source only: some sources answered, some not) â†’ "Some offline activity may be unavailable. Reconnect to refresh all activity logs." â€” one unanswered source forbids a confirmed-empty claim.
   - Honesty rules: confirmed-empty keys off per-source `syncedAt`, NEVER item count or a screen-wide `Math.min()`; filter-empty (data exists, active filter yields zero) is decided before the helper and keeps filter copy; `status: "unstable"` is treated as online (the amber banner speaks for it).
-  - **Home hero correction:** "All clear / ready for new assignments" keys off `tripsSyncedAt` (HOME_TRIPS) alone — a cached DRIVER_ME profile proves nothing about assignments. Offline never-synced renders "No saved trips yet / Connect once…" with an Offline chip; offline confirmed-empty reads "All clear when last synced".
-  - **Trip Detail:** offline + never-synced now renders `NeverSyncedCard` ("Trip not saved for offline") instead of the old fabricated `{trip_status: "Completed"}` shell. The ONLINE not-found fallback still fabricates that shell — logged as a follow-up in [[Current State]], out of this slice.
-- **Staleness lives in the one global banner** (`mobile/components/ConnectivityBanner.jsx` reads the existing `lastSuccessAt` from `useConnectivity()` and formats it with the shared pure `formatLastSynced()`): offline → "Last synced {12 min ago / 3h ago / yesterday at 4:32 PM} · Showing saved data. Updates will sync automatically." (GPS variant keeps its recording copy + age; unstable appends age; never-synced sessions keep the generic copy). No per-screen badge — an earlier `OfflineCacheBadge` was removed for stacking a redundant second banner under the global one. Never-synced devices get a "connect once" empty state per screen instead of a blank page.
-- **Authority safeguard (locked):** cache is display-only — it fills the same state the network would have, all trip gates/RBAC/server validation run unchanged. Offline actions still queue via `wasQueued()` → "Saved for sync"; server accept/reject on reconnect stands.
-- **Offline driver context (2026-09-08, same-day follow-up):** Report Incident, Fuel Report, and Profile > Assigned Vehicle all need "what vehicle am I driving", but each did its own live fetch with a silent catch — offline meant a silently missing vehicle (and incidents.js used a **recent trip's** vehicle as fallback, which is not proof of a current assignment). Two new shared pieces:
-  - `mobile/lib/driver-context.js` — pure resolver `resolveVehicleContext({ trip, trips, me, activeStatuses })` with the locked priority chain: **explicit trip → active trip vehicle (genuinely in-progress statuses) → standing assignment (`me.assignedVehicle`) → null** — NEVER a recent/finished trip's vehicle. `getCachedVehicleContext(driverId)` reads the caches the core screens already write (TRIPS_ALL, falling back to HOME_TRIPS, + DRIVER_ME), no network, never throws. Shape tolerance: trip rows and `/api/mobile/driver/me` are snake_case, `/api/driver/me`'s assignedVehicle is camelCase — both accepted and both pinned by wire-shape tests (`driver-context.test.js`, 12 tests, incl. the finished-trip anti-pattern). incidents.js and fuel-report.js now apply the cached resolution first, then revalidate live and re-warm the cache on success; fuel keeps its own non-terminal selection semantics (denylist of Completed/Cancelled) in both paths so offline and online pick the same vehicle.
-  - `mobile/lib/driver-profile.js` — `useDriverProfile()` hook: cached DRIVER_ME read first, live `/api/driver/me` revalidate, cache write on success; on failure the cached profile stays and `onError` fires ONLY in the never-synced case. Consumed by the Profile tab and all four sub-screens (Personal Information, License & Compliance, Assigned Vehicle, Safety Settings) — replacing five copies of the same fetch+alert pattern. Personal Information no longer errors offline; the phone PATCH still requires a connection and refreshes the cache via `reload()` on success.
-  - **In-memory profile cache (2026-09-21 follow-up):** the hook previously re-fetched `/api/driver/me` on EVERY screen mount (Profile → Personal Information → back = two network calls + spinner). It now holds a module-level per-driver entry (`memByDriver`, TTL `DRIVER_PROFILE_TTL_MS = 5 min`) shared by all hook instances: warm mounts paint synchronously from memory with zero network and `loading: false` (no spinner on tab switch / back navigation); cold start still falls back to AsyncStorage before the network; live revalidate runs only on stale cache or forced `reload()` (phone/photo edits), with single-flight dedup when several Profile screens mount together and an unmount guard so a slow fetch racing a fast back-navigation cannot setState.
-  - **UX rule (locked): Profile/Settings screens are SILENT about caching** — no SyncNote, no Saved chip, no never-synced card. The global connectivity banner is enough. Trips/Schedules/Logs need freshness indicators because they change operationally; a driver's own name/plate/license do not. Settings is device-local and works offline by nature (untouched). Server-dependent pages outside Profile (e.g. Logged-in Devices) are a separate slice.
+  - **Home hero correction:** "All clear / ready for new assignments" keys off `tripsSyncedAt` (HOME_TRIPS) alone â€” a cached DRIVER_ME profile proves nothing about assignments. Offline never-synced renders "No saved trips yet / Connect onceâ€¦" with an Offline chip; offline confirmed-empty reads "All clear when last synced".
+  - **Trip Detail:** offline + never-synced now renders `NeverSyncedCard` ("Trip not saved for offline") instead of the old fabricated `{trip_status: "Completed"}` shell. The ONLINE not-found fallback still fabricates that shell â€” logged as a follow-up in [[Current State]], out of this slice.
+- **Staleness lives in the one global banner** (`mobile/components/ConnectivityBanner.jsx` reads the existing `lastSuccessAt` from `useConnectivity()` and formats it with the shared pure `formatLastSynced()`): offline â†’ "Last synced {12 min ago / 3h ago / yesterday at 4:32 PM} Â· Showing saved data. Updates will sync automatically." (GPS variant keeps its recording copy + age; unstable appends age; never-synced sessions keep the generic copy). No per-screen badge â€” an earlier `OfflineCacheBadge` was removed for stacking a redundant second banner under the global one. Never-synced devices get a "connect once" empty state per screen instead of a blank page.
+- **Authority safeguard (locked):** cache is display-only â€” it fills the same state the network would have, all trip gates/RBAC/server validation run unchanged. Offline actions still queue via `wasQueued()` â†’ "Saved for sync"; server accept/reject on reconnect stands.
+- **Offline driver context (2026-09-08, same-day follow-up):** Report Incident, Fuel Report, and Profile > Assigned Vehicle all need "what vehicle am I driving", but each did its own live fetch with a silent catch â€” offline meant a silently missing vehicle (and incidents.js used a **recent trip's** vehicle as fallback, which is not proof of a current assignment). Two new shared pieces:
+  - `mobile/lib/driver-context.js` â€” pure resolver `resolveVehicleContext({ trip, trips, me, activeStatuses })` with the locked priority chain: **explicit trip â†’ active trip vehicle (genuinely in-progress statuses) â†’ standing assignment (`me.assignedVehicle`) â†’ null** â€” NEVER a recent/finished trip's vehicle. `getCachedVehicleContext(driverId)` reads the caches the core screens already write (TRIPS_ALL, falling back to HOME_TRIPS, + DRIVER_ME), no network, never throws. Shape tolerance: trip rows and `/api/mobile/driver/me` are snake_case, `/api/driver/me`'s assignedVehicle is camelCase â€” both accepted and both pinned by wire-shape tests (`driver-context.test.js`, 12 tests, incl. the finished-trip anti-pattern). incidents.js and fuel-report.js now apply the cached resolution first, then revalidate live and re-warm the cache on success; fuel keeps its own non-terminal selection semantics (denylist of Completed/Cancelled) in both paths so offline and online pick the same vehicle.
+  - `mobile/lib/driver-profile.js` â€” `useDriverProfile()` hook: cached DRIVER_ME read first, live `/api/driver/me` revalidate, cache write on success; on failure the cached profile stays and `onError` fires ONLY in the never-synced case. Consumed by the Profile tab and all four sub-screens (Personal Information, License & Compliance, Assigned Vehicle, Safety Settings) â€” replacing five copies of the same fetch+alert pattern. Personal Information no longer errors offline; the phone PATCH still requires a connection and refreshes the cache via `reload()` on success.
+  - **In-memory profile cache (2026-09-21 follow-up):** the hook previously re-fetched `/api/driver/me` on EVERY screen mount (Profile â†’ Personal Information â†’ back = two network calls + spinner). It now holds a module-level per-driver entry (`memByDriver`, TTL `DRIVER_PROFILE_TTL_MS = 5 min`) shared by all hook instances: warm mounts paint synchronously from memory with zero network and `loading: false` (no spinner on tab switch / back navigation); cold start still falls back to AsyncStorage before the network; live revalidate runs only on stale cache or forced `reload()` (phone/photo edits), with single-flight dedup when several Profile screens mount together and an unmount guard so a slow fetch racing a fast back-navigation cannot setState.
+  - **UX rule (locked): Profile/Settings screens are SILENT about caching** â€” no SyncNote, no Saved chip, no never-synced card. The global connectivity banner is enough. Trips/Schedules/Logs need freshness indicators because they change operationally; a driver's own name/plate/license do not. Settings is device-local and works offline by nature (untouched). Server-dependent pages outside Profile (e.g. Logged-in Devices) are a separate slice.
 - **Untouched:** write queue/retry semantics, incidents list, notifications history, map tiles, image bytes, GPS lifecycle, Settings screen.
-- **Verified:** `offline-cache.test.js` (12) + `offline-ux.test.js` (9: single-source decision table incl. the online-empty-unconfirmed distinction, multi-source combiner incl. the partial state) + `driver-context.test.js` (12) — full mobile suite 65 passing, eslint warning-clean on all touched files, `expo export -p android` bundles clean (5 MB Hermes). Physical-device checklist (airplane-mode persistence across kill/relaunch, shared-phone driver switch E2E — the cross-driver clear is only now actually exercisable since resolveDriverId was null before) still requires a device — not claimed.
+- **Verified:** `offline-cache.test.js` (12) + `offline-ux.test.js` (9: single-source decision table incl. the online-empty-unconfirmed distinction, multi-source combiner incl. the partial state) + `driver-context.test.js` (12) â€” full mobile suite 65 passing, eslint warning-clean on all touched files, `expo export -p android` bundles clean (5 MB Hermes). Physical-device checklist (airplane-mode persistence across kill/relaunch, shared-phone driver switch E2E â€” the cross-driver clear is only now actually exercisable since resolveDriverId was null before) still requires a device â€” not claimed.
 
-## Contextual Warnings — PR #4 Live Monitoring (2026-09-08)
+## Contextual Warnings â€” PR #4 Live Monitoring (2026-09-08)
 
-Both GPS ingest routes (`/api/mobile/driver/trips/[id]/gps` and `/api/trips/[id]/locations`) now also return a `monitor` payload — the ingest-side `evaluatePingMonitor` verdict (off-route state, GPS health, traffic delay when already cached), computed **best-effort inside try/catch**: a banner failure can never fail the GPS write it describes. The foreground poster publishes it to screens exactly like the PR #3 geofence verdict — trip-id-tagged (`monitor` + `monitorTripId`) with the same staleness guard, so a finished trip's banner cannot linger onto the next assignment.
+Both GPS ingest routes (`/api/mobile/driver/trips/[id]/gps` and `/api/trips/[id]/locations`) now also return a `monitor` payload â€” the ingest-side `evaluatePingMonitor` verdict (off-route state, GPS health, traffic delay when already cached), computed **best-effort inside try/catch**: a banner failure can never fail the GPS write it describes. The foreground poster publishes it to screens exactly like the PR #3 geofence verdict â€” trip-id-tagged (`monitor` + `monitorTripId`) with the same staleness guard, so a finished trip's banner cannot linger onto the next assignment.
 
-The map screen shows ONE calm banner while genuinely en route (gated to the en-route states, not at pickup/destination): "Route deviation detected / Check your navigation when safe." · "Heavy traffic ahead / Arrival may be delayed by about N min." (only from 5 min up, rounded) · "GPS updates delayed / Keep location access enabled." Derivation lives in the pure, RN-import-free `mobile/lib/monitor-banner.js` (priority: confirmed deviation > traffic > GPS delay; a single unconfirmed off-route observation or an unknown traffic value is silence) — re-exported by `tracking.js`, unit-tested by `monitor-banner.test.js` (5). No risk-level jargon, no dispatcher-style next-trip panic copy while driving; the driver's surface is this banner only, never the operational push (that goes to dispatch/fleet managers).
+The map screen shows ONE calm banner while genuinely en route (gated to the en-route states, not at pickup/destination): "Route deviation detected / Check your navigation when safe." Â· "Heavy traffic ahead / Arrival may be delayed by about N min." (only from 5 min up, rounded) Â· "GPS updates delayed / Keep location access enabled." Derivation lives in the pure, RN-import-free `mobile/lib/monitor-banner.js` (priority: confirmed deviation > traffic > GPS delay; a single unconfirmed off-route observation or an unknown traffic value is silence) â€” re-exported by `tracking.js`, unit-tested by `monitor-banner.test.js` (5). No risk-level jargon, no dispatcher-style next-trip panic copy while driving; the driver's surface is this banner only, never the operational push (that goes to dispatch/fleet managers).
 
-**Untouched:** GPS posting cadence, background task, geofence rules, connectivity banner, offline read mode. Full PR #4 architecture (engine, thresholds, durable alerts, APIs, web UI) → [[Tracking]].
+**Untouched:** GPS posting cadence, background task, geofence rules, connectivity banner, offline read mode. Full PR #4 architecture (engine, thresholds, durable alerts, APIs, web UI) â†’ [[Tracking]].
 
 ## Related
 
-[[Authentication]] · [[Tracking]] · [[Token Rotation And Refresh Races]] · [[Trips]] · [[Architecture]] · [[Driver Management]]
+[[Authentication]] Â· [[Tracking]] Â· [[Token Rotation And Refresh Races]] Â· [[Trips]] Â· [[Architecture]] Â· [[Driver Management]]
 
 
 ## PR 4.5 ? Context-aware dispatch (2026-09-13, implemented)
@@ -438,8 +438,8 @@ In `mobile/components/home/DriverHomeHeader.jsx` and `mobile/app/(app)/(tabs)/pr
 ## In-App Guidance & Contextual Coach Marks Subsystem (2026-09-16, implemented & refined)
 
 **Require-cycle diagnosis (2026-10-02, source-confirmed; no code change):** The
-warning path is `coachmarks/index.js` → `CoachMarkProvider.jsx` →
-`CoachMarkOverlay.jsx` → `DriverSos.js` → `coachmarks/index.js`. The provider
+warning path is `coachmarks/index.js` â†’ `CoachMarkProvider.jsx` â†’
+`CoachMarkOverlay.jsx` â†’ `DriverSos.js` â†’ `coachmarks/index.js`. The provider
 imports the overlay; the overlay imports `triggerDriverSos` from `DriverSos`,
 which imports coach-mark hooks and `CoachMarkTarget` through the `coachmarks`
 barrel. This cycle is separate from API reachability. A narrow cleanup would
@@ -459,12 +459,12 @@ Introduced a lightweight, just-in-time contextual guidance subsystem (`mobile/co
 - **Spotlight & Interactivity Architecture**:
   - *Exact Component Targeting*: Spotlights wrap the smallest meaningful interactive component via `CoachMarkTarget` (e.g. `incident.category` on the type grid, `inspection.pass_fail` on check buttons), never parent screens or large cards.
   - *Real Scrim Passthrough*: Replaced React Native `<Modal>` with an absolute fill container (`pointerEvents="box-none"`) and 4 blocking scrim rectangles (`pointerEvents="auto"`, transparent). The spotlight hole is structurally unblocked (`pointerEvents="none"`) for `passthrough` steps, allowing drivers to interact directly with real native components (PASS/FAIL, Remarks TextInput, Category selection).
-  - *Shape-Responsive Hole*: The hole takes its **radius** from the target's declaration — `min(radius + padding, min(holeW, holeH) / 2)`, so a fully-rounded target resolves to exactly half the hole and a circle stays a circle — but the **dim** is painted by four edge-to-edge rectangles, which leave an axis-aligned rectangular hole for the cutout's ring to sit inside. The gap between the two is real and was device-reported: at the four corners, outside the ring's arc but inside the rectangle, nothing is dimmed, so a round control (the `DriverSos` FAB, `map.layers`) sits in a bright square halo. That gap is wider now than when it was introduced, because the one thing that used to convey a round control's true shape — `CoachMarkTarget`'s own local contour — was **removed on 2026-09-22** to fix a doubled-ring artifact ("na-double"), leaving the square hole as the only shape cue. Painting the dim as one shaped view was tried and reverted (a thick border on a hole-sized view fills the target itself dark on device); a genuinely round hole needs `react-native-svg` with an even-odd path, which is a native dependency plus a dev-client rebuild and is recorded as outstanding. The radius rule lives in `mobile/lib/spotlight-geometry.js` as pure, unit-tested logic, alongside `resolveSpotlightRect` (symmetric edge padding + whole-dp edges), `resolveTooltipCardWidth` / `resolveArrowOffset` (one shared card width, and an arrow bounded by the card rather than a hard-coded 280), and `normalizeInsetsToMeasuredSpace`.
-  - *Coordinate Space (load-bearing)*: Three spaces are in play and they are **not** interchangeable. `measureInWindow` reports the target boxes **and** the overlay's own container box in ONE space, so those are directly comparable. But the hole is rendered as a `position: absolute` child of the overlay container, so it is laid out in that container's **local** space, whose origin is the container's own measured top-left — `{x: 0, y: −39.11}` on the reference device, **not** `{0, 0}`. A measured `y` must therefore never be used as a local `y`: doing so drew every cutout one status bar (39.11dp) above its target, which is the "lagpas / masyadong mataas" that survived five rounds of fixes. `toContainerSpace` in `mobile/lib/spotlight-geometry.js` performs that subtraction — a no-op where the container sits at the measured origin, and a pass-through while the container is unmeasured. The tooltip's placement bounds are the container's box (`VIEW_W` / `VIEW_H`), not the window's, so the hole and the clamps share one space. **Do not justify a change here by comparing the container's HEIGHT against the window's**: they read 853 and 853.33 on the reference device, which is the coincidence that got the correction deleted once already — equal heights say nothing about the origin. Separately, `useSafeAreaInsets()` is a third space whose relationship to the measured one is still unresolved.
-  - *Required Interaction Gate*: A `passthrough` step may also declare `requiresInteraction: true`, which holds it until the driver performs its real action — `nextStep` refuses to advance while `interactionSatisfiedRef` is unset, so the action button states the required action and does nothing until then. Two consequences are load-bearing: such a step must keep `canSkip: true` as the way out (its action button is inert), and **the interaction that satisfies the gate must set the ref itself** — a handler that only calls `nextStep` refuses the very tap it is waiting for. Used by the five Map practice swipes and by `tour.incident.category`.
+  - *Shape-Responsive Hole*: The hole takes its **radius** from the target's declaration â€” `min(radius + padding, min(holeW, holeH) / 2)`, so a fully-rounded target resolves to exactly half the hole and a circle stays a circle â€” but the **dim** is painted by four edge-to-edge rectangles, which leave an axis-aligned rectangular hole for the cutout's ring to sit inside. The gap between the two is real and was device-reported: at the four corners, outside the ring's arc but inside the rectangle, nothing is dimmed, so a round control (the `DriverSos` FAB, `map.layers`) sits in a bright square halo. That gap is wider now than when it was introduced, because the one thing that used to convey a round control's true shape â€” `CoachMarkTarget`'s own local contour â€” was **removed on 2026-09-22** to fix a doubled-ring artifact ("na-double"), leaving the square hole as the only shape cue. Painting the dim as one shaped view was tried and reverted (a thick border on a hole-sized view fills the target itself dark on device); a genuinely round hole needs `react-native-svg` with an even-odd path, which is a native dependency plus a dev-client rebuild and is recorded as outstanding. The radius rule lives in `mobile/lib/spotlight-geometry.js` as pure, unit-tested logic, alongside `resolveSpotlightRect` (symmetric edge padding + whole-dp edges), `resolveTooltipCardWidth` / `resolveArrowOffset` (one shared card width, and an arrow bounded by the card rather than a hard-coded 280), and `normalizeInsetsToMeasuredSpace`.
+  - *Coordinate Space (load-bearing)*: Three spaces are in play and they are **not** interchangeable. `measureInWindow` reports the target boxes **and** the overlay's own container box in ONE space, so those are directly comparable. But the hole is rendered as a `position: absolute` child of the overlay container, so it is laid out in that container's **local** space, whose origin is the container's own measured top-left â€” `{x: 0, y: âˆ’39.11}` on the reference device, **not** `{0, 0}`. A measured `y` must therefore never be used as a local `y`: doing so drew every cutout one status bar (39.11dp) above its target, which is the "lagpas / masyadong mataas" that survived five rounds of fixes. `toContainerSpace` in `mobile/lib/spotlight-geometry.js` performs that subtraction â€” a no-op where the container sits at the measured origin, and a pass-through while the container is unmeasured. The tooltip's placement bounds are the container's box (`VIEW_W` / `VIEW_H`), not the window's, so the hole and the clamps share one space. **Do not justify a change here by comparing the container's HEIGHT against the window's**: they read 853 and 853.33 on the reference device, which is the coincidence that got the correction deleted once already â€” equal heights say nothing about the origin. Separately, `useSafeAreaInsets()` is a third space whose relationship to the measured one is still unresolved.
+  - *Required Interaction Gate*: A `passthrough` step may also declare `requiresInteraction: true`, which holds it until the driver performs its real action â€” `nextStep` refuses to advance while `interactionSatisfiedRef` is unset, so the action button states the required action and does nothing until then. Two consequences are load-bearing: such a step must keep `canSkip: true` as the way out (its action button is inert), and **the interaction that satisfies the gate must set the ref itself** â€” a handler that only calls `nextStep` refuses the very tap it is waiting for. Used by the five Map practice swipes and by `tour.incident.category`.
   - *Protected Action Safeguard*: Protected buttons (SOS, Start Trip, Complete Inspection, Swipe Progression) use `interaction: "blocked"`, with cutout `pointerEvents="auto"` so drivers advance with `[ Got it ]` without accidental execution.
   - *Cross-Screen Stale Coordinate Rejection*: Targets are stamped with `route: pathname`. Missing, zero-sized, or cross-route targets suppress the overlay until properly mounted.
-  - *ScrollView Support*: Detects targets that lie entirely offscreen (wholly above or below the window — a partially visible target still presents), auto-scrolls parent ScrollViews into view, settles layout, and remeasures coordinates before presentation.
+  - *ScrollView Support*: Detects targets that lie entirely offscreen (wholly above or below the window â€” a partially visible target still presents), auto-scrolls parent ScrollViews into view, settles layout, and remeasures coordinates before presentation.
   - *Visual Contour*: Subtle theme forest-green primary contour (`colors.primary`), 8dp padding, 1 restrained arrival pulse, and zero bright neon #00E676.
 - **State & Storage (`mobile/lib/coach-mark-storage.js`)**: Scoped per driver ID via AsyncStorage with versioned keys (`fleetops.guide.<key>.v<version>_<driverId>`). Reset available in **Profile $\rightarrow$ Help & Support $\rightarrow$ Reset In-App Tips**.
 
@@ -472,76 +472,76 @@ Introduced a lightweight, just-in-time contextual guidance subsystem (`mobile/co
 
 The Driving Safety Lock needed one defensible answer to "is this vehicle moving", and the app already had exactly one GPS stream. Motion is therefore derived from the 30 s poster in `mobile/lib/tracking.js` rather than a second watcher:
 
-- `mobile/lib/motion-state.js` holds the derivation and is **React Native-free**, following the same split as `connectivity-state.js` (pure, unit-tested) vs. `connectivity-context.js` (RN glue). It is also the only part of this feature the vitest suite can reach — `vitest.config.mjs` includes `src/**` and `mobile/lib/**` only.
+- `mobile/lib/motion-state.js` holds the derivation and is **React Native-free**, following the same split as `connectivity-state.js` (pure, unit-tested) vs. `connectivity-context.js` (RN glue). It is also the only part of this feature the vitest suite can reach â€” `vitest.config.mjs` includes `src/**` and `mobile/lib/**` only.
 - The poster publishes `motionSpeedMs` / `motionFixAt` on **every** fix, immediately after `getCurrentPositionAsync` resolves and before the trip / responder / standby branch, so evidence exists in all three modes and does not depend on a post succeeding. A fix is evidence; a delivered post is not a prerequisite for one.
 - `useIsDriving()` consumes it through a new `subscribePosterStatus(listener)` rather than `usePosterStatus()`. That distinction is load-bearing: the coach-mark provider wraps the entire app tree, and a state subscription would re-render it every 30 s. The hook folds fixes into a ref-held state and runs a 15 s tick that calls `setState` **only when the boolean flips**, bounding how late the lock releases without engaging late.
-- Motion is sticky for 2 minutes after the last moving fix, and unknown motion (no permission, tracking off, no fix yet) fails open. The threshold is `10 / 3.6` m/s because `LocationObjectCoords.speed` is metres per second — elsewhere in the app `coords.speed` is compared against raw `1` and `2`, so an un-converted `10` would sit at 36 km/h.
+- Motion is sticky for 2 minutes after the last moving fix, and unknown motion (no permission, tracking off, no fix yet) fails open. The threshold is `10 / 3.6` m/s because `LocationObjectCoords.speed` is metres per second â€” elsewhere in the app `coords.speed` is compared against raw `1` and `2`, so an un-converted `10` would sit at 36 km/h.
 
 ### One guide at a time (2026-09-18)
 
 `triggerMilestone` refuses to pre-empt a guide that is **on screen**. The guard reads a render-time mirror of `shouldShowOverlay`, held in a ref, for two reasons: the value changes on every target measurement (the settling ticks re-register continuously) and `triggerMilestone`'s identity is in the dependency array of most screens' trigger effects, so it must not change on every measurement or transition. Owner state lives in `activeKeyRef`, set synchronously alongside `setActiveMilestoneKey` so the guard is never a render behind.
 
-Scoping the guard to *visible* rather than *active* is what keeps it from wedging the app: a guide left behind by navigation, or one whose target never registered, is hidden — and blocking on an invisible guide would refuse every later guide with nothing on screen to dismiss. A superseded guide is left incomplete, so it returns when its trigger next fires.
+Scoping the guard to *visible* rather than *active* is what keeps it from wedging the app: a guide left behind by navigation, or one whose target never registered, is hidden â€” and blocking on an invisible guide would refuse every later guide with nothing on screen to dismiss. A superseded guide is left incomplete, so it returns when its trigger next fires.
 
-#### …and one screen per app-wide tour: parking (2026-09-22)
+#### â€¦and one screen per app-wide tour: parking (2026-09-22)
 
-That scoping was applied to the visibility guard but **not** to the milestone-exclusivity guard beside it, which refused *every* milestone except `map_intro` while `map_intro` was active. `map_intro`'s route is `/map`, so a guide the driver had navigated away from — invisible, occupying no screen — still held the exclusivity slot everywhere, and `pretrip`, `pretrip_remarks` and `pretrip_complete` were each refused in silence while the driver stood on the inspection screen. The tour's own design causes this: the Map tour's pre-trip prompt pushes `/inspection` and the Map tab stays *covered* rather than unmounted, so `map_intro` remains active at its start-swipe step.
+That scoping was applied to the visibility guard but **not** to the milestone-exclusivity guard beside it, which refused *every* milestone except `map_intro` while `map_intro` was active. `map_intro`'s route is `/map`, so a guide the driver had navigated away from â€” invisible, occupying no screen â€” still held the exclusivity slot everywhere, and `pretrip`, `pretrip_remarks` and `pretrip_complete` were each refused in silence while the driver stood on the inspection screen. The tour's own design causes this: the Map tour's pre-trip prompt pushes `/inspection` and the Map tab stays *covered* rather than unmounted, so `map_intro` remains active at its start-swipe step.
 
 The exclusivity rule is therefore **route-scoped**. `releaseActiveIfOffRoute(park)` yields the screen when the active guide's route no longer matches the pathname, and its two callers differ in one flag:
 
-- **`triggerMilestone` — park it.** The displaced guide is stored as `{key, stepIndex, context}` in `parkedMilestoneRef` and resumes at the step it was parked on when the pathname returns to its route. It is neither completed (a step the driver has not read must not be burned) nor abandoned (`abandonActiveMilestone` sets `mapIntroAwaitingTap` for `map_intro`, which demands a fresh Map-tab tap and restarts at step 0, discarding completed practice stages).
-- **The resume effect — do not re-park.** It is keyed on the pathname, because the driver returns through a button in *another* screen (the inspection success modal pushes back to the Map tab) and there is no call site to hang it off. A guide it displaces has already been superseded, so it is cleared rather than parked again.
+- **`triggerMilestone` â€” park it.** The displaced guide is stored as `{key, stepIndex, context}` in `parkedMilestoneRef` and resumes at the step it was parked on when the pathname returns to its route. It is neither completed (a step the driver has not read must not be burned) nor abandoned (`abandonActiveMilestone` sets `mapIntroAwaitingTap` for `map_intro`, which demands a fresh Map-tab tap and restarts at step 0, discarding completed practice stages).
+- **The resume effect â€” do not re-park.** It is keyed on the pathname, because the driver returns through a button in *another* screen (the inspection success modal pushes back to the Map tab) and there is no call site to hang it off. A guide it displaces has already been superseded, so it is cleared rather than parked again.
 
-Preserved unchanged: a guide whose route *does* match keeps the screen (one guide per screen), and the async `mapIntroPendingRef` reservation wins outright — nothing is active while that storage read is in flight, so there is nothing to park and the trigger is simply refused. Every bail-out in the resume (no slot, unknown key, wrong route, reservation pending, driving lock) leaves the slot intact so the guide can come back on a later navigation; the driving lock is checked *before* the destructive release for exactly that reason. A parked slot is released by its route returning, or by a claim of the same key — which restarts at step 0, so resuming the parked one later would replay a step the driver already passed. Two ordinary paths consume a parked Map tour: the inspection's success modal returning to `/map`, or the driver tapping the Map tab (`triggerMapIntroFromTab` reads the slot instead of restarting).
+Preserved unchanged: a guide whose route *does* match keeps the screen (one guide per screen), and the async `mapIntroPendingRef` reservation wins outright â€” nothing is active while that storage read is in flight, so there is nothing to park and the trigger is simply refused. Every bail-out in the resume (no slot, unknown key, wrong route, reservation pending, driving lock) leaves the slot intact so the guide can come back on a later navigation; the driving lock is checked *before* the destructive release for exactly that reason. A parked slot is released by its route returning, or by a claim of the same key â€” which restarts at step 0, so resuming the parked one later would replay a step the driver already passed. Two ordinary paths consume a parked Map tour: the inspection's success modal returning to `/map`, or the driver tapping the Map tab (`triggerMapIntroFromTab` reads the slot instead of restarting).
 
 `triggerMilestone` gained `releaseActiveIfOffRoute` as a dependency, which is safe because that callback is itself stable: it compares against `pathnameRef`, not the `pathname` state, precisely so a navigation does not change either identity. The two ref mirrors it needs for the same reason are `currentStepIndexRef` and `stepContextRef`.
 
 ### The overlay's presentation lifecycle (2026-09-22)
 
-**The overlay mounts for the whole guide, not per step.** This is the load-bearing invariant behind the cutout staying in one place across a transition, and it was violated until the sixth report. `shouldShowOverlay` is `Boolean(activeMilestone && isCurrentRouteValid)` — it deliberately does **not** require the current target's layout. Requiring it looked harmless but was not: the `spotlight` memo's freshness gate rejects any registration not stamped with the **current** presentation generation, and a step change bumps that generation, so the layout was null for a window after every transition. The overlay unmounted, and on the fresh mount the container box was back to `{0,0,0,0}` — meaning `toContainerSpace` could not apply the origin, so the hole was drawn one status bar (39.11dp) too high, then corrected a frame later by the 240ms tween inside the fade-out/fade-in pair. The tooltip and the dim blinked for the same reason, since `overlayFade` and `tooltipOpacity` are per-mount animation values.
+**The overlay mounts for the whole guide, not per step.** This is the load-bearing invariant behind the cutout staying in one place across a transition, and it was violated until the sixth report. `shouldShowOverlay` is `Boolean(activeMilestone && isCurrentRouteValid)` â€” it deliberately does **not** require the current target's layout. Requiring it looked harmless but was not: the `spotlight` memo's freshness gate rejects any registration not stamped with the **current** presentation generation, and a step change bumps that generation, so the layout was null for a window after every transition. The overlay unmounted, and on the fresh mount the container box was back to `{0,0,0,0}` â€” meaning `toContainerSpace` could not apply the origin, so the hole was drawn one status bar (39.11dp) too high, then corrected a frame later by the 240ms tween inside the fade-out/fade-in pair. The tooltip and the dim blinked for the same reason, since `overlayFade` and `tooltipOpacity` are per-mount animation values.
 
-**The handoff is carried by a held rect, derived — never stored.** `heldTargetLayout` is a plain `useMemo`: when the current step's own layout is stale or missing it returns the **previous step's** registration, `targets[activeMilestone.steps[currentStepIndex - 1].targetId]`, accepted only when that step exists, differs from the current one, belongs to the same guide by construction, sits on a matching route, and has a non-degenerate box. `activeTargetLayout` is `spotlight.layout ?? heldTargetLayout`. The ring therefore holds its position and then tweens to the new target when the real measurement lands — which is what the hole tween was always for. It is self-limiting: a real measurement always wins, and the fallback cannot outlive its guide.
+**The handoff is carried by a held rect, derived â€” never stored.** `heldTargetLayout` is a plain `useMemo`: when the current step's own layout is stale or missing it returns the **previous step's** registration, `targets[activeMilestone.steps[currentStepIndex - 1].targetId]`, accepted only when that step exists, differs from the current one, belongs to the same guide by construction, sits on a matching route, and has a non-degenerate box. `activeTargetLayout` is `spotlight.layout ?? heldTargetLayout`. The ring therefore holds its position and then tweens to the new target when the real measurement lands â€” which is what the hole tween was always for. It is self-limiting: a real measurement always wins, and the fallback cannot outlive its guide.
 
-**Why derived rather than stored.** Two obvious implementations were written first and both failed `lint:ci`'s `--max-warnings 0` for correct reasons: a **ref read during render** (`react-hooks/refs` — a ref must not be touched during render, which is also why the provider's ownership state lives in refs *written* from callbacks) and a **`useState` mirrored from an effect** (`react-hooks/set-state-in-effect` — a cascading render). Reading the previous step out of state that already exists needs neither, and the same reasoning applies to the two refs the tween effect uses (`presentedMilestoneRef`, `presentedSpotRef`): they are written and read only *inside* that effect, which is what makes them legal.
+**Why derived rather than stored.** Two obvious implementations were written first and both failed `lint:ci`'s `--max-warnings 0` for correct reasons: a **ref read during render** (`react-hooks/refs` â€” a ref must not be touched during render, which is also why the provider's ownership state lives in refs *written* from callbacks) and a **`useState` mirrored from an effect** (`react-hooks/set-state-in-effect` â€” a cascading render). Reading the previous step out of state that already exists needs neither, and the same reasoning applies to the two refs the tween effect uses (`presentedMilestoneRef`, `presentedSpotRef`): they are written and read only *inside* that effect, which is what makes them legal.
 
-**The container is measured once per mount.** Its effect no longer depends on `step?.targetId` — the origin is a property of the window, not of a step — so a transition does not re-measure, does not re-adopt a possibly transient origin, and does not reschedule the 350ms settle recheck. That recheck survives on mount, which is what covers a mount that happens mid-slide.
+**The container is measured once per mount.** Its effect no longer depends on `step?.targetId` â€” the origin is a property of the window, not of a step â€” so a transition does not re-measure, does not re-adopt a possibly transient origin, and does not reschedule the 350ms settle recheck. That recheck survives on mount, which is what covers a mount that happens mid-slide.
 
 **The presentation gate has three outcomes**, and the third exists to keep a guide dismissible:
 
 | Condition | Rendered |
 |---|---|
-| The step has no target (the Welcome card) | Centred card, **immediately** — a success case, not a missing measurement |
-| Target step, geometry not ready | **Scrim only, `pointerEvents="none"`** — so the card's first painted frame is already aligned instead of appearing centred and hopping |
-| Geometry still absent after `GEOMETRY_HOLD_MS` (600) | Centred card — the escape hatch |
+| The step has no target (the Welcome card) | Centred card, **immediately** â€” a success case, not a missing measurement |
+| Target step, geometry not ready | **Scrim only, `pointerEvents="none"`** â€” so the card's first painted frame is already aligned instead of appearing centred and hopping |
+| Geometry still absent after `GEOMETRY_HOLD_MS` (600) | Centred card â€” the escape hatch |
 
-The third row is not optional: without it a target that never measures leaves a dimmed screen with nothing to tap, where the previous behavior dimmed nothing at all. The timeout stores the **step id** that expired rather than a boolean, so it cannot leak into the next step and no reset `setState` is required. `ref={containerRef}` appears on **three** branches and a test asserts the count — every branch that can render while the container is unmeasured must carry it, or the measurement that opens the gate can never run.
+The third row is not optional: without it a target that never measures leaves a dimmed screen with nothing to tap, where the previous behavior dimmed nothing at all. The timeout stores the **step id** that expired rather than a boolean, so it cannot leak into the next step and no reset `setState` is required. `ref={containerRef}` appears on **three** branches and a test asserts the count â€” every branch that can render while the container is unmeasured must carry it, or the measurement that opens the gate can never run.
 
-**The dev diagnostic distinguishes a hold from a refusal.** While a held rect is presented the spotlight *is* presenting, so the "not presenting" warning is suppressed — but only in favour of a different message, `spotlight holding the previous step — <reason>`. Suppressing it outright would silence the one case it exists for, since a target that never registers holds indefinitely and would otherwise look identical to a healthy handoff.
+**The dev diagnostic distinguishes a hold from a refusal.** While a held rect is presented the spotlight *is* presenting, so the "not presenting" warning is suppressed â€” but only in favour of a different message, `spotlight holding the previous step â€” <reason>`. Suppressing it outright would silence the one case it exists for, since a target that never registers holds indefinitely and would otherwise look identical to a healthy handoff.
 
 
 ### Target ownership and off-screen rejection (2026-09-18)
 
-- **Ownership tokens**: a target id can be live more than once — `inspection.remarks` mounts once per *failed* checklist item. Each `CoachMarkTarget` mount carries a token; `registerTarget` records all live registrations per id and publishes the newest; `unregisterTarget(id, token)` removes only its own and promotes the survivor. Previously last-measure-wins overwrote the first registration and unmounting *either* deleted the shared one.
-- **Off-screen rejection**: `activeTargetLayout` rejects a target that lies entirely outside the window — wholly above (`y + height <= 0`) or wholly below (`y >= SCREEN_HEIGHT`). The gate previously demanded the box clear `insets.top + 40`, which refused a target that was fully on screen if its own safe-area insets had not settled when it measured. Positive bounds are not sufficient evidence, since a card scrolled out of view measures positively. Only a box *entirely* outside is rejected: auto-scroll is gated on `isCurrentActiveTarget` independently of overlay visibility, so a partially visible target still scrolls in and presents.
+- **Ownership tokens**: a target id can be live more than once â€” `inspection.remarks` mounts once per *failed* checklist item. Each `CoachMarkTarget` mount carries a token; `registerTarget` records all live registrations per id and publishes the newest; `unregisterTarget(id, token)` removes only its own and promotes the survivor. Previously last-measure-wins overwrote the first registration and unmounting *either* deleted the shared one.
+- **Off-screen rejection**: `activeTargetLayout` rejects a target that lies entirely outside the window â€” wholly above (`y + height <= 0`) or wholly below (`y >= SCREEN_HEIGHT`). The gate previously demanded the box clear `insets.top + 40`, which refused a target that was fully on screen if its own safe-area insets had not settled when it measured. Positive bounds are not sufficient evidence, since a card scrolled out of view measures positively. Only a box *entirely* outside is rejected: auto-scroll is gated on `isCurrentActiveTarget` independently of overlay visibility, so a partially visible target still scrolls in and presents.
 - **Spotlight geometry is animated**: the shaped scrim, its four transparent touch blockers, and the cutout are driven by interpolated bounds. They were previously animated for 240 ms and then never referenced in JSX, so a re-measuring target snapped the spotlight instead of moving it. The corner radius is a plain value, so it snaps rather than tweening when a step changes a target's shape.
 
-- **Verification**: `mobile/lib/coach-marks.test.js` (39 tests) and `mobile/lib/motion-state.test.js` (11 tests) both pass, and the full suite is green as of 2026-09-18 — **143 test files, 1,389 tests**, run with `npx vitest run --no-file-parallelism --maxWorkers=1`. They cover the definitions, storage, motion arithmetic, and hold-window boundaries directly; the provider wiring is asserted as **source text** (the RN component tree is outside the vitest include list), which catches a revert but not a subtle rewrite — the suite passes even if the provider fails to render. ESLint has not been re-run. Manual device checks of the lock — the only thing that exercises the wiring rather than the arithmetic — remain outstanding; see the journal entry for that date.
+- **Verification**: `mobile/lib/coach-marks.test.js` (39 tests) and `mobile/lib/motion-state.test.js` (11 tests) both pass, and the full suite is green as of 2026-09-18 â€” **143 test files, 1,389 tests**, run with `npx vitest run --no-file-parallelism --maxWorkers=1`. They cover the definitions, storage, motion arithmetic, and hold-window boundaries directly; the provider wiring is asserted as **source text** (the RN component tree is outside the vitest include list), which catches a revert but not a subtle rewrite â€” the suite passes even if the provider fails to render. ESLint has not been re-run. Manual device checks of the lock â€” the only thing that exercises the wiring rather than the arithmetic â€” remain outstanding; see the journal entry for that date.
 
 ### Coach-mark context partition (2026-09-21)
 
-`CoachMarkProvider` publishes the guide through three contexts split by **change frequency** instead of one value object, because a context value is compared by identity and the value was a plain object literal — so it was new on every provider render, and all eleven consumers re-rendered for any provider render at all: a route change, a window resize, a keyboard event, one target settling.
+`CoachMarkProvider` publishes the guide through three contexts split by **change frequency** instead of one value object, because a context value is compared by identity and the value was a plain object literal â€” so it was new on every provider render, and all eleven consumers re-rendered for any provider render at all: a route change, a window resize, a keyboard event, one target settling.
 
-- `CoachMarkActionsContext` — callbacks only (`triggerMilestone`, `triggerMapIntroFromTab`, `registerTarget`, `unregisterTarget`, `notifyInteraction`, `nextStep`, `prevStep`, `skip`, `dismiss`, `dismissCoachMark`, `resetTips`). Stable across step transitions and re-measures; it still moves on a route change and on a driving-lock flip, which is deliberate.
-- `CoachMarkStatusContext` — `activeMilestone`, `mapIntroPending`, `mapIntroAwaitingTap`, `isDriving`. Moves on milestone transitions.
-- `CoachMarkStateContext` — `currentStepIndex`, `currentStep`, `stepContext`, `activeTargetLayout`, `activePresentationId`, `currentRoute`. The volatile group: this is what a step transition or a settling re-measure is supposed to move.
+- `CoachMarkActionsContext` â€” callbacks only (`triggerMilestone`, `triggerMapIntroFromTab`, `registerTarget`, `unregisterTarget`, `notifyInteraction`, `nextStep`, `prevStep`, `skip`, `dismiss`, `dismissCoachMark`, `resetTips`). Stable across step transitions and re-measures; it still moves on a route change and on a driving-lock flip, which is deliberate.
+- `CoachMarkStatusContext` â€” `activeMilestone`, `mapIntroPending`, `mapIntroAwaitingTap`, `isDriving`. Moves on milestone transitions.
+- `CoachMarkStateContext` â€” `currentStepIndex`, `currentStep`, `stepContext`, `activeTargetLayout`, `activePresentationId`, `currentRoute`. The volatile group: this is what a step transition or a settling re-measure is supposed to move.
 
-`useCoachMarks()` returns all three merged and remains the safe default for a consumer needing more than one group; `useCoachMarkActions()` / `useCoachMarkStatus()` / `useCoachMarkState()` are the narrow subscriptions. Six of the eleven consumers need callbacks alone and are now never re-rendered by tutorial activity — including `CurvedPillTabBar`, which is mounted on every screen for the whole session.
+`useCoachMarks()` returns all three merged and remains the safe default for a consumer needing more than one group; `useCoachMarkActions()` / `useCoachMarkStatus()` / `useCoachMarkState()` are the narrow subscriptions. Six of the eleven consumers need callbacks alone and are now never re-rendered by tutorial activity â€” including `CurvedPillTabBar`, which is mounted on every screen for the whole session.
 
 The mechanism only works because `children` arrives as a **prop**: when the provider re-renders, React sees the same element reference and bails out of that subtree, and an untouched narrow context does not pull anything back in. A screen that calls `useCoachMarks()` itself is a consumer of all three, which is why the narrow hooks are what carry the win rather than the split on its own.
 
-`nextStep`, `prevStep` and `notifyInteraction` close over the current step, so they are published through stable delegates that read the latest definition out of a ref written at commit. `triggerMilestone` is deliberately **not** delegated: it closes over `isDriving`, and `inspection.js`, `incidents.js` and `fuel-report.js` trigger it from effects whose only other dependencies are local state, so that identity change is what re-runs them when the driving lock releases — see *Driving-motion state* above for why the lock is deliberately read as a boolean that flips rather than a stream.
+`nextStep`, `prevStep` and `notifyInteraction` close over the current step, so they are published through stable delegates that read the latest definition out of a ref written at commit. `triggerMilestone` is deliberately **not** delegated: it closes over `isDriving`, and `inspection.js`, `incidents.js` and `fuel-report.js` trigger it from effects whose only other dependencies are local state, so that identity change is what re-runs them when the driving lock releases â€” see *Driving-motion state* above for why the lock is deliberately read as a boolean that flips rather than a stream.
 
-Verification: touched-file ESLint passed at `--max-warnings 0`; `mobile/lib/coach-marks.test.js` gained five structural assertions (three contexts, three memoized values, no un-memoized literal, the delegated callbacks, and the two heavy screens pinned to actions-only), taking that file to 70 tests and the mobile library suite to 27 files / 239 tests. The partition is a structural fix reasoned from the code — **no render counter or profiler has been run**, and the suite has no renderer, so it can pin the structure but cannot measure the effect.
+Verification: touched-file ESLint passed at `--max-warnings 0`; `mobile/lib/coach-marks.test.js` gained five structural assertions (three contexts, three memoized values, no un-memoized literal, the delegated callbacks, and the two heavy screens pinned to actions-only), taking that file to 70 tests and the mobile library suite to 27 files / 239 tests. The partition is a structural fix reasoned from the code â€” **no render counter or profiler has been run**, and the suite has no renderer, so it can pin the structure but cannot measure the effect.
 
 ### First intentional Map tour (2026-09-20)
 
@@ -583,7 +583,7 @@ Task 10 sign-in transition hardening (2026-10-11): Generic requests now carry an
 Task 10 cleanup hardening, fix round 4 (2026-10-11): Session cleanup waits for every native deletion to settle before releasing the serialized storage mutation, then reports the first failure. A failed deletion can no longer release a retry sign-in while an older refresh-token or user deletion is still pending. Both delayed-delete races are covered, including preservation of the retry's tokens, user and active account. Independent transition and signed-out marker tests first prove a complete stored access/refresh/user session can restore, then prove the marker alone blocks restoration while all three records remain. Final affected suites passed 45/45; scoped ESLint and whitespace checks passed. Independent scoped review remains pending; no native-device acceptance was performed.
 
 
-## Cargo verification screens — Task 12 (2026-10-12)
+## Cargo verification screens â€” Task 12 (2026-10-12)
 
 The driver app now uses one cargo screen structure for restaurant supply pickup, restaurant food delivery and hotel supply transfer. The existing Trip Details route remains registered beside `/trip/[id]/cargo`, `/cargo-pickup` and `/cargo-delivery`. Trip Details opens the manifest; the Map opens pickup at **At Pickup** and delivery at **Drop-off**. Start Trip still means travel to pickup and retains the existing pre-trip rules, including `cargo_secure`. Passenger Guest/VIP controls remain unchanged.
 
@@ -604,7 +604,7 @@ Legacy Cargo **In Progress** is held from completion unless a fresh server view 
 
 Review verification: focused UI plus existing manifest/evidence/API contracts **99/99 across6 files**; full mobile/shared presentation **621/621 across57 files**; scoped ESLint zero warnings; `git diff --check` clean; Android/iOS/web Expo export passed. Source-reference policy, signer authority, lifecycle activation and provider configuration are unchanged. Native device, permission-dialog, keyboard/screen-reader and real provider acceptance remain pending.
 
-## Cargo demo screen — Task 13 (2026-10-12)
+## Cargo demo screen â€” Task 13 (2026-10-12)
 
 The public `/cargo-demo` route is linked from sign-in and uses the same static sample records tested by Task 13. It opens on the hotel 10-expected / 9-counted case, shows the source WAIT state, and lets the user switch locally to the clean recount for the same trip, manifest and execution with a new receipt. Other cases show clean delivery, accepted and rejected shortages, a delivery difference and a partner timeout. Restaurant and hotel examples share the same cargo count layout; Guest/VIP transport is shown separately as a passenger flow.
 
@@ -612,7 +612,7 @@ The screen is a read-only showcase. Scenario and timeline selection change only 
 
 Verification: 16 focused fixture, presentation and rendered-screen tests passed; the full mobile regression passed **632/632 across59 files**; touched ESLint had zero warnings; Android, iOS and web Expo export succeeded. Native-device acceptance remains a separate check.
 
-## Driver workspace routing by saved driver type — implemented 2026-10-12
+## Driver workspace routing by saved driver type â€” implemented 2026-10-12
 
 The saved drivers.driver_type from the authenticated profile is the only selector for the mobile workspace. GET /api/driver/me returns that value as driverType; the assigned vehicle provides vehicle details and assignment status, but does not choose Passenger or Cargo. The type stays fixed when a trip, vehicle or service label changes.
 
@@ -626,7 +626,7 @@ The existing qualification, duty, trip-state, inspection, GPS, geofence, privacy
 
 Verification: 567 affected automated tests passed across 37 files; strict ESLint passed with zero warnings; the Android JavaScript export completed successfully. Expo reported that mobile/services/google-services.json is absent. Native acceptance was not run because adb and emulator tooling are unavailable.
 
-### Review fix round — 2026-10-13
+### Review fix round â€” 2026-10-13
 
 Independent review found one correctness defect and test gaps; fixed in commit `aa9a8701`.
 
@@ -637,7 +637,6 @@ Independent review found one correctness defect and test gaps; fixed in commit `
 Verification: focused re-run after the fix passed **251 tests across 11 files** (driver-workspace, cargo-home-render, driver-profile, cargo-view-model, cargo-verification-render, driver/me, vehicle-load-compatibility, driver-assignments, dispatch route, trips accept, trips start). Mutation checks confirmed the new tests fail when their guarded condition is removed.
 
 Follow-up 2026-10-13: the same review pass caught 8 red tests in `dispatch/window.test.js` (7) and `dispatch-business-logic.security.test.js` (1) — all 409s, all branch-caused (both files are 48/48 green on `main`), all stale fixtures rather than wrong behavior. The shared `query` mock routes the new in-transaction `drivers JOIN vehicles` compatibility recheck to the drivers branch, so that mock row now carries both `driver_type` and `operational_use` (exactly what the real joined row returns); the guarded-commit test feeds a coherent Passenger/Passenger/Passenger fixture and locates the UPDATE call instead of assuming it runs first. Fail-closed semantics are unchanged and match the plan: every live driver row already carries a classification (column default `Passenger`), so the missing-type block only fires for unclassified rows. Dispatch-related re-run after the fixture fix passed **72 tests across 6 files**.
-
 ## Cargo physical instruction projection - 2026-10-13
 
 The existing Cargo workflow/item rows display optional source package kg, dimensions, orientation and temperature from the server manifest. Older manifests preserve their existing presentation; source expectations, receipt basis, offline version binding and operational capabilities are unchanged. No native API/dependency or source write was added. Render/authority regression evidence and export/device limits are centralized in [[Supply Chain Consolidation Implementation 2026-10-13]].

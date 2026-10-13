@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+﻿import { createHmac, timingSafeEqual } from 'node:crypto';
 import { query } from '@/lib/db';
 import { AuthError } from '@/lib/api/utils';
 import { LOCATION_POLICY_VERSION } from '@/lib/dispatch/location-relevance';
@@ -15,6 +15,7 @@ const TABLES = ['drivers', 'vehicles', 'vehiclecategories', 'vehiclemaintenance'
 
 export async function readPlanRevision(db = { query }) {
   const parts = TABLES.map(table => `'${table}',(SELECT md5(COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'[]')) FROM ${table} t)`);
+  parts.push("'serviceTypes',(SELECT md5(COALESCE(jsonb_agg(to_jsonb(s) ORDER BY service_type_id)::text,'[]')) FROM service_types s)");
   // Pending -> Scheduled is intermediate lifecycle bookkeeping. Preserve every
   // requirement, excluding generated display/audit metadata.
   parts.push(`'requests',(SELECT md5(COALESCE(jsonb_agg(

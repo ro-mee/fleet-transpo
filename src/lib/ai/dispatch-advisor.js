@@ -1,11 +1,11 @@
-import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
+﻿import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
 import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
 import { buildFleetPairRecommendations, vehicleOperationallyAvailable, daysUntil } from "@/lib/ai/pair-scoring";
 import { estimateFuel } from "@/lib/geo/distance";
 import { estimateForRequest } from "@/services/route-resolver.service";
 import { DRIVER_STATUS } from "@/lib/constants";
 
-// AI dispatch advisor — builds the Phase 14 recommendation payload.
+// AI dispatch advisor â€” builds the Phase 14 recommendation payload.
 //
 // Wraps the deterministic scorers in rule-engine.js and enriches their output
 // with the operational detail a dispatcher needs in order to accept or override
@@ -13,10 +13,10 @@ import { DRIVER_STATUS } from "@/lib/constants";
 //
 // DETERMINISTIC AND ADVISORY. The same inputs always produce the same output,
 // every number traces to a rule in this file, and nothing here writes an
-// assignment — a human confirms via the assign endpoint. LLM narration, when
+// assignment â€” a human confirms via the assign endpoint. LLM narration, when
 // enabled, is a nullable presentation layer on top and never the decision.
 
-// daysUntil is shared from pair-scoring.js (single owner) — advisory risk text
+// daysUntil is shared from pair-scoring.js (single owner) â€” advisory risk text
 // here must never drift from the eligibility engine's date math.
 
 /** Driver display name from the joined employees row, with id fallback. */
@@ -35,7 +35,7 @@ function driverName(driver) {
  */
 export function vehicleRisks(vehicle, request) {
   const risks = [];
-  // Typed cargo rows reason in kilograms through the shared Task 5 gate — the
+  // Typed cargo rows reason in kilograms through the shared Task 5 gate â€” the
   // seats check below is meaningless for them. Every other fail-closed code
   // already carries its own gate message; no advisory guess is added here.
   if (request?.load_type === "Cargo") {
@@ -56,16 +56,16 @@ export function vehicleRisks(vehicle, request) {
         message: `Seats ${seats} but ${passengers} passengers expected.`,
       });
     } else if (seats > 0 && seats === passengers) {
-      risks.push({ level: "low", message: "Exactly at capacity — no room for extra luggage." });
+      risks.push({ level: "low", message: "Exactly at capacity â€” no room for extra luggage." });
     }
   }
 
   const fuel = vehicle?.fuel_level == null ? NaN : Number(vehicle.fuel_level);
   if (Number.isFinite(fuel)) {
     if (fuel < 25) {
-      risks.push({ level: "high", message: `Fuel at ${fuel}% — refuel before departure.` });
+      risks.push({ level: "high", message: `Fuel at ${fuel}% â€” refuel before departure.` });
     } else if (fuel < 50) {
-      risks.push({ level: "medium", message: `Fuel at ${fuel}% — may need a top-up en route.` });
+      risks.push({ level: "medium", message: `Fuel at ${fuel}% â€” may need a top-up en route.` });
     }
   }
 
@@ -180,7 +180,7 @@ function toDriverCandidate(scored) {
     punct_late: scored.punct_late ?? driver.punct_late ?? 0,
     punct_rate: scored.punct_rate ?? driver.punct_rate ?? null,
     total_completed_trips: scored.total_completed_trips ?? driver.total_completed_trips ?? 0,
-    // legacy fields kept for old payload readers — always null now that
+    // legacy fields kept for old payload readers â€” always null now that
     // customer_rating / smooth_driving_score are unused (no writer UI).
     avg_guest_rating: null,
     avg_driving_score: null,
@@ -209,11 +209,11 @@ function toDriverCandidate(scored) {
  *
  * `kind` matters because the two status vocabularies mean different things. A
  * driver who is not `Available` really is out of action. A vehicle that is
- * `Reserved` is not — that label only records a booking somewhere in the day,
+ * `Reserved` is not â€” that label only records a booking somewhere in the day,
  * so the schedule load is what decides whether this window is free. Only the
  * statuses that ground the vehicle make it unavailable. Vehicle branch defers
  * to `vehicleOperationallyAvailable` (pair-scoring.js, single owner); the
- * driver branch here is advisory display only — the time-aware eligibility
+ * driver branch here is advisory display only â€” the time-aware eligibility
  * gate lives in the pair engine.
  */
 function availabilityLabel(status, scheduleLoad, kind = "driver") {
@@ -233,7 +233,7 @@ function availabilityLabel(status, scheduleLoad, kind = "driver") {
  * Shape one fleet-pair recommendation into the advisor payload.
  *
  * The vehicle/driver halves keep the enriched detail (risks, fuel burn, reasons)
- * the panel renders, but the SCORE, confidence and reasons come from the pair —
+ * the panel renders, but the SCORE, confidence and reasons come from the pair â€”
  * the two halves are never scored independently anymore.
  */
 function toPairCandidate(pair, request, trip) {
@@ -259,12 +259,11 @@ function toPairCandidate(pair, request, trip) {
     reason_type: pair.reason_type,
     replacement_reason: pair.replacement_reason ?? null,
     ...(pair.vehicle?.cargoPhysical ? { cargoPhysical: pair.vehicle.cargoPhysical } : {}),
-    ...(pair.qualification ? { qualification: pair.qualification } : {}),
     score: pair.score,
     confidence: Number(pair.confidence),
     reasons: pair.reasons,
     checklist: pair.checklist ?? [],
-    // AI Fair Workload Distribution — pool-relative fairness score + the
+    // AI Fair Workload Distribution â€” pool-relative fairness score + the
     // driver's rolling workload detail (null when no history exists).
     fairness_score: pair.fairness_score ?? null,
     workload: pair.workload ?? null,
@@ -348,7 +347,7 @@ export function buildDispatchRecommendation({
     scheduleContext,
   });
 
-  // DEPRECATED legacy independent ranking — quarantine, do not use for display
+  // DEPRECATED legacy independent ranking â€” quarantine, do not use for display
   // or commit decisions. These halves are scored WITHOUT the custodial pairing
   // rule, WITHOUT the schedule/duty gates and WITHOUT the evidence comparator,
   // so they can name a vehicle/driver whose pair was withheld. The authoritative
@@ -402,18 +401,17 @@ export function buildDispatchRecommendation({
       candidates: candidatePairs,
       // Explicit contract split (audit #6): every formed eligible pair, plus an
       // (initially identical) eligible list and an empty blocked list. The radar
-      // stage re-splits these into eligible vs INFEASIBLE — see
-      // applyDispatchRadar — so future readers never have to guess which
+      // stage re-splits these into eligible vs INFEASIBLE â€” see
+      // applyDispatchRadar â€” so future readers never have to guess which
       // entries in `candidates` are actually assignable.
       eligibleCandidates: candidatePairs,
       blockedCandidates: [],
       considered: vehicles.length,
-      // "Why no candidates" — distinct vehicle-level reasons the pairing engine
+      // "Why no candidates" â€” distinct vehicle-level reasons the pairing engine
       // skipped when it could not form a pair, plus pre-filtered vehicles the
       // SQL candidate query removed before scoring (flagged, honestly brief).
       none_reasons: [
-        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason, driver_id: s.driver_id ?? null, driver_name: s.driver_name ?? null,
-          ...(s.qualification ? { qualification: s.qualification } : {}) })),
+        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason, driver_id: s.driver_id ?? null, driver_name: s.driver_name ?? null })),
         ...prefilteredSkipped,
       ],
     },

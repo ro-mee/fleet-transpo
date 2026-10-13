@@ -7,7 +7,7 @@ source:
   - package.json
   - mobile/package.json
   - next.config.mjs
-last_verified: 2026-09-23
+last_verified: 2026-10-12
 ---
 
 # Environment Setup
@@ -125,6 +125,10 @@ The mobile app is a standalone native client: it bundles `EXPO_PUBLIC_*` values 
 ## What you cannot do here — CONFIRMED
 
 `supabase` CLI, `psql`, and `docker` are all unavailable. Migrations go through the `pg`-script procedure in [[Quick Reference]].
+
+## Impeccable project skills — 2026-10-12
+
+After user approval, `npx impeccable update` updated the project-installed Impeccable skill copies under `.agents` and `.github` to version 4.5.2. The updater installed engine v0.1.14 and hooks for both provider folders, and installed its GitHub Copilot agent files under `.github/agents`. Verification confirmed version 4.5.2 in both skill headers and the engine executable in both provider folders. This is a developer-tooling update; it does not change application code or runtime behavior.
 
 ## Related
 

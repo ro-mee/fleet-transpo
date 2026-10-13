@@ -49,6 +49,23 @@ const mkRequest = (over = {}) => ({
   ...over,
 });
 
+describe('driver_type gate on the effective substitute',()=>{
+ const build=(serviceCode,substituteType='Cargo')=>buildFleetPairRecommendations({
+  request:mkRequest({service_code:serviceCode,pickup_datetime:NOW}),vehicles:[mkVehicle()],
+  drivers:[mkDriver({driver_id:5,driver_status:DRIVER_STATUS.ON_LEAVE}),mkDriver({driver_id:9,driver_type:substituteType})],
+  activePairs:[{vehicle_id:1,driver_id:5}],activeSubstitutes:[{vehicle_id:1,substitute_driver_id:9,effective_from:'2026-08-01'}],now:NOW,
+ });
+ it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('offers the Cargo substitute for %s',service=>{
+  expect(build(service).recommended.driver.driver_id).toBe(9);
+ });
+ it('excludes a Passenger substitute from cargo runs and a Cargo substitute from passenger runs',()=>{
+  for(const [service,substituteType,expected] of [['HOTEL_SUPPLY_TRANSFER','Passenger','Cargo'],['GUEST_TRANSPORT','Cargo','Passenger']]) {
+   const result=build(service,substituteType);
+   expect(result.recommended).toBeNull();
+   expect(result.skipped[0]).toMatchObject({driver_id:9,reason:expect.stringMatching(`needs a ${expected} driver`)});
+  }
+ });
+});
 
 describe("resolveDesignatedDriver", () => {
   it("returns the active custodian of a vehicle", () => {

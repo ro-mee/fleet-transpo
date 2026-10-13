@@ -1,6 +1,5 @@
-import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
+﻿import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
-import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
@@ -59,7 +58,7 @@ export async function POST(req) {
       if (!transportRequest) return err("Transportation request not found", 404);
       // Dispatch requires an active (non-terminal) request. Scheduled/Assigned
       // are also accepted because the assign endpoint may have already moved it
-      // there — dispatching such a request is a re-dispatch, not an error.
+      // there â€” dispatching such a request is a re-dispatch, not an error.
       if (![L.PENDING, L.SCHEDULED, L.ASSIGNED].includes(transportRequest.fleet_status)) {
         return err(
           `This request is '${transportRequest.fleet_status}'. Only active requests can be dispatched.`,
@@ -151,7 +150,7 @@ export async function POST(req) {
 
     // Designated-driver enforcement: a pair that departs from the vehicle's
     // active custodian (migration 017) is refused unless that custodian is
-    // provably unavailable. This is the same guard the assign endpoint applies —
+    // provably unavailable. This is the same guard the assign endpoint applies â€”
     // a driver must not be dispatched in a different car than the one they are
     // assigned to. No force path here: a dispatcher who needs a substitution
     // reassigns the pairing or edits the dispatch afterward.
@@ -197,7 +196,6 @@ export async function POST(req) {
       return db.query(`INSERT INTO dispatchschedules (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
     };
     const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,insert)
-      : await withTransaction(async tx => insert(tx));
     const p = []; if (rows[0]?.vehicle_id) p.push(syncVehicleStatus(rows[0].vehicle_id)); if (rows[0]?.driver_id) p.push(syncDriverStatus(rows[0].driver_id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(rows[0].dispatch_id)); await Promise.all(p);
     await writeAudit(req, session, { action: "create", resource: "dispatchschedules", resourceId: rows[0]?.dispatch_id, newValues: rows[0] });
 
@@ -205,7 +203,7 @@ export async function POST(req) {
     // notify Booking. A dispatch that names both a vehicle and a driver has
     // committed those resources, so the request lands on Assigned; otherwise it
     // rests at Scheduled. advanceReservation walks each hop and writes the
-    // timeline. Best-effort — a sync hiccup must not fail the dispatch that
+    // timeline. Best-effort â€” a sync hiccup must not fail the dispatch that
     // already committed.
     if (transportRequest) {
       try {

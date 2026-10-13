@@ -16,7 +16,9 @@ export const CONFLICT_TYPE = {
   DRIVER_UNAVAILABLE: "driver_unavailable",
   LICENSE_EXPIRED: "license_expired",
   DRIVER_LICENSE_INELIGIBLE: "driver_license_ineligible",
-  DRIVER_SERVICE_QUALIFICATION_REQUIRED: 'driver_service_qualification',
+  // Static classification gate (replaces the qualification review system):
+  // a Passenger driver never takes a cargo service and vice versa.
+  DRIVER_TYPE_MISMATCH: "driver_type_mismatch",
   REGISTRATION_EXPIRED: "registration_expired",
   INSURANCE_EXPIRED: "insurance_expired",
   UVVRP_RESTRICTED: "uvvrp_restricted",
@@ -44,7 +46,7 @@ export const CONFLICT_LABEL = {
   [CONFLICT_TYPE.DRIVER_UNAVAILABLE]: "Driver Unavailable",
   [CONFLICT_TYPE.LICENSE_EXPIRED]: "License Expired",
   [CONFLICT_TYPE.DRIVER_LICENSE_INELIGIBLE]: "Driver License Ineligible",
-  [CONFLICT_TYPE.DRIVER_SERVICE_QUALIFICATION_REQUIRED]: 'Driver Service Approval Required',
+  [CONFLICT_TYPE.DRIVER_TYPE_MISMATCH]: "Driver Type Mismatch",
   [CONFLICT_TYPE.REGISTRATION_EXPIRED]: "Registration Expired",
   [CONFLICT_TYPE.INSURANCE_EXPIRED]: "Insurance Expired",
   [CONFLICT_TYPE.UVVRP_RESTRICTED]: "Number Coding Restricted",
