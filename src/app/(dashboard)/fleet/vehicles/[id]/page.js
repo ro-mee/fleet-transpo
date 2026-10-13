@@ -1,4 +1,5 @@
 "use client";
+import { DocumentPreview } from "@/components/ui/document-preview";
 
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -55,7 +56,6 @@ export default function VehicleDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
       router.push("/fleet/vehicles");
     },
-    onError: (err) => toast.error(err.message),
   });
 
   const uploadImageMutation = useMutation({
@@ -460,7 +460,10 @@ export default function VehicleDetailPage() {
         message={`Are you sure you want to archive ${vehicle.plate_number}? This vehicle will be hidden from active lists.`}
         confirmLabel="Archive vehicle"
         variant="archive"
-        onConfirm={() => archiveMutation.mutate()}
+        reconsiderable
+        actionKey={vehicleId}
+        workingLabel="Archiving..."
+        onConfirm={() => archiveMutation.mutateAsync()}
         loading={archiveMutation.isPending}
       />
 
@@ -478,11 +481,7 @@ export default function VehicleDetailPage() {
           <div className="p-4 bg-muted/10">
             <div className="relative flex items-center justify-center max-h-[75vh] overflow-hidden bg-black/5 rounded-[16px] border border-border/60 shadow-inner">
               {previewModalUrl && (
-                <img
-                  src={previewModalUrl}
-                  alt="Document Full Preview"
-                  className="w-full h-full object-contain"
-                />
+                <DocumentPreview url={previewModalUrl} alt="Document full preview" expanded />
               )}
             </div>
           </div>

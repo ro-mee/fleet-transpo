@@ -61,7 +61,6 @@ export default function CategoriesPage() {
       toast.success("Category archived successfully");
       queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] });
     },
-    onError: (err) => toast.error(err.message),
   });
 
   const [archivingCategory, setArchivingCategory] = useState(null);
@@ -248,7 +247,12 @@ export default function CategoriesPage() {
         message="This category will be archived and hidden from active vehicle selection lists."
         confirmLabel="Archive Category"
         variant="archive"
-        onConfirm={() => { if (archivingCategory) archiveMutation.mutate(archivingCategory.category_id); }}
+        reconsiderable
+        actionKey={archivingCategory?.category_id}
+        workingLabel="Archiving..."
+        onConfirm={async () => {
+          if (archivingCategory) await archiveMutation.mutateAsync(archivingCategory.category_id);
+        }}
       />
     </div>
   );

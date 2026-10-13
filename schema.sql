@@ -1704,8 +1704,6 @@ CREATE TABLE vehiclemaintenance (
   completed_date date,
   cost numeric(12,2) DEFAULT 0,
   mileage_at_service numeric(12,2),
-  service_provider varchar(255),
-  service_center varchar(255),
   next_schedule_date date,
   next_schedule_mileage numeric(12,2),
   status varchar(50) DEFAULT 'Scheduled'::character varying,

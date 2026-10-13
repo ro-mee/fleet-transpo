@@ -509,10 +509,6 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
       queryClient.invalidateQueries({ queryKey: ["driver-assignments"] });
       queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
     },
-    onError: (err) => {
-      toast.error(err.message || "Failed to release assignment");
-      setReleasing(null);
-    },
   });
 
   const columns = useMemo(
@@ -584,6 +580,9 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
       assignmentColumnHelper.display({
         id: "license_eligibility",
         header: "License Eligibility",
+        meta: {
+          className: "w-[280px] min-w-[280px] max-w-[280px] whitespace-normal align-top",
+        },
         cell: ({ row }) => {
           const check = evaluateDriverLicenseEligibility(row.original, {
             required_license_class: row.original.required_license_class,
@@ -591,7 +590,7 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
           return check.eligible ? (
             <Badge variant="outline" className="text-[11px] border-emerald-600/30 text-emerald-700 dark:text-emerald-300">Eligible</Badge>
           ) : (
-            <span className="max-w-[240px] block text-[11px] text-danger" title={check.reasons.join(" ")}>
+            <span className="block max-w-[240px] whitespace-normal break-words text-[11px] leading-4 text-danger" title={check.reasons.join(" ")}>
               {check.reasons.join(" ")}
             </span>
           );
@@ -652,6 +651,7 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
         emptyDescription="Assign drivers to vehicles so accountability for fuel, cleanliness, and condition is clear."
         emptyVariant="first-run"
         isLoading={isLoading}
+        stickyFirstColumn
       />
       <ConfirmDialog
         open={!!releasing}
@@ -660,8 +660,13 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
         message={`${releasing ? personLabel(releasing) : "This driver"} will no longer be responsible for ${releasing ? vehicleLabel(releasing) : "this vehicle"}. The pairing record is closed and archived; scheduled dispatches remain unaffected.`}
         confirmLabel="Release Custody"
         variant="warning"
+        reconsiderable
+        actionKey={releasing?.assignment_id}
+        workingLabel="Releasing..."
         loading={releaseMutation.isPending}
-        onConfirm={() => releasing && releaseMutation.mutate(releasing.assignment_id)}
+        onConfirm={async () => {
+          if (releasing) await releaseMutation.mutateAsync(releasing.assignment_id);
+        }}
       />
     </>
   );
@@ -727,10 +732,6 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
       toast.success("Substitute schedule removed");
       setRemoving(null);
       invalidate();
-    },
-    onError: (err) => {
-      toast.error(err.message || "Failed to remove substitute schedule");
-      setRemoving(null);
     },
   });
 
@@ -813,6 +814,9 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
       substituteColumnHelper.display({
         id: "license_eligibility",
         header: "License Eligibility",
+        meta: {
+          className: "w-[280px] min-w-[280px] max-w-[280px] whitespace-normal align-top",
+        },
         cell: ({ row }) => {
           const check = evaluateDriverLicenseEligibility(row.original, {
             required_license_class: row.original.required_license_class,
@@ -820,7 +824,7 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
           return check.eligible ? (
             <Badge variant="outline" className="text-[11px] border-emerald-600/30 text-emerald-700 dark:text-emerald-300">Eligible</Badge>
           ) : (
-            <span className="max-w-[240px] block text-[11px] text-danger" title={check.reasons.join(" ")}>
+            <span className="block max-w-[240px] whitespace-normal break-words text-[11px] leading-4 text-danger" title={check.reasons.join(" ")}>
               {check.reasons.join(" ")}
             </span>
           );
@@ -893,6 +897,7 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
         emptyDescription="When a designated driver is unavailable, schedule a substitute here so the vehicle stays recommendable."
         emptyVariant="first-run"
         isLoading={isLoading}
+        stickyFirstColumn
       />
       <ScheduleDialog
         mode="edit"
@@ -913,8 +918,13 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
         }
         confirmLabel="Remove Schedule"
         variant="warning"
+        reconsiderable
+        actionKey={removing?.substitute_id}
+        workingLabel="Removing schedule..."
         loading={removeMutation.isPending}
-        onConfirm={() => removing && removeMutation.mutate(removing.substitute_id)}
+        onConfirm={async () => {
+          if (removing) await removeMutation.mutateAsync(removing.substitute_id);
+        }}
       />
     </>
   );

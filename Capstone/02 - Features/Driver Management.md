@@ -23,6 +23,7 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 
 # Feature: Driver Management
 
+<<<<<<< HEAD
 ## Service qualification foundation — 2026-10-09
 
 Migration 156 adds explicit PASSENGER and CARGO reviews. PASSENGER covers Guest Transport and VIP Guest Transport; CARGO covers Restaurant Supply Pickup, Restaurant Food Delivery and Hotel Supply Transfer. The two groups are independent, so one approval cannot authorize the other. License, consent, schedule and vehicle checks remain separate.
@@ -46,6 +47,17 @@ Saving does not optimistically show approval. It waits for an authoritative GET 
 Verification: focused route/component/evaluator tests, opt-in rollback-only PostgreSQL route and existing service tests, touched-file ESLint and authorization audit. A read-only live query check verified active-driver/missing-driver reads, empty reviews/history and absent policy configuration. It found and fixed an ambiguous joined `status` column; the PostgreSQL route fixture includes employee status and stored review/history data to prevent recurrence. No real qualification or production policy was created. Browser/device acceptance is not claimed: the available browser session is a mechanic account without driver-profile access. The component tests render the UI and exercise save/refetch callbacks through the existing mocked-hook harness; they do not replace browser accessibility or responsive review.
 
 Review round 1 verified the installed TanStack observer preserves data while reporting a refetch error. A regression using that real observer rerenders the parent on query notifications and models React component identity/state destruction on removal or key/type change. It failed when the original error branch removed the form, then passed with retained draft/feedback, blocked duplicate save and successful reload recovery. Focused component tests: 9/9; touched-file ESLint passed. No API/auth/database change or new test dependency.
+=======
+## 2026-10-09 - Private license upload drafts
+
+Driver create/edit now shares `DocumentUploadField` and `useDocumentUpload` for front/back scans: one JPG/PNG up to 10MB, browse/drop, destination, filename/type/size, real XHR transfer progress, storage confirmation, retry, cancellation and replacement. Small screens place Remove/Cancel below the filename. Selection creates an owner-scoped private `driver-licenses` draft; **Uploaded - awaiting Save** does not mean record persistence or license verification. Save binds the draft inside the driver/employee/address/audit transaction, checking owner, resource, kind, target, matching reference, readiness and expiry. Failed saves roll binding back.
+
+Cancelling a replacement restores the saved file; leaving attempts pending-draft cancellation. New draft keys are excluded from profile avatar mirroring; existing media/profile-photo paths remain. Gemini suggestions stay separate from storage/human review, and stale results are ignored after replacement, cancellation, record switching or unmount. Authorized GET returns metadata matched to the current saved references. Review permissions and credential-change invalidation remain intact.
+
+Verification: 206 focused tests across 18 files, strict changed-file ESLint, production build, auth audit (317/317) and migration gates passed. Authenticated synthetic-file browser checks covered keyboard selection, progress, stored previews, cancellation and removal; vehicle checks cover the shared retry/PDF/responsive UI. No existing driver was changed. Physical drag/drop and live record save/reopen remain acceptance checks. See [[document_uploads]] for expiry/cleanup and access.
+
+Size-limit follow-up (2026-10-09): raised both license scans from 5MB to 10MB in the shared UI/server policy. Existing multipart, ledger, storage and AI scan limits permit 10MB without a migration. All 17 focused policy/API tests and strict changed-file lint passed, including exact 10MB multipart uploads in create/edit contexts and rejection one byte over the limit. Browser/build checks above describe the original upload implementation; they were not repeated for this policy-only adjustment.
+>>>>>>> 18c7d8aa4c2f5053a9e374b1bf8592931b5bbc4c
 
 **Defense data recovery and reseed (2026-10-03):** The original ten synthetic defense drivers were rolled back, old operational data was cleaned, and ten new intended defense drivers were seeded. The live driver roster contains exactly those ten profiles and ten active driver-role accounts; the 23 old driver employees and six retired driver profiles were later hard-deleted by exact FK-checked cleanup. All ten new sample license review fields remain null, and no consent record was fabricated. The `DEMO / SAMPLE / NOT VALID` card images cannot support a physical-card or LTO Digital ID attestation. Staff must replace sample details/images with genuine credentials and compare them with the actual card or Digital ID before review; each driver must accept privacy consent in the app. See `Capstone/07 - Development/Defense Demo Data Implementation Plan.md` for the cleanup and validation record.
 
@@ -742,6 +754,7 @@ Current local leave submission, withdrawal, approval, balance updates, and dispa
 
 HR worker identity mapping, status vocabulary, interval/timezone rules, sync method, freshness/outage behavior, privacy scope, and corrections/revocations remain undecided. Do not cut over or disable local writes until HR operates the source or an HR-owned interim handoff exists, records are reconciled, and dispatch-conflict handling is approved. In particular, current approval logic can clear a driver from an in-progress dispatch; that behavior must not be carried into an HR event handler without a separate operational decision.
 
+<<<<<<< HEAD
 ### Admin browser acceptance checkpoint — 2026-10-09
 
 The user supplied an admin login for browser verification. Read-only localhost inspection confirmed the two qualification sections, the shared three-service Cargo list, honest missing-review fields, and disabled ACTIVE approval while policy is absent. No qualification was saved. Captured browser logs contained no warnings/errors at this checkpoint. A 375 px responsive check found no horizontal overflow in qualification paragraphs or controls; the browser viewport was restored. Desktop qualification screenshot was inspected. This does not verify a real approval/save or native mobile behavior. Credentials were not written to project files.
@@ -781,3 +794,8 @@ The shared server check compares the stored driver type, vehicle operational_use
 Existing qualification, duty, trip-state, inspection, GPS, geofence and cargo lifecycle gates remain separate. No migration was added or applied; runtime column setup was tested through mocks and not against live storage. Cargo providers and source-image references remain disabled.
 
 Verification for the completed workspace plan: 567 affected regression tests passed across 37 files; strict lint passed with zero warnings; Android JavaScript export succeeded. No Android device or emulator was available for native acceptance. See [[Mobile Architecture]], [[Fleet And Vehicles]], and [[Trips]].
+=======
+## Driver archive reconsideration - 2026-10-09
+
+The directory and driver-detail archive confirmations now wait five seconds before calling the existing archive mutation. During that window the action becomes Undo; Escape or the secondary Cancel closes the decision without sending a request. The directory dialog names the selected driver and states that the profile leaves active dispatch selection. After the delay, the existing API authorization and audit behavior remain authoritative; success feedback follows the mutation, and a failure stays visible in the dialog. This uses the shared `FuseButton` and `ConfirmDialog` opt-in; ordinary dialog dismissal elsewhere is unchanged. Changed-file ESLint passed, and the local directory dialog plus Undo-to-unarmed behavior were checked without archiving a profile. Escape handling was changed afterward but was not browser-accepted because the local dev page remained in `Compiling...`. The full production build remains unverified because another Next build held the shared lock.
+>>>>>>> 18c7d8aa4c2f5053a9e374b1bf8592931b5bbc4c

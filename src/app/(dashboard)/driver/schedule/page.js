@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
@@ -57,6 +58,7 @@ export default function DriverSchedulePage() {
   const [endTime, setEndTime] = useState("");
   const [leaveType, setLeaveType] = useState("");
   const [reason, setReason] = useState("");
+  const [withdrawTarget, setWithdrawTarget] = useState(null);
 
   const scheduleQ = useQuery({ queryKey: ["driver-work-schedule-me"], queryFn: getMyWorkSchedule });
   const leaveQ = useQuery({ queryKey: ["driver-leave-me"], queryFn: getMyLeaveRequests });
@@ -78,7 +80,6 @@ export default function DriverSchedulePage() {
       toast.success("Leave request withdrawn");
       queryClient.invalidateQueries({ queryKey: ["driver-leave-me"] });
     },
-    onError: (err) => toast.error(err.message || "Failed to withdraw request"),
   });
 
   const days = scheduleQ.data?.days ?? [];
@@ -324,11 +325,7 @@ export default function DriverSchedulePage() {
                                     variant="ghost" 
                                     size="sm" 
                                     className="h-7 text-[11px] text-foreground-secondary hover:text-danger hover:bg-danger/10" 
-                                    onClick={() => {
-                                      if (confirm("Are you sure you want to withdraw this request?")) {
-                                        withdraw.mutate(l.leave_request_id);
-                                      }
-                                    }}
+                                    onClick={() => setWithdrawTarget(l)}
                                   >
                                     <Undo2 className="w-3 h-3 mr-1" /> Withdraw
                                   </Button>
@@ -348,6 +345,21 @@ export default function DriverSchedulePage() {
             </div>
           </TabsContent>
         </Tabs>
+        <ConfirmDialog
+          open={!!withdrawTarget}
+          onOpenChange={(open) => { if (!open) setWithdrawTarget(null); }}
+          variant="danger"
+          title="Withdraw this leave request?"
+          message="This removes your pending leave request from review. Approved or declined requests cannot be withdrawn."
+          confirmLabel="Withdraw request"
+          cancelLabel="Keep request"
+          reconsiderable
+          actionKey={withdrawTarget?.leave_request_id}
+          workingLabel="Withdrawing request..."
+          onConfirm={async () => {
+            if (withdrawTarget) await withdraw.mutateAsync(withdrawTarget.leave_request_id);
+          }}
+        />
       </div>
     </DriverConsentGate>
   );

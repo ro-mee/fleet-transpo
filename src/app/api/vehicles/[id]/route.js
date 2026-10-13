@@ -4,6 +4,7 @@ import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from 
 import { writeAuditRequired } from "@/lib/audit";
 import { SUPPORTED_LICENSE_CLASSES } from "@/lib/drivers/license-eligibility";
 import { OPERATIONAL_USES } from "@/lib/vehicles/readiness-adapter";
+import { attachVehicleDocument, documentMetadata, publicUpload, signVehicleDocuments } from "@/lib/uploads/document-storage";
 
 const vehicleWriteSchema = {
   plate_number: { type: "plate", label: "Plate number", maxLength: 12 },
@@ -94,7 +95,10 @@ export async function GET(req, { params }) {
       `SELECT * FROM vehicledocuments WHERE vehicle_id = $1 AND deleted_at IS NULL ORDER BY document_id ASC`,
       [id]
     );
-    vehicle.documents = docRows || [];
+    const uploads = await documentMetadata("vehicles", id);
+    vehicle.documents = await signVehicleDocuments((docRows || []).map(doc => ({ ...doc,
+      upload: uploads.find(upload => `${upload.bucket}/${upload.object_key}` === doc.file_url) ? publicUpload(uploads.find(upload => `${upload.bucket}/${upload.object_key}` === doc.file_url)) : null,
+    })));
 
     return ok(vehicle);
   } catch (e) { return handleError(e); }
@@ -175,6 +179,7 @@ export async function PUT(req, { params }) {
       if (Array.isArray(documents) && documents.length > 0) {
         for (const doc of documents) {
           if (!doc.document_type) continue;
+          const fileRef = await attachVehicleDocument(tx, session, doc, id);
           const { rows: existingDocs } = await tx.query(
             `SELECT document_id FROM vehicledocuments WHERE vehicle_id = $1 AND document_type = $2 AND deleted_at IS NULL LIMIT 1`,
             [id, doc.document_type]
@@ -187,13 +192,13 @@ export async function PUT(req, { params }) {
                       verified_at = CASE WHEN (document_number IS DISTINCT FROM $1 OR file_url IS DISTINCT FROM $2 OR expiry_date IS DISTINCT FROM $3::date OR status IS DISTINCT FROM $4) THEN NULL ELSE verified_at END,
                       document_number = $1, file_url = $2, expiry_date = $3, status = $4, updated_at = NOW()
                 WHERE document_id = $5`,
-              [doc.document_number?.trim() || null, doc.file_url || null, doc.expiry_date || null, doc.status || "Active", existingDocs[0].document_id]
+              [doc.document_number?.trim() || null, fileRef || null, doc.expiry_date || null, doc.status || "Active", existingDocs[0].document_id]
             );
           } else if (doc.file_url || doc.expiry_date || doc.document_number) {
             await tx.query(
               `INSERT INTO vehicledocuments (vehicle_id, document_type, document_number, file_url, expiry_date, status)
                VALUES ($1, $2, $3, $4, $5, $6)`,
-              [id, doc.document_type, doc.document_number?.trim() || null, doc.file_url || null, doc.expiry_date || null, doc.status || "Active"]
+              [id, doc.document_type, doc.document_number?.trim() || null, fileRef || null, doc.expiry_date || null, doc.status || "Active"]
             );
           }
         }

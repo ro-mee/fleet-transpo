@@ -3,6 +3,10 @@
 Companion to `UI UX Audit - Mobile.md`. Records the full-product web audit
 (2026-08-23) and the remediation waves applied on top of it.
 
+## Archive/delete/cancel reconsideration - 2026-10-09
+
+[[Fuse Button Confirmation Implementation Plan]] records the adaptation of the user-supplied React Bits FuseButton for the pictured driver archive modal and equivalent web actions. The shared opt-in confirmation delays the existing API request for five seconds while Undo remains available, preserving FleetOps styling, required reasons, permission checks, and business consequences. The button keeps its semantic fill and text color through confirmation and progress labels; no Pause/Play icon is shown. Coverage includes driver/vehicle/category/maintenance archives, notification and AI-provider deletion, substitute removal and assignment release, request cancellation, dispatch stand-down, driver leave withdrawal, and maintenance status cancellation. Ordinary dialog dismissal remains immediate. No API, database, or dependency change was needed. Changed-file ESLint and the focused countdown tests passed; the local driver dialog and Undo state were checked, and Undo returned to the unarmed dialog without changing a record. The final no-Pause/color-stable treatment and Escape handler were not browser-accepted because the local dev page remained in `Compiling...`. Production build acceptance remains pending because a Next process held the shared lock.
+
 ## Scope & method
 
 Source-level review of every `(dashboard)` route cluster, auth pages, shared

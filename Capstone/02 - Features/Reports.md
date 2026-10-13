@@ -6,10 +6,22 @@ source:
   - src/app/api/reports
   - src/app/(dashboard)/reports
   - src/app/(dashboard)/analytics
-last_verified: 2026-10-02
+  - src/components/analytics/pickup-request-calendar-days.jsx
+  - src/lib/reports/pickup-calendar.js
+last_verified: 2026-10-09
 ---
 
 # Feature: Reports
+
+## Pickup request calendar details — 2026-10-09
+
+The Analytics current-month intake calendar now retains the request records behind each daily count. Populated days are keyboard-accessible buttons: hover/focus shows up to three request summaries and the remaining count; click, Enter, Space or tap opens one shared, scrollable day-details popover. Selecting another populated day replaces the list in one click. Each row shows the reservation reference, guest, Fleet status, scheduled pickup in Philippine time, and pickup/drop-off route; its reference opens the existing `/reservations/[id]` page. The panel uses the incumbent dialog surface, rounded shell, tinted calendar icon/header, status badges, separators and custom scrollbar in both themes. Empty days and adjacent-month padding remain noninteractive.
+
+`buildPickupCalendar()` derives counts and detail lists from the same creation-date groups. Timestamp grouping, the current month and today's indicator use Asia/Manila; scheduled pickup time never substitutes for a missing creation timestamp. Requests without a valid creation date are excluded and explicitly counted in a notice. Trend uses the same creation-day helper; the calendar still ignores the dashboard timeframe control and displays the current calendar month. Initial loading/failed requests are not represented as confirmed zero counts; failed refreshes retain and label the last loaded rows. This reuses the existing authorized request feed with no hover fetch, endpoint, permission or schema change.
+
+Escape/Close restores focus to the selected day without immediately reopening its preview. Outside dismissal respects the external focus target; window resize dismisses the panel rather than leaving it detached from its day. One shared popover avoids competing day panels dismissing each other.
+
+Verification: 21 focused Vitest tests across the calendar model, calendar accessibility and existing Analytics page passed; strict scoped ESLint, production build and `git diff --check` passed. Authenticated localhost checks verified the October 2 count/list of eight, three-row hover preview with five remaining, one-click switching to October 1's four rows, Enter/Space opening, Escape/focus return, internal scrolling, 390px opening in light/dark themes, simulated touch, resize dismissal and navigation to `/reservations/604` with matching `RS-2026-R045`. Original light theme and viewport were restored. Full-suite, deployed and physical-device acceptance were not run.
 
 ## Defense dataset reconciliation — 2026-10-03
 

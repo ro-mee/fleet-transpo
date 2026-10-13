@@ -68,13 +68,10 @@ export const CLASSIFICATION = Object.freeze({
  * the table's RLS state is itself notable or still unsettled.
  */
 export const TABLES = Object.freeze({
-  driver_service_qualifications: {
+  document_uploads: {
     classification: CLASSIFICATION.PRIVATE,
-    reason: "Explicit passenger/cargo driver reviews, policy provenance and private review reasons; server-authorized only.",
+    reason: "Owner-scoped private document drafts, attachment metadata and storage keys. Access only through authorized APIs.",
   },
-  driver_service_qualification_events: {
-    classification: CLASSIFICATION.PRIVATE,
-    reason: "Append-only qualification review history and staff identities; server-authorized only.",
   },
   // --- auth & identity -----------------------------------------------------
   roles: {

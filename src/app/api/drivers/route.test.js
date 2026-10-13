@@ -155,7 +155,7 @@ function fakeSupabase({ existingEmp = null, existingDriver = null, writes } = {}
  * @param {string} [opts.code] SQLSTATE to attach to that failure
  * @param {number} [opts.driverId]
  */
-function installDb({ failOn, code, driverId = 77, existingEmp = null, existingDriver = null } = {}) {
+function installDb({ failOn, code, driverId = 77, existingEmp = null, existingDriver = null, upload = null } = {}) {
   const txCalls = [];
   const supabaseWrites = [];
   const state = { committed: false, rolledBack: false, driverInserted: false };
@@ -174,6 +174,7 @@ function installDb({ failOn, code, driverId = 77, existingEmp = null, existingDr
   db.withTransaction.mockImplementation(async (fn) => {
     txQuery = vi.fn(async (sql, params = []) => {
       txCalls.push({ sql: String(sql), params });
+      if (String(sql).includes("FROM document_uploads")) return { rows: upload ? [upload] : [] };
       if (failOn && failOn(String(sql), params)) {
         const err = new Error("simulated database failure");
         if (code) err.code = code;
@@ -236,6 +237,15 @@ afterEach(() => {
 const request = (body) => ({ json: async () => body });
 
 describe("POST /api/drivers — successful create", () => {
+  it("attaches a new license draft without copying it to the employee avatar", async () => {
+    const upload = { upload_id: "b31b58a1-cb15-4a1a-9cd0-013273ed42cc", owner_id: 1, resource: "drivers", kind: "license_front", target_id: null, bucket: "driver-licenses", object_key: "drafts/1/test.png", state: "ready", expires_at: "2099-01-01" };
+    const { txCalls, state } = installDb({ upload });
+    const response = await POST(request(baseBody({ license_image_url: "driver-licenses/drafts/1/test.png", license_front_upload_id: upload.upload_id })));
+    expect(response.status).toBe(201);
+    expect(state.committed).toBe(true);
+    expect(columnsOf(findInsert(txCalls, "employees")).columns.avatar_url).toBeNull();
+    expect(txCalls.some(call => call.sql.includes("state = 'attached'"))).toBe(true);
+  });
   it("writes both addresses and the driver in ONE insert-bearing transaction", async () => {
     saveAddress.mockImplementation(async (value) => (isEmergencyPick(value) ? EMERGENCY_ID : RESIDENTIAL_ID));
     const { txCalls, state } = installDb();

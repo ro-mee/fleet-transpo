@@ -69,7 +69,6 @@ export default function NotificationsPage() {
       toast.success("Notification deleted");
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     },
-    onError: (err) => toast.error(err.message),
   });
 
   const uniqueNotifications = useMemo(() => {
@@ -196,12 +195,11 @@ export default function NotificationsPage() {
         title="Delete notification?"
         message="This permanently removes it from your feed."
         confirmLabel="Delete"
-        loading={deleteMutation.isPending}
-        onConfirm={() => {
-          if (!deleteTarget) return;
-          deleteMutation.mutate(deleteTarget.notification_id, {
-            onSettled: () => setDeleteTarget(null),
-          });
+        reconsiderable
+        actionKey={deleteTarget?.notification_id}
+        workingLabel="Deleting..."
+        onConfirm={async () => {
+          if (deleteTarget) await deleteMutation.mutateAsync(deleteTarget.notification_id);
         }}
       />
     </div>

@@ -4,6 +4,7 @@ import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from 
 import { writeAuditRequired } from "@/lib/audit";
 import { SUPPORTED_LICENSE_CLASSES } from "@/lib/drivers/license-eligibility";
 import { OPERATIONAL_USES } from "@/lib/vehicles/readiness-adapter";
+import { attachVehicleDocument } from "@/lib/uploads/document-storage";
 
 const vehicleWriteSchema = {
   plate_number: { type: "plate", label: "Plate number", maxLength: 12 },
@@ -183,10 +184,11 @@ export async function POST(req) {
       if (Array.isArray(documents) && documents.length > 0 && created?.vehicle_id) {
         for (const doc of documents) {
           if (!doc.document_type || (!doc.file_url && !doc.expiry_date && !doc.document_number)) continue;
+          const fileRef = await attachVehicleDocument(tx, session, doc, created.vehicle_id);
           await tx.query(
             `INSERT INTO vehicledocuments (vehicle_id, document_type, document_number, file_url, expiry_date, status)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [created.vehicle_id, doc.document_type, doc.document_number?.trim() || null, doc.file_url || null, doc.expiry_date || null, doc.status || "Active"]
+            [created.vehicle_id, doc.document_type, doc.document_number?.trim() || null, fileRef || null, doc.expiry_date || null, doc.status || "Active"]
           );
         }
       }

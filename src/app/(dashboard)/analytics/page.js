@@ -21,7 +21,9 @@ import { AiAnalystCard } from "@/components/ai/ai-analyst-card";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
-import { toCalendarDay } from "@/lib/dates";
+import { manilaDateKey, toCalendarDay } from "@/lib/dates";
+import { buildPickupCalendar, requestCreatedDay } from "@/lib/reports/pickup-calendar";
+import { PickupRequestCalendarDays } from "@/components/analytics/pickup-request-calendar-days";
 import { isNarrativeForRange, isNarrativeForReport } from "@/lib/ai/report-narrative";
 import { downloadBlob, exportToCSV } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
@@ -180,14 +182,6 @@ function ChartTooltip({ active, payload, label }) {
       )}
     </div>
   );
-}
-
-function localDayOf(value) {
-  if (!value) return null;
-  const s = String(value);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : toCalendarDay(d);
 }
 
 /* ── KPI cards ────────────────────────────────────────────────────── */
@@ -498,7 +492,7 @@ export default function AnalyticsPage() {
       });
     }
     reservations.forEach((r) => {
-      const key = localDayOf(r.created_at || r.pickup_datetime);
+      const key = requestCreatedDay(r);
       if (key && map.has(key)) map.get(key).requests += 1;
     });
 
@@ -579,84 +573,9 @@ export default function AnalyticsPage() {
 
   const [volumeView, setVolumeView] = useState("chart"); // "chart" | "calendar"
 
-  const calendarData = useMemo(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const monthName = now.toLocaleString("en-US", { month: "long", year: "numeric" });
-    const firstDayIndex = new Date(year, month, 1).getDay();
-    const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
-    const prevMonthTotalDays = new Date(year, month, 0).getDate();
-
-    const countMap = new Map();
-    let totalMonthlyRequests = 0;
-    let activeDays = 0;
-    reservations.forEach((r) => {
-      const key = localDayOf(r.created_at || r.pickup_datetime);
-      if (key) {
-        countMap.set(key, (countMap.get(key) || 0) + 1);
-      }
-    });
-
-    let maxCount = 0;
-    let peakDayNum = null;
-
-    const days = [];
-    // Previous month ghost days
-    for (let i = firstDayIndex - 1; i >= 0; i--) {
-      const prevNum = prevMonthTotalDays - i;
-      days.push({
-        id: `prev-${prevNum}`,
-        dayNumber: prevNum,
-        isPadding: true,
-      });
-    }
-
-    // Current month days
-    for (let d = 1; d <= totalDaysInMonth; d++) {
-      const dateObj = new Date(year, month, d);
-      const dateStr = toCalendarDay(dateObj);
-      const realCount = countMap.get(dateStr) || 0;
-      totalMonthlyRequests += realCount;
-      if (realCount > 0) activeDays += 1;
-      if (realCount > maxCount) {
-        maxCount = realCount;
-        peakDayNum = d;
-      }
-
-      days.push({
-        id: dateStr,
-        dayNumber: d,
-        dateStr,
-        dateObj,
-        count: realCount,
-        isToday: d === now.getDate(),
-        weekday: dateObj.toLocaleString("en-US", { weekday: "short" }),
-      });
-    }
-
-    // Trailing days for grid completion
-    const remainingSlots = (7 - (days.length % 7)) % 7;
-    for (let nextD = 1; nextD <= remainingSlots; nextD++) {
-      days.push({
-        id: `next-${nextD}`,
-        dayNumber: nextD,
-        isPadding: true,
-      });
-    }
-
-    const avgDaily = totalDaysInMonth > 0 ? (totalMonthlyRequests / totalDaysInMonth).toFixed(1) : "0.0";
-
-    return {
-      days,
-      monthName,
-      totalMonthlyRequests,
-      activeDays,
-      maxCount: Math.max(maxCount, 1),
-      peakDayNum,
-      avgDaily,
-    };
-  }, [reservations]);
+  const calendarToday = manilaDateKey();
+  const calendarData = useMemo(() => buildPickupCalendar(reservations, calendarToday), [reservations, calendarToday]);
+  const calendarAvailable = Array.isArray(reservationsQuery.data);
 
   // Donut center count-up.
   const [riskCount, setRiskCount] = useState(0);
@@ -1011,7 +930,7 @@ export default function AnalyticsPage() {
                         {calendarData.monthName}
                       </span>
                       <span className="text-[11px] font-medium text-foreground-muted">
-                        • {calendarData.totalMonthlyRequests} requests created
+                        • {calendarAvailable ? `${calendarData.totalMonthlyRequests} requests created` : "Requests unavailable"}
                       </span>
                       <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted/70 rounded-full bg-muted/40 px-2 py-0.5">
                         Calendar month
@@ -1019,14 +938,14 @@ export default function AnalyticsPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {calendarData.peakDayNum && calendarData.maxCount > 1 && (
+                      {calendarAvailable && calendarData.peakDayNum && calendarData.maxCount > 1 && (
                         <div className="flex items-center gap-1 rounded-full bg-info/10 px-2.5 py-0.5 text-[10.5px] font-bold text-info-700 ring-1 ring-info/25">
                           <Sparkles className="h-3 w-3" />
                           <span>Peak: Day {calendarData.peakDayNum} ({calendarData.maxCount} req)</span>
                         </div>
                       )}
                       <div className="rounded-full bg-muted/40 px-2.5 py-0.5 text-[10.5px] font-medium text-foreground-muted">
-                        Avg: <strong className="font-bold text-foreground">{calendarData.avgDaily}</strong>/day
+                        Avg: <strong className="font-bold text-foreground">{calendarAvailable ? calendarData.avgDaily : "—"}</strong>/day
                       </div>
                     </div>
                   </div>
@@ -1040,100 +959,23 @@ export default function AnalyticsPage() {
                     ))}
                   </div>
 
-                  {/* Calendar 7-Column Heatmap Grid */}
-                  <div
-                    className="grid grid-cols-7 gap-1.5"
-                    role="img"
-                    aria-label={`Pickup request calendar heatmap for ${calendarData.monthName}, the current calendar month only — it does not follow the timeframe control. Peak day ${calendarData.peakDayNum ?? "—"} with ${calendarData.maxCount ?? 0} requests, averaging ${calendarData.avgDaily ?? 0} per day.`}
-                  >
-                    {calendarData.days.map((d) => {
-                      if (d.isPadding) {
-                        return (
-                          <div
-                            key={d.id}
-                            className="flex min-h-[52px] flex-col justify-between rounded-xl border border-dashed border-border/25 bg-muted/5 p-1.5 opacity-25 select-none"
-                          >
-                            <span className="text-[10px] font-medium text-foreground-muted">{d.dayNumber}</span>
-                          </div>
-                        );
-                      }
-
-                      const ratio = d.count / calendarData.maxCount;
-                      const isZero = d.count === 0;
-                      const isPeak = d.count > 0 && d.count === calendarData.maxCount && d.count >= 5;
-                      const isHigh = !isZero && !isPeak && (ratio >= 0.6 || d.count >= 8);
-                      const isMed = !isZero && !isPeak && !isHigh && (ratio >= 0.25 || d.count >= 3);
-                      const isLow = !isZero && !isPeak && !isHigh && !isMed;
-
-                      return (
-                        <div
-                          key={d.id}
-                          className={cn(
-                            "group relative flex min-h-[52px] flex-col justify-between rounded-xl border p-1.5 select-none transition-all duration-200",
-                            "ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:-translate-y-1 hover:shadow-md hover:z-20",
-                            d.isToday ? "ring-2 ring-primary border-primary shadow-xs" : "",
-                            isPeak
-                              ? "border-info/60 bg-gradient-to-br from-info/25 via-info/15 to-primary/10 text-foreground ring-1 ring-info/35 shadow-xs hover:border-info"
-                              : isHigh
-                                ? "border-info/40 bg-info/15 text-foreground hover:bg-info/25 hover:border-info/60"
-                                : isMed
-                                  ? "border-info/25 bg-info/10 text-foreground hover:bg-info/20 hover:border-info/40"
-                                  : isLow
-                                    ? "border-info/15 bg-info/5 text-foreground hover:bg-info/15 hover:border-info/30"
-                                    : "border-border/60 bg-surface hover:bg-hover hover:border-border text-foreground-muted"
-                          )}
-                        >
-                          {/* Top Row: Day number + Today / Peak indicators */}
-                          <div className="flex items-center justify-between text-[10.5px]">
-                            <span
-                              className={cn(
-                                "font-bold",
-                                d.isToday
-                                  ? "rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-black text-surface"
-                                  : isZero
-                                    ? "text-foreground-muted/70 font-medium"
-                                    : "text-foreground font-extrabold"
-                              )}
-                            >
-                              {d.dayNumber}
-                            </span>
-                            {isPeak ? (
-                              <span className="flex items-center gap-0.5 text-[8.5px] font-black uppercase tracking-wider text-info-700 bg-info/20 px-1 py-0.5 rounded-full">
-                                <Sparkles className="h-2.5 w-2.5 text-info-700" />
-                              </span>
-                            ) : d.isToday ? (
-                              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                            ) : null}
-                          </div>
-
-                          {/* Bottom Row: Count Pill with dynamic badges */}
-                          <div className="text-right">
-                            {d.count > 0 ? (
-                              <span
-                                className={cn(
-                                  "font-data text-[10px] rounded-md px-1.5 py-0.5 transition-colors",
-                                  isPeak
-                                    ? "bg-blue-600 font-black text-white shadow-xs"
-                                    : isHigh
-                                      ? "bg-info/25 text-info-700 font-bold ring-1 ring-info/30"
-                                      : isMed
-                                        ? "bg-info/20 text-info-700 font-bold"
-                                        : "bg-info/10 text-info-700 font-semibold"
-                                )}
-                              >
-                                {d.count} <span className="text-[8.5px] opacity-80">req</span>
-                              </span>
-                            ) : (
-                              <span className="font-data text-[9.5px] text-foreground-muted/40 font-medium pr-1">
-                                -
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
+                  <p className="text-xs text-foreground-muted" role="status">
+                    {!calendarAvailable
+                      ? reservationsQuery.isError ? "Request data couldn't be loaded. Use Retry above." : "Loading booking requests…"
+                      : reservationsQuery.isError ? "Showing last loaded requests. Refresh failed; use Retry above."
+                        : "Hover or focus a day for a preview. Click or tap to view its requests."}
+                  </p>
+                  {calendarAvailable && calendarData.undatedRequests > 0 && (
+                    <p className="text-xs text-foreground-muted">
+                      {calendarData.undatedRequests} {calendarData.undatedRequests === 1 ? "request has" : "requests have"} no valid creation date and {calendarData.undatedRequests === 1 ? "is" : "are"} excluded from this calendar.
+                    </p>
+                  )}
+                  <PickupRequestCalendarDays
+                    key={calendarData.monthKey}
+                    calendar={calendarData}
+                    available={calendarAvailable}
+                    stale={reservationsQuery.isError}
+                  />
                   {/* Bottom Legend */}
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/40 text-[11px] text-foreground-muted px-1">
                     <span className="flex items-center gap-1.5 text-[11px] font-medium">

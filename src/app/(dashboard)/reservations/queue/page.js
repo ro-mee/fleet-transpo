@@ -312,7 +312,6 @@ export default function UnifiedQueuePage() {
       setCancelTarget(null);
       invalidate();
     },
-    onError: (e) => toast.error(e.message || "Failed to cancel request"),
     onSettled: () => setBusyId(null),
   });
 
@@ -674,10 +673,10 @@ export default function UnifiedQueuePage() {
         requireReason
         reasonLabel="Reason for cancelling"
         reasonPlaceholder="e.g. Guest cancelled the booking"
-        loading={cancelMutation.isPending}
-        onConfirm={(reason) =>
-          cancelMutation.mutate({ ...(cancelTarget || {}), reason: reason || null })
-        }
+        reconsiderable
+        actionKey={cancelTarget?.request_id}
+        workingLabel="Cancelling request..."
+        onConfirm={(reason) => cancelMutation.mutateAsync({ ...(cancelTarget || {}), reason: reason || null })}
       />
     </div>
   );

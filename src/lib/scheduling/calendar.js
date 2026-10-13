@@ -479,6 +479,15 @@ export function clusterDayEvents(events, day) {
   });
 }
 
+/** Group overlapping dispatches missing the resource shown by a timeline lane. */
+export function unassignedDispatchClusters(events, day, resource = "driver") {
+  const field = resource === "vehicle" ? "vehicleId" : "driverId";
+  const unassigned = events.filter(
+    (event) => event.kind === EVENT_KIND.DISPATCH && event[field] == null
+  );
+  return clusterDayEvents(unassigned, day);
+}
+
 /** Group events by the day they fall on, for month/week grids. */
 export function groupByDay(events, days) {
   return days.map((day) => ({

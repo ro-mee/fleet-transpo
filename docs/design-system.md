@@ -172,6 +172,8 @@ Components are interaction contracts. New frontends should preserve both appeara
 - Disabled controls explain why when the reason is not obvious. Do not use disabled as the only way to communicate a requirement.
 - Loading states preserve the button label or clearly name the active operation. Prevent duplicate submissions.
 
+For consequential archive, delete, release/removal, and operational cancellation confirmations, opt into the shared `FuseButton` reconsideration flow. Keep the existing dialog and consequence copy, wait five seconds before sending the existing mutation, and expose Undo plus Escape during that local window. Keep the action button's semantic fill and text color steady while its label changes; do not add a Pause/Play control. Pause the timer when the page is hidden and preserve only the remaining time on return. Undo or dismissing the dialog sends no request. Lock any required reason while armed, and show operation progress and failures in the dialog. A normal Cancel/Close that only dismisses a draft remains immediate. This delay is not a server-side undo or a promise of restoration after commit.
+
 ### Status and feedback
 
 Express every status as **text + color + supporting shape/icon**.
