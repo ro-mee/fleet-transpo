@@ -1,7 +1,6 @@
 import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { query, withTransaction } from "@/lib/db";
-import { withQualificationWrite } from '@/services/driver-qualification-boundaries.service';
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { setDispatchStatus } from "@/services/transition.service";
@@ -13,7 +12,6 @@ import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { validatePairAvailability } from "@/services/recommendation.service";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { assertCargoCheckpoint, cargoLifecycleEnabled, prepareCargoLifecycle } from '@/services/cargo-execution.service';
-import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
 import { assertStoredVehicleLoadCompatibility } from '@/lib/trips/vehicle-load-compatibility';
 
 const NON_DISPATCHABLE_VEHICLE = ["Under Maintenance", "Decommissioned", "Registration Expired"];
@@ -291,12 +289,10 @@ export async function PUT(req, { params }) {
       return db.query(`UPDATE dispatchschedules SET ${assignments.join(", ")} WHERE dispatch_id = $${values.length + 1} AND deleted_at IS NULL RETURNING *`, [...values, id]);
     };
     const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,update)
-      : cargoLifecycleEnabled() ? await withTransaction(async tx => {
-        await prepareCargoLifecycle(tx);
-        await guardDriverQualification({ driverId: effDriverId, dispatchId: id }, tx);
+      : await withTransaction(async tx => {
+        if (cargoLifecycleEnabled()) await prepareCargoLifecycle(tx);
         return update(tx);
-      })
-      : await withQualificationWrite({ driverId: effDriverId, dispatchId: id }, update);
+      });
     if (!rows[0]) return err("Dispatch not found", 404);
 
     // Reassigning a Pending Reassignment dispatch moves it back to Scheduled

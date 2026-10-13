@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+﻿import { describe, it, expect } from "vitest";
 import { DRIVER_STATUS, VEHICLE_STATUS } from "@/lib/constants";
 import {
   REASON_TYPE,
@@ -49,27 +49,6 @@ const mkRequest = (over = {}) => ({
   ...over,
 });
 
-describe('service qualifications on the effective substitute',()=>{
- const cargo={group:'CARGO',status:'ACTIVE',verified_by:8,verified_at:'2026-10-09T00:00:00Z',policy_version:'fixture-v1',version:1};
- const build=(serviceCode,status='ACTIVE',mode='ENFORCE')=>buildFleetPairRecommendations({
-  request:mkRequest({service_code:serviceCode,pickup_datetime:NOW}),vehicles:[mkVehicle()],
-  drivers:[mkDriver({driver_id:5,driver_status:DRIVER_STATUS.ON_LEAVE}),mkDriver({driver_id:9})],
-  activePairs:[{vehicle_id:1,driver_id:5}],activeSubstitutes:[{vehicle_id:1,substitute_driver_id:9,effective_from:'2026-08-01'}],now:NOW,
-  qualificationContext:{rollout:{mode,configured:true,policyVersion:'fixture-v1'},qualifications:new Map([[9,[{...cargo,status}]]])},
- });
- it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('offers the explicitly qualified substitute for %s',service=>{
-  expect(build(service).recommended.driver.driver_id).toBe(9);
- });
- it('excludes revoked cargo and passenger without a separate approval',()=>{
-  for(const result of [build('HOTEL_SUPPLY_TRANSFER','REVOKED'),build('GUEST_TRANSPORT')]) {
-   expect(result.recommended).toBeNull();
-   expect(result.skipped[0]).toMatchObject({driver_id:9,qualification:{code:'DRIVER_SERVICE_QUALIFICATION_REQUIRED'}});
-  }
- });
- it('reports a revoked substitute in SHADOW while keeping the candidate',()=>{
-  expect(build('HOTEL_SUPPLY_TRANSFER','REVOKED','SHADOW').recommended).toMatchObject({driver:{driver_id:9},qualification:{severity:'warning'}});
- });
-});
 
 describe("resolveDesignatedDriver", () => {
   it("returns the active custodian of a vehicle", () => {
@@ -94,8 +73,8 @@ describe("isDriverUnavailableFor", () => {
       const r = isDriverUnavailableFor(mkDriver({ driver_status: s }), NOW);
       expect(r.unavailable).toBe(true);
     }
-    // Future availability (§4.8.2): a driver mid-trip is still eligible for a
-    // future window — overlap is judged by _schedule_load, not the status label.
+    // Future availability (Â§4.8.2): a driver mid-trip is still eligible for a
+    // future window â€” overlap is judged by _schedule_load, not the status label.
     const onTrip = isDriverUnavailableFor(mkDriver({ driver_status: DRIVER_STATUS.ON_TRIP }), NOW);
     expect(onTrip.unavailable).toBe(false);
     expect(onTrip.reason).toBeNull();
@@ -212,7 +191,7 @@ describe("buildFleetPairRecommendations", () => {
       vehicles: [vehicle],
       drivers: [designated, sub],
       activePairs: [{ driver_id: 5, vehicle_id: 1 }],
-      // Only a SCHEDULED substitute for the pickup date may cover the car — an
+      // Only a SCHEDULED substitute for the pickup date may cover the car â€” an
       // arbitrary auto-pick is deliberately never allowed.
       activeSubstitutes: [
         { vehicle_id: 1, substitute_driver_id: 9, effective_from: "2026-08-01", effective_until: null },
@@ -225,7 +204,7 @@ describe("buildFleetPairRecommendations", () => {
   });
 
   // Rule 3 / Rule 5: an idle driver is not a substitute. Absent an explicit
-  // substitute schedule for the pickup date, the vehicle is withheld — the
+  // substitute schedule for the pickup date, the vehicle is withheld â€” the
   // dispatcher assigns a substitute first. This replaces an earlier test that
   // asserted the opposite (auto-pick the best eligible driver).
   it("hides the vehicle when the designated driver is absent and no substitute is scheduled", () => {
@@ -280,7 +259,7 @@ describe("buildFleetPairRecommendations", () => {
     });
     expect(res.recommended.driver.driver_id).toBe(9);
     expect(res.recommended.replacement_reason).toMatch(/substitute assigned/i);
-    // Driver 7 is free and never appears — only one pair, and it is the booked one.
+    // Driver 7 is free and never appears â€” only one pair, and it is the booked one.
     expect(res.pairs).toHaveLength(1);
   });
 
@@ -355,7 +334,7 @@ const board = ({ vehicles, drivers, pairs = [], subs = [], pickup = NOW }) =>
     now: NOW,
   });
 
-describe("buildFleetPairRecommendations — AI Fair Workload Distribution", () => {
+describe("buildFleetPairRecommendations â€” AI Fair Workload Distribution", () => {
   it("breaks ties toward the least-loaded designated driver when ETA/readiness are equal", () => {
     const light = mkDriver({ driver_id: 5, _workload_trips_7d: 1, _workload_km_7d: 10, _workload_hours_7d: 0.5 });
     const heavy = mkDriver({ driver_id: 8, _workload_trips_7d: 8, _workload_km_7d: 80, _workload_hours_7d: 4 });
@@ -401,7 +380,7 @@ describe("buildFleetPairRecommendations — AI Fair Workload Distribution", () =
     expect(res.recommended.fairness_score).toBeNull();
     expect(res.recommended.workload).toBeNull();
     expect(res.alternate.fairness_score).toBeNull();
-    // Absent data never invents a ranking — a pair is still produced.
+    // Absent data never invents a ranking â€” a pair is still produced.
     expect(res.recommended).not.toBeNull();
   });
 });
@@ -479,7 +458,7 @@ describe("buildChecklist", () => {
 //
 // Readiness is the AND of three separate questions: the vehicle's own status
 // permits dispatch at all, the requested window is genuinely free, and some
-// driver is cleared to take THAT vehicle — its designated custodian, or a
+// driver is cleared to take THAT vehicle â€” its designated custodian, or a
 // substitute explicitly assigned to it for the pickup date. Each case below
 // pins one combination so a future change cannot quietly re-introduce
 // "any free driver may take any free car".
@@ -495,8 +474,8 @@ function overlapLoad(bookings, start, end) {
 /** A time on the fixed test day (2026-08-04), so nothing depends on the real clock. */
 const at = (h, m = 0) => new Date(2026, 7, 4, h, m, 0);
 
-describe("assignment readiness — vehicle × driver pairing", () => {
-  it("TEST 1 — available vehicle, designated driver available → offers that pair", () => {
+describe("assignment readiness â€” vehicle Ã— driver pairing", () => {
+  it("TEST 1 â€” available vehicle, designated driver available â†’ offers that pair", () => {
     const designated = mkDriver({ driver_id: 5 });
     const res = board({
       vehicles: [mkVehicle({ vehicle_id: 1 })],
@@ -510,7 +489,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.recommended.replacement_reason).toBeNull();
   });
 
-  it("TEST 2 — designated driver absent, substitute assigned and available → offers the substitute", () => {
+  it("TEST 2 â€” designated driver absent, substitute assigned and available â†’ offers the substitute", () => {
     const designated = mkDriver({ driver_id: 5, driver_status: DRIVER_STATUS.ON_LEAVE });
     const sub = mkDriver({ driver_id: 9 });
     const res = board({
@@ -527,7 +506,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.recommended.designated.driver_id).toBe(5);
   });
 
-  it("TEST 3 — designated driver absent, no substitute assigned → withholds the vehicle", () => {
+  it("TEST 3 â€” designated driver absent, no substitute assigned â†’ withholds the vehicle", () => {
     const designated = mkDriver({ driver_id: 5, driver_status: DRIVER_STATUS.ON_LEAVE });
     const res = board({
       vehicles: [mkVehicle({ vehicle_id: 1 })],
@@ -539,7 +518,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.skipped[0].reason).toMatch(/no substitute driver is assigned/i);
   });
 
-  it("TEST 4 — no designated driver and no substitute → withholds the vehicle", () => {
+  it("TEST 4 â€” no designated driver and no substitute â†’ withholds the vehicle", () => {
     const res = board({
       vehicles: [mkVehicle({ vehicle_id: 1 })],
       drivers: [mkDriver({ driver_id: 9 })],
@@ -550,7 +529,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
   });
 // __SPEC_SUITE_CONTINUES__
 
-  it("TEST 5 — no designated driver but a substitute is assigned and available → offers the substitute", () => {
+  it("TEST 5 â€” no designated driver but a substitute is assigned and available â†’ offers the substitute", () => {
     const sub = mkDriver({ driver_id: 9 });
     const res = board({
       vehicles: [mkVehicle({ vehicle_id: 1 })],
@@ -561,13 +540,13 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.recommended.driver.driver_id).toBe(9);
     expect(res.recommended.pairing_kind).toBe(PAIRING_KIND.SUBSTITUTE);
     expect(res.recommended.designated).toBeNull();
-    // Standing on its own, not covering an absence — the checklist says so.
+    // Standing on its own, not covering an absence â€” the checklist says so.
     expect(
       res.recommended.checklist.some((i) => i.text === "Assigned substitute driver for this vehicle" && i.pass)
     ).toBe(true);
   });
 
-  it("TEST 6 — the assigned substitute is themselves booked → withholds the vehicle", () => {
+  it("TEST 6 â€” the assigned substitute is themselves booked â†’ withholds the vehicle", () => {
     const designated = mkDriver({ driver_id: 5, driver_status: DRIVER_STATUS.ON_LEAVE });
     const sub = mkDriver({ driver_id: 9, _schedule_load: 1 });
     const res = board({
@@ -580,7 +559,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.skipped[0].reason).toMatch(/substitute is also unavailable/i);
   });
 
-  it("TEST 7 — another driver is free → the vehicle is still offered only with its designated driver", () => {
+  it("TEST 7 â€” another driver is free â†’ the vehicle is still offered only with its designated driver", () => {
     const designated = mkDriver({ driver_id: 5, avg_guest_rating: 3.2, years_of_experience: 1 });
     const betterButUnrelated = mkDriver({ driver_id: 9, avg_guest_rating: 5, years_of_experience: 20 });
     const res = board({
@@ -593,7 +572,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.pairs.some((p) => p.driver.driver_id === 9)).toBe(false);
   });
 
-  it("TEST 8 — Reserved vehicle whose booking does not overlap the request → offered", () => {
+  it("TEST 8 â€” Reserved vehicle whose booking does not overlap the request â†’ offered", () => {
     // Booked 10:00-11:00; the request is 14:00-15:00, so the overlap count is 0
     // and the cached `Reserved` label is not evidence of anything.
     const load = overlapLoad([{ from: at(10), to: at(11) }], at(14), at(15));
@@ -613,7 +592,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.recommended.driver.driver_id).toBe(5);
   });
 
-  it("TEST 9 — Reserved vehicle whose booking overlaps the request → withheld", () => {
+  it("TEST 9 â€” Reserved vehicle whose booking overlaps the request â†’ withheld", () => {
     // Booked 14:00-15:00 against a 14:30-15:30 request: a real clash, caught by
     // the window overlap rather than by the status label.
     const load = overlapLoad([{ from: at(14), to: at(15) }], at(14, 30), at(15, 30));
@@ -631,7 +610,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.skipped[0].reason).toMatch(/1 dispatch\(es\) in this window/i);
   });
 
-  it("TEST 10 — Reserved, free window, designated absent, no substitute → withheld", () => {
+  it("TEST 10 â€” Reserved, free window, designated absent, no substitute â†’ withheld", () => {
     const designated = mkDriver({ driver_id: 5, driver_status: DRIVER_STATUS.ON_LEAVE });
     const res = board({
       vehicles: [
@@ -644,7 +623,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.skipped[0].reason).toMatch(/no substitute driver is assigned/i);
   });
 
-  it("TEST 11 — Reserved, free window, designated absent, substitute assigned → offers the substitute", () => {
+  it("TEST 11 â€” Reserved, free window, designated absent, substitute assigned â†’ offers the substitute", () => {
     const designated = mkDriver({ driver_id: 5, driver_status: DRIVER_STATUS.ON_LEAVE });
     const res = board({
       vehicles: [
@@ -658,7 +637,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.recommended.pairing_kind).toBe(PAIRING_KIND.SUBSTITUTE);
   });
 
-  it("TEST 12 — a vehicle restriction outranks an available designated driver", () => {
+  it("TEST 12 â€” a vehicle restriction outranks an available designated driver", () => {
     for (const status of NON_DISPATCHABLE_VEHICLE_STATUSES) {
       const res = board({
         vehicles: [mkVehicle({ vehicle_id: 1, vehicle_status: status })],
@@ -670,7 +649,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     }
   });
 
-  it("TEST 13 — custodian goes absent after the recommendation → the assigned substitute takes over", () => {
+  it("TEST 13 â€” custodian goes absent after the recommendation â†’ the assigned substitute takes over", () => {
     // Same vehicle, same substitute booking, evaluated twice: the pairing rule
     // is re-run against live driver rows, so the answer moves with them rather
     // than the car dropping off the board.
@@ -692,7 +671,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(after.driver.driver_id).toBe(9);
   });
 
-  it("TEST 14 — a dispatch booked after the recommendation makes the driver unavailable", () => {
+  it("TEST 14 â€” a dispatch booked after the recommendation makes the driver unavailable", () => {
     // The revalidation reloads `_schedule_load` from the live window, so a pair
     // that was clean at recommendation time is refused at commit time.
     const pairs = [{ driver_id: 5, vehicle_id: 1 }];
@@ -731,7 +710,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
   it("Reserved and In Use are dispatchable; the grounding statuses are not", () => {
     expect(vehicleOperationallyAvailable({ vehicle_status: VEHICLE_STATUS.AVAILABLE })).toBe(true);
     expect(vehicleOperationallyAvailable({ vehicle_status: VEHICLE_STATUS.RESERVED })).toBe(true);
-    // Future availability (§4.8.2): a vehicle currently driving is still free for
+    // Future availability (Â§4.8.2): a vehicle currently driving is still free for
     // a later window; overlap is judged by _schedule_load, not the status label.
     expect(vehicleOperationallyAvailable({ vehicle_status: VEHICLE_STATUS.IN_USE })).toBe(true);
     for (const s of NON_DISPATCHABLE_VEHICLE_STATUSES) {
@@ -774,7 +753,7 @@ describe("assignment readiness — vehicle × driver pairing", () => {
   });
 });
 describe("dayScope (today-overview interpretation)", () => {
-  // Tuesday 2026-08-04, shift 06:00-22:00 � a full-day review window can never
+  // Tuesday 2026-08-04, shift 06:00-22:00 ï¿½ a full-day review window can never
   // fit inside it, which is exactly the collision dayScope resolves.
   const dayCtx = (driverId, row) => ({
     schedules: new Map([[driverId, new Map([[2, row]])]]),

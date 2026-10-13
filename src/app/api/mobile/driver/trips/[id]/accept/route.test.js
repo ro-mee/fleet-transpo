@@ -5,7 +5,6 @@ vi.mock('@/lib/db',()=>({query:vi.fn(),withTransaction:vi.fn(async write=>write(
 vi.mock('@/lib/api/utils',()=>({requirePermission:vi.fn(async()=>({user:{employeeId:1}})),requireDriver:vi.fn(async()=>({user:{employeeId:1}})),parseBody:vi.fn(async req=>req.json()),ok:body=>Response.json(body),err:(error,status)=>Response.json({error},{status}),handleError:e=>Response.json({error:e.message},{status:e.status??500}),AuthError:class extends Error {constructor(message,status){super(message);this.status=status;}}}));
 vi.mock('@/lib/api/ownership',()=>({assertTripOwnership:vi.fn(async()=>({trip_id:7,trip_status:'Assigned',driver_id:2,vehicle_id:3}))}));
 vi.mock('@/services/trip-lifecycle.service',()=>({cancelTrip:vi.fn(async()=>({trip_status:'Cancelled'}))}));
-vi.mock('@/services/driver-qualification-boundaries.service',()=>({guardDriverQualification:vi.fn(async()=>null)}));
 vi.mock('@/services/transition.service',()=>({setTripStatus:vi.fn(async ({to,beforeWrite})=>{if(beforeWrite) await beforeWrite({query});return (await query('UPDATE trips SET trip_status = $1 RETURNING *',[to])).rows[0];})}));
 import { PUT } from './route';
 let assignment;

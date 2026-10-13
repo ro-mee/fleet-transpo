@@ -13,12 +13,6 @@ vi.mock('@/lib/uvvrp/uvvrp.service', () => ({
 vi.mock('@/services/driver-schedule.service', () => ({
   loadDriverScheduleContext: vi.fn(async () => ({ schedules: new Map(), leave: new Map() })),
 }));
-vi.mock('@/services/driver-qualification-boundaries.service', () => ({
-  loadQualificationContext: vi.fn(async () => null),
-  driverQualificationFinding: vi.fn(() => null),
-  qualificationSummary: vi.fn(() => null),
-  storedQualificationService: vi.fn(async () => 'FREIGHT_TRANSFER'),
-}));
 vi.mock('@/lib/ai/pair-scoring', async importOriginal => ({
   ...await importOriginal(),
   resolveVehiclePairing: ({ driverById }) => ({ ok: true, kind: 'designated', driver: driverById.get(7), designated: driverById.get(7) }),

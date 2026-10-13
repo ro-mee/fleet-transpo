@@ -329,7 +329,6 @@ export function buildDispatchRecommendation({
   now = new Date(),
   returnAt,
   scheduleContext,
-  qualificationContext,
   prefiltered = [],
 }) {
   const passengers = Number(request?.passenger_count) || 1;
@@ -346,7 +345,6 @@ export function buildDispatchRecommendation({
     now,
     returnAt,
     scheduleContext,
-    qualificationContext,
   });
 
   // DEPRECATED legacy independent ranking — quarantine, do not use for display

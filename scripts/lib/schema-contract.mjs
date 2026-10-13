@@ -72,7 +72,6 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Owner-scoped private document drafts, attachment metadata and storage keys. Access only through authorized APIs.",
   },
-  },
   // --- auth & identity -----------------------------------------------------
   roles: {
     classification: CLASSIFICATION.PRIVATE,

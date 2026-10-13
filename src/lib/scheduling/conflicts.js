@@ -14,7 +14,6 @@ import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
 import { travelBufferBlocked } from "@/lib/scheduling/travel-buffer";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
-import { loadQualificationContext, driverQualificationFinding } from '@/services/driver-qualification-boundaries.service';
 
 // Double-booking prevention.
 //
@@ -246,12 +245,8 @@ function travelBufferFindings(request, resource, kind, cfg) {
  * @param {object[]} ctx.assignments     ACTIVE driver_vehicle_assignments rows for that vehicle/driver
  * @returns {Array<{type: string, severity: string, message: string, detail?: object}>}
  */
-export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null, scheduleContext, qualificationContext, travelBufferEnabled, safetyBufferMinutes, bufferFloorMinutes } = {}) {
+export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null, scheduleContext, travelBufferEnabled, safetyBufferMinutes, bufferFloorMinutes } = {}) {
   const findings = [];
-  if (driver) {
-    const qualification = driverQualificationFinding(qualificationContext, driver.driver_id, request?.service_code);
-    if (qualification) findings.push(qualification);
-  }
   // Legacy untyped default, used only by the historical seats check below.
   // Typed rows resolve their requirement through the Task 5 gate instead.
   const passengers = Number(request?.passenger_count) || 1;
@@ -637,7 +632,6 @@ export async function detectRequestConflicts(request, opts = {}) {
     : null;
 
   const findings = evaluateRequestConflicts(request, {
-    qualificationContext: await loadQualificationContext(driverId ? [driverId] : []),
     vehicle: vehicleRow,
     driver: driverRow,
     dispatches: overlap,
@@ -804,7 +798,6 @@ export async function detectConflictsForRequests(requests = []) {
 
   const vehicleById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
-  const qualificationContext = await loadQualificationContext(driverIds);
 
   // Work-schedule + approved-leave context (migration 049) for every driver on
   // the page, loaded once so the per-request loop never queries per driver.
@@ -854,7 +847,6 @@ export async function detectConflictsForRequests(requests = []) {
       // the queue and is enforced hard at the assign gate, which is the
       // authoritative 409 — matching how the queue chips never block.
       evaluateRequestConflicts(r, {
-        qualificationContext,
         vehicle,
         driver,
         dispatches: relevant,

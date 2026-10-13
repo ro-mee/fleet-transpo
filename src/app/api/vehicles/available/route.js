@@ -4,7 +4,6 @@ import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.se
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { loadRoadReadiness } from "@/lib/vehicles/readiness-server";
-import { loadQualificationContext, driverQualificationFinding, qualificationSummary, storedQualificationService } from '@/services/driver-qualification-boundaries.service';
 
 export async function GET(req) {
   try {
@@ -128,8 +127,6 @@ export async function GET(req) {
         .map((p) => p.driver_id)
         .filter(Boolean);
       const scheduleCtx = await loadDriverScheduleContext(effectiveIds);
-      const qualificationContext = await loadQualificationContext(effectiveIds);
-      const serviceCode = await storedQualificationService(searchParams.get('request_id'));
       const pickup = new Date(pickupAt);
       const returnDate = returnAt ? new Date(returnAt) : null;
       const pairByVehicle = new Map(
@@ -146,10 +143,6 @@ export async function GET(req) {
         }
         const block = driverBlockReason({ driverId, pickup, returnAt: returnDate, ctx: scheduleCtx });
         if (block?.blocked) continue;
-        const qualification = searchParams.has('request_id') ? driverQualificationFinding(qualificationContext, driverId, serviceCode) : null;
-        if (qualification?.severity === 'blocking') continue;
-        if (qualificationContext) v.qualification_summary = qualificationSummary(qualificationContext, driverId);
-        if (qualification) v.qualification = qualification;
         filtered.push(v);
       }
       return ok(filtered);

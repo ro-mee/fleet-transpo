@@ -11,7 +11,6 @@ import {
 } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { numberCodingBlockReason } from "@/lib/uvvrp/availability-reason";
-import { loadQualificationContext, driverQualificationFinding, qualificationSummary, storedQualificationService } from '@/services/driver-qualification-boundaries.service';
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 
 // Pair-coupled availability for the Resource Availability board.
@@ -149,9 +148,7 @@ export async function GET(req) {
     );
 
     const scheduleCtx = await loadDriverScheduleContext(drivers.map((d) => d.driver_id));
-    const qualificationContext = await loadQualificationContext(drivers.map(d => d.driver_id));
     const requestId = sp.get('request_id');
-    const serviceCode = await storedQualificationService(requestId);
     let selectedRequest = null;
     if (requestId) {
       const { rows } = await query(
@@ -269,14 +266,7 @@ export async function GET(req) {
         continue;
       }
 
-      const qualification = requestId ? driverQualificationFinding(qualificationContext, pairing.driver.driver_id, serviceCode) : null;
-      if (qualification?.severity === 'blocking') {
-        blocked.push({ vehicle: slimVehicle(v), driver: slimDriver(pairing.driver), pairing_kind: pairing.kind,
-          block_reason: qualification.message, qualification, unpaired: false, action: null, clashes: tripClashes });
-        continue;
-      }
       ready.push({
-        ...(qualificationContext ? { qualification_summary: qualificationSummary(qualificationContext, pairing.driver.driver_id), qualification } : {}),
         vehicle: slimVehicle(v),
         driver: slimDriver(pairing.driver),
         pairing_kind: pairing.kind,

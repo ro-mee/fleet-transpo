@@ -16,10 +16,6 @@ vi.mock('@/services/cargo-execution.service', () => ({
   cargoLifecycleEnabled: vi.fn(() => false),
   prepareCargoLifecycle: vi.fn(async () => false),
 }));
-vi.mock('@/services/driver-qualification-boundaries.service', () => ({
-  withQualificationWrite: vi.fn(),
-  guardDriverQualification: vi.fn(),
-}));
 vi.mock('@/services/status.service', () => ({
   syncVehicleStatus: vi.fn(async () => {}), syncDriverStatus: vi.fn(async () => {}), ensureTripForDispatch: vi.fn(async () => {}),
 }));

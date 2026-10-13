@@ -13,8 +13,6 @@ import { evaluateDispatchCandidate, serviceEnd } from '@/services/dispatch-radar
 import { resolveRequestEstimate } from '@/services/route-resolver.service';
 import { LOCATION_POLICY_VERSION } from '@/lib/dispatch/location-relevance';
 import { readDispatchRevision } from '@/services/dispatch-evidence.service';
-import { loadQualificationContext, driverQualificationFinding } from './driver-qualification-boundaries.service';
-import { groupForService } from '@/lib/drivers/service-qualifications';
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
@@ -194,14 +192,6 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     request = { ...request, service_code: rows[0].service_code ?? null, load_type: rows[0].load_type ?? null, cargo_weight_kg: rows[0].cargo_weight_kg ?? null, cargo_description: rows[0].cargo_description ?? null };
   }
   const commitToken = { driverId,vehicleId,requestId:request?.request_id ?? null,...(excludeTripId ? {tripId:excludeTripId} : {}) };
-  const qualificationContext = await loadQualificationContext([driverId]);
-  const qualification = driverQualificationFinding(qualificationContext, driverId, request?.request_id ? request.service_code : null);
-  if (qualification?.severity === 'blocking') return { ok: false, conflict: qualification };
-  if (qualificationContext) commitToken.qualification = {
-    service_code: request?.request_id ? request.service_code ?? null : null,
-    qualification_version: qualificationContext.qualifications.get(Number(driverId))?.find(row => row.group === groupForService(request?.service_code))?.version ?? 0,
-    finding: qualification,
-  };
   commitToken.revision = await readDispatchRevision(commitToken);
   if (request?.route_id && !request.pickup_location) {
     const { rows } = await query('SELECT origin,destination FROM routes WHERE route_id=$1 AND deleted_at IS NULL', [request.route_id]);

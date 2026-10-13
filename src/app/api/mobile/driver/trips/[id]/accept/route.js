@@ -4,7 +4,6 @@ import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 import { TRIP_STATUS } from "@/lib/constants";
-import { guardDriverQualification } from '@/services/driver-qualification-boundaries.service';
 
 /**
  * PUT /api/mobile/driver/trips/[id]/accept
@@ -96,7 +95,6 @@ export async function PUT(req, { params }) {
       return ok(rows[0]);
     };
     return body.accept ? await withTransaction(async tx => {
-      await guardDriverQualification({ driverId: trip.driver_id, tripId: id }, tx);
       return writeAcceptance(tx);
     })
       : await writeAcceptance({ query });

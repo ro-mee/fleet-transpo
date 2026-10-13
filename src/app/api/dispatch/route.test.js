@@ -12,7 +12,6 @@ vi.mock('@/lib/api/utils', () => ({
 vi.mock('@/lib/validation/helpers', () => ({ validateBody: () => ({}), isValidObject: () => true }));
 vi.mock('@/services/recommendation.service', () => ({ validatePairAvailability: vi.fn() }));
 vi.mock('@/services/dispatch-evidence.service', () => ({ commitDispatchEvidence: vi.fn() }));
-vi.mock('@/services/driver-qualification-boundaries.service', () => ({ withQualificationWrite: vi.fn() }));
 vi.mock('@/services/driver-schedule.service', () => ({ loadDriverScheduleContext: vi.fn(async () => ({})) }));
 vi.mock('@/lib/ai/pair-scoring', async importOriginal => ({
   ...await importOriginal(),

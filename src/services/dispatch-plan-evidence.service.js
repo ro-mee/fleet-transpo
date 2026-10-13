@@ -2,7 +2,6 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { query } from '@/lib/db';
 import { AuthError } from '@/lib/api/utils';
 import { LOCATION_POLICY_VERSION } from '@/lib/dispatch/location-relevance';
-import { qualificationRollout } from '@/lib/drivers/qualification-rollout';
 
 // ponytail: conservatively invalidate the whole small-fleet plan on operational
 // changes; narrow to dependency rows if measured false invalidations warrant it.
@@ -13,12 +12,7 @@ const TABLES = ['drivers', 'vehicles', 'vehiclecategories', 'vehiclemaintenance'
   'employees', 'mobile_refresh_tokens', 'trips', 'driverincidents', 'system_settings'];
 
 export async function readPlanRevision(db = { query }) {
-  const rollout = qualificationRollout();
   const parts = TABLES.map(table => `'${table}',(SELECT md5(COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'[]')) FROM ${table} t)`);
-  if (rollout.mode === 'ENFORCE' && rollout.configured) {
-    parts.push("'qualifications',(SELECT md5(COALESCE(jsonb_agg(to_jsonb(q) ORDER BY driver_id,qualification_group)::text,'[]')) FROM driver_service_qualifications q)");
-    parts.push("'serviceTypes',(SELECT md5(COALESCE(jsonb_agg(to_jsonb(s) ORDER BY service_type_id)::text,'[]')) FROM service_types s)");
-  }
   // Pending -> Scheduled is intermediate lifecycle bookkeeping. Preserve every
   // requirement, excluding generated display/audit metadata.
   parts.push(`'requests',(SELECT md5(COALESCE(jsonb_agg(

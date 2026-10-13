@@ -4,10 +4,8 @@ import { writeAuditRequired } from '@/lib/audit';
 import { receiptSchema, decisionSchema, validateReceiptAgainstManifest } from '@/lib/cargo/contracts';
 import { deriveCargoState, matchesCargoAuthorityProof } from '@/lib/cargo/execution-state';
 import { cargoError, resolveTripManifest } from './cargo-manifest.service';
-import { guardDriverQualification } from './driver-qualification-boundaries.service';
 import { canTransitionTrip, isPreStartTripStatus } from '@/lib/scheduling/trip-state';
 import { AuthError } from '@/lib/api/utils';
-import { qualificationRollout } from '@/lib/drivers/qualification-rollout';
 import { assertCargoStorageConfiguration, assertCargoDriver, loadExecutionForUpdate, insertReceipt, appendCargoDecision, appendManualCargoDecision, cargoPayloadHash } from './cargo-execution.repository';
 import { manualDecisionSchema, manualAuthorityProofSchema } from '@/lib/cargo/manual-decision';
 import { rolesFor } from '@/lib/auth/permissions';
@@ -180,9 +178,10 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
       if (!hop.ok) fail('CARGO_TRANSITION_CONFLICT', hop.reason);
     }
     if (to !== 'Cancelled' && to !== 'Reassign') {
-      const rollout = qualificationRollout();
-      if (rollout.mode !== 'ENFORCE' || !rollout.configured) fail('CARGO_CONFIGURATION_REQUIRED', 'Cargo lifecycle requires approved qualification enforcement.', 503);
-      await guardDriverQualification({ driverId: trip.driver_id, tripId: trip.trip_id }, tx);
+      // Cargo lifecycle writes stay disabled pending owner approvals and an
+      // approved provider (the removed qualification-enforcement gate used to
+      // 503 here when unconfigured, which was always, so this is unchanged).
+      fail('CARGO_CONFIGURATION_REQUIRED', 'Cargo lifecycle requires approved configuration.', 503);
     }
     if (['Passenger Onboard', 'En Route', 'In Progress', 'Drop-off', 'Arrived', 'Completed'].includes(to)) {
       if (!current?.pickup_receipt) fail('CARGO_PICKUP_REQUIRED', 'Verify cargo at pickup.');
