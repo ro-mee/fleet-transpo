@@ -154,7 +154,7 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
   };
   const end = serviceEnd(request, estimate);
   const pickup = new Date(request.pickup_datetime).getTime();
-  const { conflicts, checks } = await detectRequestConflicts({ ...request, scheduled_arrival: end?.toISOString() }, { vehicleId, driverId, strict: true, includeEvidence:true, policy });
+  const { conflicts, checks, cargoPhysical } = await detectRequestConflicts({ ...request, scheduled_arrival: end?.toISOString() }, { vehicleId, driverId, strict: true, includeEvidence:true, policy });
   const blocking = conflicts.filter(c => c.severity === 'blocking');
   const endpointRequest = await withV2RegistryLocations(request);
   const endpointProvenance = isV2Request(endpointRequest) ? {
@@ -231,7 +231,7 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
     observed_at: state.location_observed_at, accuracy: state.location_accuracy_m } : null;
   const dispatchContext = resolveLocationRelevance({ request,now,preceding,readyNow:ready,fix,policy,trustedDeparture });
   const release = releaseAt ? +new Date(releaseAt) : null;
-  const result = { temporalContext, evidenceExpiresAt:temporalContext.nextBoundaryAt, scheduleEvidence: {
+  const result = { ...(cargoPhysical ? { cargoPhysical } : {}), temporalContext, evidenceExpiresAt:temporalContext.nextBoundaryAt, scheduleEvidence: {
     previousDriverDispatchId:prevDriver?.dispatch_id ?? null, previousVehicleDispatchId:prevVehicle?.dispatch_id ?? null,
     releaseAt, releaseSource,
     gapMinutes:release == null ? null : Math.round((pickup-release)/60_000),

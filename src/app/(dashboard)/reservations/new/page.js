@@ -48,6 +48,9 @@ import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
+import { CargoContentsEditor } from "@/components/cargo/cargo-contents-editor";
+import { CARGO_SERVICE_OPTIONS, blankCargoDraftLine, buildPassengerSimulationEnvelope, validateCargoDraft } from "@/lib/cargo/cargo-draft";
+import { serviceLoadFor } from "@/lib/integration/contracts";
 
 const GATEWAY = process.env.NEXT_PUBLIC_BOOKING_GATEWAY || "mock";
 
@@ -89,7 +92,16 @@ export default function MockInjectorPage() {
     special_requests: "",
     requested_vehicle_type: "",
     priority: "Normal",
+    service_code: "GUEST_TRANSPORT",
+    cargo_description: "",
+    cargo_weight_kg: "",
+    source_department: "",
   });
+  const [cargoLines, setCargoLines] = useState([blankCargoDraftLine("first")]);
+  const [cargoErrors, setCargoErrors] = useState({});
+  const [cargoNotice, setCargoNotice] = useState("");
+  const isCargo = serviceLoadFor(form.service_code) === "Cargo";
+  const cargoValidation = validateCargoDraft({ description: form.cargo_description, declaredWeight: form.cargo_weight_kg, lines: cargoLines });
 
   // Dynamic defaults from the live registry — never a brand literal. Derived
   // during render (no setState-in-effect): the first airport-like location is
@@ -156,9 +168,10 @@ export default function MockInjectorPage() {
     const name = names[Math.floor(Math.random() * names.length)];
     const dateStr = nowPlusHoursLocal(Math.floor(Math.random() * 48) + 1);
 
-    setForm({
+    setForm((current) => ({
+      ...current,
       external_booking_id: `BK-2026-${r}`,
-      source_system: ["PMS", "POS", "Web"][Math.floor(Math.random() * 3)],
+      source_system: "PMS",
       booking_reference: `REF-${r}`,
       guest_name: name,
       pickup_location: form.pickup_location || defaultPickup,
@@ -168,21 +181,28 @@ export default function MockInjectorPage() {
       special_requests: "Cold towels & bottled water requested.",
       requested_vehicle_type: categories[0]?.category_name || "",
       priority: Math.random() > 0.7 ? "High" : "Normal",
-    });
+    }));
     toast.success("Filled mock transport request data!");
   };
 
   const submit = (e) => {
     e.preventDefault();
+    if (isCargo) {
+      setCargoErrors(cargoValidation.errors);
+      setCargoNotice(cargoValidation.valid
+        ? "Cargo draft reviewed. Manifest intake is unavailable, so no request or contents were sent. Your draft remains on this page."
+        : "Review the cargo fields below. No request or contents were sent; your draft remains on this page.");
+      return;
+    }
     if (!form.external_booking_id.trim()) {
       toast.error("External Booking ID is required");
       return;
     }
-    injectMutation.mutate({
+    injectMutation.mutate(buildPassengerSimulationEnvelope({
       ...form,
       pickup_location: form.pickup_location || defaultPickup,
       dropoff_location: form.dropoff_location || defaultDropoff,
-    });
+    }));
   };
 
 
@@ -209,7 +229,7 @@ export default function MockInjectorPage() {
           </>
         ) : (
           <>
-            <CheckCircle2 className="w-4 h-4 mr-2" /> Inject Transport Request
+            <CheckCircle2 className="w-4 h-4 mr-2" /> {isCargo ? "Review Cargo Draft" : "Inject Transport Request"}
           </>
         )}
       </Button>
@@ -223,7 +243,7 @@ export default function MockInjectorPage() {
         icon={Plane}
         title="New Transport Reservation"
         badge={`Integration Gateway (${GATEWAY})`}
-        description="Inject external transport requests from PMS/POS or generate mock airport transfers."
+        description="Simulate a PMS passenger request or prepare a local supply-chain cargo draft."
         actions={formActions}
       />
       <StickyActionBar>{formActions}</StickyActionBar>
@@ -266,11 +286,14 @@ export default function MockInjectorPage() {
             <User className="w-4 h-4 text-primary" /> Transport Reservation Details
           </CardTitle>
           <CardDescription className="text-xs">
-            Enter guest details, pickup schedule, passenger count, and vehicle category.
+            Choose the service, route and schedule. Supply Chain services reveal cargo contents and transport requirements.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
           <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+            <FloatingSelect label="Service" icon={Layers} value={form.service_code} onValueChange={(value) => { set("service_code", value); setCargoNotice(""); }}>
+              {CARGO_SERVICE_OPTIONS.map(([code, label]) => <SelectItem key={code} value={code}>{label}</SelectItem>)}
+            </FloatingSelect>
             <FloatingField label="External Booking ID" icon={Hash} required>
               <input
                 id="external_booking_id"
@@ -281,17 +304,7 @@ export default function MockInjectorPage() {
               />
             </FloatingField>
 
-            <FloatingSelect
-              label="Source System"
-              icon={Layers}
-              id="source_system"
-              value={form.source_system}
-              onValueChange={(val) => set("source_system", val)}
-            >
-              <SelectItem value="PMS">PMS (Hotel Front Office)</SelectItem>
-              <SelectItem value="POS">POS (Restaurant / Concierge)</SelectItem>
-              <SelectItem value="Web">Web Booking Portal</SelectItem>
-            </FloatingSelect>
+            <p className="self-center text-xs text-foreground-secondary">Staff simulation uses PMS identity. POS and SCM requests require their authenticated source adapters.</p>
 
             <FloatingField label="Booking Reference" icon={FileText}>
               <input
@@ -303,7 +316,7 @@ export default function MockInjectorPage() {
               />
             </FloatingField>
 
-            <FloatingField label="Guest Name" icon={User}>
+            {!isCargo && <FloatingField label="Guest Name" icon={User}>
               <input
                 id="guest_name"
                 value={form.guest_name}
@@ -311,13 +324,13 @@ export default function MockInjectorPage() {
                 placeholder="e.g. Maria Clara"
                 className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </FloatingField>
+            </FloatingField>}
 
             <FloatingSelect
               label="Pickup Location"
               icon={MapPin}
               id="pickup_location"
-              value={form.pickup_location || defaultPickup}
+              value={form.pickup_location || (isCargo ? '' : defaultPickup)}
               onValueChange={(val) => set("pickup_location", val)}
               placeholder="Select Pickup Location"
             >
@@ -332,7 +345,7 @@ export default function MockInjectorPage() {
               label="Dropoff Location"
               icon={MapPin}
               id="dropoff_location"
-              value={form.dropoff_location || defaultDropoff}
+              value={form.dropoff_location || (isCargo ? '' : defaultDropoff)}
               onValueChange={(val) => set("dropoff_location", val)}
               placeholder="Select Dropoff Location"
             >
@@ -352,7 +365,7 @@ export default function MockInjectorPage() {
               />
             </div>
 
-            <FloatingField label="Passenger Count" icon={Users}>
+            {!isCargo && <FloatingField label="Passenger Count" icon={Users}>
               <input
                 id="passenger_count"
                 type="number"
@@ -362,7 +375,13 @@ export default function MockInjectorPage() {
                 onChange={(e) => set("passenger_count", parseInt(e.target.value, 10) || 1)}
                 className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data"
               />
-            </FloatingField>
+            </FloatingField>}
+
+            {isCargo && <>
+              <FloatingField label="Cargo description" icon={FileText} required error={cargoErrors.description}><input aria-label="Cargo description" value={form.cargo_description} maxLength={2000} onChange={event => set("cargo_description", event.target.value)} className="w-full bg-transparent py-1 text-xs focus:outline-hidden" /></FloatingField>
+              <FloatingField label="Declared gross load (kg)" icon={Layers} required error={cargoErrors.declaredWeight}><input aria-label="Declared gross load (kg)" type="number" min="0.001" step="0.001" value={form.cargo_weight_kg} onChange={event => set("cargo_weight_kg", event.target.value)} className="w-full bg-transparent py-1 text-xs font-data focus:outline-hidden" /></FloatingField>
+              <FloatingField label="Source department" icon={Building2}><input aria-label="Source department" value={form.source_department} maxLength={100} onChange={event => set("source_department", event.target.value)} className="w-full bg-transparent py-1 text-xs focus:outline-hidden" /></FloatingField>
+            </>}
 
             <FloatingSelect
               label="Requested Vehicle Category"
@@ -402,10 +421,14 @@ export default function MockInjectorPage() {
                 id="special_requests"
                 value={form.special_requests}
                 onChange={(e) => set("special_requests", e.target.value)}
-                placeholder="Cold towels, child seat, luggage assistance..."
+                placeholder={isCargo ? "Pickup access, loading instructions, delivery notes…" : "Cold towels, child seat, luggage assistance..."}
                 className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
             </FloatingField>
+            {isCargo && <>
+              <CargoContentsEditor lines={cargoLines} onChange={setCargoLines} errors={cargoErrors} calculatedKg={cargoValidation.calculatedKg} />
+              <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 md:col-span-2"><p className="text-xs text-foreground-secondary">Manifest intake is not enabled. These contents stay in this page&apos;s unsaved draft and are retained when switching services. Leaving or refreshing this page discards the draft.</p>{cargoNotice && <p role="status" className="text-sm font-medium text-foreground">{cargoNotice}</p>}</div>
+            </>}
           </form>
         </CardContent>
       </Card>

@@ -28,6 +28,7 @@ describe.skipIf(!enabled)('candidate cargo SQL and real ingest, isolated rollbac
       CREATE TABLE supply_dispatch_allocations (dispatch_id integer, supply_shipment_id uuid, manifest_revision integer, allocation_status text);
       INSERT INTO service_types VALUES (1, 'HOTEL_SUPPLY_TRANSFER');
       INSERT INTO transportation_requests VALUES (1, 'PMS', 'r1', 'Cargo', 1, NULL), (2, 'PMS', 'r2', 'Cargo', 1, NULL);`);
+    await client.query('ALTER TABLE transportation_requests ADD COLUMN cargo_weight_kg numeric(12,3)');
     migration = readFileSync('supabase/migrations/158_request_cargo_manifest_revisions.sql', 'utf8').replaceAll('public.', `${schema}.`);
     await client.query(migration);
     db = { query: (...args) => client.query(...args), withTransaction: async fn => {

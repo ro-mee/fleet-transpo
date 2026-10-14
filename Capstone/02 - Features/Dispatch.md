@@ -1,4 +1,4 @@
-﻿---
+---
 type: feature
 status: working
 tags: [feature, dispatch, concurrency]
@@ -558,3 +558,7 @@ Final evidence:122 focused tests plus6 request-cancel tests; SQL29/29 before fin
 ## Calendar overlapping unassigned dispatches - 2026-10-09
 
 The day Driver and Vehicle timeline lanes now cluster overlapping unassigned dispatches into one compact card, using the calendar's existing cluster detail interaction. The lane label still counts every underlying dispatch. Driver lanes cluster rows without a driver; vehicle lanes cluster rows without a vehicle. Assigned dispatches and non-dispatch overlays are excluded. This fixes card/text collisions in the Unassigned trips row; the calendar API and dispatch data are unchanged. Focused calendar tests: 7/7 passed. Browser verification is pending.
+
+## Shared physical cargo checks - 2026-10-13
+
+Versioned source contents and measured profile data now feed shared recommendation, availability, conflict/evidence and final assignment/reassignment/start checks. Dispatch policy cargoPhysical defaults OFF; SHADOW is advisory and ENFORCE requires versioned source/vehicle/mass references. Required physical UNKNOWN/BLOCK never becomes a profile-derived eligibility pass. Cargo profile/manifest/source revisions and settings enter the existing evidence hash; compatible table-before-row locks serialize writers, and final commits recheck actual data and service-window expiry. Request-backed Cargo retains the historical PASSENGER dispatch discriminator; no SCM allocation writer was enabled. See [[Supply Chain Consolidation Implementation 2026-10-13]].

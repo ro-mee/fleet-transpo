@@ -8,6 +8,7 @@ import { ClayButton } from "../clay";
 import { resolveDriverWorkspace } from "../../lib/driver-workspace";
 import ClayScreenHeader from "../ClayScreenHeader";
 import { CargoWorkflowContent } from "./CargoWorkflowContent";
+import { CargoPhysicalManifest } from "./CargoItemReceiptRow";
 import { useDriverProfile } from "../../lib/driver-profile";
 import { useAuth } from "../../lib/auth";
 import { useConnectivity } from "../../lib/connectivity-context";
@@ -146,6 +147,7 @@ export default function CargoWorkflowScreen({ mode = "overview" }) {
           <ClayButton label="Refresh assignment" onPress={refresh} />
           <ClayButton label="Open Trip Details" onPress={() => router.push(`/trip/${id}`)} />
         </View> : <CargoWorkflowContent canOperate={canOperate} mode={mode} execution={execution} trip={active ? screen.trip : null} view={view} form={visibleForm} errors={errors} issueLine={execution?.manifest?.lines?.some(line => line.line_id === issueLine) ? issueLine : null} review={review} loading={!active || screen.loading} busy={busy} pending={pending} stale={stale} error={active ? screen.error : null} message={active ? message : null} onRefresh={refresh} onOpen={route => router.push(`/trip/${id}/${route}`)} onChange={(lineId, value) => edit({ ...formRef.current, counts: { ...formRef.current.counts, [lineId]: value } })} onIssue={setIssueLine} onIssueChange={issue => edit({ ...formRef.current, issues: { ...formRef.current.issues, [issueLine]: issue } })} onPhoto={photo} onCloseIssue={() => setIssueLine(null)} onReview={setReview} onSubmit={submit} onRecount={recount} />}
+        {mode === "overview" && cargoAllowed && execution?.manifest && <CargoPhysicalManifest manifest={execution.manifest} />}
       </ScrollView>
     </KeyboardAvoidingView>
   </View>;

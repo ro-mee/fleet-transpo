@@ -11,6 +11,8 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { derivePriority } from '@/lib/scheduling/priority';
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { manilaDate } from '@/lib/dispatch/plan-window';
+import { loadCargoPhysicalAssessments } from './cargo-physical.service';
+import { cargoPhysicalPolicy, vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
 
 export async function loadServiceDateWorkload(driverIds, pickupAt) {
   if (!driverIds.length || !pickupAt || !Number.isFinite(+new Date(pickupAt))) return new Map();
@@ -83,14 +85,16 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
     ? NON_DISPATCHABLE_VEHICLE_STATUSES.filter(status => status !== "Registration Expired")
     : NON_DISPATCHABLE_VEHICLE_STATUSES;
   const isCargo = request?.load_type === "Cargo";
+  const physicalPolicy = isCargo ? await getDispatchPolicy() : null;
+  const physicalActive = isCargo && cargoPhysicalPolicy(physicalPolicy).mode !== 'OFF';
   const loadAmount = isCargo ? Number(request?.cargo_weight_kg) : passengers;
   const capacityPredicate = isCargo
-    ? `AND (v.operational_use = 'Cargo' AND (v.cargo_capacity_kg IS NULL OR v.cargo_capacity_kg >= $1::numeric))`
+    ? physicalActive ? `AND (v.operational_use = 'Cargo' AND $1::numeric IS NOT NULL)` : `AND (v.operational_use = 'Cargo' AND (v.cargo_capacity_kg IS NULL OR v.cargo_capacity_kg >= $1::numeric))`
     : `AND (v.seating_capacity IS NULL OR v.seating_capacity >= $1::int)`;
   const prefilterPredicate = isCargo
     ? `AND (v.vehicle_status = ANY($3::text[])
             OR v.operational_use IS DISTINCT FROM 'Cargo'
-            OR (v.cargo_capacity_kg IS NOT NULL AND v.cargo_capacity_kg < $1::numeric))`
+            OR (${physicalActive ? 'FALSE' : 'v.cargo_capacity_kg IS NOT NULL AND v.cargo_capacity_kg < $1::numeric'}))`
     : `AND (v.vehicle_status = ANY($3::text[])
             OR (v.seating_capacity IS NOT NULL AND v.seating_capacity < $1::int))`;
 
@@ -281,7 +285,11 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
     ),
   ]);
 
-  return { vehicles, drivers, windowStart, windowEnd, prefiltered: prefilteredRows };
+  const physical = physicalActive ? await loadCargoPhysicalAssessments({ ...request, scheduled_arrival: windowEnd }, vehicles.map(vehicle => vehicle.vehicle_id), { policy: physicalPolicy }) : null;
+  return { vehicles: vehicles.map(vehicle => {
+    const result = physical?.results.get(Number(vehicle.vehicle_id));
+    return vehicleWithCargoPhysical(vehicle, result);
+  }), drivers, windowStart, windowEnd, prefiltered: prefilteredRows };
 }
 export async function loadActivePairs() {
   const { rows } = await query(

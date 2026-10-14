@@ -1,6 +1,12 @@
 import { beforeAll, afterAll, afterEach, describe, it, expect, vi } from 'vitest';
 const apiFixture=vi.hoisted(()=>({run:null,transaction:null,session:{user:{role:'driver',driverId:1,employeeId:1}}}));
 vi.mock('@/lib/db', () => ({ query: (...args) => apiFixture.run(tx => tx.query(...args)), withTransaction: work => apiFixture.transaction(work) }));
+// Historical policy fixtures exercise custody logic only. This explicit test
+// provider never changes the retired runtime roster or its no-database refusal.
+vi.mock('@/services/driver-qualification.service', () => ({ loadDriverQualifications: async (ids, db) => {
+  const { rows } = await db.query('SELECT *,qualification_group AS "group" FROM driver_service_qualifications WHERE driver_id=ANY($1::int[])', [ids]);
+  return new Map(ids.map(id => [id, rows.filter(row => Number(row.driver_id) === Number(id))]));
+} }));
 vi.mock('@/services/status.service', () => ({ syncVehicleStatus: async () => {}, syncDriverStatus: async () => {}, ensureTripForDispatch: async () => {} }));
 vi.mock('@/services/outbound.service', () => ({ emitTransportStatus: async () => {} }));
 vi.mock('@/services/push.service', () => ({ sendPush: async () => {} }));
@@ -77,6 +83,7 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
         CREATE TABLE transportation_requests(request_id integer PRIMARY KEY,load_type text,source_system text,external_request_id text,service_type_id integer,deleted_at timestamptz);
         INSERT INTO service_types VALUES(1,'HOTEL_SUPPLY_TRANSFER',NULL);
         INSERT INTO transportation_requests VALUES(1,'Cargo','PMS','r1',1,NULL);`);
+      await tx.query('ALTER TABLE transportation_requests ADD COLUMN cargo_weight_kg numeric(12,3)');
       await tx.query(readFileSync('supabase/migrations/156_driver_service_qualifications.sql', 'utf8'));
       await tx.query("INSERT INTO driver_service_qualifications(driver_id,qualification_group,status,policy_version,verified_by,verified_at,reason) VALUES(1,'CARGO','ACTIVE','simulated:v1',2,now(),'Fixture approval')");
       await tx.query('INSERT INTO request_cargo_manifest_revisions VALUES($1,1,1,$2,$3)', [manifest.manifest_ref.id, manifest.manifest_ref.hash, JSON.stringify(manifestSnapshot)]);

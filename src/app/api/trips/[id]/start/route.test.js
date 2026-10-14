@@ -32,9 +32,8 @@ beforeEach(()=>{
 });
 const run=(body={})=>PUT(new Request('http://localhost/api/trips/7/start',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),{params:Promise.resolve({id:'7'})});
 afterEach(()=>vi.unstubAllEnvs());
-it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('starts travel to pickup for approved %s without a pickup receipt',async serviceCode=>{
- vi.stubEnv('DRIVER_QUALIFICATION_MODE','ENFORCE');vi.stubEnv('DRIVER_QUALIFICATION_POLICY_VERSION','fixture-v1');
- vi.stubEnv('DRIVER_QUALIFICATION_ROSTER_REVIEW','fixture-review');vi.stubEnv('DRIVER_QUALIFICATION_EXISTING_TRIPS','RECHECK');
+it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('starts matching cargo travel for %s without activating the retired roster or a pickup receipt',async serviceCode=>{
+ vi.stubEnv('DRIVER_QUALIFICATION_MODE','OFF');
  query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type:'Cargo'}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}:defaultQuery(sql));
  const statements=[];
  const tx={query:async sql=>{statements.push(sql);return {rows:sql.includes('v.operational_use')?[{load_type:'Cargo',operational_use:'Cargo',driver_type:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]

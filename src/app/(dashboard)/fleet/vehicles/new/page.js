@@ -45,6 +45,8 @@ import { DocumentPreview } from "@/components/ui/document-preview";
 import { useDocumentUpload } from "@/hooks/use-document-upload";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
+import VehicleCargoProfileEditor from "@/components/fleet/vehicle-cargo-profile-editor";
+import { can } from "@/lib/auth/permissions";
 
 import { vehicleSchema } from "@/lib/validation/schemas";
 import { apiFetch } from '@/lib/api/client';
@@ -663,7 +665,7 @@ export default function VehicleFormPage({ params }) {
                     />
                   </FloatingField>
                   ) : (
-                  <FloatingField label="Cargo Capacity (kg)" icon={Tag}>
+                  <FloatingField label="Legacy Cargo Capacity (kg)" icon={Tag} hint="Retained for the existing cargo workflow. Measured capability is recorded separately below; these values are never copied automatically.">
                     <input
                       id="cargo_capacity_kg"
                       type="number"
@@ -938,6 +940,13 @@ export default function VehicleFormPage({ params }) {
           </div>
         </div>
       </form>
+
+      {watchedOperationalUse === "Cargo" && can({ roles: { role_name: role } }, "vehicles", "update") && (
+        <VehicleCargoProfileEditor
+          vehicleId={isEdit && vehicle?.operational_use === "Cargo" ? vehicleId : null}
+          legacyCapacityKg={vehicle?.cargo_capacity_kg}
+        />
+      )}
 
       {/* ── ENLARGED ZOOM MODAL ── */}
       <Dialog open={!!previewModalUrl} onOpenChange={() => setPreviewModalUrl(null)}>

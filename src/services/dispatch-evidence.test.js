@@ -13,6 +13,10 @@ it('hashes and locks vehicle document attestations so edits cannot race a final 
  const token={revision:'current',driverId:1,vehicleId:2,expiresAt:new Date(Date.now()+30000).toISOString()};
  await commitDispatchEvidence(token,async()=>true);
  expect(query.mock.calls.find(([sql])=>sql.includes('LOCK TABLE'))[0]).toContain('vehicledocuments');
+ for (const table of ['vehicle_cargo_profiles','request_cargo_manifest_revisions','supply_dispatch_allocations','supply_manifest_revisions','supply_shipments']) {
+  expect(query.mock.calls.find(([sql])=>sql.includes('AS revision'))[0]).toContain(table);
+  expect(query.mock.calls.find(([sql])=>sql.includes('LOCK TABLE'))[0]).toContain(table);
+ }
 });
 
 it('commits only unchanged, unexpired evidence while holding the write lock',async()=>{

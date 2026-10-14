@@ -13,7 +13,7 @@ import Link from "next/link";
 // not implemented yet; until it ships, this surface says exactly that and
 // points admins at the integrations that DO exist today.
 export default function ApiKeysPage() {
-  useRequireRole();
+  const { authorized, role } = useRequireRole();
 
   return (
     <div className="space-y-6">
@@ -53,6 +53,13 @@ export default function ApiKeysPage() {
               <li>TomTom routing &amp; AI providers — configured in <Link href="/settings/ai" className="text-primary hover:underline">AI Providers</Link></li>
             </ul>
           </div>
+          {authorized && role === "super_admin" && (
+            <section className="mt-5 border-t border-border pt-5" aria-labelledby="supply-source-records">
+              <h2 id="supply-source-records" className="text-sm font-semibold text-foreground">Supply sandbox records</h2>
+              <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">Review current shipment snapshots, sandbox imports and site mappings. Cargo capability is maintained in Fleet vehicles; transport work uses Reservations, Dispatch and Trips.</p>
+              <Link href="/supply-deliveries" className="mt-3 inline-flex min-h-9 items-center text-sm font-medium text-primary underline underline-offset-4">Open supply source records</Link>
+            </section>
+          )}
         </CardContent>
       </Card>
     </div>

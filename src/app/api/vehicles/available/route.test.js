@@ -17,7 +17,7 @@ beforeEach(()=>{
 const run=()=>GET(new Request('http://localhost/api/vehicles/available?operational_use=Cargo&min_cargo_kg=650&pickup_at=2027-02-01T02:00:00Z&return_at=2027-02-01T04:00:00Z'));
 it('lists renewed typed docs despite stale registration projection only after actual road readiness',async()=>{
  expect(await (await run()).json()).toEqual([vehicle]);
- expect(query.mock.calls[0][0]).toContain("'Registration Expired'");
+ expect(query.mock.calls.find(([sql])=>sql.includes('FROM vehicles v'))[0]).toContain("'Registration Expired'");
  expect(vehicleCanTravel).toHaveBeenCalledWith(vehicle,expect.anything(),{load_type:'Cargo'});
 });
 it('never lists typed vehicles without verified documents',async()=>{

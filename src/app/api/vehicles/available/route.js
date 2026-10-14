@@ -4,6 +4,9 @@ import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.se
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { loadRoadReadiness } from "@/lib/vehicles/readiness-server";
+import { getDispatchPolicy } from '@/services/dispatch-settings.service';
+import { loadCargoPhysicalAssessments } from '@/services/cargo-physical.service';
+import { cargoPhysicalPolicy, vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
 
 export async function GET(req) {
   try {
@@ -28,6 +31,8 @@ export async function GET(req) {
     const operational_use = searchParams.get("operational_use");
     const min_cargo_kg = searchParams.get("min_cargo_kg");
     const loadType = min_cargo_kg ? "Cargo" : ["Passenger", "Cargo"].includes(operational_use) ? operational_use : null;
+    const physicalPolicy = loadType === 'Cargo' ? await getDispatchPolicy() : null;
+    const physicalActive = cargoPhysicalPolicy(physicalPolicy).mode !== 'OFF';
     const statuses = loadType ? `ARRAY['Available','Reserved','In Use','Registration Expired']` : pickupAt ? `ARRAY['Available','Reserved','In Use']` : `ARRAY['Available']`;
 
     let sql = `SELECT v.*, row_to_json(vc.*) as vehiclecategories
@@ -51,7 +56,8 @@ export async function GET(req) {
     }
 
     if (min_cargo_kg) {
-      sql += ` AND v.operational_use = 'Cargo' AND v.cargo_capacity_kg >= $${idx++}`; params.push(+min_cargo_kg);
+      sql += physicalActive ? ` AND v.operational_use = 'Cargo'` : ` AND v.operational_use = 'Cargo' AND v.cargo_capacity_kg >= $${idx++}`;
+      if (!physicalActive) params.push(+min_cargo_kg);
     }
 
     const fuel_type = searchParams.get("fuel_type");
@@ -99,6 +105,7 @@ export async function GET(req) {
     `;
 
     const { rows } = await query(sql, params);
+    const physical = physicalActive ? await loadCargoPhysicalAssessments({ request_id: searchParams.get('request_id'), load_type: 'Cargo', scheduled_arrival: returnAt }, rows.map(vehicle => vehicle.vehicle_id), { policy: physicalPolicy }) : null;
 
     // Travel-date, pair-coupled availability. The date is the proposed
     // `pickup_at` (a future booking must not be blocked by today's coding); when
@@ -107,7 +114,11 @@ export async function GET(req) {
     const codingDate = pickupAt ? new Date(pickupAt) : new Date();
     const ctx = await loadVehicleTravelContext(codingDate);
     const available = [];
-    for (const v of rows || []) {
+    for (const saved of rows || []) {
+      const result = physical?.results.get(Number(saved.vehicle_id));
+      const v = vehicleWithCargoPhysical(saved, result);
+      if (result?.mode === 'ENFORCE' && !result.eligible) continue;
+      if (min_cargo_kg && (!Number.isFinite(Number(v.cargo_capacity_kg)) || Number(v.cargo_capacity_kg) < Number(min_cargo_kg))) continue;
       if (loadType) {
         const road = await loadRoadReadiness({vehicleRow:v,pickupAt:pickupAt ?? codingDate,returnAt,now:new Date(),query});
         if (!road.ready) continue;

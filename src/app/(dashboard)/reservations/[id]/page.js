@@ -28,6 +28,8 @@ import { ConflictChips } from "@/components/reservations/conflict-chips";
 import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
+import { CargoRequestSummary } from "@/components/cargo/cargo-request-summary";
+import { cargoWeightLabel } from "@/lib/cargo/cargo-draft";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   getTransportRequest,
@@ -266,6 +268,7 @@ export default function ReservationDetailPage() {
   }
 
   const r = request;
+  const isCargo = r.load_type === "Cargo";
   const status = r.fleet_status;
   const conflicts = r.conflicts || [];
   const vehicle = r.vehicles || null;
@@ -406,7 +409,7 @@ export default function ReservationDetailPage() {
                 <Field icon={Clock} label="Pickup Time">
                   {r.pickup_datetime ? formatDateTime(r.pickup_datetime) : null}
                 </Field>
-                <Field icon={Users} label="Passengers">{r.passenger_count || 1} Person(s)</Field>
+                {isCargo ? <Field label="Declared gross cargo">{cargoWeightLabel(r.cargo_weight_kg)}</Field> : <Field icon={Users} label="Passengers">{r.passenger_count || 1} Person(s)</Field>}
                 <Field icon={Car} label="Requested Vehicle Category">
                   {r.vehiclecategories?.category_name || r.requested_vehicle_type || "Any Category"}
                 </Field>
@@ -435,7 +438,7 @@ export default function ReservationDetailPage() {
                 <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
                   <User className="w-4 h-4" />
                 </div>
-                Guest &amp; External Booking Info
+                {isCargo ? "Cargo & External Request Info" : "Guest & External Booking Info"}
               </CardTitle>
               <CardDescription className="text-xs">
                 Inbound booking details from connected PMS / POS systems.
@@ -443,7 +446,7 @@ export default function ReservationDetailPage() {
             </CardHeader>
             <CardContent className="pt-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field icon={Users} label="Guest Name">{r.guest_name}</Field>
+                {isCargo ? <><Field icon={FileText} label="Cargo description">{r.cargo_description}</Field><Field icon={Building2} label="Source department">{r.source_department}</Field></> : <Field icon={Users} label="Guest Name">{r.guest_name}</Field>}
                 <Field icon={ExternalLink} label="Booking Reference">
                   {r.booking_reference ? <span className="font-data text-xs">{r.booking_reference}</span> : null}
                 </Field>
@@ -458,6 +461,11 @@ export default function ReservationDetailPage() {
               </div>
             </CardContent>
           </Card>
+
+          {isCargo && <Card className="border-0 shadow-sm rounded-2xl">
+            <CardHeader className="pb-3 border-b border-border/60"><CardTitle className="text-base font-bold">Cargo contents &amp; requirements</CardTitle><CardDescription className="text-xs">Original source quantities and package measurements are read-only here.</CardDescription></CardHeader>
+            <CardContent className="pt-4"><CargoRequestSummary requestId={r.request_id} /></CardContent>
+          </Card>}
 
           {/* COMMITTED RESOURCE ASSIGNMENT */}
           <Card className="border-0 shadow-sm rounded-2xl">

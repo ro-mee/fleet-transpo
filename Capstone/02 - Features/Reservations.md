@@ -20,6 +20,14 @@ related: ["[[Dispatch]]", "[[System Boundaries]]"]
 
 # Feature: Reservations
 
+## Transportation Queue filter dropdowns aligned to shared UI - 2026-10-13
+
+The Load type, Service and Source filters on `/reservations/queue` now use the shared Radix Select primitive (`src/components/ui/select.jsx`) instead of browser-native selects. They retain their existing options, server-side filter values, page reset behavior and locked-request disabled state; the `__all_filters__` UI value maps back to the existing empty filter value. The controls use the established 44px height and shared menu, focus, theme and keyboard behavior. Browser review confirmed the aligned toolbar and styled Service menu; scoped ESLint and `git diff --check` passed. Automated tests were not run.
+
+## Cargo draft controls aligned to the shared UI system - 2026-10-13
+
+The Quantity basis, Package orientation and Temperature requirement choices in the unsaved cargo contents editor use the shared Radix Select control (`src/components/ui/select.jsx`). They inherit FleetOps control height, radius, semantic surface/text colors, focus behavior, menu placement and keyboard interaction instead of browser-native option menus. Draft values and manifest semantics are unchanged. Future common controls follow the UI/UX alignment owner rule in `.agents/AGENTS.md`.
+
 **Current passenger/cargo closeout — 2026-10-08:** [[FleetOps Passenger Cargo Review Closeout 2026-10-08]] supersedes the historical prepared/unapplied checkpoint below. The final branch also integrates main `11191bb0`, preserving Copilot incomplete-proposal, closed-trip restore, avatar and conversation changes alongside typed cargo labels and overload recovery. The panel conflict retained both branches' tests: 39 panel tests plus nine decision tests passed, and scoped strict lint passed. Main's browser acceptance remains separately pending.
 
 **Migration checkpoint (2026-10-07):** Provisional passenger/cargo drafts 144/145/146 are now 150/151/152, still unapplied. Historical references below retain their earlier names. Number collisions with applied supply work are resolved; this does not enable request revisions/cancellation or cargo dispatch. The recorded-origin SCM sandbox workflow is separate from this authenticated PMS/POS request path. See [[FleetOps Migration Reconciliation 2026-10-07]] for remaining merge/live/dispatch gates.
@@ -352,3 +360,7 @@ The queue accepts `filter=departing-soon` alongside its Today tab. The API appli
 ## Request cancellation reconsideration - 2026-10-09
 
 The reservation queue and request-detail cancellation confirmations now wait five seconds before the existing cancellation request is sent. Required reason text is locked while the timer is armed and remains part of the mutation; Undo/Escape or ordinary dismissal sends nothing. The existing booking-notification result and request/dispatch/trip cascade remain unchanged and are reported only after the server responds. Changed-file ESLint passed; no reservation was cancelled during browser review, and production build acceptance remains pending because of the shared Next build lock.
+
+## Cargo consolidation - 2026-10-13
+
+Canonical Supply Chain services now reveal a local item/package/physical-requirements draft in the existing simulator. Cargo review sends no partial request while manifest intake is unavailable; Passenger simulation is typed PMS-only and excludes hidden cargo fields. Queue/detail/Copilot use cargo kg/contents summaries, and queue load/service/source filters are server-side. Source manifests are read through a request-scoped, hash/identity-validated projection without private image access. See [[Supply Chain Consolidation Implementation 2026-10-13]] for checks and activation limits.

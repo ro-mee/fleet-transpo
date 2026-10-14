@@ -3,6 +3,9 @@ import { toCalendarDay } from "@/lib/dates";
 import { TRIPS_JOINS, TRIPS_SELECT } from "@/lib/api/trips-query";
 import { appendTripFilters } from "@/lib/trips/filters";
 import { SERVICE_CODES } from "@/lib/integration/contracts";
+import { deriveUsablePayload } from '@/lib/cargo/physical-load';
+import { cargoPhysicalPolicy } from '@/lib/cargo/physical-policy';
+import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 
 export const DEFAULT_REPORT_FROM = "1970-01-01";
 export const DEFAULT_REPORT_TO = "2100-01-01";
@@ -90,7 +93,9 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
               t.total_cost, row_to_json(v.*) AS vehicles,
               CONCAT_WS(' ', e.first_name, e.last_name) AS driver_name,
               r.route_name, r.origin, r.destination,
-              ds.service_type, tr.load_type, tr.cargo_weight_kg, v.cargo_capacity_kg
+              ds.service_type, tr.load_type, tr.cargo_weight_kg, v.cargo_capacity_kg,
+              row_to_json(cp.*) AS cargo_profile,
+              cm.manifest_snapshot->>'physical_contract_version' AS cargo_physical_contract_version
          FROM trips t
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
          LEFT JOIN drivers d ON d.driver_id = t.driver_id
@@ -98,6 +103,8 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
          LEFT JOIN routes r ON r.route_id = t.route_id
          LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id AND ds.deleted_at IS NULL
          LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
+         LEFT JOIN vehicle_cargo_profiles cp ON cp.vehicle_id=v.vehicle_id
+         LEFT JOIN LATERAL (SELECT manifest_snapshot FROM request_cargo_manifest_revisions m WHERE m.request_id=tr.request_id ORDER BY revision DESC LIMIT 1) cm ON TRUE
         WHERE t.deleted_at IS NULL
           AND COALESCE(ds.service_type, 'PASSENGER') = 'PASSENGER'
           AND t.start_time >= $1::date
@@ -146,10 +153,18 @@ export async function getFleetUtilizationReport(from = DEFAULT_REPORT_FROM, to =
   // omitted, never zero-filled. The load columns exist only after migrations
   // 151/153 — do not deploy before both are applied.
   const cargoTrips = [];
+  const enhanced = (trips || []).some(trip => trip.load_type === 'Cargo' && String(trip.cargo_physical_contract_version) === '1');
+  const reportPhysicalPolicy = enhanced ? cargoPhysicalPolicy(await getDispatchPolicy()) : cargoPhysicalPolicy();
+  const measured = reportPhysicalPolicy.mode === 'ENFORCE';
   for (const trip of trips || []) {
     if (trip.load_type !== "Cargo" || trip.trip_status !== "Completed") continue;
     const weight = Number(trip.cargo_weight_kg);
-    const capacity = Number(trip.cargo_capacity_kg);
+    const p = trip.cargo_profile;
+    const usesProfile = measured && String(trip.cargo_physical_contract_version) === '1';
+    const currentProfile = reportPhysicalPolicy.configured && p?.supports_supply_delivery === true && Number.isSafeInteger(Number(p.verified_by)) && Number(p.verified_by) > 0 &&
+      typeof p.verification_reference === 'string' && p.verification_reference.trim() && Number.isFinite(+new Date(p.verified_at)) && +new Date(p.verified_at) <= Date.now() && +new Date(p.verification_valid_until) > Date.now();
+    const rawCapacity = usesProfile ? (currentProfile ? deriveUsablePayload(p) : null) : trip.cargo_capacity_kg;
+    const capacity = rawCapacity == null ? NaN : Number(rawCapacity);
     if (!Number.isFinite(weight) || weight <= 0 || !Number.isFinite(capacity) || capacity <= 0) continue;
     cargoTrips.push({
       trip_id: trip.trip_id,

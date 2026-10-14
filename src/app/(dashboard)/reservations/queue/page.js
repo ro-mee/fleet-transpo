@@ -23,6 +23,7 @@ import { QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
 import { QUEUE_FALLBACK_TAB, queueTabBadges, resolveQueueTabView } from "@/lib/scheduling/smart-default-tab";
 import { describeBookingNotify } from "@/lib/integration/booking-notify";
 import { cn } from "@/lib/utils";
+import { CARGO_SERVICE_OPTIONS } from '@/lib/cargo/cargo-draft';
 import {
   CalendarClock,
   CalendarDays,
@@ -45,8 +46,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const REFETCH_MS = 30_000;
+const ALL_FILTERS_VALUE = "__all_filters__";
 
 export function resolveCommittedRequest({ selectedRequest, committedSuccessForId, freshSelectedRequest }) {
   if (!committedSuccessForId) return selectedRequest;
@@ -141,6 +144,7 @@ export default function UnifiedQueuePage() {
   // constant that function uses, so the two can never disagree.
   const fetchTab = departingSoonFilter ? "today" : tabOverride ?? QUEUE_FALLBACK_TAB;
   const [search, setSearch] = useState("");
+  const [cargoFilters, setCargoFilters] = useState({ load_type: '', service_code: '', source_system: '' });
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
@@ -189,7 +193,7 @@ export default function UnifiedQueuePage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch, queueFilter],
+    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch, queueFilter, cargoFilters],
     queryFn: () =>
       getTransportRequests({
         tab: fetchTab,
@@ -198,6 +202,7 @@ export default function UnifiedQueuePage() {
         search: debouncedSearch || undefined,
         with_conflicts: "true",
         filter: queueFilter || undefined,
+        ...cargoFilters,
       }),
     refetchInterval: REFETCH_MS,
   });
@@ -432,7 +437,32 @@ export default function UnifiedQueuePage() {
           })}
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          {[['load_type', 'Load type', [['Passenger', 'Passengers'], ['Cargo', 'Cargo / Supply Chain']]],
+            ['service_code', 'Service', CARGO_SERVICE_OPTIONS],
+            ['source_system', 'Source', [['PMS', 'PMS'], ['POS', 'POS'], ['MANUAL', 'Manual history']]]].map(([key, label, options]) => (
+            <div key={key} className="min-w-0 max-w-full">
+              <Select
+                value={cargoFilters[key] || ALL_FILTERS_VALUE}
+                disabled={!!lockedRequest}
+                onValueChange={value => {
+                  setCargoFilters(current => ({ ...current, [key]: value === ALL_FILTERS_VALUE ? '' : value }));
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger
+                  aria-label={`Filter by ${label.toLowerCase()}`}
+                  className="h-11 w-auto min-w-[9rem] max-w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTERS_VALUE}>All {label.toLowerCase()}s</SelectItem>
+                  {options.map(([value, text]) => <SelectItem key={value} value={value}>{text}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
           <div className="relative flex-1 sm:w-64">
             <Search
               className="absolute left-3 top-1/2 w-3.5 h-3.5 -translate-y-1/2 text-foreground-muted"

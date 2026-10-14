@@ -15,6 +15,12 @@ export async function getTransportRequest(id) {
   return apiFetch(`/api/integration/transport-requests/${id}`);
 }
 
+// Read-only source-owned contents; private evidence and receipts are scoped to
+// the separate cargo execution API.
+export async function getRequestCargoManifest(id) {
+  return apiFetch(`/api/integration/transport-requests/${id}/cargo-manifest`);
+}
+
 // Commit a vehicle+driver pair to a request (Pending -> Scheduled -> Assigned).
 // Hard conflicts always return 409. Force records explicit manual review only
 // where the server permits it; a reason is required.

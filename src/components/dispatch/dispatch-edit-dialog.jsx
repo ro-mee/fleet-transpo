@@ -56,9 +56,10 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
   if (cargoRequirement != null) {
     availabilityFilters.operational_use = "Cargo";
     availabilityFilters.min_cargo_kg = cargoRequirement;
+    if (dispatch?.request_id) availabilityFilters.request_id = dispatch.request_id;
   }
   const { data: vehicles = [], isLoading: loadingVehicles } = useQuery({
-    queryKey: ["available-vehicles", departure, cargoRequirement],
+    queryKey: ["available-vehicles", departure, cargoRequirement, dispatch?.request_id],
     queryFn: () => getAvailableVehicles(availabilityFilters),
   });
   // Availability is decided by the endpoint's time-window overlap + license/

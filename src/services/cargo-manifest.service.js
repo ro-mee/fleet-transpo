@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { manifestSchema, requestManifestEnvelopeSchema, cargoServiceSchema } from '@/lib/cargo/contracts';
+import { calculateCargoPhysicalTotals, reconcileCargoDeclaredWeight } from '@/lib/cargo/physical-load';
 
 export function cargoError(code, message, status = 409) {
   return Object.assign(new Error(message), { code, status });
@@ -23,21 +24,59 @@ function canonical(value) {
 const hashManifest = manifest => createHash('sha256').update(JSON.stringify(canonical(manifest))).digest('hex');
 const reference = row => ({ kind: 'REQUEST', id: row.request_cargo_manifest_revision_id, revision: row.revision, hash: row.manifest_hash });
 
-export function adaptSupplyManifest(row, serviceCode) {
+export function adaptSupplyManifest(row, serviceCode, { includePhysical = row.manifest_snapshot?.physical_contract_version === 1 } = {}) {
   if (!cargoServiceSchema.safeParse(serviceCode).success) fail('CARGO_SERVICE_REQUIRED', 'An approved cargo service mapping is required.');
   return manifestSchema.parse({
     manifest_ref: { kind: 'SUPPLY', id: row.supply_manifest_revision_id, revision: row.manifest_revision, hash: row.manifest_hash },
     source_ref: { system: 'SCM', organization_id: row.source_organization_id, external_request_id: row.external_request_id },
     service_code: serviceCode,
+    ...(includePhysical ? { physical_contract_version: 1 } : {}),
     lines: row.manifest_snapshot?.lines?.map(line => ({
       line_id: line.external_line_id, name: line.description || line.sku_ref,
       quantity_basis: 'TRANSPORT_PACKAGE', expected_quantity: String(line.transport_package_count), unit: 'packages', reference_image_ref: null, handling: line.handling || [],
+      ...(includePhysical ? {
+        ...(line.sku_ref ? { source_sku_ref: line.sku_ref } : {}),
+        physical: {
+          transport_package_count: line.transport_package_count,
+          package_description: line.package_description ?? null,
+          gross_weight_kg_per_package: line.gross_weight_kg_per_package,
+          dimensions_m: line.dimensions_m,
+          package_can_rotate: line.package_can_rotate,
+          temperature_c: line.temperature_c,
+        },
+      } : {}),
     })),
   });
 }
 
+// An explicit planning projection keeps older execution snapshots unchanged.
+// The exact immutable source revision/hash remains the physical evidence ref.
+export function adaptSupplyPhysicalManifest(row, serviceCode) {
+  return adaptSupplyManifest(row, serviceCode, { includePhysical: true });
+}
+
+/** Read the saved snapshot without recomputing or replacing its immutable hash. */
+export function adaptRequestManifest(row, request) {
+  let view;
+  try { view = manifestSchema.parse({ ...row.manifest_snapshot, manifest_ref: reference(row) }); } catch {
+    fail('CARGO_MANIFEST_INVALID', 'The saved cargo manifest does not match its contract.');
+  }
+  if (request?.load_type !== 'Cargo' ||
+      (row.request_id !== undefined && Number(row.request_id) !== Number(request.request_id)) ||
+      view.source_ref.system !== request.source_system || view.source_ref.external_request_id !== request.external_request_id ||
+      view.service_code !== request.service_code || hashManifest(row.manifest_snapshot) !== row.manifest_hash ||
+      (row.source_organization_id !== undefined && row.source_organization_id !== view.source_ref.organization_id)) {
+    fail('CARGO_LINKAGE_CONFLICT', 'Cargo manifest identity does not match its request.');
+  }
+  if (view.physical_contract_version === 1) {
+    const reconciliation = reconcileCargoDeclaredWeight(view, request.cargo_weight_kg);
+    if (reconciliation.status !== 'PASS') fail(reconciliation.code, reconciliation.reason);
+  }
+  return view;
+}
+
 export async function resolveTripManifest(tripId, db) {
-  const { rows } = await db.query(`SELECT d.request_id, d.service_type, r.load_type, r.source_system, r.external_request_id, st.service_code, d.dispatch_id
+  const { rows } = await db.query(`SELECT d.request_id, d.service_type, r.load_type, r.cargo_weight_kg, r.source_system, r.external_request_id, st.service_code, d.dispatch_id
     FROM trips t JOIN dispatchschedules d ON d.dispatch_id=t.dispatch_id
     LEFT JOIN transportation_requests r ON r.request_id=d.request_id
     LEFT JOIN service_types st ON st.service_type_id=r.service_type_id WHERE t.trip_id=$1`, [tripId]);
@@ -61,9 +100,7 @@ export async function resolveTripManifest(tripId, db) {
   const result = await db.query('SELECT * FROM request_cargo_manifest_revisions WHERE request_id=$1 ORDER BY revision DESC LIMIT 1', [trip.request_id]);
   const row = result.rows[0];
   if (!row) fail('CARGO_MANIFEST_REQUIRED', 'An item manifest is required for this cargo request.');
-  const view = manifestSchema.parse({ ...row.manifest_snapshot, manifest_ref: reference(row) });
-  if (view.source_ref.system !== trip.source_system || view.source_ref.external_request_id !== trip.external_request_id || view.service_code !== trip.service_code || hashManifest(row.manifest_snapshot) !== row.manifest_hash) fail('CARGO_LINKAGE_CONFLICT', 'Cargo manifest identity does not match its request.');
-  return view;
+  return adaptRequestManifest(row, trip);
 }
 
 export async function ingestRequestManifest(input, principal, db) {
@@ -72,6 +109,7 @@ export async function ingestRequestManifest(input, principal, db) {
   const parsed = requestManifestEnvelopeSchema.safeParse(input);
   if (!parsed.success) fail('CARGO_INVALID_MANIFEST', 'Invalid cargo manifest.', 400);
   const envelope = parsed.data, source = envelope.manifest.source_ref;
+  if (envelope.manifest.physical_contract_version === 1 && calculateCargoPhysicalTotals(envelope.manifest).status !== 'PASS') fail('CARGO_INVALID_MANIFEST', 'Package-derived physical totals exceed the bounded cargo contract.', 400);
   if (source.system !== principal.system || source.organization_id !== principal.organization_id) fail('CARGO_SOURCE_FORBIDDEN', 'Manifest source does not match authenticated source.', 403);
   const scopes = db.cargoConfig.requestOwnership?.filter(scope => scope.system === principal.system && scope.external_request_id === source.external_request_id) || [];
   if (scopes.length !== 1 || scopes[0].organization_id !== principal.organization_id) fail('CARGO_SOURCE_SCOPE_REQUIRED', 'Trusted request organization ownership is required.', 403);
@@ -80,6 +118,9 @@ export async function ingestRequestManifest(input, principal, db) {
   if (envelope.manifest.lines.some(line => line.reference_image_ref !== null)) fail('CARGO_REFERENCE_POLICY_REQUIRED', 'Source image references are not enabled.', 503);
   const manifestHash = hashManifest(envelope.manifest);
   return db.withTransaction(async tx => {
+    // Match dispatch commit lock order: tables before the request row. Taking
+    // this only at INSERT could deadlock a commit holding the manifest table.
+    await tx.query('LOCK TABLE transportation_requests, request_cargo_manifest_revisions IN SHARE ROW EXCLUSIVE MODE');
     const request = (await tx.query(`SELECT r.*, st.service_code FROM transportation_requests r
       JOIN service_types st ON st.service_type_id=r.service_type_id
       WHERE r.source_system=$1 AND r.external_request_id=$2 FOR UPDATE OF r`, [principal.system, source.external_request_id])).rows[0];
@@ -100,6 +141,10 @@ export async function ingestRequestManifest(input, principal, db) {
     if (latest) fail('CARGO_REVISION_REVIEW_REQUIRED', 'Manifest changes require custody checks and rescheduling review.');
     const dispatches = await tx.query('SELECT dispatch_id FROM dispatchschedules WHERE request_id=$1 FOR UPDATE', [request.request_id]);
     if (dispatches.rows.length) fail('CARGO_REVISION_REVIEW_REQUIRED', 'Dispatched work requires custody checks before attaching an item manifest.');
+    if (envelope.manifest.physical_contract_version === 1) {
+      const reconciliation = reconcileCargoDeclaredWeight(envelope.manifest, request.cargo_weight_kg);
+      if (reconciliation.status !== 'PASS') fail(reconciliation.code, reconciliation.reason);
+    }
     const row = (await tx.query(`INSERT INTO request_cargo_manifest_revisions
       (request_id,revision,manifest_hash,source_system,source_organization_id,source_external_request_id,source_event_id,manifest_snapshot)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING *`, [request.request_id, envelope.revision, manifestHash, principal.system, principal.organization_id, source.external_request_id, envelope.event_id, JSON.stringify(envelope.manifest)])).rows[0];

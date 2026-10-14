@@ -31,3 +31,28 @@ it('binds observations to exact manifest lines and basis without accepting units
   expect(receiptSchema.safeParse({ ...input, driver_id: 1 }).success).toBe(false);
   expect(() => validateReceiptAgainstManifest({ ...input, manifest_ref: { ...input.manifest_ref, hash: 'b'.repeat(64) } }, manifest())).toThrow();
 });
+const physical = () => ({
+  transport_package_count: 10, package_description: 'sealed boxes', gross_weight_kg_per_package: '0.100',
+  dimensions_m: { length: '0.1000', width: '0.2', height: '0.3' }, package_can_rotate: false, temperature_c: null,
+});
+it('preserves the exact historical shape and requires explicit opt-in for physical facts', () => {
+  const historical = manifest();
+  expect(manifestSchema.parse(historical)).toEqual(historical);
+  historical.lines[0].physical = physical();
+  expect(manifestSchema.safeParse(historical).success).toBe(false);
+  historical.physical_contract_version = 1;
+  const parsed = manifestSchema.parse(historical);
+  expect(parsed.lines[0].physical).toMatchObject({ gross_weight_kg_per_package: '0.1', dimensions_m: { length: '0.1' } });
+  expect(historical.lines[0].physical.gross_weight_kg_per_package).toBe('0.100');
+});
+it('requires complete versioned facts without converting ordered units into packages', () => {
+  const input = { ...manifest(), physical_contract_version: 1 };
+  expect(manifestSchema.safeParse(input).success).toBe(false);
+  input.lines[0].physical = physical();
+  input.lines[0].quantity_basis = 'UNIT'; input.lines[0].expected_quantity = '500.5';
+  expect(manifestSchema.safeParse(input).success).toBe(true);
+  input.lines[0].quantity_basis = 'TRANSPORT_PACKAGE';
+  expect(manifestSchema.safeParse(input).success).toBe(false);
+  input.lines[0].expected_quantity = '10'; delete input.lines[0].physical.temperature_c;
+  expect(manifestSchema.safeParse(input).success).toBe(false);
+});

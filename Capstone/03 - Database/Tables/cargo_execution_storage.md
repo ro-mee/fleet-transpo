@@ -1,7 +1,7 @@
 ---
 type: reference
-status: disabled-development-candidate
-last_verified: 2026-10-10
+status: applied-runtime-disabled
+last_verified: 2026-10-13
 tags: [database, cargo, privacy]
 ---
 
@@ -110,3 +110,7 @@ The staff trip panel reads one server-selected execution source. Bounded history
 The optional source link is resolved only from a unique persisted relationship: REQUEST follows the dispatch schedule/request manifest to the local transportation request; SUPPLY follows the execution allocation to its local shipment and verifies the stored manifest revision/hash. No external request ID or caller URL is treated as a local database key. Missing or ambiguous relationships return no link. This read-only projection adds no provider, source assignment, approval, upload, migration or inventory behavior; the public cargo runtime remains 503 until its existing gates are met.
 
 Verification: Task 11 focused API/read-adapter/client/component/selection and unavailable-route tests passed 9 files / 54 tests; the route test confirms 503 `CARGO_CONFIGURATION_REQUIRED`. Scoped ESLint passed with zero warnings and the documented webpack compile smoke passed. Browser role acceptance was unavailable because the local page could not be reached from the browser tool; fixtures are not reported as live approval evidence.
+
+## Applied catalog reconciliation and shared physical view - 2026-10-13
+
+The current live ledger/catalog supersede earlier unapplied-candidate status: all ten158-161 cargo relations exist with private posture. The generated dump was refreshed and these objects moved from PENDING_TABLES to applied classifications. No migration or public data mutation occurred. Optional versioned physical facts now survive the existing request/source adapters and staff/native reads, preserving old execution snapshots. Installed production cargo execution remains503; catalog presence is not operating authority. See [[Supply Chain Consolidation Implementation 2026-10-13]] for actual live/fixture proof and limits.

@@ -12,6 +12,10 @@ last_verified: 2026-09-30
 
 # Frontend
 
+## UI/UX alignment owner rule - 2026-10-13
+
+Shared tables, pagination, calendars/date pickers, dialogs/modals, selects and menus should follow `docs/design-system.md` and reuse the closest existing app primitive. The mandatory UI/UX alignment owner guidance is in `.agents/AGENTS.md`; implementers inspect the relevant feature note and an in-app example, preserve accessibility and responsive/theme behavior, and report the rendered acceptance actually performed. The cargo contents editor was aligned to the shared Radix Select for its quantity, orientation and temperature choices.
+
 ## 2026-10-09 - Shared document upload flow
 
 `DocumentUploadField` uses existing color/surface tokens, a native file input, semantic keyboard browse button, one-file validation, wrapping file rows, live status and measured progress. `DocumentPreview` distinguishes images/PDFs and opens PDFs via a signed link, retaining object-src CSP. `useDocumentUpload` owns AbortController, UUID, retry and generation guards. XHR transfer completion changes the UI to Storing; only storage confirmation produces Uploaded - awaiting Save. Save is blocked for unfinished/failed drafts or running scans. Remove restores the saved reference; successful mutations mark drafts saved before navigation. Record switching invalidates old results, and edit seeding preserves in-progress input across refetches.

@@ -157,17 +157,25 @@ export function evaluateSupplyLoad(manifest, profile, now = new Date()) {
   if (temperatureNeeds.length) {
     const minimum = numericValue(profile?.temperature_min_c);
     const maximum = numericValue(profile?.temperature_max_c);
-    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
+    const invalidRange = temperatureNeeds.some(range =>
+      !Number.isFinite(numericValue(range.min_c)) || !Number.isFinite(numericValue(range.max_c)) ||
+      numericValue(range.min_c) > numericValue(range.max_c));
+    const requiredMin = Math.max(...temperatureNeeds.map((range) => numericValue(range.min_c)));
+    const requiredMax = Math.min(...temperatureNeeds.map((range) => numericValue(range.max_c)));
+    if (invalidRange || requiredMin > requiredMax) {
+      checks.push(check("temperature", "BLOCK", "The cargo temperature requirements have no common permissible range in one compartment."));
+    } else if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum > maximum) {
       checks.push(check("temperature", "UNKNOWN", "The manifest needs temperature control, but the vehicle range is not verified."));
     } else {
-      const requiredMin = Math.min(...temperatureNeeds.map((range) => Number(range.min_c)));
-      const requiredMax = Math.max(...temperatureNeeds.map((range) => Number(range.max_c)));
-      const passes = minimum <= requiredMin && maximum >= requiredMax;
+      const commonMin = Math.max(minimum, requiredMin);
+      const commonMax = Math.min(maximum, requiredMax);
+      const passes = commonMin <= commonMax;
       checks.push(check(
         "temperature",
         passes ? "PASS" : "BLOCK",
-        passes ? "Verified vehicle temperature range covers the manifest." : "Vehicle temperature range does not cover the manifest requirement.",
-        { required_min_c: requiredMin, required_max_c: requiredMax, vehicle_min_c: minimum, vehicle_max_c: maximum }
+        passes ? "Cargo and vehicle share a permissible temperature range; operating procedure still applies." : "Vehicle temperature range has no overlap with the cargo's common requirement.",
+        { required_min_c: requiredMin, required_max_c: requiredMax, vehicle_min_c: minimum, vehicle_max_c: maximum,
+          common_min_c: passes ? commonMin : null, common_max_c: passes ? commonMax : null }
       ));
     }
   } else {

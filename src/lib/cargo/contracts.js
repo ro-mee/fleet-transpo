@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { normalizeQuantity, compareQuantities } from './quantities';
+import { physicalManifestLineSchema } from './physical-load';
 
 const text = max => z.string().min(1).max(max).refine(value => value.trim().length > 0);
 const uuid = z.string().uuid();
@@ -13,6 +14,8 @@ const lineSchema = z.object({
   line_id: text(128), name: text(500), quantity_basis: z.enum(['TRANSPORT_PACKAGE', 'UNIT']),
   expected_quantity: quantity, unit: text(32), reference_image_ref: uuid.nullable(),
   handling: z.array(z.enum(['FRAGILE', 'NO_STACK', 'FOOD_SEPARATION', 'SECURE_LOAD', 'SPILL_CONTAINMENT'])).max(5),
+  source_sku_ref: text(128).optional(),
+  physical: physicalManifestLineSchema.optional(),
 }).strict().superRefine((line, ctx) => {
   // Zod may run this refinement after the field already reported an issue.
   const expected = quantity.safeParse(line.expected_quantity);
@@ -22,8 +25,25 @@ const lineSchema = z.object({
   }
 });
 const uniqueLines = schema => z.array(schema).min(1).max(500).refine(lines => new Set(lines.map(line => line.line_id)).size === lines.length, 'Line IDs must be unique.');
-export const manifestContentSchema = z.object({ source_ref: sourceRefSchema, service_code: cargoServiceSchema, lines: uniqueLines(lineSchema) }).strict();
-export const manifestSchema = manifestContentSchema.extend({ manifest_ref: manifestRefSchema }).superRefine((manifest, ctx) => {
+const manifestContent = z.object({
+  source_ref: sourceRefSchema, service_code: cargoServiceSchema, lines: uniqueLines(lineSchema),
+  physical_contract_version: z.literal(1).optional(),
+}).strict();
+function validatePhysicalVersion(manifest, ctx) {
+  if (!Array.isArray(manifest.lines)) return;
+  manifest.lines.forEach((line, index) => {
+    if (manifest.physical_contract_version === 1) {
+      if (!line.physical) ctx.addIssue({ code: 'custom', path: ['lines', index, 'physical'], message: 'Versioned physical manifests require package facts for every line.' });
+      else if (line.quantity_basis === 'TRANSPORT_PACKAGE' && line.expected_quantity !== String(line.physical.transport_package_count)) {
+        ctx.addIssue({ code: 'custom', path: ['lines', index, 'physical', 'transport_package_count'], message: 'Package expectations and transport package counts must agree.' });
+      }
+    } else if (line.physical || line.source_sku_ref !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['physical_contract_version'], message: 'Physical facts require an explicit physical contract version.' });
+    }
+  });
+}
+export const manifestContentSchema = manifestContent.superRefine(validatePhysicalVersion);
+export const manifestSchema = manifestContent.extend({ manifest_ref: manifestRefSchema }).superRefine(validatePhysicalVersion).superRefine((manifest, ctx) => {
   if ((manifest.manifest_ref.kind === 'SUPPLY') !== (manifest.source_ref.system === 'SCM')) ctx.addIssue({ code: 'custom', message: 'Manifest kind and source must agree.' });
 });
 export const requestManifestEnvelopeSchema = z.object({ event_id: text(255), revision: z.number().int().positive().max(2147483647), manifest: manifestContentSchema }).strict();

@@ -9,7 +9,9 @@ import { LOCATION_POLICY_VERSION } from '@/lib/dispatch/location-relevance';
 const TABLES = ['drivers', 'vehicles', 'vehiclecategories', 'vehiclemaintenance', 'routes', 'locations',
   'dispatchschedules', 'driver_vehicle_assignments', 'substitute_vehicle_schedules',
   'driver_work_schedules', 'driver_leave_requests', 'driverattendance', 'driver_consents',
-  'employees', 'mobile_refresh_tokens', 'trips', 'driverincidents', 'system_settings'];
+  'employees', 'mobile_refresh_tokens', 'trips', 'driverincidents', 'system_settings',
+  'vehicle_cargo_profiles', 'request_cargo_manifest_revisions', 'supply_shipments',
+  'supply_manifest_revisions', 'supply_dispatch_allocations', 'service_types'];
 
 export async function readPlanRevision(db = { query }) {
   const parts = TABLES.map(table => `'${table}',(SELECT md5(COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text)::text,'[]')) FROM ${table} t)`);

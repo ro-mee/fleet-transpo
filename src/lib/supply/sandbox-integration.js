@@ -83,6 +83,8 @@ export async function ingestSandboxTransportEvent(event, actorEmployeeId) {
 
   try {
     return await withTransaction(async (tx) => {
+    // Acquire source tables before parent row locks, matching dispatch evidence.
+    await tx.query('LOCK TABLE supply_shipments, supply_manifest_revisions, supply_dispatch_allocations IN SHARE ROW EXCLUSIVE MODE');
     const { rows: insertedInbox } = await tx.query(
       `INSERT INTO supply_integration_inbox
          (source_organization_id, external_request_id, source_event_id, event_type,

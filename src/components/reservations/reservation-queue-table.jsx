@@ -5,6 +5,7 @@ import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { bagSummary, queuePresentation } from "@/lib/dispatch/queue-presentation";
 import { formatTime, cn } from "@/lib/utils";
+import { cargoWeightLabel } from "@/lib/cargo/cargo-draft";
 import {
   Calendar,
   Car,
@@ -12,6 +13,7 @@ import {
   ChevronRight,
   MapPin,
   Navigation,
+  Package,
   User,
   Users,
 } from "lucide-react";
@@ -62,7 +64,7 @@ function formatTripMetrics(r) {
 
   const serviceName =
     r.service_types?.service_name ||
-    (isAirport
+    (r.load_type === "Cargo" ? "Cargo transport" : isAirport
       ? "Airport Pickup"
       : isRestaurant
       ? "Restaurant Transfer"
@@ -133,7 +135,7 @@ export function getDerivedTags(r) {
     tags.push({ key: "restaurant", label: "Restaurant", type: "restaurant" });
   }
 
-  if ((Number(r.passenger_count) || 1) >= 4) {
+  if (r.load_type !== "Cargo" && (Number(r.passenger_count) || 1) >= 4) {
     tags.push({ key: "group", label: "Group", type: "group" });
   }
 
@@ -213,6 +215,7 @@ export function ReservationQueueTable({
           const category = getCategoryInfo(r);
           const pax = Number(r.passenger_count) || 1;
           const bags = bagSummary(r);
+          const cargo = r.load_type === "Cargo";
 
           return (
             <li key={r.request_id} className="min-w-0">
@@ -250,13 +253,13 @@ export function ReservationQueueTable({
               {/* Guest Details */}
               <div className="space-y-0.5 min-w-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
-                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={r.guest_name}>
-                    {r.guest_name || "Unnamed Guest"}
+                  {cargo ? <Package className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" /> : <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />}
+                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={cargo ? r.cargo_description : r.guest_name}>
+                    {cargo ? r.cargo_description || "Cargo consignment" : r.guest_name || "Unnamed Guest"}
                   </span>
                 </div>
                 <p className="text-xs text-foreground-secondary pl-5">
-                  {pax} {pax === 1 ? "guest" : "guests"} · {bags}
+                  {cargo ? cargoWeightLabel(r.cargo_weight_kg) : <>{pax} {pax === 1 ? "guest" : "guests"} · {bags}</>}
                 </p>
               </div>
 
@@ -324,6 +327,7 @@ export function ReservationQueueTable({
         const category = getCategoryInfo(r);
         const pax = Number(r.passenger_count) || 1;
         const bags = bagSummary(r);
+        const cargo = r.load_type === "Cargo";
 
         return (
           <li key={r.request_id} className="min-w-0">
@@ -366,15 +370,13 @@ export function ReservationQueueTable({
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
-                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={r.guest_name}>
-                    {r.guest_name || "Unnamed Guest"}
+                  {cargo ? <Package className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" /> : <User className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />}
+                  <span className="text-sm font-bold text-foreground min-w-0 line-clamp-2 break-words" title={cargo ? r.cargo_description : r.guest_name}>
+                    {cargo ? r.cargo_description || "Cargo consignment" : r.guest_name || "Unnamed Guest"}
                   </span>
                 </div>
                 <div className="flex items-center gap-1 text-xs text-foreground-secondary pl-5">
-                  <span>{pax} {pax === 1 ? "guest" : "guests"}</span>
-                  <span className="text-foreground-muted">|</span>
-                  <span>{bags}</span>
+                  {cargo ? <span>{cargoWeightLabel(r.cargo_weight_kg)}</span> : <><span>{pax} {pax === 1 ? "guest" : "guests"}</span><span className="text-foreground-muted">|</span><span>{bags}</span></>}
                 </div>
               </div>
             </div>

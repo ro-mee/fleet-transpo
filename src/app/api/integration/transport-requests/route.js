@@ -263,6 +263,11 @@ export async function GET(req) {
 
     const source = sp.get("source_system");
     if (source) { where += ` AND tr.source_system = $${idx++}`; params.push(source); }
+    const loadType = sp.get('load_type');
+    if (loadType && !['Passenger', 'Cargo'].includes(loadType)) return err('Load type must be Passenger or Cargo.', 400);
+    if (loadType) { where += ` AND tr.load_type = $${idx++}`; params.push(loadType); }
+    const serviceCode = sp.get('service_code');
+    if (serviceCode) { where += ` AND st.service_code = $${idx++}`; params.push(serviceCode); }
 
     const priority = sp.get("priority");
     if (priority) { where += ` AND tr.priority = $${idx++}`; params.push(priority); }

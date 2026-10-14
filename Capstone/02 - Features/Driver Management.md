@@ -799,3 +799,13 @@ Verification for the completed workspace plan: 567 affected regression tests pas
 
 The directory and driver-detail archive confirmations now wait five seconds before calling the existing archive mutation. During that window the action becomes Undo; Escape or the secondary Cancel closes the decision without sending a request. The directory dialog names the selected driver and states that the profile leaves active dispatch selection. After the delay, the existing API authorization and audit behavior remain authoritative; success feedback follows the mutation, and a failure stays visible in the dialog. This uses the shared `FuseButton` and `ConfirmDialog` opt-in; ordinary dialog dismissal elsewhere is unchanged. Changed-file ESLint passed, and the local directory dialog plus Undo-to-unarmed behavior were checked without archiving a profile. Escape handling was changed afterward but was not browser-accepted because the local dev page remained in `Compiling...`. The full production build remains unverified because another Next build held the shared lock.
 >>>>>>> 18c7d8aa4c2f5053a9e374b1bf8592931b5bbc4c
+
+## Retired service-roster consistency - 2026-10-13
+
+Catalog reconciliation confirmed ledger162 removed the separate service qualification tables. Their old read/write endpoints now return QUALIFICATION_ROSTER_RETIRED503 after existing read/manage permission checks; the runtime services issue no SQL against retired objects. Dispatch evidence no longer hashes removed tables. This does not create approval from driver_type: saved Passenger/Cargo classification continues through existing compatibility gates, while the retired approval model cannot be reactivated by old environment values. Historical custody tests use an explicit isolated test provider. See [[Supply Chain Consolidation Implementation 2026-10-13]].
+
+## Driver directory refresh fix - 2026-10-13
+
+**FIXED.** The incomplete-account branch of `/api/drivers?includeUnlinked=1` now projects `NULL::VARCHAR(50) AS driver_type` in the same position as the linked-profile SELECT. This aligns the `UNION ALL` columns while leaving classification unknown when an account has no driver profile.
+
+Verification: read-only live PostgreSQL checks confirmed both branches expose 21 columns and `EXPLAIN` accepts the combined query. The authenticated browser retry cleared the failure state and loaded 12 directory results. Scoped ESLint and `git diff --check` passed. Automated tests were not run; existing directory filter tests mock the database and do not validate PostgreSQL union compatibility.

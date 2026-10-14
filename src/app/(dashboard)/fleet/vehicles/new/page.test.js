@@ -116,6 +116,16 @@ describe("Vehicle edit form — category and license class", () => {
 });
 
 describe("Vehicle form — operational use and capacity", () => {
+  it("replaces seats with legacy kg and the measured profile editor for a saved Cargo vehicle", () => {
+    state.queries["supply-cargo-profiles"] = { data: { profiles: [{ vehicle_id: 37, supports_supply_delivery: false }] }, isLoading: false, isError: false, refetch: vi.fn() };
+    const html = render({ vehicle_id: 37, plate_number: "ABC-1234", operational_use: "Cargo", cargo_capacity_kg: 800 });
+    expect(html).toContain("Legacy Cargo Capacity (kg)");
+    expect(html).toContain("Measured cargo capability");
+    expect(html).toContain("Save cargo profile");
+    expect(html).not.toContain("Passenger Capacity");
+    // The separate save must not nest another form inside the vehicle writer.
+    expect(html.split("</form>")[0]).not.toContain("Save cargo profile");
+  });
   it('offers explicit saved-document commissioning on the admin edit form with honest pending-plate copy',()=>{
     const html=render({vehicle_id:37,plate_number:null,fleet_asset_code:'FLT-037',documents:[]});
     expect(html).toContain('Verify documents and commission');

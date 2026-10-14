@@ -10,7 +10,6 @@ const EXPECTED_OPERATIONS_ROUTES = [
   "/reservations",
   "/reservations/queue",
   "/dispatch/calendar",
-  "/supply-deliveries",
   "/trips",
   "/routes",
   "/incidents",
@@ -40,13 +39,13 @@ describe("Super Admin Navigation Structure Contract", () => {
     expect(itemsWithChildren[0].href).toBe("/operations");
   });
 
-  it("Operations contains all 17 operational routes in exact order", () => {
+  it("Operations contains all 16 operational routes in exact order", () => {
     const operationsGroup = superAdminNav.find((group) => group.label === "Operations");
     expect(operationsGroup).toBeDefined();
 
     const operationsItem = operationsGroup.items.find((item) => item.label === "Operations");
     expect(operationsItem).toBeDefined();
-    expect(operationsItem.children).toHaveLength(17);
+    expect(operationsItem.children).toHaveLength(16);
 
     const childHrefs = operationsItem.children.map((c) => c.href);
     expect(childHrefs).toEqual(EXPECTED_OPERATIONS_ROUTES);
@@ -104,5 +103,20 @@ describe("Super Admin Navigation Structure Contract", () => {
     expect(WORKS.dispatcher).toBeDefined();
     expect(WORKS.driver).toBeDefined();
     expect(WORKS.management).toBeDefined();
+  });
+
+  it("retires Supply from operational navigation while preserving guarded admin discovery", () => {
+    const operationalGroups = ["Operations", "Transportation", "Fleet Operations"];
+    for (const workspace of Object.values(WORKS)) {
+      for (const group of workspace.nav.filter(group => operationalGroups.includes(group.label))) {
+        const hrefs = group.items.flatMap(item => [item.href, ...(item.children ?? []).map(child => child.href)]);
+        expect(hrefs).not.toContain("/supply-deliveries");
+      }
+    }
+    const adminSettings = WORKS.admin.nav.find(group => group.label === "Administration").items.find(item => item.label === "Settings");
+    expect(adminSettings.children).toContainEqual({ href: "/supply-deliveries", label: "Supply source records" });
+    expect(WORKS.super_admin.nav.find(group => group.label === "Platform").items.some(item => item.href === "/settings/api")).toBe(true);
+    expect(NAV_ROLES["/settings/api"]).toEqual(["super_admin"]);
+    expect(NAV_ROLES["/supply-deliveries"]).toEqual(["admin", "super_admin", "fleet_manager", "dispatcher"]);
   });
 });

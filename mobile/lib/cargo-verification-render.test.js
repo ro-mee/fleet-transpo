@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { parse } from "espree";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { resolveCargoMapGate, buildCargoViewModel, workspaceBlockReason, workspaceModeLabel } from "./cargo-view-model";
 import { normalizeRadarMarkers } from "./map-webview-data";
 import { resolveDriverWorkspace } from "./driver-workspace";
@@ -29,18 +30,40 @@ async function load(path) {
 const base = new URL("../components/cargo/", import.meta.url);
 const manifest = { manifest_ref: { revision: 1 }, lines: [{ line_id: "boxes", name: "Fresh produce", expected_quantity: "10", unit: "boxes", quantity_basis: "TRANSPORT_PACKAGE", reference_image_ref: null, handling: ["SECURE_LOAD"] }] };
 describe("rendered native cargo components", () => {
+  it("shows source physical facts beside blank actual counts without granting observation authority", async () => {
+    const { CargoItemReceiptRow } = await load(fileURLToPath(new URL("CargoItemReceiptRow.jsx", base)));
+    const line = { ...manifest.lines[0], physical: {
+      transport_package_count: 10, package_description: "sealed crate", gross_weight_kg_per_package: "12",
+      dimensions_m: { length: "0.5", width: "0.4", height: "0.3" }, package_can_rotate: false, temperature_c: { min_c: 2, max_c: 8 },
+    } };
+    const html = renderToStaticMarkup(React.createElement(CargoItemReceiptRow, { line, value: "", editable: false }));
+    for (const text of ["10", "sealed crate", "12", "kg/package", "0.5 × 0.4 × 0.3 m", "not permitted", "2 to 8 °C"]) expect(html).toContain(text);
+    expect(html).toContain('value=""');
+    expect(html).toMatch(/<input[^>]*disabled=""/);
+  });
+  it("keeps the overview physical projection read-only and historical manifests unchanged", async () => {
+    const { CargoPhysicalManifest } = await load(fileURLToPath(new URL("CargoItemReceiptRow.jsx", base)));
+    const physical = { transport_package_count: 10, package_description: null, gross_weight_kg_per_package: "12", dimensions_m: { length: "0.5", width: "0.4", height: "0.3" }, package_can_rotate: true, temperature_c: null };
+    const html = renderToStaticMarkup(React.createElement(CargoPhysicalManifest, { manifest: { ...manifest, lines: [{ ...manifest.lines[0], physical }] } }));
+    expect(html).toContain("Transport requirements");
+    expect(html).toContain("Fresh produce");
+    expect(html).toContain("no requirement declared");
+    expect(html).toContain("do not confirm capacity");
+    expect(html).not.toMatch(/<button|<input/);
+    expect(renderToStaticMarkup(React.createElement(CargoPhysicalManifest, { manifest }))).toBe("");
+  });
   it("renders separate expected and initially blank actual counts with image absence", async () => {
-    const { CargoManifestList } = await load(new URL("CargoManifestList.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoManifestList } = await load(fileURLToPath(new URL("CargoManifestList.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoManifestList, { manifest, counts: { boxes: "" }, stage: "PICKUP", onChange: () => {} }));
     expect(html).toContain("Fresh produce"); expect(html).toContain("10"); expect(html).toContain("Actual pickup count"); expect(html).toContain('value=""'); expect(html).toContain("Reference image unavailable"); expect(html).toContain("min-width:0"); expect(html).toContain('data-placeholder-color="#53615A"'); expect(html).not.toMatch(/passenger|Call guest/i);
   });
   it("keeps expected, picked-up and delivered values distinct", async () => {
-    const { CargoReceiptSummary } = await load(new URL("CargoReceiptSummary.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoReceiptSummary } = await load(fileURLToPath(new URL("CargoReceiptSummary.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoReceiptSummary, { manifest, lines: [{ line_id: "boxes", expected_quantity: "10", pickup_quantity: "9", delivery_quantity: "9", order_shortage: "1", delivery_shortage: "0" }] }));
     for (const label of ["Expected", "Picked up", "Delivered", "Order shortage", "Delivery shortage", "1 boxes", "0 boxes"]) expect(html).toContain(label);
   });
   it("partner received text does not authorize departure", async () => {
-    const { CargoDecisionStatus } = await load(new URL("CargoDecisionStatus.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoDecisionStatus } = await load(fileURLToPath(new URL("CargoDecisionStatus.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoDecisionStatus, { view: { stage: "AWAITING_DECISION", blockers: [{ code: "CARGO_SOURCE_DECISION_REQUIRED", message: "Wait for source review." }], summary: { syncLabel: "Saved to Fleet", feedbackLabel: "Partner acknowledged receipt", sourceDecisionLabel: "Awaiting source decision", clearanceLabel: "Fleet clearance required", securementLabel: "Post-load securement required" } } }));
     expect(html).toContain("Awaiting source decision"); expect(html).toContain("Fleet clearance required"); expect(html).toContain("Post-load securement required"); expect(html).not.toContain("Ready to depart");
   });
@@ -48,17 +71,17 @@ describe("rendered native cargo components", () => {
 
 describe("cargo workflow screen actions", () => {
   it.each(["RESTAURANT_SUPPLY_PICKUP", "RESTAURANT_FOOD_DELIVERY", "HOTEL_SUPPLY_TRANSFER"])("renders the same driver controls for %s", async service_code => {
-    const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest: { ...manifest, service_code }, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: true, stage: "PICKUP", summary: {}, blockers: [] }, form: { counts: { boxes: "" }, issues: {} }, onIssue: () => {} }));
     expect(html).toContain("Review counts"); expect(html).toContain("Report issue: Fresh produce"); expect(html).not.toMatch(/passenger|Call guest/i);
   });
   it("blocks clean pickup confirmation on a shortage and exposes the separate report action", async () => {
-    const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: true, stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "9" }, issues: { boxes: { remarks: "One box missing" } } } }));
     expect(html).toContain('<button disabled="">Confirm pickup'); expect(html).toContain('<button>Report pickup issue');
   });
   it("keeps delivery observation separate from unavailable receiver confirmation", async () => {
-    const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "delivery", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "Drop-off" }, view: { canSubmit: true, stage: "DELIVERY", canConfirmDelivery: false, summary: { receiverLabel: "Receiver authority unavailable" }, blockers: [] }, review: true, form: { counts: { boxes: "9" }, issues: {} } }));
     expect(html).toContain("Record delivery observation"); expect(html).toContain('<button disabled="">Confirm delivery'); expect(html).toContain("pending review");
   });
@@ -106,12 +129,12 @@ describe("real map event integration", () => {
 
 describe("reviewed cargo rendered actions", () => {
   it("keeps equal-count notes on clean pickup and disables report issue", async () => {
-    const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: true, stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "10" }, issues: { boxes: { reported: true, remarks: "Packaging checked" } } } }));
     expect(html).toContain('<button>Confirm pickup'); expect(html).toContain('<button disabled="">Report pickup issue');
   });
   it.each([true, false])("shows a legacy hold in the overview with manifest %s", async available => {
-    const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+    const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
     const execution = available ? { manifest: { ...manifest, manifest_ref: { hash: "a".repeat(64) }, service_code: "RESTAURANT_SUPPLY_PICKUP" }, capabilities: { observe: true } } : null;
     const trip = { vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "In Progress" };
     const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "overview", execution, trip, view: buildCargoViewModel(execution, { driverType: "Cargo", trip }), form: { counts: {}, issues: {} } }));
@@ -179,7 +202,7 @@ it.each([ { driverType: "Cargo", cargo: false }, { driverType: "Passenger", carg
 });
 
 it("renders compatible cached cargo as read only until profile and trip are confirmed online", async () => {
-  const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+  const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
   const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: false, stage: "PICKUP", summary: {}, blockers: [] }, review: true, form: { counts: { boxes: "10" }, issues: {} } }));
   expect(html).toContain('<button disabled="">Confirm pickup');
   expect(html).toContain('<button disabled="">Report pickup issue');
@@ -269,7 +292,7 @@ it("detail never authorizes a previous route's trip for a new deep link", () => 
 });
 
 it.each([true, false])("a stale cargo count can restart only with current online assignment authority %s", async canOperate => {
-  const { CargoWorkflowContent } = await load(new URL("CargoWorkflowContent.jsx", base).pathname.replace(/^\/C:/, "C:"));
+  const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
   const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", canOperate, stale: true, pending: true, execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: false, stage: "STALE_REVIEW", summary: {}, blockers: [] }, form: { counts: { boxes: "10" }, issues: {} } }));
   expect(html).toContain(canOperate ? '<button>Begin a new count' : '<button disabled="">Begin a new count');
 });
