@@ -49,13 +49,14 @@ const SESSION = { user: { employeeId: 3, role: "dispatcher" } };
  * UPDATE ... RETURNING * would give it.
  */
 function harness({ requestStatus = "Assigned", dispatchStatus = "Scheduled" } = {}) {
-  const current = { request_id: 501, fleet_status: requestStatus, vehicle_id: 5, driver_id: 7 };
+  const current = { request_id: 501, load_type: 'Passenger', fleet_status: requestStatus, vehicle_id: 5, driver_id: 7 };
   const txLog = [];
   const outsideLog = [];
 
   const handle = (sql, params, log) => {
     const s = String(sql);
     log.push({ sql: s, params });
+    if (s.includes('AS stored_request_id')) return { rows: [{ ...DISPATCH, stored_request_id: 501, load_type: 'Passenger' }] };
 
     if (s.includes("FOR UPDATE") && s.includes("FROM transportation_requests")) {
       return { rows: [{ ...current }] };
@@ -229,16 +230,16 @@ describe('setTripStatus acceptance write hook',()=>{
   const tx={query:vi.fn()};vi.spyOn(db,'withTransaction').mockImplementation(async write=>write(tx));
   const beforeWrite=vi.fn(async()=>{throw new Error('assignment mismatch');});
   await expect(setTripStatus({tripId:7,to:'Driver Accepted',session:SESSION,beforeWrite})).rejects.toThrow('assignment mismatch');
-  expect(beforeWrite).toHaveBeenCalledWith(tx);expect(tx.query).not.toHaveBeenCalled();expect(writeAudit).not.toHaveBeenCalled();
+  expect(beforeWrite).toHaveBeenCalledWith(tx);expect(tx.query.mock.calls.some(([sql])=>/^UPDATE/.test(sql))).toBe(false);expect(writeAudit).not.toHaveBeenCalled();
  });
 });
 
 it('uses the same transaction for the accepted guard and UPDATE when qualification is OFF',async()=>{
  vi.spyOn(db,'query').mockResolvedValue({rows:[{trip_id:7,trip_status:'Assigned',driver_id:2,vehicle_id:3}]});
- const tx={query:vi.fn(async()=>({rows:[{trip_id:7,trip_status:'Driver Accepted'}]}))};
+ const tx={query:vi.fn(async()=>({rows:[{trip_id:7,trip_status:'Driver Accepted',load_type:'Passenger'}]}))};
  vi.spyOn(db,'withTransaction').mockImplementation(async write=>write(tx));
- const beforeWrite=vi.fn(async received=>{expect(received).toBe(tx);expect(tx.query).not.toHaveBeenCalled();});
+ const beforeWrite=vi.fn(async received=>{expect(received).toBe(tx);expect(tx.query.mock.calls.some(([sql])=>/^UPDATE/.test(sql))).toBe(false);});
  const result=await setTripStatus({tripId:7,to:'Driver Accepted',session:SESSION,beforeWrite});
  expect(result.trip_status).toBe('Driver Accepted');expect(beforeWrite).toHaveBeenCalledOnce();
- expect(tx.query.mock.calls[0][0]).toMatch(/^UPDATE trips/);expect(db.query).toHaveBeenCalledOnce();expect(writeAudit).toHaveBeenCalledOnce();
+ expect(tx.query.mock.calls.find(([sql])=>sql.startsWith('UPDATE trips'))).toBeTruthy();expect(db.query).toHaveBeenCalledOnce();expect(writeAudit).toHaveBeenCalledOnce();
 });

@@ -13,6 +13,7 @@ vi.mock('@/services/recommendation.service', () => ({ validatePairAvailability: 
 vi.mock('@/services/dispatch-evidence.service', () => ({ commitDispatchEvidence: vi.fn() }));
 vi.mock('@/services/cargo-execution.service', () => ({
   assertCargoCheckpoint: vi.fn(),
+  assertCargoDispatchCheckpoint: vi.fn(),
   cargoLifecycleEnabled: vi.fn(() => false),
   prepareCargoLifecycle: vi.fn(async () => false),
 }));

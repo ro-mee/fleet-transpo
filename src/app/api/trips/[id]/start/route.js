@@ -237,6 +237,7 @@ export async function PUT(req, { params }) {
     // back) together. The derived statuses run after COMMIT, best-effort.
     const commitStart = startEvidence ? write => commitDispatchEvidence(startEvidence,write) : withTransaction;
     const { rows } = await commitStart(async (tx) => {
+      await prepareCargoLifecycle(tx);
       const { rows: assignmentRows } = await tx.query(
         `SELECT d.driver_type, tr.load_type, v.operational_use
            FROM trips t
@@ -265,7 +266,7 @@ export async function PUT(req, { params }) {
         operationalUse: assignmentRows[0]?.operational_use,
       });
       if (!compatibility.ok) throw new AuthError(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
-      if (await prepareCargoLifecycle(tx)) await assertCargoCheckpoint(trip, { to: 'Trip Started', session }, tx);
+      await assertCargoCheckpoint(trip, { to: 'Trip Started', session }, tx);
       const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 AND trip_status = $3 RETURNING *`, [rawOdometer, id, trip.trip_status]);
       if (!r.rows[0]) throw new AuthError("Trip not found", 404);
       const txWrites = [];

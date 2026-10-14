@@ -22,6 +22,7 @@ function setup(beforeStatus) {
   const updates = [];
   vi.spyOn(db, "query").mockImplementation(async (sql, params) => {
     const s = String(sql);
+    if (s.includes('AS stored_dispatch_id')) return { rows: [{ trip_id: 1, dispatch_id: 9, stored_dispatch_id: 9, request_id: 10, stored_request_id: 10, load_type: 'Passenger' }] };
     if (s.startsWith("SELECT trip_id, trip_status")) {
       return {
         rows: [

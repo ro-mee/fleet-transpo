@@ -32,15 +32,15 @@ beforeEach(()=>{
 });
 const run=(body={})=>PUT(new Request('http://localhost/api/trips/7/start',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),{params:Promise.resolve({id:'7'})});
 afterEach(()=>vi.unstubAllEnvs());
-it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('starts travel to pickup for %s without a pickup receipt',async serviceCode=>{
+it.each(['RESTAURANT_SUPPLY_PICKUP','RESTAURANT_FOOD_DELIVERY','HOTEL_SUPPLY_TRANSFER'])('refuses unconfigured Cargo travel to pickup for %s',async serviceCode=>{
  query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type:'Cargo'}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}:defaultQuery(sql));
  const statements=[];
- const tx={query:async sql=>{statements.push(sql);return {rows:sql.includes('v.operational_use')?[{load_type:'Cargo',operational_use:'Cargo',driver_type:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]
+ const tx={query:async sql=>{statements.push(sql);return {rows:sql.includes('v.operational_use')?[{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type:'Cargo',operational_use:'Cargo',driver_type:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]
   :sql.includes('transportation_requests')?[{service_code:serviceCode}]:sql.includes('FROM trips')?[{driver_id:2,dispatch_id:8}]
   :sql.includes('driver_service_qualifications')?[{driver_id:2,group:'CARGO',status:'ACTIVE',verified_by:1,verified_at:'2026-10-09T00:00:00Z',policy_version:'fixture-v1',version:1}]:[{driver_id:2}]};}};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
- expect((await run()).status).toBe(200);
- expect(statements.some(sql=>sql.startsWith('UPDATE trips'))).toBe(true);
+ expect((await run()).status).toBe(503);
+ expect(statements.some(sql=>sql.startsWith('UPDATE trips'))).toBe(false);
  expect(statements.some(sql=>sql.includes('cargo_receipt'))).toBe(false);
 });
 it('rechecks the committed pair and excludes only the owned trip, blocking changed evidence before writes',async()=>{
@@ -62,7 +62,7 @@ it('returns the same cargo overload sentence unchanged before starting',async()=
 
 it('keeps a committed legacy request null-classified when starting after the additive migrations',async()=>{
  findRequestForDispatch.mockResolvedValueOnce({request_id:9,fleet_status:'Assigned',load_type:null,passenger_count:2});
- const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{load_type:null,operational_use:'Passenger',driver_type:'Passenger'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type:null,operational_use:'Passenger',driver_type:'Passenger'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
  expect((await run()).status).toBe(200);
  expect(validatePairAvailability).toHaveBeenCalledWith(expect.objectContaining({request:expect.objectContaining({load_type:null,passenger_count:2})}));
@@ -70,7 +70,7 @@ it('keeps a committed legacy request null-classified when starting after the add
 it('commits start under the evidence lock with a compare-and-set trip status',async()=>{
  const token={revision:'current'};
  validatePairAvailability.mockResolvedValue({ok:true,commitToken:token});
- const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use') ? [{load_type:null,operational_use:'Passenger',driver_type:'Passenger'}] : sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use') ? [{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type:null,operational_use:'Passenger',driver_type:'Passenger'}] : sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
  expect((await run()).status).toBe(200);
  expect(commitDispatchEvidence.mock.calls[0][0]).toBe(token);
@@ -115,7 +115,7 @@ it('blocks trip start when the staff license review is missing',async()=>{
  expect((await response.json()).error).toMatch(/not been verified/i);
 });
 it('scopes the gate to this trip AND inspection_type Pre-Trip (a Pre-Shift row can never satisfy it)',async()=>{
-  const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use') ? [{load_type:null,operational_use:'Passenger',driver_type:'Passenger'}] : sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+  const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use') ? [{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type:null,operational_use:'Passenger',driver_type:'Passenger'}] : sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
   commitDispatchEvidence.mockImplementation(async (_t,write)=>write(tx));
   expect((await run()).status).toBe(200);
   const gate=query.mock.calls.find((c)=>c[0].includes('FROM vehicleinspection'));
@@ -130,22 +130,24 @@ it('blocks a cargo trip whose passed checklist is the passenger set',async()=>{
   expect((await response.json()).error).toMatch(/cargo Pre-Trip inspection/);
   expect(commitDispatchEvidence).not.toHaveBeenCalled();
 });
-it('starts a cargo trip whose passed checklist is the cargo set',async()=>{
+it('still refuses unavailable authority after the correct cargo checklist passes',async()=>{
   query.mockImplementation(async sql=>
     sql.includes('tr.load_type') ? {rows:[{load_type:'Cargo'}]}
     :sql.includes('FROM vehicleinspection') ? {rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}
     :defaultQuery(sql));
-  const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use') ? [{load_type:'Cargo',operational_use:'Cargo',driver_type:'Cargo'}] : sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+  const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use') ? [{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type:'Cargo',operational_use:'Cargo',driver_type:'Cargo'}] : sql.startsWith('UPDATE trips') ? [{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
   commitDispatchEvidence.mockImplementation(async (_t,write)=>write(tx));
-  expect((await run()).status).toBe(200);
+  expect((await run()).status).toBe(503);
+  expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
 });
 
 it('uses renewed typed document evidence instead of an expired legacy registration projection',async()=>{
  query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type:'Cargo'}]}:sql.includes('FROM vehicles')?{rows:[{plate_number:'TRK5678',registration_expiry:'2000-01-01',vehicle_status:'Registration Expired',required_license_class:'B'}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}:defaultQuery(sql));
- const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{load_type:'Cargo',operational_use:'Cargo',driver_type:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type:'Cargo',operational_use:'Cargo',driver_type:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
- expect((await run()).status).toBe(200);
+ expect((await run()).status).toBe(503);
  expect(validatePairAvailability).toHaveBeenCalled();
+ expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
 });
 it('preserves the legacy expired-registration start rejection',async()=>{
  query.mockImplementation(async sql=>sql.includes('FROM vehicles')?{rows:[{plate_number:'TRK5678',registration_expiry:'2000-01-01',vehicle_status:'Registration Expired',required_license_class:'B'}]}:defaultQuery(sql));
@@ -154,7 +156,7 @@ it('preserves the legacy expired-registration start rejection',async()=>{
 });
 
 it.each([['Cargo','Passenger'],['Passenger','Cargo'],[null,'Cargo'],['Unknown','Passenger'],['Passenger',null],['Passenger','Unknown']])('rejects current %s / %s inside final start transaction before cargo actions or writes',async(load_type,operational_use)=>{
- const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{load_type,operational_use,driver_type:operational_use}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type,operational_use,driver_type:operational_use}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
  const response=await run();expect(response.status).toBe(409);expect((await response.json()).error).toMatch(/dispatch|fleet/i);
  expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE')||sql.includes('cargo_receipt'))).toBe(false);
@@ -162,9 +164,9 @@ it.each([['Cargo','Passenger'],['Passenger','Cargo'],[null,'Cargo'],['Unknown','
 
 it.each([['Passenger','Passenger'],['Cargo','Cargo'],[null,'Passenger']])('starts current matching %s / %s under the write transaction',async(load_type,operational_use)=>{
  if(load_type==='Cargo') query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist:CARGO_CHECKLIST}]}:defaultQuery(sql));
- const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{load_type,operational_use,driver_type:operational_use}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type,operational_use,driver_type:operational_use}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
- expect((await run()).status).toBe(200);expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE trips'))).toBe(true);
+ expect((await run()).status).toBe(load_type==='Cargo'?503:200);expect(tx.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE trips'))).toBe(load_type!=='Cargo');
 });
 
 it('rejects a missing assigned vehicle before any start transaction',async()=>{
@@ -182,7 +184,7 @@ it.each([
  [null,'Passenger','Passenger','Passenger',PASSENGER_CHECKLIST],
 ])('rejects saved %s on %s before start despite client type %s',async(driver_type,operational_use,load_type,clientType,checklist)=>{
  query.mockImplementation(async sql=>sql.includes('tr.load_type')?{rows:[{load_type}]}:sql.includes('FROM vehicleinspection')?{rows:[{status:'Passed',checklist}]}:defaultQuery(sql));
- const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{load_type,operational_use,driver_type}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,load_type,operational_use,driver_type}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
  const response=await run({driverType:clientType});
  expect(response.status).toBe(409);
@@ -196,7 +198,7 @@ it.each([
  ['Heavy','an unsupported',/not supported/i],
  ['','an empty',/needs setup/i],
 ])('rejects a saved %s driver type inside the final start transaction before any write',async(driver_type,label,message)=>{
- const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{driver_type,load_type:'Cargo',operational_use:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
+ const tx={query:vi.fn(async sql=>({rows:sql.includes('v.operational_use')?[{trip_id:7,dispatch_id:8,stored_dispatch_id:8,request_id:9,stored_request_id:9,driver_type,load_type:'Cargo',operational_use:'Cargo'}]:sql.startsWith('UPDATE trips')?[{trip_id:7,trip_status:'Trip Started',start_odometer:null}]:[]}))};
  commitDispatchEvidence.mockImplementation(async (_token,write)=>write(tx));
  const response=await run();
  expect(response.status).toBe(409);

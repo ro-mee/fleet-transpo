@@ -2,7 +2,7 @@
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { TRIP_WRITABLE } from "../route";
-import { assertCargoCheckpoint, cargoLifecycleEnabled, prepareCargoLifecycle } from '@/services/cargo-execution.service';
+import { assertCargoCheckpoint, prepareCargoLifecycle } from '@/services/cargo-execution.service';
 import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
 
 export async function GET(req, { params }) {
@@ -44,11 +44,11 @@ export async function PUT(req, { params }) {
     }
     values.push(id);
     const write = db => db.query(`UPDATE trips SET ${columns.join(", ")} WHERE trip_id = $${values.length} RETURNING *`, values);
-    const { rows } = cargoLifecycleEnabled() ? await withTransaction(async tx => {
+    const { rows } = await withTransaction(async tx => {
       await prepareCargoLifecycle(tx);
       await assertCargoCheckpoint({ trip_id: id }, { to: body.trip_status ?? 'Reassign', session, patch: body }, tx);
       return write(tx);
-    }) : await write({ query });
+    });
     if (!rows[0]) return err("Trip not found", 404);
     return ok(rows[0]);
   } catch (e) { return handleError(e); }

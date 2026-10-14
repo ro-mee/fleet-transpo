@@ -21,6 +21,9 @@ vi.mock("@/services/reservation-lifecycle.service", () => ({
 vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn(async () => null) }));
 
 const BEFORE_ROW = {
+  trip_id: 101,
+  stored_dispatch_id: 55,
+  load_type: 'Passenger',
   vehicle_id: 5,
   driver_id: 7,
   dispatch_id: 55,
@@ -48,6 +51,7 @@ function setup() {
 
   vi.spyOn(db, "query").mockImplementation(async (sql) => {
     const s = String(sql);
+    if (s.includes('AS stored_dispatch_id')) return { rows: [BEFORE_ROW] };
     if (s.includes("t.distance AS planned_distance")) return { rows: [BEFORE_ROW] };
     if (s.includes("SELECT vehicle_id, driver_id")) return { rows: [BEFORE_ROW] };
     if (s.includes("FROM gpstracking")) return { rows: [] };
@@ -147,6 +151,7 @@ describe("trip lifecycle → monitor alert resolution", () => {
     const { query } = await import("@/lib/db");
     query.mockImplementation(async (sql) => {
       const s = String(sql);
+      if (s.includes('AS stored_dispatch_id')) return { rows: [BEFORE_ROW] };
       if (s.includes("t.distance AS planned_distance")) {
         return { rows: [{ ...BEFORE_ROW, fuel_efficiency_kmpl: null, planned_distance: null }] };
       }

@@ -8,7 +8,7 @@ vi.mock("@/lib/db", () => ({ query: vi.fn(), withTransaction: vi.fn(), getAdminC
 vi.mock("@/lib/api/utils", () => ({ AuthError: class extends Error { constructor(message, status, code) { super(message); this.status = status; this.code = code; } }, requirePermission: async () => ({ user: { employeeId: 3 } }), parseBody: (req) => req.json(), ok: (data, status = 200) => Response.json(data, { status }), err: (error, status) => Response.json({ error }, { status }), handleError: (error) => Response.json({ error: error.message }, { status: error.status || 500 }) }));
 let state; let writes; let trail; let price; let snapshots; let region; let beforeCapture;
 beforeEach(() => {
-  state = { trip_id: 1, trip_status: "Trip Started", vehicle_id: 5, driver_id: 7, dispatch_id: 55, distance: 32, planned_distance: 32, vehicle_mileage: 1000, fuel_efficiency_kmpl: 9, fuel_type: "Diesel", fuel_estimate_captured_at: null };
+  state = { trip_id: 1, trip_status: "Trip Started", vehicle_id: 5, driver_id: 7, dispatch_id: 55, stored_dispatch_id: 55, request_id: 501, stored_request_id: 501, load_type: 'Passenger', distance: 32, planned_distance: 32, vehicle_mileage: 1000, fuel_efficiency_kmpl: 9, fuel_type: "Diesel", fuel_estimate_captured_at: null };
   writes = 0; trail = []; price = 62.7; snapshots = null; region = "NCR"; beforeCapture = null;
   // External Supabase and pool boundaries only; all application services run.
   db.getAdminClient.mockImplementation(() => ({ from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }) }));
