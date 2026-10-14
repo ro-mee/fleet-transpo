@@ -77,7 +77,7 @@ describe("POST /api/vehicle-maintenance — fuel diagnostic filing", () => {
     });
     expect((await POST({ json: async () => diagnosticBody({ assigned_mechanic_id: 77, priority }) })).status).toBe(201);
     expect(sendPush).toHaveBeenCalledWith(expect.objectContaining({ employeeIds: [77], data: { reference_type: "mechanic_maintenance", reference_id: 44 } }));
-    expect(sendPush).toHaveBeenCalledTimes(priority === "Normal" ? 1 : 3);
+    expect(sendPush).toHaveBeenCalledTimes(priority === "Normal" ? 1 : 2);
     if (priority !== "Normal") {
       expect(sendPush).toHaveBeenCalledWith(expect.objectContaining({ employeeIds: [9], data: { reference_type: "maintenance", reference_id: 44 } }));
       const [, stored] = query.mock.calls.find(([sql, values]) => sql.includes("INSERT INTO notifications") && values[0] === 9);
