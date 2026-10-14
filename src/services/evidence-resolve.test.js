@@ -106,3 +106,30 @@ it('compares two options with codes and facts, never scores', async () => {
   expect(facts.hierarchy).toEqual(['Reliability', 'Efficiency', 'Workload when applicable', 'Standing preference']);
   expect(JSON.stringify(facts)).not.toMatch(/"order"|"score"/);
 });
+
+it('falls back to untyped seats path when ctx lacks loadType/cargoWeightKg', async () => {
+  const db = dbFor(async () => [{ plate_number: 'ABC 1234', seating_capacity: 7 }]);
+  const facts = await resolveEvidence(db, { proofType: EVIDENCE_TYPES.CAPACITY, vehicleId: 11 }, {});
+  // No loadType/cargoWeightKg -> untyped path; passengerCount undefined -> NaN seats
+  expect(facts.verdict).toBe('blocked');
+  expect(facts.recordedSeats).toBe(7);
+  expect(facts.result).toBe('Not eligible');
+  expect(facts).not.toHaveProperty('requiredKg');
+  expect(facts).not.toHaveProperty('loadType');
+});
+
+it('resolves typed cargo capacity when ctx provides loadType and cargoWeightKg (route style)', async () => {
+  const db = dbFor(async (sql) => {
+    if (sql.includes('FROM vehicles')) return [{ plate_number: 'TRK 5678', seating_capacity: null, operational_use: 'Cargo', cargo_capacity_kg: 1000 }];
+    return [];
+  });
+  const facts = await resolveEvidence(db, { proofType: EVIDENCE_TYPES.CAPACITY, vehicleId: 12 }, { loadType: 'Cargo', cargoWeightKg: 1400 });
+  expect(facts).toMatchObject({
+    verdict: 'blocked',
+    loadType: 'Cargo',
+    requiredKg: 1400,
+    recordedKg: 1000,
+    capacityCode: 'OVER_CAPACITY',
+    result: 'Not eligible',
+  });
+});

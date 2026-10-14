@@ -31,6 +31,9 @@ export async function GET(req, { params }) {
     if (!ACTIVE_EVIDENCE_TYPES.includes(refData.proofType)) throw new AuthError('This evidence type is not available yet.', 404);
     const request = await loadRequest(id);
     if (!request) throw new AuthError('Reservation not found.', 404);
+    const weightKg = Number(request.cargo_weight_kg);
+    const loadType = request.load_type ?? null;
+    const cargoWeightKg = Number.isFinite(weightKg) && weightKg > 0 ? weightKg : null;
     let facts;
     try {
       facts = await resolveEvidence(query, refData, {
@@ -41,6 +44,8 @@ export async function GET(req, { params }) {
         bookingDate: request.pickup_datetime,
         passengerCount: request.passenger_count,
         pickupDate: request.pickup_datetime,
+        loadType,
+        cargoWeightKg,
       });
     } catch (e) {
       if (e?.code === 'INACTIVE') throw new AuthError('This evidence type is not available yet.', 404);

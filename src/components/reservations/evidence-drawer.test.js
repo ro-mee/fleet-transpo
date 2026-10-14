@@ -327,3 +327,18 @@ it('issues another snapshot GET only on explicit Retry and never mutates',()=>{
   for(const [,options] of apiFetch.mock.calls) expect(options).toMatchObject({method:'GET'});
   expect(drawerSource).not.toMatch(/setInterval|setTimeout/);
 });
+
+// Task 5: capacity drawer renders human labels for typed cargo fields
+it('renders human labels for typed capacity keys (loadType, recordedKg, capacityCode)', () => {
+  const html = renderToStaticMarkup(React.createElement(EvidenceBody, {
+    proofType: 'capacity', planStatus: null,
+    data: { title: 'Booking Requirement', managingModule: 'Reservations', checkedAt: '2026-10-15T08:00:00+08:00',
+      facts: { loadType: 'Cargo', recordedKg: 1000, capacityCode: 'OVER_CAPACITY', requiredKg: 1400, verdict: 'blocked' } },
+  }));
+  expect(html).toContain('Load type');
+  expect(html).toContain('Recorded payload');
+  expect(html).toContain('Capacity basis');
+  expect(html).toContain('Cargo');
+  expect(html).toContain('1000');
+  expect(html).toContain('OVER_CAPACITY');
+});

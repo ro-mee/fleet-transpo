@@ -30,6 +30,7 @@ const ROW_LABELS = {
   subject: "Subject", subjectName: "Name", field: "Document", expiry: "Expiry", bookingDate: "Booking date",
   requestedSeats: "Requested seats", passengerCount: "Passengers", recordedSeats: "Recorded seats", result: "Result",
   cargoWeightKg: "Declared cargo (kg)", cargoCapacityKg: "Recorded payload (kg)", requiredKg: "Required gross load (kg)", usablePayloadKg: "Usable payload (kg)", remainingKg: "Remaining payload (kg)",
+  loadType: "Load type", recordedKg: "Recorded payload (kg)", capacityCode: "Capacity basis",
   packageCount: "Transport packages", nominalVolumeM3: "Nominal volume (m³)", physicalContractVersion: "Physical contract version", profileHash: "Cargo profile revision", manifestHash: "Manifest revision", physicalPolicyVersion: "Physical rule version", verificationValidUntil: "Capability verification valid until",
   physicalStatus: "Physical load checks", capacityBasis: "Payload basis",
   pairingState: "Pairing", effectiveDate: "Effective date", finding: "Recorded finding",
