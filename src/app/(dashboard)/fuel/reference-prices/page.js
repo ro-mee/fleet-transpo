@@ -132,6 +132,7 @@ export default function ReferencePricesPage() {
   const importPdf = useMutation({ mutationFn: (body) => apiFetch("/api/fuel/reference-prices/import-pdf", { method: "POST", body }), onSuccess: () => cache.invalidateQueries({ queryKey: ["fuel-reference-prices"] }) });
   if (loading) return <p role="status" className="rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground-secondary">Loading access…</p>;
   return <div className="space-y-6">
+    <HeroHeader
       icon={Fuel}
       title="Fuel reference prices"
       badge="Planning"
