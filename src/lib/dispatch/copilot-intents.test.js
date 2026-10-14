@@ -144,6 +144,14 @@ it('treats cargo weight question as in-scope', () => {
   expect(classifyCopilotScope('kaya ba ng 900kg cargo?', [], { hasActiveContext: true }).kind).toBe('in-scope');
 });
 
+it('treats digit-attached kg as in-scope', () => {
+  expect(classifyCopilotScope('kaya ba 900kg?', [], { hasActiveContext: true }).kind).toBe('in-scope');
+});
+
+it('treats packages plural as in-scope', () => {
+  expect(classifyCopilotScope('how many packages fit?', [], { hasActiveContext: true }).kind).toBe('in-scope');
+});
+
 it('parses kg simulation', () => {
   const s = parseSimulationScenario('what if 900kg tomorrow 7pm', { now: new Date('2026-10-14T08:00:00+08:00') });
   expect(s.cargo_weight_kg).toBe(900);
