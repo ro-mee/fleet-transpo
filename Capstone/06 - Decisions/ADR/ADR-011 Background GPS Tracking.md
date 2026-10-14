@@ -40,6 +40,8 @@ Always-on background tracking would run the headless task even when idle. Naviga
 
 Automated verification on 2026-10-15: strict test-first handoff, warning, cancellation and foreground-overlap checks passed with all 1,045 mobile library tests across 76 suites. Physical Android launch, notification return, background fix delivery and no-jump distance acceptance remain pending.
 
+Task 4 review follow-up: ordinary tracking transitions are serialized. The handoff waits for prior cleanup and owns readiness/rollback until launch settles; permission-related foreground returns cannot race its native start. A true Maps return during a pending platform promise is cleaned up by that owner after settlement. Replacement of its warning runs dismissal cleanup once and cannot leave background fallback suppressed. The five new RED/GREEN reproductions pass with all 1,050 mobile tests across 76 suites; physical acceptance remains pending.
+
 ## Costs / trade-offs — accepted
 
 - **Requires a custom dev build** (background location is not supported in Expo Go): `expo prebuild --clean` + reinstall. ADR-010's blocker.

@@ -16,16 +16,29 @@ function screen(value = trip, prepare = async () => ({ ok: true })) {
   const openURL = vi.fn().mockResolvedValue(undefined), alert = vi.fn(), stop = vi.fn().mockResolvedValue({ ok: true });
   const prepareBackgroundTracking = vi.fn(prepare), setNavigationBusy = vi.fn();
   let sessionCurrent = true;
-  const context = { activeTripRef, navigationBusyRef, setNavigationBusy, appState: { current: 'active' },
+  const context = { activeTripRef, navigationBusyRef, navigationOperationRef: { current: null }, setNavigationBusy, appState: { current: 'active' }, trackingTransitionRef: { current: Promise.resolve() },
     user: { employeeId: 23 }, captureCargoSession: () => ({}), isCurrentCargoSession: () => sessionCurrent,
     navigationTarget, externalNavigationUrl, beginNavigationHandoff, launchExternalNavigation, prepareBackgroundTracking, stopBackgroundTracking: stop,
     isGpsTrackedTrip: value => value && ['Driver Accepted', 'Trip Started', 'At Pickup', 'En Route'].includes(value.trip_status),
     Linking: { openURL }, AppAlert: { alert }, trustedTarget: navigationTarget(value),
+    mergeStoredKm: async () => {}, distRef: { current: {} },
   };
   const start = source.indexOf('  const openExternalNavigation =');
   const end = source.indexOf('  const handleMapReady', start);
   const action = runInNewContext(`${source.slice(start, end)}; openExternalNavigation`, context);
   return { action, activeTripRef, navigationBusyRef, openURL, alert, stop, prepareBackgroundTracking, setNavigationBusy, context, endSession: () => { sessionCurrent = false; } };
+}
+
+function attachLifecycle(h) {
+  let change;
+  const start = source.indexOf('  const appState = useRef(AppState.currentState);');
+  const end = source.indexOf('  const prevTripIdsRef', start);
+  runInNewContext(source.slice(start, end), { ...h.context,
+    useRef: () => h.context.appState, useEffect: fn => fn(),
+    AppState: { currentState: 'active', addEventListener: (_, fn) => { change = fn; return { remove() {} }; } },
+    legForStatus, updateLegContext: async () => {}, mergeStoredKm: async () => {}, distRef: { current: {} },
+  });
+  return change;
 }
 
 describe('Map handoff actions', () => {
@@ -66,6 +79,7 @@ describe('Map handoff actions', () => {
   });
   it.each(['completed', 'changed-target', 'session-ended'])('rejects %s during readiness', async kind => {
     const pending = deferred(), h = screen(trip, () => pending.promise), running = h.action();
+    await flush();
     if (kind === 'completed') h.activeTripRef.current = null;
     if (kind === 'changed-target') h.activeTripRef.current = { ...trip, destination_latitude: 15 };
     if (kind === 'session-ended') h.endSession();
@@ -86,6 +100,35 @@ describe('Map handoff actions', () => {
     expect(h.prepareBackgroundTracking).not.toHaveBeenCalled(); expect(h.openURL).not.toHaveBeenCalled();
     expect(h.alert.mock.calls[0][1]).toMatch(/Ask Dispatch to verify/);
   });
+  it('keeps handoff ownership when foreground return races native preparation', async () => {
+    const ready = deferred(), stopped = deferred(); let registered = false;
+    const h = screen(trip, async () => { registered = true; await ready.promise; return { ok: true }; });
+    h.stop.mockImplementation(async () => { await stopped.promise; registered = false; return { ok: true }; });
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    change('inactive'); change('active'); await flush();
+    ready.resolve(); await running; stopped.resolve(); await flush();
+    expect(h.openURL).toHaveBeenCalledOnce(); expect(h.alert).not.toHaveBeenCalled();
+    expect(registered).toBe(true); expect(h.stop).not.toHaveBeenCalled();
+  });
+  it('waits for foreground cleanup already in progress before preparing Maps', async () => {
+    const stopped = deferred(); let registered = true;
+    const h = screen(trip, async () => { registered = true; return { ok: true }; });
+    h.stop.mockImplementation(async () => { await stopped.promise; registered = false; return { ok: true }; });
+    const change = attachLifecycle(h); h.context.appState.current = 'background';
+    change('active'); await flush(); expect(h.stop).toHaveBeenCalledOnce();
+    const running = h.action(); await flush();
+    expect(h.prepareBackgroundTracking).not.toHaveBeenCalled(); expect(h.openURL).not.toHaveBeenCalled();
+    stopped.resolve(); await running;
+    expect(h.openURL).toHaveBeenCalledOnce(); expect(registered).toBe(true);
+  });
+  it('cleans up a real Maps return even if the platform open promise settles late', async () => {
+    const opened = deferred(), h = screen(); h.openURL.mockImplementation(() => opened.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background'); change('active'); await flush();
+    expect(h.stop).not.toHaveBeenCalled();
+    opened.resolve(); await running;
+    expect(h.stop).toHaveBeenCalledOnce(); expect(h.navigationBusyRef.current).toBe(false);
+  });
 });
 
 describe('Map AppState preparation fallback', () => {
@@ -96,7 +139,7 @@ describe('Map AppState preparation fallback', () => {
     const activeTripRef = { current: { ...trip } }, navigationBusyRef = { current: false };
     const stop = vi.fn().mockResolvedValue({ ok: true }), merge = vi.fn().mockResolvedValue(undefined);
     runInNewContext(source.slice(start, end), {
-      useRef: current => ({ current }), useEffect: fn => fn(), activeTripRef, navigationBusyRef,
+      useRef: current => ({ current }), useEffect: fn => fn(), activeTripRef, navigationBusyRef, navigationOperationRef: { current: null }, trackingTransitionRef: { current: Promise.resolve() },
       AppState: { currentState: 'active', addEventListener: (_, fn) => { change = fn; return { remove() {} }; } },
       isGpsTrackedTrip: value => value?.trip_status === 'En Route', legForStatus, updateLegContext: async () => {}, prepareBackgroundTracking: prepare, startBackgroundTracking: async () => {},
       stopBackgroundTracking: stop, mergeStoredKm: merge, distRef: { current: {} },
@@ -115,9 +158,10 @@ describe('Map AppState preparation fallback', () => {
   it('stops a pending start after foreground return and merges only after stopping', async () => {
     const pending = deferred(), prepare = vi.fn(() => pending.promise), h = lifecycle(prepare);
     h.change('background'); await flush(); h.change('active'); await flush();
-    expect(h.stop).toHaveBeenCalledOnce(); expect(h.merge).toHaveBeenCalledWith(expect.anything(), 7);
-    expect(h.stop.mock.invocationCallOrder[0]).toBeLessThan(h.merge.mock.invocationCallOrder[0]);
-    pending.resolve({ ok: true }); await flush(); expect(h.stop).toHaveBeenCalledTimes(2);
+    expect(h.stop).not.toHaveBeenCalled(); expect(h.merge).not.toHaveBeenCalled();
+    pending.resolve({ ok: true }); await flush();
+    expect(h.stop).toHaveBeenCalledTimes(2); expect(h.merge).toHaveBeenCalledWith(expect.anything(), 7);
+    expect(h.stop.mock.invocationCallOrder[1]).toBeLessThan(h.merge.mock.invocationCallOrder[0]);
   });
   it('stops if cancellation preserves the trip id while background startup is pending', async () => {
     const pending = deferred(), h = lifecycle(() => pending.promise);

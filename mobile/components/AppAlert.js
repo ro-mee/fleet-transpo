@@ -70,6 +70,12 @@ function deriveIcon(title = '', options = {}) {
   return ICON_MAP.info;
 }
 
+function notifyDismissed(alert) {
+  if (!alert || alert.dismissed) return;
+  alert.dismissed = true;
+  alert.config.options?.onDismiss?.();
+}
+
 // ─── Host component — mount once in your root layout ──────────────────────
 export function AppAlertHost() {
   // The theme context exposes `scheme` (not isDark) — derive it so the icon
@@ -78,6 +84,7 @@ export function AppAlertHost() {
   const isDark = scheme === "dark";
   const [visible, setVisible] = useState(false);
   const [config, setConfig]   = useState(null);
+  const activeAlertRef = useRef(null);
 
   // Animated values — GPU-only spring physics
   const [backdropOpacity] = useState(() => new Animated.Value(0));
@@ -86,6 +93,11 @@ export function AppAlertHost() {
 
   useEffect(() => {
     _showAlert = (cfg) => {
+      const previous = activeAlertRef.current;
+      const alert = { config: cfg, dismissing: false, dismissed: false };
+      activeAlertRef.current = alert;
+      notifyDismissed(previous);
+      if (activeAlertRef.current !== alert) return;
       setConfig(cfg);
       setVisible(true);
       backdropOpacity.setValue(0);
@@ -115,14 +127,19 @@ export function AppAlertHost() {
   }, [backdropOpacity, cardScale, cardOpacity]);
 
   const dismiss = (onPress) => {
+    const alert = activeAlertRef.current;
+    if (!alert || alert.config !== config || alert.dismissing || alert.dismissed) return;
+    alert.dismissing = true;
     Animated.parallel([
       Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
       Animated.timing(cardScale, { toValue: 0.94, duration: 180, useNativeDriver: true }),
       Animated.timing(cardOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
     ]).start(() => {
+      if (activeAlertRef.current !== alert || alert.dismissed) return;
+      activeAlertRef.current = null;
       setVisible(false);
       try { if (onPress) onPress(); }
-      finally { config.options?.onDismiss?.(); }
+      finally { notifyDismissed(alert); }
     });
   };
 

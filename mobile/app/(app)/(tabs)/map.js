@@ -705,6 +705,8 @@ export default function MapTab() {
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
   const navigationBusyRef = useRef(false);
+  const navigationOperationRef = useRef(null);
+  const trackingTransitionRef = useRef(Promise.resolve());
   const [navigationBusy, setNavigationBusy] = useState(false);
 
   // Focus gate: tabs stay mounted after first visit, so without this the
@@ -834,21 +836,24 @@ export default function MapTab() {
       const hadActiveTrip = isGpsTrackedTrip(activeTripRef.current);
       const isLeavingActive = prev.match(/active/) && next.match(/inactive|background/);
       const isReturning = next === "active";
+      const navigation = navigationOperationRef.current;
+      if (navigation?.launching && isLeavingActive) navigation.left = true;
+      if (navigation?.left && isReturning) navigation.returned = true;
 
       if (isLeavingActive && hadActiveTrip && !navigationBusyRef.current) {
         const expectedTripId = activeTripRef.current?.trip_id;
-        updateLegContext({
+        trackingTransitionRef.current = trackingTransitionRef.current.then(() => updateLegContext({
           tripId: activeTripRef.current?.trip_id ?? null,
           leg: legForStatus(activeTripRef.current?.trip_status),
-        }).then(async () => {
-          if (activeTripRef.current?.trip_id !== expectedTripId || !isGpsTrackedTrip(activeTripRef.current) || appState.current === 'active') return;
+        })).then(async () => {
+          if (activeTripRef.current?.trip_id !== expectedTripId || !isGpsTrackedTrip(activeTripRef.current) || appState.current === 'active' || navigationBusyRef.current) return;
           await prepareBackgroundTracking({
             tripId: expectedTripId,
             leg: legForStatus(activeTripRef.current?.trip_status),
             requestPermission: false,
           });
           // Completion/foreground return may arrive while OS permission/start is pending.
-          if (activeTripRef.current?.trip_id !== expectedTripId || !isGpsTrackedTrip(activeTripRef.current) || appState.current === 'active') await stopBackgroundTracking();
+          if (activeTripRef.current?.trip_id !== expectedTripId || !isGpsTrackedTrip(activeTripRef.current) || appState.current === 'active' || navigationBusyRef.current) await stopBackgroundTracking();
         }).catch(() => {});
       } else if (isReturning) {
         // Clear the straddling fix synchronously so a foreground watcher tick
@@ -858,7 +863,10 @@ export default function MapTab() {
         distRef.current.pending = null;
         // Merge only after the native task has stopped; otherwise its final
         // AsyncStorage write can race this read and leave background km out.
-        stopBackgroundTracking()
+        // The handoff owns preparation/rollback until launch; a permission return
+        // must not stop a task it is about to hand over to Google Maps.
+        if (navigationBusyRef.current) return;
+        trackingTransitionRef.current = trackingTransitionRef.current.then(() => stopBackgroundTracking())
           .then(() => mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null))
           .catch(() => {});
       }
@@ -1426,8 +1434,24 @@ export default function MapTab() {
     if (navigationBusyRef.current) return;
     navigationBusyRef.current = true;
     setNavigationBusy(true);
+    const operation = { launching: false, left: false, returned: false };
+    navigationOperationRef.current = operation;
     let warningOpen = false;
-    const release = () => { navigationBusyRef.current = false; setNavigationBusy(false); };
+    const release = () => {
+      if (navigationOperationRef.current !== operation) return;
+      navigationOperationRef.current = null;
+      navigationBusyRef.current = false;
+      setNavigationBusy(false);
+    };
+    const finish = async () => {
+      try {
+        if (operation.returned && appState.current === 'active') {
+          await stopBackgroundTracking();
+          await mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null);
+        }
+      } finally { release(); }
+    };
+    const openUrl = url => { operation.launching = true; return Linking.openURL(url); };
     const trip = activeTripRef.current;
     const target = navigationTarget(trip);
     const session = captureCargoSession(user?.employeeId);
@@ -1441,9 +1465,13 @@ export default function MapTab() {
     const reportOpenFailure = () => AppAlert.alert('Navigation unavailable', 'Unable to open Google Maps on this device.');
     try {
       const result = await beginNavigationHandoff({
-        trip, isCurrent, requestPermission: true, openUrl: url => Linking.openURL(url),
+        trip, isCurrent, requestPermission: true, openUrl,
         // Trip GPS starts only after acceptance, even when the pickup target is valid earlier.
-        prepare: options => isGpsTrackedTrip(trip) ? prepareBackgroundTracking(options) : Promise.resolve({ ok: false, reason: 'unsupported' }),
+        prepare: async options => {
+          await trackingTransitionRef.current;
+          if (!isCurrent()) return { ok: false, reason: 'stale-trip' };
+          return isGpsTrackedTrip(trip) ? prepareBackgroundTracking(options) : { ok: false, reason: 'unsupported' };
+        },
         rollback: stopBackgroundTracking,
       });
       if (result.ok || result.reason === 'stale-trip') return;
@@ -1461,14 +1489,14 @@ export default function MapTab() {
             decided = true;
             try {
               if (!isCurrent()) return;
-              const opened = await launchExternalNavigation(target, url => Linking.openURL(url));
+              const opened = await launchExternalNavigation(target, openUrl);
               if (!opened.ok) reportOpenFailure();
-            } finally { release(); }
+            } finally { await finish(); }
           } },
         ], { type: 'warning', buttonLayout: 'stacked', onDismiss: () => { if (!decided) { decided = true; release(); } } });
       }
     } finally {
-      if (!warningOpen) release();
+      if (!warningOpen) await finish();
     }
   };
   const handleMapReady = useCallback(() => setMapReady(true), []);

@@ -205,14 +205,16 @@ it.each(['before-start', 'during-start'])('prevents a completed trip restarting 
     AppState: { currentState: 'active', addEventListener: (_, callback) => { change = callback; return { remove() {} }; } },
     activeTripRef, isGpsTrackedTrip: trip => !!trip, legForStatus: () => 'leg2', updateLegContext,
     prepareBackgroundTracking, stopBackgroundTracking, navigationBusyRef: { current: false }, mergeStoredKm: vi.fn().mockResolvedValue(undefined),
+    trackingTransitionRef: { current: Promise.resolve() },
+    navigationOperationRef: { current: null },
     distRef: { current: { prev: null, pending: null } },
   });
   change('background');
-  await Promise.resolve(); await Promise.resolve();
+  for (let i = 0; i < 12; i++) await Promise.resolve();
   if (timing === 'during-start') expect(prepareBackgroundTracking).toHaveBeenCalledOnce();
   activeTripRef.current = null;
   release();
-  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  for (let i = 0; i < 12; i++) await Promise.resolve();
   if (timing === 'before-start') expect(prepareBackgroundTracking).not.toHaveBeenCalled();
   else expect(stopBackgroundTracking).toHaveBeenCalledOnce();
 });
