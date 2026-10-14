@@ -73,14 +73,30 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
     // Blocking incident ids only (record scope for incident proof). No
     // descriptions, locations, or actions — the drawer resolves those safely.
     incidentIds:(p.hardConflicts ?? []).filter(c=>c?.type === 'incident').map(c=>Number(c?.detail?.incident_id)).filter(id=>Number.isSafeInteger(id)),
+    // Cargo capability projection (additive only). Reads the engine-attached
+    // cargoPhysical facts; never computes eligibility here.
+    cargo:p.vehicle ? {
+      capacityKg:Number.isFinite(Number(p.vehicle.cargo_capacity_kg)) ? Number(p.vehicle.cargo_capacity_kg) : null,
+      usablePayloadKg:Number.isFinite(Number(p.cargoPhysical?.usable_payload_kg ?? p.vehicle?.cargoPhysical?.usable_payload_kg)) ? Number(p.cargoPhysical?.usable_payload_kg ?? p.vehicle?.cargoPhysical?.usable_payload_kg) : null,
+      remainingKg:Number.isFinite(Number(p.cargoPhysical?.remaining_payload_kg)) ? Number(p.cargoPhysical.remaining_payload_kg) : null,
+      nominalVolumeM3:p.cargoPhysical?.totals?.nominal_volume_m3 ?? null,
+      physicalStatus:p.cargoPhysical?.status ?? null,
+    } : null,
   });});
   const exclusionCtx = { requestId: request.request_id };
   const projectedExclusions = exclusions.slice(0,30).map(r=>({vehicleId:r.vehicle_id,plate:r.plate ?? null,reason:r.reason,prefiltered:r.prefiltered === true,
     driverId:r.driver_id ?? null,driverName:r.driver_name ?? null,
     recovery:recoveryActionForExclusion({ reason: r.reason, vehicleId: r.vehicle_id }, {...exclusionCtx, driverId: r.driver_id ?? null})}));
+  const requestWeightKg = Number(request.cargo_weight_kg);
   return {requestId:request.request_id,pickupAt:request.pickup_datetime,status:request.fleet_status,
     pickupLocal:request.pickup_datetime && Number.isFinite(+new Date(request.pickup_datetime)) ? new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(new Date(request.pickup_datetime))+' (Philippine time)' : null,
-    passengers:request.passenger_count,evaluatedAt:recommendation.evaluatedAt,
+    passengers:request.passenger_count,
+    requestCargo:{
+      loadType:request.load_type ?? null,
+      weightKg:Number.isFinite(requestWeightKg) && requestWeightKg > 0 ? requestWeightKg : null,
+      description:String(request.cargo_description ?? '').slice(0,200) || null,
+    },
+    evaluatedAt:recommendation.evaluatedAt,
     evaluation:recommendation.evaluation, pairs,
     selection: selectedPair ? {vehicleId:selectedPair.vehicleId,driverId:selectedPair.driverId,status:selected?'resolved':'missing'} : null,
     coverage: {
