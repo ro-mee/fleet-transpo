@@ -1,4 +1,4 @@
-﻿import { ok, err, handleError } from "@/lib/api/utils";
+import { ok, err, handleError } from "@/lib/api/utils";
 import { verifyServiceToken } from "@/lib/api/service-auth";
 import {
   fetchReferencePrice,
@@ -10,7 +10,7 @@ import { fetchNcrPage, fetchPdfBytes, extractPdfText, extractNcrPdfLinks, parseW
 // Official price-provider sync (Release D Task 12).
 //
 // Authentication is the shared CRON_SECRET (verifyServiceToken), never a user
-// session â€” same convention as /api/cron/sync. Fail-closed when unset.
+// session — same convention as /api/cron/sync. Fail-closed when unset.
 //
 // ACTIVATION GATE: no official machine-readable, legally usable source has
 // been identified, so the scheduler stays DISABLED and manual verified

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -17,7 +17,7 @@ import { toast } from "@/components/ui/toast";
 export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) {
   const queryClient = useQueryClient();
   const isEditing = !!initialData?.maintenance_id;
-  // P0 mechanic integration: assignment UI is staff-only â€” never render it
+  // P0 mechanic integration: assignment UI is staff-only — never render it
   // for the mechanic role (the server whitelist strips it regardless).
   const { employee } = useAuth();
   const canAssignMechanic = ["super_admin", "admin", "fleet_manager"].includes(employee?.roles?.role_name);
@@ -70,7 +70,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
     setLoading(true);
     // P0: fold the assign-mechanic select into the payload. Create sends the
     // id only when a mechanic is chosen; edit sends it only when the
-    // selection changed â€” "" back to null is an explicit unassign, an
+    // selection changed — "" back to null is an explicit unassign, an
     // untouched select stays out of the PUT entirely.
     const payload = { ...formData };
     const selected = payload.assigned_mechanic_id === "unassigned" ? "" : payload.assigned_mechanic_id;
@@ -172,7 +172,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
 
             <Field
               label="Mileage at Service (km)"
-              hint="Prefilled from the vehicleâ€™s saved mileage; adjust it if the odometer reading at service differs."
+              hint="Prefilled from the vehicle’s saved mileage; adjust it if the odometer reading at service differs."
             >
               <Input
                 type="number"
@@ -190,7 +190,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
                 <Field label="Completed Date">
                   <Input type="date" name="completed_date" value={formData.completed_date} onChange={handleChange} required={formData.status === 'Completed'} />
                 </Field>
-                <Field label="Cost (â‚±)">
+                <Field label="Cost (₱)">
                   <Input type="number" step="0.01" min="0" name="cost" value={formData.cost} onChange={handleChange} placeholder="0.00" />
                 </Field>
               </div>

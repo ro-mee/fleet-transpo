@@ -1,4 +1,4 @@
-﻿import { query } from "@/lib/db";
+import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
@@ -16,7 +16,7 @@ export async function GET(req) {
 
     // `Reserved` / `In Use` are not reasons to hide a vehicle from a *windowed*
     // search. status.service.js writes those when the vehicle has an open
-    // booking/dispatch â€” a whole-day flag, not a slot one. So a vehicle out at
+    // booking/dispatch — a whole-day flag, not a slot one. So a vehicle out at
     // 1pm still reads as Reserved/In Use for an 8pm search, and this endpoint
     // used to drop it. The NOT EXISTS below already answers the real question
     // ("is it taken during THIS window?") precisely, so when a window is given
@@ -51,7 +51,7 @@ export async function GET(req) {
 
     // Typed capacity search (Task 5): filter by declared operational use, or by
     // a minimum usable cargo payload. Both predicates reference migration 153
-    // columns â€” do not deploy this revision before that migration is applied.
+    // columns — do not deploy this revision before that migration is applied.
     if (operational_use && ["Passenger", "Cargo"].includes(operational_use)) {
       sql += ` AND v.operational_use = $${idx++}`; params.push(operational_use);
     }
@@ -131,7 +131,7 @@ export async function GET(req) {
     // custodian, or the substitute covering the date (loadVehicleTravelContext
     // already substituted it into ctx.pairings). A vehicle whose driver has no
     // schedule, a rest day, approved leave, or an out-of-shift window is hidden
-    // â€” the pair cannot operate in this slot. Custodianless vehicles have no
+    // — the pair cannot operate in this slot. Custodianless vehicles have no
     // driver to check and stay listed.
     if (pickupAt && available.length) {
       const effectiveIds = (ctx.pairings || [])

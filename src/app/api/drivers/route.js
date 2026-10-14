@@ -1,4 +1,4 @@
-﻿import bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";
 import { query, getAdminClient, withTransaction } from "@/lib/db";
 import { saveAddress } from "@/services/address.service";
 import { resolvePickedAddress } from "@/lib/address/picked";
@@ -58,7 +58,7 @@ async function ensureDriverColumnsExist() {
 export async function GET(req) {
   try {
     // No "driver" role here: the RBAC matrix gives drivers their OWN profile
-    // (/api/driver/me), not the roster â€” admitting them to this route lets any
+    // (/api/driver/me), not the roster — admitting them to this route lets any
     // driver enumerate colleagues' license numbers, contact details and
     // schedules. GET /api/drivers/[id] already excludes the role as well.
     await requirePermission(req, "drivers", "read_all");
@@ -70,7 +70,7 @@ export async function GET(req) {
 
     // Drivers with a linked drivers row. includeUnlinked additionally surfaces
     // role-driver employees that have NO drivers row yet (e.g. accounts created
-    // via the old Settings â†’ Add User path), flagged requires_completion so an
+    // via the old Settings → Add User path), flagged requires_completion so an
     // admin can finalize them through POST /api/drivers/link.
     let sql = `
       SELECT
@@ -116,7 +116,7 @@ export async function GET(req) {
     }
 
     // Only drivers with NO currently active custodial vehicle (017). Used to
-    // populate the substitute-driver picker â€” a substitute must be someone who
+    // populate the substitute-driver picker — a substitute must be someone who
     // doesn't already own a car.
     const unassigned = searchParams.get("unassigned") === "1";
     if (unassigned) {
@@ -187,7 +187,7 @@ export async function GET(req) {
           0 AS years_of_experience,
           NULL::VARCHAR(50) AS driver_type,
           -- Unlinked (incomplete-account) rows have no drivers row: the UI
-          -- treats a missing classification as Passenger (design Â§4), so the
+          -- treats a missing classification as Passenger (design §4), so the
           -- API projects the same default instead of null.
           'Passenger' AS driver_type,
           'Incomplete' AS driver_status,
@@ -343,7 +343,7 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
-    // â”€â”€ The two addresses, in whichever of their two shapes arrived â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── The two addresses, in whichever of their two shapes arrived ──────────
     // A driver carries a residential address and their next-of-kin's, and each
     // can be a picked structured address, legacy free text, or nothing at all.
     // Both picks are resolved HERE, before anything is written, because
@@ -357,7 +357,7 @@ export async function POST(req) {
 
     // The value that goes into the TEXT column. A pick wins over the submitted
     // string, because the server composed it from its own resolution of the
-    // barangay code â€” so the text and the registry row it will point at are
+    // barangay code — so the text and the registry row it will point at are
     // guaranteed to describe the same place. That is what makes the mirroring a
     // maintained denormalization rather than two facts free to disagree.
     const residentialText = residential.value
@@ -371,7 +371,7 @@ export async function POST(req) {
 
     // Reduce the submitted scans to their STORED form (a bucket-qualified object
     // key) before either the driver row or the employee avatar mirror is
-    // written â€” see `lib/drivers/media`. One canonical value feeds both, so they
+    // written — see `lib/drivers/media`. One canonical value feeds both, so they
     // cannot disagree, and a client that echoes back a signed URL it was shown
     // cannot plant one in a durable column.
     const storedLicenceFront = toStoredMediaRef(license_image_url, "driver-licenses");
@@ -393,7 +393,7 @@ export async function POST(req) {
     let roleId = ROLE_IDS.driver;
     let passwordHash = null;
 
-    // A password on a reused employee would be a silent credential change â€” the
+    // A password on a reused employee would be a silent credential change — the
     // same account-takeover path POST /api/auth/register blocks with a 409. Only
     // set credentials on a brand-new employee row.
     if (password && password.trim() !== "") {
@@ -433,13 +433,13 @@ export async function POST(req) {
       }
     }
 
-    // â”€â”€ Employee, driver and both addresses: ONE transaction â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Employee, driver and both addresses: ONE transaction ─────────────────
     // These three writes succeed together or fail together, and the reason they
     // can is that all three now run on the SAME client. They used to be split:
     // the employee and driver inserts went through the Supabase client (PostgREST
     // over HTTPS) and only the addresses ran on `withTransaction`'s `pg` handle.
-    // PostgREST is a separate HTTP service â€” an HTTP request cannot be enrolled in
-    // a `pg` BEGIN/COMMIT â€” so no amount of care could have made that split
+    // PostgREST is a separate HTTP service — an HTTP request cannot be enrolled in
+    // a `pg` BEGIN/COMMIT — so no amount of care could have made that split
     // atomic, and an address failure left a driver committed with both address ids
     // NULL. Moving the two inserts onto `pg` is what buys the atomicity; both are
     // plain INSERTs with a RETURNING and a unique-violation check, and neither
@@ -447,13 +447,13 @@ export async function POST(req) {
     //
     // The ORDER matters and is not cosmetic: the address rows are written FIRST so
     // their ids can go straight into the driver's INSERT. That is also why there
-    // is no longer a follow-up `UPDATE drivers SET address_id = ...` â€” the driver
+    // is no longer a follow-up `UPDATE drivers SET address_id = ...` — the driver
     // row is never visible, even mid-transaction, in a state without its
     // addresses.
     //
     // The two guard SELECTs above stay OUTSIDE this transaction on purpose. They
     // are reads, and the authoritative guards are the unique constraints inside it
-    // (`employees.email`, `drivers.employee_id`) â€” which is also why the 23505
+    // (`employees.email`, `drivers.employee_id`) — which is also why the 23505
     // below is translated rather than assumed unreachable.
     let driverId;
 
@@ -554,7 +554,7 @@ export async function POST(req) {
         return newDriverId;
       });
     } catch (txError) {
-      // A duplicate email that raced the guard SELECT above â€” or a soft-deleted
+      // A duplicate email that raced the guard SELECT above — or a soft-deleted
       // employee still holding the address, which the guard's `deleted_at IS NULL`
       // does not see but the unique constraint does. Same 409 the pre-check
       // returns, so the caller cannot tell which one fired; that is deliberate,
@@ -565,7 +565,7 @@ export async function POST(req) {
           409
         );
       }
-      // Everything else rolls back â€” no employee, no driver, no address rows â€” and
+      // Everything else rolls back — no employee, no driver, no address rows — and
       // falls through to handleError as a 500. There is no compensation step here
       // and no warning: nothing was committed, so there is nothing to undo.
       throw txError;

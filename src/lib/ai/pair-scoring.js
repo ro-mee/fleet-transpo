@@ -1,4 +1,4 @@
-﻿import { DRIVER_STATUS, VEHICLE_STATUS } from "@/lib/constants";
+import { DRIVER_STATUS, VEHICLE_STATUS } from "@/lib/constants";
 import { driverTypeFinding } from '@/lib/drivers/service-groups';
 import {
   estimateEfficiency,
@@ -15,7 +15,7 @@ import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibil
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
 /**
- * Fleet-Pair Recommendation Engine Ã¢â‚¬â€ scores vehicle+driver as ONE unit.
+ * Fleet-Pair Recommendation Engine — scores vehicle+driver as ONE unit.
  *
  * Pure and deterministic, mirroring the rule-engine contract: callers fetch the
  * candidate pools (vehicles, drivers, active custodial pairings) and attach any
@@ -49,7 +49,7 @@ const UNAVAILABLE_STATUSES = new Set([
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 // AI Fair Workload Distribution weight: how many points (0..100) a lighter
-// workload is worth when ranking eligible pairs. MEDIUM-HIGH Ã¢â‚¬â€ it breaks ties
+// workload is worth when ranking eligible pairs. MEDIUM-HIGH — it breaks ties
 // and pulls toward the least-loaded driver, but it is never a hard rule and
 // never overrides the designated-driver match (+45) or a big ETA gap.
 const FAIRNESS_WEIGHT = 15;
@@ -138,7 +138,7 @@ export function hasSubstituteForDate(vehicleId, date, substitutes) {
  * @param {object} driver candidate driver row (with _schedule_load if computed)
  * @param {Date} [now]
  * @param {object} [window] { pickup, returnAt, scheduleContext }
- * @param {object} [opts] { dayScope } Ã¢â‚¬â€ dayScope answers "valid working day?"
+ * @param {object} [opts] { dayScope } — dayScope answers "valid working day?"
  *   (leave / schedule-exists / rest day only) instead of the exact-window
  *   verdict (schedule load + shift/break containment). Opt-in; default false
  *   keeps every existing caller byte-identical.
@@ -213,7 +213,7 @@ export function isDriverUnavailableFor(driver, now = new Date(), window, opts = 
  * dispatch regardless of when the trip is.
  *
  * `Reserved` is deliberately absent. It is a cached, whole-day schedule label
- * (see status.service.js) meaning "this vehicle has a booking today" Ã¢â‚¬â€ not
+ * (see status.service.js) meaning "this vehicle has a booking today" — not
  * "this vehicle is taken at the time you asked about". A vehicle booked 10-11am
  * is genuinely free at 2pm, so treating Reserved as unavailable hides usable
  * capacity. `In Use` is deliberately absent for the same reason: a vehicle
@@ -239,7 +239,7 @@ export function vehicleOperationallyAvailable(vehicle, request) {
   return !NON_DISPATCHABLE_SET.has(status);
 }
 
-/** How a vehicle earned its driver Ã¢â‚¬â€ or why it did not get one. */
+/** How a vehicle earned its driver — or why it did not get one. */
 export const PAIRING_KIND = {
   DESIGNATED: "designated",
   SUBSTITUTE: "substitute",
@@ -270,7 +270,7 @@ export const PAIRING_KIND = {
  * @param {Array} params.activeSubstitutes day-scoped substitute schedules
  * @param {Map<number, object>} params.driverById  full driver rows by id
  * @param {Date} [params.now]
- * @param {boolean} [params.dayScope] Ã¢â‚¬â€ today-overview mode: the driver check
+ * @param {boolean} [params.dayScope] — today-overview mode: the driver check
  *   answers "valid working day?" (leave / schedule-exists / rest day) instead
  *   of the exact-window verdict. Opt-in; default false keeps every existing
  *   caller byte-identical. Successful results carry `duty_window` then.
@@ -326,7 +326,7 @@ export function resolveVehiclePairing({
       };
     }
 
-    // Rule 7: being the booked substitute is not enough Ã¢â‚¬â€ they are validated
+    // Rule 7: being the booked substitute is not enough — they are validated
     // for this dispatch exactly as the custodian was.
     const subUnavail = isDriverUnavailableFor(substitute, now, window, opts);
     if (subUnavail.unavailable) {
@@ -349,7 +349,7 @@ export function resolveVehiclePairing({
     };
   }
 
-  // No custodian. A substitute schedule can still stand on its own Ã¢â‚¬â€ it is an
+  // No custodian. A substitute schedule can still stand on its own — it is an
   // explicit assignment of a driver to this vehicle.
   const subId = resolveSubstituteForDate(vehicleId, pickupDate, activeSubstitutes);
   if (subId == null) {
@@ -408,7 +408,7 @@ function vehicleReadiness(vehicle) {
   let s = 0;
   // Readiness is judged on what the vehicle can actually do in the requested
   // window, not on the cached status label. `Reserved` earns the same credit as
-  // `Available` Ã¢â‚¬â€ it only means the vehicle has a booking somewhere today, and
+  // `Available` — it only means the vehicle has a booking somewhere today, and
   // the schedule-load term below is what prices an actual clash. Penalising the
   // label as well would double-count it and rank a genuinely-free car below an
   // equal one purely for having an unrelated trip that morning. Statuses that
@@ -433,9 +433,9 @@ function driverReadiness(driver) {
   let s = 0;
   if (driver?.driver_status === "Available") s += 0.35;
 
-  // H8: punctuality is informational only Ã¢â‚¬â€ displayed as evidence but carries
+  // H8: punctuality is informational only — displayed as evidence but carries
   // no ranking points here. Completed Trips must not add points either
-  // (rich-get-richer fights workload fairness). The small Ã‚Â±3 punctuality
+  // (rich-get-richer fights workload fairness). The small ±3 punctuality
   // tie-breaker lives in scoreDispatchDrivers (legacy advisory path) only,
   // never as additive score in the pair engine.
 
@@ -466,7 +466,7 @@ function driverReadiness(driver) {
  *             reason_type:'designated'|'replacement', replacement_reason:string|null,
  *             estimated_pickup_minutes:number|null, distance_km:number|null }}
  * `score`/`rank_score` is a deterministic rank key (0..100), NOT a probability.
- * `confidence` is deprecated (legacy normalized score, always null) Ã¢â‚¬â€ never
+ * `confidence` is deprecated (legacy normalized score, always null) — never
  * narrate it as certainty and never feed it to the LLM.
  */
 export function scoreFleetPair({ vehicle, driver, designated, request, trip, passengers }) {
@@ -481,7 +481,7 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
     reasons.push("Driver is the vehicle's designated driver.");
   } else if (designated) {
     score += 10;
-    reasons.push("Substitute driver Ã¢â‚¬â€ vehicle has a designated custodian.");
+    reasons.push("Substitute driver — vehicle has a designated custodian.");
   } else {
     score += 15;
     reasons.push("Vehicle has no designated driver.");
@@ -551,7 +551,7 @@ function driverWorkload(driver) {
     hours_7d: Number(driver._workload_hours_7d),
     hours_30d: Number(driver._workload_hours_30d),
   };
-  // No recorded history anywhere Ã¢â€ â€™ the pair carries no workload signal.
+  // No recorded history anywhere → the pair carries no workload signal.
   if (
     !(w.trips_7d > 0) && !(w.trips_30d > 0) &&
     !(w.km_7d > 0) && !(w.km_30d > 0) &&
@@ -563,7 +563,7 @@ function driverWorkload(driver) {
 }
 
 /**
- * AI Fair Workload Distribution Ã¢â‚¬â€ rank eligible pairs by pool-relative workload.
+ * AI Fair Workload Distribution — rank eligible pairs by pool-relative workload.
  *
  * This runs AFTER every pair has been scored and judged eligible (hard rules
  * already decided WHO CAN). Among those valid pairs it adds up to FAIRNESS_WEIGHT
@@ -572,7 +572,7 @@ function driverWorkload(driver) {
  * is in, so near-saturated pairs can still be reordered by load.
  *
  * When no candidate has any workload history, nothing is added and no fairness
- * is reported Ã¢â‚¬â€ absent data never invents a ranking.
+ * is reported — absent data never invents a ranking.
  */
 function applyWorkloadFairness(pairs) {
   const workloads = pairs.map((p) => driverWorkload(p.driver));
@@ -606,7 +606,7 @@ function applyWorkloadFairness(pairs) {
   }
 
   // The least-loaded eligible driver is the one with the highest pool-relative
-  // fairness (not necessarily 100 Ã¢â‚¬â€ that is only true when their index is 0).
+  // fairness (not necessarily 100 — that is only true when their index is 0).
   let lightestScore = -1;
   for (const p of pairs) {
     if (p.fairness_score != null && p.fairness_score > lightestScore) lightestScore = p.fairness_score;
@@ -651,14 +651,14 @@ export function buildFleetPairRecommendations({
   const pickupDate = request?.pickup_datetime || now;
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
   const pairs = [];
-  // Why candidate vehicles did not make it to a pair Ã¢â‚¬â€ surfaced so the panel can
+  // Why candidate vehicles did not make it to a pair — surfaced so the panel can
   // explain "no candidates" instead of just showing an empty state.
   const skipped = [];
 
   for (const vehicle of vehicles) {
     const seats = Number(vehicle?.seating_capacity) || 0;
     if (seats > 0 && seats < passengers) {
-      skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number, reason: `Seats ${seats} Ã¢â‚¬â€ too small for ${passengers} passenger(s).` });
+      skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number, reason: `Seats ${seats} — too small for ${passengers} passenger(s).` });
       continue;
     }
 
@@ -673,7 +673,7 @@ export function buildFleetPairRecommendations({
     }
 
     // A real clash in the requested window, computed by the caller. This is the
-    // authority on time-specific availability Ã¢â‚¬â€ not the cached status label.
+    // authority on time-specific availability — not the cached status label.
     const vLoad = Number(vehicle?._schedule_load);
     if (Number.isFinite(vLoad) && vLoad > 0) {
       skipped.push({
@@ -770,7 +770,7 @@ export function buildFleetPairRecommendations({
 
 /**
  * The human-facing "Why this pair?" checklist. Each row is a concise claim a
- * dispatcher can read at a glance and defend in review Ã¢â‚¬â€ assembled from signals
+ * dispatcher can read at a glance and defend in review — assembled from signals
  * the scorer already computed. Always present so the panel can show it without
  * waiting on the LLM narration.
  */
@@ -779,7 +779,7 @@ export function buildChecklist(pair, isTopRanked) {
   const vehicle = pair?.vehicle;
   const driver = pair?.driver;
 
-  // Designated vs substitute Ã¢â‚¬â€ the core pairing rule. `pairing_kind` is the
+  // Designated vs substitute — the core pairing rule. `pairing_kind` is the
   // precise signal; `is_designated` alone cannot tell a substitute covering an
   // absent custodian apart from one assigned to a vehicle that never had a
   // custodian, and only the former is a downgrade worth flagging.
@@ -789,14 +789,14 @@ export function buildChecklist(pair, isTopRanked) {
     items.push({ text: "Assigned substitute driver for this vehicle", pass: true });
   } else if (pair?.reason_type === REASON_TYPE.REPLACEMENT) {
     items.push({
-      text: `Substitute driver Ã¢â‚¬â€ designated unavailable (${pair.replacement_reason || "no reason"}).`,
+      text: `Substitute driver — designated unavailable (${pair.replacement_reason || "no reason"}).`,
       pass: false,
     });
   } else {
     items.push({ text: "Vehicle has no designated driver", pass: true });
   }
 
-  // Proximity Ã¢â‚¬â€ closest driver to pickup (only meaningful for immediate dispatch).
+  // Proximity — closest driver to pickup (only meaningful for immediate dispatch).
   const dist = Number(driver?._pickup_distance_km);
   if (Number.isFinite(dist) && driver?._proximity_relevant === true) {
     items.push({ text: dist <= 5 ? "Closest available vehicle" : `${dist} km from pickup`, pass: dist <= 5 });
@@ -824,10 +824,10 @@ export function buildChecklist(pair, isTopRanked) {
     items.push({ text: ok ? "No maintenance due" : `Maintenance risk: ${risk}`, pass: ok });
   }
 
-  // Rank key Ã¢â‚¬â€ top ranked. Never a probability; never narrated as one.
+  // Rank key — top ranked. Never a probability; never narrated as one.
   if (isTopRanked) items.push({ text: "Highest-ranked eligible fit", pass: true });
 
-  // AI Fair Workload Distribution Ã¢â‚¬â€ only reported when the pool actually has
+  // AI Fair Workload Distribution — only reported when the pool actually has
   // workload history. The least-loaded eligible driver gets the headline claim.
   if (pair?.workload) {
     const t7 = Number(pair.workload.trips_7d) || 0;

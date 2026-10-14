@@ -1,4 +1,4 @@
-﻿import { query } from "@/lib/db";
+import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import {
   resolveVehiclePairing,
@@ -19,15 +19,15 @@ import { driverTypeFinding } from '@/lib/drivers/service-groups';
 // Reports HARD eligibility per vehicle (capacity, operational status, travel
 // docs/coding, custodial pairing) using the SAME rule the assignment path
 // enforces (`resolveVehiclePairing` + `vehicleOperationallyAvailable`), plus
-// every overlapping dispatch in the window as `clashes[]` DATA â€” never a
+// every overlapping dispatch in the window as `clashes[]` DATA — never a
 // verdict. The board classifies for display: today-mode shows schedule
 // activity as "Has trips today"; exact-window mode treats window overlap as
-// blocking. Read-only composition â€” no new rules.
+// blocking. Read-only composition — no new rules.
 //
 // Query:
 //   pickup_at / return_at (explicit window from the client),
 //   min_capacity (optional seat floor), category_id (optional),
-//   mode=today|exact (default exact â€” unknown callers get the strict,
+//   mode=today|exact (default exact — unknown callers get the strict,
 //   authoritative behavior; today answers "valid working day?" and skips
 //   exact-trip schedule signals, see day-eligibility.js).
 // Response:
@@ -106,7 +106,7 @@ export async function GET(req) {
         `SELECT vehicle_id, substitute_driver_id, effective_from, effective_until
            FROM substitute_vehicle_schedules`
       ),
-      // Half-open overlap against the requested window â€” the authority on
+      // Half-open overlap against the requested window — the authority on
       // time-specific availability, not the cached status label.
       query(
         `SELECT dispatch_id, dispatch_number, vehicle_id, driver_id, status,
@@ -177,13 +177,13 @@ export async function GET(req) {
     for (const v of vehicles) {
       const vehicleId = Number(v.vehicle_id);
       const seats = Number(v.seating_capacity) || 0;
-      // Schedule activity for this vehicle in the window â€” attached as DATA to
+      // Schedule activity for this vehicle in the window — attached as DATA to
       // every entry, never a verdict here. The board classifies: today-mode
       // shows it as "Has trips today", exact-window mode treats it as blocking.
       const tripClashes = (vehicleClash.get(vehicleId) || []).map(slimClash);
 
       if (minCapacity && seats > 0 && seats < minCapacity) {
-        const reason = `Seats ${seats} â€” below required ${minCapacity}.`;
+        const reason = `Seats ${seats} — below required ${minCapacity}.`;
         blocked.push({
           vehicle: slimVehicle(v),
           driver: null,
@@ -224,7 +224,7 @@ export async function GET(req) {
         continue;
       }
 
-      // THE shared rule â€” same function the assign path enforces. dayScope
+      // THE shared rule — same function the assign path enforces. dayScope
       // only changes the driver-schedule interpretation (see pair-scoring).
       const pairing = resolveVehiclePairing({
         vehicleId,
@@ -287,7 +287,7 @@ export async function GET(req) {
     }
 
     // Drivers attached to no vehicle (neither custodian nor booked substitute
-    // for the date) â€” shown as a footer count, not a dispatchable resource.
+    // for the date) — shown as a footer count, not a dispatchable resource.
     const pairedDriverIds = new Set(activePairs.map((p) => Number(p.driver_id)));
     for (const s of activeSubstitutes) {
       try {
@@ -371,7 +371,7 @@ function travelBlockReason(v, ctx, date) {
   };
   if (expired(v.registration_expiry) || expired(v.insurance_expiry)) {
     const which = expired(v.registration_expiry) ? "Registration expired" : "Insurance expired";
-    return `${which} â€” cannot travel on this date.`;
+    return `${which} — cannot travel on this date.`;
   }
   const codingReason = numberCodingBlockReason(v, ctx, day);
   if (codingReason) return codingReason;

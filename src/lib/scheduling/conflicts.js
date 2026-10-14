@@ -1,4 +1,4 @@
-﻿import { query } from "@/lib/db";
+import { query } from "@/lib/db";
 import { isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
@@ -22,7 +22,7 @@ import { driverTypeFinding } from "@/lib/drivers/service-groups";
 //
 // These helpers detect when a vehicle or driver is already committed to an
 // overlapping window. Enforcement is app-layer (check-then-insert), consistent
-// with the rest of this codebase â€” there is an unavoidable TOCTOU race between
+// with the rest of this codebase — there is an unavoidable TOCTOU race between
 // the check and the INSERT under high concurrency. For this single-org,
 // low-write workload that is acceptable; a fully race-free fix would require a
 // Postgres exclusion constraint (tstzrange + btree_gist), which is noted as
@@ -35,7 +35,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // User-facing times are always Philippine wall-clock. Raw ISO strings are UTC
 // (e.g. 07:09Z reads as 7:09 AM while the Manila wall-clock is 3:09 PM), so
 // embedding toISOString() in a message lets the Copilot repeat the UTC hour
-// while the UI shows the Manila hour â€” with a correct minute-gap alongside.
+// while the UI shows the Manila hour — with a correct minute-gap alongside.
 // RS-UZYD 2026-10-02 caught exactly that 8-hour split. ISO stays in `detail`
 // for machine use; prose uses this.
 function formatManila(value) {
@@ -53,7 +53,7 @@ function formatManila(value) {
 // Active custodial pairings (migration 017), enriched with the plate and driver
 // name the warning message needs. `assigned_until IS NULL` is exactly the
 // predicate on uq_dva_active_driver / uq_dva_active_vehicle, so this reads the
-// same rows those indexes constrain â€” at most one per driver and per vehicle.
+// same rows those indexes constrain — at most one per driver and per vehicle.
 //
 // Shared by both entry points below (`$1` = vehicle ids, `$2` = driver ids) so
 // the single and batch paths cannot load different rows for the same rule.
@@ -117,12 +117,12 @@ export async function findDispatchConflicts({
 // dispatch INSERT. This one answers a broader question for the queue UI: given
 // a request and its (possibly proposed) vehicle/driver, what could go wrong?
 //
-// It never blocks anything â€” it returns typed findings the queue renders as
+// It never blocks anything — it returns typed findings the queue renders as
 // chips so a dispatcher sees problems before committing. Enforcement still
 // happens at /api/dispatch via findDispatchConflicts.
 // ============================================================================
 
-// The type enum lives in ./conflict-types.js â€” a module with no imports â€” so a
+// The type enum lives in ./conflict-types.js — a module with no imports — so a
 // client component can name a finding without pulling pg into the browser
 // bundle. Re-exported here because every server caller and the verification
 // harness import it from this module.
@@ -137,7 +137,7 @@ const SEVERITY = CONFLICT_SEVERITY;
 // database handle. Both entry points below feed it: detectRequestConflicts
 // fetches for one request, detectConflictsForRequests batch-fetches for a whole
 // queue page. Sharing this function is what guarantees a card in the queue and
-// the 409 at assign time can never disagree about the rules â€” only about how
+// the 409 at assign time can never disagree about the rules — only about how
 // the rows were loaded.
 // ---------------------------------------------------------------------------
 
@@ -164,7 +164,7 @@ function maintenanceCoversDay(row, day, endDay = day) {
 }
 
 /**
- * Travel-time + safety-buffer rule (SYSTEM.md Â§4.8.3). BLOCKING when a
+ * Travel-time + safety-buffer rule (SYSTEM.md §4.8.3). BLOCKING when a
  * resource's previous commitment ends too close to the pickup for it to get
  * there in time.
  *
@@ -173,7 +173,7 @@ function maintenanceCoversDay(row, day, endDay = day) {
  *
  *   - No previous commitment. The resource is available immediately; the buffer
  *     reserves slack AFTER a real commitment, not before a stand-by one. Nothing
- *     to gate on â€” correctly silent.
+ *     to gate on — correctly silent.
  *   - A previous commitment exists, but the travel time to this pickup could not
  *     be worked out. The rule could not be evaluated. Reporting that as an
  *     all-clear is how a safety constraint silently disappears, so it is
@@ -185,7 +185,7 @@ function maintenanceCoversDay(row, day, endDay = day) {
 function travelBufferFindings(request, resource, kind, cfg) {
   if (!resource || !cfg || cfg.travelBufferEnabled === false) return [];
 
-  // Nothing was booked before this pickup â€” nothing to gate on.
+  // Nothing was booked before this pickup — nothing to gate on.
   if (resource._previous_busy_end == null) return [];
 
   const idKey = kind === "vehicle" ? "vehicle_id" : "driver_id";
@@ -200,7 +200,7 @@ function travelBufferFindings(request, resource, kind, cfg) {
       {
         type: CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED,
         severity: SEVERITY.WARNING,
-        message: `${label} has a previous commitment ending ${formatManila(resource._previous_busy_end)}, but the travel time to this pickup could not be determined â€” the safety buffer was not checked. Confirm the gap manually before dispatching.`,
+        message: `${label} has a previous commitment ending ${formatManila(resource._previous_busy_end)}, but the travel time to this pickup could not be determined — the safety buffer was not checked. Confirm the gap manually before dispatching.`,
         detail: {
           [idKey]: resource[idKey],
           previous_scheduled_end: resource._previous_busy_end,
@@ -223,7 +223,7 @@ function travelBufferFindings(request, resource, kind, cfg) {
     {
       type: CONFLICT_TYPE.TRAVEL_BUFFER,
       severity: SEVERITY.BLOCKING,
-      message: `${label} is only available at ${formatManila(r.earliest)} â€” the pickup is too soon after the previous trip (${resource._eta_to_pickup_min} min travel + ${cfg.safetyBufferMinutes} min buffer).`,
+      message: `${label} is only available at ${formatManila(r.earliest)} — the pickup is too soon after the previous trip (${resource._eta_to_pickup_min} min travel + ${cfg.safetyBufferMinutes} min buffer).`,
       detail: {
         [idKey]: resource[idKey],
         earliest_next_available: r.earliest.toISOString(),
@@ -320,8 +320,8 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
     // commit path uses, so queue chips and the assign 409 can never disagree.
     // Legacy untyped rows keep their exact historical seats wording above and
     // skip the typed gate; typed rows fail closed on unknown load, use, or
-    // capacity. The finding type stays CAPACITY_MISMATCH â€” the stable code UI,
-    // logs, Copilot evidence and tests key on â€” with the evaluator code inside.
+    // capacity. The finding type stays CAPACITY_MISMATCH — the stable code UI,
+    // logs, Copilot evidence and tests key on — with the evaluator code inside.
     if (request?.load_type != null) {
       const verdict = evaluateVehicleCapacity(request, vehicle);
       if (!verdict.eligible) {
@@ -398,7 +398,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
 
   // Custodial pairing (migration 017). This is the only WARNING-severity rule:
   // when a driver's paired car is in maintenance they MUST take another one, so
-  // departing from the pairing can never block a dispatch â€” it only tells the
+  // departing from the pairing can never block a dispatch — it only tells the
   // dispatcher that accountability for fuel/damage is about to move.
   //
   // Both sides are reported independently: taking someone else's car and lending
@@ -408,7 +408,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
   if (vehicle || driver) {
     const active = assignments.filter((a) => a.assigned_until == null);
     // A scheduled substitute covering the pickup date is the vehicle's effective
-    // driver â€” assigning them is the intended pair, not a pairing departure.
+    // driver — assigning them is the intended pair, not a pairing departure.
     const isScheduledSubstitute =
       vehicle && driver && pickup &&
       resolveSubstituteForDate(vehicle.vehicle_id, pickup, substitutes) === Number(driver.driver_id);
@@ -451,7 +451,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
     }
   }
 
-  // Travel-time + safety-buffer rule (Â§4.8.3). Read-only unless the caller
+  // Travel-time + safety-buffer rule (§4.8.3). Read-only unless the caller
   // attached the signals (the assign gate does); defaults keep the rule active
   // but fail-open when the ETA/previous-end data is absent.
   const cfg = {
@@ -500,8 +500,8 @@ async function buildUvvrpCtx(vehicle, date, strict = false) {
  *
  * @param {object} request  transportation_requests row (pickup_datetime, passenger_count, vehicle_id, driver_id)
  * @param {object} [opts]
- * @param {number} [opts.vehicleId]  override â€” check a proposed vehicle instead of the assigned one
- * @param {number} [opts.driverId]   override â€” check a proposed driver
+ * @param {number} [opts.vehicleId]  override — check a proposed vehicle instead of the assigned one
+ * @param {number} [opts.driverId]   override — check a proposed driver
  * @returns {Promise<Array<{type: string, severity: string, message: string, detail?: object}>>}
  */
 export async function detectRequestConflicts(request, opts = {}) {
@@ -569,7 +569,7 @@ export async function detectRequestConflicts(request, opts = {}) {
       : Promise.resolve([]),
 
     // 8. Custodial pairing (017) for either side. Unlike the checks above this
-    // one runs without a pickup time â€” the pairing is standing, not windowed.
+    // one runs without a pickup time — the pairing is standing, not windowed.
     vehicleId || driverId
       ? query(ACTIVE_ASSIGNMENTS_SQL, [
           vehicleId ? [vehicleId] : [],
@@ -579,7 +579,7 @@ export async function detectRequestConflicts(request, opts = {}) {
           .catch(error => { if (opts.strict) throw error; return []; })
       : Promise.resolve([]),
 
-    // Substitute schedules (032) for the proposed vehicle â€” the engine resolves
+    // Substitute schedules (032) for the proposed vehicle — the engine resolves
     // whether one covers the pickup date.
     vehicleId
       ? query(
@@ -592,7 +592,7 @@ export async function detectRequestConflicts(request, opts = {}) {
           .catch(error => { if (opts.strict) throw error; return []; })
       : Promise.resolve([]),
 
-    // Â§4.8.3 â€” the resource's most recent active commitment that ENDS before the
+    // §4.8.3 — the resource's most recent active commitment that ENDS before the
     // pickup (a "just finished" dispatch). This is the base for the travel+buffer
     // gate; overlap above answers a DIFFERENT question (a dispatch inside the
     // window). Attached to the resource rows and consumed by the pure evaluator.
@@ -620,7 +620,7 @@ export async function detectRequestConflicts(request, opts = {}) {
   const cargoPhysical = cargo.results.get(Number(vehicleId));
   const vehicleRow = vehicleWithCargoPhysical(storedVehicleRow, cargoPhysical);
 
-  // Attach the Â§4.8.3 signals so the pure evaluator can run the travel+buffer
+  // Attach the §4.8.3 signals so the pure evaluator can run the travel+buffer
   // gate. A caller that resolved them server-side (lib/scheduling/travel-signals)
   // supplies both the commitment and the ETA, and those win: the ETA was derived
   // against that exact commitment, so taking the end time from here and the
@@ -724,7 +724,7 @@ export async function detectRequestConflicts(request, opts = {}) {
  * The per-request function issues up to four queries; running it across a queue
  * would be an N+1 on every poll. This fetches each table once for the union of
  * referenced vehicles and drivers, then applies the same
- * evaluateRequestConflicts rules per row â€” so the batch and single paths cannot
+ * evaluateRequestConflicts rules per row — so the batch and single paths cannot
  * drift apart.
  *
  * Failure-tolerant in the same way: a query error degrades to "no findings for
@@ -740,7 +740,7 @@ export async function detectConflictsForRequests(requests = []) {
   const vehicleIds = [...new Set(requests.map((r) => r.vehicle_id).filter(Boolean))];
   const driverIds = [...new Set(requests.map((r) => r.driver_id).filter(Boolean))];
 
-  // Nothing is assigned yet â€” no resource to conflict with.
+  // Nothing is assigned yet — no resource to conflict with.
   if (vehicleIds.length === 0 && driverIds.length === 0) {
     for (const r of requests) out.set(r.request_id, []);
     return out;
@@ -827,7 +827,7 @@ export async function detectConflictsForRequests(requests = []) {
   const exemptVehicleIds = uvvrpPolicy?.enabled
     ? await getExemptVehicleIds().catch(() => new Set())
     : new Set();
-  // Â§4.8.3 safety-buffer config â€” passed to the evaluator for consistency.
+  // §4.8.3 safety-buffer config — passed to the evaluator for consistency.
   const dispatchPolicy = await getDispatchPolicy().catch(() => null);
   const physicalByRequest = await loadCargoPhysicalBatch(requests, { policy: dispatchPolicy });
 
@@ -862,10 +862,10 @@ export async function detectConflictsForRequests(requests = []) {
       r.request_id,
       // `assignments` is passed whole: the evaluator looks pairings up by exact
       // driver_id/vehicle_id, so unlike `dispatches` there is nothing to narrow.
-      // The travel+buffer rule (Â§4.8.3) is NOT attached here (the per-resource
+      // The travel+buffer rule (§4.8.3) is NOT attached here (the per-resource
       // previous-end/ETA signals would be an N+1 fetch); it stays advisory on
       // the queue and is enforced hard at the assign gate, which is the
-      // authoritative 409 â€” matching how the queue chips never block.
+      // authoritative 409 — matching how the queue chips never block.
       [...evaluateRequestConflicts(r, {
         vehicle,
         driver,

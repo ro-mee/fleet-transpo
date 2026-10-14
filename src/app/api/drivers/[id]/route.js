@@ -1,4 +1,4 @@
-﻿import { query, withTransaction } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { saveAddress, loadStructuredAddress } from "@/services/address.service";
 import { resolvePickedAddress } from "@/lib/address/picked";
 import { AuthError, requireAuth, requirePermission, parseBody, ok, okWithFullLicense, err, errValidation, handleError } from "@/lib/api/utils";
@@ -150,7 +150,7 @@ export async function GET(req, { params }) {
       console.warn("Driver stats lookup skipped:", statsErr);
     }
 
-    // Punctuality (All Time) â€” same definition as the Driver Performance
+    // Punctuality (All Time) — same definition as the Driver Performance
     // report (operational-reports.js): completed non-deleted trips, measured =
     // server-stamped at_pickup_at + scheduled pickup anchor, geofence
     // overrides excluded from on-time/late. Rate divides by MEASURED only.
@@ -259,7 +259,7 @@ export async function GET(req, { params }) {
       console.warn("Driver account lookup skipped:", accErr);
     }
 
-    // â”€â”€ The two saved addresses, reopened for the picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── The two saved addresses, reopened for the picker ─────────────────────
     // Best-effort: the loader reports a failure to reopen as a `reason` instead
     // of throwing, because this endpoint ALSO serves the driver detail page and a
     // form that cannot be pre-filled must not take down a view that has nothing
@@ -270,7 +270,7 @@ export async function GET(req, { params }) {
     ]);
 
     // Media columns hold object keys; resolve them to short-lived URLs for the
-    // response. See `lib/drivers/media` â€” never persist what this returns.
+    // response. See `lib/drivers/media` — never persist what this returns.
     const uploads = await documentMetadata("drivers", id);
     const documentUploads = {};
     for (const upload of uploads) {
@@ -338,7 +338,7 @@ export async function PUT(req, { params }) {
       phone: { type: "phone", label: "Phone" },
       license_number: { type: "license", label: "License number", maxLength: 30 },
       license_expiry: { type: "date", label: "License expiry" },
-      // Same allow-list as POST /api/drivers â€” see the note there.
+      // Same allow-list as POST /api/drivers — see the note there.
       license_image_url: { type: "mediaUrl", label: "License front scan" },
       license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
@@ -349,7 +349,7 @@ export async function PUT(req, { params }) {
       birthdate: {
         type: "date",
         label: "Birthdate",
-        // Same legal-age floor as POST /api/drivers â€” see the note there.
+        // Same legal-age floor as POST /api/drivers — see the note there.
         validate: (v) =>
           isAtLeastAge(v, LEGAL_DRIVING_AGE)
             ? null
@@ -367,7 +367,7 @@ export async function PUT(req, { params }) {
       return errValidation(errors);
     }
 
-    // â”€â”€ The two addresses, in whichever of their two shapes arrived â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── The two addresses, in whichever of their two shapes arrived ──────────
     // Same split as POST /api/drivers and as PUT /api/locations: resolution is
     // validation, so it happens before any write, and a refused barangay is a
     // 400 carrying field errors rather than a reason to unwind one.
@@ -451,7 +451,7 @@ export async function PUT(req, { params }) {
     if (nationality !== undefined) driverPayload.nationality = nationality || null;
     // Canonicalise before anything is written. The reader hands the admin form a
     // short-lived signed URL, and the form submits that back on every save
-    // (`drivers/[id]/edit/page.js:116,295`) â€” storing it would mean the licence
+    // (`drivers/[id]/edit/page.js:116,295`) — storing it would mean the licence
     // image rots when the URL expires, which is the very defect this work exists
     // to close. One canonical value feeds both the driver column and the
     // employee avatar mirror below, so they cannot disagree.
@@ -477,12 +477,12 @@ export async function PUT(req, { params }) {
     if (emergency.value) driverPayload.emergency_contact_address = emergency.value.formattedAddress;
     else if (emergency_contact_address !== undefined) driverPayload.emergency_contact_address = emergency_contact_address || null;
 
-    // â”€â”€ The registry rows, before the driver is pointed at them â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── The registry rows, before the driver is pointed at them ──────────────
     // One transaction for both addresses, so a driver can never end up pointing
     // at one of the two they picked.
     //
     // A failure here fails the whole request, which is the opposite of what
-    // POST /api/drivers does â€” and deliberately so. There the driver row is
+    // POST /api/drivers does — and deliberately so. There the driver row is
     // already committed by the time this runs (the Supabase client cannot join
     // a `pg` transaction), so the only honest options were a degraded success or
     // unwinding a created account. Here nothing has been written yet, so a hard
@@ -604,7 +604,7 @@ export async function PUT(req, { params }) {
     // License-renewal reinstatement (gated): saving a valid expiry while the
     // driver carries a compliance suspension ('license_expired') lifts it.
     // Manual/legacy suspensions never auto-restore. An explicit driver_status
-    // in this same request wins â€” the admin said what they meant.
+    // in this same request wins — the admin said what they meant.
     let reinstated = false;
     if (driver_status === undefined) {
       try {
@@ -617,7 +617,7 @@ export async function PUT(req, { params }) {
           [id]
         );
         // Map the SQL row's snake_case columns onto the helper's camelCase
-        // contract â€” passing the row verbatim silently binds nothing.
+        // contract — passing the row verbatim silently binds nothing.
         const decision = suspensionAction({
           driverStatus: after.rows[0]?.driver_status,
           suspensionReason: after.rows[0]?.suspension_reason,
@@ -644,7 +644,7 @@ export async function PUT(req, { params }) {
           reinstated = true;
           const name = after.rows[0]?.name || `Driver #${id}`;
 
-          // Tell the ops roles the driver is back â€” plus the driver
+          // Tell the ops roles the driver is back — plus the driver
           // themselves (previously staff-only; the owner never heard).
           // Best-effort.
           const { rows: staff } = await query(
