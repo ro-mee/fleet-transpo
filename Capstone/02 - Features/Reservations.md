@@ -364,3 +364,7 @@ The reservation queue and request-detail cancellation confirmations now wait fiv
 ## Cargo consolidation - 2026-10-13
 
 Canonical Supply Chain services now reveal a local item/package/physical-requirements draft in the existing simulator. Cargo review sends no partial request while manifest intake is unavailable; Passenger simulation is typed PMS-only and excludes hidden cargo fields. Queue/detail/Copilot use cargo kg/contents summaries, and queue load/service/source filters are server-side. Source manifests are read through a request-scoped, hash/identity-validated projection without private image access. See [[Supply Chain Consolidation Implementation 2026-10-13]] for checks and activation limits.
+
+## Cargo Copilot narration rules - 2026-10-15
+
+Dispatch Copilot system instructions append an exported `CARGO_RULES` block (`src/lib/dispatch/copilot-prompt.js`): cargo requests reason in kilograms never seats, usable payload decides when supplied, SHADOW physical findings stay advisory while ENFORCE blocks assignment, handling/temperature stay separate from weight, and manifest lines are never invented. Narration only; the deterministic server remains decision authority. Verification: `copilot-prompt.test.js` 12/12 GREEN (cargo block pinned exactly once, block count ten to eleven), prompt-injection security suite 36/36 GREEN, touched-file ESLint clean.

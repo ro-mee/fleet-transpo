@@ -11,6 +11,7 @@ import {
   RECOVERY_INSTRUCTIONS,
   CONVERSATION_STYLE,
   SCOPE_RULES,
+  CARGO_RULES,
   COPILOT_PROMPT_BLOCKS,
   buildCopilotSystemInstructions,
 } from './copilot-prompt';
@@ -18,8 +19,8 @@ import {
 const composed = () => buildCopilotSystemInstructions();
 const count = (haystack, needle) => haystack.split(needle).length - 1;
 
-it('includes all ten blocks in order, joined once', () => {
-  expect(COPILOT_PROMPT_BLOCKS).toHaveLength(10);
+it('includes all eleven blocks in order, joined once', () => {
+  expect(COPILOT_PROMPT_BLOCKS).toHaveLength(11);
   for (const block of COPILOT_PROMPT_BLOCKS) expect(block.length).toBeGreaterThan(50);
   const full = composed();
   let cursor = -1;
@@ -115,4 +116,12 @@ it('uses the dispatcher wording vocabulary and short operational format', () => 
   expect(CONVERSATION_STYLE).toContain('workload for this date');
   expect(CONVERSATION_STYLE).toContain('2–3 short sentences');
   expect(CONVERSATION_STYLE).toMatch(/equally safe/);
+});
+
+it('includes cargo rules exactly once', () => {
+  expect(CARGO_RULES).toBe('CARGO. When serverEvidence.requestCargo.loadType is Cargo, reason in kilograms, never seats or passenger counts. Usable payload decides when supplied; legacy recorded payload is transitional only. SHADOW physical findings are advisory; ENFORCE blocks assignment. Handling and temperature are separate checks from weight. Never invent manifest lines.');
+  const s = composed();
+  expect(s.match(/usable payload/gi)?.length ?? 0).toBe(1);
+  expect(COPILOT_PROMPT_BLOCKS.filter((b) => /usable payload/i.test(b))).toHaveLength(1);
+  expect(COPILOT_PROMPT_BLOCKS.at(-1)).toBe(CARGO_RULES);
 });
