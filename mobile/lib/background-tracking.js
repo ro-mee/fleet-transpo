@@ -147,6 +147,11 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
 async function ensureBackgroundTracking(requestPermission) {
   if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
   try {
+    const currentForeground = await Location.getForegroundPermissionsAsync();
+    const foreground = currentForeground.status === "granted" || !requestPermission
+      ? currentForeground
+      : await Location.requestForegroundPermissionsAsync();
+    if (foreground.status !== "granted") return { ok: false, reason: "permission-denied" };
     const current = await Location.getBackgroundPermissionsAsync();
     const permission = current.status === "granted" || !requestPermission
       ? current
@@ -164,8 +169,12 @@ async function ensureBackgroundTracking(requestPermission) {
 /** Prepare the trip context before checking or starting the native task. */
 export async function prepareBackgroundTracking({ tripId, leg, requestPermission = false }) {
   if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
-  await updateLegContext({ tripId, leg });
-  return ensureBackgroundTracking(requestPermission);
+  try {
+    await updateLegContext({ tripId, leg });
+    return ensureBackgroundTracking(requestPermission);
+  } catch {
+    return { ok: false, reason: "start-failed" };
+  }
 }
 
 /** Compatibility for AppState callers that already saved their trip context. */
@@ -208,7 +217,8 @@ export async function updateLegContext({ tripId, leg }) {
     ctx.leg = leg ?? null;
     ctx.prev = null;
     ctx.pending = null;
-    await saveContext(ctx);
+    // Startup must not succeed with a stale trip/leg after a failed write.
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(ctx));
   });
   contextWrite = write.catch(() => {});
   return write;

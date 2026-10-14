@@ -15,9 +15,9 @@ const mocks = vi.hoisted(() => {
     async getItem(key) {
       return storage.get(key) ?? null;
     },
-    async setItem(key, value) {
+    setItem: vi.fn(async (key, value) => {
       storage.set(key, value);
-    },
+    }),
     async removeItem(key) {
       storage.delete(key);
     },
@@ -28,6 +28,8 @@ vi.mock("react-native", () => ({ Platform: { OS: "android" } }));
 vi.mock("expo-location", () => ({
   ActivityType: { AutomotiveNavigation: 1 },
   Accuracy: { Balanced: 1 },
+  getForegroundPermissionsAsync: vi.fn(),
+  requestForegroundPermissionsAsync: vi.fn(),
   getBackgroundPermissionsAsync: vi.fn(),
   requestBackgroundPermissionsAsync: vi.fn(),
   hasStartedLocationUpdatesAsync: vi.fn(),
@@ -57,7 +59,10 @@ beforeAll(async () => {
 beforeEach(() => {
   mocks.storage.clear();
   vi.resetAllMocks();
+  mocks.setItem.mockImplementation(async (key, value) => { mocks.storage.set(key, value); });
   Platform.OS = "android";
+  Location.getForegroundPermissionsAsync.mockResolvedValue({ status: "granted" });
+  Location.requestForegroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.requestBackgroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.hasStartedLocationUpdatesAsync.mockResolvedValue(false);
@@ -109,6 +114,28 @@ describe("background tracking readiness", () => {
     expect(Location.requestBackgroundPermissionsAsync).not.toHaveBeenCalled();
   });
 
+  it.each([null, { tripId: "previous-trip", leg: "leg1", km1: 2, km2: 3 }])(
+    "refuses readiness when context cannot be saved over %s", async (previous) => {
+      if (previous) await saveContext(previous);
+      mocks.setItem.mockRejectedValueOnce(new Error("Storage write failed"));
+
+      expect(await backgroundTracking.prepareBackgroundTracking(context)).toEqual({ ok: false, reason: "start-failed" });
+      expect(Location.getForegroundPermissionsAsync).not.toHaveBeenCalled();
+      expect(Location.hasStartedLocationUpdatesAsync).not.toHaveBeenCalled();
+      expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+      expect(await loadContext()).toEqual(previous);
+    }
+  );
+
+  it("propagates context write failure without poisoning later serialized writes or losing same-trip totals", async () => {
+    await saveContext({ ...context, km1: 2, km2: 3 });
+    mocks.setItem.mockRejectedValueOnce(new Error("Storage write failed"));
+
+    await expect(backgroundTracking.updateLegContext(context)).rejects.toThrow("Storage write failed");
+    expect(await backgroundTracking.prepareBackgroundTracking(context)).toEqual({ ok: true });
+    expect(await loadContext()).toMatchObject({ ...context, km1: 2, km2: 3 });
+  });
+
   it.each([undefined, false])("never prompts without permission request opt-in (%s)", async (requestPermission) => {
     Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "denied" });
 
@@ -127,6 +154,43 @@ describe("background tracking readiness", () => {
     expect(Location.startLocationUpdatesAsync).toHaveBeenCalledOnce();
   });
 
+  it("obtains foreground permission before checking and requesting background access", async () => {
+    const calls = [];
+    Location.getForegroundPermissionsAsync.mockImplementation(async () => { calls.push("get-foreground"); return { status: "undetermined" }; });
+    Location.requestForegroundPermissionsAsync.mockImplementation(async () => { calls.push("request-foreground"); return { status: "granted" }; });
+    Location.getBackgroundPermissionsAsync.mockImplementation(async () => { calls.push("get-background"); return { status: "undetermined" }; });
+    Location.requestBackgroundPermissionsAsync.mockImplementation(async () => { calls.push("request-background"); return { status: "granted" }; });
+    Location.startLocationUpdatesAsync.mockImplementation(async () => { calls.push("start-native"); });
+
+    expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission: true })).toEqual({ ok: true });
+    expect(calls).toEqual(["get-foreground", "request-foreground", "get-background", "request-background", "start-native"]);
+  });
+
+  it.each([undefined, false])("never prompts or checks background access when foreground permission is absent without opt-in (%s)", async (requestPermission) => {
+    Location.getForegroundPermissionsAsync.mockResolvedValue({ status: "undetermined" });
+
+    expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission })).toEqual({
+      ok: false, reason: "permission-denied",
+    });
+    expect(Location.requestForegroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.getBackgroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.requestBackgroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it("stops before background access when the foreground permission prompt is refused", async () => {
+    Location.getForegroundPermissionsAsync.mockResolvedValue({ status: "denied" });
+    Location.requestForegroundPermissionsAsync.mockResolvedValue({ status: "denied" });
+
+    expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission: true })).toEqual({
+      ok: false, reason: "permission-denied",
+    });
+    expect(Location.requestForegroundPermissionsAsync).toHaveBeenCalledOnce();
+    expect(Location.getBackgroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.requestBackgroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
   it("reports a refused permission without attempting a native start", async () => {
     Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "denied" });
     Location.requestBackgroundPermissionsAsync.mockResolvedValue({ status: "denied" });
@@ -137,8 +201,11 @@ describe("background tracking readiness", () => {
     expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
   });
 
-  it.each(["getBackgroundPermissionsAsync", "requestBackgroundPermissionsAsync", "hasStartedLocationUpdatesAsync", "startLocationUpdatesAsync"])(
+  it.each(["getForegroundPermissionsAsync", "requestForegroundPermissionsAsync", "getBackgroundPermissionsAsync", "requestBackgroundPermissionsAsync", "hasStartedLocationUpdatesAsync", "startLocationUpdatesAsync"])(
     "reports native failure from %s", async (method) => {
+      if (method === "requestForegroundPermissionsAsync") {
+        Location.getForegroundPermissionsAsync.mockResolvedValue({ status: "undetermined" });
+      }
       if (method === "requestBackgroundPermissionsAsync") {
         Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "undetermined" });
       }
@@ -205,6 +272,17 @@ describe("background tracking status compatibility", () => {
 });
 
 describe("background odometer anchor persistence", () => {
+  it("keeps the existing foreground distance merge best-effort when its cleanup write fails", async () => {
+    const stored = { tripId: "trip-1", leg: "leg1", km1: 2, km2: 3 };
+    await saveContext(stored);
+    mocks.setItem.mockRejectedValueOnce(new Error("Storage write failed"));
+    const distRef = { current: { leg1: 1, leg2: 4 } };
+
+    await expect(backgroundTracking.mergeStoredKm(distRef, "trip-1")).resolves.toBeUndefined();
+    expect(distRef.current).toEqual({ leg1: 3, leg2: 7 });
+    expect(await loadContext()).toEqual(stored);
+  });
+
   it("persists gap recovery candidates and keeps rejected teleports off the anchor", async () => {
     expect(mocks.taskName).toBe("fleetops-background-location");
     await saveContext({
