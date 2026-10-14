@@ -125,7 +125,10 @@ describe('real WebView route controller', () => {
 describe('trusted operational target', () => {
   const trip = { trip_status: 'Trip Started', origin_latitude: 14.6, origin_longitude: 121, destination_latitude: 14.7, destination_longitude: 121.1 };
   it.each(['Trip Started', 'At Pickup', 'Driver Accepted', 'Assigned'])('targets pickup in %s', trip_status => expect(navigationTarget({ ...trip, trip_status })).toEqual({ lat: 14.6, lng: 121 }));
-  it.each(['Passenger Onboard', 'En Route', 'Drop-off', 'Arrived'])('targets delivery in %s', trip_status => expect(navigationTarget({ ...trip, trip_status, load_type: 'Cargo' })).toEqual({ lat: 14.7, lng: 121.1 }));
+  it.each(['Passenger Onboard', 'En Route', 'Drop-off', 'Arrived', 'In Progress'])('targets delivery in %s', trip_status => expect(navigationTarget({ ...trip, trip_status, load_type: 'Cargo' })).toEqual({ lat: 14.7, lng: 121.1 }));
+  it.each([null, undefined, '', 'Completed', 'Cancelled', 'Unexpected Status'])(
+    'does not choose a target for %s', trip_status => expect(navigationTarget({ ...trip, trip_status })).toBeNull()
+  );
   it.each(['pending_review', 'unknown'])('does not navigate using %s coordinates', pickup_location_provenance => expect(navigationTarget({ ...trip, pickup_location_provenance })).toBeNull());
   it('clears terminal trip targets and never substitutes address text', () => {
     expect(navigationTarget({ ...trip, trip_status: 'Completed' })).toBeNull();

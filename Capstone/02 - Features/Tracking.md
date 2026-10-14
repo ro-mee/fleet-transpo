@@ -49,6 +49,8 @@ Foreground-only was a deliberate scope decision (see [[ADR-010 Foreground Only G
 
 Summary: a headless task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `mobile/app/(app)/(tabs)/map.js` starts it on background via `AppState`, stops it and merges the accumulated km on return. The foreground watcher stays the source of truth; the task only fills the backgrounded gap.
 
+**Shared mobile navigation phase (2026-10-15):** `mobile/lib/trip-navigation-phase.js` now owns the status mapping used by the trusted navigation target and the existing background-tracking `legForStatus` export. Pending through At Pickup maps to pickup/leg1; Passenger Onboard, En Route, Drop-off, Arrived and In Progress maps to destination/leg2. Empty, terminal and unknown statuses return no target or leg. Passenger and Cargo use the same status rules. Verification: strict test-first checks reproduced the missing module and seven unsafe-fallback failures before implementation; the three focused phase, routing and background suites then passed 66/66 tests. This slice does not yet change tracking startup or the Google Maps launcher; physical Android acceptance remains pending.
+
 **Requires a custom dev build** (not Expo Go) and, for Android production release, Play Store review with a justification.
 
 → [[Mobile Architecture]] · [[ADR-011 Background GPS Tracking]]

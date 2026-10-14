@@ -4,6 +4,7 @@ import * as TaskManager from "expo-task-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
 import { accumulateFix, createAccumulator } from "./gps-odometer";
+export { legForStatus } from "./trip-navigation-phase";
 
 /**
  * Background location tracking for the driver's active trip.
@@ -32,22 +33,6 @@ const TASK_NAME = "fleetops-background-location";
 const STORAGE_KEY = "fleetops_bg_tracking";
 // Shape: { tripId, leg, km1, km2, prev, pending }. Older records without
 // `pending` remain valid and receive its null default when loaded.
-
-// Statuses where the driver is travelling to the pickup; anything else is the
-// second leg to the destination. Mirrors map.js so both agree on leg assignment.
-const HEADING_TO_PICKUP_STATUSES = [
-  "Pending",
-  "Approved",
-  "Assigned",
-  "Vehicle Assigned",
-  "Driver Assigned",
-  "Dispatched",
-  "Driver Accepted",
-  "Trip Started",
-  "At Pickup",
-];
-
-const HEADING_TO_PICKUP = new Set(HEADING_TO_PICKUP_STATUSES);
 
 // km between two lat/lng pairs and the segment acceptance rules now live in
 // ./gps-odometer so the foreground watcher and this task cannot drift apart
@@ -232,10 +217,4 @@ export async function mergeStoredKm(distRef, expectedTripId = null) {
   ctx.prev = null;
   ctx.pending = null;
   await saveContext(ctx);
-}
-
-/** Derive the leg label from a trip status string ("leg1" | "leg2" | null). */
-export function legForStatus(status) {
-  if (!status) return null;
-  return HEADING_TO_PICKUP.has(status) ? "leg1" : "leg2";
 }

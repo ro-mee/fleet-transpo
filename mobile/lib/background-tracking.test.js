@@ -66,6 +66,14 @@ function location(lat, lng, timestamp, speed = 12) {
   return { timestamp, coords: { latitude: lat, longitude: lng, speed } };
 }
 
+describe("background tracking status compatibility", () => {
+  it.each([["Trip Started", "leg1"], ["At Pickup", "leg1"], ["En Route", "leg2"], ["In Progress", "leg2"], ["Completed", null], ["Cancelled", null], ["Unexpected Status", null]])(
+    "maps %s to %s through the existing export", (status, leg) => {
+      expect(backgroundTracking.legForStatus(status)).toBe(leg);
+    }
+  );
+});
+
 describe("background odometer anchor persistence", () => {
   it("persists gap recovery candidates and keeps rejected teleports off the anchor", async () => {
     expect(mocks.taskName).toBe("fleetops-background-location");

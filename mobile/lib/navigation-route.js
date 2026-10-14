@@ -1,8 +1,10 @@
 import { finiteNumberInRange } from './map-webview-data';
+import { navigationPhaseForStatus } from './trip-navigation-phase';
 
 export function navigationTarget(trip) {
-  if (!trip || ['Completed', 'Cancelled'].includes(trip.trip_status)) return null;
-  const pickup = ['Pending', 'Approved', 'Assigned', 'Vehicle Assigned', 'Driver Assigned', 'Dispatched', 'Driver Accepted', 'Trip Started', 'At Pickup'].includes(trip.trip_status);
+  const phase = navigationPhaseForStatus(trip?.trip_status);
+  if (!phase) return null;
+  const pickup = phase === 'to_pickup';
   const provenance = pickup ? trip.pickup_location_provenance : trip.dropoff_location_provenance;
   if (provenance && provenance !== 'canonical_registry') return null;
   const lat = finiteNumberInRange(pickup ? trip.origin_latitude : trip.destination_latitude, -90, 90);
