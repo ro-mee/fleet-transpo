@@ -19,6 +19,8 @@ import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
+import { ReferencePhotoGuide } from '../../components/ReferencePhotoGuide';
+import { inspectionReferenceFor } from '../../lib/inspection-reference-images';
 import { raisedControl } from '../../lib/clay';
 import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../components/coachmarks";
 import {
@@ -63,6 +65,7 @@ export default function PreShiftInspection() {
   // arrives after the first render, so the checklist follows it — the submit
   // payload is built from this same array and the server re-validates the set.
   const tripLoadType = tripContext?.load_type ?? null;
+  const isCargoPreTrip = screenMode === "pretrip" && tripLoadType === "Cargo";
   const CHECKLIST = useMemo(() => checklistForMode(screenMode, tripLoadType), [screenMode, tripLoadType]);
 
   // Seeded with all possible items so answers are preserved across mode toggles.
@@ -77,18 +80,22 @@ export default function PreShiftInspection() {
   const [submitting, setSubmitting] = useState(false);
   const [clientSubmissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const [showTourSuccessModal, setShowTourSuccessModal] = useState(false);
+  const [tripContextError, setTripContextError] = useState(null);
+  const [contextRetry, setContextRetry] = useState(0);
 
   useEffect(() => {
     if (screenMode !== "pretrip" || !tripId) return;
     let cancelled = false;
     api.get("/api/mobile/driver/trips?status=all")
       .then((trips) => {
-        if (cancelled || !Array.isArray(trips)) return;
-        setTripContext(trips.find((trip) => String(trip.trip_id) === String(tripId)) || null);
+        if (cancelled) return;
+        const found = Array.isArray(trips) ? trips.find((trip) => String(trip.trip_id) === String(tripId)) : null;
+        setTripContext(found || null);
+        if (!found) setTripContextError("This trip is not in your loaded assignments. Refresh or contact dispatch.");
       })
-      .catch(() => {});
+      .catch((error) => { if (!cancelled) setTripContextError(error.message || "Connect online to load this trip's safety checklist."); });
     return () => { cancelled = true; };
-  }, [tripId, screenMode]);
+  }, [tripId, screenMode, contextRetry]);
 
   useEffect(() => {
     if (screenMode !== "preshift" || isTour) return;
@@ -284,6 +291,19 @@ export default function PreShiftInspection() {
     }
   };
 
+  if (screenMode === "pretrip" && !isTour && !tripContext) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background, paddingTop: insets.top + 16, paddingHorizontal: 16 }]}>
+        <ClayCard>
+          <Text style={type.cardTitle}>{tripContextError ? "Checklist unavailable" : "Loading trip safety checks…"}</Text>
+          <Text accessibilityRole={tripContextError ? "alert" : undefined} style={type.supporting}>{tripContextError || "Checking your assignment before showing the correct checklist."}</Text>
+          {tripContextError ? <ClayButton label="Try Again" onPress={() => { setTripContextError(null); setContextRetry(value => value + 1); }} /> : null}
+          <ClayButton label="Go back" variant="tonal" onPress={() => router.back()} />
+        </ClayCard>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       {/* Top App Bar */}
@@ -398,12 +418,12 @@ export default function PreShiftInspection() {
           {/* Heading */}
           <View style={styles.heading}>
             <Text style={[styles.headingTitle, { color: colors.onSurface }]}>
-              {screenMode === "preshift" ? "Start Your Shift" : "Pre-Trip Check"}
+              {screenMode === "preshift" ? "Start Your Shift" : isCargoPreTrip ? "Cargo-specific check" : "Pre-Trip Check"}
             </Text>
             <Text style={[styles.headingSub, { color: colors.onSurfaceVariant }]}>
               {screenMode === "preshift"
                 ? "Daily Vehicle Safety Baseline (5 Points)"
-                : "Trip Safety & Passenger Readiness"}
+                : isCargoPreTrip ? "Brakes & Tires · Cargo Secure · Cabin Ready" : "Trip Safety & Passenger Readiness"}
             </Text>
           </View>
 
@@ -510,12 +530,12 @@ export default function PreShiftInspection() {
                             </Text>
                           </View>
                           <Text style={[styles.cardQuestionText, { color: isDark ? "#CBD5E1" : colors.onSurfaceVariant }]}>
-                            Before departure, make sure:
+                            {isCargoPreTrip ? "Clean, tidy, air conditioning working and no unpleasant odors." : "Before departure, make sure:"}
                           </Text>
                         </View>
                       </View>
 
-                      <View style={styles.bulletList}>
+                      {!isCargoPreTrip && <View style={styles.bulletList}>
                         {(item.reminders || []).map((reminder, rIdx) => (
                           <View key={rIdx} style={styles.bulletRow}>
                             <Text style={[styles.bulletPoint, { color: colors.primary }]}>•</Text>
@@ -524,10 +544,10 @@ export default function PreShiftInspection() {
                             </Text>
                           </View>
                         ))}
-                      </View>
+                      </View>}
                       {item.supportingText && (
                         <Text style={[type.supporting, { color: colors.onSurfaceVariant, marginTop: 2, fontStyle: "italic" }]}>
-                          {item.supportingText}
+                          {isCargoPreTrip ? "Prepare the cabin for safe cargo transport. Freshen it if needed." : item.supportingText}
                         </Text>
                       )}
                       <Pressable
@@ -551,7 +571,7 @@ export default function PreShiftInspection() {
                           color={isAcknowledged ? "#FFFFFF" : colors.primary}
                         />
                         <Text style={[styles.cabinAckBtnText, { color: ackTextColor }]} numberOfLines={1}>
-                          {isAcknowledged ? "✓ CABIN VERIFIED & READY" : (item.buttonLabel || "✓ CABIN READY")}
+                          {isCargoPreTrip ? isAcknowledged ? "PASS · CABIN READY" : "CONFIRM CABIN READY" : isAcknowledged ? "✓ CABIN VERIFIED & READY" : (item.buttonLabel || "✓ CABIN READY")}
                         </Text>
                       </Pressable>
                     </ClayCard>
@@ -593,6 +613,7 @@ export default function PreShiftInspection() {
                   ? (isDark ? "#FDE68A" : "#B45309")
                   : colors.onErrorContainer)
                 : unselectedIconColor;
+              const reference = isCargoPreTrip ? inspectionReferenceFor(item.id) : null;
 
               return (
                 <View
@@ -636,8 +657,8 @@ export default function PreShiftInspection() {
                             {screenMode === "preshift" ? `${idx + 1}. ${item.shortTitle || item.label}` : (item.shortTitle || item.label)}
                           </Text>
                           {item.section && (
-                            <Text style={[styles.cardSectionTag, { color: colors.primary }]}>
-                              {item.section}
+                            <Text style={[styles.cardSectionTag, { color: isCargoPreTrip && isFail ? colors.error : colors.primary }]}>
+                              {isCargoPreTrip ? status || "REQUIRED" : item.section}
                             </Text>
                           )}
                         </View>
@@ -646,6 +667,20 @@ export default function PreShiftInspection() {
                         </Text>
                       </View>
                     </View>
+
+                    {isCargoPreTrip && (
+                      <ReferencePhotoGuide
+                        source={reference?.source}
+                        subject={item.shortTitle || item.label}
+                        caption={reference?.caption}
+                      >
+                        <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
+                          {item.id === "brakes_tires"
+                            ? "Check the actual tires for visible damage and confirm the brakes work properly. Report any issue before departure."
+                            : "Check the actual load and its straps or restraints. Report loose or unsecured cargo before departure."}
+                        </Text>
+                      </ReferencePhotoGuide>
+                    )}
 
                     {idx === 0 ? (
                       <CoachMarkTarget id="inspection.pass_fail" targetId="inspection.pass_fail" radius={14} scrollRef={scrollRef}>
@@ -866,6 +901,11 @@ export default function PreShiftInspection() {
                 Brake or tire issue reported — Trip departure will be blocked until resolved.
               </Text>
             </View>
+          ) : (isCargoPreTrip && statuses.cargo_secure === "FAIL") ? (
+            <View accessibilityRole="alert" style={[styles.preSubmitWarningBanner, { backgroundColor: colors.errorContainer, borderColor: colors.error + "50" }]}>
+              <Ionicons name="alert-circle" size={18} color={colors.error} />
+              <Text style={[type.labelMd, { color: colors.onErrorContainer, flex: 1 }]}>Cargo is not secure — departure remains blocked until the load is secured.</Text>
+            </View>
           ) : null
         )}
 
@@ -875,7 +915,7 @@ export default function PreShiftInspection() {
               submitting
                 ? "SUBMITTING..."
                 : allAnswered
-                ? (screenMode === "preshift" ? "START YOUR SHIFT" : "GOOD TO GO")
+                ? (screenMode === "preshift" ? "START YOUR SHIFT" : isCargoPreTrip ? statuses.brakes_tires === "FAIL" || statuses.cargo_secure === "FAIL" ? "SAVE BLOCKING ISSUE" : "SAVE PRE-TRIP CHECK" : "GOOD TO GO")
                 : (screenMode === "preshift" ? `COMPLETE ALL 5 ITEMS (${answeredCount}/${CHECKLIST.length})` : "CONFIRM ALL ITEMS TO CONTINUE")
             }
             variant="primary"

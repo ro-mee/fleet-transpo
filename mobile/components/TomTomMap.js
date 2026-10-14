@@ -5,6 +5,7 @@ import * as FileSystem from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../lib/theme-context';
 import { palettes } from '../lib/theme';
+import { ROUTE_CONTROLLER_SCRIPT } from '../lib/navigation-route';
 import {
   escapeHtmlText,
   finiteNumberInRange,
@@ -34,6 +35,9 @@ const TomTomMap = forwardRef(({
   onMarkerPress,
   onMapDragged,
   onRouteData,
+  routeSessionKey = "preview",
+  routeTripId = null,
+  routePreferences = {},
   onMapReady
 }, ref) => {
   const webViewRef = useRef(null);
@@ -90,6 +94,7 @@ const TomTomMap = forwardRef(({
   useImperativeHandle(ref, () => ({
     recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterRadar && ${serializeInlineScriptValue(safeRadarMode)}) window.recenterRadar(); else if(window.recenterMap) window.recenterMap(); true;`),
     overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`),
+    applyRoutePreferences: (preferences) => webViewRef.current?.injectJavaScript(`if(window.applyRoutePreferences) window.applyRoutePreferences(${serializeInlineScriptValue({ avoidTolls: preferences?.avoidTolls === true, selectedIndex: Number.isInteger(preferences?.selectedIndex) && preferences.selectedIndex >= 0 ? preferences.selectedIndex : 0 })}); true;`),
     setRadarRadius: (km) => webViewRef.current?.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${serializeInlineScriptValue(finiteNumberInRange(km, 0.25, 50) ?? 3)}); true;`),
     setRadarMarkers: (markers) => webViewRef.current?.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${serializeInlineScriptValue(normalizeRadarMarkers(markers))}, ${radarRadiusJs}); true;`),
     setVehicleVisible: (visible) => webViewRef.current?.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${serializeInlineScriptValue(visible === true)}); true;`),
@@ -126,6 +131,9 @@ const TomTomMap = forwardRef(({
   const safeDestinationLng = finiteNumberInRange(destination?.lng, -180, 180);
   const safeTopInset = finiteNumberInRange(topInset, 0, 300) ?? 36;
   const hasOriginFix = safeOriginLat != null && safeOriginLng != null;
+  const documentOriginLat = safeShowCarIcon ? null : safeOriginLat;
+  const documentOriginLng = safeShowCarIcon ? null : safeOriginLng;
+  const documentOriginHeading = safeShowCarIcon ? null : safeOriginHeading;
   const originAddressJs = serializeInlineScriptValue(typeof originAddress === "string" ? originAddress : "");
   const destinationAddressJs = serializeInlineScriptValue(typeof destAddress === "string" ? destAddress : "");
   const tomtomKeyJs = serializeInlineScriptValue(tomtomKey);
@@ -908,98 +916,8 @@ const TomTomMap = forwardRef(({
                   return { lng, lat, isSnapped: false, closestIdx, minDist };
               };
 
-              // Full route recalculation from the car's current position to the
-              // destination. Called on reroute (off-route), and on the periodic
-              // refresh timer so ETA/traffic never go stale mid-trip.
-              window.recalculateRoute = function(carLng, carLat) {
-                  if (!window.currentDestLng || window.isRecalculating) return;
-                  window.isRecalculating = true;
-                  window.lastCalcCarLng = carLng;
-                  window.lastCalcCarLat = carLat;
-                  document.getElementById('navStreet').innerText = "Rerouting...";
-                  if (window.ReactNativeWebView) {
-                      try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_REFRESHING', calculatedAt: Date.now() })); } catch (e) {}
-                  }
-
-                  tt.services.calculateRoute({
-                      key: ${tomtomKeyJs},
-                      traffic: ${safeAutoSwoop},
-                      computeTravelTimeFor: 'all',
-                      maxAlternatives: 0,
-                      sectionType: ${safeAutoSwoop ? "'traffic'" : "undefined"},
-                      instructionsType: 'text',
-                      locations: carLng + ',' + carLat + ':' + window.currentDestLng + ',' + window.currentDestLat
-                  }).then(response => {
-                      window.isRecalculating = false;
-                      const baseGeojson = response.toGeoJson();
-                      if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) {
-                          document.getElementById('navStreet').innerText = "Route unavailable";
-                          if (window.ReactNativeWebView) {
-                              try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
-                          }
-                          return;
-                      }
-
-                      const mainFeature = baseGeojson.features[0];
-                      window.routeCoords = mainFeature.geometry.coordinates;
-                      window.routeInstructions = response.routes[0].guidance ? response.routes[0].guidance.instructions : [];
-
-                      // Reset caches
-                      window.cumDist = null;
-                      window.lastClosestIdx = 0;
-                      window.offRouteCount = 0;
-
-                      // Drop the stale traffic badges and the old alternative
-                      // line from the previous route.
-                      (window.badgeMarkers || []).forEach(function(m) { m.remove(); });
-                      window.badgeMarkers = [];
-                      if (window.ttMap.getLayer('alt-route')) {
-                          window.ttMap.removeLayer('alt-route');
-                          if (window.ttMap.getSource('alt-route')) window.ttMap.removeSource('alt-route');
-                      }
-
-                      // Redraw the route line instantly without a full map reload!
-                      const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, response.routes[0], false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: ${primaryColorJs} }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
-
-                      if (window.ttMap.getLayer('route')) {
-                          window.ttMap.getSource('route').setData(mainGeojson);
-                      } else {
-                          // The initial route never drew (failed / offline); add the layer now.
-                          window.ttMap.addLayer({
-                              'id': 'route',
-                              'type': 'line',
-                              'source': { 'type': 'geojson', 'data': mainGeojson },
-                              'paint': { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 1.0 }
-                          });
-                      }
-
-                      // Refresh the native bottom-sheet ETA/traffic numbers.
-                      // travelTimeInSeconds ALREADY includes traffic;
-                      // trafficDelayInSeconds is the traffic portion of it.
-                      const summary = (response.routes && response.routes[0] && response.routes[0].summary) || (mainFeature.properties && mainFeature.properties.summary);
-                      if (window.ReactNativeWebView && summary) {
-                          window.lastRouteAt = Date.now();
-                          window.ReactNativeWebView.postMessage(JSON.stringify({
-                              type: 'ROUTE_CALCULATED',
-                              travelTimeInSeconds: summary.travelTimeInSeconds,
-                              lengthInMeters: summary.lengthInMeters,
-                              trafficDelayInSeconds: summary.trafficDelayInSeconds,
-                              noTrafficTravelTimeInSeconds: summary.noTrafficTravelTimeInSeconds != null ? summary.noTrafficTravelTimeInSeconds : null,
-                              calculatedAt: window.lastRouteAt,
-                              trafficAware: true,
-                              source: 'tomtom'
-                          }));
-                      }
-
-                      window.updateNavigationBanner(carLng, carLat);
-                  }).catch(() => {
-                      window.isRecalculating = false;
-                      document.getElementById('navStreet').innerText = "Route unavailable";
-                      if (window.ReactNativeWebView) {
-                          try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
-                      }
-                  });
-              };
+              window.fleetRouteConfig = ${serializeInlineScriptValue({ key: tomtomKey, traffic: safeAutoSwoop, alternatives: safeAutoSwoop, primary: colors.primary, sessionKey: routeSessionKey, tripId: routeTripId, avoidTolls: routePreferences.avoidTolls === true, selectedIndex: routePreferences.selectedIndex || 0 })};
+              ${ROUTE_CONTROLLER_SCRIPT}
 
               window.updateNavigationBanner = function(carLng, carLat, snapInfo = null) {
                   if (!window.routeInstructions || !window.routeCoords || window.routeCoords.length === 0) return;
@@ -1127,7 +1045,7 @@ const TomTomMap = forwardRef(({
                   const originAddr = ${originAddressJs};
                   const destAddr = ${destinationAddressJs};
 
-                  if (originLat === null && originAddr) {
+                  if (!${safeShowCarIcon} && originLat === null && originAddr) {
                       try {
                           const res = await tt.services.fuzzySearch({ key: ${tomtomKeyJs}, query: originAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
@@ -1137,7 +1055,7 @@ const TomTomMap = forwardRef(({
                       } catch(e) {}
                   }
 
-                  if (destLat === null && destAddr) {
+                  if (!${safeShowCarIcon} && destLat === null && destAddr) {
                       try {
                           const res = await tt.services.fuzzySearch({ key: ${tomtomKeyJs}, query: destAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
@@ -1170,6 +1088,8 @@ const TomTomMap = forwardRef(({
                   // Store globally for rerouting
                   window.currentDestLat = hasDestination ? Number(destLat) : null;
                   window.currentDestLng = hasDestination ? Number(destLng) : null;
+                  window.currentCarLat = hasOrigin ? Number(originLat) : null;
+                  window.currentCarLng = hasOrigin ? Number(originLng) : null;
 
                   const map = tt.map({
                       key: ${tomtomKeyJs},
@@ -1372,57 +1292,7 @@ const TomTomMap = forwardRef(({
                       initialBounds.extend([destLng, destLat]);
                       map.fitBounds(initialBounds, { padding: 40, duration: 400 });
 
-                      // Request traffic-sectioned routing. Single active route only:
-                      // the driver follows the dispatch, so no selectable
-                      // alternative is offered (keeps the initial view and the
-                      // 2-minute refresh consistent).
-                      tt.services.calculateRoute({
-                          key: ${tomtomKeyJs},
-                      traffic: ${safeAutoSwoop},
-                          computeTravelTimeFor: 'all',
-                          maxAlternatives: 0,
-                      sectionType: ${safeAutoSwoop ? "'traffic'" : "undefined"},
-                          instructionsType: 'text',
-                          locations: originLng + ',' + originLat + ':' + destLng + ',' + destLat
-                      }).then(response => {
-                          const baseGeojson = response.toGeoJson();
-                          if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) {
-                              if (window.ReactNativeWebView) {
-                                  try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
-                              }
-                              return;
-                          }
-                          
-                          const mainFeature = baseGeojson.features[0];
-                          const mainCoords = mainFeature.geometry.coordinates; // Array of [lng, lat]
-                          const mainProps = mainFeature.properties || {};
-                          
-                          const route = response.routes[0];
-                          window.routeInstructions = route.guidance ? route.guidance.instructions : [];
-                          window.routeCoords = mainCoords;
-                          window.lastCalcCarLng = originLng;
-                          window.lastCalcCarLat = originLat;
-                          
-                          if (${safeShowCarIcon}) {
-                              window.updateNavigationBanner(originLng, originLat);
-                          }
-                          
-                          if (window.ReactNativeWebView && mainProps.summary) {
-                              window.lastRouteAt = Date.now();
-                              window.ReactNativeWebView.postMessage(JSON.stringify({
-                                  type: 'ROUTE_CALCULATED',
-                                  travelTimeInSeconds: mainProps.summary.travelTimeInSeconds,
-                                  lengthInMeters: mainProps.summary.lengthInMeters,
-                                  trafficDelayInSeconds: mainProps.summary.trafficDelayInSeconds,
-                                  noTrafficTravelTimeInSeconds: mainProps.summary.noTrafficTravelTimeInSeconds != null ? mainProps.summary.noTrafficTravelTimeInSeconds : null,
-                                  calculatedAt: window.lastRouteAt,
-                                  trafficAware: true,
-                                  source: 'tomtom'
-                              }));
-                          }
-                          
-                          // ETA Box logic removed as it's displayed natively
-                          // Helper function to dynamically slice a route into colored traffic segments
+                      // Initial and refreshed routes share one provider controller.
                           window.buildTrafficSegments = (feature, route, isAltRoute) => {
                               const coords = feature.geometry.coordinates;
                               const props = feature.properties || {};
@@ -1517,78 +1387,14 @@ const TomTomMap = forwardRef(({
                               return { type: 'FeatureCollection', features: features };
                           };
 
-                          try {
-                              // 1. Draw Alternative Route First (so it sits underneath)
-                              if (${safeAutoSwoop} && baseGeojson.features.length > 1) {
-                                  const altGeojson = window.buildTrafficSegments(baseGeojson.features[1], response.routes[1], true);
-                                  map.addLayer({
-                                      'id': 'alt-route',
-                                      'type': 'line',
-                                      'source': { 'type': 'geojson', 'data': altGeojson },
-                                      'paint': {
-                                          'line-color': ['get', 'color'],
-                                          'line-width': 6,
-                                          'line-opacity': 0.35 // Translucent!
-                                      }
-                                  });
-                              }
-
-                              // 2. Draw Main Route on top
-                              const mainGeojson = window.buildTrafficSegments(mainFeature, route, false);
-                              map.addLayer({
-                                  'id': 'route',
-                                  'type': 'line',
-                                  'source': { 'type': 'geojson', 'data': mainGeojson },
-                                  'paint': {
-                                      'line-color': ['get', 'color'],
-                                      'line-width': 6,
-                                      'line-opacity': 1.0
-                                  }
-                              });
-                          } catch (err) {
-                              console.error("Traffic segmentation failed, falling back to basic route:", err);
-                              map.addLayer({
-                                  'id': 'route',
-                                  'type': 'line',
-                                  'source': { 'type': 'geojson', 'data': { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: mainCoords } } },
-                                  'paint': { 'line-color': ${primaryColorJs}, 'line-width': 6 }
-                              });
-                          }
-
-                          const bounds = new tt.LngLatBounds();
-                          mainCoords.forEach(coord => {
-                              bounds.extend(tt.LngLat.convert(coord));
-                          });
-                          
-                          // Smoothly fit the entire route on screen
+                      window.recalculateRoute(originLng, originLat).then(function (ok) {
+                          if (!ok) return;
+                          var bounds = new tt.LngLatBounds();
+                          window.routeCoords.forEach(function (coord) { bounds.extend(coord); });
                           map.fitBounds(bounds, { padding: 50, duration: 1200 });
-                          
-                          if (${safeAutoSwoop}) {
-                              // Let the user look at the full route for 5 seconds before swooping in
-                              window.swoopTimeout = setTimeout(() => {
-                                  if (window.isFollowing) {
-                                      map.flyTo({ center: [originLng, originLat], zoom: 18.5, pitch: 0, speed: 0.8 });
-                                  }
-                              }, 5000);
-                          }
-                      }).catch((e) => {
-                          console.error("Routing error:", e);
-                          document.getElementById('navStreet').innerText = "Route unavailable";
-                          if (window.ReactNativeWebView) {
-                              try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e2) {}
-                          }
-                          const bounds = new tt.LngLatBounds();
-                          bounds.extend([originLng, originLat]);
-                          bounds.extend([destLng, destLat]);
-                          map.fitBounds(bounds, { padding: 50, duration: 1200 });
-                          
-                          if (${safeAutoSwoop}) {
-                              window.swoopTimeout = setTimeout(() => {
-                                  if (window.isFollowing) {
-                                      map.flyTo({ center: [originLng, originLat], zoom: 18.5, pitch: 0, speed: 0.8 });
-                                  }
-                              }, 5000);
-                          }
+                          if (window.fleetRouteConfig.traffic) window.swoopTimeout = setTimeout(function () {
+                              if (window.isFollowing) map.flyTo({ center: [window.currentCarLng, window.currentCarLat], zoom: 18.5, pitch: 0, speed: 0.8 });
+                          }, 5000);
                       });
 
                       // Periodic refresh: a route calculated once at load goes
@@ -1599,7 +1405,7 @@ const TomTomMap = forwardRef(({
                       // (movement-only refresh would starve exactly when the
                       // driver most needs a new estimate).
                       setInterval(function() {
-                          if (!window.currentCarLng || !window.currentDestLng || window.isRecalculating) return;
+                          if (window.currentCarLng == null || window.currentDestLng == null || window.isRecalculating) return;
                           var routeAgeMs = window.lastRouteAt ? (Date.now() - window.lastRouteAt) : Infinity;
                           if (window.lastCalcCarLng != null) {
                               const moved = Math.abs(window.currentCarLng - window.lastCalcCarLng) + Math.abs(window.currentCarLat - window.lastCalcCarLat);
@@ -1623,9 +1429,10 @@ const TomTomMap = forwardRef(({
     scheme,
     safeRadarMode,
     hasOriginFix,
-    safeOriginLat,
-    safeOriginLng,
-    safeOriginHeading,
+    // Live fixes move through the bridge without replacing the map document.
+    documentOriginLat,
+    documentOriginLng,
+    documentOriginHeading,
     safeDestinationLat,
     safeDestinationLng,
     originAddressJs,
@@ -1639,7 +1446,8 @@ const TomTomMap = forwardRef(({
     safeShowCarIcon,
     safeAutoSwoop,
     safeTopInset,
-    carImage,
+    routeSessionKey,
+    routeTripId,
   ]);
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
   // Last camera center: the marker + rotation update on every fix (cheap),

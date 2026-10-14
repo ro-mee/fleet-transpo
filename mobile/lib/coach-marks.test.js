@@ -1923,7 +1923,8 @@ describe("Tour duty bookends — Pre-Shift opens the shift, End Duty closes it",
     // inside the nudge window. An unmounted target presents nothing.
     expect(homeScreen).toContain('activeMilestone === "tour_preshift"');
     expect(homeScreen).toContain('activeMilestone === "tour_end_duty"');
-    expect(homeScreen).toContain('{tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false) ? (');
+    expect(homeScreen).toContain('const showPreShiftPrompt = tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false);');
+    expect(homeScreen).toContain('{showPreShiftPrompt ? (');
     expect(homeScreen).toContain("{tourEndDutyStep || duty.due ? (");
   });
 
@@ -1992,8 +1993,9 @@ describe("Tour duty bookends — Pre-Shift opens the shift, End Duty closes it",
       // OR'd with the real gate, not replaced by it: production eligibility is
       // left exactly as it was.
       expect(home).toContain(
-        "{tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false) ? ("
+        "const showPreShiftPrompt = tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false);"
       );
+      expect(home).toContain('{showPreShiftPrompt ? (');
       expect(home).toContain("{tourEndDutyStep || duty.due ? (");
     });
 

@@ -38,3 +38,13 @@ export function homeTripAction(trip, nowMs, { preShiftPassed = true } = {}) {
   if (preStart && !(Number.isFinite(earliest) && nowMs >= earliest && trip.pre_trip_status === 'Passed')) return 'Trip Details';
   return preStart ? 'Start Trip' : 'Continue Trip';
 }
+
+export function homeTripReadiness(trip, nowMs, { preShiftPassed = true } = {}) {
+  if (!['Pending', 'Approved', 'Assigned', 'Vehicle Assigned', 'Driver Assigned', 'Dispatched', 'Driver Accepted'].includes(trip?.trip_status)) return null;
+  if (!preShiftPassed) return 'Pre-Shift inspection required';
+  if (trip.pre_trip_status !== 'Passed') return 'Pre-Trip inspection required';
+  const earliest = trip.earliest_start ? new Date(trip.earliest_start).getTime() : NaN;
+  if (!Number.isFinite(earliest)) return 'Start timing not confirmed — view trip details';
+  if (nowMs < earliest) return `Opens at ${new Date(earliest).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  return 'Ready to start';
+}

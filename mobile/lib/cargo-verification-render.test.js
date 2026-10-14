@@ -21,7 +21,8 @@ async function load(path) {
   const deps = { react: React, "react-native": { View: primitive("div"), Text: primitive("span"), Pressable: primitive("button"), TextInput: primitive("input"), Image: primitive("img"), StyleSheet: { create: v => v }, Platform: { OS: "android" } } };
   for (const match of code.matchAll(/require\("([^" ]+)"\)/g)) {
     const name = match[1]; if (deps[name]) continue;
-    if (name.endsWith("theme-context")) deps[name] = { useTheme: () => theme };
+    if (name.endsWith('.webp')) deps[name] = 1;
+    else if (name.endsWith("theme-context")) deps[name] = { useTheme: () => theme };
     else if (name.endsWith("/clay")) deps[name] = { ClayCard: primitive("section"), ClayButton: ({ label, disabled }) => React.createElement("button", { disabled }, label), ClayInput: ({ label, value, error, editable, inputStyle, placeholderTextColor }) => React.createElement("label", null, label, React.createElement("input", { value, readOnly: true, disabled: editable === false, style: inputStyle, "data-placeholder-color": placeholderTextColor }), error) };
     else { let target = resolve(dirname(path), name); for (const suffix of ["", ".jsx", ".js"]) if (existsSync(target + suffix)) { target += suffix; break; } deps[name] = await load(target); }
   }
@@ -55,7 +56,7 @@ describe("rendered native cargo components", () => {
   it("renders separate expected and initially blank actual counts with image absence", async () => {
     const { CargoManifestList } = await load(fileURLToPath(new URL("CargoManifestList.jsx", base)));
     const html = renderToStaticMarkup(React.createElement(CargoManifestList, { manifest, counts: { boxes: "" }, stage: "PICKUP", onChange: () => {} }));
-    expect(html).toContain("Fresh produce"); expect(html).toContain("10"); expect(html).toContain("Actual pickup count"); expect(html).toContain('value=""'); expect(html).toContain("Reference image unavailable"); expect(html).toContain("min-width:0"); expect(html).toContain('data-placeholder-color="#53615A"'); expect(html).not.toMatch(/passenger|Call guest/i);
+    expect(html).toContain("Fresh produce"); expect(html).toContain("10"); expect(html).toContain("Actual pickup count"); expect(html).toContain('value=""'); expect(html).toContain("Source photo unavailable"); expect(html).toContain("min-width:0"); expect(html).toContain('data-placeholder-color="#53615A"'); expect(html).not.toMatch(/passenger|Call guest/i);
   });
   it("keeps expected, picked-up and delivered values distinct", async () => {
     const { CargoReceiptSummary } = await load(fileURLToPath(new URL("CargoReceiptSummary.jsx", base)));

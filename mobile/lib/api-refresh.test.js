@@ -33,7 +33,7 @@ vi.mock("@react-native-async-storage/async-storage", () => ({
   },
 }));
 
-import { apiFetch, setSessionExpiredHandler } from "./api";
+import { apiFetch, setSessionExpiredHandler, subscribeApiEvents } from "./api";
 import { saveTokens, getAccessToken, getRefreshToken, getUser, clearAll } from "./storage";
 import { completeSignIn, getRestorableSignedInUser, persistSignedInSession } from "./auth-session";
 import * as SecureStore from "expo-secure-store";
@@ -61,6 +61,23 @@ async function seedSession(access = "OLD-A", refresh = "OLD-R") {
 }
 
 describe("reconnect burst with an expired access token", () => {
+  it('notifies a hidden Map only after server-confirmed completion, never queued or refused writes', async () => {
+    await seedSession();
+    const events = [];
+    const unsubscribe = subscribeApiEvents(event => events.push(event));
+    try {
+      global.fetch.mockResolvedValueOnce(jsonRes(200, { trip_status: 'Completed' }));
+      await apiFetch('/api/trips/7/complete', { method: 'PUT', body: '{}', queueOnFailure: false });
+      expect(events.filter(event => event.type === 'trip-completed')).toEqual([{ type: 'trip-completed', tripId: '7' }]);
+      events.length = 0;
+      global.fetch.mockResolvedValueOnce(jsonRes(409, { error: 'Receiver required' }));
+      await expect(apiFetch('/api/trips/7/complete', { method: 'PUT', body: '{}', queueOnFailure: false })).rejects.toMatchObject({ status: 409 });
+      expect(events.some(event => event.type === 'trip-completed')).toBe(false);
+      global.fetch.mockRejectedValue(new TypeError('Network request failed'));
+      await apiFetch('/api/trips/7/complete', { method: 'PUT', body: '{}' });
+      expect(events.some(event => event.type === 'trip-completed')).toBe(false);
+    } finally { unsubscribe(); }
+  });
   it("refreshes once for concurrent 401s and replays all callers", async () => {
     await seedSession();
     let refreshCalls = 0;

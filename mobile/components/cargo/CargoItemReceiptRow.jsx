@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { View, Text, Image, StyleSheet } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
+import { ReferencePhotoGuide } from "../ReferencePhotoGuide";
+import { cargoItemIllustrationFor } from "../../lib/cargo-item-illustrations";
 import { ClayInput } from "../clay";
 import { CargoButton as ClayButton } from "./CargoButton";
 import { useTheme } from "../../lib/theme-context";
@@ -29,18 +30,25 @@ export function CargoPhysicalManifest({ manifest }) {
 
 export function CargoItemReceiptRow({ line, value = "", stage = "PICKUP", pickupQuantity, onChange, onIssue, issue, error, imageUrl, editable = true }) {
   const { colors, type } = useTheme();
-  const [imageFailed, setImageFailed] = useState(false);
+  const illustration = cargoItemIllustrationFor(line.name);
+  const countHint = line.quantity_basis === 'TRANSPORT_PACKAGE'
+    ? 'Count the packages physically present. Do not copy the expected amount.'
+    : `Measure the amount physically present in ${line.unit}. Do not copy the expected amount.`;
   return <View style={[styles.row, { borderBottomColor: colors.outlineVariant }]}>
     <Text style={type.titleLg}>{line.name}</Text>
-    <Text style={type.supporting}>Expected</Text>
-    <Text style={type.headlineMd}>{line.expected_quantity} {line.unit}</Text>
+    <View style={[styles.expectation, { backgroundColor: colors.surfaceContainerLow }]}>
+      <Text style={type.supporting}>Expected from source</Text>
+      <Text style={type.headlineMd}>{line.expected_quantity} {line.unit}</Text>
+    </View>
     <CargoPhysicalDetails line={line} />
     {stage === "DELIVERY" && <Text style={type.bodyMd}>Picked up: {pickupQuantity ?? "Not recorded"} {pickupQuantity != null ? line.unit : ""}</Text>}
-    {imageUrl && !imageFailed ? <Image source={{ uri: imageUrl }} style={styles.image} accessibilityLabel={`Reference image for ${line.name}`} onError={() => setImageFailed(true)} /> : <Text style={type.supporting}>Reference image unavailable</Text>}
+    {!imageUrl && <Text style={type.supporting}>Source photo unavailable. An illustrative example is available below.</Text>}
+    <ReferencePhotoGuide source={imageUrl ? { uri: imageUrl } : illustration.source} subject={line.name} caption={imageUrl ? 'Source reference only — not this pickup or delivery’s actual condition.' : illustration.caption} />
     {!!line.handling?.length && <Text style={type.supporting}>Handling: {line.handling.map(value => value.replace(/_/g, " ").toLowerCase()).join(" · ")}</Text>}
-    <ClayInput label={`Actual ${stage === "DELIVERY" ? "delivery" : "pickup"} count (${line.unit})`} accessibilityLabel={`${line.name}, actual ${stage.toLowerCase()} count in ${line.unit}`} accessibilityHint={error || "Count what is physically present. Do not copy the expected amount."} value={value} onChangeText={onChange} keyboardType={line.quantity_basis === "TRANSPORT_PACKAGE" ? "number-pad" : "decimal-pad"} editable={editable} error={error} placeholder="Enter counted amount" placeholderTextColor={colors.onSurfaceVariant} inputStyle={{ ...type.bodyMd, minWidth: 0 }} style={{ borderWidth: 1.5, borderColor: error ? colors.error : colors.onSurfaceVariant }} />
+    <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>{countHint}</Text>
+    <ClayInput label={`Actual ${stage === "DELIVERY" ? "delivery" : "pickup"} count (${line.unit})`} accessibilityLabel={`${line.name}, actual ${stage.toLowerCase()} count in ${line.unit}`} accessibilityHint={error || countHint} value={value} onChangeText={onChange} keyboardType={line.quantity_basis === "TRANSPORT_PACKAGE" ? "number-pad" : "decimal-pad"} editable={editable} error={error} placeholder="Enter counted amount" placeholderTextColor={colors.onSurfaceVariant} inputStyle={{ ...type.bodyMd, minWidth: 0 }} style={{ borderWidth: 1.5, borderColor: error ? colors.error : colors.onSurfaceVariant }} />
     {issue?.remarks && <Text style={type.bodyMd}>Issue: {issue.remarks}</Text>}
     {onIssue && <ClayButton label={`Report issue: ${line.name}`} variant="tonal" onPress={onIssue} disabled={!editable} textStyle={styles.wrap} />}
   </View>;
 }
-const styles = StyleSheet.create({ row: { gap: 8, paddingVertical: 16, borderBottomWidth: 1 }, image: { width: 96, height: 96, borderRadius: 16 }, wrap: { flexShrink: 1 } });
+const styles = StyleSheet.create({ row: { gap: 8, paddingVertical: 16, borderBottomWidth: 1 }, expectation: { gap: 4, padding: 12, borderRadius: 12 }, wrap: { flexShrink: 1 } });

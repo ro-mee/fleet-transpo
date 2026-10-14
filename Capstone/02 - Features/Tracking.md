@@ -415,3 +415,14 @@ Verified: ESLint clean on both touched files; `mobile/lib` 46 files / 525
 tests green. No physical-device run — live-key ETA refresh, rerouting,
 pickup→destination switch, GPS jitter, and network loss/recovery still need a
 side-by-side device acceptance vs TomTom/Google Maps.
+
+
+## Completion and route-session safety - 2026-10-14
+
+Map retains active foreground/background GPS and odometer context while the driver enters the actual ending reading. Only server-confirmed completion clears leg context/stops background tracking; failed or queued writes do not release the trip. Shared GPS accumulation remains but is no longer substituted for the actual ending reading.
+
+Live fixes move through the WebView bridge instead of rebuilding navigation. Trip-scoped preferences, driver/trip/leg keys and request sequences prevent obsolete routes replacing newer targets/choices. Missing GPS never places the driver at pickup. Failed/timed-out refreshes preserve previous geometry with explicit stale-estimate wording.
+
+Verification: existing GPS/background/odometer plus new routing/completion interactions passed within the 1,033-test focused run. Native device/background behavior remains untested. After initial Windows file/disk failures, the Android Hermes export passed (1,455 modules / 5.65 MB); final iOS/web exports remain unverified. See [[Mobile Architecture]] for complete limits.
+
+Final tracking follow-up: a server-confirmed completion uses the existing API event hook to clear the hidden Map's active ref, discard obsolete polls, clear its old route and reload the real next assignment. Pending background starts check the trip and app state before and after the asynchronous OS start, stopping if completion or foreground return intervened. Executable tests cover completion before and during start, refused/queued responses and another trip's event. The final 1,033-test run includes these guards and the single-scroll-area sheet correction. Focused source review found those two fixes resolved; native visual review remains pending (`recapture`) because no device/emulator captures were available.

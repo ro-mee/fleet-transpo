@@ -390,6 +390,8 @@ export async function apiFetch(path, options = {}) {
   }
 
   emitApiEvent({ type: "success" });
+  const completedTrip = options.method === 'PUT' && /^\/api\/trips\/(\d+)\/complete$/.exec(path);
+  if (completedTrip) emitApiEvent({ type: 'trip-completed', tripId: completedTrip[1] });
   return body;
 }
 

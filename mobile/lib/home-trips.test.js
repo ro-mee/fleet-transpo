@@ -1,7 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { selectHomeTrips, homeTripAction, homeVehicleImage, HOME_UPCOMING_LIMIT } from './home-trips';
+import { selectHomeTrips, homeTripAction, homeTripReadiness, homeVehicleImage, HOME_UPCOMING_LIMIT } from './home-trips';
 
 describe('Home assignment presentation', () => {
+  it('explains the actual inspection and start-window states without enabling a rejected start', () => {
+    const trip = { load_type: 'Cargo', trip_status: 'Driver Accepted', pre_trip_status: 'Passed', earliest_start: '2026-10-14T00:00:00Z' };
+    const opens = Date.parse(trip.earliest_start);
+    expect(homeTripReadiness(trip, opens, { preShiftPassed: false })).toContain('Pre-Shift');
+    expect(homeTripReadiness({ ...trip, pre_trip_status: 'Failed' }, opens)).toContain('Pre-Trip');
+    expect(homeTripReadiness(trip, opens - 1)).toContain('Opens at');
+    expect(homeTripAction(trip, opens - 1)).toBe('Trip Details');
+    expect(homeTripReadiness(trip, opens)).toBe('Ready to start');
+    expect(homeTripReadiness({ ...trip, earliest_start: null }, opens)).toContain('not confirmed');
+    expect(homeTripReadiness({ ...trip, trip_status: 'En Route' }, opens)).toBeNull();
+  });
   it('accepts real optional vehicle photo fields and picks up a later refreshed photo', () => {
     const vehicle = { model: 'Hiace' };
     expect(homeVehicleImage(vehicle)).toBeNull();

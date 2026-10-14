@@ -9,7 +9,7 @@ import { homeMaterials as clayMaterials } from './materials';
 
 // Memoized with the cards: stable weather object + callbacks from the
 // parent let the header skip poster/notification/clock ticks.
-export default memo(function DriverHomeHeader({ driverName, initial, photoUrl, weather, unreadCount, topInset, onProfile, onNotifications }) {
+export default memo(function DriverHomeHeader({ driverName, driverType, initial, photoUrl, weather, unreadCount, topInset, onProfile, onNotifications }) {
   const { colors, type, scheme } = useTheme();
   const { settings } = useSettings();
   const { width, fontScale } = useWindowDimensions();
@@ -18,6 +18,10 @@ export default memo(function DriverHomeHeader({ driverName, initial, photoUrl, w
   const count = Math.max(0, Number(unreadCount) || 0);
   const shadow = { shadowColor: colors.shadow, shadowOpacity: settings.highContrast ? 0 : scheme === 'dark' ? 0.35 : 0.17 };
   const [failedUrl, setFailedUrl] = useState(null);
+  const [greeting] = useState(() => {
+    const hour = new Date().getHours();
+    return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  });
   const showImage = Boolean(photoUrl && photoUrl !== failedUrl);
   // Avatar sheen: on the forest avatar (colors.primary) the white gradient is
   // the light recipe; in dark the primary flips to pale sage, so the sheen
@@ -38,7 +42,8 @@ export default memo(function DriverHomeHeader({ driverName, initial, photoUrl, w
         )}
       </Pressable>
       <View style={s.copy}>
-        <Text style={[type.titleLg, { fontSize: 18, lineHeight: 22 }]}>Hi, {driverName}</Text>
+        <Text style={[type.titleLg, { fontSize: driverType === 'Cargo' ? 16 : 18, lineHeight: 22 }]}>{driverType === 'Cargo' ? greeting : 'Hi'}, {driverName}</Text>
+        {['Cargo', 'Passenger'].includes(driverType) ? <Text style={type.supporting}>{driverType} driver</Text> : null}
       </View>
     </View>
     <View style={[s.utilities, stacked && { marginLeft: 'auto' }]}>

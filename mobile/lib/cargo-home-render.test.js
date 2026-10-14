@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { describe, expect, it, vi } from "vitest";
 import * as loadPresentation from "./load-presentation";
-import { homeTripAction, selectHomeTrips, homeVehicleImage } from "./home-trips";
+import { homeTripAction, homeTripReadiness, selectHomeTrips, homeVehicleImage } from "./home-trips";
 import { resolveDriverWorkspace } from "./driver-workspace";
 import { CACHE_KEYS } from "./offline-cache";
 import { DUTY_EMPTY_STATES, resolveDutyEmptyState } from "./duty-empty-states";
@@ -25,13 +25,14 @@ const dependencies = {
   "@expo/vector-icons": { Ionicons: () => null, MaterialCommunityIcons: () => null },
   "../../lib/theme-context": { useTheme: () => ({ scheme: "light", type: {}, colors: new Proxy({}, { get: () => "#123456" }) }) },
   "../../lib/settings-context": { useSettings: () => ({ settings: {} }) },
-  "../../lib/home-trips": { homeTripAction },
+  "../../lib/use-reduced-motion": { useReducedMotion: () => true },
+  "../../lib/home-trips": { homeTripAction, homeTripReadiness },
   "../../lib/theme": { fonts: {}, statusColorForTone: () => ({ fg: "#123456", bg: "#ffffff" }), tripStatusTone: () => "info" },
   "../../lib/scaling": { moderateScale: value => value },
   "../../lib/quick-action-press.js": { QUICK_ACTION_PRESS: {} },
   "../../lib/load-presentation.js": loadPresentation,
   "./materials": { homeMaterials: () => ({}) },
-  "../TripMapPreview": { default: () => null, __esModule: true },
+  "../TripMapPreview": { default: () => React.createElement('div', { 'data-testid': 'route-preview' }), __esModule: true },
   "../RadarPulse": { default: () => null, __esModule: true },
   "../coachmarks": { CoachMarkTarget: native("div"), useCoachMarkActions: () => ({}), useCoachMarkStatus: () => ({}) },
 };
@@ -42,6 +43,31 @@ runInNewContext(code, { module: scope, exports: scope.exports, React, require: n
 } });
 const { DriverTripCard, DriverWorkspaceCard, DriverHeroCard, HomeQuickActions, AssignmentsHeading } = scope.exports;
 describe("rendered cargo Home card", () => {
+  it('does not repeat the Cargo duty band when a dedicated inspection prompt is visible', () => {
+    const html = renderToStaticMarkup(React.createElement(DriverHeroCard, { workspaceMode: 'cargo', duty: { loaded: true, checkedIn: false }, showDuty: false }));
+    expect(html).not.toContain('Off Duty');
+    expect(html).toContain('Assigned vehicle');
+  });
+  it('renders a consignment-first Cargo assignment instead of the passenger preview layout', () => {
+    const trip = { trip_id: 701, trip_status: 'Assigned', load_type: 'Cargo', cargo_description: 'Hotel supplies', cargo_weight_kg: 650, origin: 'Warehouse', destination: 'Hotel', vehicle_model: 'Hiace' };
+    const cargo = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, variant: 'next', nowMs: Date.now() }));
+    expect(cargo).toContain('Cargo delivery'); expect(cargo).toContain('Hotel supplies');
+    expect(cargo).not.toContain('route-preview'); expect(cargo).not.toContain('Ghost Guest');
+    expect(cargo.indexOf('Hotel supplies')).toBeLessThan(cargo.indexOf('Warehouse'));
+    const passenger = renderToStaticMarkup(React.createElement(DriverTripCard, { trip: { ...trip, load_type: 'Passenger', passenger_name: 'Jane', passenger_count: 2 }, variant: 'next', nowMs: Date.now() }));
+    expect(passenger).toContain('route-preview'); expect(passenger).toContain('2 passengers');
+    expect(passenger).not.toContain('Cargo delivery'); expect(passenger).not.toContain('Hotel supplies');
+  });
+  it('keeps a live map preview for the Cargo current navigation state', () => {
+    const trip = { trip_id: 701, trip_status: 'Trip Started', load_type: 'Cargo', cargo_description: 'Supplies' };
+    expect(renderToStaticMarkup(React.createElement(DriverTripCard, { trip, current: true, nowMs: Date.now() }))).toContain('route-preview');
+  });
+  it('reuses the shared assignment card for real cargo, vehicle and readiness data', () => {
+    const trip = { trip_id: 701, dispatch_number: 'DSP-701', trip_status: 'Driver Accepted', load_type: 'Cargo', cargo_description: 'Vegetables', cargo_weight_kg: 650, vehicle_model: 'Hiace', vehicle_plate: 'ABC-123', cargo_capacity_kg: 1000, pre_trip_status: 'Failed' };
+    const html = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, current: true, nowMs: Date.now(), canManage: true }));
+    for (const text of ['DSP-701', 'Vegetables', '650 kg declared', 'Hiace', 'ABC-123', '1000 kg', 'Pre-Trip inspection required']) expect(html).toContain(text);
+    expect(html).not.toContain('Start Trip');
+  });
   it.each([["Passenger Onboard", "Cargo Loaded"], ["Drop-off", "At Delivery"]])("renders %s as %s without guest/zero-passenger text", (trip_status, label) => {
     const trip = { trip_id: 701, trip_status, load_type: "Cargo", cargo_description: "Restaurant vegetables", cargo_weight_kg: 650,
       passenger_count: 0, passenger_name: "Ghost Guest", origin: "Supplier", destination: "Hotel" };
@@ -90,6 +116,16 @@ describe("rendered driver workspace", () => {
 it("gives Cargo Home a work-focused hero without guest transport copy", () => {
   const html = renderToStaticMarkup(React.createElement(DriverHeroCard, { workspaceMode: "cargo", confirmed: true, profileConfirmed: true, vehicle: { plate: "ABC-123" } }));
   expect(html).toContain("Cargo work. Clear deliveries."); expect(html).not.toContain("Happy guests");
+});
+
+it('renders the reference Cargo duty/standby overview instead of the hotel dashboard header', () => {
+  const common = { confirmed: true, profileConfirmed: true, vehicle: { plate: 'ABC-123' }, upcoming: 1, completed: 5 };
+  const cargo = renderToStaticMarkup(React.createElement(DriverHeroCard, { ...common, workspaceMode: 'cargo', duty: { loaded: true, checkedIn: true } }));
+  expect(cargo).toContain('On Duty · Standby'); expect(cargo).toContain('Waiting for your next assignment.');
+  expect(cargo).not.toContain('Happy guests'); expect(cargo).not.toContain('View assignments');
+  const passenger = renderToStaticMarkup(React.createElement(DriverHeroCard, { ...common, workspaceMode: 'passenger' }));
+  expect(passenger).toContain('Smooth rides. Happy guests.'); expect(passenger).toContain('View assignments');
+  expect(passenger).not.toContain('On Duty · Standby');
 });
 
 it.each([
@@ -209,7 +245,7 @@ function homeHarness({ cards } = {}) {
     '../../../lib/use-duty': { useDuty: () => ({ loaded: true, checkedIn: true, busy: false, today: { blocked: false }, due: false, unreported: null }) },
     '../../../lib/duty-empty-states': { DUTY_EMPTY_STATES, resolveDutyEmptyState },
     '../../../lib/missed-report': { missedReportCopy: () => null, lateReportHref: () => null },
-    '../../../components/clay': { ClayCard: native('div'), ClayButton: native('button') },
+    '../../../components/clay': { ClayCard: native('div'), ClayButton: ({ label, children }) => React.createElement('button', null, label, children) },
     '../../../components/home/DriverHomeSkeletons': { useSharedSkeletonPulse: () => false, DriverHeroCardSkeleton: native('div'), DriverTripCardSkeleton: native('div') },
     '../../../lib/sync': { getIncidentDeadLetters: deadLetters, retryIncidentDeadLetters: vi.fn(async () => {}) },
     '../../../lib/prefetch-routes': { QUICK_ACTION_ROUTES: [] },
@@ -245,13 +281,19 @@ async function renderOfflineHome(h) {
 }
 
 describe('Home offline read-only gate (index.js canManageTrip)', () => {
+  it('keeps the Incident shortcut visible while on Cargo duty', async () => {
+    const h = homeHarness(); seedOfflineCache(h);
+    const html = await renderOfflineHome(h);
+    expect(html).toContain('Report Incident');
+    expect(html).toContain('End Duty');
+  });
   it('renders the cached workspace visibly but keeps trip actions disabled while offline', async () => {
     const h = homeHarness();
     seedOfflineCache(h);
     const html = await renderOfflineHome(h);
     // The cached driver type still paints the workspace…
     expect(html).toContain('Cargo workspace');
-    expect(html).toContain('Cargo work. Clear deliveries.');
+    expect(html).toContain('Follow your current cargo assignment.');
     expect(html).toContain('Fresh vegetables');
     // …but the current trip's CTA is Trip Details, never the live action.
     expect(html).toContain('Trip Details');

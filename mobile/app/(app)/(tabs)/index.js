@@ -393,6 +393,13 @@ export default function Home() {
       AppAlert.alert("Trip Completed or Paused", "No further action is required for this trip at this time.");
       return;
     }
+    // Cargo shares Map's current-stage verification and the manual completion form.
+    if (driverProfile?.driverType === "Cargo") {
+      router.push(nextObj.status === "Completed"
+        ? { pathname: '/(app)/trip/complete', params: { tripId: String(trip.trip_id) } }
+        : '/map');
+      return;
+    }
     if (nextObj.status === "Completed") {
       setCompletingTrip(trip);
       return;
@@ -427,7 +434,7 @@ export default function Home() {
       return;
     }
     doAction(trip, nextObj);
-  }, [canManageTrip, confirmedSession, driverProfile?.driverType, doAction, load, preShiftPassed]);
+  }, [canManageTrip, confirmedSession, driverProfile?.driverType, doAction, load, preShiftPassed, router]);
 
   const submitOdometer = async () => {
     if (!canManageTrip || !isCurrentCargoSession(confirmedSession) || resolveDriverWorkspace({ driverType: driverProfile?.driverType, trip: completingTrip }).tripReady !== true) return;
@@ -534,13 +541,13 @@ export default function Home() {
   // it visible. That pushes Fuel behind "More" while on duty; ending the shift
   // outranks reporting fuel.
   const shortcuts = useMemo(() => [
-    ...(duty.checkedIn ? [{ label: 'End Duty', icon: 'time-outline', action: goEndDuty }] : []),
+    ...(duty.checkedIn && workspace.mode !== 'cargo' ? [{ label: 'End Duty', icon: 'time-outline', action: goEndDuty }] : []),
     { label: 'Pre-Shift', icon: 'clipboard-outline', action: goPreShift },
     { label: 'My Schedule', icon: 'calendar', action: goSchedule },
     { label: 'Activity Log', icon: 'pulse', action: goSubmissions },
     { label: 'Report Incident', icon: 'shield-checkmark', action: goIncidents },
     ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: goFuelReport }] : []),
-  ], [goEndDuty, goPreShift, goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel, duty.checkedIn]);
+  ], [goEndDuty, goPreShift, goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel, duty.checkedIn, workspace.mode]);
 
   // Prefetch quick-action destination bundles while Home is idle
   useEffect(() => {
@@ -554,9 +561,10 @@ export default function Home() {
     return () => task?.cancel?.();
   }, [router]);
 
+  const showPreShiftPrompt = tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false);
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <DriverHomeHeader driverName={driverName}
+      <DriverHomeHeader driverName={driverName} driverType={driverProfile?.driverType}
         initial={(user?.firstName?.[0] || user?.name?.[0] || 'D').toUpperCase()}
         photoUrl={driverProfile?.avatarUrl || driverProfile?.faceImageUrl || driverProfile?.license?.imageUrl || user?.avatarUrl || null}
         weather={weatherChip} unreadCount={unreadCount} topInset={insets.top}
@@ -606,20 +614,20 @@ export default function Home() {
             working today is never sent to a check. `tourPreshiftStep` is the
             fourth: the tour teaches this control and must be able to show it on
             a rest day, or to a driver who already checked in. */}
-        {tourPreshiftStep || (dutiesToday && preShift.loaded && preShift.passed === false) ? (
+        {showPreShiftPrompt ? (
           <ClayCard variant="standard" style={{ marginBottom: 12 }}>
             <Text style={[type.cardTitle, { color: colors.onSurface }]}>
-              {preShift.failed ? "Pre-Shift Failed" : "Start Your Shift"}
+              {preShift.failed ? "Pre-Shift Failed" : workspace.mode === 'cargo' ? "You're Off Duty" : "Start Your Shift"}
             </Text>
             <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
               {preShift.failed
                 ? "Dispatch has been notified to review the vehicle. You can retake the check after review."
-                : "Full Vehicle Safety Check — required once before your first trip."}
+                : workspace.mode === 'cargo' ? "Complete your Pre-Shift inspection to start your duty." : "Full Vehicle Safety Check — required once before your first trip."}
             </Text>
             {/* One coach mark, one exact target: the button, never the card. */}
             <CoachMarkTarget targetId="home.preshift_start" radius={14} scrollRef={scrollRef}>
               <ClayButton
-                label={preShift.failed ? "RETAKE PRE-SHIFT CHECK" : "START PRE-SHIFT CHECK"}
+                label={preShift.failed ? "RETAKE PRE-SHIFT CHECK" : workspace.mode === 'cargo' ? "Start Pre-Shift Inspection" : "START PRE-SHIFT CHECK"}
                 onPress={() => {
                   // Tell the guide the press happened, and navigate without
                   // waiting on it. The guide only advances when its own
@@ -696,12 +704,14 @@ export default function Home() {
         {loading ? <DriverHeroCardSkeleton pulse={skeletonPulse} /> : <DriverHeroCard
           upcoming={upcoming.length} capped={trips.length >= 50}
           completed={completed} vehicle={vehicle} workspaceMode={workspace.mode}
+          duty={duty} activeTrip={activeTrip}
+          showDuty={!showPreShiftPrompt}
           confirmed={tripsSyncedAt != null} profileConfirmed={meSyncedAt != null}
           onTrips={goTrips}
           onHistory={goHistory} onVehicle={goVehicle}
         />}
 
-        {!loading ? <DriverWorkspaceCard loading={profileLoading && !driverProfile} workspace={workspace} trip={activeTrip} assignedVehicle={driverProfile?.assignedVehicle} /> : null}
+        {!loading ? <DriverWorkspaceCard compact={workspace.mode === 'cargo'} loading={profileLoading && !driverProfile} workspace={workspace} trip={activeTrip} assignedVehicle={driverProfile?.assignedVehicle} /> : null}
 
         {/* Unsent incident reports — quarantined offline, surfaced globally */}
         {deadLetterCount > 0 && (
@@ -741,7 +751,8 @@ export default function Home() {
           </Pressable>
         )}
 
-        <HomeQuickActions actions={shortcuts} scrollRef={scrollRef} />
+        <HomeQuickActions cargo={workspace.mode === 'cargo'} actions={shortcuts} scrollRef={scrollRef} />
+        {workspace.mode === 'cargo' && duty.checkedIn && !duty.due && !tourEndDutyStep ? <ClayButton label="End Duty" icon="time-outline" variant="tonal" onPress={goEndDuty} /> : null}
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
         {loading ? (
           <>
@@ -759,17 +770,17 @@ export default function Home() {
             interactivePreview={Boolean(activeTrip)}
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} />
-          <DriverTripCard trip={upcoming[0] ?? null} variant="next" confirmed={tripsSyncedAt != null}
+          {workspace.mode !== 'cargo' ? <DriverTripCard trip={upcoming[0] ?? null} variant="next" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview={!activeTrip}
-            onAction={handleTripAction} onDetails={goDetails} />
+            onAction={handleTripAction} onDetails={goDetails} /> : null}
         </> : <>
           {activeTrip ? <DriverTripCard workspace={workspace} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             interactivePreview
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} /> : null}
-          <AssignmentsHeading onPress={goTrips} title="Upcoming Trips" />
+          <AssignmentsHeading onPress={goTrips} title={workspace.mode === 'cargo' ? 'Next Cargo Assignments' : 'Upcoming Trips'} />
           <UpcomingTripList driverType={driverProfile?.driverType} trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
             onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!offline} />

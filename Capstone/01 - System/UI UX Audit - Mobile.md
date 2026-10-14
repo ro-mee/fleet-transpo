@@ -1,5 +1,34 @@
 # UI/UX Audit — FleetOps Mobile (Driver App)
 
+## Cargo reference review — 2026-10-14
+
+### Approved findings implemented
+
+The six findings below were implemented on 2026-10-14. Shared SwipeButton waits for an explicit confirmed `true` from the real Map status handler, shows a readable neutral Submitting state, locks duplicate actions and keeps success hidden for queued/refused/held/navigation-only outcomes. It fences late replies/timers on unmount. A shared AccessibilityInfo hook handles system reduced-motion changes, stale initial results, query failures and listener cleanup; Home expansion and swipe confirmation use it.
+
+Cargo keeps Pre-Shift, Schedule, Activity Log and Incident in its visible shortcuts; End Duty remains directly available as a separate tonal button when on duty and its report card is not already shown. Passenger order remains unchanged. A dedicated Pre-Shift prompt suppresses the duplicate Cargo duty band. Cargo overview/assignment elevation is lighter and metric/vehicle/shortcut inner surfaces no longer repeat the molded outer shadow. Compact Cargo Map keeps target, telemetry and consignment; vehicle information moves to expanded Details with schedule/capacity/stops. Source/Fleet/receiver, inspection, geofence, tracking and manual completion gates are preserved.
+
+Verification: initial regressions demonstrated premature success and the duplicate/dense layout defects; final 1,091 affected tests passed across 85 files, strict touched lint and Android Hermes export passed (1,457 modules / 5.68 MB / 82 assets). Independent source review found no important regression. Two Pre-Shift source-contract assertions were updated to the named condition without removing the tour/duty checks. Native screenshots, largest text, small-phone/landscape/keyboard/screen-reader fit and iOS/web/device/deployment acceptance remain pending; these are implemented source fixes, not a claim of exact reference fidelity.
+
+Requested skills: UI/UX Pro Max and High-End Visual Design. Analysis only; no app code changed. Compared both supplied Cargo image boards with current Home/Map/shared-control source and Mobile Architecture. This is source/reference analysis, not rendered native acceptance or a visual score. High-End's website glass/bento/huge-whitespace/entry-animation prescriptions do not override the pinned operational mobile references. The verified UX search matched mobile touch spacing/targets; React Native safe-area search had no verified relevant match after retry, so safe-area assessment uses the skill's explicit native checklist instead.
+
+Verdict: Cargo is differentiated from hotel Passenger and the palette/type foundation is suitable, but the reference layout is not fully matched or visually accepted.
+
+| Priority | Finding and evidence | Recommended correction |
+| --- | --- | --- |
+| P1 | Existing shared SwipeButton calls the asynchronous transition callback without awaiting it and immediately starts its success/checkmark overlay (`SwipeButton.js:146–147`, `:259–260`). This is gesture feedback, not server confirmation, and can imply success while a Cargo hold or refusal is pending. | Show pending feedback during submission; reserve the checkmark for confirmed success and retain the blocked reason on refusal. |
+| P1 | On-duty Home prepends End Duty (`index.js:536`); phone shortcuts only show four items (`DriverHomeCards.jsx:171`), pushing Report Incident behind More. The reference keeps Incident directly visible. | Keep Incident in the visible four; retain accessible End Duty through a separate control or a different lower-priority shortcut. |
+| P2 | Cargo Off Duty can show both the Pre-Shift prompt (`index.js:612`) and the hero duty band (`DriverHomeCards.jsx:60`), followed by counters/vehicle in the same overview. This duplicates hierarchy compared with the compact reference. | Use one primary duty block, with vehicle/counters arranged below; retain honest count scope rather than inventing the reference's three values. |
+| P2 | Cargo Map keeps load and vehicle rows in the primary sheet for all stages (`TripOperationalSummary.jsx:45–56`), with more stop rows expanded below. The reference navigation states are shorter and prioritize target/action. Above-fold fit is an unverified risk, not a measured overflow. | Keep current target/status/route estimate/action primary; move vehicle/capacity/schedule and duplicate stops into Details. |
+| P2 | Home reuses layered molded shadows on outer overview, metrics, vehicle, shortcuts and assignment (`DriverHomeCards.jsx:49`, `:78`, `:95`, `:178`, `:305`; `materials.js:21–23`). Source suggests a heavier embossed treatment than the quieter reference. | Consolidate Cargo elevation/radii; use one dominant raised surface and restrained inner groups, while preserving mobile theme tokens. Confirm with device captures. |
+| P2 | Existing shared Home expansion unconditionally uses LayoutAnimation (`DriverHomeCards.jsx:174`), and SwipeButton uses springs/timing without a reduced-motion branch. | Honor the system motion preference; do not add the High-End skill's marketing-style scroll reveals to this operational interface. |
+
+Strengths: shared TripCard and map/controller workflows avoid duplication; Cargo uses real consignment/weight and no guest counts; passed inspections/confirmed start timing and server authority remain explicit. Plus Jakarta Sans and forest/ivory/sage align with the references. Calculated token-pair contrast: light primary CTA 8.56:1, light muted/card 6.15:1, light mint label 10.23:1, dark mint label 6.04:1, dark muted/card 10.33:1. These solid-color calculations are not acceptance of all composed/disabled states.
+
+The schedule link's 40dp visual height is not reported as an undersized target: it has 6dp hitSlop. SwipeButton has an accessibility activation action, so it is not reported as screen-reader gesture-only. Largest text, 360/375dp portrait, landscape, actual shadows, safe-area/CTA reach, keyboard and screen-reader behavior still require native screenshots/runtime checks. Existing 1,065-test/Android-export results establish regressions/build only, not reference fidelity. No implementation or fresh test run was needed for this read-only audit.
+
+## Earlier audit — 2026-08-20
+
 - **Date:** 2026-08-20
 - **Method:** `impeccable` native `critique` + `audit.native` (source-level; no `detect.mjs` on native). Assessment A = design-director review; Assessment B = code-level deterministic scan. Method honest: dual-pass, driven inline (no dedicated detector agent available).
 - **Scope:** `mobile/` driver app only. Web stays monochrome (product decision).

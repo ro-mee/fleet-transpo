@@ -14,7 +14,7 @@ const files = execSync("git ls-files", { encoding: "utf8", maxBuffer: 64 * 1024 
   .split("\n").map((s) => s.trim()).filter(Boolean)
   .filter((f) => !f.includes("node_modules/") && !f.startsWith(".next/") && !f.startsWith("dist/")
     && !f.startsWith(".expo/") && !f.includes("android/build/") && !f.includes("android/app/build/"))
-  .filter((f) => !/\.(png|jpg|jpeg|gif|ico|ttf|otf|woff2?|mp4|pdf|zip|car|sqlite|db|pyc|traineddata)$/i.test(f))
+  .filter((f) => !/\.(png|jpg|jpeg|gif|webp|ico|ttf|otf|woff2?|mp4|pdf|zip|car|sqlite|db|pyc|traineddata)$/i.test(f))
   .filter((f) => !f.includes("__pycache__/"));
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
