@@ -29,6 +29,18 @@ export { legForStatus } from "./trip-navigation-phase";
  */
 
 const TASK_NAME = "fleetops-background-location";
+const BACKGROUND_OPTIONS = {
+  accuracy: Location.Accuracy.Balanced,
+  distanceInterval: 10,
+  timeInterval: 30000,
+  activityType: Location.ActivityType.AutomotiveNavigation,
+  pausesUpdatesAutomatically: false,
+  foregroundService: {
+    notificationTitle: "FleetOps tracking active",
+    notificationBody: "Sharing your live location with dispatch",
+    notificationColor: "#0f766e",
+  },
+};
 
 const STORAGE_KEY = "fleetops_bg_tracking";
 // Shape: { tripId, leg, km1, km2, prev, pending }. Older records without
@@ -132,43 +144,47 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
   await saveContext(ctx);
 });
 
-/**
- * Start background location updates. Requests the Android "Allow all the time"
- * permission first (a separate prompt from the foreground one on Android 10+).
- * No-op on web or if the permission is refused.
- */
-export async function startBackgroundTracking() {
-  if (Platform.OS === "web") return;
+async function ensureBackgroundTracking(requestPermission) {
+  if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
   try {
-    const { status } = await Location.requestBackgroundPermissionsAsync();
-    if (status !== "granted") return;
-    await Location.startLocationUpdatesAsync(TASK_NAME, {
-      accuracy: Location.Accuracy.Balanced,
-      distanceInterval: 10,
-      timeInterval: 30000,
-      activityType: Location.ActivityType.AutomotiveNavigation,
-      pausesUpdatesAutomatically: false,
-      foregroundService: {
-        notificationTitle: "FleetOps tracking active",
-        notificationBody: "Sharing your live location with dispatch",
-        notificationColor: "#0f766e",
-      },
-    });
+    const current = await Location.getBackgroundPermissionsAsync();
+    const permission = current.status === "granted" || !requestPermission
+      ? current
+      : await Location.requestBackgroundPermissionsAsync();
+    if (permission.status !== "granted") return { ok: false, reason: "permission-denied" };
+    if (!(await Location.hasStartedLocationUpdatesAsync(TASK_NAME))) {
+      await Location.startLocationUpdatesAsync(TASK_NAME, BACKGROUND_OPTIONS);
+    }
+    return { ok: true };
   } catch {
-    // Background location may be unavailable (device policy, etc.). Foreground
-    // tracking continues; this just means backgrounded km/GPS are not captured.
+    return { ok: false, reason: "start-failed" };
   }
+}
+
+/** Prepare the trip context before checking or starting the native task. */
+export async function prepareBackgroundTracking({ tripId, leg, requestPermission = false }) {
+  if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
+  await updateLegContext({ tripId, leg });
+  return ensureBackgroundTracking(requestPermission);
+}
+
+/** Compatibility for AppState callers that already saved their trip context. */
+export async function startBackgroundTracking() {
+  return ensureBackgroundTracking(true);
 }
 
 /**
  * Stop background location updates. Safe to call when not started.
  */
 export async function stopBackgroundTracking() {
-  if (Platform.OS === "web") return;
+  if (Platform.OS === "web") return { ok: true };
   try {
-    await Location.stopLocationUpdatesAsync(TASK_NAME);
+    if (await Location.hasStartedLocationUpdatesAsync(TASK_NAME)) {
+      await Location.stopLocationUpdatesAsync(TASK_NAME);
+    }
+    return { ok: true };
   } catch {
-    // not running
+    return { ok: false, reason: "stop-failed" };
   }
 }
 

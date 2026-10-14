@@ -1,4 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { Platform } from "react-native";
+import * as Location from "expo-location";
 
 const mocks = vi.hoisted(() => {
   const storage = new Map();
@@ -26,7 +28,9 @@ vi.mock("react-native", () => ({ Platform: { OS: "android" } }));
 vi.mock("expo-location", () => ({
   ActivityType: { AutomotiveNavigation: 1 },
   Accuracy: { Balanced: 1 },
+  getBackgroundPermissionsAsync: vi.fn(),
   requestBackgroundPermissionsAsync: vi.fn(),
+  hasStartedLocationUpdatesAsync: vi.fn(),
   startLocationUpdatesAsync: vi.fn(),
   stopLocationUpdatesAsync: vi.fn(),
 }));
@@ -52,6 +56,13 @@ beforeAll(async () => {
 
 beforeEach(() => {
   mocks.storage.clear();
+  vi.resetAllMocks();
+  Platform.OS = "android";
+  Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "granted" });
+  Location.requestBackgroundPermissionsAsync.mockResolvedValue({ status: "granted" });
+  Location.hasStartedLocationUpdatesAsync.mockResolvedValue(false);
+  Location.startLocationUpdatesAsync.mockResolvedValue(undefined);
+  Location.stopLocationUpdatesAsync.mockResolvedValue(undefined);
 });
 
 async function saveContext(context) {
@@ -65,6 +76,125 @@ async function loadContext() {
 function location(lat, lng, timestamp, speed = 12) {
   return { timestamp, coords: { latitude: lat, longitude: lng, speed } };
 }
+
+describe("background tracking readiness", () => {
+  const context = { tripId: "trip-1", leg: "leg2" };
+
+  it("returns ready for a running task without starting it twice", async () => {
+    Location.hasStartedLocationUpdatesAsync.mockResolvedValue(true);
+
+    expect(await backgroundTracking.prepareBackgroundTracking(context)).toEqual({ ok: true });
+    expect(Location.hasStartedLocationUpdatesAsync).toHaveBeenCalledWith("fleetops-background-location");
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it("persists the trip and leg before starting with the established service options", async () => {
+    Location.startLocationUpdatesAsync.mockImplementation(async () => {
+      expect(await loadContext()).toMatchObject({ ...context, prev: null, pending: null });
+    });
+
+    expect(await backgroundTracking.prepareBackgroundTracking(context)).toEqual({ ok: true });
+    expect(Location.startLocationUpdatesAsync).toHaveBeenCalledWith("fleetops-background-location", {
+      accuracy: 1,
+      distanceInterval: 10,
+      timeInterval: 30000,
+      activityType: 1,
+      pausesUpdatesAutomatically: false,
+      foregroundService: {
+        notificationTitle: "FleetOps tracking active",
+        notificationBody: "Sharing your live location with dispatch",
+        notificationColor: "#0f766e",
+      },
+    });
+    expect(Location.requestBackgroundPermissionsAsync).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, false])("never prompts without permission request opt-in (%s)", async (requestPermission) => {
+    Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "denied" });
+
+    expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission })).toEqual({
+      ok: false, reason: "permission-denied",
+    });
+    expect(Location.requestBackgroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it("starts after an explicitly requested permission is granted", async () => {
+    Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "undetermined" });
+
+    expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission: true })).toEqual({ ok: true });
+    expect(Location.requestBackgroundPermissionsAsync).toHaveBeenCalledOnce();
+    expect(Location.startLocationUpdatesAsync).toHaveBeenCalledOnce();
+  });
+
+  it("reports a refused permission without attempting a native start", async () => {
+    Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "denied" });
+    Location.requestBackgroundPermissionsAsync.mockResolvedValue({ status: "denied" });
+
+    expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission: true })).toEqual({
+      ok: false, reason: "permission-denied",
+    });
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(["getBackgroundPermissionsAsync", "requestBackgroundPermissionsAsync", "hasStartedLocationUpdatesAsync", "startLocationUpdatesAsync"])(
+    "reports native failure from %s", async (method) => {
+      if (method === "requestBackgroundPermissionsAsync") {
+        Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "undetermined" });
+      }
+      Location[method].mockRejectedValue(new Error("Native location unavailable"));
+
+      expect(await backgroundTracking.prepareBackgroundTracking({ ...context, requestPermission: true })).toEqual({
+        ok: false, reason: "start-failed",
+      });
+    }
+  );
+
+  it("reports web as unsupported without native calls or stored context", async () => {
+    Platform.OS = "web";
+
+    expect(await backgroundTracking.prepareBackgroundTracking(context)).toEqual({ ok: false, reason: "unsupported" });
+    expect(Location.getBackgroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(Location.startLocationUpdatesAsync).not.toHaveBeenCalled();
+    expect(await loadContext()).toBeNull();
+  });
+
+  it("keeps the existing AppState starter compatible with stored context", async () => {
+    await saveContext({ ...context, km1: 2, km2: 3 });
+
+    expect(await backgroundTracking.startBackgroundTracking()).toEqual({ ok: true });
+    expect(await loadContext()).toEqual({ ...context, km1: 2, km2: 3 });
+  });
+});
+
+describe("background tracking cleanup result", () => {
+  it("returns success after stopping the running task", async () => {
+    Location.hasStartedLocationUpdatesAsync.mockResolvedValue(true);
+
+    expect(await backgroundTracking.stopBackgroundTracking()).toEqual({ ok: true });
+    expect(Location.stopLocationUpdatesAsync).toHaveBeenCalledWith("fleetops-background-location");
+  });
+
+  it("returns success for an absent task without calling native stop", async () => {
+    expect(await backgroundTracking.stopBackgroundTracking()).toEqual({ ok: true });
+    expect(Location.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it.each(["hasStartedLocationUpdatesAsync", "stopLocationUpdatesAsync"])("reports native cleanup failure from %s", async (method) => {
+    Location.hasStartedLocationUpdatesAsync.mockResolvedValue(true);
+    Location[method].mockRejectedValue(new Error("Native cleanup unavailable"));
+
+    expect(await backgroundTracking.stopBackgroundTracking()).toEqual({ ok: false, reason: "stop-failed" });
+  });
+
+  it("returns success on web without native cleanup", async () => {
+    Platform.OS = "web";
+
+    expect(await backgroundTracking.stopBackgroundTracking()).toEqual({ ok: true });
+    expect(Location.hasStartedLocationUpdatesAsync).not.toHaveBeenCalled();
+    expect(Location.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+});
 
 describe("background tracking status compatibility", () => {
   it.each([["Trip Started", "leg1"], ["At Pickup", "leg1"], ["En Route", "leg2"], ["In Progress", "leg2"], ["Completed", null], ["Cancelled", null], ["Unexpected Status", null]])(
