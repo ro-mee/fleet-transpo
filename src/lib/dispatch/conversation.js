@@ -494,6 +494,34 @@ function otherOptionsAnswer(evidence, pairs) {
   return `${eligible}\nOther evaluated vehicles were excluded:\n${blocked}`;
 }
 
+// Cargo topic: a kg-first deterministic summary. The request line leads with
+// the declared figures (never seats), the top pair lines follow, and the
+// first physical/capacity recovery hint closes. Pure projection of recorded
+// evidence — no eligibility computation, no new vocabulary.
+function requestCargoLine(cargo = {}) {
+  const parts = [];
+  if (cargo.loadType) parts.push(`Load type: ${cleanOperationalText(cargo.loadType)}.`);
+  if (cargo.weightKg != null) parts.push(`Declared weight: ${cargo.weightKg} kg.`);
+  if (cargo.cargoText) parts.push(`Cargo: ${cleanOperationalText(cargo.cargoText)}.`);
+  return parts.join(' ') || null;
+}
+
+// The first recorded recovery action, preferring a capacity/physical code so
+// an overload block is narrated with its measured fix rather than whatever
+// else happened to sort first.
+function firstRecoveryHint(evidence, pairs) {
+  const all = [...pairs.flatMap(p => p.recoveryActions ?? []), ...(evidence.recoveryActions ?? [])];
+  return all.find(a => /CAPACITY|PHYSICAL/i.test(String(a?.code ?? ''))) ?? all[0] ?? null;
+}
+
+function cargoSummary(evidence, pairs) {
+  const parts = [requestCargoLine(evidence.requestCargo)];
+  parts.push(pairs.slice(0, 2).map(pairLine).join('\n'));
+  const hint = firstRecoveryHint(evidence, pairs);
+  if (hint?.label) parts.push(`Next step: ${cleanOperationalText(hint.label)}.`);
+  return parts.filter(Boolean).join('\n');
+}
+
 export function evidenceSummary(evidence, question = '') {
   if (evidence.selection?.status === 'missing') {
     return `The selected vehicle #${evidence.selection.vehicleId} / driver #${evidence.selection.driverId} is no longer in the current candidate evidence. Recheck this reservation before relying on that pair.`;
@@ -522,6 +550,16 @@ export function evidenceSummary(evidence, question = '') {
     || (hypoClock != null && /\bblock|enforce|allow|fit\b/i.test(question));
   if (pairs.length && shiftTopic) {
     return shiftBreakAnswer(evidence, pairs, question) + coverageDisclosure(evidence.coverage);
+  }
+  // Cargo questions answer kg-first: declared request figures, top pair
+  // lines, first physical/capacity recovery hint. Placed before the
+  // comparison/eta/conflicts branches so a cargo question never reads as a
+  // passenger verdict; passenger questions match none of these words and keep
+  // their byte-identical path. Digit-attached "900kg" has no word boundary,
+  // so it needs its own alternative.
+  const cargoTopic = /cargo|weight|\bkg\b|payload|manifest|handling|temperature|\d\s?kg\b/i.test(question);
+  if (pairs.length && cargoTopic) {
+    return cargoSummary(evidence, pairs) + coverageDisclosure(evidence.coverage);
   }
   const comparison = /\b(why|better|compare|recommend|workload|fair|buffer)\b|bakit|mas maganda/i.test(question);
   const eta = /\b(eta|arrival|arrive|distance|traffic)\b/i.test(question);
