@@ -16,6 +16,7 @@ import { useAuth } from "../../../lib/auth";
 import { AppAlert } from "../../../components/AppAlert";
 import { useTripTracking } from "../../../lib/tracking";
 import { getActiveStatuses, getNextStatus } from "../../../lib/tripRef";
+import { launchExternalNavigation } from "../../../lib/external-navigation";
 
 import { useTheme } from "../../../lib/theme-context";
 import TripMap from "../../../components/map";
@@ -74,10 +75,9 @@ export default function FullMapTab() {
     .substring(0, 2)
     .toUpperCase();
 
-  const handleOpenGoogleMaps = (destLat, destLng) => {
+  const handleOpenGoogleMaps = async (destLat, destLng) => {
     if (destLat && destLng) {
-      const gurl = `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`;
-      Linking.openURL(gurl).catch(() => { });
+      await launchExternalNavigation({ lat: destLat, lng: destLng }, url => Linking.openURL(url));
     }
   };
 

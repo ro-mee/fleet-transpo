@@ -134,8 +134,30 @@ describe('trusted operational target', () => {
     expect(navigationTarget({ ...trip, trip_status: 'Completed' })).toBeNull();
     expect(navigationTarget({ ...trip, origin_latitude: null, origin: 'Warehouse' })).toBeNull();
     expect(externalNavigationUrl(null)).toBeNull();
-    expect(externalNavigationUrl(navigationTarget(trip))).toContain('destination=14.6,121');
-    expect(externalNavigationUrl(navigationTarget({ ...trip, trip_status: 'En Route' }))).toContain('destination=14.7,121.1');
+    expect(externalNavigationUrl(navigationTarget(trip))).toContain('destination=14.6%2C121');
+    expect(externalNavigationUrl(navigationTarget({ ...trip, trip_status: 'En Route' }))).toContain('destination=14.7%2C121.1');
+  });
+});
+
+describe('Google Maps navigation URL', () => {
+  it('requests driving navigation to encoded coordinates', () => {
+    expect(externalNavigationUrl({ lat: 14.6, lng: 121 })).toBe(
+      'https://www.google.com/maps/dir/?api=1&destination=14.6%2C121&travelmode=driving&dir_action=navigate'
+    );
+  });
+  it.each([
+    null, { lat: NaN, lng: 121 }, { lat: 14.6, lng: NaN },
+    { lat: -90.1, lng: 121 }, { lat: 90.1, lng: 121 },
+    { lat: 14.6, lng: -180.1 }, { lat: 14.6, lng: 180.1 },
+  ])('rejects an invalid target: %j', target => {
+    expect(externalNavigationUrl(target)).toBeNull();
+  });
+  it.each([
+    [{ lat: 0, lng: 0 }, '0%2C0'],
+    [{ lat: -90, lng: -180 }, '-90%2C-180'],
+    [{ lat: 90, lng: 180 }, '90%2C180'],
+  ])('accepts valid zero and boundary coordinates: %j', (target, encoded) => {
+    expect(externalNavigationUrl(target)).toContain(`destination=${encoded}&`);
   });
 });
 

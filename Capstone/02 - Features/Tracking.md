@@ -6,6 +6,8 @@ source:
   - mobile/lib/tracking.js
   - mobile/lib/background-tracking.js
   - mobile/lib/gps-odometer.js
+  - mobile/lib/navigation-route.js
+  - mobile/lib/external-navigation.js
   - mobile/app/(app)/(tabs)/map.js
   - mobile/components/TomTomMap.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
@@ -50,6 +52,8 @@ Foreground-only was a deliberate scope decision (see [[ADR-010 Foreground Only G
 Summary: a headless task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `mobile/app/(app)/(tabs)/map.js` starts it on background via `AppState`, stops it and merges the accumulated km on return. The foreground watcher stays the source of truth; the task only fills the backgrounded gap.
 
 **Shared mobile navigation phase (2026-10-15):** `mobile/lib/trip-navigation-phase.js` now owns the status mapping used by the trusted navigation target and the existing background-tracking `legForStatus` export. Pending through At Pickup maps to pickup/leg1; Passenger Onboard, En Route, Drop-off, Arrived and In Progress maps to destination/leg2. Empty, terminal and unknown statuses return no target or leg. Passenger and Cargo use the same status rules. Verification: strict test-first checks reproduced the missing module and seven unsafe-fallback failures before implementation; the three focused phase, routing and background suites then passed 66/66 tests. This slice does not yet change tracking startup or the Google Maps launcher; physical Android acceptance remains pending.
+
+**Shared Google Maps launch (2026-10-15, handoff Task 2):** The shared URL builder now encodes the coordinate pair and requests `travelmode=driving&dir_action=navigate`. Invalid, non-finite or out-of-range coordinates return no URL. The new `launchExternalNavigation(target, openUrl)` waits for the platform open request and returns success, `invalid-target`, or `open-failed` without changing trip state or tracking. Vehicle, the static TripMap and the rescue navigation fallback now use this path while preserving their explicit destination and quiet launch-failure behavior. The active-trip Map already uses the shared URL builder; its tracking-before-launch workflow is a later task. Google's [Maps URL guide](https://developers.google.com/maps/documentation/urls/get-started#directions-action) notes that navigation may open a preview when device location is unavailable. Strict test-first verification observed five URL failures and a missing launcher module, then three consumer URL failures before migration; all seven focused navigation, WebView, tracking, odometer and notification suites passed 114/114 tests, and focused ESLint passed. Physical-device launch and background behavior remain unverified.
 
 **Requires a custom dev build** (not Expo Go) and, for Android production release, Play Store review with a justification.
 

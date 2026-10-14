@@ -15,7 +15,7 @@ export function navigationTarget(trip) {
 export function externalNavigationUrl(target) {
   const lat = finiteNumberInRange(target?.lat, -90, 90);
   const lng = finiteNumberInRange(target?.lng, -180, 180);
-  return lat == null || lng == null ? null : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+  return lat == null || lng == null ? null : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}&travelmode=driving&dir_action=navigate`;
 }
 
 // Executed inside the native WebView and in the runtime tests. Keeping this as
