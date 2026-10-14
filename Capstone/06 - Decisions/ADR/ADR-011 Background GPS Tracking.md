@@ -21,20 +21,24 @@ The operational cost of foreground-only is that tracking and per-leg km stop whe
 
 ## Decision
 
-**Keep the foreground watcher AND add a headless background task**, driven by `AppState` so the two never run simultaneously (no double-counted km, no duplicate GPS posts):
+**Keep the foreground watcher AND the existing headless background task**, with user-visible navigation readiness and an `AppState` fallback:
 
 - `expo-task-manager` defines task `fleetops-background-location` in `mobile/lib/background-tracking.js`.
 - The task posts the fix to the same endpoints the foreground uploader uses and accumulates per-leg haversine km into AsyncStorage (`fleetops_bg_tracking`).
-- `mobile/app/(app)/(tabs)/map.js` wires it via `AppState`:
-  - background + active trip → `updateLegContext` then `startBackgroundTracking`
+- `mobile/app/(app)/(tabs)/map.js` prepares it before external navigation and also wires it via `AppState`:
+  - Google Maps action → validate trip/target, prepare tracking with permission opt-in, recheck the current session/trip/status/target, then launch. Unavailable tracking shows Stay Here first; only explicit Continue Without Tracking bypasses readiness. Trip GPS still starts only from Driver Accepted onward.
+  - other background exit + active trip → update context, recheck trip, then `prepareBackgroundTracking` with `requestPermission: false`; a foreground return or ended trip during startup stops the task
   - foreground → stop the task and `mergeStoredKm(distRef)` into the same ref the watcher accumulates, clearing `prev` synchronously to avoid double-counting the gap
+- The task ignores delivery while the app is active and rechecks after reading its stored context, preventing preflight registration from duplicating foreground GPS/distance.
 - Trip/leg context is kept in sync on every trip or status change so the backgrounded task accumulates the correct leg and posts to the correct trip endpoint.
 
 The foreground watcher stays the source of truth; the background task only fills the gap while backgrounded.
 
-## Why AppState (not always-on)
+## Why preflight plus AppState (not always-on)
 
-Always-on background tracking would run the headless task even when idle. Driving it from AppState means the task only starts when there is an active trip and the app leaves the foreground — bounded battery and data, no background activity while the driver is just browsing.
+Always-on background tracking would run the headless task even when idle. Navigation preflight makes registration failure visible before leaving FleetOps; AppState covers other exits without opening a permission prompt in the background. The same task is reused, foreground delivery is ignored, and return stops it before merging distance. The permission workflow holds a tap lock, including its warning decision; hardware Back releases it safely. Registration readiness does not prove that a device or battery policy will deliver background fixes.
+
+Automated verification on 2026-10-15: strict test-first handoff, warning, cancellation and foreground-overlap checks passed with all 1,045 mobile library tests across 76 suites. Physical Android launch, notification return, background fix delivery and no-jump distance acceptance remain pending.
 
 ## Costs / trade-offs — accepted
 

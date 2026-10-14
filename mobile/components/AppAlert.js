@@ -121,7 +121,8 @@ export function AppAlertHost() {
       Animated.timing(cardOpacity, { toValue: 0, duration: 160, useNativeDriver: true }),
     ]).start(() => {
       setVisible(false);
-      if (onPress) onPress();
+      try { if (onPress) onPress(); }
+      finally { config.options?.onDismiss?.(); }
     });
   };
 
@@ -130,6 +131,7 @@ export function AppAlertHost() {
   const buttons = config.buttons?.length
     ? config.buttons
     : [{ text: 'OK' }];
+  const stackedButtons = config.options?.buttonLayout === 'stacked';
 
   const icon = deriveIcon(config.title, config.options);
   // Icon chip colors derived from the live theme tone — one hex + alpha
@@ -191,7 +193,7 @@ export function AppAlertHost() {
             )}
 
             {/* ── Button Bar (Floating Tactile Island Action Affordances) ─────── */}
-            <View style={[styles.btnGroup, buttons.length === 1 ? styles.btnGroupSingle : styles.btnGroupMultiple]}>
+            <View style={[styles.btnGroup, stackedButtons ? styles.btnGroupStacked : buttons.length === 1 ? styles.btnGroupSingle : styles.btnGroupMultiple]}>
               {buttons.map((btn, i) => {
                 const isDanger  = btn.style === 'destructive' || btn.destructive;
                 const isCancel  = btn.style === 'cancel';
@@ -220,8 +222,9 @@ export function AppAlertHost() {
                         borderWidth: isCancel ? 1 : 0,
                         transform: [{ scale: pressed ? 0.96 : 1 }],
                         opacity: pressed ? 0.9 : 1,
-                        flex: buttons.length > 1 ? 1 : undefined,
-                        width: buttons.length === 1 ? '100%' : undefined,
+                        flex: !stackedButtons && buttons.length > 1 ? 1 : undefined,
+                        width: stackedButtons || buttons.length === 1 ? '100%' : undefined,
+                        ...(stackedButtons ? { height: undefined, minHeight: 50, paddingVertical: 14 } : {}),
                       },
                     ]}
                     onPress={() => dismiss(btn.onPress)}
@@ -234,7 +237,7 @@ export function AppAlertHost() {
                         { color: textBtnColor },
                         isPrimary && styles.btnTextPrimary,
                       ]}
-                      numberOfLines={1}
+                      numberOfLines={stackedButtons ? undefined : 1}
                     >
                       {btn.text}
                     </Text>
@@ -366,6 +369,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  btnGroupStacked: {
+    alignItems: 'stretch',
   },
   actionBtn: {
     height: 50,

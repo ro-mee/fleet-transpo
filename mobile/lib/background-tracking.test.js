@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import * as Location from "expo-location";
+import { api } from './api';
 
 const mocks = vi.hoisted(() => {
   const storage = new Map();
@@ -24,7 +25,7 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("react-native", () => ({ Platform: { OS: "android" } }));
+vi.mock("react-native", () => ({ Platform: { OS: "android" }, AppState: { currentState: 'background' } }));
 vi.mock("expo-location", () => ({
   ActivityType: { AutomotiveNavigation: 1 },
   Accuracy: { Balanced: 1 },
@@ -61,6 +62,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.setItem.mockImplementation(async (key, value) => { mocks.storage.set(key, value); });
   Platform.OS = "android";
+  AppState.currentState = 'background';
   Location.getForegroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.requestForegroundPermissionsAsync.mockResolvedValue({ status: "granted" });
   Location.getBackgroundPermissionsAsync.mockResolvedValue({ status: "granted" });
@@ -272,6 +274,20 @@ describe("background tracking status compatibility", () => {
 });
 
 describe("background odometer anchor persistence", () => {
+  it.each(['before-delivery', 'during-context-read'])('does not duplicate foreground GPS or distance %s', async timing => {
+    const stored = { tripId: 'trip-1', leg: 'leg1', km1: 2, km2: 0, prev: { lat: 14.6, lng: 121, atMs: 1000 } };
+    await saveContext(stored);
+    const getItem = vi.spyOn(mocks, 'getItem');
+    if (timing === 'before-delivery') AppState.currentState = 'active';
+    else getItem.mockImplementationOnce(async () => { AppState.currentState = 'active'; return JSON.stringify(stored); });
+    mocks.setItem.mockClear();
+    try {
+      await mocks.taskHandler({ data: { locations: [location(14.6005, 121, 4000)] } });
+      expect(api.post).not.toHaveBeenCalled();
+      expect(mocks.setItem).not.toHaveBeenCalled();
+      expect(await loadContext()).toEqual(stored);
+    } finally { getItem.mockRestore(); }
+  });
   it("keeps the existing foreground distance merge best-effort when its cleanup write fails", async () => {
     const stored = { tripId: "trip-1", leg: "leg1", km1: 2, km2: 3 };
     await saveContext(stored);

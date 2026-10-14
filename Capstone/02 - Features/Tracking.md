@@ -8,6 +8,7 @@ source:
   - mobile/lib/gps-odometer.js
   - mobile/lib/navigation-route.js
   - mobile/lib/external-navigation.js
+  - mobile/lib/navigation-handoff.js
   - mobile/app/(app)/(tabs)/map.js
   - mobile/components/TomTomMap.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
@@ -49,7 +50,7 @@ indicator or old trip error visible.
 
 Foreground-only was a deliberate scope decision (see [[ADR-010 Foreground Only GPS]]); the app has since moved to a dev build, so background tracking is now implemented. See [[ADR-011 Background GPS Tracking]] for the full decision and trade-offs.
 
-Summary: a headless task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `mobile/app/(app)/(tabs)/map.js` starts it on background via `AppState`, stops it and merges the accumulated km on return. The foreground watcher stays the source of truth; the task only fills the backgrounded gap.
+Summary: a headless task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. Map prepares the existing task before opening Google Maps; `AppState` provides a permission-free fallback for other exits, then stops it and merges the accumulated km on return. The task ignores foreground delivery, including a foreground return during its context read. The foreground watcher stays the source of truth; the task only fills the backgrounded gap.
 
 **Shared mobile navigation phase (2026-10-15):** `mobile/lib/trip-navigation-phase.js` now owns the status mapping used by the trusted navigation target and the existing background-tracking `legForStatus` export. Pending through At Pickup maps to pickup/leg1; Passenger Onboard, En Route, Drop-off, Arrived and In Progress maps to destination/leg2. Empty, terminal and unknown statuses return no target or leg. Passenger and Cargo use the same status rules. Verification: strict test-first checks reproduced the missing module and seven unsafe-fallback failures before implementation; the three focused phase, routing and background suites then passed 66/66 tests. This slice does not yet change tracking startup or the Google Maps launcher; physical Android acceptance remains pending.
 
@@ -60,6 +61,8 @@ Summary: a headless task (`fleetops-background-location`) posts GPS and accumula
 **Task 3 review fixes (2026-10-15):** Missing foreground permission is checked/requested first with the same prompt opt-in; refusal stops before any background check, and native permission exceptions return `start-failed`. Context writes now reject on storage failure so preparation returns `start-failed` before permission/native calls instead of accepting stale trip context. The serialized write queue recovers after failure and preserves same-trip distance totals. Existing callers already catch context errors; the background task and foreground merge retain their best-effort save behavior. Strict test-first evidence: six permission-order/denial/error regressions failed before that fix, then three context-failure regressions failed before the persistence fix. Final focused readiness/odometer checks passed 54/54 tests; seven related regression suites passed 141/141; strict touched lint passed. Physical Android acceptance remains pending.
 
 **Requires a custom dev build** (not Expo Go) and, for Android production release, Play Store review with a justification.
+
+**Ordered Google Maps handoff (2026-10-15, Task 4):** Both Passenger and Cargo validate the current trip and trusted phase target before permission work, then await background readiness before opening the shared Google Maps launcher. The button stays disabled and ignores repeated taps during preparation and the warning decision. Denial, startup failure or unsupported tracking shows an honest warning with primary **Stay Here** and secondary **Continue Without Tracking**; only the latter opens Maps. Back dismisses safely and releases the lock. Earlier unaccepted assignments never request or start trip tracking and require that explicit override. Session, trip, status and target checks prevent stale launch after completion or assignment change; launch failure stops prepared tracking and reports the platform failure. The AppState fallback never prompts and stops a pending task after cancellation or foreground return, retaining stop-before-merge ordering. Shared AppAlert opt-ins stack long labels and report dismissal, preserving its default layout. Strict test-first evidence reproduced the missing orchestration module, 14 screen failures, three alert failures, one cancellation race and two foreground-duplication failures before their changes; all 1,045 mobile library tests across 76 suites passed. Physical Android permission, launch, notification, background-fix delivery and distance continuity acceptance remain pending; no coordinates are logged and no trip state or extra collector is added.
 
 → [[Mobile Architecture]] · [[ADR-011 Background GPS Tracking]]
 

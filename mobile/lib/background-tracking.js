@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -22,10 +22,9 @@ export { legForStatus } from "./trip-navigation-phase";
  * ACCESS_BACKGROUND_LOCATION / FOREGROUND_SERVICE / FOREGROUND_SERVICE_LOCATION
  * permissions.
  *
- * Design: the foreground (map.js) starts the task only when the app goes to the
- * background with an active trip, and stops it when the app returns to the
- * foreground — so there is never both a foreground watcher and this task running,
- * which would double-count km and duplicate GPS rows.
+ * Map prepares this existing task before opening Google Maps, with an AppState
+ * fallback for other background transitions. Delivery while FleetOps is active
+ * is ignored so preflight cannot duplicate foreground GPS or distance.
  */
 
 const TASK_NAME = "fleetops-background-location";
@@ -81,11 +80,12 @@ async function saveContext(ctx) {
  * AsyncStorage (merged back into the foreground accumulator on resume).
  */
 TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
-  if (error) return;
+  if (error || AppState.currentState === 'active') return;
   const { locations } = data || {};
   if (!locations || !locations.length) return;
 
   const ctx = await loadContext();
+  if (AppState.currentState === 'active') return;
 
   for (const loc of locations) {
     const lat = loc.coords?.latitude;

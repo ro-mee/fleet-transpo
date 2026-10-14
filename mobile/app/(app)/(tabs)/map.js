@@ -6,7 +6,9 @@ import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
 import RouteOptionsSheet from "../../../components/RouteOptionsSheet";
 import TripOperationalSummary, { CargoMapStandby } from "../../../components/TripOperationalSummary";
-import { navigationTarget, externalNavigationUrl } from "../../../lib/navigation-route";
+import { navigationTarget } from "../../../lib/navigation-route";
+import { beginNavigationHandoff } from "../../../lib/navigation-handoff";
+import { launchExternalNavigation } from "../../../lib/external-navigation";
 import { METEOCON_ASSETS } from "../../../components/WeatherChip";
 import { api, wasQueued, subscribeApiEvents } from "../../../lib/api";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -43,7 +45,7 @@ import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
 import { resolveCargoMapGate, workspaceModeLabel, workspaceBlockReason } from "../../../lib/cargo-view-model";
 import { ClayButton } from "../../../components/clay/ClayButton";
 import {
-  startBackgroundTracking,
+  prepareBackgroundTracking,
   stopBackgroundTracking,
   updateLegContext,
   mergeStoredKm,
@@ -702,6 +704,8 @@ export default function MapTab() {
 
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
+  const navigationBusyRef = useRef(false);
+  const [navigationBusy, setNavigationBusy] = useState(false);
 
   // Focus gate: tabs stay mounted after first visit, so without this the
   // Highest-accuracy GPS watcher + heading stream keep re-rendering (and
@@ -820,10 +824,8 @@ export default function MapTab() {
     }).catch(() => {});
   }, [activeTripIdForTracking, activeTripStatusForTracking]);
 
-  // Background tracking, driven by AppState so there is never overlap with the
-  // foreground watcher (no double-counted km, no duplicate GPS posts):
-  //   background + active trip → start the headless task
-  //   foreground              → stop it and merge the km it accumulated
+  // Navigation preflight prepares the existing task; AppState covers other exits.
+  // Foreground return stops the task before merging its accumulated distance.
   const appState = useRef(AppState.currentState);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -833,16 +835,20 @@ export default function MapTab() {
       const isLeavingActive = prev.match(/active/) && next.match(/inactive|background/);
       const isReturning = next === "active";
 
-      if (isLeavingActive && hadActiveTrip) {
+      if (isLeavingActive && hadActiveTrip && !navigationBusyRef.current) {
         const expectedTripId = activeTripRef.current?.trip_id;
         updateLegContext({
           tripId: activeTripRef.current?.trip_id ?? null,
           leg: legForStatus(activeTripRef.current?.trip_status),
         }).then(async () => {
-          if (activeTripRef.current?.trip_id !== expectedTripId || appState.current === 'active') return;
-          await startBackgroundTracking();
+          if (activeTripRef.current?.trip_id !== expectedTripId || !isGpsTrackedTrip(activeTripRef.current) || appState.current === 'active') return;
+          await prepareBackgroundTracking({
+            tripId: expectedTripId,
+            leg: legForStatus(activeTripRef.current?.trip_status),
+            requestPermission: false,
+          });
           // Completion/foreground return may arrive while OS permission/start is pending.
-          if (activeTripRef.current?.trip_id !== expectedTripId || appState.current === 'active') await stopBackgroundTracking();
+          if (activeTripRef.current?.trip_id !== expectedTripId || !isGpsTrackedTrip(activeTripRef.current) || appState.current === 'active') await stopBackgroundTracking();
         }).catch(() => {});
       } else if (isReturning) {
         // Clear the straddling fix synchronously so a foreground watcher tick
@@ -1416,10 +1422,54 @@ export default function MapTab() {
     : !driverLocation ? 'Current GPS location is unavailable.'
     : !trustedTarget ? 'A verified pickup or delivery location is required. Contact Dispatch.'
     : !mapReady ? 'The map is still loading.' : null;
-  const openExternalNavigation = () => {
-    const url = externalNavigationUrl(trustedTarget);
-    if (!url) return AppAlert.alert('Navigation unavailable', 'Ask Dispatch to verify the current pickup or delivery location.');
-    Linking.openURL(url).catch(() => AppAlert.alert('Navigation unavailable', 'Unable to open Google Maps on this device.'));
+  const openExternalNavigation = async () => {
+    if (navigationBusyRef.current) return;
+    navigationBusyRef.current = true;
+    setNavigationBusy(true);
+    let warningOpen = false;
+    const release = () => { navigationBusyRef.current = false; setNavigationBusy(false); };
+    const trip = activeTripRef.current;
+    const target = navigationTarget(trip);
+    const session = captureCargoSession(user?.employeeId);
+    const isCurrent = () => {
+      const current = activeTripRef.current;
+      const currentTarget = navigationTarget(current);
+      return !!session && isCurrentCargoSession(session) && appState.current === 'active' &&
+        current?.trip_id === trip?.trip_id && current?.trip_status === trip?.trip_status &&
+        currentTarget?.lat === target?.lat && currentTarget?.lng === target?.lng;
+    };
+    const reportOpenFailure = () => AppAlert.alert('Navigation unavailable', 'Unable to open Google Maps on this device.');
+    try {
+      const result = await beginNavigationHandoff({
+        trip, isCurrent, requestPermission: true, openUrl: url => Linking.openURL(url),
+        // Trip GPS starts only after acceptance, even when the pickup target is valid earlier.
+        prepare: options => isGpsTrackedTrip(trip) ? prepareBackgroundTracking(options) : Promise.resolve({ ok: false, reason: 'unsupported' }),
+        rollback: stopBackgroundTracking,
+      });
+      if (result.ok || result.reason === 'stale-trip') return;
+      if (result.reason === 'invalid-target') {
+        AppAlert.alert('Navigation unavailable', 'Ask Dispatch to verify the current pickup or delivery location.');
+      } else if (result.reason === 'open-failed') {
+        reportOpenFailure();
+      } else if (isCurrent()) {
+        warningOpen = true;
+        let decided = false;
+        AppAlert.alert('Background tracking unavailable', 'FleetOps cannot confirm live tracking while Google Maps is open.', [
+          { text: 'Stay Here', onPress: () => { decided = true; release(); } },
+          { text: 'Continue Without Tracking', style: 'cancel', onPress: async () => {
+            if (decided) return;
+            decided = true;
+            try {
+              if (!isCurrent()) return;
+              const opened = await launchExternalNavigation(target, url => Linking.openURL(url));
+              if (!opened.ok) reportOpenFailure();
+            } finally { release(); }
+          } },
+        ], { type: 'warning', buttonLayout: 'stacked', onDismiss: () => { if (!decided) { decided = true; release(); } } });
+      }
+    } finally {
+      if (!warningOpen) release();
+    }
   };
   const handleMapReady = useCallback(() => setMapReady(true), []);
   const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
@@ -2168,7 +2218,7 @@ export default function MapTab() {
             <Pressable style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }]} onPress={() => setRouteOptionsVisible(true)} accessibilityRole="button" accessibilityLabel="Route options">
               <Ionicons name="options-outline" size={20} color={colors.primary} />
             </Pressable>
-            <Pressable style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, opacity: trustedTarget ? 1 : 0.55 }]} onPress={openExternalNavigation} disabled={!trustedTarget} accessibilityRole="button" accessibilityLabel="Open current target in Google Maps" accessibilityState={{ disabled: !trustedTarget }}>
+            <Pressable style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, opacity: trustedTarget && !navigationBusy ? 1 : 0.55 }]} onPress={openExternalNavigation} disabled={!trustedTarget || navigationBusy} accessibilityRole="button" accessibilityLabel={navigationBusy ? "Preparing Google Maps navigation" : "Open current target in Google Maps"} accessibilityState={{ disabled: !trustedTarget || navigationBusy, busy: navigationBusy }}>
               <Ionicons name="open-outline" size={20} color={colors.primary} />
             </Pressable>
             <Pressable

@@ -198,21 +198,21 @@ it.each(['before-start', 'during-start'])('prevents a completed trip restarting 
   const delayed = new Promise(resolve => { release = resolve; });
   const activeTripRef = { current: { trip_id: 7, trip_status: 'En Route' } };
   const updateLegContext = vi.fn().mockImplementation(() => timing === 'before-start' ? delayed : Promise.resolve());
-  const startBackgroundTracking = vi.fn().mockImplementation(() => timing === 'during-start' ? delayed : Promise.resolve());
+  const prepareBackgroundTracking = vi.fn().mockImplementation(() => timing === 'during-start' ? delayed : Promise.resolve({ ok: true }));
   const stopBackgroundTracking = vi.fn().mockResolvedValue(undefined);
   runInNewContext(source.slice(start, end), {
     useEffect: fn => fn(), useRef: current => ({ current }),
     AppState: { currentState: 'active', addEventListener: (_, callback) => { change = callback; return { remove() {} }; } },
     activeTripRef, isGpsTrackedTrip: trip => !!trip, legForStatus: () => 'leg2', updateLegContext,
-    startBackgroundTracking, stopBackgroundTracking, mergeStoredKm: vi.fn().mockResolvedValue(undefined),
+    prepareBackgroundTracking, stopBackgroundTracking, navigationBusyRef: { current: false }, mergeStoredKm: vi.fn().mockResolvedValue(undefined),
     distRef: { current: { prev: null, pending: null } },
   });
   change('background');
   await Promise.resolve(); await Promise.resolve();
-  if (timing === 'during-start') expect(startBackgroundTracking).toHaveBeenCalledOnce();
+  if (timing === 'during-start') expect(prepareBackgroundTracking).toHaveBeenCalledOnce();
   activeTripRef.current = null;
   release();
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-  if (timing === 'before-start') expect(startBackgroundTracking).not.toHaveBeenCalled();
+  if (timing === 'before-start') expect(prepareBackgroundTracking).not.toHaveBeenCalled();
   else expect(stopBackgroundTracking).toHaveBeenCalledOnce();
 });
