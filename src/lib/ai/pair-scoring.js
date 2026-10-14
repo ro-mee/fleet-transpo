@@ -729,6 +729,7 @@ export function buildFleetPairRecommendations({
         driver_id: chosen.driver_id, driver_name: pairDriverName(chosen), reason: mismatch.message });
       continue;
     }
+    const designated = pairing.designated;
     const replacement_reason = pairing.kind === PAIRING_KIND.SUBSTITUTE ? pairing.reason : null;
 
     const scored = scoreFleetPair({

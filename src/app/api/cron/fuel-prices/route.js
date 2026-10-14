@@ -59,12 +59,6 @@ function latestWeekPdf(pdfUrls) {
   }
   // Deterministic: newest end week wins; ties break on start week, then URL.
   dated.sort((a, b) => (a.endISO < b.endISO ? 1 : a.endISO > b.endISO ? -1 : a.startISO < b.startISO ? 1 : a.startISO > b.startISO ? -1 : a.pdfUrl < b.pdfUrl ? -1 : 1));
->>>>>>> fabce8cc (fix: close review gaps across drivers, fuel, trips, and mechanic suites)
-    dated.push({ pdfUrl, endISO: range.endISO, startISO: range.startISO, label });
-  }
-  // Deterministic: newest end week wins; ties break on start week, then URL.
-  dated.sort((a, b) => (a.endISO < b.endISO ? 1 : a.endISO > b.endISO ? -1 : a.startISO < b.startISO ? 1 : a.startISO > b.startISO ? -1 : a.pdfUrl < b.pdfUrl ? -1 : 1));
->>>>>>> fabce8cc (fix: close review gaps across drivers, fuel, trips, and mechanic suites)
   return dated[0]?.pdfUrl ?? null;
 }
 

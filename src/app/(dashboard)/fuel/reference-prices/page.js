@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState } from "react";
 import Link from "next/link";
@@ -130,8 +130,7 @@ export default function ReferencePricesPage() {
   const save = useMutation({ mutationFn: (body) => apiFetch("/api/fuel/reference-prices", { method: "POST", body }), onSuccess: () => cache.invalidateQueries({ queryKey: ["fuel-reference-prices"] }) });
   const setRegion = useMutation({ mutationFn: (region) => apiFetch("/api/fuel/reference-prices", { method: "PATCH", body: { region } }), onSuccess: () => cache.invalidateQueries({ queryKey: ["fuel-reference-prices"] }) });
   const importPdf = useMutation({ mutationFn: (body) => apiFetch("/api/fuel/reference-prices/import-pdf", { method: "POST", body }), onSuccess: () => cache.invalidateQueries({ queryKey: ["fuel-reference-prices"] }) });
-  if (loading) return <p role="status">Loading accessâ€¦</p>;
-  if (loading) return <p role="status" className="rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground-secondary">Loading accessâ€¦</p>;
+  if (loading) return <p role="status" className="rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground-secondary">Loading access…</p>;
   return <div className="space-y-6">
       icon={Fuel}
       title="Fuel reference prices"
@@ -144,7 +143,7 @@ export default function ReferencePricesPage() {
         </Link>
       )}
     />
-    {prices.isLoading ? <p role="status" aria-busy="true" className="rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground-secondary">Loading verified historyâ€¦</p> : null}
+    {prices.isLoading ? <p role="status" aria-busy="true" className="rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground-secondary">Loading verified history…</p> : null}
     {prices.error ? (
       <div role="alert" className="flex flex-col gap-3 rounded-xl border border-danger/20 bg-danger-bg/50 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -173,7 +172,7 @@ export default function ReferencePricesPage() {
                 <Label htmlFor="estimate-region">Region</Label>
                 <Input id="estimate-region" name="region" required maxLength={100} defaultValue={prices.data.region || ""} />
               </div>
-              <Button variant="outline" className="min-h-11" disabled={setRegion.isPending}>{setRegion.isPending ? "Savingâ€¦" : "Save region"}</Button>
+              <Button variant="outline" className="min-h-11" disabled={setRegion.isPending}>{setRegion.isPending ? "Saving…" : "Save region"}</Button>
               {setRegion.error ? <p role="alert" className="text-sm text-danger-700 sm:col-span-2">{setRegion.error.message}</p> : null}
               {setRegion.isSuccess ? <p role="status" className="text-sm text-success-700 sm:col-span-2">Estimate region saved.</p> : null}
             </form>
@@ -194,9 +193,9 @@ export default function ReferencePricesPage() {
         </CardHeader>
         <CardContent className="pt-0">
           <form className="grid gap-4 md:grid-cols-2" onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; importPdf.mutate(pdfImportBody(new FormData(form)), { onSuccess: () => form.reset() }); }}>
-            <div className="space-y-1.5 md:col-span-2"><Label htmlFor="pdf-url">Weekly NCR PDF URL</Label><Input id="pdf-url" name="pdf_url" type="url" required maxLength={2000} placeholder="https://â€¦/NCR Liquid Fuel Price Monitoring 29 Sep to 5 Oct 2026.pdf" /></div>
+            <div className="space-y-1.5 md:col-span-2"><Label htmlFor="pdf-url">Weekly NCR PDF URL</Label><Input id="pdf-url" name="pdf_url" type="url" required maxLength={2000} placeholder="https://…/NCR Liquid Fuel Price Monitoring 29 Sep to 5 Oct 2026.pdf" /></div>
             <div className="space-y-1.5"><Label htmlFor="week-label">Week label override (optional)</Label><Input id="week-label" name="week_label" maxLength={200} placeholder="NCR Price Monitoring Sep 1-7 2026.pdf" /></div>
-            <div className="flex items-end"><Button className="min-h-11 w-full md:w-auto" disabled={importPdf.isPending}>{importPdf.isPending ? "Importingâ€¦" : "Import weekly PDF"}</Button></div>
+            <div className="flex items-end"><Button className="min-h-11 w-full md:w-auto" disabled={importPdf.isPending}>{importPdf.isPending ? "Importing…" : "Import weekly PDF"}</Button></div>
             {importPdf.error ? <p role="alert" className="rounded-lg bg-danger-bg/60 px-3 py-2 text-sm text-danger-700 md:col-span-2">{importPdf.error.message}</p> : null}
             {importPdf.isSuccess ? <p role="status" className="rounded-lg bg-success-bg/60 px-3 py-2 text-sm text-success-700 md:col-span-2">{importPdf.data.persisted ? "Weekly PDF imported." : `Import finished without new prices: ${importPdf.data.reason ?? importPdf.data.products.map((p) => `${p.fuel_product}: ${p.reason ?? p.outcome}`).join("; ")}`}</p> : null}
           </form>
@@ -224,7 +223,7 @@ export default function ReferencePricesPage() {
               <span>I checked the publication, fuel product, region, price and effectivity.</span>
             </label>
             <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-              <Button variant="outline" className="min-h-11" disabled={save.isPending}>{save.isPending ? "Recordingâ€¦" : "Record verified price"}</Button>
+              <Button variant="outline" className="min-h-11" disabled={save.isPending}>{save.isPending ? "Recording…" : "Record verified price"}</Button>
               {save.error ? <p role="alert" className="text-sm text-danger-700">{save.error.message}</p> : null}
               {save.isSuccess ? <p role="status" className="text-sm text-success-700">{save.data.duplicate ? "This price was already recorded." : "Verified price recorded."}</p> : null}
             </div>
