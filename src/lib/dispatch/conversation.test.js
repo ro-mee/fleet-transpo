@@ -222,5 +222,5 @@ it('projects cargo load for a cargo request', () => {
   const request = { request_id: 1, pickup_datetime: '2026-10-20T02:00:00+08:00', fleet_status: 'Pending', load_type: 'Cargo', cargo_weight_kg: 650, cargo_description: 'Vegetables' };
   const recommendation = { evaluatedAt: new Date().toISOString(), pair: { candidates: [], recommended: null, none_reasons: [] } };
   const ev = conversationEvidence(request, recommendation, null);
-  expect(ev.requestCargo).toMatchObject({ loadType: 'Cargo', weightKg: 650 });
+  expect(ev.requestCargo).toMatchObject({ loadType: 'Cargo', weightKg: 650, cargoText: 'Vegetables' });
 });

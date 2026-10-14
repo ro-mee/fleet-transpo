@@ -94,7 +94,7 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
     requestCargo:{
       loadType:request.load_type ?? null,
       weightKg:Number.isFinite(requestWeightKg) && requestWeightKg > 0 ? requestWeightKg : null,
-      description:String(request.cargo_description ?? '').slice(0,200) || null,
+      cargoText:String(request.cargo_description ?? '').slice(0,200) || null,
     },
     evaluatedAt:recommendation.evaluatedAt,
     evaluation:recommendation.evaluation, pairs,
