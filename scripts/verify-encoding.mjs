@@ -1,5 +1,5 @@
 // Encoding gate: every tracked text file must be valid UTF-8 with no
-// Windows-1252 mojibake runs (em-dashes/quotes stored as â€"/Ã©-style
+// Windows-1252 mojibake runs (garbled punctuation/accents from misdecoded UTF-8). PowerShell 5.1
 // sequences). PowerShell 5.1 Get-Content/Set-Content and `>` redirection
 // silently cause exactly this damage (read on this host defaults to the
 // system code page and writes UTF-16/BOM), so this gate exists to catch a
