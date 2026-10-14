@@ -23,6 +23,7 @@ export const CONFLICT_TYPE = {
   INSURANCE_EXPIRED: "insurance_expired",
   UVVRP_RESTRICTED: "uvvrp_restricted",
   CAPACITY_MISMATCH: "capacity_mismatch",
+  CARGO_PHYSICAL: "cargo_physical",
   VEHICLE_NOT_ASSIGNED_TO_DRIVER: "vehicle_not_assigned_to_driver",
   TRAVEL_BUFFER: "travel_buffer",
   // A prior commitment exists but the travel time to the next pickup could not
@@ -51,6 +52,7 @@ export const CONFLICT_LABEL = {
   [CONFLICT_TYPE.INSURANCE_EXPIRED]: "Insurance Expired",
   [CONFLICT_TYPE.UVVRP_RESTRICTED]: "Number Coding Restricted",
   [CONFLICT_TYPE.CAPACITY_MISMATCH]: "Capacity Mismatch",
+  [CONFLICT_TYPE.CARGO_PHYSICAL]: "Cargo Check",
   [CONFLICT_TYPE.VEHICLE_NOT_ASSIGNED_TO_DRIVER]: "Not Driver's Vehicle",
   [CONFLICT_TYPE.TRAVEL_BUFFER]: "Travel Buffer",
   [CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED]: "Travel Buffer Not Verified",

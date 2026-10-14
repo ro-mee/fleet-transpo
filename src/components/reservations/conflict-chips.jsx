@@ -7,6 +7,7 @@ import {
   CalendarX,
   CarFront,
   IdCard,
+  Package,
   Sparkles,
   UserX,
   Users,
@@ -28,6 +29,7 @@ const CHIP_ICON = {
   license_expired: IdCard,
   registration_expired: CalendarX,
   capacity_mismatch: Users,
+  cargo_physical: Package,
   vehicle_not_assigned_to_driver: CarFront,
 };
 
