@@ -23,6 +23,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint:ci
+      - run: npm run verify:encoding
       - run: npm run test:run
       - run: npm run verify:auth
       - run: npm run db:check
