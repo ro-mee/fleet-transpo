@@ -5,46 +5,175 @@ import { beginNavigationHandoff } from './navigation-handoff';
 import { navigationTarget, externalNavigationUrl } from './navigation-route';
 import { launchExternalNavigation } from './external-navigation';
 import { legForStatus } from './trip-navigation-phase';
+import { createTripBubbleHandoff } from './trip-bubble-handoff';
 
 const source = readFileSync('mobile/app/(app)/(tabs)/map.js', 'utf8');
 const trip = { trip_id: 7, trip_status: 'En Route', destination_latitude: 14.7, destination_longitude: 121.1 };
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
-const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
 
 function screen(value = trip, prepare = async () => ({ ok: true })) {
   const activeTripRef = { current: value }, navigationBusyRef = { current: false };
   const openURL = vi.fn().mockResolvedValue(undefined), alert = vi.fn(), stop = vi.fn().mockResolvedValue({ ok: true });
   const prepareBackgroundTracking = vi.fn(prepare), setNavigationBusy = vi.fn();
+  const bubbleCalls = [], saved = new Map();
+  const availability = vi.fn(async () => ({ available: false, reason: 'unsupported' }));
+  const request = vi.fn(async () => ({ granted: false }));
+  const tripBubbleRef = { current: createTripBubbleHandoff({
+    show: async id => { bubbleCalls.push(`show:${id}`); return { shown: true }; },
+    hide: async () => { bubbleCalls.push('hide'); }, availability, request,
+    storage: { getItem: async key => saved.get(key), setItem: async (key, value) => { saved.set(key, value); } }, alert,
+  }) };
   let sessionCurrent = true;
   const context = { activeTripRef, navigationBusyRef, navigationOperationRef: { current: null }, setNavigationBusy, appState: { current: 'active' }, trackingTransitionRef: { current: Promise.resolve() },
     user: { employeeId: 23 }, captureCargoSession: () => ({}), isCurrentCargoSession: () => sessionCurrent,
     navigationTarget, externalNavigationUrl, beginNavigationHandoff, launchExternalNavigation, prepareBackgroundTracking, stopBackgroundTracking: stop,
     isGpsTrackedTrip: value => value && ['Driver Accepted', 'Trip Started', 'At Pickup', 'En Route'].includes(value.trip_status),
     Linking: { openURL }, AppAlert: { alert }, trustedTarget: navigationTarget(value),
-    mergeStoredKm: async () => {}, distRef: { current: {} }, loadTripRef: { current: vi.fn() },
+    mergeStoredKm: async () => {}, distRef: { current: {} }, loadTripRef: { current: vi.fn() }, tripBubbleRef,
   };
   const start = source.indexOf('  const openExternalNavigation =');
   const end = source.indexOf('  const handleMapReady', start);
   const action = runInNewContext(`${source.slice(start, end)}; openExternalNavigation`, context);
-  return { action, activeTripRef, navigationBusyRef, openURL, alert, stop, prepareBackgroundTracking, setNavigationBusy, context, endSession: () => { sessionCurrent = false; } };
+  return { action, activeTripRef, navigationBusyRef, openURL, alert, stop, prepareBackgroundTracking, setNavigationBusy, context, bubbleCalls, availability, request, endSession: () => { sessionCurrent = false; } };
 }
 
 function attachLifecycle(h) {
-  let change;
+  let change, unmount;
   const start = source.indexOf('  const appState = useRef(AppState.currentState);');
   const end = source.indexOf('  const prevTripIdsRef', start);
   runInNewContext(source.slice(start, end), { ...h.context,
-    useRef: () => h.context.appState, useEffect: fn => fn(),
+    useRef: () => h.context.appState, useEffect: fn => { unmount = fn(); },
     AppState: { currentState: 'active', addEventListener: (_, fn) => { change = fn; return { remove() {} }; } },
     legForStatus, updateLegContext: async () => {}, mergeStoredKm: async () => {}, distRef: { current: {} },
   });
+  change.unmount = () => unmount();
   return change;
 }
 
 describe('Map handoff actions', () => {
+  it('does not rearm a paused availability offer after an ordinary foreground return', async () => {
+    const available = deferred(), h = screen(); h.availability.mockImplementation(() => available.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    expect(h.availability).toHaveBeenCalledOnce(); expect(h.openURL).not.toHaveBeenCalled();
+    change('background'); change('active'); available.resolve({ available: true }); await running;
+    change('background'); await flush();
+    expect(h.bubbleCalls).toEqual(['hide']); expect(h.navigationBusyRef.current).toBe(false);
+    expect(h.openURL).toHaveBeenCalledOnce(); expect(h.stop).not.toHaveBeenCalled();
+  });
+  it('invalidates an undecided alert on return before its later Settings choice', async () => {
+    const h = screen(); h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background'); change('active'); await h.alert.mock.calls[0][2][1].onPress(); await running;
+    change('background'); await flush();
+    expect(h.request).not.toHaveBeenCalled(); expect(h.bubbleCalls).toEqual(['hide']);
+    expect(h.navigationBusyRef.current).toBe(false); expect(h.stop).not.toHaveBeenCalled();
+  });
+  it('invalidates the actual Settings request when Map unmounts', async () => {
+    const h = screen(), permission = deferred(); h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
+    h.request.mockImplementation(() => permission.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    h.alert.mock.calls[0][2][1].onPress(); change.unmount();
+    permission.resolve({ granted: true }); await running;
+    change('background'); await flush();
+    expect(h.bubbleCalls).toEqual(['hide']); expect(h.navigationBusyRef.current).toBe(false);
+  });
+  it.each(['open-first', 'leave-first'])('shows only after a tracked Maps handoff and real departure: %s', async order => {
+    const h = screen(), opened = deferred(); h.availability.mockResolvedValue({ available: true });
+    h.openURL.mockImplementation(() => opened.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    expect(h.bubbleCalls).toEqual([]);
+    if (order === 'open-first') { opened.resolve(); await running; } else change('background');
+    await flush(); expect(h.bubbleCalls).toEqual([]);
+    if (order === 'open-first') change('background'); else { opened.resolve(); await running; }
+    await flush(); expect(h.bubbleCalls).toEqual(['show:7']);
+    change('active'); await h.context.trackingTransitionRef.current;
+    expect(h.bubbleCalls).toEqual(['show:7', 'hide']);
+    expect(h.stop).toHaveBeenCalledOnce();
+  });
+  it('offers only after readiness, holds duplicate taps, and treats replacement as Not now', async () => {
+    const ready = deferred(), h = screen(trip, () => ready.promise);
+    h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
+    const running = h.action(); await flush(); expect(h.alert).not.toHaveBeenCalled();
+    ready.resolve({ ok: true }); await flush();
+    expect(h.alert).toHaveBeenCalledOnce(); expect(h.openURL).not.toHaveBeenCalled();
+    await h.action(); h.alert.mock.calls[0][3].onDismiss(); await running;
+    expect(h.openURL).toHaveBeenCalledOnce(); expect(h.navigationBusyRef.current).toBe(false);
+    await h.action(); expect(h.alert).toHaveBeenCalledOnce(); expect(h.openURL).toHaveBeenCalledTimes(2);
+  });
+  it.each([true, false])('does not mistake settings for Maps, then uses the actual permission result: %s', async granted => {
+    const h = screen(), permission = deferred(); h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
+    h.request.mockImplementation(() => permission.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    h.alert.mock.calls[0][2][1].onPress(); h.alert.mock.calls[0][3].onDismiss();
+    change('background'); change('active'); await flush(); expect(h.bubbleCalls).toEqual(['hide']); expect(h.openURL).not.toHaveBeenCalled();
+    permission.resolve({ granted }); await running;
+    expect(h.bubbleCalls).toEqual(['hide']); change('background'); await flush();
+    expect(h.bubbleCalls).toEqual(granted ? ['hide', 'show:7'] : ['hide']);
+    expect(h.navigationBusyRef.current).toBe(false); expect(h.stop).not.toHaveBeenCalled();
+  });
+  it('never offers or shows on the explicit untracked override', async () => {
+    const h = screen(trip, async () => ({ ok: false, reason: 'permission-denied' }));
+    h.availability.mockResolvedValue({ available: true }); const change = attachLifecycle(h);
+    await h.action(); await h.alert.mock.calls[0][2][1].onPress(); change('background'); await flush();
+    expect(h.availability).not.toHaveBeenCalled(); expect(h.bubbleCalls).toEqual([]);
+  });
+  it('cancels a late successful launch after FleetOps has already returned', async () => {
+    const h = screen(), opened = deferred(); h.availability.mockResolvedValue({ available: true });
+    h.openURL.mockImplementation(() => opened.promise); const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background'); change('active'); opened.resolve(); await running;
+    expect(h.bubbleCalls).toEqual(['hide']); expect(h.navigationBusyRef.current).toBe(false);
+  });
+  it.each([true, false])('awaits shortcut removal before foreground stop and merge (launch pending: %s)', async launchPending => {
+    const h = screen(), hidden = deferred(), opened = deferred(); h.availability.mockResolvedValue({ available: true });
+    h.context.tripBubbleRef.current = createTripBubbleHandoff({
+      show: async () => ({ shown: true }), hide: () => hidden.promise,
+      availability: async () => ({ available: true }),
+    });
+    if (launchPending) h.openURL.mockImplementation(() => opened.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    if (!launchPending) await running;
+    change('background'); change('active'); opened.resolve(); await flush();
+    expect(h.stop).not.toHaveBeenCalled();
+    hidden.resolve(); await running; await h.context.trackingTransitionRef.current;
+    expect(h.stop).toHaveBeenCalledOnce();
+  });
+  it('awaits foreground shortcut removal before failed-launch rollback', async () => {
+    const h = screen(), hidden = deferred(); let rejectOpen;
+    h.context.tripBubbleRef.current = createTripBubbleHandoff({
+      show: async () => ({ shown: true }), hide: () => hidden.promise, availability: async () => ({ available: true }),
+    });
+    h.openURL.mockImplementation(() => new Promise((_, reject) => { rejectOpen = reject; }));
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background'); change('active'); rejectOpen(new Error('launch failed')); await flush();
+    expect(h.stop).not.toHaveBeenCalled();
+    hidden.resolve(); await running; expect(h.stop).toHaveBeenCalled();
+  });
+  it.each(['denied', 'failed'])('continues Maps after settings is %s without arming the bubble', async result => {
+    const h = screen(); h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
+    if (result === 'failed') h.request.mockRejectedValue(new Error('settings failed'));
+    const running = h.action(); await flush(); h.alert.mock.calls[0][2][1].onPress(); await running;
+    const change = attachLifecycle(h); change('background'); await flush();
+    expect(h.openURL).toHaveBeenCalledOnce(); expect(h.bubbleCalls).toEqual([]); expect(h.navigationBusyRef.current).toBe(false);
+  });
+  it.each(['ended', 'session-ended'])('does not show after %s while launch is pending', async kind => {
+    const h = screen(), opened = deferred(); h.availability.mockResolvedValue({ available: true });
+    h.openURL.mockImplementation(() => opened.promise); const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background');
+    if (kind === 'ended') h.activeTripRef.current = { ...trip, trip_status: 'Completed' }; else h.endSession();
+    opened.resolve(); await running; expect(h.bubbleCalls).toEqual([]);
+  });
+  it('clears an earlier undispatched bubble before a new untracked override', async () => {
+    const h = screen(); h.availability.mockResolvedValue({ available: true });
+    await h.action();
+    h.prepareBackgroundTracking.mockResolvedValue({ ok: false, reason: 'permission-denied' });
+    const change = attachLifecycle(h); await h.action(); await h.alert.mock.calls[0][2][1].onPress();
+    change('background'); await flush(); expect(h.bubbleCalls).toEqual(['hide']);
+  });
   it('holds the tap lock until readiness and launches once', async () => {
     const pending = deferred(), h = screen(trip, () => pending.promise);
     const first = h.action(); await h.action();
+    await flush();
     expect(h.prepareBackgroundTracking).toHaveBeenCalledOnce(); expect(h.openURL).not.toHaveBeenCalled();
     expect(h.navigationBusyRef.current).toBe(true);
     pending.resolve({ ok: true }); await first;
@@ -171,15 +300,16 @@ describe('Map AppState preparation fallback', () => {
     const start = source.indexOf('  const appState = useRef(AppState.currentState);');
     const end = source.indexOf('  const prevTripIdsRef', start);
     let change;
-    const activeTripRef = { current: { ...trip } }, navigationBusyRef = { current: false };
+    const activeTripRef = { current: { ...trip } }, navigationBusyRef = { current: false }, trackingTransitionRef = { current: Promise.resolve() };
     const stop = vi.fn().mockResolvedValue({ ok: true }), merge = vi.fn().mockResolvedValue(undefined);
     runInNewContext(source.slice(start, end), {
-      useRef: current => ({ current }), useEffect: fn => fn(), activeTripRef, navigationBusyRef, navigationOperationRef: { current: null }, trackingTransitionRef: { current: Promise.resolve() },
+      useRef: current => ({ current }), useEffect: fn => fn(), activeTripRef, navigationBusyRef, navigationOperationRef: { current: null }, trackingTransitionRef,
+      tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
       AppState: { currentState: 'active', addEventListener: (_, fn) => { change = fn; return { remove() {} }; } },
       isGpsTrackedTrip: value => value?.trip_status === 'En Route', legForStatus, updateLegContext: async () => {}, prepareBackgroundTracking: prepare, startBackgroundTracking: async () => {},
       stopBackgroundTracking: stop, mergeStoredKm: merge, distRef: { current: {} }, loadTripRef: { current: async () => {} },
     });
-    return { change, activeTripRef, navigationBusyRef, stop, merge };
+    return { change, activeTripRef, navigationBusyRef, stop, merge, trackingTransitionRef };
   }
   it('never requests permission from the background transition', async () => {
     const prepare = vi.fn().mockResolvedValue({ ok: true }), h = lifecycle(prepare);
@@ -194,7 +324,7 @@ describe('Map AppState preparation fallback', () => {
     const pending = deferred(), prepare = vi.fn(() => pending.promise), h = lifecycle(prepare);
     h.change('background'); await flush(); h.change('active'); await flush();
     expect(h.stop).not.toHaveBeenCalled(); expect(h.merge).not.toHaveBeenCalled();
-    pending.resolve({ ok: true }); await flush();
+    pending.resolve({ ok: true }); await h.trackingTransitionRef.current;
     expect(h.stop).toHaveBeenCalledTimes(2); expect(h.merge).toHaveBeenCalledWith(expect.anything(), 7);
     expect(h.stop.mock.invocationCallOrder[1]).toBeLessThan(h.merge.mock.invocationCallOrder[0]);
   });

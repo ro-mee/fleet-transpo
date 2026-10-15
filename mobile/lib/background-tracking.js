@@ -4,6 +4,8 @@ import * as TaskManager from "expo-task-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
 import { accumulateFix, createAccumulator } from "./gps-odometer";
+import { hideTripBubble } from './trip-bubble';
+import { tripBubbleWorkVersion } from './trip-bubble-handoff';
 export { legForStatus } from "./trip-navigation-phase";
 
 /**
@@ -112,8 +114,11 @@ async function processBackgroundLocations({ data, error }) {
       // geofence/monitor verdicts derived from it. The responder and standby
       // branches of lib/tracking.js already say exactly this; the trip branch
       // and this task were the two that did not.
+      const bubbleVersion = tripBubbleWorkVersion();
       const result = await api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body, { queueOnFailure: false }).catch(() => null);
       if (result?.tracked === false) {
+        // An old reply must not remove a replacement handoff's shortcut.
+        if (result.reason === 'trip-not-live' && bubbleVersion === tripBubbleWorkVersion()) await hideTripBubble();
         await saveContext({ ...DEFAULT_CONTEXT });
         await stopBackgroundTracking();
         return;

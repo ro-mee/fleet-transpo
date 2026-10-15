@@ -14,6 +14,7 @@ import { registerDeviceTokenIfAuthorized, unregisterDeviceToken } from "./notifi
 import { setCargoSessionActor, syncCargoDrafts } from "./cargo-sync";
 import { cargoApi } from "./cargo-api";
 import { completeSignIn, getRestorableSignedInUser } from "./auth-session";
+import { hideTripBubble } from './trip-bubble';
 
 const AuthContext = createContext(null);
 
@@ -44,6 +45,7 @@ export function AuthProvider({ children }) {
   // the guard in app/(app)/_layout.js redirects to login.
   useEffect(() => {
     setSessionExpiredHandler(() => {
+      void hideTripBubble();
       setCargoSessionActor(null);
       setUser(null);
     });
@@ -74,6 +76,7 @@ export function AuthProvider({ children }) {
   // re-invokes this with the code. Re-invoking with an empty code is also the
   // resend — the server refuses a second send inside its own cooldown.
   const signIn = useCallback(async (email, password, { otpCode = "" } = {}) => {
+    void hideTripBubble();
     const data = await apiFetch("/api/mobile/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password, otpCode }),
@@ -87,6 +90,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signOut = useCallback(async ({ allDevices = false } = {}) => {
+    void hideTripBubble();
     // Fence cargo work before awaiting logout so no in-flight account A request
     // can update saved state or continue into a later account B session.
     setCargoSessionActor(null);

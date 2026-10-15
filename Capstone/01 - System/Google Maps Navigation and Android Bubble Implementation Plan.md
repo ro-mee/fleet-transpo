@@ -12,6 +12,10 @@ related: ["[[Tracking]]", "[[Trips]]", "[[Mobile Architecture]]", "[[ADR-011 Bac
 
 # Google Maps Navigation and Android Bubble Implementation Plan
 
+## Sequential integration update - 2026-10-16
+
+The user subsequently authorized local merges into main. Mechanic integration, Google Maps handoff and Android trip-bubble source are integrated into local main in separate merge commits. Map conflict reconciliation preserves both hidden-map pausing and bubble-return assignment refresh. The combined offline Android Hermes export passed (1,475 modules, 88 assets, 5.74 MB); strict changed-file lint, encoding and conflict checks passed. This supersedes earlier statements that these branches remain separate. Source integration does not clear native compilation, physical acceptance, release decisions or cloud-upload consent. See [[Sequential Branch Merges 2026-10-16]] for final outcomes and fresh checks.
+
 ## Current branch status - 2026-10-16
 
 Navigation handoff source is implemented on `codex/google-maps-handoff`, which is an ancestor of `codex/android-trip-bubble`. The latter branch reports bubble Tasks 1-4 implemented and automated JavaScript checks completed. Its worktree is clean at `cdcfb86c`. Native Android compilation, a fresh APK and physical acceptance remain pending; the latest branch note records the Expo cloud-upload approval hold. This task commits the plans and current-checkout fixes without merging either related branch or submitting a build. The original checklists below remain the approved work breakdown, not proof that every release gate has passed.

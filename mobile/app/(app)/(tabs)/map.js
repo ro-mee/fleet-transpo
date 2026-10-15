@@ -10,6 +10,9 @@ import TripOperationalSummary, { CargoMapStandby } from "../../../components/Tri
 import { navigationTarget } from "../../../lib/navigation-route";
 import { beginNavigationHandoff } from "../../../lib/navigation-handoff";
 import { launchExternalNavigation } from "../../../lib/external-navigation";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { tripBubbleAvailability, requestTripBubblePermission, showTripBubble, hideTripBubble } from '../../../lib/trip-bubble';
+import { createTripBubbleHandoff } from '../../../lib/trip-bubble-handoff';
 import { METEOCON_ASSETS } from "../../../components/WeatherChip";
 import { api, wasQueued, subscribeApiEvents } from "../../../lib/api";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -712,6 +715,13 @@ export default function MapTab() {
   const activeTripRef = useRef(null);
   const navigationBusyRef = useRef(false);
   const navigationOperationRef = useRef(null);
+  const tripBubbleRef = useRef(null);
+  if (tripBubbleRef.current == null) {
+    tripBubbleRef.current = createTripBubbleHandoff({
+      show: showTripBubble, hide: hideTripBubble, availability: tripBubbleAvailability,
+      request: requestTripBubblePermission, storage: AsyncStorage, alert: AppAlert.alert,
+    });
+  }
   const trackingTransitionRef = useRef(Promise.resolve());
   const loadTripRef = useRef(null);
   const [navigationBusy, setNavigationBusy] = useState(false);
@@ -807,6 +817,7 @@ export default function MapTab() {
 
   useEffect(() => {
     activeTripRef.current = activeTrip;
+    void tripBubbleRef.current.invalidate();
     // Reset route data only when it's a completely new trip (leg changes are
     // handled by the routeLegKey effect below, which also covers the
     // pickup → destination switch inside one trip_id).
@@ -844,6 +855,9 @@ export default function MapTab() {
       const isLeavingActive = prev.match(/active/) && next.match(/inactive|background/);
       const isReturning = next === "active";
       const navigation = navigationOperationRef.current;
+      if (isLeavingActive) tripBubbleRef.current.depart();
+      const bubbleHidden = isReturning ? tripBubbleRef.current.returnToApp() : Promise.resolve();
+      if (isReturning && navigation) navigation.bubbleHidden = bubbleHidden;
       if (navigation?.launching && isLeavingActive) navigation.left = true;
       if (navigation?.left && isReturning) navigation.returned = true;
 
@@ -875,13 +889,13 @@ export default function MapTab() {
         if (navigationBusyRef.current) return;
         const expectedTripId = activeTripRef.current?.trip_id ?? null;
         const returningDistance = { current: distRef.current };
-        trackingTransitionRef.current = trackingTransitionRef.current.then(() => stopBackgroundTracking())
+        trackingTransitionRef.current = trackingTransitionRef.current.then(() => bubbleHidden).then(() => stopBackgroundTracking())
           .then(() => mergeStoredKm(returningDistance, activeTripRef.current?.trip_id === expectedTripId ? expectedTripId : null))
           .then(() => loadTripRef.current?.())
           .catch(() => {});
       }
     });
-    return () => sub.remove();
+    return () => { sub.remove(); void tripBubbleRef.current.dispose(); };
   }, []);
 
   const prevTripIdsRef = useRef(new Set());
@@ -910,6 +924,7 @@ export default function MapTab() {
       const active = list.find(isGpsTrackedTrip) || list.find((t) => !["Completed", "Cancelled"].includes(t.trip_status));
       // Invalidate stale navigation/GPS callbacks before React commits the new trip.
       activeTripRef.current = active || null;
+      void tripBubbleRef.current.invalidate();
       // Bail out on identical payloads (see samePayload): every poll mints new
       // objects, and without this the screen re-renders every 15 s forever.
       setActiveTrip((prev) => {
@@ -930,7 +945,10 @@ export default function MapTab() {
       prevTripIdsRef.current = currentIds;
       
     } catch (e) {
-      if (current()) setTripSession(null);
+      if (current()) {
+        setTripSession(null);
+        void tripBubbleRef.current.cancel();
+      }
       console.warn("Could not load trip for map", e);
     } finally {
       setLoading(false);
@@ -940,11 +958,12 @@ export default function MapTab() {
   useEffect(() => { loadTripRef.current = loadTrip; }, [loadTrip]);
 
   useEffect(() => subscribeApiEvents(event => {
-    if (event.type !== 'trip-completed' || String(event.tripId) !== String(activeTripRef.current?.trip_id)) return;
+    if (!['trip-completed', 'trip-cancelled'].includes(event.type) || String(event.tripId) !== String(activeTripRef.current?.trip_id)) return;
+    void tripBubbleRef.current.cancel();
     // This event only follows a server-confirmed PUT, never an outbox save.
     const completed = activeTripRef.current;
     const completionSession = captureCargoSession(user?.employeeId);
-    if (profile?.driverType === 'Cargo' && isCargoLoad(completed) && completionSession && isCurrentCargoSession(completionSession)) {
+    if (event.type === 'trip-completed' && profile?.driverType === 'Cargo' && isCargoLoad(completed) && completionSession && isCurrentCargoSession(completionSession)) {
       setCompletedCargo({ tripId: completed.trip_id, reference: completed.dispatch_number || `TRP-${completed.trip_id}`, session: completionSession });
     }
     ++tripRequest.current;
@@ -1056,7 +1075,7 @@ export default function MapTab() {
           : { ...seed }
       ));
     }
-    if (!emptyStateKey) {
+    if (!emptyStateKey || params?.bubbleReturn) {
       loadTrip();
     }
     dutyRefresh?.();
@@ -1066,7 +1085,7 @@ export default function MapTab() {
       // hidden WebView holds no animation loop or WebGL churn.
       mapRef.current?.setMapActive?.(false);
     };
-  }, [loadTrip, emptyStateKey, dutyRefresh]));
+  }, [loadTrip, emptyStateKey, dutyRefresh, params?.bubbleReturn]));
 
   // Auto-polling dispatch queue every 15 seconds — foreground AND focused
   // only. Tabs stay mounted when unfocused, so an ungated interval would
@@ -1490,7 +1509,7 @@ export default function MapTab() {
           operation.cleaning = true;
           const expectedTripId = activeTripRef.current?.trip_id ?? null;
           const returningDistance = { current: distRef.current };
-          const cleanup = trackingTransitionRef.current.then(() => stopBackgroundTracking())
+          const cleanup = trackingTransitionRef.current.then(() => operation.bubbleHidden).then(() => stopBackgroundTracking())
             .then(() => mergeStoredKm(returningDistance, activeTripRef.current?.trip_id === expectedTripId ? expectedTripId : null))
             .then(() => loadTripRef.current?.());
           trackingTransitionRef.current = cleanup.catch(() => {});
@@ -1498,34 +1517,51 @@ export default function MapTab() {
         }
       } finally { release(); }
     };
-    const openUrl = url => { operation.launching = true; return Linking.openURL(url); };
     const trip = activeTripRef.current;
     const target = navigationTarget(trip);
     const session = captureCargoSession(user?.employeeId);
-    const isCurrent = () => {
+    const isCurrentTrip = () => {
       const current = activeTripRef.current;
       const currentTarget = navigationTarget(current);
-      return !!session && isCurrentCargoSession(session) && appState.current === 'active' &&
+      return !!session && isCurrentCargoSession(session) &&
         current?.trip_id === trip?.trip_id && current?.trip_status === trip?.trip_status &&
         currentTarget?.lat === target?.lat && currentTarget?.lng === target?.lng;
     };
+    const isCurrent = () => appState.current === 'active' && isCurrentTrip();
+    const openUrl = async url => {
+      const wantsBubble = operation.trackingReady && await tripBubbleRef.current.offer(isCurrent);
+      if (!isCurrent()) throw new Error('Navigation trip changed');
+      if (wantsBubble) operation.bubbleToken = tripBubbleRef.current.arm(trip.trip_id, () => isCurrentTrip() && isGpsTrackedTrip(activeTripRef.current));
+      operation.launching = true;
+      try {
+        const result = await Linking.openURL(url);
+        tripBubbleRef.current.launched(operation.bubbleToken);
+        return result;
+      } catch (error) {
+        await tripBubbleRef.current.failed(operation.bubbleToken);
+        throw error;
+      }
+    };
     const reportOpenFailure = () => AppAlert.alert('Navigation unavailable', 'Unable to open Google Maps on this device.');
     try {
+      await tripBubbleRef.current.cancel();
       const result = await beginNavigationHandoff({
         trip, isCurrent, requestPermission: true, openUrl,
         // Trip GPS starts only after acceptance, even when the pickup target is valid earlier.
         prepare: async options => {
           await trackingTransitionRef.current;
           if (!isCurrent()) return { ok: false, reason: 'stale-trip' };
-          return isGpsTrackedTrip(trip) ? prepareBackgroundTracking(options) : { ok: false, reason: 'unsupported' };
+          const ready = isGpsTrackedTrip(trip) ? await prepareBackgroundTracking(options) : { ok: false, reason: 'unsupported' };
+          operation.trackingReady = ready.ok === true;
+          return ready;
         },
-        rollback: stopBackgroundTracking,
+        rollback: async () => { await operation.bubbleHidden; return stopBackgroundTracking(); },
       });
       if (result.ok || result.reason === 'stale-trip') return;
       if (result.reason === 'invalid-target') {
         AppAlert.alert('Navigation unavailable', 'Ask Dispatch to verify the current pickup or delivery location.');
       } else if (result.reason === 'open-failed') {
-        reportOpenFailure();
+        if (isCurrentTrip()) reportOpenFailure();
       } else if (isCurrent()) {
         warningOpen = true;
         let decided = false;

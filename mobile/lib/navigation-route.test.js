@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runInNewContext } from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { createTripBubbleHandoff } from './trip-bubble-handoff';
 import { ROUTE_CONTROLLER_SCRIPT, navigationTarget, externalNavigationUrl } from './navigation-route';
 
 function response(summaries = [[600, 12000], [720, 14000]]) {
@@ -174,6 +175,7 @@ describe('Map foreground return recovery', () => {
       AppState: { currentState: 'background', addEventListener: (_, fn) => { change = fn; return { remove() {} }; } },
       activeTripRef, distRef, navigationBusyRef: { current: false }, navigationOperationRef: { current: null },
       trackingTransitionRef: { current: Promise.resolve() }, loadTripRef: { current: null },
+      tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
       isGpsTrackedTrip: value => ['Driver Accepted', 'Trip Started', 'En Route'].includes(value?.trip_status),
       stopBackgroundTracking: vi.fn(async () => { calls.push('stop'); }),
       mergeStoredKm: vi.fn(async (target, expectedTripId) => { calls.push(`merge:${expectedTripId}`); if (expectedTripId === 7) target.current.leg1 += 2; }),
@@ -274,6 +276,7 @@ it('executes the hidden Map completion listener and clears only its confirmed ac
   runInNewContext(source.slice(start, end), {
     useEffect: fn => fn(), subscribeApiEvents: fn => { listener = fn; }, activeTripRef, tripRequest,
     setActiveTrip, setRouteData, setRouteChoices, loadTrip, updateLegContext, stopBackgroundTracking,
+    tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
     profile: { driverType: 'Cargo' }, user: { employeeId: 23 }, setCompletedCargo,
     captureCargoSession: () => completionSession, isCurrentCargoSession: () => true, isCargoLoad: trip => trip.load_type === 'Cargo',
   });
@@ -304,6 +307,7 @@ it.each(['before-start', 'during-start'])('prevents a completed trip restarting 
     activeTripRef, isGpsTrackedTrip: trip => !!trip, legForStatus: () => 'leg2', updateLegContext,
     prepareBackgroundTracking, stopBackgroundTracking, navigationBusyRef: { current: false }, mergeStoredKm: vi.fn().mockResolvedValue(undefined),
     trackingTransitionRef: { current: Promise.resolve() },
+    tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
     navigationOperationRef: { current: null },
     distRef: { current: { prev: null, pending: null } },
   });

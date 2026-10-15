@@ -5,6 +5,7 @@ import { beginNavigationHandoff } from './navigation-handoff';
 import { navigationTarget, externalNavigationUrl } from './navigation-route';
 import { launchExternalNavigation } from './external-navigation';
 import { legForStatus } from './trip-navigation-phase';
+import { createTripBubbleHandoff } from './trip-bubble-handoff';
 
 const source = readFileSync('mobile/app/(app)/(tabs)/map.js', 'utf8');
 const trackingStart = source.indexOf('const GPS_TRACKING_STATUSES =');
@@ -26,6 +27,7 @@ function mapAction(prepare) {
   const context = {
     activeTripRef: { current: { ...trip } }, navigationBusyRef: { current: false },
     navigationOperationRef: { current: null }, trackingTransitionRef: { current: Promise.resolve() },
+    tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
     appState: { current: 'active' }, distRef: { current: { leg1: 0, leg2: 0 } },
     user: { employeeId: 23 }, captureCargoSession: () => ({}), isCurrentCargoSession: () => true,
     setNavigationBusy: () => {}, navigationTarget, externalNavigationUrl, beginNavigationHandoff,
