@@ -8,6 +8,10 @@ Source: `feat/mechanic-integration` at `6240d32a` (41 prior commits plus the aud
 
 Fresh checks before committing: tracked encoding passed; all 163 migration filenames passed; route authorization passed for all 334 exported methods. Strict lint passed for all 204 changed JavaScript files in small batches. The whitespace check accounts for existing Windows CRLF files; four actual trailing-space/EOF issues were corrected without changing behavior. Application tests are not rerun in this merge task. Earlier test evidence is recorded in the audit/navigation notes and does not certify the combined result. No native/device acceptance or live migration status is claimed.
 
+## 2. Google Maps handoff
+
+Source: `codex/google-maps-handoff` at `bf2b5fe4`. The modern Git merge engine reconciled the Map source automatically; only SYSTEM.md conflicted. Both sets of historical notes were retained. Inspection confirms the combined focus cleanup retains navigation locking and map pause behavior. Includes shared trip-phase authority, ordered tracking preflight, explicit failure choices and server-owned return refresh. Fresh strict lint passed for all 18 changed JavaScript files, tracked encoding passed, and whitespace/conflict checks passed. Device acceptance remains pending.
+
 ## Remaining sequence
 
 Merge Google Maps handoff, then the Android trip bubble, separately. Preserve map pause/performance fixes while resolving navigation cleanup. Record already-squashed fuel history and superseded documentation history using the current content after verifying that their feature/rules are already included; do not replay obsolete snapshots.

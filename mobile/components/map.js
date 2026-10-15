@@ -9,6 +9,7 @@ import {
   PanResponder,
 } from "react-native";
 import { useTheme } from "../lib/theme-context";
+import { launchExternalNavigation } from "../lib/external-navigation";
 
 /**
  * TomTom static-image map with pan/zoom/drag — Expo Go safe (no native module).
@@ -138,10 +139,9 @@ export default function TripMap({
     return () => { active = false; };
   }, [url]);
 
-  const handleOpenGoogleMaps = () => {
+  const handleOpenGoogleMaps = async () => {
     if (destValid) {
-      const gurl = `https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}`;
-      Linking.openURL(gurl).catch(() => { });
+      await launchExternalNavigation({ lat: destination.latitude, lng: destination.longitude }, url => Linking.openURL(url));
     }
   };
 

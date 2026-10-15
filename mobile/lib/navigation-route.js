@@ -1,8 +1,10 @@
 import { finiteNumberInRange } from './map-webview-data';
+import { navigationPhaseForStatus } from './trip-navigation-phase';
 
 export function navigationTarget(trip) {
-  if (!trip || ['Completed', 'Cancelled'].includes(trip.trip_status)) return null;
-  const pickup = ['Pending', 'Approved', 'Assigned', 'Vehicle Assigned', 'Driver Assigned', 'Dispatched', 'Driver Accepted', 'Trip Started', 'At Pickup'].includes(trip.trip_status);
+  const phase = navigationPhaseForStatus(trip?.trip_status);
+  if (!phase) return null;
+  const pickup = phase === 'to_pickup';
   const provenance = pickup ? trip.pickup_location_provenance : trip.dropoff_location_provenance;
   if (provenance && provenance !== 'canonical_registry') return null;
   const lat = finiteNumberInRange(pickup ? trip.origin_latitude : trip.destination_latitude, -90, 90);
@@ -13,7 +15,7 @@ export function navigationTarget(trip) {
 export function externalNavigationUrl(target) {
   const lat = finiteNumberInRange(target?.lat, -90, 90);
   const lng = finiteNumberInRange(target?.lng, -180, 180);
-  return lat == null || lng == null ? null : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+  return lat == null || lng == null ? null : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}&travelmode=driving&dir_action=navigate`;
 }
 
 // Executed inside the native WebView and in the runtime tests. Keeping this as

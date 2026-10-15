@@ -21,20 +21,36 @@ The operational cost of foreground-only is that tracking and per-leg km stop whe
 
 ## Decision
 
-**Keep the foreground watcher AND add a headless background task**, driven by `AppState` so the two never run simultaneously (no double-counted km, no duplicate GPS posts):
+**Keep the foreground watcher AND the existing headless background task**, with user-visible navigation readiness and an `AppState` fallback:
 
 - `expo-task-manager` defines task `fleetops-background-location` in `mobile/lib/background-tracking.js`.
 - The task posts the fix to the same endpoints the foreground uploader uses and accumulates per-leg haversine km into AsyncStorage (`fleetops_bg_tracking`).
-- `mobile/app/(app)/(tabs)/map.js` wires it via `AppState`:
-  - background + active trip → `updateLegContext` then `startBackgroundTracking`
+- `mobile/app/(app)/(tabs)/map.js` prepares it before external navigation and also wires it via `AppState`:
+  - Google Maps action → validate trip/target, prepare tracking with permission opt-in, recheck the current session/trip/status/target, then launch. Unavailable tracking shows Stay Here first; only explicit Continue Without Tracking bypasses readiness. Trip GPS still starts only from Driver Accepted onward.
+  - other background exit + active trip → update context, recheck trip, then `prepareBackgroundTracking` with `requestPermission: false`; a foreground return or ended trip during startup stops the task
   - foreground → stop the task and `mergeStoredKm(distRef)` into the same ref the watcher accumulates, clearing `prev` synchronously to avoid double-counting the gap
+- The task ignores delivery while the app is active and rechecks after reading its stored context, preventing preflight registration from duplicating foreground GPS/distance.
 - Trip/leg context is kept in sync on every trip or status change so the backgrounded task accumulates the correct leg and posts to the correct trip endpoint.
 
 The foreground watcher stays the source of truth; the background task only fills the gap while backgrounded.
 
-## Why AppState (not always-on)
+## Why preflight plus AppState (not always-on)
 
-Always-on background tracking would run the headless task even when idle. Driving it from AppState means the task only starts when there is an active trip and the app leaves the foreground — bounded battery and data, no background activity while the driver is just browsing.
+Always-on background tracking would run the headless task even when idle. Navigation preflight makes registration failure visible before leaving FleetOps; AppState covers other exits without opening a permission prompt in the background. The same task is reused, foreground delivery is ignored, and return stops it before merging distance. The permission workflow holds a tap lock, including its warning decision; hardware Back releases it safely. Registration readiness does not prove that a device or battery policy will deliver background fixes.
+
+Automated verification on 2026-10-15: strict test-first handoff, warning, cancellation and foreground-overlap checks passed with all 1,045 mobile library tests across 76 suites. Physical Android launch, notification return, background fix delivery and no-jump distance acceptance remain pending.
+
+Task 4 review follow-up: ordinary tracking transitions are serialized. The handoff waits for prior cleanup and owns readiness/rollback until launch settles; permission-related foreground returns cannot race its native start. A true Maps return during a pending platform promise is cleaned up by that owner after settlement. Replacement of its warning runs dismissal cleanup once and cannot leave background fallback suppressed. The five new RED/GREEN reproductions pass with all 1,050 mobile tests across 76 suites; physical acceptance remains pending.
+
+Task 4 second-departure correction: owner return cleanup also joins the ordered tracking queue. A background departure during its pending native stop or distance merge queues the ordinary permission-free fallback behind cleanup instead of being discarded by the navigation lock. Ownership releases before the queued fallback rechecks the current trip/status and app state; returning, cancelling or reassigning while it waits prevents an obsolete restart. The existing task and exact-once stop-before-merge boundary remain unchanged. The second-departure reproduction failed before the fix; five new timing/stale-work cases pass with 128/128 focused Task 4 tests and all 1,055 mobile tests across 76 suites. Physical device acceptance remains pending.
+
+Task 5 return recovery (2026-10-15): background GPS now awaits the server response and clears/stops the existing task on explicit `tracked: false` before accumulating that fix. Network errors remain non-queued and do not imply trip completion. Deliveries, context changes and merges serialize their storage work. Ordinary and late platform-launch foreground returns retain the ordered stop/merge boundary, capture the returning accumulator and trip, then refresh the canonical assignment. The live trip ref changes immediately on an accepted refresh, with existing request/session fencing; Passenger and Cargo share the same recovery and next-target rules. Strict RED/GREEN reproductions plus all 1,068 mobile tests across 76 suites and touched-file strict lint passed. Physical Android acceptance remains open.
+
+## Physical acceptance hold - 2026-10-15 (Task 7)
+
+The accepted design is user-visible preflight plus AppState fallback using the same background task; this ADR does not claim measured Android delivery. Task 7 host inventory found no ADB/emulator command, configured/default SDK or AVD directory, running Android tool process or present Android device. No custom development build was installed, and device/build/battery details, real background fix timestamps, notification return and exact-once distance measurements remain unrecorded. The isolated checkout's missing Google services configuration is a separate native build/notification limit. [[Tracking]] contains the complete pending device matrix, safe evidence fields and force-stop/vendor checks.
+
+The committed Task 6 evidence (`8d5b38e8`) is 21/21 release checks, 1,089/1,089 mobile tests in 77 files, full zero-warning lint, encoding/whitespace and Android Hermes export (1,468 modules, 87 assets, 5,698,753 bytes). None proves physical background delivery. Release 1 physical acceptance remains **PENDING**. Release 2/the Android bubble is **blocked and not implemented**: it requires real Task 7 evidence and the user's confirmation that the existing foreground-service notification return path is insufficient. No second GPS collector, overlay permission or bubble dependency was introduced.
 
 ## Costs / trade-offs — accepted
 

@@ -18,6 +18,14 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Google Maps handoff acceptance - PENDING (2026-10-15, Task 7)
+
+Passenger and Cargo share the trusted pickup/destination phase rules and ordered tracking-readiness handoff. Driver Accepted and Trip Started select pickup; Passenger Onboard, En Route, Drop-off, Arrived and In Progress select destination. Launch does not advance trip status. Readiness failure requires the explicit Continue Without Tracking choice; Stay Here and Back keep the driver in FleetOps. Returning stops and merges the returning trip's distance before refreshing the canonical assignment, and server-rejected/ended trips lose their background context.
+
+Task 6 committed automated evidence (`8d5b38e8`): release gate 21/21, all mobile library tests 1,089/1,089 in 77 files, full zero-warning lint, encoding/whitespace and Android Hermes export (1,468 modules, 87 assets, 5,698,753 bytes). These are not physical acceptance. Task 7 found no Android tooling, SDK/AVD, running emulator or present Android device; no build was installed and no moving/permission/notification/distance measurements were taken. Native Google services configuration is also absent from the isolated checkout. The complete unperformed device matrix and evidence fields are in [[Tracking]]. Cargo production integration remains disabled.
+
+Release 1 physical acceptance remains **PENDING**. Release 2/the Android bubble remains **blocked and unimplemented** until physical evidence exists and the user confirms the notification return path is insufficient. No production trip, provider, database or deployment change was made by this acceptance documentation.
+
 ## Stored driver type on accept and start — 2026-10-12
 
 Web accept, mobile accept, and trip start re-read the saved driver classification, the operational use of the vehicle ID stored on the trip, and the persisted request load inside the existing write transaction. The shared compatibility evaluator returns HTTP 409 before the trip status changes when the driver, vehicle, and load do not agree, when the saved classification is missing or unsupported, or when a Cargo trip has no typed load. A client-supplied `driverType` cannot override the saved value. Legacy Passenger trips with a null load type remain allowed. Existing qualification, trip-state, cargo checkpoint, manifest, and start-inspection gates remain in their existing paths.

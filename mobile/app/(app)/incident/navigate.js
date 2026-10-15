@@ -11,6 +11,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from "../../../components/AppAlert";
 import { ClayBadge, ClayButton, ClayCard, ClayTile } from "../../../components/clay";
 import { clayMaterials } from "../../../lib/clay";
+import { launchExternalNavigation } from "../../../lib/external-navigation";
 
 // In-app rescue navigation for the assigned fleet responder — the counterpart
 // of the guest-trip Map tab. "Navigate to driver" on the mission screen
@@ -231,11 +232,9 @@ export default function RescueNavigationScreen() {
     }
   };
 
-  const openGoogleMaps = () => {
+  const openGoogleMaps = async () => {
     if (!bakedDest) return;
-    Linking.openURL(
-      `https://www.google.com/maps/dir/?api=1&destination=${bakedDest.lat},${bakedDest.lng}`
-    ).catch(() => {});
+    await launchExternalNavigation(bakedDest, url => Linking.openURL(url));
   };
 
   const driverName =

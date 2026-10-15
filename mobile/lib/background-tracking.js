@@ -1,9 +1,10 @@
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
 import { accumulateFix, createAccumulator } from "./gps-odometer";
+export { legForStatus } from "./trip-navigation-phase";
 
 /**
  * Background location tracking for the driver's active trip.
@@ -21,33 +22,28 @@ import { accumulateFix, createAccumulator } from "./gps-odometer";
  * ACCESS_BACKGROUND_LOCATION / FOREGROUND_SERVICE / FOREGROUND_SERVICE_LOCATION
  * permissions.
  *
- * Design: the foreground (map.js) starts the task only when the app goes to the
- * background with an active trip, and stops it when the app returns to the
- * foreground — so there is never both a foreground watcher and this task running,
- * which would double-count km and duplicate GPS rows.
+ * Map prepares this existing task before opening Google Maps, with an AppState
+ * fallback for other background transitions. Delivery while FleetOps is active
+ * is ignored so preflight cannot duplicate foreground GPS or distance.
  */
 
 const TASK_NAME = "fleetops-background-location";
+const BACKGROUND_OPTIONS = {
+  accuracy: Location.Accuracy.Balanced,
+  distanceInterval: 10,
+  timeInterval: 30000,
+  activityType: Location.ActivityType.AutomotiveNavigation,
+  pausesUpdatesAutomatically: false,
+  foregroundService: {
+    notificationTitle: "FleetOps tracking active",
+    notificationBody: "Sharing your live location with dispatch",
+    notificationColor: "#0f766e",
+  },
+};
 
 const STORAGE_KEY = "fleetops_bg_tracking";
 // Shape: { tripId, leg, km1, km2, prev, pending }. Older records without
 // `pending` remain valid and receive its null default when loaded.
-
-// Statuses where the driver is travelling to the pickup; anything else is the
-// second leg to the destination. Mirrors map.js so both agree on leg assignment.
-const HEADING_TO_PICKUP_STATUSES = [
-  "Pending",
-  "Approved",
-  "Assigned",
-  "Vehicle Assigned",
-  "Driver Assigned",
-  "Dispatched",
-  "Driver Accepted",
-  "Trip Started",
-  "At Pickup",
-];
-
-const HEADING_TO_PICKUP = new Set(HEADING_TO_PICKUP_STATUSES);
 
 // km between two lat/lng pairs and the segment acceptance rules now live in
 // ./gps-odometer so the foreground watcher and this task cannot drift apart
@@ -83,14 +79,16 @@ async function saveContext(ctx) {
  * uses (so the web dashboard live map updates) and accumulates per-leg km into
  * AsyncStorage (merged back into the foreground accumulator on resume).
  */
-TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
-  if (error) return;
+async function processBackgroundLocations({ data, error }) {
+  if (error || AppState.currentState === 'active') return;
   const { locations } = data || {};
   if (!locations || !locations.length) return;
 
   const ctx = await loadContext();
+  if (AppState.currentState === 'active') return;
 
   for (const loc of locations) {
+    if (AppState.currentState === 'active' || !ctx.tripId) break;
     const lat = loc.coords?.latitude;
     const lng = loc.coords?.longitude;
     if (lat == null || lng == null) continue;
@@ -114,7 +112,12 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
       // geofence/monitor verdicts derived from it. The responder and standby
       // branches of lib/tracking.js already say exactly this; the trip branch
       // and this task were the two that did not.
-      api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body, { queueOnFailure: false }).catch(() => {});
+      const result = await api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body, { queueOnFailure: false }).catch(() => null);
+      if (result?.tracked === false) {
+        await saveContext({ ...DEFAULT_CONTEXT });
+        await stopBackgroundTracking();
+        return;
+      }
     }
 
     // Accumulate km per leg through the SAME rules the foreground watcher uses
@@ -145,45 +148,65 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
   }
 
   await saveContext(ctx);
+}
+
+TaskManager.defineTask(TASK_NAME, event => {
+  // Drain accepted deliveries before a return merge or replacement context write.
+  const write = contextWrite.then(() => processBackgroundLocations(event));
+  contextWrite = write.catch(() => {});
+  return write;
 });
 
-/**
- * Start background location updates. Requests the Android "Allow all the time"
- * permission first (a separate prompt from the foreground one on Android 10+).
- * No-op on web or if the permission is refused.
- */
-export async function startBackgroundTracking() {
-  if (Platform.OS === "web") return;
+async function ensureBackgroundTracking(requestPermission) {
+  if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
   try {
-    const { status } = await Location.requestBackgroundPermissionsAsync();
-    if (status !== "granted") return;
-    await Location.startLocationUpdatesAsync(TASK_NAME, {
-      accuracy: Location.Accuracy.Balanced,
-      distanceInterval: 10,
-      timeInterval: 30000,
-      activityType: Location.ActivityType.AutomotiveNavigation,
-      pausesUpdatesAutomatically: false,
-      foregroundService: {
-        notificationTitle: "FleetOps tracking active",
-        notificationBody: "Sharing your live location with dispatch",
-        notificationColor: "#0f766e",
-      },
-    });
+    const currentForeground = await Location.getForegroundPermissionsAsync();
+    const foreground = currentForeground.status === "granted" || !requestPermission
+      ? currentForeground
+      : await Location.requestForegroundPermissionsAsync();
+    if (foreground.status !== "granted") return { ok: false, reason: "permission-denied" };
+    const current = await Location.getBackgroundPermissionsAsync();
+    const permission = current.status === "granted" || !requestPermission
+      ? current
+      : await Location.requestBackgroundPermissionsAsync();
+    if (permission.status !== "granted") return { ok: false, reason: "permission-denied" };
+    if (!(await Location.hasStartedLocationUpdatesAsync(TASK_NAME))) {
+      await Location.startLocationUpdatesAsync(TASK_NAME, BACKGROUND_OPTIONS);
+    }
+    return { ok: true };
   } catch {
-    // Background location may be unavailable (device policy, etc.). Foreground
-    // tracking continues; this just means backgrounded km/GPS are not captured.
+    return { ok: false, reason: "start-failed" };
   }
+}
+
+/** Prepare the trip context before checking or starting the native task. */
+export async function prepareBackgroundTracking({ tripId, leg, requestPermission = false }) {
+  if (Platform.OS === "web") return { ok: false, reason: "unsupported" };
+  try {
+    await updateLegContext({ tripId, leg });
+    return ensureBackgroundTracking(requestPermission);
+  } catch {
+    return { ok: false, reason: "start-failed" };
+  }
+}
+
+/** Compatibility for AppState callers that already saved their trip context. */
+export async function startBackgroundTracking() {
+  return ensureBackgroundTracking(true);
 }
 
 /**
  * Stop background location updates. Safe to call when not started.
  */
 export async function stopBackgroundTracking() {
-  if (Platform.OS === "web") return;
+  if (Platform.OS === "web") return { ok: true };
   try {
-    await Location.stopLocationUpdatesAsync(TASK_NAME);
+    if (await Location.hasStartedLocationUpdatesAsync(TASK_NAME)) {
+      await Location.stopLocationUpdatesAsync(TASK_NAME);
+    }
+    return { ok: true };
   } catch {
-    // not running
+    return { ok: false, reason: "stop-failed" };
   }
 }
 
@@ -207,7 +230,8 @@ export async function updateLegContext({ tripId, leg }) {
     ctx.leg = leg ?? null;
     ctx.prev = null;
     ctx.pending = null;
-    await saveContext(ctx);
+    // Startup must not succeed with a stale trip/leg after a failed write.
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(ctx));
   });
   contextWrite = write.catch(() => {});
   return write;
@@ -220,22 +244,19 @@ export async function updateLegContext({ tripId, leg }) {
  * starts fresh.
  */
 export async function mergeStoredKm(distRef, expectedTripId = null) {
-  await contextWrite;
-  const ctx = await loadContext();
-  const sameTrip = expectedTripId != null && ctx.tripId != null && String(ctx.tripId) === String(expectedTripId);
-  if (sameTrip) {
-    if (ctx.km1 > 0) distRef.current.leg1 += ctx.km1;
-    if (ctx.km2 > 0) distRef.current.leg2 += ctx.km2;
-  }
-  ctx.km1 = 0;
-  ctx.km2 = 0;
-  ctx.prev = null;
-  ctx.pending = null;
-  await saveContext(ctx);
-}
-
-/** Derive the leg label from a trip status string ("leg1" | "leg2" | null). */
-export function legForStatus(status) {
-  if (!status) return null;
-  return HEADING_TO_PICKUP.has(status) ? "leg1" : "leg2";
+  const write = contextWrite.then(async () => {
+    const ctx = await loadContext();
+    const sameTrip = expectedTripId != null && ctx.tripId != null && String(ctx.tripId) === String(expectedTripId);
+    if (sameTrip) {
+      if (ctx.km1 > 0) distRef.current.leg1 += ctx.km1;
+      if (ctx.km2 > 0) distRef.current.leg2 += ctx.km2;
+    }
+    ctx.km1 = 0;
+    ctx.km2 = 0;
+    ctx.prev = null;
+    ctx.pending = null;
+    await saveContext(ctx);
+  });
+  contextWrite = write.catch(() => {});
+  return write;
 }
