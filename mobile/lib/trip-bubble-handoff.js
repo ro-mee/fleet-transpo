@@ -35,8 +35,9 @@ export function createTripBubbleHandoff({ show, hide, availability, request, sto
   let offerVersion = 0;
   let offerCurrent = null;
   let offered = null;
+  let settingsRequest = null;
   const clear = (preservePermissionRequest = false) => {
-    if (!preservePermissionRequest) ++offerVersion;
+    if (!preservePermissionRequest) { ++offerVersion; settingsRequest = null; }
     handoff = null;
     // Native hide invalidates queued SHOW before its acknowledgement can settle.
     try { return Promise.resolve(hide({ preservePermissionRequest })).catch(() => {}); } catch { return Promise.resolve(); }
@@ -53,7 +54,14 @@ export function createTripBubbleHandoff({ show, hide, availability, request, sto
       const current = () => local === offerVersion && global === workVersion && isCurrent();
       offerCurrent = current;
       try {
-        const allowed = await offerTripBubble({ availability, request, storage, alert, isCurrent: current });
+        const allowed = await offerTripBubble({ availability, storage, alert, isCurrent: current,
+          request: async () => {
+            const pending = { current };
+            settingsRequest = pending;
+            try { return await request(); }
+            finally { if (settingsRequest === pending) settingsRequest = null; }
+          },
+        });
         return allowed && current();
       }
       finally { if (offerCurrent === current) offerCurrent = null; }
@@ -69,8 +77,9 @@ export function createTripBubbleHandoff({ show, hide, availability, request, sto
     },
     failed(token) { return token && handoff === token ? clear() : Promise.resolve(); },
     cancel() { ++offerVersion; return handoff ? clear() : Promise.resolve(); },
-    // Android Settings must finish its own permission recheck before Maps opens.
-    returnToApp() { return clear(true); },
+    // Only the explicit Settings request owns a permission-related return.
+    returnToApp() { return clear(settingsRequest?.current() === true); },
+    dispose() { return clear(); },
     invalidate() { return (handoff && (handoff.version !== workVersion || !handoff.isCurrent())) || (offerCurrent && !offerCurrent()) ? clear() : Promise.resolve(); },
   };
 }

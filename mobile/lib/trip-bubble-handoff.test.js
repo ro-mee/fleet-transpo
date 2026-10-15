@@ -52,6 +52,13 @@ describe('first-use trip bubble choice', () => {
 });
 
 describe('trip bubble handoff lifecycle', () => {
+  it('cancels an offer paused in saved-choice storage on ordinary return', async () => {
+    const flow = permissionFlow(), read = deferred(); flow.options.storage.getItem = () => read.promise;
+    const controller = createTripBubbleHandoff({ ...flow.options, hide: async () => {} });
+    const pending = controller.offer(() => true); await flush();
+    await controller.returnToApp(); read.resolve(null); await flush();
+    expect(flow.dialog()).toBeUndefined(); expect(await pending).toBe(false);
+  });
   it('rejects availability after global cleanup while the same account is still current', async () => {
     const controller = createTripBubbleHandoff({ availability: async () => ({ available: true }), hide: async () => {} });
     const pending = controller.offer(() => true);

@@ -889,7 +889,7 @@ export default function MapTab() {
           .catch(() => {});
       }
     });
-    return () => { sub.remove(); void tripBubbleRef.current.returnToApp(); };
+    return () => { sub.remove(); void tripBubbleRef.current.dispose(); };
   }, []);
 
   const prevTripIdsRef = useRef(new Set());

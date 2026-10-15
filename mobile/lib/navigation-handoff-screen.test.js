@@ -39,18 +39,45 @@ function screen(value = trip, prepare = async () => ({ ok: true })) {
 }
 
 function attachLifecycle(h) {
-  let change;
+  let change, unmount;
   const start = source.indexOf('  const appState = useRef(AppState.currentState);');
   const end = source.indexOf('  const prevTripIdsRef', start);
   runInNewContext(source.slice(start, end), { ...h.context,
-    useRef: () => h.context.appState, useEffect: fn => fn(),
+    useRef: () => h.context.appState, useEffect: fn => { unmount = fn(); },
     AppState: { currentState: 'active', addEventListener: (_, fn) => { change = fn; return { remove() {} }; } },
     legForStatus, updateLegContext: async () => {}, mergeStoredKm: async () => {}, distRef: { current: {} },
   });
+  change.unmount = () => unmount();
   return change;
 }
 
 describe('Map handoff actions', () => {
+  it('does not rearm a paused availability offer after an ordinary foreground return', async () => {
+    const available = deferred(), h = screen(); h.availability.mockImplementation(() => available.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    expect(h.availability).toHaveBeenCalledOnce(); expect(h.openURL).not.toHaveBeenCalled();
+    change('background'); change('active'); available.resolve({ available: true }); await running;
+    change('background'); await flush();
+    expect(h.bubbleCalls).toEqual(['hide']); expect(h.navigationBusyRef.current).toBe(false);
+    expect(h.openURL).toHaveBeenCalledOnce(); expect(h.stop).not.toHaveBeenCalled();
+  });
+  it('invalidates an undecided alert on return before its later Settings choice', async () => {
+    const h = screen(); h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background'); change('active'); await h.alert.mock.calls[0][2][1].onPress(); await running;
+    change('background'); await flush();
+    expect(h.request).not.toHaveBeenCalled(); expect(h.bubbleCalls).toEqual(['hide']);
+    expect(h.navigationBusyRef.current).toBe(false); expect(h.stop).not.toHaveBeenCalled();
+  });
+  it('invalidates the actual Settings request when Map unmounts', async () => {
+    const h = screen(), permission = deferred(); h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
+    h.request.mockImplementation(() => permission.promise);
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    h.alert.mock.calls[0][2][1].onPress(); change.unmount();
+    permission.resolve({ granted: true }); await running;
+    change('background'); await flush();
+    expect(h.bubbleCalls).toEqual(['hide']); expect(h.navigationBusyRef.current).toBe(false);
+  });
   it.each(['open-first', 'leave-first'])('shows only after a tracked Maps handoff and real departure: %s', async order => {
     const h = screen(), opened = deferred(); h.availability.mockResolvedValue({ available: true });
     h.openURL.mockImplementation(() => opened.promise);
@@ -74,15 +101,16 @@ describe('Map handoff actions', () => {
     expect(h.openURL).toHaveBeenCalledOnce(); expect(h.navigationBusyRef.current).toBe(false);
     await h.action(); expect(h.alert).toHaveBeenCalledOnce(); expect(h.openURL).toHaveBeenCalledTimes(2);
   });
-  it('does not mistake settings for Maps, then uses the actual permission result', async () => {
+  it.each([true, false])('does not mistake settings for Maps, then uses the actual permission result: %s', async granted => {
     const h = screen(), permission = deferred(); h.availability.mockResolvedValue({ available: false, reason: 'permission-denied' });
     h.request.mockImplementation(() => permission.promise);
     const change = attachLifecycle(h), running = h.action(); await flush();
     h.alert.mock.calls[0][2][1].onPress(); h.alert.mock.calls[0][3].onDismiss();
     change('background'); change('active'); await flush(); expect(h.bubbleCalls).toEqual(['hide']); expect(h.openURL).not.toHaveBeenCalled();
-    permission.resolve({ granted: true }); await running;
+    permission.resolve({ granted }); await running;
     expect(h.bubbleCalls).toEqual(['hide']); change('background'); await flush();
-    expect(h.bubbleCalls).toEqual(['hide', 'show:7']);
+    expect(h.bubbleCalls).toEqual(granted ? ['hide', 'show:7'] : ['hide']);
+    expect(h.navigationBusyRef.current).toBe(false); expect(h.stop).not.toHaveBeenCalled();
   });
   it('never offers or shows on the explicit untracked override', async () => {
     const h = screen(trip, async () => ({ ok: false, reason: 'permission-denied' }));
