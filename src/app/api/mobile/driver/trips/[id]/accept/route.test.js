@@ -6,7 +6,10 @@ vi.mock('@/lib/api/utils',()=>({requirePermission:vi.fn(async()=>({user:{employe
 vi.mock('@/lib/api/ownership',()=>({assertTripOwnership:vi.fn(async()=>({trip_id:7,trip_status:'Assigned',driver_id:2,vehicle_id:3}))}));
 vi.mock('@/services/trip-lifecycle.service',()=>({cancelTrip:vi.fn(async()=>({trip_status:'Cancelled'}))}));
 vi.mock('@/services/transition.service',()=>({setTripStatus:vi.fn(async ({to,beforeWrite})=>{if(beforeWrite) await beforeWrite({query});return (await query('UPDATE trips SET trip_status = $1 RETURNING *',[to])).rows[0];})}));
+vi.mock('@/services/cargo-execution.service',()=>({assertCargoCheckpoint:vi.fn(async()=>null),prepareCargoLifecycle:vi.fn(async()=>false)}));
 import { PUT } from './route';
+import { AuthError } from '@/lib/api/utils';
+import { assertCargoCheckpoint } from '@/services/cargo-execution.service';
 let assignment;
 beforeEach(()=>{vi.clearAllMocks();assignment={trip_status:'Assigned',load_type:'Passenger',operational_use:'Passenger',driver_type:'Passenger'};query.mockImplementation(async sql=>({rows:sql.startsWith('UPDATE')?[{trip_status:'Driver Accepted'}]:[assignment]}));});
 const run=(accept=true,extra={})=>PUT(new Request('http://localhost/accept',{method:'PUT',body:JSON.stringify({accept,...extra})}),{params:Promise.resolve({id:'7'})});
@@ -44,5 +47,21 @@ it.each([
  const response=await run();
  expect(response.status).toBe(409);
  expect((await response.json()).error).toMatch(message);
+ expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});
+it('runs the cargo checkpoint after compatibility on accept',async()=>{
+ assignment={trip_status:'Assigned',driver_type:'Cargo',load_type:'Cargo',operational_use:'Cargo'};
+ assertCargoCheckpoint.mockRejectedValueOnce(new AuthError('Cargo execution authority is not configured.',503));
+ const response=await run();
+ expect(assertCargoCheckpoint).toHaveBeenCalled();
+ expect(response.status).toBe(503);
+ expect((await response.json()).error).toMatch(/not configured/i);
+ expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});
+it('checks compatibility before the cargo checkpoint',async()=>{
+ assignment={trip_status:'Assigned',driver_type:'Passenger',load_type:'Cargo',operational_use:'Cargo'};
+ const response=await run();
+ expect(response.status).toBe(409);
+ expect(assertCargoCheckpoint).not.toHaveBeenCalled();
  expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
 });

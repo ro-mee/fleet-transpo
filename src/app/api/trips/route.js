@@ -1,8 +1,10 @@
 import { appendTripFilters, validateServiceCode } from "@/lib/trips/filters";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
+import { assertStoredVehicleLoadCompatibility } from "@/lib/trips/vehicle-load-compatibility";
+import { assertCargoCheckpoint, prepareCargoLifecycle } from "@/services/cargo-execution.service";
 
 const ACTIVE_STATUSES = [
   "In Progress",
@@ -166,7 +168,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requirePermission(req, "trips", "create");
+    const session = await requirePermission(req, "trips", "create");
     const body = await parseBody(req);
     const columns = [];
     const values = [];
@@ -185,7 +187,34 @@ export async function POST(req) {
       if (mismatch) return err(mismatch.message, 409);
     }
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-    const { rows } = await query(`INSERT INTO trips (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
+    const { rows } = await withTransaction(async tx => {
+      await prepareCargoLifecycle(tx);
+      const inserted = await tx.query(`INSERT INTO trips (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
+      const trip = inserted.rows[0];
+      // Direct-write cargo checkpoint: a created trip that commits a
+      // driver/vehicle pair or links a dispatch must pass the same stored
+      // compatibility + cargo authority gates as every other lifecycle write.
+      // Bare shell rows (no pair, no dispatch) commit nothing, so they skip
+      // both and stay byte-identical to the old direct insert.
+      if (trip && (trip.dispatch_id != null || (trip.driver_id != null && trip.vehicle_id != null))) {
+        let requestId = null;
+        if (trip.dispatch_id != null) {
+          const { rows: dsRows } = await tx.query(
+            `SELECT request_id FROM dispatchschedules WHERE dispatch_id = $1 AND deleted_at IS NULL`,
+            [trip.dispatch_id]
+          );
+          requestId = dsRows[0]?.request_id ?? null;
+        }
+        if (trip.driver_id != null && trip.vehicle_id != null) {
+          await assertStoredVehicleLoadCompatibility({ db: tx, driverId: trip.driver_id, vehicleId: trip.vehicle_id, requestId });
+        }
+        await assertCargoCheckpoint({ trip_id: trip.trip_id }, { to: body.trip_status ?? "Reassign", session }, tx);
+      }
+      return inserted;
+    });
     return ok(rows[0], 201);
-  } catch (e) { return handleError(e); }
+  } catch (e) {
+    if (e?.code === "VEHICLE_LOAD_INCOMPATIBLE") return err(e.message, 409);
+    return handleError(e);
+  }
 }

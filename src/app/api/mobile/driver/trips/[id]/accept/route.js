@@ -1,4 +1,5 @@
 ﻿import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
+import { assertCargoCheckpoint, prepareCargoLifecycle } from '@/services/cargo-execution.service';
 import { query, withTransaction } from "@/lib/db";
 
 import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
@@ -150,6 +151,12 @@ export async function PUT(req, { params }) {
         });
 
         if (!compatibility.ok) throw new AuthError(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
+
+        // Cargo authority mirrors desktop accept: setTripStatus runs this
+        // same checkpoint after this same compatibility block. Unconfigured
+        // Cargo authority stays 503, missing linkage stays 409.
+        await prepareCargoLifecycle(db);
+        await assertCargoCheckpoint(trip, { to: target, session }, db);
 
       }
 

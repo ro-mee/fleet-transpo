@@ -3,6 +3,7 @@ import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/ut
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { TRIP_WRITABLE } from "../route";
 import { assertCargoCheckpoint, prepareCargoLifecycle } from '@/services/cargo-execution.service';
+import { assertStoredVehicleLoadCompatibility } from '@/lib/trips/vehicle-load-compatibility';
 import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
 
 export async function GET(req, { params }) {
@@ -47,9 +48,34 @@ export async function PUT(req, { params }) {
     const { rows } = await withTransaction(async tx => {
       await prepareCargoLifecycle(tx);
       await assertCargoCheckpoint({ trip_id: id }, { to: body.trip_status ?? 'Reassign', session, patch: body }, tx);
+      // Stored-compatibility recheck on the effective pair (same order as the
+      // dispatch edit: checkpoint, then compatibility). A vehicle-only edit
+      // never reaches the pre-transaction mismatch gate above, so reassignment
+      // onto a Cargo vehicle without typed load is refused here with 409.
+      const { rows: current } = await tx.query(
+        `SELECT driver_id, vehicle_id, dispatch_id FROM trips WHERE trip_id = $1 AND deleted_at IS NULL`,
+        [id]
+      );
+      const effDriverId = body.driver_id !== undefined ? body.driver_id : current[0]?.driver_id;
+      const effVehicleId = body.vehicle_id !== undefined ? body.vehicle_id : current[0]?.vehicle_id;
+      const effDispatchId = body.dispatch_id !== undefined ? body.dispatch_id : current[0]?.dispatch_id;
+      if (effDriverId != null && effVehicleId != null) {
+        let requestId = null;
+        if (effDispatchId != null) {
+          const { rows: dsRows } = await tx.query(
+            `SELECT request_id FROM dispatchschedules WHERE dispatch_id = $1 AND deleted_at IS NULL`,
+            [effDispatchId]
+          );
+          requestId = dsRows[0]?.request_id ?? null;
+        }
+        await assertStoredVehicleLoadCompatibility({ db: tx, driverId: effDriverId, vehicleId: effVehicleId, requestId });
+      }
       return write(tx);
     });
     if (!rows[0]) return err("Trip not found", 404);
     return ok(rows[0]);
-  } catch (e) { return handleError(e); }
+  } catch (e) {
+    if (e?.code === 'VEHICLE_LOAD_INCOMPATIBLE') return err(e.message, 409);
+    return handleError(e);
+  }
 }
