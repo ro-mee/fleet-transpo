@@ -35,6 +35,8 @@ last_verified: 2026-10-12
 
 # Mobile Architecture
 
+**Android bubble legacy safe-frame correction (2026-10-15, Task 2 review):** On API26–29 the single overlay now stays in the window manager's bar/cutout-safe parent frame; display-wide visible-frame dimensions feed local-origin clamp/snap helpers. It no longer treats the small window's relative insets as absolute screen margins. Bounds are refreshed on movement/configuration and before shown acknowledgement; API30+ keeps WindowMetrics. Four added JUnit cases remain unrun because Java is absent; 4/4 covering JS bridge checks and strict touched lint passed. Native build and old-device bar/cutout/rotation acceptance remain pending. See [[Tracking]].
+
 Expo SDK ~54, expo-router ~6. **Drivers only.** A separate app with a separate auth system, not a wrapper around the web dashboard.
 
 ## Navigation — CONFIRMED (`mobile/app/(app)/(tabs)/_layout.js`)

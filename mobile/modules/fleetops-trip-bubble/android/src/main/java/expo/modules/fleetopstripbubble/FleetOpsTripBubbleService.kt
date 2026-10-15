@@ -8,13 +8,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
-import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -107,13 +107,20 @@ class FleetOpsTripBubbleService : Service() {
         size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
           WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-          WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+          (if (Build.VERSION.SDK_INT >= 30) WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN else 0),
         PixelFormat.TRANSLUCENT
       ).apply {
         gravity = Gravity.TOP or Gravity.LEFT
         x = 0
         y = dp(120)
-        if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
+        if (Build.VERSION.SDK_INT >= 30) {
+          setFitInsetsTypes(0)
+        } else {
+          softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+          if (Build.VERSION.SDK_INT >= 28) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+          }
+        }
       }
       bubble = newView
       layout = params
@@ -126,6 +133,8 @@ class FleetOpsTripBubbleService : Service() {
     }
     view.post {
       if (request != generation || ownedRequest != request || bubble !== view) return@post
+      updatePosition(snap = true)
+      if (bubble !== view) return@post
       if (!Settings.canDrawOverlays(this)) {
         failAndStop("permission-denied")
       } else if (!view.isAttachedToWindow) {
@@ -185,37 +194,29 @@ class FleetOpsTripBubbleService : Service() {
     }
   }
 
-  @Suppress("DEPRECATION")
   private fun position(params: WindowManager.LayoutParams, snap: Boolean) {
-    val width: Int
-    val height: Int
-    val left: Int
-    val top: Int
-    val right: Int
-    val bottom: Int
-    if (Build.VERSION.SDK_INT >= 30) {
-      val metrics = windows.currentWindowMetrics
-      val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
-        WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
-      )
-      width = metrics.bounds.width()
-      height = metrics.bounds.height()
-      left = insets.left
-      top = insets.top
-      right = insets.right
-      bottom = insets.bottom
-    } else {
-      val metrics = DisplayMetrics()
-      windows.defaultDisplay.getRealMetrics(metrics)
-      val insets = bubble?.rootWindowInsets
-      val cutout = if (Build.VERSION.SDK_INT >= 28) insets?.displayCutout else null
-      width = metrics.widthPixels
-      height = metrics.heightPixels
-      left = maxOf(insets?.stableInsetLeft ?: 0, cutout?.safeInsetLeft ?: 0)
-      top = maxOf(insets?.stableInsetTop ?: systemDimension("status_bar_height"), cutout?.safeInsetTop ?: 0)
-      right = maxOf(insets?.stableInsetRight ?: 0, cutout?.safeInsetRight ?: 0)
-      bottom = maxOf(insets?.stableInsetBottom ?: systemDimension("navigation_bar_height"), cutout?.safeInsetBottom ?: 0)
+    if (Build.VERSION.SDK_INT < 30) {
+      val view = bubble ?: return
+      if (!view.isAttachedToWindow) return
+      // Without LAYOUT_IN_SCREEN, Android supplies a bar/cutout-safe parent frame.
+      // Both the offsets and the helper's clamp use that frame's local origin.
+      val frame = Rect()
+      view.getWindowVisibleDisplayFrame(frame)
+      check(frame.width() >= params.width && frame.height() >= params.height)
+      params.x = BubblePosition.frameX(params.x, params.width, frame.left, frame.right, snap)
+      params.y = BubblePosition.frameY(params.y, params.height, frame.top, frame.bottom)
+      return
     }
+    val metrics = windows.currentWindowMetrics
+    val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+      WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+    )
+    val width = metrics.bounds.width()
+    val height = metrics.bounds.height()
+    val left = insets.left
+    val top = insets.top
+    val right = insets.right
+    val bottom = insets.bottom
     params.x = if (snap) BubblePosition.snapX(params.x, params.width, width, left, right)
       else BubblePosition.clampX(params.x, params.width, width, left, right)
     params.y = BubblePosition.clampY(params.y, top, height - bottom - params.height)
@@ -291,11 +292,6 @@ class FleetOpsTripBubbleService : Service() {
   }
 
   private fun dp(value: Int) = (value * resources.displayMetrics.density).roundToInt()
-
-  private fun systemDimension(name: String): Int {
-    val id = resources.getIdentifier(name, "dimen", "android")
-    return if (id == 0) 0 else resources.getDimensionPixelSize(id)
-  }
 
   companion object {
     const val SHOW = "expo.modules.fleetopstripbubble.SHOW"
