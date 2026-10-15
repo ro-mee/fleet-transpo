@@ -918,6 +918,7 @@ export default function MapTab() {
       const active = list.find(isGpsTrackedTrip) || list.find((t) => !["Completed", "Cancelled"].includes(t.trip_status));
       // Invalidate stale navigation/GPS callbacks before React commits the new trip.
       activeTripRef.current = active || null;
+      void tripBubbleRef.current.invalidate();
       // Bail out on identical payloads (see samePayload): every poll mints new
       // objects, and without this the screen re-renders every 15 s forever.
       setActiveTrip((prev) => {
@@ -938,7 +939,10 @@ export default function MapTab() {
       prevTripIdsRef.current = currentIds;
       
     } catch (e) {
-      if (current()) setTripSession(null);
+      if (current()) {
+        setTripSession(null);
+        void tripBubbleRef.current.cancel();
+      }
       console.warn("Could not load trip for map", e);
     } finally {
       setLoading(false);
@@ -948,11 +952,12 @@ export default function MapTab() {
   useEffect(() => { loadTripRef.current = loadTrip; }, [loadTrip]);
 
   useEffect(() => subscribeApiEvents(event => {
-    if (event.type !== 'trip-completed' || String(event.tripId) !== String(activeTripRef.current?.trip_id)) return;
+    if (!['trip-completed', 'trip-cancelled'].includes(event.type) || String(event.tripId) !== String(activeTripRef.current?.trip_id)) return;
+    void tripBubbleRef.current.cancel();
     // This event only follows a server-confirmed PUT, never an outbox save.
     const completed = activeTripRef.current;
     const completionSession = captureCargoSession(user?.employeeId);
-    if (profile?.driverType === 'Cargo' && isCargoLoad(completed) && completionSession && isCurrentCargoSession(completionSession)) {
+    if (event.type === 'trip-completed' && profile?.driverType === 'Cargo' && isCargoLoad(completed) && completionSession && isCurrentCargoSession(completionSession)) {
       setCompletedCargo({ tripId: completed.trip_id, reference: completed.dispatch_number || `TRP-${completed.trip_id}`, session: completionSession });
     }
     ++tripRequest.current;
@@ -1061,12 +1066,12 @@ export default function MapTab() {
           : { ...seed }
       ));
     }
-    if (!emptyStateKey) {
+    if (!emptyStateKey || params?.bubbleReturn) {
       loadTrip();
     }
     dutyRefresh?.();
     return () => { focusedRef.current = false; };
-  }, [loadTrip, emptyStateKey, dutyRefresh]));
+  }, [loadTrip, emptyStateKey, dutyRefresh, params?.bubbleReturn]));
 
   // Auto-polling dispatch queue every 15 seconds — foreground AND focused
   // only. Tabs stay mounted when unfocused, so an ungated interval would

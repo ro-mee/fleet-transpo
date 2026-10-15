@@ -392,6 +392,8 @@ export async function apiFetch(path, options = {}) {
   emitApiEvent({ type: "success" });
   const completedTrip = options.method === 'PUT' && /^\/api\/trips\/(\d+)\/complete$/.exec(path);
   if (completedTrip) emitApiEvent({ type: 'trip-completed', tripId: completedTrip[1] });
+  const cancelledTrip = options.method === 'PUT' && body?.trip_status === 'Cancelled' && /^\/api\/trips\/(\d+)(?:\/cancel|\/accept)?$/.exec(path);
+  if (cancelledTrip) emitApiEvent({ type: 'trip-cancelled', tripId: cancelledTrip[1] });
   return body;
 }
 

@@ -1,4 +1,7 @@
 const OFFERED_KEY = 'fleetops-trip-bubble-offered-v1';
+let workVersion = 0;
+export const tripBubbleWorkVersion = () => workVersion;
+export function invalidateTripBubbleWork() { return ++workVersion; }
 
 /** Called only after the existing live-tracking readiness check succeeds. */
 export async function offerTripBubble({ availability, request, storage, alert, isCurrent }) {
@@ -29,20 +32,35 @@ export async function offerTripBubble({ availability, request, storage, alert, i
 /** Keep Maps ownership after Linking resolves, until the actual foreground return. */
 export function createTripBubbleHandoff({ show, hide, availability, request, storage, alert }) {
   let handoff = null;
-  const clear = () => {
+  let offerVersion = 0;
+  let offerCurrent = null;
+  let offered = null;
+  const clear = (preservePermissionRequest = false) => {
+    if (!preservePermissionRequest) ++offerVersion;
     handoff = null;
     // Native hide invalidates queued SHOW before its acknowledgement can settle.
-    try { return Promise.resolve(hide()).catch(() => {}); } catch { return Promise.resolve(); }
+    try { return Promise.resolve(hide({ preservePermissionRequest })).catch(() => {}); } catch { return Promise.resolve(); }
   };
   const maybeShow = token => {
-    if (handoff !== token || !token.launched || !token.left || token.requested || !token.isCurrent()) return;
+    if (handoff !== token || token.version !== workVersion || !token.launched || !token.left || token.requested || !token.isCurrent()) return;
     token.requested = true;
     try { void Promise.resolve(show(token.tripId)).catch(() => {}); } catch { /* Optional shortcut. */ }
   };
   return {
-    offer(isCurrent) { return offerTripBubble({ availability, request, storage, alert, isCurrent }); },
+    async offer(isCurrent) {
+      const local = offerVersion, global = workVersion;
+      offered = { local, global };
+      const current = () => local === offerVersion && global === workVersion && isCurrent();
+      offerCurrent = current;
+      try {
+        const allowed = await offerTripBubble({ availability, request, storage, alert, isCurrent: current });
+        return allowed && current();
+      }
+      finally { if (offerCurrent === current) offerCurrent = null; }
+    },
     arm(tripId, isCurrent) {
-      handoff = { tripId, isCurrent, launched: false, left: false, requested: false, armedAt: Date.now() };
+      if (offered && (offered.local !== offerVersion || offered.global !== workVersion)) return null;
+      handoff = { tripId, isCurrent, version: invalidateTripBubbleWork(), launched: false, left: false, requested: false, armedAt: Date.now() };
       return handoff;
     },
     launched(token) { if (token && handoff === token) { token.launched = true; maybeShow(token); } },
@@ -50,8 +68,9 @@ export function createTripBubbleHandoff({ show, hide, availability, request, sto
       if (handoff && Date.now() - handoff.armedAt <= 5000) { handoff.left = true; maybeShow(handoff); }
     },
     failed(token) { return token && handoff === token ? clear() : Promise.resolve(); },
-    cancel() { return handoff ? clear() : Promise.resolve(); },
-    returnToApp: clear,
-    invalidate() { return handoff && !handoff.isCurrent() ? clear() : Promise.resolve(); },
+    cancel() { ++offerVersion; return handoff ? clear() : Promise.resolve(); },
+    // Android Settings must finish its own permission recheck before Maps opens.
+    returnToApp() { return clear(true); },
+    invalidate() { return (handoff && (handoff.version !== workVersion || !handoff.isCurrent())) || (offerCurrent && !offerCurrent()) ? clear() : Promise.resolve(); },
   };
 }

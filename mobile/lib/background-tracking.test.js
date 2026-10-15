@@ -2,6 +2,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppState, Platform } from "react-native";
 import * as Location from "expo-location";
 import { api } from './api';
+import { createTripBubbleHandoff } from './trip-bubble-handoff';
+import { showTripBubble } from './trip-bubble';
 
 const mocks = vi.hoisted(() => {
   const storage = new Map();
@@ -9,6 +11,7 @@ const mocks = vi.hoisted(() => {
     storage,
     taskName: null,
     taskHandler: null,
+    bubble: null,
     defineTask(name, handler) {
       this.taskName = name;
       this.taskHandler = handler;
@@ -26,6 +29,10 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("react-native", () => ({ Platform: { OS: "android" }, AppState: { currentState: 'background' } }));
+vi.mock('expo-modules-core', () => ({ requireOptionalNativeModule: () => ({
+  showTripBubble: async id => { mocks.bubble = id; return { shown: true }; },
+  hideTripBubble: async () => { mocks.bubble = null; },
+}) }));
 vi.mock("expo-location", () => ({
   ActivityType: { AutomotiveNavigation: 1 },
   Accuracy: { Balanced: 1 },
@@ -59,6 +66,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   mocks.storage.clear();
+  mocks.bubble = null;
   vi.resetAllMocks();
   mocks.setItem.mockImplementation(async (key, value) => { mocks.storage.set(key, value); });
   Platform.OS = "android";
@@ -274,6 +282,25 @@ describe("background tracking status compatibility", () => {
 });
 
 describe("background stale-trip recovery", () => {
+  it('hides an ended-trip shortcut through the actual headless delivery handler', async () => {
+    await saveContext({ tripId: '7', leg: 'leg1' });
+    await showTripBubble('7');
+    api.post.mockResolvedValue({ tracked: false, reason: 'trip-not-live' });
+    await mocks.taskHandler({ data: { locations: [location(14.6, 121, 1000)] } });
+    expect(mocks.bubble).toBeNull();
+  });
+  it('does not hide a newer shortcut when an older GPS reply arrives late', async () => {
+    await saveContext({ tripId: '7', leg: 'leg1' });
+    let reply;
+    api.post.mockImplementation(() => new Promise(resolve => { reply = resolve; }));
+    const pending = mocks.taskHandler({ data: { locations: [location(14.6, 121, 1000)] } });
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    const controller = createTripBubbleHandoff({ show: showTripBubble });
+    const token = controller.arm('8', () => true); controller.launched(token); controller.depart();
+    expect(mocks.bubble).toBe('8');
+    reply({ tracked: false, reason: 'trip-not-live' }); await pending;
+    expect(mocks.bubble).toBe('8');
+  });
   it("clears rejected trip context before counting a fix and stops the remaining batch", async () => {
     await saveContext({ tripId: "trip-1", leg: "leg1", km1: 0, km2: 0,
       prev: { lat: 14.6, lng: 121, atMs: 1000 }, pending: { lat: 14.6, lng: 121, atMs: 500 } });

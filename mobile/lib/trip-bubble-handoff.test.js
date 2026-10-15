@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createTripBubbleHandoff, offerTripBubble } from './trip-bubble-handoff';
+import { createTripBubbleHandoff, offerTripBubble, invalidateTripBubbleWork } from './trip-bubble-handoff';
 
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -52,6 +52,48 @@ describe('first-use trip bubble choice', () => {
 });
 
 describe('trip bubble handoff lifecycle', () => {
+  it('rejects availability after global cleanup while the same account is still current', async () => {
+    const controller = createTripBubbleHandoff({ availability: async () => ({ available: true }), hide: async () => {} });
+    const pending = controller.offer(() => true);
+    invalidateTripBubbleWork();
+    expect(await pending).toBe(false);
+  });
+  it('rechecks global cleanup between the permission result and its caller resuming', async () => {
+    const controller = createTripBubbleHandoff({ availability: async () => ({ available: true }) });
+    const pending = controller.offer(() => true);
+    await Promise.resolve(); invalidateTripBubbleWork();
+    expect(await pending).toBe(false);
+  });
+  it.each(['global', 'cancel'])('cannot arm an already-resolved offer after %s cleanup', async kind => {
+    const shown = [];
+    const controller = createTripBubbleHandoff({ availability: async () => ({ available: true }), show: async id => { shown.push(id); } });
+    expect(await controller.offer(() => true)).toBe(true);
+    if (kind === 'global') invalidateTripBubbleWork(); else await controller.cancel();
+    const token = controller.arm(7, () => true); controller.launched(token); controller.depart();
+    expect(shown).toEqual([]);
+  });
+  it.each(['global', 'cancel'])('cancels a permission result before any handoff was armed: %s', async kind => {
+    const flow = permissionFlow({ granted: true }), permission = deferred();
+    flow.options.request = () => permission.promise;
+    const controller = createTripBubbleHandoff({ ...flow.options, hide: async () => {} });
+    const pending = controller.offer(() => true); await flush(); flow.dialog()[2][1].onPress();
+    if (kind === 'global') invalidateTripBubbleWork(); else await controller.cancel();
+    permission.resolve({ granted: true });
+    expect(await pending).toBe(false);
+  });
+  it('global cleanup blocks a late launch and departure from a still-mounted Map', async () => {
+    const h = setup(), token = h.arm();
+    invalidateTripBubbleWork(); h.controller.launched(token); h.controller.depart(); await flush();
+    expect(h.calls).toEqual([]);
+  });
+  it('invalidates a pending permission offer when the assignment changes away and back', async () => {
+    const flow = permissionFlow({ granted: true }), permission = deferred(); let current = true;
+    flow.options.request = () => permission.promise;
+    const controller = createTripBubbleHandoff({ ...flow.options, hide: async () => {} });
+    const pending = controller.offer(() => current); await flush(); flow.dialog()[2][1].onPress();
+    current = false; await controller.invalidate(); current = true;
+    permission.resolve({ granted: true }); expect(await pending).toBe(false);
+  });
   function setup() {
     const calls = []; let current = true;
     const controller = createTripBubbleHandoff({ show: async id => { calls.push(`show:${id}`); return { shown: true }; }, hide: async () => { calls.push('hide'); } });

@@ -18,6 +18,10 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Android bubble return - 2026-10-16, Task 4
+
+The return link now waits for restored driver authentication and routes through the existing Map/consent guards. Its trip ID is only a validated hint: Map reloads the current assignment from the existing driver-trips endpoint and never uses that ID to authorize, select or mutate a trip. Confirmed completion/cancellation, replacement, failed restore and session boundaries remove/invalidate obsolete shortcuts. The user's earlier explicit build authorization supersedes the historical Release 2 implementation hold below; native compilation and physical acceptance remain pending. Verification: focused 231/231 and full mobile 1,178/1,178 tests (82 files), strict touched lint, encoding and whitespace passed. See [[Tracking]].
+
 ## Google Maps handoff acceptance - PENDING (2026-10-15, Task 7)
 
 Passenger and Cargo share the trusted pickup/destination phase rules and ordered tracking-readiness handoff. Driver Accepted and Trip Started select pickup; Passenger Onboard, En Route, Drop-off, Arrived and In Progress select destination. Launch does not advance trip status. Readiness failure requires the explicit Continue Without Tracking choice; Stay Here and Back keep the driver in FleetOps. Returning stops and merges the returning trip's distance before refreshing the canonical assignment, and server-rejected/ended trips lose their background context.

@@ -20,6 +20,14 @@ related: ["[[Trips]]", "[[Mobile Architecture]]", "[[Live Map Radar]]"]
 
 # Feature: Tracking
 
+## Android bubble return and cleanup - 2026-10-16, Task 4
+
+`fleetops:///redirect-trip?tripId=...` is a return hint only. The guarded route hides the shortcut, waits for session restoration, and sends drivers through the existing authenticated Map. A refresh marker reruns Map's canonical assignment read even with an old empty-state parameter; the URL identity never selects, loads or changes a trip.
+
+Startup waits for optional cleanup before restoring navigation. Logout, session expiry and sign-in invalidate pending permission/SHOW work immediately, including a later login by the same employee. Matching confirmed completion/cancellation, failed restoration and canonical replacement invalidate Map work before React commits. Foreground return still removes the native shortcut while allowing Android Settings to finish its actual permission check. The headless GPS handler hides on explicit `tracked: false / trip-not-live`; a captured work version prevents an old reply hiding a newer handoff. GPS ownership, queues, cadence and distance rules are unchanged.
+
+Verification: strict test-first failures covered parser/guard/startup/auth, pending permission/SHOW and real Map/headless callbacks; eight focused suites passed 231/231, then the full mobile run passed 1,178/1,178 in 82 files. Strict touched lint, tracked-text encoding and whitespace passed. Native compilation and physical Android acceptance remain pending.
+
 ## What it does
 
 Reports the driver's position to the server every 30 seconds during an active trip, in the **foreground** and, while an active trip is running, in the **background** (via `expo-task-manager`).

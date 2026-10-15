@@ -1,5 +1,6 @@
 import { AppState, Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo-modules-core';
+import { invalidateTripBubbleWork } from './trip-bubble-handoff';
 
 function nativeBubble() {
   if (Platform.OS !== 'android') return null;
@@ -53,6 +54,7 @@ export async function showTripBubble(tripId) {
   } catch { return { shown: false, reason: 'start-failed' }; }
 }
 
-export async function hideTripBubble() {
+export async function hideTripBubble({ preservePermissionRequest = false } = {}) {
+  if (!preservePermissionRequest) invalidateTripBubbleWork();
   try { await nativeBubble()?.hideTripBubble(); } catch { /* Optional shortcut cleanup must not block navigation. */ }
 }

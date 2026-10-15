@@ -61,6 +61,22 @@ async function seedSession(access = "OLD-A", refresh = "OLD-R") {
 }
 
 describe("reconnect burst with an expired access token", () => {
+  it('emits local cancellation only after its server-confirmed response', async () => {
+    await seedSession();
+    const events = [], unsubscribe = subscribeApiEvents(event => events.push(event));
+    try {
+      global.fetch.mockResolvedValueOnce(jsonRes(200, { trip_status: 'Cancelled' }));
+      await apiFetch('/api/trips/7/cancel', { method: 'PUT', body: '{}', queueOnFailure: false });
+      expect(events.filter(event => event.type === 'trip-cancelled')).toEqual([{ type: 'trip-cancelled', tripId: '7' }]);
+      events.length = 0;
+      global.fetch.mockResolvedValueOnce(jsonRes(409, { error: 'Refused' }));
+      await expect(apiFetch('/api/trips/7/cancel', { method: 'PUT', body: '{}', queueOnFailure: false })).rejects.toMatchObject({ status: 409 });
+      expect(events.some(event => event.type === 'trip-cancelled')).toBe(false);
+      global.fetch.mockRejectedValue(new TypeError('Network request failed'));
+      await apiFetch('/api/trips/7/cancel', { method: 'PUT', body: '{}' });
+      expect(events.some(event => event.type === 'trip-cancelled')).toBe(false);
+    } finally { unsubscribe(); }
+  });
   it('notifies a hidden Map only after server-confirmed completion, never queued or refused writes', async () => {
     await seedSession();
     const events = [];

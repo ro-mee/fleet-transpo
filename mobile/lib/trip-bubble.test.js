@@ -15,6 +15,17 @@ beforeEach(() => { vi.resetModules(); boundary.platform = 'android'; boundary.na
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 
 describe('optional trip bubble boundary', () => {
+  it('invalidates pending JavaScript work before native removal settles or rejects', async () => {
+    const bubble = await load();
+    const { createTripBubbleHandoff } = await import('./trip-bubble-handoff');
+    const controller = createTripBubbleHandoff({ availability: async () => ({ available: true }) });
+    const pending = controller.offer(() => true);
+    let rejectHide;
+    boundary.native.hideTripBubble = () => new Promise((_, reject) => { rejectHide = reject; });
+    const hidden = bubble.hideTripBubble();
+    expect(await pending).toBe(false);
+    rejectHide(new Error('already torn down')); await hidden;
+  });
   it('reports permission and acknowledges the native window', async () => {
     const bubble = await load();
     expect(await bubble.tripBubbleAvailability()).toEqual({ available: true });

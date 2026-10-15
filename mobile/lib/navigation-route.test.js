@@ -276,6 +276,7 @@ it('executes the hidden Map completion listener and clears only its confirmed ac
   runInNewContext(source.slice(start, end), {
     useEffect: fn => fn(), subscribeApiEvents: fn => { listener = fn; }, activeTripRef, tripRequest,
     setActiveTrip, setRouteData, setRouteChoices, loadTrip, updateLegContext, stopBackgroundTracking,
+    tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
     profile: { driverType: 'Cargo' }, user: { employeeId: 23 }, setCompletedCargo,
     captureCargoSession: () => completionSession, isCurrentCargoSession: () => true, isCargoLoad: trip => trip.load_type === 'Cargo',
   });

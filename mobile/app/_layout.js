@@ -22,6 +22,7 @@ import { AppAlertHost } from "../components/AppAlert";
 import { NotificationHost } from "../components/NotificationHost";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { completeLaunch } from "../lib/launch";
+import { hideTripBubble } from "../lib/trip-bubble";
 
 // Keep the native splash up while fonts and the app shell load so the app
 // never exposes a fallback typeface or an empty handoff frame.
@@ -80,6 +81,7 @@ function ThemedApp({ showLaunch, onLaunchDone }) {
  */
 export default function RootLayout() {
   const [showLaunch, setShowLaunch] = useState(true);
+  const [bubbleCleared, setBubbleCleared] = useState(false);
   const [loaded, error] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -92,6 +94,13 @@ export default function RootLayout() {
   const ready = loaded || error;
 
   const appState = useRef(AppState.currentState);
+
+  useEffect(() => {
+    let mounted = true;
+    // Fence pending JavaScript work before restoring any navigation tree.
+    hideTripBubble().then(() => { if (mounted) setBubbleCleared(true); });
+    return () => { mounted = false; };
+  }, []);
 
   const handleLaunchDone = useCallback(() => {
     setShowLaunch(false);
@@ -115,7 +124,7 @@ export default function RootLayout() {
     };
   }, []);
 
-  if (!ready) {
+  if (!ready || !bubbleCleared) {
     return null;
   }
 
