@@ -1,49 +1,53 @@
-# EAS upload filter — used INSTEAD of .gitignore for what `eas build` uploads.
-#
-# This mirrors mobile/.gitignore EXCEPT for /services/google-services.json,
-# which EAS must receive so the cloud build can wire FCM. The file stays out of
-# git (contains Firebase config keys); only the build archive carries it.
-
 # dependencies
-node_modules/
+/node_modules/**
 
-# Expo
-.expo/
-dist/
-web-build/
-expo-env.d.ts
+# Expo/React Native generated directories
+/.expo/**
+/android/**
+/ios/**
 
-# Native
-.kotlin/
-*.orig.*
+# Build outputs
+/dist/**
+/build/**
+
+# IDE and editor files
+/.vscode/**
+/.idea/**
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+/coverage/**
+
+# Environment files (not for build)
+.env
+.env.local
+.env.*.local
+
+# Git
+/.git/**
+.gitignore
+
+# Misc
+*.pem
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+credentials.json
 
-# Metro
-.metro-health-check*
+# Firebase configuration is intentionally included for Android builds.
+# It remains excluded from Git in mobile/.gitignore.
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-# generated native folders
-/ios
-/android
-
-# NOTE: /services/google-services.json is intentionally NOT ignored here —
-# EAS needs it in the build archive. It remains gitignored.
+# Other generated
+/.expo-web*.log
