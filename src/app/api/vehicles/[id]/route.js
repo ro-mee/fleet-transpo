@@ -143,6 +143,35 @@ export async function PUT(req, { params }) {
     if (vehicleData.manufacturer) vehicleData.manufacturer = toVehicleTitleCase(vehicleData.manufacturer);
     if (vehicleData.required_license_class) vehicleData.required_license_class = String(vehicleData.required_license_class).trim().toUpperCase();
 
+    // Read the stored use first: capacity is validated against the EFFECTIVE
+    // use (incoming, else stored), and an explicit use switch clears the
+    // opposite capacity so a Cargo->Passenger edit cannot leave a stale kg
+    // behind (and vice versa for seats). Mirrors the create form, which nulls
+    // seating_capacity on Cargo submit client-side. No switch, no wipe.
+    const { rows: useRows } = await query(
+      `SELECT operational_use FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    if (!useRows[0]) return err("Vehicle not found", 404);
+    const storedUse = useRows[0].operational_use ?? null;
+    const incomingUse = vehicleData.operational_use ?? null;
+    const effectiveUse = incomingUse ?? storedUse;
+    if (
+      capacity !== undefined && capacity !== null && capacity !== "" &&
+      Number.isFinite(Number(capacity)) && Number(capacity) > 0 &&
+      effectiveUse === "Passenger"
+    ) {
+      return errValidation({ cargo_capacity_kg: "Passenger vehicles do not carry a cargo capacity." });
+    }
+    if (incomingUse && incomingUse !== storedUse) {
+      if (incomingUse === "Passenger" && !("cargo_capacity_kg" in vehicleData)) {
+        vehicleData.cargo_capacity_kg = null;
+      }
+      if (incomingUse === "Cargo" && !("seating_capacity" in vehicleData)) {
+        vehicleData.seating_capacity = null;
+      }
+    }
+
     // Built from the allowlist rather than from the body's own keys. Empty
     // strings and undefined become null on the way, to avoid PostgreSQL's
     // "invalid input syntax for type date: ''".
