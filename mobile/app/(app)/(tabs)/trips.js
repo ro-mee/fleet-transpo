@@ -27,6 +27,7 @@ import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
 import { workspaceModeLabel, workspaceBlockReason } from "../../../lib/cargo-view-model";
 import RouteTimeline from "../../../components/RouteTimeline";
 import RadarPulse from "../../../components/RadarPulse";
+import OffDutyIllustration from "../../../components/OffDutyIllustration";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
 
 function formatWhen(value) {
@@ -266,20 +267,21 @@ export default function TripsTab() {
             <NeverSyncedCard body="Connect once while online to save your trips for offline viewing." />
           ) : emptyStateKey && DUTY_EMPTY_STATES[emptyStateKey] ? (
             <ClayCard variant="standard" style={styles.emptyCard}>
-              <View style={[styles.statusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
-                {emptyStateKey === "off_duty" && (
-                  <MaterialCommunityIcons name="map-marker-off" size={32} color={colors.primary} />
-                )}
-                {emptyStateKey === "rest_day" && (
-                  <MaterialCommunityIcons name="calendar-minus" size={32} color={colors.primary} />
-                )}
-                {emptyStateKey === "on_leave" && (
-                  <View style={styles.calendarSlashIconWrap}>
-                    <MaterialCommunityIcons name="calendar-blank-outline" size={32} color={colors.primary} />
-                    <View style={[styles.calendarSlashBar, { backgroundColor: colors.primary }]} />
-                  </View>
-                )}
-              </View>
+               {emptyStateKey === "off_duty" ? (
+                 <OffDutyIllustration size="card" />
+               ) : (
+                 <View style={[styles.statusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+                   {emptyStateKey === "rest_day" && (
+                     <MaterialCommunityIcons name="calendar-minus" size={32} color={colors.primary} />
+                   )}
+                   {emptyStateKey === "on_leave" && (
+                     <View style={styles.calendarSlashIconWrap}>
+                       <MaterialCommunityIcons name="calendar-blank-outline" size={32} color={colors.primary} />
+                       <View style={[styles.calendarSlashBar, { backgroundColor: colors.primary }]} />
+                     </View>
+                   )}
+                 </View>
+               )}
               <ClayBadge label={DUTY_EMPTY_STATES[emptyStateKey].statusPill} tone="primary" statusDot />
               <View style={{ alignItems: "center", gap: 4, paddingHorizontal: 20 }}>
                 <Text style={[type.cardTitle, { textAlign: "center" }]}>

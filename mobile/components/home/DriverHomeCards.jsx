@@ -14,6 +14,7 @@ import { homeMaterials as clayMaterials } from './materials';
 import { ClayCard } from '../clay';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
+import OffDutyIllustration from '../OffDutyIllustration';
 import { CoachMarkTarget, useCoachMarkActions, useCoachMarkStatus } from '../coachmarks';
 
 // Assignment controls retain their scheme-specific clay edges.
@@ -320,20 +321,21 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
     {!trip ? <View style={[s.empty, { flexDirection: 'row', alignItems: 'center', gap: 12 }, isCurrent && { gap: 14, minHeight: 90 }]}>
       {isCurrent && confirmed && !offline ? (
         emptyState && emptyState.key ? (
-          <View style={[s.emptyStatusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
-            {emptyState.iconType === 'off_duty' && (
-              <MaterialCommunityIcons name="map-marker-off" size={26} color={accent} />
-            )}
-            {emptyState.iconType === 'rest_day' && (
-              <MaterialCommunityIcons name="calendar-minus" size={26} color={accent} />
-            )}
-            {emptyState.iconType === 'on_leave' && (
-              <View style={s.calendarSlashIconWrap}>
-                <MaterialCommunityIcons name="calendar-blank-outline" size={26} color={accent} />
-                <View style={[s.calendarSlashBar, { backgroundColor: accent }]} />
-              </View>
-            )}
-          </View>
+          emptyState.iconType === 'off_duty' ? (
+            <OffDutyIllustration size="compact" />
+          ) : (
+            <View style={[s.emptyStatusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+              {emptyState.iconType === 'rest_day' && (
+                <MaterialCommunityIcons name="calendar-minus" size={26} color={accent} />
+              )}
+              {emptyState.iconType === 'on_leave' && (
+                <View style={s.calendarSlashIconWrap}>
+                  <MaterialCommunityIcons name="calendar-blank-outline" size={26} color={accent} />
+                  <View style={[s.calendarSlashBar, { backgroundColor: accent }]} />
+                </View>
+              )}
+            </View>
+          )
         ) : (
           <RadarPulse size={38} color={accent} icon="radio" />
         )

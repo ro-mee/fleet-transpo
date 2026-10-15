@@ -27,6 +27,7 @@ import { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT } from "../../..
 import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, DriverWorkspaceCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
+import OffDutyIllustration from "../../../components/OffDutyIllustration";
 import { useCoachMarkActions, useCoachMarkStatus } from "../../../components/coachmarks/CoachMarkProvider";
 import { CoachMarkTarget } from "../../../components/coachmarks/CoachMarkTarget";
 import { usePreShift } from "../../../lib/use-pre-shift";
@@ -616,6 +617,7 @@ export default function Home() {
             a rest day, or to a driver who already checked in. */}
         {showPreShiftPrompt ? (
           <ClayCard variant="standard" style={{ marginBottom: 12 }}>
+            {!preShift.failed && emptyStateKey === "off_duty" ? <View style={{ alignItems: "center" }}><OffDutyIllustration size="card" /></View> : null}
             <Text style={[type.cardTitle, { color: colors.onSurface }]}>
               {preShift.failed ? "Pre-Shift Failed" : workspace.mode === 'cargo' ? "You're Off Duty" : "Start Your Shift"}
             </Text>

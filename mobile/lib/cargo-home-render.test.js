@@ -34,6 +34,7 @@ const dependencies = {
   "./materials": { homeMaterials: () => ({}) },
   "../TripMapPreview": { default: () => React.createElement('div', { 'data-testid': 'route-preview' }), __esModule: true },
   "../RadarPulse": { default: () => null, __esModule: true },
+  "../OffDutyIllustration": { default: native("img"), __esModule: true },
   "../coachmarks": { CoachMarkTarget: native("div"), useCoachMarkActions: () => ({}), useCoachMarkStatus: () => ({}) },
 };
 runInNewContext(code, { module: scope, exports: scope.exports, React, require: name => {
@@ -186,7 +187,7 @@ const { code: homeCode } = await transform(readFileSync(new URL("../app/(app)/(t
 
 const cachedCargoTrip = { trip_id: 701, vehicle_id: 12, vehicle_plate: 'ABC-123', operational_use: 'Cargo', load_type: 'Cargo', trip_status: 'Passenger Onboard', cargo_description: 'Fresh vegetables', cargo_weight_kg: 650, passenger_name: 'Ghost Guest', passenger_count: 0, origin: 'Supplier', destination: 'Hotel' };
 
-function homeHarness({ cards } = {}) {
+function homeHarness({ cards, dutyState, preShiftState, activeMilestone = null } = {}) {
   const actorId = 'employee-1';
   const slots = [];
   let cursor = 0;
@@ -239,10 +240,11 @@ function homeHarness({ cards } = {}) {
     '../../../lib/driver-workspace': { resolveDriverWorkspace },
     '../../../lib/driver-context': { resolveVehicleContext: () => null },
     '../../../components/home/DriverHomeCards': cards || { DriverHeroCard, DriverWorkspaceCard, HomeQuickActions, DriverTripCard, AssignmentsHeading },
-    '../../../components/coachmarks/CoachMarkProvider': { useCoachMarkActions: () => ({ triggerMilestone: milestone, notifyInteraction: () => {}, setTutorialTransition: () => {} }), useCoachMarkStatus: () => ({ activeMilestone: null, walkthroughActive: false, tutorialTransitioning: false, pendingTourDestination: null }) },
+    '../../../components/OffDutyIllustration': { default: () => React.createElement('img', { 'data-testid': 'off-duty-illustration' }), __esModule: true },
+    '../../../components/coachmarks/CoachMarkProvider': { useCoachMarkActions: () => ({ triggerMilestone: milestone, notifyInteraction: () => {}, setTutorialTransition: () => {} }), useCoachMarkStatus: () => ({ activeMilestone, walkthroughActive: false, tutorialTransitioning: false, pendingTourDestination: null }) },
     '../../../components/coachmarks/CoachMarkTarget': { CoachMarkTarget: native('div') },
-    '../../../lib/use-pre-shift': { usePreShift: () => ({ loaded: true, passed: true, failed: false }) },
-    '../../../lib/use-duty': { useDuty: () => ({ loaded: true, checkedIn: true, busy: false, today: { blocked: false }, due: false, unreported: null }) },
+    '../../../lib/use-pre-shift': { usePreShift: () => ({ loaded: true, passed: true, failed: false, ...preShiftState }) },
+    '../../../lib/use-duty': { useDuty: () => ({ loaded: true, checkedIn: true, busy: false, today: { blocked: false }, due: false, unreported: null, ...dutyState }) },
     '../../../lib/duty-empty-states': { DUTY_EMPTY_STATES, resolveDutyEmptyState },
     '../../../lib/missed-report': { missedReportCopy: () => null, lateReportHref: () => null },
     '../../../components/clay': { ClayCard: native('div'), ClayButton: ({ label, children }) => React.createElement('button', null, label, children) },
@@ -260,6 +262,26 @@ function homeHarness({ cards } = {}) {
   const renderHome = () => { cursor = 0; const tree = scope.exports.default(); while (effects.length) effects.shift()(); return tree; };
   return { renderHome, apiGet, apiPut, cached, writes, push, alerts, milestone };
 }
+
+describe('Home pre-shift illustration scope', () => {
+  it('shows the illustration for a confirmed Off Duty driver', () => {
+    const h = homeHarness({ dutyState: { checkedIn: false }, preShiftState: { passed: false } });
+    apiGetRejects(h);
+    expect(renderToStaticMarkup(h.renderHome())).toContain('data-testid="off-duty-illustration"');
+  });
+
+  it.each([
+    { checkedIn: true },
+    { checkedIn: false, today: { blocked: true, reason: 'Rest Day' } },
+    { checkedIn: false, today: { blocked: true, reason: 'On Leave' } },
+  ])('keeps tutorial prompts available without Off Duty artwork for %j', dutyState => {
+    const h = homeHarness({ dutyState, activeMilestone: 'tour_preshift' });
+    apiGetRejects(h);
+    const html = renderToStaticMarkup(h.renderHome());
+    expect(html).toContain('Start Your Shift');
+    expect(html).not.toContain('data-testid="off-duty-illustration"');
+  });
+});
 
 function apiGetRejects(h) {
   h.apiGet.mockRejectedValue(Object.assign(new Error('Network request failed'), { status: 0 }));

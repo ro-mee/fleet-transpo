@@ -99,6 +99,10 @@ Added dedicated, status-aware empty states to the mobile Map tab (`mobile/app/(a
   - Seamlessly re-engages GPS watching and trip polling as soon as the driver checks in or starts an active trip.
   - Tested and verified: `mobile/lib/map-empty-state.test.js` (8 tests passing), ESLint clean on `map.js`.
 
+### Shared Off Duty illustration follow-up (2026-10-14)
+
+The Map Off Duty empty state now uses the same supplied transparent clipboard/crossed-location illustration as Home and Trips, replacing only the former crossed-pin icon card. The status pill, title and tracking explanation remain explicit, so the image is decorative rather than the sole status indicator. Rest Day and On Leave retain their distinct calendar artwork, and empty-state polling/location behavior is unchanged. Focused duty/Home coverage passed 56/56 tests, scoped ESLint passed, and the Android Hermes export passed with 1,467 modules, a 5.69 MB bundle and 88 assets. Native device visual acceptance remains pending.
+
 ## Cross-State Map UI/UX Consistency & Functional Verification (2026-09-30, implemented)
 
 Executed a comprehensive UI/UX audit and functional verification across all map states based on `impeccable`, `ui-ux-pro-max`, and `high-end-visual-design` principles:

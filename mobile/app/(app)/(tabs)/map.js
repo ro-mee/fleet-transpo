@@ -4,6 +4,7 @@ import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
+import OffDutyIllustration from "../../../components/OffDutyIllustration";
 import RouteOptionsSheet from "../../../components/RouteOptionsSheet";
 import TripOperationalSummary, { CargoMapStandby } from "../../../components/TripOperationalSummary";
 import { navigationTarget, externalNavigationUrl } from "../../../lib/navigation-route";
@@ -1569,29 +1570,30 @@ export default function MapTab() {
           }
         >
           <View style={styles.emptyCenterContent}>
-            {/* Glowing Icon Card */}
-            <View style={styles.iconGlowWrapper}>
-              <View style={[styles.iconAmbientHalo, { backgroundColor: emptyTheme.haloBg, shadowColor: emptyTheme.haloShadow }]} />
-              <LinearGradient
-                colors={emptyTheme.cardColors}
-                start={{ x: 0.1, y: 0.1 }}
-                end={{ x: 0.9, y: 0.9 }}
-                style={[styles.iconCardSurface, { borderColor: emptyTheme.cardBorder, shadowColor: emptyTheme.cardShadow }]}
-              >
-                {config.iconType === 'off_duty' && (
-                  <MaterialCommunityIcons name="map-marker-off" size={46} color={emptyTheme.iconColor} />
-                )}
-                {config.iconType === 'rest_day' && (
-                  <MaterialCommunityIcons name="calendar-minus" size={48} color={emptyTheme.iconColor} />
-                )}
-                {config.iconType === 'on_leave' && (
-                  <View style={styles.calendarSlashIconWrap}>
-                    <MaterialCommunityIcons name="calendar-blank-outline" size={48} color={emptyTheme.iconColor} />
-                    <View style={[styles.calendarSlashBar, { backgroundColor: emptyTheme.iconColor }]} />
-                  </View>
-                )}
-              </LinearGradient>
-            </View>
+            {/* Off Duty uses the shared supplied illustration. Other non-operational states keep their distinct symbols. */}
+            {config.iconType === 'off_duty' ? (
+              <OffDutyIllustration size="hero" />
+            ) : (
+              <View style={styles.iconGlowWrapper}>
+                <View style={[styles.iconAmbientHalo, { backgroundColor: emptyTheme.haloBg, shadowColor: emptyTheme.haloShadow }]} />
+                <LinearGradient
+                  colors={emptyTheme.cardColors}
+                  start={{ x: 0.1, y: 0.1 }}
+                  end={{ x: 0.9, y: 0.9 }}
+                  style={[styles.iconCardSurface, { borderColor: emptyTheme.cardBorder, shadowColor: emptyTheme.cardShadow }]}
+                >
+                  {config.iconType === 'rest_day' && (
+                    <MaterialCommunityIcons name="calendar-minus" size={48} color={emptyTheme.iconColor} />
+                  )}
+                  {config.iconType === 'on_leave' && (
+                    <View style={styles.calendarSlashIconWrap}>
+                      <MaterialCommunityIcons name="calendar-blank-outline" size={48} color={emptyTheme.iconColor} />
+                      <View style={[styles.calendarSlashBar, { backgroundColor: emptyTheme.iconColor }]} />
+                    </View>
+                  )}
+                </LinearGradient>
+              </View>
+            )}
 
             {/* Status Pill */}
             <View style={[styles.emptyStatusPill, { backgroundColor: emptyTheme.pillBg, borderColor: emptyTheme.pillBorder }]}>
