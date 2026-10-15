@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/db", () => ({ query: vi.fn() }));
+vi.mock("@/lib/db", () => ({ query: vi.fn(), withTransaction: vi.fn() }));
 vi.mock("@/lib/api/utils", () => ({
   requirePermission: vi.fn(),
   parseBody: (req) => req.json().catch(() => ({})),
@@ -14,12 +14,13 @@ vi.mock("@/services/reservation-lifecycle.service", () => ({
   advanceReservation: vi.fn(),
 }));
 vi.mock("@/lib/audit", () => ({ writeAudit: vi.fn() }));
+vi.mock('@/services/outbound.service', () => ({ emitTransportStatus: vi.fn(async () => null) }));
 vi.mock("@/services/status.service", () => ({
   syncVehicleStatus: vi.fn(),
   syncDriverStatus: vi.fn(),
 }));
 
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requirePermission } from "@/lib/api/utils";
 import { loadRequest, advanceReservation } from "@/services/reservation-lifecycle.service";
 import { PUT } from "./route";
@@ -33,9 +34,10 @@ const request = (body = { reason: "Guest cancelled" }) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  withTransaction.mockImplementation(work => work({ query }));
   requirePermission.mockResolvedValue({ user: { employeeId: 1 } });
-  loadRequest.mockResolvedValue({ request_id: 501, fleet_status: "Assigned" });
-  query.mockResolvedValue({ rows: [] });
+  loadRequest.mockResolvedValue({ request_id: 501, load_type: 'Passenger', fleet_status: "Assigned" });
+  query.mockImplementation(async sql => ({ rows: sql.includes('SELECT request_id, load_type') ? [{ request_id: 501, load_type: 'Passenger' }] : [] }));
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -44,6 +46,14 @@ it('holds cargo request cancellation before any cascade when source coordination
   loadRequest.mockResolvedValue({ request_id: 501, fleet_status: 'Assigned', load_type: 'Cargo' });
   expect((await PUT(request(), params)).status).toBe(503);
   expect(query).not.toHaveBeenCalled();
+  expect(advanceReservation).not.toHaveBeenCalled();
+});
+it('rechecks a request changed to Cargo before cancelling any Passenger cascade', async () => {
+  loadRequest.mockResolvedValue({ request_id: 501, fleet_status: 'Assigned', load_type: 'Passenger' });
+  query.mockImplementation(async sql => ({ rows: sql.includes('load_type') ? [{ request_id: 501, load_type: 'Cargo' }] : [] }));
+  advanceReservation.mockResolvedValue({ ok: true, request: { request_id: 501, fleet_status: 'Cancelled' } });
+  expect((await PUT(request(), params)).status).toBe(503);
+  expect(query.mock.calls.some(([sql]) => /^UPDATE/.test(sql))).toBe(false);
   expect(advanceReservation).not.toHaveBeenCalled();
 });
 
@@ -95,6 +105,8 @@ it("surfaces a refused transition as its own status, not a cancel", async () => 
 
 it("stands down an open dispatch and a Pending Reassignment one with the request", async () => {
   query.mockImplementation(async (sql) => {
+    if (sql.includes('AS stored_request_id')) return { rows: [{ dispatch_id: 9, request_id: 501, stored_request_id: 501, load_type: 'Passenger' }] };
+    if (sql.includes('SELECT request_id, load_type')) return { rows: [{ request_id: 501, load_type: 'Passenger' }] };
     if (sql.includes("SELECT dispatch_id FROM dispatchschedules")) {
       return { rows: [{ dispatch_id: 9 }] };
     }

@@ -65,15 +65,21 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("mechanic sub-pages", () => {
   it("executes all three actual maintenance reads through the API client", async () => {
-    for (const [Page, key, url] of [
-      [WorkOrdersPage, "mechanicWorkOrders", "/api/vehicle-maintenance?page=1&pageSize=10"],
-      [HistoryPage, "mechanicHistory", "/api/vehicle-maintenance"],
-      [DetailPage, "mechanicWorkOrder", "/api/vehicle-maintenance"],
-    ]) {
-      renderToStaticMarkup(React.createElement(Page));
-      await state.queryFns[key]();
-      expect(apiFetch).toHaveBeenLastCalledWith(url);
-    }
+    // Work orders page: paginated register read (status "All" adds no filter).
+    renderToStaticMarkup(React.createElement(WorkOrdersPage));
+    await state.queryFns["mechanicWorkOrders"]();
+    expect(apiFetch).toHaveBeenLastCalledWith("/api/vehicle-maintenance?page=1&pageSize=10");
+
+    // History page: full assigned-scope read, no pagination params.
+    renderToStaticMarkup(React.createElement(HistoryPage));
+    await state.queryFns["mechanicHistory"]();
+    expect(apiFetch).toHaveBeenLastCalledWith("/api/vehicle-maintenance");
+
+    // Detail page: single-record read by id (server enforces assignment).
+    state.params = { id: "7" };
+    renderToStaticMarkup(React.createElement(DetailPage));
+    await state.queryFns["mechanicWorkOrder"]();
+    expect(apiFetch).toHaveBeenLastCalledWith("/api/vehicle-maintenance/7");
   });
   it("work-orders page renders status filter chips and queue rows", () => {
     state.queries = {
@@ -127,13 +133,17 @@ describe("mechanic sub-pages", () => {
   });
 
   it("detail page resolves the row by id; unknown id renders not-found", () => {
-    state.queries = { mechanicWorkOrder: { data: [leanRow()], isLoading: false } };
+    // getMaintenanceRecord resolves a single row object (not an array).
+    state.queries = { mechanicWorkOrder: { data: leanRow(), isLoading: false } };
     state.params = { id: "7" };
     const found = renderToStaticMarkup(React.createElement(DetailPage));
     expect(found).toContain("ABC 1234");
     expect(found).toContain("Grinding noise");
 
     state.params = { id: "999" };
+    // Unknown id: the record query resolves empty (the mocked useQuery keys
+    // on queryKey[0] only, so clear the canned row to simulate the miss).
+    state.queries = { mechanicWorkOrder: { data: null, isLoading: false } };
     const missing = renderToStaticMarkup(React.createElement(DetailPage));
     expect(missing).toContain("not found");
   });

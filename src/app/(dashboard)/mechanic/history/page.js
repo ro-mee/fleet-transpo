@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardList } from "lucide-react";
 import { getMaintenanceRecords } from "@/services/maintenance.service";
@@ -13,11 +14,84 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
-// History — Completed/Cancelled rows assigned to the mechanic. Cost is a
-// READ-ONLY display here (never an input): the mechanic never writes it.
-// Parts render from the lean projection (parts_replaced); only rows without
-// parts data read "Not recorded".
 const HISTORY_STATUSES = new Set(["Completed", "Cancelled"]);
+
+function partsLabel(value) {
+  let parts = value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return "Not recorded";
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) parts = parsed;
+      } catch {
+        return trimmed;
+      }
+    } else {
+      return trimmed;
+    }
+  }
+  if (!Array.isArray(parts)) return "Not recorded";
+
+  const labels = parts.map((part) => {
+    if (typeof part === "string") return part;
+    const name = part?.name ?? part?.part_name ?? part?.part ?? "";
+    if (!name) return part ? JSON.stringify(part) : "";
+    const quantity = Number(part?.qty ?? part?.quantity);
+    return Number.isFinite(quantity) && quantity > 0 ? `${name} × ${quantity}` : String(name);
+  }).filter(Boolean);
+
+  return labels.length ? labels.join(", ") : "Not recorded";
+}
+
+function HistoryRow({ row }) {
+  const vehicle = row.vehicles ?? row.vehicle ?? {};
+  const plate = vehicle.plate_number ?? `WO #${row.maintenance_id}`;
+  const findings = row.diagnosis || row.description || row.remarks || "No findings recorded";
+
+  return (
+    <li className="border-b border-border/60 px-4 py-4 last:border-0 sm:px-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link
+            href={`/mechanic/work-orders/${row.maintenance_id}`}
+            className="inline-flex min-h-[44px] items-center rounded-control text-sm font-semibold text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
+            {plate}
+          </Link>
+          <p className="text-xs text-foreground-secondary">
+            {row.maintenance_type ?? "Maintenance"} · {formatDate(row.maintenance_date)} · Assigned to you
+          </p>
+        </div>
+        <StatusBadge status={row.status} entity="maintenance" />
+      </div>
+
+      <dl className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="min-w-0">
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Findings</dt>
+          <dd className="mt-1 break-words text-sm text-foreground-secondary">{findings}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Parts</dt>
+          <dd className="mt-1 break-words text-sm text-foreground-secondary">{partsLabel(row.parts_replaced)}</dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Cost</dt>
+          <dd className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+            {row.cost != null ? formatCurrency(row.cost) : "—"}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Completed</dt>
+          <dd className="mt-1 text-sm text-foreground-secondary">
+            {row.completed_date ? formatDate(row.completed_date) : "—"}
+          </dd>
+        </div>
+      </dl>
+    </li>
+  );
+}
 
 export default function MechanicHistoryPage() {
   useRequireRole();
@@ -30,7 +104,7 @@ export default function MechanicHistoryPage() {
   const all = Array.isArray(historyQuery.data)
     ? historyQuery.data
     : (historyQuery.data?.rows ?? []);
-  const rows = all.filter((r) => HISTORY_STATUSES.has(r.status));
+  const rows = all.filter((row) => HISTORY_STATUSES.has(row.status));
 
   return (
     <PageEntrance>
@@ -58,81 +132,9 @@ export default function MechanicHistoryPage() {
         ) : (
           <Card className="overflow-hidden rounded-card border-border/70 shadow-sm">
             <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-left text-sm">
-                  <caption className="sr-only">
-                    Completed and cancelled work orders assigned to you
-                  </caption>
-                  <thead>
-                    <tr className="border-b border-border bg-hover">
-                      {["Date", "Type", "Findings", "Parts", "Cost", "Mechanic", "Completed"].map((h) => (
-                        <th
-                          key={h}
-                          scope="col"
-                          className="px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-foreground-muted"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                      <th scope="col" className="px-4 py-3 text-[11px] font-semibold uppercase tracking-widest text-foreground-muted">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.map((row) => {
-                      const plate =
-                        row.vehicles?.plate_number ?? row.vehicle?.plate_number ?? `WO #${row.maintenance_id}`;
-                      return (
-                        <tr
-                          key={row.maintenance_id}
-                          className="border-b border-border/60 last:border-0 transition-colors duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-hover motion-reduce:transition-none"
-                        >
-                          <td className="whitespace-nowrap px-4 py-3 text-foreground">
-                            {formatDate(row.maintenance_date)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className="block font-semibold text-foreground">
-                              {row.maintenance_type}
-                            </span>
-                            <a
-                              href={`/mechanic/work-orders/${row.maintenance_id}`}
-                              className="text-xs font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-                            >
-                              {plate}
-                            </a>
-                          </td>
-                          <td className="max-w-56 px-4 py-3 text-foreground-secondary">
-                            <span className="block truncate">
-                              {row.description || row.remarks || "No findings recorded"}
-                            </span>
-                          </td>
-                          <td
-                            className="px-4 py-3 text-foreground-muted"
-                            title={Array.isArray(row.parts_replaced) && row.parts_replaced.length ? row.parts_replaced.join(", ") : "Parts data is not included in this view"}
-                          >
-                            {Array.isArray(row.parts_replaced) && row.parts_replaced.length
-                              ? row.parts_replaced.join(", ")
-                              : (typeof row.parts_replaced === "string" && row.parts_replaced.trim() ? row.parts_replaced : "Not recorded")}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 font-data font-semibold tabular-nums text-foreground">
-                            {row.cost != null ? formatCurrency(row.cost) : "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-foreground-secondary">
-                            Assigned to you
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-foreground-secondary">
-                            {row.completed_date ? formatDate(row.completed_date) : "—"}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3">
-                            <StatusBadge status={row.status} entity="maintenance" />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <ul aria-label="Finished work orders" className="m-0 list-none p-0">
+                {rows.map((row) => <HistoryRow key={row.maintenance_id} row={row} />)}
+              </ul>
             </CardContent>
           </Card>
         )}

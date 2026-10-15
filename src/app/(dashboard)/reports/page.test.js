@@ -2,12 +2,13 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const state = vi.hoisted(() => ({ queries: {} }));
+const state = vi.hoisted(() => ({ queries: {}, role: "admin" }));
 
 // The page reads one query per report tab; this returns the payload registered
 // for the queried key so the Drivers tab can be exercised through the page's
 // real render path.
 vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   useQuery: ({ queryKey }) =>
     state.queries[queryKey[0]] || { data: undefined, isLoading: false, isError: false, isRefetching: false, refetch: vi.fn() },
 }));
@@ -16,7 +17,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/reports",
 }));
 vi.mock("@/lib/auth/role-guard", () => ({
-  useRequireRole: () => ({ authorized: true, role: "admin", loading: false, missingRole: false }),
+  useRequireRole: () => ({ authorized: true, role: state.role, loading: false, missingRole: false }),
 }));
 vi.mock("@/hooks/use-theme", () => ({
   useTheme: () => ({ theme: "light", setTheme: vi.fn(), toggleTheme: vi.fn() }),
@@ -131,8 +132,28 @@ beforeEach(() => {
     history: { replaceState: vi.fn() },
   });
   state.queries = {};
+  state.role = "admin";
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe("Reports — fuel diagnostic filing", () => {
+  function fuelPage(directory) {
+    vi.stubGlobal("window", { location: { search: "?report=fuel", pathname: "/reports" }, history: { replaceState: vi.fn() } });
+    state.queries["report-fuel"] = query({ byVehicle: [{ vehicle_id: 12, plate_number: "ABC 1234", status: "Below baseline", estimated_kmpl: 6.4, baseline_efficiency: 8.5, trips: 18, distance: 1240, liters: 193 }] });
+    state.queries["open-fuel-diagnostics"] = directory;
+    return renderToStaticMarkup(React.createElement(TooltipProvider, null, React.createElement(ReportsPage)));
+  }
+  it("shows the existing open diagnostic before offering another filing", () => {
+    expect(fuelPage(query([{ maintenance_id: 44, vehicle_id: 12, status: "Scheduled" }]))).toContain("Open diagnostic #44");
+  });
+  it("shows lookup failure instead of offering an unchecked filing", () => {
+    expect(fuelPage({ isError: true, refetch: vi.fn() })).toContain("Could not check existing diagnostics");
+  });
+  it("hides diagnostic actions from management", () => {
+    state.role = "management";
+    expect(fuelPage(query([]))).not.toContain("Create diagnostic work order");
+  });
+});
 
 describe("buildDriverOverview", () => {
   it("maps the punctuality payload onto the overview rows", () => {

@@ -1,0 +1,9 @@
+# Cargo commit handoff - 2026-10-14
+
+The user explicitly requested local commits for the completed Cargo work. Server safety is saved in `d666a276` (`fix: enforce persisted Cargo authority across lifecycle writes`). The accompanying mobile snapshot is titled `feat: refine Cargo driver UI and add shared photo guidance`; it includes the reference presentation, routing/manual completion, Home/Map readiness, shared gestures/reduced motion, labeled illustrative assets, regression tests and synchronized feature/architecture notes. Build caches and Android exports are not committed.
+
+Fresh pre-commit verification: 1,286 tests across111 affected mobile/Cargo/Passenger files passed; strict changed-code lint, UTF-8 and whitespace passed. Each staged change was checked for high-confidence credential patterns; none found. Prior Android Hermes export evidence is recorded in [[Mobile Architecture]]. This is not a full-repository or physical-device acceptance claim.
+
+Staging the five WebP images exposed an encoding-gate format-list omission: `.gitattributes` already marks WebP binary, but the gate attempted to decode it as text. Added WebP alongside existing PNG/JPEG/GIF exclusions; no text exception or suppression. Three disposable-repository regressions prove binary WebP acceptance and continued invalid UTF-8/mojibake refusal; the WebP case failed before the fix. Final tracked-text encoding and scoped tooling lint passed. The minimal asset-support correction is included with the mobile snapshot.
+
+No push, deployment, migration, provider/policy activation or operating-data write is part of this handoff. Live integration remains disabled. Native accessibility/visual acceptance, approved real source/Fleet/receiver/evidence providers and live Cargo pilot/concurrency remain deferred. See [[Cargo UI Backend Readiness Review 2026-10-14]], [[Trips]] and [[Mobile Architecture]].

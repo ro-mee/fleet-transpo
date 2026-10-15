@@ -4,7 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
 import { useSettings } from '../../lib/settings-context';
-import { homeTripAction } from '../../lib/home-trips';
+import { useReducedMotion } from '../../lib/use-reduced-motion';
+import { homeTripAction, homeTripReadiness } from '../../lib/home-trips';
 import { statusColorForTone, tripStatusTone, fonts } from '../../lib/theme';
 import { moderateScale } from '../../lib/scaling';
 import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
@@ -13,6 +14,7 @@ import { homeMaterials as clayMaterials } from './materials';
 import { ClayCard } from '../clay';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
+import OffDutyIllustration from '../OffDutyIllustration';
 import { CoachMarkTarget, useCoachMarkActions, useCoachMarkStatus } from '../coachmarks';
 
 // Assignment controls retain their scheme-specific clay edges.
@@ -30,13 +32,14 @@ const MAP_IMAGE = require('../../assets/images/map.png');
 // Memoized presentational layer: Home re-renders on 30 s ticks, poster and
 // notification publishes — cards with stable props skip reconciliation. The
 // countdown-driven trip cards still update via nowMs (by design).
-export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed, profileConfirmed, onTrips, onHistory, onVehicle, workspaceMode = 'unclassified' }) {
+export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed, profileConfirmed, onTrips, onHistory, onVehicle, workspaceMode = 'unclassified', duty = null, activeTrip = null, showDuty = true }) {
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
   const { settings } = useSettings();
   const [failedImage, setFailedImage] = useState(null);
   const imageUri = vehicle?.imageUri;
   const isDark = scheme === 'dark';
+  const cargo = workspaceMode === 'cargo';
   const date = new Date().toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
 
   // Light mode pale mint clay background matching reference 1:1; dark mode uses primaryContainer
@@ -45,8 +48,8 @@ export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, c
   const kpiActionColor = isDark ? colors.onPrimaryContainer : '#15483A';
   const iconTileBg = isDark ? colors.surfaceContainerLow : '#F3F7F4';
 
-  return <View style={[s.heroShell, { ...mats.clayShade, shadowColor: colors.shadow, backgroundColor: colors.surfaceContainerLow }]}>
-    <View style={s.hero}>
+  return <View style={[s.heroShell, cargo && s.cargoOverview, { ...(cargo ? mats.compactShade : mats.clayShade), shadowColor: colors.shadow, backgroundColor: colors.surfaceContainerLow }]}>
+    <View style={[s.hero, cargo && s.cargoOverviewBody]}>
       {/* 3D Hotel Background Scenery matching reference 1:1 */}
       {workspaceMode === 'passenger' ? <Image
         source={HOTEL_IMAGE}
@@ -56,36 +59,42 @@ export const DriverHeroCard = memo(function DriverHeroCard({ upcoming, capped, c
       /> : null}
 
       {/* Header Text */}
-      <View style={[s.heroHeader, workspaceMode !== 'passenger' && { maxWidth: '100%' }]}>
+      {cargo ? showDuty ? <View style={[s.cargoDuty, { backgroundColor: colors.primaryContainer }]}>
+        <Ionicons name={activeTrip ? 'cube-outline' : 'shield-checkmark-outline'} size={26} color={colors.onPrimaryContainer} />
+        <View style={s.flex}>
+          <Text style={[type.cardTitle, { color: colors.onPrimaryContainer }]}>{activeTrip ? tripStatusLabel(activeTrip.trip_status, activeTrip.load_type) : duty?.loaded ? duty.checkedIn ? 'On Duty · Standby' : 'Off Duty' : 'Checking duty status'}</Text>
+          <Text style={[type.supporting, { color: colors.onPrimaryContainer }]}>{activeTrip ? 'Follow your current cargo assignment.' : duty?.loaded && duty.checkedIn ? 'Waiting for your next assignment.' : 'Cargo work. Clear deliveries.'}</Text>
+        </View>
+      </View> : null : <View style={[s.heroHeader, workspaceMode !== 'passenger' && { maxWidth: '100%' }]}>
         <Text style={[type.caption, s.heroDate, { color: colors.primary }]}>{date.toLocaleUpperCase()}</Text>
         <Text style={[type.body, s.heroSubtitle, { color: colors.onSurfaceVariant }]}>
           {workspaceMode === 'cargo' ? 'Cargo work. Clear deliveries.' : workspaceMode === 'passenger' ? 'Smooth rides. Happy guests.' : 'Your workday at a glance.'}
         </Text>
-      </View>
+      </View>}
 
       {/* 2 KPI Stat Cards */}
-      <View style={s.metrics}>
+      <View style={[s.metrics, cargo && s.cargoMetrics]}>
         {[
           { label: 'Upcoming trips', value: confirmed ? `${upcoming}${capped ? '+' : ''}` : '—', caption: confirmed ? 'View assignments' : 'Not yet confirmed', icon: 'calendar', action: onTrips },
           { label: 'Trips completed', value: completed ?? '—', caption: 'All time', icon: 'checkmark-circle', action: onHistory },
-        ].map(m => <Pressable key={m.label} onPress={m.action} accessibilityRole="button" accessibilityLabel={`${m.label}: ${m.value}. ${m.caption}`} style={({ pressed }) => [s.metric, { ...mats.compactShade, backgroundColor: kpiBgColor, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
-          {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={isDark ? ['rgba(255,255,255,0.05)', 'transparent'] : ['rgba(255,255,255,0.6)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, { borderRadius: 18 }]} />}
+        ].map(m => <Pressable key={m.label} onPress={m.action} accessibilityRole="button" accessibilityLabel={`${m.label}: ${m.value}. ${m.caption}`} style={({ pressed }) => [s.metric, cargo && s.cargoMetric, { ...(cargo ? {} : mats.compactShade), backgroundColor: cargo ? colors.surfaceContainer : kpiBgColor, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
+          {!cargo && !settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={isDark ? ['rgba(255,255,255,0.05)', 'transparent'] : ['rgba(255,255,255,0.6)', 'transparent']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, { borderRadius: 18 }]} />}
           <View style={s.metricTopRow}>
-            <View style={[s.metricIconTile, { ...mats.clayTile, backgroundColor: iconTileBg, shadowColor: colors.shadow }]}>
+            {!cargo ? <View style={[s.metricIconTile, { ...mats.clayTile, backgroundColor: iconTileBg, shadowColor: colors.shadow }]}>
               <Ionicons name={m.icon} size={18} color={colors.primary} />
-            </View>
-            <Text style={[s.metricValue, { color: kpiTextColor }]}>{m.value}</Text>
+            </View> : null}
+            <Text style={[s.metricValue, cargo && type.titleLg, { color: cargo ? colors.onSurface : kpiTextColor }]}>{m.value}</Text>
           </View>
           <Text style={[s.metricLabel, { color: kpiTextColor }]}>{m.label}</Text>
-          <View style={s.metricActionRow}>
+          {!cargo ? <View style={s.metricActionRow}>
             <Text style={[s.metricActionText, { color: kpiActionColor }]}>{m.caption}</Text>
             <Ionicons name="chevron-forward" size={12} color={kpiActionColor} />
-          </View>
+          </View> : <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>{m.label === 'Trips completed' ? 'All time' : 'Assigned queue'}</Text>}
         </Pressable>)}
       </View>
 
       {/* Assigned Vehicle Section (preserved untouched per instructions) */}
-      <Pressable onPress={onVehicle} accessibilityRole="button" accessibilityLabel="View assigned vehicle" style={({ pressed }) => [s.vehicle, { ...mats.compactShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
+      <Pressable onPress={onVehicle} accessibilityRole="button" accessibilityLabel="View assigned vehicle" style={({ pressed }) => [s.vehicle, { ...(cargo ? {} : mats.compactShade), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
         <HomeClayIcon name="car-sport" small />
         <View style={s.flex}><Text style={type.caption}>Assigned vehicle</Text><Text style={type.labelLg}>{vehicle?.model || (vehicle ? 'Assigned vehicle' : profileConfirmed ? 'No assigned vehicle' : 'Not yet confirmed')}</Text>{vehicle?.plate ? <Text style={type.caption}>{vehicle.plate}</Text> : null}</View>
         {imageUri && failedImage !== imageUri ? <Image key={imageUri} source={{ uri: imageUri }} resizeMode="contain" fadeDuration={0} style={s.vehicleImage} onError={() => setFailedImage(imageUri)} accessible={false} /> : null}
@@ -109,7 +118,7 @@ function workspaceProblem(workspace) {
 }
 
 // Saved driver type chooses this workspace; service metadata only labels its source.
-export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace, trip, assignedVehicle, loading = false }) {
+export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace, trip, assignedVehicle, loading = false, compact = false }) {
   const { colors, type } = useTheme();
   const cargo = workspace.mode === 'cargo';
   const unassigned = workspace.mode === 'unclassified';
@@ -120,6 +129,7 @@ export const DriverWorkspaceCard = memo(function DriverWorkspaceCard({ workspace
   const source = /\bRESTAURANT(?:_|\b)/i.test(service) ? 'Restaurant cargo' : /\bHOTEL(?:_|\b)/i.test(service) ? 'Hotel cargo' : 'Cargo assignment';
   const heading = loading ? "Checking driver type" : workspaceHeading(workspace);
   const problem = loading ? "Confirming your saved driver profile." : workspaceProblem(workspace);
+  if (compact && !loading && !unassigned && !blocked) return <View style={[s.row, { paddingHorizontal: 4 }]}><Ionicons name="cube-outline" size={16} color={colors.primary} /><Text style={type.caption}>{heading}</Text></View>;
   return <ClayCard variant="standard">
     <View style={[s.row, { alignItems: 'flex-start' }]}>
       <Ionicons name={unassigned ? 'help-circle-outline' : cargo ? 'cube-outline' : 'car-outline'} size={24} color={colors.primary} accessible={false} />
@@ -150,7 +160,8 @@ function HomeClayIcon({ name, small = false }) {
   </View>;
 }
 
-export const HomeQuickActions = memo(function HomeQuickActions({ actions, scrollRef }) {
+export const HomeQuickActions = memo(function HomeQuickActions({ actions, scrollRef, cargo = false }) {
+  const reduceMotion = useReducedMotion();
   const { activeMilestone, walkthroughActive, tutorialTransitioning, pendingTourDestination } = useCoachMarkStatus();
   const { notifyInteraction, isTourShortcutActive } = useCoachMarkActions();
   const [expanded, setExpanded] = useState(false);
@@ -163,11 +174,11 @@ export const HomeQuickActions = memo(function HomeQuickActions({ actions, scroll
   const visible = wide || expanded ? actions : actions.slice(0, 4);
 
   const toggleExpanded = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (!reduceMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded((prev) => !prev);
   };
 
-  return <View style={[s.actions, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+  return <View style={[s.actions, { ...(cargo ? {} : mats.clayShade), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }, cargo && { borderRadius: 16, padding: 8, gap: 8 }]}>
     {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: toggleExpanded, toggle: true }] : [])].map(a => {
       const targetId = a.targetId || (a.label === 'Report Incident' ? 'home.shortcut_incident' : a.label === 'Fuel' ? 'home.shortcut_fuel' : null);
       const handlePress = async () => {
@@ -286,12 +297,15 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
   const sc = statusColorForTone(colors, tripStatusTone(trip?.trip_status));
   const horizontal = width >= 420 && fontScale < 1.2 && settings.textSize !== 'large';
   const cargo = isCargoLoad(trip);
+  const readiness = trip ? homeTripReadiness(trip, nowMs, { preShiftPassed }) : null;
+  const showRoutePreview = !cargo || (isCurrent && readiness == null);
+  const splitLayout = horizontal && showRoutePreview;
   const stops = useMemo(() => [
     { label: 'Pickup', value: trip?.origin, time: depTime, first: true },
     { label: cargo ? 'Delivery' : 'Drop-off', value: trip?.destination, time: null, first: false },
   ], [trip?.origin, trip?.destination, cargo, depTime]);
 
-  return <View style={[s.trip, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+  return <View style={[s.trip, cargo && s.cargoTrip, { ...(cargo ? mats.compactShade : mats.clayShade), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
     {/* Inner top highlight — clay's "light from above". Skipped in
         high-contrast mode where decoration must not soften legibility. */}
     {!settings.highContrast && Platform.OS !== 'android' ? <LinearGradient pointerEvents="none" colors={scheme === 'dark' ? ['rgba(255,253,252,0.07)', 'rgba(255,253,252,0)'] : ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={s.tripSheen} /> : null}
@@ -307,20 +321,21 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
     {!trip ? <View style={[s.empty, { flexDirection: 'row', alignItems: 'center', gap: 12 }, isCurrent && { gap: 14, minHeight: 90 }]}>
       {isCurrent && confirmed && !offline ? (
         emptyState && emptyState.key ? (
-          <View style={[s.emptyStatusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
-            {emptyState.iconType === 'off_duty' && (
-              <MaterialCommunityIcons name="map-marker-off" size={26} color={accent} />
-            )}
-            {emptyState.iconType === 'rest_day' && (
-              <MaterialCommunityIcons name="calendar-minus" size={26} color={accent} />
-            )}
-            {emptyState.iconType === 'on_leave' && (
-              <View style={s.calendarSlashIconWrap}>
-                <MaterialCommunityIcons name="calendar-blank-outline" size={26} color={accent} />
-                <View style={[s.calendarSlashBar, { backgroundColor: accent }]} />
-              </View>
-            )}
-          </View>
+          emptyState.iconType === 'off_duty' ? (
+            <OffDutyIllustration size="compact" />
+          ) : (
+            <View style={[s.emptyStatusIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+              {emptyState.iconType === 'rest_day' && (
+                <MaterialCommunityIcons name="calendar-minus" size={26} color={accent} />
+              )}
+              {emptyState.iconType === 'on_leave' && (
+                <View style={s.calendarSlashIconWrap}>
+                  <MaterialCommunityIcons name="calendar-blank-outline" size={26} color={accent} />
+                  <View style={[s.calendarSlashBar, { backgroundColor: accent }]} />
+                </View>
+              )}
+            </View>
+          )
         ) : (
           <RadarPulse size={38} color={accent} icon="radio" />
         )
@@ -347,8 +362,13 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
           at any width, with no overlap into the text column. */}
       {!isCurrent ? <Image source={MAP_IMAGE} resizeMode="contain" accessible={false} style={[s.mapArt, scheme === 'dark' && { opacity: 0.85 }]} /> : null}
     </View> : <>
+      {cargo ? <View style={[s.cargoLoadHeading, { backgroundColor: colors.primaryContainer }]}>
+        <Ionicons name="cube-outline" size={30} color={colors.onPrimaryContainer} />
+        <View style={s.flex}><Text style={[type.labelLg, { color: colors.onPrimaryContainer }]}>Cargo delivery</Text><Text style={[type.cardTitle, { color: colors.onPrimaryContainer }]}>{loadTitle(trip)}</Text>{loadSubtitle(trip) ? <Text style={[type.supporting, { color: colors.onPrimaryContainer }]}>{loadSubtitle(trip)}</Text> : null}</View>
+      </View> : null}
+      <Text style={type.caption}>{trip.dispatch_number || `Trip #${trip.trip_id}`}</Text>
       <Text style={type.labelLg}>{validDate ? `${depDate} · ${depTime}` : 'Departure time not provided'}</Text>
-      <View style={[s.tripBody, horizontal && { flexDirection: 'row' }]}>
+      <View style={[s.tripBody, splitLayout && { flexDirection: 'row' }]}>
         <View style={s.flex}>
           {stops.map(stop => <View key={stop.label} style={s.stop}>
             <View style={s.track}><View style={[s.node, { backgroundColor: stop.first ? accent : colors.surfaceContainerLow, borderColor: accent }]} />{stop.first ? <View style={[s.line, { backgroundColor: accent }]} /> : null}</View>
@@ -367,16 +387,19 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
               renders nothing rather than a fabricated zero. */}
           {(() => {
             if (workspaceBlocked) return null;
-            if (isCargoLoad(trip)) {
-              const subtitle = loadSubtitle(trip);
-              return <View style={s.row}><Ionicons name="cube" size={16} color={accent} /><Text style={type.supporting}>{loadTitle(trip)}{subtitle ? ` · ${subtitle}` : ""}</Text></View>;
-            }
+            if (isCargoLoad(trip)) return null;
             return trip.passenger_count != null ? <View style={s.row}><Ionicons name="people" size={16} color={accent} /><Text style={type.supporting}>{trip.passenger_count} {Number(trip.passenger_count) === 1 ? 'passenger' : 'passengers'}</Text></View> : null;
           })()}
+          {cargo && (trip.vehicle_model || trip.model || trip.vehicle_plate || trip.plate_number) ? <View style={s.row}>
+            <Ionicons name="car-outline" size={16} color={accent} />
+            <Text style={[type.supporting, s.flex]}>{[trip.vehicle_model || trip.model, trip.vehicle_plate || trip.plate_number].filter(Boolean).join(' · ')}</Text>
+          </View> : null}
+          {cargo && Number(trip.cargo_capacity_kg) > 0 ? <Text style={type.supporting}>Vehicle capacity: {trip.cargo_capacity_kg} kg</Text> : null}
+          {cargo && readiness ? <View style={[s.cargoReadiness, { backgroundColor: colors.surfaceContainer }]}><Ionicons name={readiness === 'Ready to start' ? 'checkmark-circle-outline' : 'shield-checkmark-outline'} size={20} color={colors.primary} /><Text accessibilityLiveRegion="polite" style={[type.supporting, s.flex, { color: colors.onSurface }]}>{readiness}</Text></View> : null}
         </View>
-        <View style={horizontal ? { width: '42%', gap: 12 } : { gap: 12 }}>
+        <View style={splitLayout ? { width: '42%', gap: 12 } : { gap: 12 }}>
           {/* ponytail: one interactive route preview on Home; secondary cards stay static until native polyline rendering exists. */}
-          <TripMapPreview staticMode={!interactivePreview} key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}:${interactivePreview}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} />
+          {showRoutePreview ? <TripMapPreview staticMode={!interactivePreview} key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}:${interactivePreview}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} /> : null}
       {workspaceBlocked ? <View style={{ gap: 8 }}>
         <Text style={[type.labelLg, { color: colors.onSurface }]}>{workspaceHeading(workspace)}</Text>
         <Text style={[type.supporting, { color: colors.onSurfaceVariant }]} accessibilityLiveRegion="polite">{workspaceProblem(workspace)}</Text>
@@ -412,6 +435,12 @@ const s = StyleSheet.create({
   scheduleLink: { minHeight: 40, flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 },
   scheduleLinkText: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(13), lineHeight: moderateScale(18) },
   heroShell: { borderRadius: 28 },
+  cargoOverview: { borderRadius: 20 }, cargoOverviewBody: { padding: 12, borderRadius: 20 },
+  cargoDuty: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 16, gap: 12 },
+  cargoMetrics: { gap: 8 }, cargoMetric: { minWidth: 0, alignItems: 'center', padding: 10, borderRadius: 12 },
+  cargoTrip: { borderRadius: 20, padding: 16 },
+  cargoLoadHeading: { padding: 14, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cargoReadiness: { minHeight: 48, padding: 10, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   hero: { position: 'relative', overflow: 'hidden', borderRadius: 26, padding: 14 },
   hotelBg: { position: 'absolute', top: -4, right: -12, width: 275, height: 160, pointerEvents: 'none' },
   heroHeader: { maxWidth: '62%', zIndex: 1 },

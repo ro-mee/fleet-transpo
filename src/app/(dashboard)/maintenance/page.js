@@ -20,6 +20,9 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles, archiveVehicleMaintenance } from "@/services/vehicle.service";
+import { getMechanics } from "@/services/maintenance.service";
+import { MechanicAssignmentField } from "@/components/maintenance/mechanic-assignment-field";
+import MaintenanceVehicleSelect from "@/components/maintenance/maintenance-vehicle-select";
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toDateInput } from "@/lib/dates";
@@ -28,6 +31,8 @@ import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { maintenanceDateRule } from "@/lib/validation/helpers";
+import { normalizeMaintenanceMileage, normalizeVehicleId, selectMaintenanceVehicle } from "@/lib/maintenance/vehicle-selection";
+import { repairPerformerLabel } from "@/lib/maintenance/performer";
 import Link from "next/link";
 
 const maintenanceFormSchema = {
@@ -43,7 +48,12 @@ const maintenanceFormSchema = {
 const columnHelper = createColumnHelper();
 
 export default function MaintenancePage() {
-  useRequireRole();
+  const { role: currentRole } = useRequireRole();
+  // P0 mechanic integration: the assign-mechanic select is staff-only. The
+  // /maintenance route already admits staff only, but the dialog component is
+  // shared-shaped with staff surfaces — never render assignment UI for the
+  // mechanic role itself (the server whitelist strips it regardless).
+  const canAssignMechanic = ["super_admin", "admin", "fleet_manager"].includes(currentRole);
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const sourceIncidentId = searchParams.get("incident_id") || "";
@@ -74,11 +84,12 @@ export default function MaintenancePage() {
     completed_date: "",
     cost: "",
     mileage_at_service: "",
-    service_provider: "",
-    service_center: "",
     priority: "Normal",
     status: "Scheduled",
     remarks: "",
+    // Staff assign-mechanic select value: "" = unassigned. Seeded from the
+    // row on edit (staff list rows carry assigned_mechanic_id since P0).
+    assigned_mechanic_id: "",
   });
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(maintenanceFormSchema);
 
@@ -110,6 +121,22 @@ export default function MaintenancePage() {
     queryKey: ["vehicles-for-maintenance"],
     queryFn: () => getVehicles(),
   });
+
+  // Active-mechanic directory for the assign select. Staff-only query: it
+  // stays disabled for any other role so no request fires where the UI (and
+  // the endpoint guard) would refuse it.
+  const mechanicsQuery = useQuery({
+    queryKey: ["mechanics-for-maintenance"],
+    queryFn: () => getMechanics(),
+    enabled: canAssignMechanic,
+    staleTime: 60_000,
+  });
+  const mechanics = Array.isArray(mechanicsQuery.data) ? mechanicsQuery.data : [];
+  const mechanicName = (id) => {
+    if (id === null || id === undefined || id === "") return "Unassigned";
+    const m = mechanics.find((x) => Number(x.employee_id) === Number(id));
+    return m ? `${m.first_name} ${m.last_name}`.trim() : `Mechanic #${id}`;
+  };
 
   const createMutation = useMutation({
     mutationFn: createVehicleMaintenance,
@@ -161,11 +188,10 @@ export default function MaintenancePage() {
       completed_date: "",
       cost: "",
       mileage_at_service: "",
-      service_provider: "",
-      service_center: "",
       priority: "Normal",
       status: "Scheduled",
       remarks: "",
+      assigned_mechanic_id: "",
     });
     setFormError(null);
     setPendingCancellation(null);
@@ -177,18 +203,19 @@ export default function MaintenancePage() {
     setEditingRecord(record);
     setViewingRecord(null);
     setFormData({
-      vehicle_id: record.vehicle_id || "",
+      vehicle_id: normalizeVehicleId(record.vehicle_id),
       maintenance_type: record.maintenance_type || "Routine",
       description: record.description || "",
       maintenance_date: toDateInput(record.maintenance_date),
       completed_date: toDateInput(record.completed_date),
       cost: record.cost ? String(record.cost) : "",
-      mileage_at_service: record.mileage_at_service ? String(record.mileage_at_service) : "",
-      service_provider: record.service_provider || "",
-      service_center: record.service_center || "",
+      mileage_at_service: normalizeMaintenanceMileage(record.mileage_at_service),
       priority: record.priority || "Normal",
       status: record.status || "Scheduled",
       remarks: record.remarks || "",
+      assigned_mechanic_id: record.assigned_mechanic_id != null && record.assigned_mechanic_id !== ""
+        ? String(record.assigned_mechanic_id)
+        : "",
     });
     setFormError(null);
     resetValidation();
@@ -218,6 +245,23 @@ export default function MaintenancePage() {
       mileage_at_service: formData.mileage_at_service !== "" ? Number(formData.mileage_at_service) : null,
       completed_date: formData.completed_date !== "" ? formData.completed_date : null,
     };
+    // P0: fold the assign-mechanic select into the payload. Create sends the
+    // id only when a mechanic is chosen (the server stamps assigned_at);
+    // edit sends it only when the selection changed — "" back to null is an
+    // explicit unassign, an untouched select stays out of the PUT entirely
+    // so edits never silently drop the current assignee.
+    const selected = formData.assigned_mechanic_id === "unassigned" ? "" : formData.assigned_mechanic_id;
+    if (editingRecord) {
+      const before = editingRecord.assigned_mechanic_id != null && editingRecord.assigned_mechanic_id !== ""
+        ? String(editingRecord.assigned_mechanic_id)
+        : "";
+      if (selected === before) delete submissionData.assigned_mechanic_id;
+      else submissionData.assigned_mechanic_id = selected === "" ? null : Number(selected);
+    } else if (selected === "") {
+      delete submissionData.assigned_mechanic_id;
+    } else {
+      submissionData.assigned_mechanic_id = Number(selected);
+    }
     if (!validate(submissionData)) return;
 
     if (editingRecord && submissionData.status === "Cancelled" && editingRecord.status !== "Cancelled") {
@@ -274,9 +318,23 @@ export default function MaintenancePage() {
                   Incident #{row.source_incident_id}
                 </Link>
               )}
+              {row.source_inspection_id && (
+                <Link
+                  href="/maintenance/problems"
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-info bg-info/10 border border-info/20 rounded px-1.5 py-0.5 hover:bg-info/15 transition-colors"
+                  title="This repair was generated from an End Duty inspection report"
+                >
+                  <FileText className="w-3 h-3" />
+                  Inspection #{row.source_inspection_id}
+                </Link>
+              )}
             </div>
           );
         },
+      }),
+      columnHelper.accessor("repair_completed_by_name", {
+        header: "Mechanic",
+        cell: (info) => <span className="text-xs font-medium text-foreground">{repairPerformerLabel(info.row.original)}</span>,
       }),
       columnHelper.accessor("maintenance_date", {
         header: "Scheduled Date",
@@ -299,12 +357,6 @@ export default function MaintenancePage() {
         header: "Cost",
         cell: (info) => (
           <span className="font-data text-xs font-medium text-foreground">{formatCurrency(info.getValue() || 0)}</span>
-        ),
-      }),
-      columnHelper.accessor("service_provider", {
-        header: "Provider",
-        cell: (info) => (
-          <span className="text-xs text-foreground-secondary font-medium">{info.getValue() || "—"}</span>
         ),
       }),
       columnHelper.display({
@@ -356,7 +408,7 @@ export default function MaintenancePage() {
         icon={Wrench}
         title="Fleet Maintenance Register"
         badge="Work Orders & Servicing"
-        description="Vehicle maintenance history, scheduled servicing, repairs, and service center cost tracking."
+        description="Vehicle maintenance history, scheduled servicing, repairs, and service cost tracking."
         actions={
           <>
             <Link href="/maintenance/predictive">
@@ -448,7 +500,7 @@ export default function MaintenancePage() {
             searchable
             searchValue={searchInput}
             onSearchChange={setSearchInput}
-            searchPlaceholder="Search maintenance by vehicle plate or provider..."
+            searchPlaceholder="Search maintenance by vehicle plate or type..."
             onRowClick={openViewDialog}
             manualPagination
             pageIndex={page - 1}
@@ -496,14 +548,28 @@ export default function MaintenancePage() {
                   <p className="text-foreground-muted font-bold">Total Cost</p>
                   <p className="font-extrabold text-foreground font-data mt-0.5">{formatCurrency(viewingRecord.cost || 0)}</p>
                 </div>
+                {canAssignMechanic && (
+                  <div>
+                    <p className="text-foreground-muted font-bold">Assigned Mechanic</p>
+                    <p className="font-bold text-foreground mt-0.5">{mechanicName(viewingRecord.assigned_mechanic_id)}</p>
+                  </div>
+                )}
                 <div>
-                  <p className="text-foreground-muted font-bold">Service Provider</p>
-                  <p className="font-bold text-foreground mt-0.5">{viewingRecord.service_provider || "—"}</p>
+                  <p className="text-foreground-muted font-bold">Performed By</p>
+                  <p className="font-bold text-foreground mt-0.5">{repairPerformerLabel(viewingRecord)}</p>
                 </div>
-                <div>
-                  <p className="text-foreground-muted font-bold">Service Center</p>
-                  <p className="font-bold text-foreground mt-0.5">{viewingRecord.service_center || "—"}</p>
-                </div>
+                {viewingRecord.source_inspection_id && (
+                  <div>
+                    <p className="text-foreground-muted font-bold">Source Inspection</p>
+                    <Link
+                      href="/maintenance/problems"
+                      className="font-bold text-info hover:underline mt-0.5 inline-block"
+                      title="This repair was generated from an End Duty inspection report"
+                    >
+                      Inspection #{viewingRecord.source_inspection_id}
+                    </Link>
+                  </div>
+                )}
               </div>
               {viewingRecord.description && (
                 <div className="p-4 rounded-2xl bg-surface border border-border/60 text-xs">
@@ -521,22 +587,12 @@ export default function MaintenancePage() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FloatingSelect
-                  label="Vehicle"
-                  icon={Wrench}
-                  required
-                  error={fieldError("vehicle_id").error}
-                  id="vehicle_id"
+                <MaintenanceVehicleSelect
+                  vehicles={vehicles}
                   value={formData.vehicle_id}
-                  onValueChange={(val) => setFormData({ ...formData, vehicle_id: val })}
-                  placeholder="Select vehicle"
-                >
-                  {vehicles.map((v) => (
-                    <SelectItem key={v.vehicle_id} value={v.vehicle_id}>
-                      {v.plate_number} — {v.vehicle_name} ({v.model || "Standard"})
-                    </SelectItem>
-                  ))}
-                </FloatingSelect>
+                  onValueChange={(vehicleId) => setFormData((current) => selectMaintenanceVehicle(current, vehicleId, vehicles))}
+                  error={fieldError("vehicle_id").error}
+                />
 
                 <FloatingSelect
                   label="Maintenance Type"
@@ -584,34 +640,16 @@ export default function MaintenancePage() {
                   />
                 </FloatingField>
 
-                <FloatingField label="Mileage at Service (km)" icon={Activity} error={fieldError("mileage_at_service").error}>
+                <FloatingField label="Mileage at Service (km)" icon={Activity} error={fieldError("mileage_at_service").error} hint="Prefilled from the selected vehicle; adjust it if the odometer reading at service differs.">
                   <input
                     id="mileage_at_service"
                     type="number"
+                    min="0"
+                    step="1"
                     value={formData.mileage_at_service}
                     onChange={(e) => setFormData({ ...formData, mileage_at_service: e.target.value })}
                     placeholder="e.g. 45000"
                     className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data"
-                  />
-                </FloatingField>
-
-                <FloatingField label="Service Provider" icon={Wrench}>
-                  <input
-                    id="service_provider"
-                    value={formData.service_provider}
-                    onChange={(e) => setFormData({ ...formData, service_provider: e.target.value })}
-                    placeholder="e.g. Toyota Motors Service"
-                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1"
-                  />
-                </FloatingField>
-
-                <FloatingField label="Service Center Location" icon={Wrench}>
-                  <input
-                    id="service_center"
-                    value={formData.service_center}
-                    onChange={(e) => setFormData({ ...formData, service_center: e.target.value })}
-                    placeholder="e.g. Pasig Branch"
-                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1"
                   />
                 </FloatingField>
 
@@ -644,6 +682,14 @@ export default function MaintenancePage() {
                   <SelectItem value="Completed">Completed</SelectItem>
                   <SelectItem value="Cancelled">Cancelled</SelectItem>
                 </FloatingSelect>
+
+                {canAssignMechanic && (
+                  <MechanicAssignmentField
+                    value={formData.assigned_mechanic_id}
+                    onValueChange={(val) => setFormData({ ...formData, assigned_mechanic_id: val })}
+                    directory={mechanicsQuery}
+                  />
+                )}
 
                 <FloatingField label="Description &amp; Work Done" icon={FileText} className="md:col-span-2">
                   <textarea

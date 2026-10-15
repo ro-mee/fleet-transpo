@@ -18,6 +18,10 @@ import { fetchNcrPage, fetchPdfBytes, extractPdfText, extractNcrPdfLinks, parseW
 // FUEL_PRICE_PROVIDER_ENABLED=1, FUEL_PRICE_SOURCE_VERIFIED=1 and an HTTPS
 // source approved by the operator. This is a deployment decision, never a
 // trust assertion from provider data. No official source is guessed here.
+//
+// PRECEDENCE: the PDF branch runs first and early-returns. When both
+// FUEL_PRICE_PROVIDER_ENABLED and FUEL_PRICE_PDF_ENABLED are set, the PDF
+// announcements win and the JSON provider branch never runs. Enable one.
 
 function activation() {
   if (process.env.FUEL_PRICE_PROVIDER_ENABLED !== "1" || process.env.FUEL_PRICE_SOURCE_VERIFIED !== "1") return null;
@@ -51,9 +55,10 @@ function latestWeekPdf(pdfUrls) {
     try { label = decodeURIComponent(new URL(pdfUrl).pathname.split("/").pop() ?? ""); } catch { continue; }
     const range = parseWeekRange(label);
     if (!range) continue;
-    dated.push({ pdfUrl, endISO: range.endISO });
+    dated.push({ pdfUrl, endISO: range.endISO, startISO: range.startISO, label });
   }
-  dated.sort((a, b) => (a.endISO < b.endISO ? 1 : -1));
+  // Deterministic: newest end week wins; ties break on start week, then URL.
+  dated.sort((a, b) => (a.endISO < b.endISO ? 1 : a.endISO > b.endISO ? -1 : a.startISO < b.startISO ? 1 : a.startISO > b.startISO ? -1 : a.pdfUrl < b.pdfUrl ? -1 : 1));
   return dated[0]?.pdfUrl ?? null;
 }
 

@@ -55,3 +55,15 @@ Read-only by construction; neither prints the key. Verdicts: rows returned → *
 **`schema.sql` will not show this.** `dump-schema.mjs` emits structure only — zero `ROW LEVEL SECURITY` and zero `GRANT` statements — so the review artifact is blind to RLS changes; migration `114` produced an **empty diff**. Do not read a clean `schema.sql` diff as "RLS is fine" (SEC-DB-004). `npm run db:contract` is the gate that sees it.
 
 **The schema contract is two shared files**, `scripts/lib/schema-contract.mjs` (classifications) and `scripts/lib/sql-references.mjs` (SQL extraction) — in `scripts/lib/` as `.mjs` because this repo has no `"type": "module"`, so a `.js` file under `src/` is CommonJS to plain `node` and `db:contract` could not load it. Adding a table means adding it there, or `npm test` fails.
+
+# Text encoding — UTF-8 only, and how not to break it
+
+Every tracked text file is UTF-8 (`.editorconfig` states it; `.gitattributes` normalizes line endings). On 2026-10-14 a sweep restored ~3,500 Windows-1252 mojibake sequences (em-dashes/quotes stored as garbled bytes) across 30 files — see `SYSTEM.md`.
+
+The cause was tooling, not editors: on Windows PowerShell 5.1, `Get-Content`/`Set-Content` and `>` redirection do NOT round-trip UTF-8 (reads default to the system code page, `>` writes UTF-16 with BOM). Using them on repo files silently corrupts every non-ASCII character while leaving tests green, because the damage sits in comments and copy.
+
+Rules:
+
+- Edit repo files only with the dedicated file tools or with scripts that state their encoding explicitly (`Buffer.from(text, "utf8")`, `[System.IO.File]` byte ops, Python opened with `encoding="utf-8"`). Never `Get-Content`/`Set-Content`, never `>` redirect, never `Out-File` with default settings on repo files.
+- Never hand-repair mojibake by retyping the characters — verify at the byte level instead (`git show` + hex), because console output cannot be trusted to show what the bytes are.
+- `npm run verify:encoding` is the gate (also runs in CI after `lint:ci`). It fails on any tracked text file that is not valid UTF-8 or that contains reversible mojibake. Legitimate non-ASCII text (arrows, dashes, bullets) cannot make that round trip, so it is never flagged — if the gate fires, the corruption is real.

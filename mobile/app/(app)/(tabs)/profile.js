@@ -38,6 +38,13 @@ const ACCOUNT_ROWS = [
   { title: "Personal Information", icon: "person-outline", route: "/profile/personal" },
 ];
 
+const CARGO_WORK_ROWS = [
+  { title: "My Schedule", icon: "calendar-outline", route: "/work-schedule" },
+  { title: "Trip History", icon: "time-outline", route: "/history" },
+  { title: "Driver License", icon: "document-text-outline", route: "/profile/license" },
+  { title: "Vehicle", icon: "car-outline", route: "/profile/vehicle" },
+];
+
 const PRIVACY_SECURITY_ROWS = [
   { title: "Change Password", icon: "key-outline", route: "/profile/change-password" },
   { title: "Privacy & Consent", icon: "lock-closed-outline", route: "/profile/privacy" },
@@ -80,6 +87,7 @@ export default function Profile() {
   // Cached /api/driver/me read — offline the tab falls back cached profile →
   // auth user, silently (the global offline banner is enough on Profile).
   const { profile: serverProfile, reload } = useDriverProfile();
+  const isCargoDriver = serverProfile?.driverType === "Cargo";
 
   const [logoutModal, setLogoutModal] = useState(false);
   const [photoModalVisible, setPhotoModalVisible] = useState(false);
@@ -183,7 +191,7 @@ export default function Profile() {
         showsVerticalScrollIndicator={false}
       >
         {/* Identity — compact horizontal clay card */}
-        <ClayCard variant="compact" style={styles.identityCard}>
+        <ClayCard variant="compact" style={[styles.identityCard, isCargoDriver && styles.cargoIdentityCard]}>
           <Pressable
             onPress={handleAvatarPress}
             disabled={uploadingPhoto}
@@ -237,8 +245,9 @@ export default function Profile() {
               <Ionicons name="camera" size={12} color={colors.onSurfaceVariant} />
             </View>
           </Pressable>
-          <View style={styles.identityText}>
+          <View style={[styles.identityText, isCargoDriver && styles.cargoIdentityText]}>
             <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
+            {isCargoDriver ? <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>Cargo Driver</Text> : null}
             {currentUser?.status ? (
               <View style={[styles.statusPill, mats.clayPill, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
                 <Text style={[type.caption, { color: colors.onPrimaryContainer }]}>
@@ -249,6 +258,7 @@ export default function Profile() {
           </View>
         </ClayCard>
 
+        {isCargoDriver ? <Section title="My Work" rows={CARGO_WORK_ROWS} colors={colors} type={type} onNavigate={router.push} /> : null}
         <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} onNavigate={router.push} />
@@ -510,6 +520,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   identityText: { flexShrink: 1, gap: 6 },
+  cargoIdentityCard: { flexDirection: "column", paddingVertical: 20 },
+  cargoIdentityText: { alignItems: "center" },
   profileName: {
   },
   statusPill: { alignSelf: "flex-start" },

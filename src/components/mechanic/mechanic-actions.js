@@ -19,10 +19,6 @@ export const MECHANIC_WRITABLE_FIELDS = [
   "description",
   "remarks",
   "mileage_at_service",
-  "service_provider",
-  "service_center",
-  "technician_name",
-  "service_center_name",
   "notes",
   "diagnosis",
   "parts_replaced",
@@ -66,10 +62,6 @@ export function buildMechanicUpdateBody(input = {}) {
     description: input.description,
     remarks: input.remarks,
     mileage_at_service: input.mileage_at_service ?? input.mileageAtService,
-    service_provider: input.service_provider ?? input.serviceProvider,
-    service_center: input.service_center ?? input.serviceCenter,
-    technician_name: input.technician_name,
-    service_center_name: input.service_center_name,
     notes: input.notes,
     diagnosis: input.diagnosis,
     parts_replaced: Array.isArray(input.parts_replaced)
@@ -135,4 +127,49 @@ export function jobProblem(job = {}) {
 export function jobAgeLabel(job = {}) {
   if (job.ageMinutes == null) return null;
   return `${Number(job.ageMinutes)} min on the line`;
+}
+
+/**
+ * Display-only origin chips for a work-order row: "Incident #N" and/or
+ * "Inspection #N". Strings only, never links — the incident/inspection detail
+ * routes are staff-only, so the mechanic workspace renders these as plain
+ * badges with no navigation.
+ */
+export function sourceLabels(job = {}) {
+  const out = [];
+  if (job.source_incident_id != null) out.push(`Incident #${job.source_incident_id}`);
+  if (job.source_inspection_id != null) out.push(`Inspection #${job.source_inspection_id}`);
+  return out;
+}
+
+/**
+ * Actionable window (days) for the SideRail predictive whisper strip. Two
+ * weeks: the mechanic's line is a days-ahead surface, and anything beyond the
+ * high band (>30d) is planning noise here, not line work.
+ */
+export const UPCOMING_ACTIONABLE_DAYS = 14;
+
+/**
+ * Client-side read-only filter for the predictive endpoint's `predictions`
+ * array. Drops unscheduled rows (null basis/effectiveDays — no schedule set,
+ * so nothing to act on) and rows due beyond the actionable window. Keeps the
+ * endpoint's sort order (effectiveDays ascending, unscheduled last) — no
+ * re-sort. Overdue rows (negative effectiveDays) are kept: they head the line.
+ */
+export function isActionablePrediction(p, horizonDays = UPCOMING_ACTIONABLE_DAYS) {
+  if (!p || p.basis == null || p.effectiveDays == null) return false;
+  return Number(p.effectiveDays) <= horizonDays;
+}
+
+/**
+ * One-line due label for a predictive row: "overdue by 5 days", "due today",
+ * or "due in 3 days". Null when the row carries no day count.
+ */
+export function predictiveDueLabel(p = {}) {
+  if (p.effectiveDays == null) return null;
+  const days = Number(p.effectiveDays);
+  if (!Number.isFinite(days)) return null;
+  if (days < 0) return `overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}`;
+  if (days === 0) return "due today";
+  return `due in ${days} day${days === 1 ? "" : "s"}`;
 }

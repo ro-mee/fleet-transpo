@@ -43,3 +43,13 @@ Planned separately after core passes; no cargo POD dependency for starting trips
 ## Verification so far
 
 `operational-reports.test.js` (7: five-code filter accept/reject, estimate labels, 650/1000 = 65%, unknown-capacity omission, null-average emptiness) + trip excel parity test (2: filtered export equals the selector view, unknown service 400s). Report queries referencing 151/153 columns carry the same release hold as the rest of the branch: do not deploy before those migrations are applied.
+
+## Manual Cargo mobile test records — 2026-10-13
+
+At the user's request, one persistent test employee/driver and one Cargo vehicle were added to the configured Supabase project for manual mobile testing: employee 137, driver 98, vehicle 142 (`TEST-CARGO-001`). The login address and password are intentionally not stored in this vault note. This was a direct test-data insertion, not a run of the isolated `seed-typed-demo` fixture tool.
+
+The employee account is active and the driver is classified Cargo, but the driver has no licence evidence or recorded privacy consent. The vehicle is Cargo and Pending, with no plate, vehicle documents, capacity, or required licence class. No driver/vehicle assignment or Cargo qualification was created. These rows remain unverified and are not dispatch-ready; genuine evidence and staff review are required. No OTP was sent while seeding; mobile sign-in sends its code to the account inbox when the user logs in.
+
+Verification: the stored password hash matched the supplied test password; the inserted driver/vehicle fields and absence of evidence, consent, and assignment were checked in the database. `document_uploads` was classified private after `db:dump` exposed the live table; the focused contract test passed 13/13, its live catalog check reported RLS on and no anon SELECT/policy with zero violations, and the anon probe returned an explicit refusal for that table. The full live contract still reports ten Cargo tables absent from the connected database while their candidate migrations 158–161 remain pending. Those migrations were not applied.
+
+**Assignment follow-up (2026-10-13):** The user requested pairing driver 98 with vehicle 142. No active assignment was created because the application requires eligible, staff-reviewed license details and a supported vehicle license class before it opens a pairing. A read-only live check confirmed both records still lack those required fields; the assignment API's eligibility check returns a conflict before any write. Its focused route tests passed 4/4. No direct database insert was used to bypass the check. Pairing remains pending until genuine driver and registration details are entered and reviewed by authorized staff.

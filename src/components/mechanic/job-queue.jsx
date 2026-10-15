@@ -7,35 +7,30 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { cn } from "@/lib/utils";
-import {
-  DESKTOP_ONLY_TITLE,
-  jobAgeLabel,
-  jobProblem,
-  jobVehicle,
-} from "./mechanic-actions";
-import { useIsDesktop } from "./use-is-desktop";
+import { cn, formatDate } from "@/lib/utils";
+import { jobAgeLabel, jobVehicle, sourceLabels } from "./mechanic-actions";
 
-// Queue rows: status notch, plate + type + age, one context action.
-// The row body is a real link (keyboard-navigable, focus ring); the action
-// sits beside it so interactive elements never nest.
-const NOTCH = {
-  Scheduled: "border-l-info",
-  "In Progress": "border-l-warning",
-  "Pending Inspection": "border-l-success",
-  Completed: "border-l-success",
-  Cancelled: "border-l-border",
-};
+function PriorityLabel({ priority }) {
+  const tone = priority === "Emergency" || priority === "High"
+    ? "bg-danger-bg text-danger-700"
+    : priority === "Normal" || priority === "Medium"
+      ? "bg-warning-bg text-warning-700"
+      : "bg-hover text-foreground-secondary";
 
-function ContextAction({ job, desktop, onAction, busy }) {
-  const isDesktop = desktop;
+  return (
+    <span className={cn("inline-flex min-h-7 items-center rounded-control px-2.5 text-[11px] font-semibold", tone)}>
+      {priority ?? "No priority"}
+    </span>
+  );
+}
+
+function ContextAction({ job, onAction, busy }) {
   if (job.status === "Scheduled") {
     return (
       <Button
         type="button"
         size="sm"
-        disabled={!isDesktop || busy}
-        title={!isDesktop ? DESKTOP_ONLY_TITLE : undefined}
+        disabled={busy}
         onClick={() => onAction?.(job, "In Progress")}
         className="min-h-[44px] rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
       >
@@ -43,61 +38,117 @@ function ContextAction({ job, desktop, onAction, busy }) {
       </Button>
     );
   }
-  if (job.status === "In Progress") {
-    return (
-      <a
-        href={`/mechanic/work-orders/${job.maintenance_id}`}
-        className="inline-flex min-h-[44px] items-center gap-1 rounded-control border border-border px-4 text-sm font-semibold text-foreground transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-      >
-        Continue <ArrowRight className="h-4 w-4" aria-hidden="true" />
-      </a>
-    );
-  }
+
+  const label = job.status === "In Progress" ? "Continue" : job.status === "Pending Inspection" ? "Open" : "View";
   return (
-    <a
+    <Link
       href={`/mechanic/work-orders/${job.maintenance_id}`}
-      className="inline-flex min-h-[44px] items-center gap-1 rounded-control border border-border px-4 text-sm font-semibold text-foreground transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+      className="inline-flex min-h-[44px] items-center justify-center gap-1 rounded-control border border-border bg-surface px-3 text-sm font-semibold text-foreground transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none"
     >
-      View <ArrowRight className="h-4 w-4" aria-hidden="true" />
-    </a>
+      {label} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+    </Link>
   );
 }
 
-export function JobRow({ job, desktop, onAction, busy }) {
+function JobIdentity({ job, vehicle, selected, onSelect }) {
+  const orderLabel = `WO #${job.maintenance_id}`;
+  const detailHref = `/mechanic/work-orders/${job.maintenance_id}`;
+  const content = (
+    <>
+      <span className="block truncate text-sm font-semibold text-foreground">
+        {vehicle.plate ?? orderLabel}
+      </span>
+      {vehicle.name && <span className="block truncate text-xs text-foreground-secondary">{vehicle.name}</span>}
+      <span className="block text-[11px] text-foreground-muted">{orderLabel}</span>
+    </>
+  );
+
+  if (!onSelect) {
+    return (
+      <Link
+        href={detailHref}
+        className="block min-h-[44px] min-w-0 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        aria-label={`${vehicle.plate ?? orderLabel} — ${job.maintenance_type}, ${job.status}`}
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`Select ${orderLabel} for the vehicle snapshot`}
+        onClick={() => onSelect(job)}
+        className="hidden min-h-[44px] min-w-0 flex-col items-start justify-center rounded-control text-left sm:flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+      >
+        {content}
+      </button>
+      <Link
+        href={detailHref}
+        aria-label={`Open ${orderLabel} — ${vehicle.plate ?? "vehicle"}, ${job.maintenance_type}`}
+        className="block min-h-[44px] min-w-0 rounded-control sm:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+      >
+        {content}
+      </Link>
+    </>
+  );
+}
+
+export function JobRow({ job, selectedId, onSelect, onAction, busy }) {
   const vehicle = jobVehicle(job);
-  const problem = jobProblem(job);
   const age = jobAgeLabel(job);
+  const sources = sourceLabels(job);
+  const selected = String(selectedId) === String(job.maintenance_id);
+
   return (
     <li
-      id={`job-${job.maintenance_id}`}
+      role="row"
+      aria-current={selected ? "true" : undefined}
       className={cn(
-        "flex scroll-mt-20 flex-col gap-3 rounded-control border border-border/70 bg-surface p-3 sm:flex-row sm:items-center sm:justify-between",
-        "border-l-4",
-        NOTCH[job.status] ?? "border-l-border"
+        "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 border-b border-border/60 px-3 py-3 last:border-0 sm:grid-cols-[minmax(72px,0.68fr)_minmax(104px,1.2fr)_minmax(88px,0.9fr)_minmax(100px,1fr)_auto] sm:items-center sm:gap-x-3 sm:px-3 2xl:grid-cols-[minmax(86px,0.78fr)_minmax(135px,1.45fr)_minmax(100px,1.05fr)_minmax(118px,1.05fr)_minmax(100px,1fr)_auto] 2xl:gap-x-4 2xl:px-4",
+        selected && onSelect && "bg-info-bg/50"
       )}
     >
-      <a
-        href={`/mechanic/work-orders/${job.maintenance_id}`}
-        className="min-w-0 flex-1 space-y-1 rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-        aria-label={`${vehicle.plate ?? `WO #${job.maintenance_id}`} — ${job.maintenance_type}, ${job.status}`}
-      >
-        <span className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-foreground">
-            {vehicle.plate ?? `WO #${job.maintenance_id}`}
-          </span>
-          {vehicle.name && (
-            <span className="text-xs text-foreground-secondary">{vehicle.name}</span>
-          )}
-          <StatusBadge status={job.status} entity="maintenance" />
+      <span role="cell" className="col-span-2 flex items-center gap-2 sm:col-span-1">
+        <PriorityLabel priority={job.priority} />
+        {job.priority === "High" || job.priority === "Emergency" ? (
+          <span className="text-[11px] font-medium text-danger-700">Urgent</span>
+        ) : null}
+      </span>
+
+      <div role="cell" className="col-span-2 min-w-0 sm:col-span-1">
+        <JobIdentity job={job} vehicle={vehicle} selected={selected} onSelect={onSelect} />
+        {sources.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {sources.map((label) => (
+              <span key={label} className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-foreground-secondary">
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <span role="cell" className="col-span-2 min-w-0 text-sm text-foreground sm:col-span-1">
+        <span className="block truncate">{job.maintenance_type ?? "Maintenance"}</span>
+        <span className="hidden truncate text-xs text-foreground-secondary sm:block 2xl:hidden">
+          {age ?? (job.maintenance_date ? `Due ${formatDate(job.maintenance_date)}` : "—")}
         </span>
-        <span className="block truncate text-xs text-foreground-secondary">
-          {job.maintenance_type}
-          {age ? ` · ${age}` : ""}
-          {problem ? ` · ${problem}` : ""}
-        </span>
-      </a>
-      <span className="shrink-0">
-        <ContextAction job={job} desktop={desktop} onAction={onAction} busy={busy} />
+      </span>
+
+      <span role="cell" className="col-span-1 flex min-w-0 items-center sm:col-span-1">
+        <StatusBadge status={job.status} entity="maintenance" />
+      </span>
+
+      <span role="cell" className="col-span-1 min-w-0 self-center text-xs tabular-nums text-foreground-secondary sm:hidden 2xl:block">
+        {age ?? (job.maintenance_date ? `Due ${formatDate(job.maintenance_date)}` : "—")}
+      </span>
+
+      <span role="cell" className="col-span-2 flex justify-end sm:col-span-1">
+        <ContextAction job={job} onAction={onAction} busy={busy} />
       </span>
     </li>
   );
@@ -106,34 +157,18 @@ export function JobRow({ job, desktop, onAction, busy }) {
 export function JobQueue({
   jobs = [],
   compact = false,
-  desktop,
+  title = "Up next in the queue",
+  selectedId,
+  onSelect,
   onAction,
   busy = false,
   loading = false,
-  title = "Up next in the queue",
 }) {
-  const detected = useIsDesktop();
-  const isDesktop = desktop ?? detected;
   const visible = compact ? jobs.slice(0, 4) : jobs;
 
-  if (loading) {
-    return (
-      <Card className="rounded-card border-border/70 shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-sm">{title}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-control" />
-          ))}
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <Card className="rounded-card border-border/70 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
+    <Card className="overflow-hidden rounded-card border-border/70 shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 px-4 py-3 sm:px-5">
         <CardTitle className="text-sm">{title}</CardTitle>
         {compact && jobs.length > 4 && (
           <Link
@@ -144,19 +179,40 @@ export function JobQueue({
           </Link>
         )}
       </CardHeader>
-      <CardContent>
-        {visible.length === 0 ? (
-          <EmptyState
-            size="compact"
-            title="No jobs in this view"
-            description="Jobs assigned to you will appear here."
-          />
+      <CardContent className="p-0">
+        {loading ? (
+          <div className="space-y-2 p-4">
+            {[0, 1, 2].map((index) => <Skeleton key={index} className="h-16 w-full rounded-control" />)}
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="p-4">
+            <EmptyState size="compact" title="No jobs in this view" description="Jobs assigned to you will appear here." />
+          </div>
         ) : (
-          <ul className="list-none space-y-2 p-0">
-            {visible.map((job) => (
-              <JobRow key={job.maintenance_id} job={job} desktop={isDesktop} onAction={onAction} busy={busy} />
-            ))}
-          </ul>
+          <div role="table" aria-label={title}>
+            <div role="rowgroup" className="hidden bg-hover px-3 sm:block 2xl:px-4">
+              <div role="row" className="grid grid-cols-[minmax(72px,0.68fr)_minmax(104px,1.2fr)_minmax(88px,0.9fr)_minmax(100px,1fr)_auto] gap-x-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-foreground-muted 2xl:grid-cols-[minmax(86px,0.78fr)_minmax(135px,1.45fr)_minmax(100px,1.05fr)_minmax(118px,1.05fr)_minmax(100px,1fr)_auto] 2xl:gap-x-4">
+                <span role="columnheader">Priority</span>
+                <span role="columnheader">Work order</span>
+                <span role="columnheader">Job type</span>
+                <span role="columnheader">Status</span>
+                <span role="columnheader" className="hidden 2xl:block">Timing</span>
+                <span role="columnheader">Actions</span>
+              </div>
+            </div>
+            <ul role="rowgroup" className="m-0 list-none p-0">
+              {visible.map((job) => (
+                <JobRow
+                  key={job.maintenance_id}
+                  job={job}
+                  selectedId={selectedId}
+                  onSelect={onSelect}
+                  onAction={onAction}
+                  busy={busy}
+                />
+              ))}
+            </ul>
+          </div>
         )}
       </CardContent>
     </Card>

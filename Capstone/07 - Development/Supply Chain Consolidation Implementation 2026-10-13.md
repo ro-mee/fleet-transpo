@@ -44,4 +44,12 @@ The actual cargo shipment/allocation/profile/request-manifest/execution tables w
 
 No migration application, operating policy approval, partner traffic, deployment, inventory write or source activation occurred. Cargo drafts and disabled runtime must not be described as a complete operational SCM workflow.
 
+## Cargo queue + Copilot connection plan - 2026-10-15
+
+Plan-only: `docs/superpowers/plans/2026-10-15-cargo-queue-copilot-connection.md`. Projects existing cargo engine facts into queue rows (summary + physical chip label) and Copilot evidence (load projection, scope vocab, kg simulation, prompt rules, drawer live path). No code, migration, or behavior changed.
+
+## Cargo remaining connections - 2026-10-15 (implemented)
+
+Sub-agent driven implementation of `docs/superpowers/plans/2026-10-15-cargo-remaining-connections.md`: substitute type gate (`532b66cd`), roster type filter (`9bae5973`), direct-write checkpoints (`dd4ff50c`), measured-profile commission + fleet visibility (`359bd6de`), board honesty (`7649b65b`). No migration or dependency. Focused 544 pass / 5 pre-existing window.test.js fails (clean-tree identical). Fleet And Vehicles and Dispatch notes carry the behavior details.
+
 Related: [[Supply Chain Workflow Consolidation Assessment 2026-10-13]] · [[Fleet And Vehicles]] · [[Reservations]] · [[Dispatch]] · [[Trips]] · [[supply_delivery_foundation]] · [[cargo_execution_storage]] · [[System Boundaries]].

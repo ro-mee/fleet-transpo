@@ -8,7 +8,7 @@ source:
   - src/app/(dashboard)/maintenance/page.js
   - src/app/api/vehicle-maintenance/[id]/route.js
   - supabase/migrations/114_maintenance_repairer_identity.sql
-last_verified: 2026-10-02
+last_verified: 2026-10-09
 ---
 
 # Feature: Maintenance
@@ -66,7 +66,9 @@ guards in `src/app/api/vehicle-maintenance/[id]/route.js`, verified by Tests
    staff archive passes a frozen row.
 5. **Server stamps.** `Scheduled → In Progress` sets `repair_started_at` once
    (never overwritten); staff assigning `assigned_mechanic_id` get
-   `assigned_at = NOW()` (any client value stripped); returning
+   `assigned_at = NOW()` (any client value stripped); an explicit staff
+   unassign (`assigned_mechanic_id: null`) clears `assigned_at = NULL` so no
+   stale assignment moment survives; returning
    `Pending Inspection → In Progress` is a rejection and requires a non-empty
    `rejection_reason` (400 otherwise).
 
@@ -475,3 +477,62 @@ Admin and Super Admin can select **Mechanic** in Settings → Users → Add User
 ## Archive and cancellation reconsideration - 2026-10-09
 
 Maintenance archive confirmations and both existing-record edit flows that save status `Cancelled` now use the shared five-second pre-request reconsideration. Cancellation captures the validated form snapshot; Undo returns to the current editor without writing, while expiry sends the existing update once. The warning keeps the terminal/history consequence visible. New-record creation and other maintenance status transitions are unchanged. Changed-file ESLint passed; a production build could not start because another Next build held the shared lock, and these maintenance flows were not exercised in the browser.
+## Mechanic integration (P0/P1/P2) — built 2026-10-08, branch `feat/mechanic-integration`
+
+Incident → Maintenance stays automatic (untouched). The mechanic is now the execution layer after the work order exists:
+
+- **P0 — FM assign UI (was the only missing P0 piece).** The maintenance register + fleet maintenance dialog had no mechanic control, so auto-created WOs stayed unassigned/invisible to mechanic queries. Added staff-only Assign Mechanic select backed by new `GET /api/mechanics` (active mechanics, `maintenance:create` gate — FM lacks `accounts:read` so the users endpoint was unusable), `assigned_mechanic_id` threaded through the client service + POST allowlist with active-mechanic validation, `assigned_at` stamped server-side. Register renders both `Incident #N` and `Inspection #N` chips. Mechanic cannot assign (UI never renders, server strips). Assigned creation now uses the same notification fan-out as PUT; High/Emergency creation also alerts the assignee and maintenance staff.
+- **P1 — Upcoming + labels + history.** `GET /api/mechanic/summary` now carries `source_incident_id` (was inspection-only); mechanic queue/detail/hero render display-only source chips. Upcoming is a client-side reuse of the existing predictive endpoint (already mechanic-scoped server-side to assigned vehicles), filtered to `effectiveDays <= 14` excluding unscheduled rows, rendered in the existing SideRail whisper strip (no CTAs). New `GET /api/mechanic/vehicle-history?vehicle_id=N` (fail-closed: ≥1 assigned WO on that vehicle; lean projections, no cost, LIMIT 5) feeds read-only Previous maintenance / Recent incidents / Recent inspections / Last PMS sections in the work-order detail.
+- **P2 — Fuel diagnostic WO (manual, never automatic).** Reports efficiency rows with `Below baseline` + non-null estimate show an FM/admin-only `Create diagnostic work order` button → `POST /api/vehicle-maintenance` (`Inspection`, `Normal`, cost 0, dated tomorrow in Manila) with fuel reference in remarks + honesty line. This diagnostic does not ground the vehicle today; ordinary due-maintenance rules apply tomorrow, and independent grounding rules still apply. Notifies the maintenance queue via `Fuel Efficiency Diagnostic Filed`. No cron, no auto-filing, no formula change, no migration. Also fixed along the way: client service double-JSON-encoding of write bodies, and `created_by` now stamped server-side on POST.
+
+**Verified.** 68/68 API/service tests (vehicle-maintenance POST + [id] + summary + vehicle-history + mechanics directory + fuel diagnostic builder/notifier/service) and 27/27 mechanic component + fuel-diagnostic POST tests pass on the merged tree; ESLint clean on all touched files.
+
+### Review fixes and improvements — 2026-10-08
+
+Both staff assignment surfaces now use a shared, correctly wired Radix picker. Loading and failed directory requests disable selection; failure offers retry, an empty directory explains that there are no active mechanics, and an unavailable current assignee remains visible rather than being cleared. An unchanged edit omits the assignment field; choosing Unassigned sends null. The fleet dialog's vehicle/type/status controls also use working native selects. Runtime role checks use the current permission matrix without the retired role alias.
+
+Reports checks `GET /api/vehicle-maintenance/fuel-diagnostics?vehicle_ids=…` for up to ten visible vehicles under `maintenance:create`. Its lean projection returns the latest active marked Inspection per vehicle (Scheduled, In Progress or Pending Inspection), excluding deleted/closed/unmarked rows. An existing work-order number is displayed; another requires explicit confirmation. Failed checks block filing and offer retry; rapid duplicate clicks are suppressed. This is an operator safeguard, not a database uniqueness guarantee: concurrent users can deliberately file separate diagnostics.
+
+Upcoming maintenance distinguishes loading, unavailable data and successful empty results, including when the mechanic has no actionable jobs. The existing assigned-vehicle scope, effectiveDays <= 14 threshold, exclusion of unscheduled rows and display-only strip remain intact. Staff maintenance and fuel-diagnostic alerts open `/maintenance`; mechanic alerts retain their assigned work-order destination. Notification failures are logged without undoing a successfully created work order.
+
+Diagnostic date generation, maintenance status synchronization and availability SQL use the Manila calendar. Regression tests freeze independent literal dates at midnight/month/year boundaries. The full suite passed 4,482 tests (17 intentionally skipped), lint passed, the route-auth audit passed 318 methods and the offline migration check validated 155 files. An opt-in run passed 14 date/status/availability tests, including actual availability SQL against rollback-only PostgreSQL temporary tables copied from live column types; its clock and unrelated auth/coding gates are isolated. It does not exercise production triggers, RLS or complete dispatch. Browser checks verified selection, clearing, loading and retry in the real shared picker using synthetic data; the signed-in application walkthrough was still unverified at that review stage because the browser session had expired. The later local walkthrough and its limits are recorded below. See [[Mechanic Integration Review Fixes Plan]] for final build evidence and limitations.
+
+### Authenticated local smoke test — 2026-10-08
+
+The later local walkthrough verified staff assignment and its mechanic notification, mechanic access to the assigned work order, Vehicle History, Scheduled → In Progress → Pending Inspection, and the absence of mechanic completion/assignment controls. It also verified the assigned-work-order Not Found response for an order assigned to someone else, Incident #117 display, the Upcoming empty state, and the two staff assignment pickers. It did not test a second mechanic account, direct `/api/mechanics` denial (the browser blocked that URL), or simulated request failures.
+
+The fuel report's quarter range exposed eligible Below-baseline rows. Manual filing created diagnostic #84 for DMM-4201, scheduled for 2026-10-09; after reload the open diagnostic appeared, and choosing **Keep existing** from the repeat-filing prompt created no duplicate. Work order #83 for DMM-4211 remains Pending Inspection with clearly labeled test-only diagnosis text; #84 remains Scheduled. These are test records in the connected local app and should be cancelled or otherwise cleaned up before operational use.
+
+That walkthrough found a date-edit regression: the API serialized PostgreSQL DATE values as UTC timestamps, so Manila midnight for October 9 arrived as October 8 at 16:00Z and the edit input showed October 8. `GET /api/vehicle-maintenance` now converts the date columns back to date-only calendar strings before JSON serialization. The new regression first failed with the one-day-shifted value and now passes; the maintenance route suite passes 16/16. The full suite has not been rerun after this final correction.
+
+### Maintenance record form cleanup — 2026-10-08
+
+The admin maintenance record picker now uses string IDs for both its selected value and its options, so Radix can display the chosen vehicle label. Selecting a vehicle fills **Mileage at Service (km)** from that vehicle's saved `vehicles.mileage`; staff can adjust it if the odometer reading at service differs. The Fleet Maintenance dialog uses the same selection and mileage behavior, and shows the mileage field before a work order is completed.
+
+Removed Service Provider and Service Center from the admin form and detail view, and Service Provider from the Fleet dialog and register. The feature regression tests passed (7/7), the maintenance component suite passed (14/14), and ESLint passed on all touched UI, helper, and test files. A local browser check confirmed the selected vehicle remained visible and its saved mileage appeared; the form was not submitted, so no maintenance record was created or changed.
+
+### Provider columns dropped — 2026-10-13
+
+Follow-up: the columns are now fully deleted, not just hidden. Migration `163_drop_maintenance_provider_columns` drops `vehiclemaintenance.service_provider` and `service_center`; the POST/PUT allowlists and validation schemas reject those keys, the lean/single-record projections and sortable map no longer select them, register search matches plate/type/description instead, the mechanic `MECHANIC_WRITABLE` set and client body builder dropped the four provider aliases, the reports workbook lost the Provider/Service-center columns (SELECT updated in `operational-reports.js`), and all three seed writers stopped inserting them. The register's "no provider text" regression test (legacy "Old garage" row stays invisible) still passes. Migration file validated by `db:check` (162 files); **not yet applied** — `db:up` also has pending cargo migrations 158–161, so apply + `db:dump` together when ready.
+
+### Maintenance records show the repair performer — 2026-10-08
+
+The admin maintenance registry and Fleet Maintenance register now show a **Mechanic** column from the employee name joined to `vehiclemaintenance.repair_completed_by`. The detail view labels this **Performed By**, separately from **Assigned Mechanic**. `repair_completed_by` is stamped when work enters Pending Inspection, so it records who did the work; assignment, `created_by`, and old provider text are not used as substitutes. Rows with no performer stamp show **Not recorded**. No existing records were backfilled, and no schema change was made; the read projection adds only the display name.
+
+The maintenance route and register regression tests pass (23/23), and ESLint passes on all touched code. The full run reported 4,486 passed and 17 skipped; its sole failure was a Git-history security test blocked by the host's Git text-conversion helper, and that test file passed 44/44 with the system Git config disabled for the test process. Production build verification remains blocked by Windows filesystem errors in generated `.next` output: Turbopack cannot create a junction, and the Webpack fallback gets `EPERM` creating a route directory.
+
+### Mechanic workspace UI redesign — 2026-10-09
+
+My Line now uses one filterable assigned-work-order queue with a selected vehicle snapshot. The snapshot shows `vehicles.image_url` when available and a labeled fallback when it is missing or fails; on phones it follows the queue, while wider screens show it beside the queue. My Work Orders shares the responsive queue, and the Problem Queue and History pages use compact layouts that avoid wide-table scrolling.
+
+Work-order details load one mechanic-assigned record, prefill saved diagnosis, parts, labor, and handover notes, and show which core repair evidence is recorded. Mechanics can update evidence and use the existing status actions on phones, tablets, and desktop. Vehicle history omits the open work order. The existing mechanic field whitelist, assignment checks, status transitions, and database schema are unchanged. The repair evidence API serializes the validated parts array as JSON text for PostgreSQL JSONB.
+
+Focused ESLint passed for the nine changed mechanic source files, and `git diff --check` passed. Automated tests were not run. An authenticated visual review could not be completed: the isolated local preview redirects `/mechanic` to `/login`, and no account credentials were used. See `docs/superpowers/specs/2026-10-09-mechanic-role-module-ui-redesign.md` and `docs/superpowers/plans/2026-10-09-mechanic-role-module-ui-redesign.md`.
+
+The work-order summary now shows Job type, Scheduled, Odometer at service, and Priority as four equal 2×2 tiles. On desktop, two independent columns place work details above vehicle history and repair timeline above findings/evidence, so a tall history panel does not leave a large gap above the evidence form. Phone and tablet views stack the panels. A missing odometer remains visible as a dash. Focused ESLint and `git diff --check` passed; no workflow or permission behavior changed.
+
+The work-order loading state now uses the same Card components, two-column stacks, 2×2 work-detail tiles, timeline and evidence-form structure as the loaded page. Its vehicle-history placeholder follows the same section and row structure as the real history card, avoiding a generic layout that shifts when the work order loads. Focused ESLint and `git diff --check` passed; automated tests were not run. Authenticated visual review remains unavailable because the local preview redirects to login.
+
+Queue rows on both My Line and My Work Orders no longer show issue/description text, keeping the list focused on the vehicle, job type, status, timing, and action. The issue remains available in the vehicle snapshot and work-order details. Focused ESLint and `git diff --check` passed.
+
+The mechanic workspace sidebar now contains only My Line and workshop tasks; the separate Account group and Profile link were removed to keep the navigation focused on repair work. Other roles and the account menu are unchanged. Focused ESLint and `git diff --check` passed.

@@ -1060,6 +1060,8 @@ Four artifacts came out of the fresh mount, and together they are the glitch:
 
 ## Cargo pickup and delivery guide — Task 12 (2026-10-12)
 
+Reference UI follow-up (2026-10-14): Cargo Home uses compact duty/vehicle overview and cargo-first assignments, distinct from the hotel Passenger dashboard. Assignment details group shipment/kg, stops and readiness before the map. Pre-Trip explains blocking securement failure and waits for trip context before submitting. Map shows the actual cargo target/estimates and confirmed completion on return to standby. Profile uses saved Cargo identity and real work links. The source/Fleet/receiver requirements below remain; the pictures do not grant clearance or add signature/scanning features. Native visual/device acceptance is pending; see [[Mobile Architecture]].
+
 Cargo trips have a **View cargo manifest** entry in Trip Details and a stage-specific Map button. Restaurant and hotel jobs use the same controls. The manifest shows the source reference, revision, item units, locations and pickup/delivery progress. Start Trip still begins travel to pickup; the existing pre-trip cargo safety checklist remains in place.
 
 At **At Pickup**, open **Verify cargo pickup** and count every actual amount. Fields start blank; zero means none are present. Expected quantity stays visible separately. Use **Report issue** for a shortage, excess or damaged item, add a reason and optionally an observation photo, then review the counts. **Confirm pickup** is for a count with no discrepancy; **Report pickup issue** is a separate action. Device save, Fleet save, partner acknowledgement, source decision and Fleet departure clearance are displayed separately. A partner ACK means receipt only.
@@ -1074,6 +1076,8 @@ Verified with 609 passing mobile/shared-presentation regressions, scoped lint an
 
 
 ### Cargo guide review corrections (2026-10-12)
+
+Photo-guide follow-up (2026-10-14): Cargo Pre-Trip brakes/tires and securement have **View example** / **Hide example**. Item-count rows reuse the same expandable guide. Examples are labeled AI-generated illustrations, not your vehicle/shipment or proof of safety, condition or quantity. Tomatoes and potatoes have matching illustrative art for recognized names; other items use generic packages. A source photo is still unavailable under the current policy, even when an illustration is visible. Opening a guide does not answer a check or fill an actual count. Inspect the real vehicle/load and enter your own count or measured amount in the displayed unit. PASS/FAIL, cabin confirmation, issue reporting and all approval holds remain. Verified with920 mobile tests and Android export; native phone acceptance remains pending.
 
 An equal, intact count with a remark is a clean pickup note. Report pickup issue requires a shortage, excess or damage and a reason; unsupported reports are refused without changing the saved receipt. Source reference images are not enabled under the current ownership/retention policy, so the readable image placeholder is expected.
 

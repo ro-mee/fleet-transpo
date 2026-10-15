@@ -836,3 +836,10 @@ tests unbroken; notification-adjacent sweep 135/135). `verify:auth` 295/295
 ## Notification deletion reconsideration - 2026-10-09
 
 Notification Center deletion now waits five seconds before calling the existing soft-delete mutation. Undo/Escape or closing the confirmation does not send a request; the delete success toast and notification refresh remain tied to server success. The notification dropdown's read/mark-read actions are unchanged. Changed-file ESLint passed; no notification was deleted during browser review, and production build acceptance remains pending due to the shared Next build lock.
+## Mechanic integration review follow-up — 2026-10-08
+
+Creating a work order with an assignee now shares the existing edit notification fan-out: deduplicate stored rows by recipient/title/reference and push only newly inserted notifications. High/Emergency creation additionally sends urgent alerts to the assignee and maintenance staff. Notification failure is logged and does not undo successful creation.
+
+Staff `maintenance` references open `/maintenance`, because producers include work-order IDs which cannot safely be treated as vehicle IDs. Fuel diagnostics use `fuel_diagnostic` with the work-order ID, the same Maintenance presentation and `/maintenance` destination for stored and push notifications. Mechanic `mechanic_maintenance` references keep their work-order detail destination. No notification schema or migration changed. Route/target regressions cover assigned creation, urgent creation, deduplication, failure handling and role-specific destinations; the final full suite passed 4,482 tests. See [[Maintenance]].
+
+In the 2026-10-08 local smoke test, the created work order showed its assignment alert to the mechanic, the ready-for-inspection alert opened the staff maintenance register, and the fuel diagnostic alert carried work order #84. These were in-app notifications in the local test environment; no external messages were sent.

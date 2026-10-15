@@ -5,14 +5,27 @@ const monthNum = (name) => MONTHS[String(name ?? "").toLowerCase().slice(0, 9)] 
 const pad = (n) => String(n).padStart(2, "0");
 const isoDay = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
 
+// Calendar validation: garbage like Feb 30 or Sep 31 (or start > end) must
+// return null here, not a wrong effective_at downstream.
+function daysInMonth(y, m) {
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+function validRange(y, m1, d1, m2, d2) {
+  if (!m1 || !m2 || d1 < 1 || d2 < 1) return null;
+  if (d1 > daysInMonth(y, m1) || d2 > daysInMonth(y, m2)) return null;
+  const start = isoDay(y, m1, d1);
+  const end = isoDay(y, m2, d2);
+  return start <= end ? { startISO: start, endISO: end } : null;
+}
+
 export function parseWeekRange(label) {
   const text = String(label ?? "");
   let m = /(\d{1,2})\s+([A-Za-z]+)\s+to\s+(\d{1,2})\s+([A-Za-z]+)\s+(20\d{2})/i.exec(text);
-  if (m) { const m1 = monthNum(m[2]); const m2 = monthNum(m[4]); if (!m1 || !m2) return null; return { startISO: isoDay(m[5], m1, Number(m[1])), endISO: isoDay(m[5], m2, Number(m[3])) }; }
+  if (m) { return validRange(Number(m[5]), monthNum(m[2]), Number(m[1]), monthNum(m[4]), Number(m[3])); }
   m = /([A-Za-z]+)\s+(\d{1,2})\s*(?:-|to)\s*(\d{1,2})\s+(20\d{2})/i.exec(text);
-  if (m) { const mo = monthNum(m[1]); if (!mo) return null; return { startISO: isoDay(m[4], mo, Number(m[2])), endISO: isoDay(m[4], mo, Number(m[3])) }; }
+  if (m) { const mo = monthNum(m[1]); return validRange(Number(m[4]), mo, Number(m[2]), mo, Number(m[3])); }
   m = /([A-Za-z]+)\s+(\d{1,2})\s+to\s+([A-Za-z]+)\s+(\d{1,2})\s+(20\d{2})/i.exec(text);
-  if (m) { const m1 = monthNum(m[1]); const m2 = monthNum(m[3]); if (!m1 || !m2) return null; return { startISO: isoDay(m[5], m1, Number(m[2])), endISO: isoDay(m[5], m2, Number(m[4])) }; }
+  if (m) { return validRange(Number(m[5]), monthNum(m[1]), Number(m[2]), monthNum(m[3]), Number(m[4])); }
   return null;
 }
 
@@ -158,13 +171,20 @@ export async function fetchNcrPage({ pageUrl, fetchImpl = fetch, timeoutMs = 800
 export async function fetchPdfBytes({ pdfUrl, allowedOrigins = [], fetchImpl = fetch, timeoutMs = 15000 } = {}) {
   let requested;
   try { requested = new URL(pdfUrl); } catch { return { ok: false, reason: "PDF URL is not a valid https URL." }; }
-  const allowed = new Set(allowedOrigins.map((o) => new URL(o).origin.toLowerCase()));
+  // Same tolerant normalization as extractNcrPdfLinks: bare hosts without a
+  // scheme resolve as https instead of throwing a 500 (fail closed on
+  // unparseable entries, never on a valid origin).
+  const normOrigin = (o) => {
+    const s = String(o ?? "").trim().toLowerCase();
+    try { return new URL(s.includes("://") ? s : `https://${s}`).origin.toLowerCase(); } catch { return null; }
+  };
+  const allowed = new Set(allowedOrigins.map(normOrigin).filter(Boolean));
   if (!allowed.has(requested.origin.toLowerCase())) return { ok: false, reason: "PDF origin is not an approved source; retaining the last verified snapshot." };
   const fetched = await guardedFetch(pdfUrl, { fetchImpl, timeoutMs });
   if (!fetched.ok) return fetched;
   const bytes = new Uint8Array(await fetched.res.arrayBuffer());
   if (bytes.length === 0 || bytes.length > PDF_MAX_BYTES) return { ok: false, reason: "PDF body is empty or oversized; retaining the last verified snapshot." };
-  return { ok: true, bytes };
+  return { ok: true, bytes, contentType: fetched.res.headers?.get?.("content-type")?.split(";")[0]?.trim() ?? null };
 }
 
 export async function extractPdfText(bytes, extractorImpl = null) {

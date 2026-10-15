@@ -1,10 +1,11 @@
-import React, { useRef, useEffect, useMemo, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useEffect, useMemo, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../lib/theme-context';
 import { palettes } from '../lib/theme';
+import { ROUTE_CONTROLLER_SCRIPT } from '../lib/navigation-route';
 import {
   escapeHtmlText,
   finiteNumberInRange,
@@ -12,6 +13,13 @@ import {
   serializeCssString,
   serializeInlineScriptValue,
 } from '../lib/map-webview-data';
+import {
+  buildFleetPositionJs,
+  buildMapActiveJs,
+  fleetRespondersSignature,
+  normalizeFleetResponders,
+  shouldPushFleetBridge,
+} from '../lib/fleet-bridge';
 
 let cachedCarImage = '';
 
@@ -29,11 +37,15 @@ const TomTomMap = forwardRef(({
   radarMode = false,
   radarRadiusKm = 3,
   radarMarkers = [],
+  responders = [],
   showVehicleMarker = true,
   topInset = 36,
   onMarkerPress,
   onMapDragged,
   onRouteData,
+  routeSessionKey = "preview",
+  routeTripId = null,
+  routePreferences = {},
   onMapReady
 }, ref) => {
   const webViewRef = useRef(null);
@@ -87,12 +99,60 @@ const TomTomMap = forwardRef(({
   const radarMarkersJs = serializeInlineScriptValue(safeRadarMarkers);
   const radarRadiusJs = serializeInlineScriptValue(safeRadarRadiusKm);
 
+  // Bridge readiness + throttle state. injectJavaScript before MAP_READY is
+  // silently dropped by the WebView, and unthrottled per-fix injects are the
+  // frame-drop source this module exists to remove.
+  const isMapReadyRef = useRef(false);
+  const lastBridgePushRef = useRef(0);
+  const latestFleetRef = useRef({ lat: null, lng: null, heading: null, respondersJson: '[]' });
+  // Stable responder identity: per-fix array identities must not re-fire
+  // bridge pushes (or document rebuilds) on their own — only a changed
+  // payload crosses. Live responders therefore never enter the useMemo
+  // document below; they travel exclusively via the throttled bridge.
+  const respondersSignature = fleetRespondersSignature(responders);
+  const safeResponders = useMemo(
+    () => normalizeFleetResponders(responders),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- signature only; identity churns per fix
+    [respondersSignature]
+  );
+  const safeRespondersJson = fleetRespondersSignature(safeResponders);
+
+  // One GPS tick → one direct global-function call (no postMessage
+  // round-trip), throttled to FLEET_BRIDGE_PUSH_MS and sent only after
+  // MAP_READY. Returns false when the inject was skipped.
+  const pushFleetPosition = useCallback((lat, lng, heading, respondersPayload, force = false) => {
+    const view = webViewRef.current;
+    if (!view || isMapReadyRef.current !== true) return false;
+    const now = Date.now();
+    if (!force && !shouldPushFleetBridge(now, lastBridgePushRef.current)) return false;
+    const script = buildFleetPositionJs(lat, lng, heading, respondersPayload);
+    if (!script) return false;
+    lastBridgePushRef.current = now;
+    try {
+      view.injectJavaScript(script);
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }, []);
+
   useImperativeHandle(ref, () => ({
     recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterRadar && ${serializeInlineScriptValue(safeRadarMode)}) window.recenterRadar(); else if(window.recenterMap) window.recenterMap(); true;`),
     overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`),
+    applyRoutePreferences: (preferences) => webViewRef.current?.injectJavaScript(`if(window.applyRoutePreferences) window.applyRoutePreferences(${serializeInlineScriptValue({ avoidTolls: preferences?.avoidTolls === true, selectedIndex: Number.isInteger(preferences?.selectedIndex) && preferences.selectedIndex >= 0 ? preferences.selectedIndex : 0 })}); true;`),
     setRadarRadius: (km) => webViewRef.current?.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${serializeInlineScriptValue(finiteNumberInRange(km, 0.25, 50) ?? 3)}); true;`),
     setRadarMarkers: (markers) => webViewRef.current?.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${serializeInlineScriptValue(normalizeRadarMarkers(markers))}, ${radarRadiusJs}); true;`),
     setVehicleVisible: (visible) => webViewRef.current?.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${serializeInlineScriptValue(visible === true)}); true;`),
+    // Throttled live-GPS entry point for screens that own a watcher
+    // (map.js, incident/navigate.js): one tick in, at most one throttled
+    // bridge call out. Prefer letting the origin effect below drive this.
+    updateFleetPosition: (fix) => pushFleetPosition(
+      fix?.lat, fix?.lng, fix?.heading,
+      Array.isArray(fix?.responders) ? fleetRespondersSignature(fix.responders) : safeRespondersJson
+    ),
+    // Tab/background lifecycle: pause rAF interpolation + camera glides when
+    // the map is not visible, resume on focus.
+    setMapActive: (active) => webViewRef.current?.injectJavaScript(buildMapActiveJs(active)),
   }));
 
   useEffect(() => {
@@ -126,6 +186,18 @@ const TomTomMap = forwardRef(({
   const safeDestinationLng = finiteNumberInRange(destination?.lng, -180, 180);
   const safeTopInset = finiteNumberInRange(topInset, 0, 300) ?? 36;
   const hasOriginFix = safeOriginLat != null && safeOriginLng != null;
+  // Latest fix snapshot for the MAP_READY flush: the origin effect below
+  // does not re-fire for values that arrived before the document finished
+  // loading, so readiness replays the newest fix once instead of dropping it.
+  latestFleetRef.current = {
+    lat: safeOriginLat,
+    lng: safeOriginLng,
+    heading: safeOriginHeading,
+    respondersJson: safeRespondersJson,
+  };
+  const documentOriginLat = safeShowCarIcon ? null : safeOriginLat;
+  const documentOriginLng = safeShowCarIcon ? null : safeOriginLng;
+  const documentOriginHeading = safeShowCarIcon ? null : safeOriginHeading;
   const originAddressJs = serializeInlineScriptValue(typeof originAddress === "string" ? originAddress : "");
   const destinationAddressJs = serializeInlineScriptValue(typeof destAddress === "string" ? destAddress : "");
   const tomtomKeyJs = serializeInlineScriptValue(tomtomKey);
@@ -545,7 +617,201 @@ const TomTomMap = forwardRef(({
                       const el = window.originMarker.getElement();
                       if (el) el.style.display = visible ? 'flex' : 'none';
                   }
+                  try {
+                      const fleetMap = window.ttMap;
+                      if (fleetMap && fleetMap.getLayer('driver-layer')) fleetMap.setLayoutProperty('driver-layer', 'visibility', visible ? 'visible' : 'none');
+                      if (fleetMap && fleetMap.getLayer('driver-halo')) fleetMap.setLayoutProperty('driver-halo', 'visibility', visible ? 'visible' : 'none');
+                  } catch (e) {}
               };
+
+              // Fleet live layers (driver + responders as WebGL GeoJSON).
+              // High-frequency GPS ticks arrive via window.__updateFleetPositions
+              // and only mutate source data — no tt.Marker is created per tick,
+              // so per-fix DOM churn stays flat on low-end devices.
+              window.__mapActive = true;
+              window.__fleetAnimId = 0;
+              window.__fleetRendered = null;
+              window.__lastCamLng = null;
+              window.__lastCamLat = null;
+              window.__lastRespondersJson = '';
+
+              // Tab/background lifecycle: pause rAF interpolation and camera
+              // glides while hidden; the next tick repaints instantly on resume.
+              window.__setMapActive = function(active) {
+                  window.__mapActive = active === true;
+                  if (!window.__mapActive && window.__fleetAnimId) {
+                      try { cancelAnimationFrame(window.__fleetAnimId); } catch (e) {}
+                      window.__fleetAnimId = 0;
+                  }
+              };
+
+              window.__fleetPoint = function(lng, lat) {
+                  return { type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: {} };
+              };
+
+              window.__ensureFleetSources = function() {
+                  const fleetMap = window.ttMap;
+                  if (!fleetMap || typeof fleetMap.addSource !== 'function') return false;
+                  try {
+                      if (!fleetMap.getSource('driver-source')) {
+                          fleetMap.addSource('driver-source', { type: 'geojson', data: window.__fleetPoint(0, 0) });
+                      }
+                      if (!fleetMap.getLayer('driver-halo')) {
+                          fleetMap.addLayer({ id: 'driver-halo', type: 'circle', source: 'driver-source', paint: { 'circle-radius': 16, 'circle-color': ${primaryColorJs}, 'circle-opacity': 0.22 } });
+                      }
+                      if (!fleetMap.getLayer('driver-layer')) {
+                          fleetMap.addLayer({ id: 'driver-layer', type: 'circle', source: 'driver-source', paint: { 'circle-radius': 8, 'circle-color': ${primaryColorJs}, 'circle-stroke-width': 3, 'circle-stroke-color': '#ffffff' } });
+                      }
+                      if (!fleetMap.getSource('responders-source')) {
+                          fleetMap.addSource('responders-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+                      }
+                      if (!fleetMap.getLayer('responders-layer')) {
+                          fleetMap.addLayer({ id: 'responders-layer', type: 'circle', source: 'responders-source', paint: { 'circle-radius': 7, 'circle-color': ${secondaryColorJs}, 'circle-stroke-width': 2, 'circle-stroke-color': '#ffffff' } });
+                      }
+                      return true;
+                  } catch (e) { return false; }
+              };
+
+              window.__paintDriverPoint = function(lng, lat) {
+                  try {
+                      const fleetMap = window.ttMap;
+                      if (fleetMap && fleetMap.getSource('driver-source')) fleetMap.getSource('driver-source').setData(window.__fleetPoint(lng, lat));
+                  } catch (e) {}
+                  window.__fleetRendered = { lng: lng, lat: lat };
+                  try {
+                      if (window.originMarker) window.originMarker.setLngLat([lng, lat]);
+                  } catch (e) {}
+              };
+
+              // Responders repaint only when the payload actually changed.
+              window.__paintResponders = function(responders) {
+                  const list = Array.isArray(responders) ? responders : [];
+                  let nextJson = '';
+                  try { nextJson = JSON.stringify(list); } catch (e) { return; }
+                  if (nextJson === window.__lastRespondersJson) return;
+                  window.__lastRespondersJson = nextJson;
+                  try {
+                      const fleetMap = window.ttMap;
+                      if (!fleetMap || !fleetMap.getSource('responders-source')) return;
+                      fleetMap.getSource('responders-source').setData({
+                          type: 'FeatureCollection',
+                          features: list.filter(function (entry) {
+                              return entry && typeof entry.lat === 'number' && typeof entry.lng === 'number' &&
+                                  isFinite(entry.lat) && isFinite(entry.lng) &&
+                                  entry.lat >= -90 && entry.lat <= 90 && entry.lng >= -180 && entry.lng <= 180;
+                          }).map(function (entry) {
+                              return { type: 'Feature', geometry: { type: 'Point', coordinates: [entry.lng, entry.lat] }, properties: { id: entry.id || null } };
+                          })
+                      });
+                  } catch (e) {}
+              };
+
+              // Single per-tick entry point for live GPS. Snapping, banner,
+              // rotation, interpolation and camera follow all happen here, so
+              // the native side sends four numbers and nothing else.
+              window.__updateFleetPositions = function(lat, lng, heading, responders) {
+                  if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) return;
+                  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+                  const h = (typeof heading === 'number' && isFinite(heading)) ? heading : (window.lastHeading || 0);
+                  window.lastHeading = h;
+                  window.currentCarLng = lng;
+                  window.currentCarLat = lat;
+
+                  let finalLng = lng;
+                  let finalLat = lat;
+                  let snap = null;
+                  if (window.getSnappedPosition) {
+                      try {
+                          snap = window.getSnappedPosition(finalLng, finalLat);
+                          finalLng = snap.lng;
+                          finalLat = snap.lat;
+                          window.currentCarLng = finalLng;
+                          window.currentCarLat = finalLat;
+                      } catch (e) {}
+                  }
+                  if (window.updateNavigationBanner) {
+                      try { window.updateNavigationBanner(finalLng, finalLat, snap); } catch (e) {}
+                  }
+                  if (window.updateCarRotation) {
+                      try { window.updateCarRotation(); } catch (e) {}
+                  }
+                  window.__paintResponders(responders);
+
+                  if (${safeRadarMode} && window.updateRadarCirclePositions) {
+                      window.updateRadarCirclePositions(finalLng, finalLat);
+                  }
+
+                  const from = window.__fleetRendered || { lng: finalLng, lat: finalLat };
+                  if (!window.__mapActive) {
+                      if (window.__fleetAnimId) { try { cancelAnimationFrame(window.__fleetAnimId); } catch (e) {} window.__fleetAnimId = 0; }
+                      window.__paintDriverPoint(finalLng, finalLat);
+                      return;
+                  }
+                  if (window.__fleetAnimId) { try { cancelAnimationFrame(window.__fleetAnimId); } catch (e) {} window.__fleetAnimId = 0; }
+                  // Smooth linear interpolation (~1200 ms) from the last
+                  // painted point to the new fix before committing setData.
+                  let startMs = null;
+                  const step = function (nowMs) {
+                      if (!window.__mapActive) { window.__fleetAnimId = 0; window.__paintDriverPoint(finalLng, finalLat); return; }
+                      if (startMs == null) startMs = nowMs;
+                      const t = Math.min(1, (nowMs - startMs) / 1200);
+                      const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+                      const clng = from.lng + (finalLng - from.lng) * eased;
+                      const clat = from.lat + (finalLat - from.lat) * eased;
+                      window.__paintDriverPoint(clng, clat);
+                      if (t < 1) {
+                          window.__fleetAnimId = requestAnimationFrame(step);
+                      } else {
+                          window.__fleetAnimId = 0;
+                          try { if (window.updateRadarBloomScale) window.updateRadarBloomScale(); } catch (e) {}
+                      }
+                  };
+                  window.__fleetAnimId = requestAnimationFrame(step);
+
+                  // Camera follow re-fires only after real movement (~16 m),
+                  // so heading-only ticks never restart the glide.
+                  try {
+                      const navMap = window.ttMap;
+                      const lastLng = window.__lastCamLng;
+                      const lastLat = window.__lastCamLat;
+                      const moved = lastLng == null || lastLat == null ||
+                          (Math.abs(finalLat - lastLat) + Math.abs(finalLng - lastLng)) > 0.00015;
+                      if (navMap && window.isFollowing && moved) {
+                          window.__lastCamLng = finalLng;
+                          window.__lastCamLat = finalLat;
+                          const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
+                          const isRadar = ${safeRadarMode};
+                          navMap.easeTo({
+                              center: [finalLng, finalLat],
+                              zoom: isRadar ? (window.currentRadarZoom || 14.2) : 18.5,
+                              pitch: 0,
+                              bearing: isRadar ? 0 : routeBearing,
+                              duration: 1200
+                          });
+                      }
+                  } catch (e) {}
+              };
+
+              // Route geometry updates only on fetch/recalculate — never on
+              // GPS ticks. The route controller below funnels through this.
+              window.__updateRoutePolyline = function(geojson) {
+                  const routeMap = window.ttMap;
+                  if (!routeMap || !geojson) return false;
+                  try {
+                      if (routeMap.getLayer('route') && routeMap.getSource('route')) {
+                          routeMap.getSource('route').setData(geojson);
+                          return true;
+                      }
+                      if (typeof routeMap.removeLayer === 'function' && routeMap.getLayer('route')) routeMap.removeLayer('route');
+                      if (typeof routeMap.removeSource === 'function' && routeMap.getSource('route')) routeMap.removeSource('route');
+                      routeMap.addLayer({ id: 'route', type: 'line', source: { type: 'geojson', data: geojson }, paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 1 } });
+                      return true;
+                  } catch (e) { return false; }
+              };
+
+              // Release the WebGL context cleanly when the document unloads.
+              window.addEventListener('pagehide', function() { try { if (window.ttMap) window.ttMap.remove(); } catch (e) {} });
+              window.addEventListener('beforeunload', function() { try { if (window.ttMap) window.ttMap.remove(); } catch (e) {} });
 
               window.carMarkerImageUrl = ${serializeInlineScriptValue(cachedCarImage || carImage || '')};
               window.cssUrl = function(value) {
@@ -908,98 +1174,8 @@ const TomTomMap = forwardRef(({
                   return { lng, lat, isSnapped: false, closestIdx, minDist };
               };
 
-              // Full route recalculation from the car's current position to the
-              // destination. Called on reroute (off-route), and on the periodic
-              // refresh timer so ETA/traffic never go stale mid-trip.
-              window.recalculateRoute = function(carLng, carLat) {
-                  if (!window.currentDestLng || window.isRecalculating) return;
-                  window.isRecalculating = true;
-                  window.lastCalcCarLng = carLng;
-                  window.lastCalcCarLat = carLat;
-                  document.getElementById('navStreet').innerText = "Rerouting...";
-                  if (window.ReactNativeWebView) {
-                      try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_REFRESHING', calculatedAt: Date.now() })); } catch (e) {}
-                  }
-
-                  tt.services.calculateRoute({
-                      key: ${tomtomKeyJs},
-                      traffic: ${safeAutoSwoop},
-                      computeTravelTimeFor: 'all',
-                      maxAlternatives: 0,
-                      sectionType: ${safeAutoSwoop ? "'traffic'" : "undefined"},
-                      instructionsType: 'text',
-                      locations: carLng + ',' + carLat + ':' + window.currentDestLng + ',' + window.currentDestLat
-                  }).then(response => {
-                      window.isRecalculating = false;
-                      const baseGeojson = response.toGeoJson();
-                      if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) {
-                          document.getElementById('navStreet').innerText = "Route unavailable";
-                          if (window.ReactNativeWebView) {
-                              try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
-                          }
-                          return;
-                      }
-
-                      const mainFeature = baseGeojson.features[0];
-                      window.routeCoords = mainFeature.geometry.coordinates;
-                      window.routeInstructions = response.routes[0].guidance ? response.routes[0].guidance.instructions : [];
-
-                      // Reset caches
-                      window.cumDist = null;
-                      window.lastClosestIdx = 0;
-                      window.offRouteCount = 0;
-
-                      // Drop the stale traffic badges and the old alternative
-                      // line from the previous route.
-                      (window.badgeMarkers || []).forEach(function(m) { m.remove(); });
-                      window.badgeMarkers = [];
-                      if (window.ttMap.getLayer('alt-route')) {
-                          window.ttMap.removeLayer('alt-route');
-                          if (window.ttMap.getSource('alt-route')) window.ttMap.removeSource('alt-route');
-                      }
-
-                      // Redraw the route line instantly without a full map reload!
-                      const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, response.routes[0], false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: ${primaryColorJs} }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
-
-                      if (window.ttMap.getLayer('route')) {
-                          window.ttMap.getSource('route').setData(mainGeojson);
-                      } else {
-                          // The initial route never drew (failed / offline); add the layer now.
-                          window.ttMap.addLayer({
-                              'id': 'route',
-                              'type': 'line',
-                              'source': { 'type': 'geojson', 'data': mainGeojson },
-                              'paint': { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 1.0 }
-                          });
-                      }
-
-                      // Refresh the native bottom-sheet ETA/traffic numbers.
-                      // travelTimeInSeconds ALREADY includes traffic;
-                      // trafficDelayInSeconds is the traffic portion of it.
-                      const summary = (response.routes && response.routes[0] && response.routes[0].summary) || (mainFeature.properties && mainFeature.properties.summary);
-                      if (window.ReactNativeWebView && summary) {
-                          window.lastRouteAt = Date.now();
-                          window.ReactNativeWebView.postMessage(JSON.stringify({
-                              type: 'ROUTE_CALCULATED',
-                              travelTimeInSeconds: summary.travelTimeInSeconds,
-                              lengthInMeters: summary.lengthInMeters,
-                              trafficDelayInSeconds: summary.trafficDelayInSeconds,
-                              noTrafficTravelTimeInSeconds: summary.noTrafficTravelTimeInSeconds != null ? summary.noTrafficTravelTimeInSeconds : null,
-                              calculatedAt: window.lastRouteAt,
-                              trafficAware: true,
-                              source: 'tomtom'
-                          }));
-                      }
-
-                      window.updateNavigationBanner(carLng, carLat);
-                  }).catch(() => {
-                      window.isRecalculating = false;
-                      document.getElementById('navStreet').innerText = "Route unavailable";
-                      if (window.ReactNativeWebView) {
-                          try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
-                      }
-                  });
-              };
+              window.fleetRouteConfig = ${serializeInlineScriptValue({ key: tomtomKey, traffic: safeAutoSwoop, alternatives: safeAutoSwoop, primary: colors.primary, sessionKey: routeSessionKey, tripId: routeTripId, avoidTolls: routePreferences.avoidTolls === true, selectedIndex: routePreferences.selectedIndex || 0 })};
+              ${ROUTE_CONTROLLER_SCRIPT}
 
               window.updateNavigationBanner = function(carLng, carLat, snapInfo = null) {
                   if (!window.routeInstructions || !window.routeCoords || window.routeCoords.length === 0) return;
@@ -1127,7 +1303,7 @@ const TomTomMap = forwardRef(({
                   const originAddr = ${originAddressJs};
                   const destAddr = ${destinationAddressJs};
 
-                  if (originLat === null && originAddr) {
+                  if (!${safeShowCarIcon} && originLat === null && originAddr) {
                       try {
                           const res = await tt.services.fuzzySearch({ key: ${tomtomKeyJs}, query: originAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
@@ -1137,7 +1313,7 @@ const TomTomMap = forwardRef(({
                       } catch(e) {}
                   }
 
-                  if (destLat === null && destAddr) {
+                  if (!${safeShowCarIcon} && destLat === null && destAddr) {
                       try {
                           const res = await tt.services.fuzzySearch({ key: ${tomtomKeyJs}, query: destAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
@@ -1170,6 +1346,8 @@ const TomTomMap = forwardRef(({
                   // Store globally for rerouting
                   window.currentDestLat = hasDestination ? Number(destLat) : null;
                   window.currentDestLng = hasDestination ? Number(destLng) : null;
+                  window.currentCarLat = hasOrigin ? Number(originLat) : null;
+                  window.currentCarLng = hasOrigin ? Number(originLng) : null;
 
                   const map = tt.map({
                       key: ${tomtomKeyJs},
@@ -1276,6 +1454,9 @@ const TomTomMap = forwardRef(({
                             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
                         }
                         try {
+                            if (window.__ensureFleetSources) window.__ensureFleetSources();
+                        } catch (e) {}
+                        try {
                             window.applyFleetMapTheme();
                         } catch (e) {}
 
@@ -1340,6 +1521,19 @@ const TomTomMap = forwardRef(({
                             ${!safeShowCarIcon && !safeRadarMode ? '.setPopup(originPopup)' : ''}
                             .addTo(map);
 
+                        // Seed the driver GeoJSON layer with the initial fix
+                        // (and pin the camera baseline) so the first bridge
+                        // tick interpolates instead of gliding from nowhere.
+                        try {
+                            if (window.__ensureFleetSources) window.__ensureFleetSources();
+                            window.__fleetRendered = { lng: originLng, lat: originLat };
+                            window.__lastCamLng = originLng;
+                            window.__lastCamLat = originLat;
+                            if (window.ttMap && window.ttMap.getSource('driver-source')) {
+                                window.ttMap.getSource('driver-source').setData(window.__fleetPoint(originLng, originLat));
+                            }
+                        } catch (e) {}
+
                         if (${safeRadarMode}) window.recenterRadar();
 
                         if (!${safeShowVehicleMarker}) {
@@ -1372,57 +1566,7 @@ const TomTomMap = forwardRef(({
                       initialBounds.extend([destLng, destLat]);
                       map.fitBounds(initialBounds, { padding: 40, duration: 400 });
 
-                      // Request traffic-sectioned routing. Single active route only:
-                      // the driver follows the dispatch, so no selectable
-                      // alternative is offered (keeps the initial view and the
-                      // 2-minute refresh consistent).
-                      tt.services.calculateRoute({
-                          key: ${tomtomKeyJs},
-                      traffic: ${safeAutoSwoop},
-                          computeTravelTimeFor: 'all',
-                          maxAlternatives: 0,
-                      sectionType: ${safeAutoSwoop ? "'traffic'" : "undefined"},
-                          instructionsType: 'text',
-                          locations: originLng + ',' + originLat + ':' + destLng + ',' + destLat
-                      }).then(response => {
-                          const baseGeojson = response.toGeoJson();
-                          if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) {
-                              if (window.ReactNativeWebView) {
-                                  try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e) {}
-                              }
-                              return;
-                          }
-                          
-                          const mainFeature = baseGeojson.features[0];
-                          const mainCoords = mainFeature.geometry.coordinates; // Array of [lng, lat]
-                          const mainProps = mainFeature.properties || {};
-                          
-                          const route = response.routes[0];
-                          window.routeInstructions = route.guidance ? route.guidance.instructions : [];
-                          window.routeCoords = mainCoords;
-                          window.lastCalcCarLng = originLng;
-                          window.lastCalcCarLat = originLat;
-                          
-                          if (${safeShowCarIcon}) {
-                              window.updateNavigationBanner(originLng, originLat);
-                          }
-                          
-                          if (window.ReactNativeWebView && mainProps.summary) {
-                              window.lastRouteAt = Date.now();
-                              window.ReactNativeWebView.postMessage(JSON.stringify({
-                                  type: 'ROUTE_CALCULATED',
-                                  travelTimeInSeconds: mainProps.summary.travelTimeInSeconds,
-                                  lengthInMeters: mainProps.summary.lengthInMeters,
-                                  trafficDelayInSeconds: mainProps.summary.trafficDelayInSeconds,
-                                  noTrafficTravelTimeInSeconds: mainProps.summary.noTrafficTravelTimeInSeconds != null ? mainProps.summary.noTrafficTravelTimeInSeconds : null,
-                                  calculatedAt: window.lastRouteAt,
-                                  trafficAware: true,
-                                  source: 'tomtom'
-                              }));
-                          }
-                          
-                          // ETA Box logic removed as it's displayed natively
-                          // Helper function to dynamically slice a route into colored traffic segments
+                      // Initial and refreshed routes share one provider controller.
                           window.buildTrafficSegments = (feature, route, isAltRoute) => {
                               const coords = feature.geometry.coordinates;
                               const props = feature.properties || {};
@@ -1517,78 +1661,14 @@ const TomTomMap = forwardRef(({
                               return { type: 'FeatureCollection', features: features };
                           };
 
-                          try {
-                              // 1. Draw Alternative Route First (so it sits underneath)
-                              if (${safeAutoSwoop} && baseGeojson.features.length > 1) {
-                                  const altGeojson = window.buildTrafficSegments(baseGeojson.features[1], response.routes[1], true);
-                                  map.addLayer({
-                                      'id': 'alt-route',
-                                      'type': 'line',
-                                      'source': { 'type': 'geojson', 'data': altGeojson },
-                                      'paint': {
-                                          'line-color': ['get', 'color'],
-                                          'line-width': 6,
-                                          'line-opacity': 0.35 // Translucent!
-                                      }
-                                  });
-                              }
-
-                              // 2. Draw Main Route on top
-                              const mainGeojson = window.buildTrafficSegments(mainFeature, route, false);
-                              map.addLayer({
-                                  'id': 'route',
-                                  'type': 'line',
-                                  'source': { 'type': 'geojson', 'data': mainGeojson },
-                                  'paint': {
-                                      'line-color': ['get', 'color'],
-                                      'line-width': 6,
-                                      'line-opacity': 1.0
-                                  }
-                              });
-                          } catch (err) {
-                              console.error("Traffic segmentation failed, falling back to basic route:", err);
-                              map.addLayer({
-                                  'id': 'route',
-                                  'type': 'line',
-                                  'source': { 'type': 'geojson', 'data': { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: mainCoords } } },
-                                  'paint': { 'line-color': ${primaryColorJs}, 'line-width': 6 }
-                              });
-                          }
-
-                          const bounds = new tt.LngLatBounds();
-                          mainCoords.forEach(coord => {
-                              bounds.extend(tt.LngLat.convert(coord));
-                          });
-                          
-                          // Smoothly fit the entire route on screen
+                      window.recalculateRoute(originLng, originLat).then(function (ok) {
+                          if (!ok) return;
+                          var bounds = new tt.LngLatBounds();
+                          window.routeCoords.forEach(function (coord) { bounds.extend(coord); });
                           map.fitBounds(bounds, { padding: 50, duration: 1200 });
-                          
-                          if (${safeAutoSwoop}) {
-                              // Let the user look at the full route for 5 seconds before swooping in
-                              window.swoopTimeout = setTimeout(() => {
-                                  if (window.isFollowing) {
-                                      map.flyTo({ center: [originLng, originLat], zoom: 18.5, pitch: 0, speed: 0.8 });
-                                  }
-                              }, 5000);
-                          }
-                      }).catch((e) => {
-                          console.error("Routing error:", e);
-                          document.getElementById('navStreet').innerText = "Route unavailable";
-                          if (window.ReactNativeWebView) {
-                              try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_UNAVAILABLE', calculatedAt: Date.now() })); } catch (e2) {}
-                          }
-                          const bounds = new tt.LngLatBounds();
-                          bounds.extend([originLng, originLat]);
-                          bounds.extend([destLng, destLat]);
-                          map.fitBounds(bounds, { padding: 50, duration: 1200 });
-                          
-                          if (${safeAutoSwoop}) {
-                              window.swoopTimeout = setTimeout(() => {
-                                  if (window.isFollowing) {
-                                      map.flyTo({ center: [originLng, originLat], zoom: 18.5, pitch: 0, speed: 0.8 });
-                                  }
-                              }, 5000);
-                          }
+                          if (window.fleetRouteConfig.traffic) window.swoopTimeout = setTimeout(function () {
+                              if (window.isFollowing) map.flyTo({ center: [window.currentCarLng, window.currentCarLat], zoom: 18.5, pitch: 0, speed: 0.8 });
+                          }, 5000);
                       });
 
                       // Periodic refresh: a route calculated once at load goes
@@ -1599,7 +1679,7 @@ const TomTomMap = forwardRef(({
                       // (movement-only refresh would starve exactly when the
                       // driver most needs a new estimate).
                       setInterval(function() {
-                          if (!window.currentCarLng || !window.currentDestLng || window.isRecalculating) return;
+                          if (window.currentCarLng == null || window.currentDestLng == null || window.isRecalculating) return;
                           var routeAgeMs = window.lastRouteAt ? (Date.now() - window.lastRouteAt) : Infinity;
                           if (window.lastCalcCarLng != null) {
                               const moved = Math.abs(window.currentCarLng - window.lastCalcCarLng) + Math.abs(window.currentCarLat - window.lastCalcCarLat);
@@ -1623,9 +1703,10 @@ const TomTomMap = forwardRef(({
     scheme,
     safeRadarMode,
     hasOriginFix,
-    safeOriginLat,
-    safeOriginLng,
-    safeOriginHeading,
+    // Live fixes move through the bridge without replacing the map document.
+    documentOriginLat,
+    documentOriginLng,
+    documentOriginHeading,
     safeDestinationLat,
     safeDestinationLng,
     originAddressJs,
@@ -1639,79 +1720,19 @@ const TomTomMap = forwardRef(({
     safeShowCarIcon,
     safeAutoSwoop,
     safeTopInset,
-    carImage,
+    routeSessionKey,
+    routeTripId,
   ]);
-  // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
-  // Last camera center: the marker + rotation update on every fix (cheap),
-  // but the easeTo camera glide only re-fires after real movement (~16 m).
-  // Without this, heading-only compass ticks restart a 2800 ms easeTo every
-  // few seconds and the camera never settles (touch fighting + GPU churn).
-  const lastCamRef = useRef(null);
+  // Live GPS crosses the bridge throttled (<=1 inject per 1500 ms) through
+  // window.__updateFleetPositions — snapping, banner, rotation, GeoJSON
+  // interpolation and camera follow all happen inside the WebView, so the
+  // native side sends four numbers and never rebuilds the map document.
   useEffect(() => {
-    // Only track movement if it's the live map (showCarIcon = true)
-    if (safeShowCarIcon && safeOriginLat != null && safeOriginLng != null && webViewRef.current) {
-      const lastCam = lastCamRef.current;
-      const camMoved = lastCam == null ||
-        (Math.abs(safeOriginLat - lastCam.lat) + Math.abs(safeOriginLng - lastCam.lng)) > 0.00015;
-      if (camMoved) lastCamRef.current = { lat: safeOriginLat, lng: safeOriginLng };
-          
-      const script = `
-        if (window.originMarker) {
-          let finalLng = ${serializeInlineScriptValue(safeOriginLng)};
-          let finalLat = ${serializeInlineScriptValue(safeOriginLat)};
-          
-          if (window.carMarkerImageUrl) {
-              const carEl = document.getElementById('carInnerIcon');
-              if (carEl && !carEl.style.backgroundImage) {
-                  carEl.style.backgroundImage = window.cssUrl(window.carMarkerImageUrl);
-              }
-          }
-          
-          if (window.getSnappedPosition) {
-              const snap = window.getSnappedPosition(finalLng, finalLat);
-              finalLng = snap.lng;
-              finalLat = snap.lat;
-              
-              if (${safeShowCarIcon} && window.updateNavigationBanner) {
-                  window.updateNavigationBanner(finalLng, finalLat, snap);
-              }
-          } else if (${safeShowCarIcon} && window.updateNavigationBanner) {
-              window.updateNavigationBanner(finalLng, finalLat);
-          }
-
-          window.originMarker.setLngLat([finalLng, finalLat]);
-          window.currentCarLng = finalLng;
-          window.currentCarLat = finalLat;
-          window.lastHeading = ${safeOriginHeading != null ? serializeInlineScriptValue(safeOriginHeading) : 'window.lastHeading'};
-          
-          if (window.updateCarRotation) window.updateCarRotation();
-
-          if (${safeRadarMode} && window.updateRadarCirclePositions) {
-              window.updateRadarCirclePositions(finalLng, finalLat);
-          }
-          
-          if (window.ttMap && window.isFollowing && ${camMoved}) {
-              const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
-              // In radar mode, keep zoom comfortable and orientation north-up.
-              // In navigation mode, zoom into street level and track route bearing.
-              const isRadar = ${safeRadarMode};
-              const targetZoom = isRadar ? (window.currentRadarZoom || 14.2) : 18.5;
-              const targetBearing = isRadar ? 0 : routeBearing;
-              window.ttMap.easeTo({
-                  center: [finalLng, finalLat],
-                  zoom: targetZoom,
-                  pitch: 0,
-                  bearing: targetBearing,
-                  duration: 2800
-              });
-          }
-        }
-        
-        true;
-      `;
-      webViewRef.current.injectJavaScript(script);
-    }
-  }, [safeOriginLat, safeOriginLng, safeOriginHeading, safeShowCarIcon, safeRadarMode]);
+    // Only the live map (showCarIcon = true) streams fixes; static pins keep
+    // their document-baked coordinates.
+    if (!safeShowCarIcon || safeOriginLat == null || safeOriginLng == null) return;
+    pushFleetPosition(safeOriginLat, safeOriginLng, safeOriginHeading, safeRespondersJson);
+  }, [safeOriginLat, safeOriginLng, safeOriginHeading, safeRespondersJson, safeShowCarIcon, pushFleetPosition]);
 
   return (
     <View style={[styles.container, style]}>
@@ -1728,6 +1749,8 @@ const TomTomMap = forwardRef(({
         allowFileAccessFromFileURLs={true}
         allowUniversalAccessFromFileURLs={true}
         androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
+        javaScriptEnabled={true}
         overScrollMode="never"
         onMessage={(event) => {
           try {
@@ -1737,10 +1760,19 @@ const TomTomMap = forwardRef(({
             }
             // MAP_READY must fire even when the caller passes no onRouteData
             // (the idle map) — otherwise the loading overlay never lifts.
+            // It also opens the throttled fleet bridge: fixes that arrived
+            // before the document finished loading are replayed once here
+            // instead of being silently dropped.
             if (data.type === 'MAP_READY') {
+              isMapReadyRef.current = true;
               const activeCar = cachedCarImage || carImage;
               if (activeCar && webViewRef.current) {
                 webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${serializeInlineScriptValue(activeCar)}); true;`);
+              }
+              const latest = latestFleetRef.current;
+              if (latest.lat != null && latest.lng != null) {
+                lastBridgePushRef.current = 0;
+                pushFleetPosition(latest.lat, latest.lng, latest.heading, latest.respondersJson, true);
               }
               if (onMapReady) onMapReady();
             }

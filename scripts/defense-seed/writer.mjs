@@ -283,7 +283,7 @@ export async function writeDefenseSeed(db, plan, assets) {
     vehicle_id: ids(m.vehicle), maintenance_type: m.type,
     description: `Synthetic ${m.type.toLowerCase()} work ${MARK}`,
     maintenance_date: m.day, completed_date: m.status === "Completed" ? m.day : null,
-    cost: m.cost, service_provider: "Harbor Training Workshop (fictional)",
+    cost: m.cost,
     status: m.status, priority: m.status === "In Progress" ? "High" : "Normal",
     source_incident_id: m.vehicle === "V10" ? ids("I03") : null,
     completed_at: m.status === "Completed" ? at(m.day, 16) : null,

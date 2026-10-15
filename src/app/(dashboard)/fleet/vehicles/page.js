@@ -6,6 +6,7 @@ import { FleetTable } from "@/components/tables/fleet-table";
 import { FleetGrid } from "@/components/tables/fleet-grid";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2, Activity, LayoutGrid, List } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -51,7 +52,7 @@ export default function FleetVehiclesPage() {
   };
 
   const statCards = [
-    { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet", active: !filters.status && !filters.restrictedOnly, onClick: () => setFilters({}) },
+    { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet", active: !filters.status && !filters.restrictedOnly && !filters.operational_use, onClick: () => setFilters({}) },
     { label: "Available", value: stats.available, icon: CheckCircle2, tone: "success", trend: "ready for dispatch", active: filters.status === "Available", onClick: () => setFilters({ status: "Available" }) },
     { label: "Coding Restricted", value: stats.codingRestricted, icon: AlertTriangle, tone: "warning", trend: "restricted today", active: !!filters.restrictedOnly, onClick: () => setFilters(filters.restrictedOnly ? {} : { restrictedOnly: true }) },
     { label: "In Use", value: stats.inUse, icon: Activity, tone: "info", trend: "on the road", active: filters.status === "In Use", onClick: () => setFilters({ status: "In Use" }) },
@@ -71,7 +72,10 @@ export default function FleetVehiclesPage() {
         { label: "Year", key: "year" },
         { label: "Color", key: "color" },
         { label: "Fuel Type", key: "fuel_type" },
+        { label: "Operational Use", key: "operational_use" },
         { label: "Seating Capacity", key: "seating_capacity" },
+        { label: "Cargo Capacity (kg)", key: "cargo_capacity_kg" },
+        { label: "Commissioning Status", key: "commissioning_status" },
         { label: "Mileage (km)", key: "mileage" },
         { label: "Fuel Level (%)", key: "fuel_level" },
         { label: "Status", key: "vehicle_status" },
@@ -159,7 +163,7 @@ export default function FleetVehiclesPage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setFilters({})}
-            className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", !filters.status ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
+            className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", !filters.status && !filters.operational_use ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
           >
             All
           </button>
@@ -187,6 +191,22 @@ export default function FleetVehiclesPage() {
           >
             Registration Expired
           </button>
+          <Select
+            value={filters.operational_use ?? "all"}
+            onValueChange={(value) => setFilters((current) => ({ ...current, operational_use: value === "all" ? undefined : value }))}
+          >
+            <SelectTrigger
+              aria-label="Filter by operational use"
+              className="h-11 w-auto min-w-[10rem]"
+            >
+              <SelectValue placeholder="All uses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All uses</SelectItem>
+              <SelectItem value="Passenger">Passenger</SelectItem>
+              <SelectItem value="Cargo">Cargo</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-center gap-1 bg-surface border border-border/80 p-1 rounded-full shadow-xs">
           <button onClick={() => setViewMode("grid")} className={cn("p-1.5 rounded-full transition-all cursor-pointer", viewMode === "grid" ? "bg-primary text-white shadow-sm" : "text-foreground-secondary hover:text-foreground")}><LayoutGrid className="w-4 h-4" /></button>

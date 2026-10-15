@@ -36,6 +36,7 @@ beforeEach(() => {
   rolledBack = false;
   tx = {
     query: vi.fn(async (sql) => {
+      if (sql.includes("SELECT operational_use")) return { rows: [{ operational_use: tx.__storedUse ?? null }] };
       if (sql.includes("SELECT vehicle_status")) return { rows: [{ vehicle_status: "Available" }] };
       if (sql.includes("UPDATE vehicles")) return { rows: [{ vehicle_id: 29, vehicle_status: "Available" }] };
       throw new Error(`Unexpected query: ${sql}`);
@@ -117,5 +118,28 @@ describe("vehicle update and archive audit events", () => {
     expect(sql).toMatch(/verification_status = CASE WHEN[\s\S]*IS DISTINCT FROM[\s\S]*THEN 'Pending' ELSE verification_status END/);
     expect(sql).toMatch(/verified_by = CASE WHEN[\s\S]*THEN NULL ELSE verified_by END/);
     expect(sql).toMatch(/verified_at = CASE WHEN[\s\S]*THEN NULL ELSE verified_at END/);
+  });
+
+  it('clears stale cargo capacity when switching to Passenger', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ operational_use: 'Cargo' }] });
+    const res = await PUT(request('PUT', { vehicle_name: 'Isuzu Elf', operational_use: 'Passenger' }), { params: Promise.resolve({ id: '29' }) });
+    expect(res.status).toBe(200);
+    const updateCall = tx.query.mock.calls.find(([sql]) => sql.startsWith('UPDATE vehicles SET'));
+    expect(updateCall[0]).toMatch(/cargo_capacity_kg/);
+    expect(updateCall[1]).toContain(null);
+  });
+
+  it('rejects cargo capacity against the stored Passenger use', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ operational_use: 'Passenger' }] });
+    const res = await PUT(request('PUT', { vehicle_name: 'Isuzu Elf', cargo_capacity_kg: 500 }), { params: Promise.resolve({ id: '29' }) });
+    expect(res.status).toBe(400);
+  });
+
+  it('clears seats when switching to Cargo', async () => {
+    mocks.query.mockResolvedValueOnce({ rows: [{ operational_use: 'Passenger' }] });
+    const res = await PUT(request('PUT', { vehicle_name: 'Isuzu Elf', operational_use: 'Cargo', cargo_capacity_kg: 1000 }), { params: Promise.resolve({ id: '29' }) });
+    expect(res.status).toBe(200);
+    const updateCall = tx.query.mock.calls.find(([sql]) => sql.startsWith('UPDATE vehicles SET'));
+    expect(updateCall[0]).toMatch(/seating_capacity/);
   });
 });

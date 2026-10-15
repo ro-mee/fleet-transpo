@@ -39,6 +39,7 @@ export function FleetGrid({ filters = {} }) {
   const vehicles = useMemo(() => {
     return allVehicles.filter((v) => {
       if (filters.status && v.vehicle_status !== filters.status) return false;
+      if (filters.operational_use && v.operational_use !== filters.operational_use) return false;
       if (filters.restrictedOnly && !restrictedPlates.has(v.plate_number)) return false;
       return true;
     });
@@ -64,7 +65,7 @@ export function FleetGrid({ filters = {} }) {
   }
 
   if (vehicles.length === 0) {
-    const isFiltered = Boolean(filters.status || filters.restrictedOnly);
+    const isFiltered = Boolean(filters.status || filters.restrictedOnly || filters.operational_use);
     return (
       <Card className="border-0 shadow-sm rounded-[24px] overflow-hidden bg-surface">
         <CardContent className="py-4">

@@ -11,6 +11,7 @@ import { DataTable } from "@/components/tables/data-table";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
 import { getDrivers, getDriver, getDriverLicenseMasks, deleteDriver, getDriverStats, linkDriverAccount } from "@/services/driver.service";
 import {
@@ -45,6 +46,7 @@ export default function DriversPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [licenseClassFilter, setLicenseClassFilter] = useState("all");
+  const [driverTypeFilter, setDriverTypeFilter] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [revealedLicense, setRevealedLicense] = useState(null);
@@ -84,12 +86,13 @@ export default function DriversPage() {
     isRefetching,
     refetch,
   } = useQuery({
-    queryKey: ["drivers", statusFilter, licenseClassFilter],
+    queryKey: ["drivers", statusFilter, licenseClassFilter, driverTypeFilter],
     queryFn: () =>
       getDrivers({
         includeUnlinked: 1,
         status: statusFilter !== "all" ? statusFilter : undefined,
         license_class: licenseClassFilter !== "all" ? licenseClassFilter : undefined,
+        driver_type: driverTypeFilter !== "all" ? driverTypeFilter : undefined,
       }),
     placeholderData: (prev) => prev,
     refetchOnWindowFocus: false,
@@ -458,6 +461,23 @@ export default function DriversPage() {
             description="Linked profiles and incomplete driver accounts. Summary cards count linked profiles only."
             icon={Users}
             context={statusFilter === "all" ? "All Drivers" : statusFilter}
+            toolbar={
+              <div className="flex items-center gap-2">
+                <Select value={driverTypeFilter} onValueChange={setDriverTypeFilter}>
+                  <SelectTrigger
+                    aria-label="Filter by driver classification"
+                    className="h-11 w-auto min-w-[10rem]"
+                  >
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    <SelectItem value="Passenger">Passenger</SelectItem>
+                    <SelectItem value="Cargo">Cargo Logistics</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            }
             searchPlaceholder="Search drivers by name, email, or phone..."
             emptyTitle={isError && !drivers.length ? "Driver directory unavailable" : search ? "No matching drivers" : "No driver records"}
             emptyDescription={isError && !drivers.length ? "Try again above when the directory request is available." : "Try adjusting your search or filters."}

@@ -259,7 +259,6 @@ function toPairCandidate(pair, request, trip) {
     reason_type: pair.reason_type,
     replacement_reason: pair.replacement_reason ?? null,
     ...(pair.vehicle?.cargoPhysical ? { cargoPhysical: pair.vehicle.cargoPhysical } : {}),
-    ...(pair.qualification ? { qualification: pair.qualification } : {}),
     score: pair.score,
     confidence: Number(pair.confidence),
     reasons: pair.reasons,
@@ -412,8 +411,7 @@ export function buildDispatchRecommendation({
       // skipped when it could not form a pair, plus pre-filtered vehicles the
       // SQL candidate query removed before scoring (flagged, honestly brief).
       none_reasons: [
-        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason, driver_id: s.driver_id ?? null, driver_name: s.driver_name ?? null,
-          ...(s.qualification ? { qualification: s.qualification } : {}) })),
+        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason, driver_id: s.driver_id ?? null, driver_name: s.driver_name ?? null })),
         ...prefilteredSkipped,
       ],
     },

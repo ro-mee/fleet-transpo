@@ -60,4 +60,37 @@ describe("GET /api/drivers directory filters", () => {
     expect(select).not.toContain("UNION ALL");
     expect(select).not.toContain("TRUE AS requires_completion");
   });
+
+  it("keeps the UNION branches column-aligned (driver_type)", async () => {
+    await request("includeUnlinked=1");
+
+    const select = state.query.mock.calls
+      .map(([sql]) => sql)
+      .find((sql) => sql.includes("FALSE AS requires_completion"));
+
+    // First branch projects d.driver_type before d.driver_status; the
+    // unlinked branch must carry the same column in the same position,
+    // otherwise PostgreSQL rejects the UNION (42601). Unlinked rows default
+    // to 'Passenger', matching the UI's treatment of a missing type.
+    expect(select).toContain("d.driver_type");
+    const [, unlinked] = select.split("UNION ALL");
+    expect(unlinked).toContain("'Passenger' AS driver_type");
+    expect(unlinked.indexOf("'Passenger' AS driver_type")).toBeLessThan(
+      unlinked.indexOf("'Incomplete' AS driver_status")
+    );
+  });
+
+  it("sends single-statement column guards (no ALTER + DO in one call)", async () => {
+    await request("includeUnlinked=1");
+
+    const guardCalls = state.query.mock.calls
+      .map(([sql]) => sql)
+      .filter((sql) => sql.includes("ADD COLUMN IF NOT EXISTS") || sql.includes("chk_driver_type"));
+    // ALTER and the DO block must not share one query string: node-postgres
+    // resolves that to the DO result (rows undefined), which warned on every
+    // request via `result.rows.length`.
+    for (const sql of guardCalls) {
+      expect(sql.includes("ADD COLUMN IF NOT EXISTS") && sql.includes("DO $$")).toBe(false);
+    }
+  });
 });

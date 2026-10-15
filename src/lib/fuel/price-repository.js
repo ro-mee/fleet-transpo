@@ -25,7 +25,10 @@ export function createPriceRepository(db = { query, withTransaction }) {
       FROM due WHERE s.snapshot_id = due.snapshot_id
         AND s.lifecycle IS DISTINCT FROM CASE WHEN due.position = 1 THEN 'Active' ELSE 'Historical' END`, [at]);
   };
-  const list = () => run(async () => (await db.query("SELECT * FROM fuel_price_snapshots ORDER BY effective_at DESC, snapshot_id DESC LIMIT 200")).rows);
+  const list = () => run(async () => (await db.query(
+    `SELECT s.*, e.first_name AS verifier_first_name, e.last_name AS verifier_last_name
+     FROM fuel_price_snapshots s LEFT JOIN employees e ON e.employee_id = s.verified_by
+     ORDER BY s.effective_at DESC, s.snapshot_id DESC LIMIT 200`)).rows);
   const applicable = ({ fuelType, region, at }, connection = db) => run(async () => {
     if (!fuelType || !region || !rowInstant(at)) return null;
     if (connection === db) return db.withTransaction((tx) => applicable({ fuelType, region, at }, tx));

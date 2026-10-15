@@ -11,7 +11,7 @@ import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { validatePairAvailability } from "@/services/recommendation.service";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
-import { assertCargoCheckpoint, cargoLifecycleEnabled, prepareCargoLifecycle } from '@/services/cargo-execution.service';
+import { assertCargoDispatchCheckpoint, prepareCargoLifecycle } from '@/services/cargo-execution.service';
 import { assertStoredVehicleLoadCompatibility } from '@/lib/trips/vehicle-load-compatibility';
 
 const NON_DISPATCHABLE_VEHICLE = ["Under Maintenance", "Decommissioned", "Registration Expired"];
@@ -278,10 +278,7 @@ export async function PUT(req, { params }) {
     values.push(session.user.employeeId);
 
     const update = async db => {
-      if (await prepareCargoLifecycle(db)) {
-        const trips = (await db.query('SELECT * FROM trips WHERE dispatch_id=$1 AND deleted_at IS NULL ORDER BY trip_id', [id])).rows;
-        for (const trip of trips) await assertCargoCheckpoint(trip, { to: 'Reassign', session, patch: { driver_id: effDriverId, vehicle_id: effVehicleId } }, db);
-      }
+      await assertCargoDispatchCheckpoint(id, { to: 'Reassign', session, patch: { driver_id: effDriverId, vehicle_id: effVehicleId } }, db);
       if (effVehicleId && effDriverId) {
         await assertStoredVehicleLoadCompatibility({ db, driverId: effDriverId, vehicleId: effVehicleId,
           requestId: before[0]?.request_id ?? null, requireTypedLoad: true });
@@ -290,7 +287,7 @@ export async function PUT(req, { params }) {
     };
     const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,update)
       : await withTransaction(async tx => {
-        if (cargoLifecycleEnabled()) await prepareCargoLifecycle(tx);
+        await prepareCargoLifecycle(tx);
         return update(tx);
       });
     if (!rows[0]) return err("Dispatch not found", 404);

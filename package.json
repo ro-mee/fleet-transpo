@@ -11,6 +11,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "verify:auth": "node scripts/verify-route-auth.mjs",
+    "verify:encoding": "node scripts/verify-encoding.mjs",
     "verify:anon": "node scripts/verify-anon-access.mjs",
     "verify:rls": "node scripts/verify-rls.mjs",
     "verify:driver-addresses": "node scripts/verify-driver-addresses.mjs",

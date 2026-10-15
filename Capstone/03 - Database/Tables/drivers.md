@@ -58,6 +58,10 @@ metadata on existing rows is intentional and blocks assignment until review.
 
 `address`, `birthdate`, `sex`, `nationality`, `emergency_contact_name`, `emergency_contact_phone`, and `emergency_contact_address` columns are now exposed via `GET /api/driver/me` for the authenticated driver's self-view (rendered on both web `/driver/profile` and mobile `profile/personal.js`). When an operator edits a driver via `/drivers/[id]/edit`, optional fields that are cleared now send `null` so that database columns are properly set to `NULL` rather than being ignored.
 
+## Driver classification — 2026-10-12
+
+`driver_type` (`VARCHAR(50) DEFAULT 'Passenger'`, constrained by `chk_driver_type` to `'Passenger'` or `'Cargo'`) stores the driver's operational classification, matching the vehicle `operational_use` pattern. It is selected during driver onboarding (where initial duty status was removed in favor of defaulting to `Available`), editable via `/drivers/[id]/edit`, and surfaced on directory listings and driver detail overviews.
+
 ## Vehicle pairing lives elsewhere
 
 Which vehicle a driver is assigned is **not** a column here — it's [[driver_vehicle_assignments]], with partial unique indexes enforcing at most one active pairing per driver and per vehicle. That's what forces reassignment through `withTransaction`. → [[Connection Pooling vs Transactions]]

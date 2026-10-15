@@ -29,6 +29,9 @@ let migrationRan = false;
 async function ensureDriverColumnsExist() {
   if (migrationRan) return;
   try {
+    // Single statements only: node-postgres resolves a multi-statement
+    // string to the last result (whose `rows` is undefined for DO), which
+    // tripped `result.rows.length` in `query()` and warned on every request.
     await query(`
       ALTER TABLE drivers 
       ADD COLUMN IF NOT EXISTS emergency_contact_name VARCHAR(255),
@@ -37,7 +40,8 @@ async function ensureDriverColumnsExist() {
       ADD COLUMN IF NOT EXISTS license_image_url TEXT,
       ADD COLUMN IF NOT EXISTS license_back_image_url TEXT,
       ADD COLUMN IF NOT EXISTS driver_type VARCHAR(50) DEFAULT 'Passenger';
-
+    `);
+    await query(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_driver_type') THEN
@@ -111,6 +115,16 @@ export async function GET(req) {
       params.push(status);
     }
 
+    // Roster classification filter. Allow-listed so a stray value can never
+    // silently empty the directory — anything outside Passenger/Cargo behaves
+    // as if no filter was given.
+    const driverType = searchParams.get("driver_type");
+    const typeFilter = ["Passenger", "Cargo"].includes(driverType) ? driverType : null;
+    if (typeFilter) {
+      sql += ` AND d.driver_type = $${idx++}`;
+      params.push(typeFilter);
+    }
+
     // Only drivers with NO currently active custodial vehicle (017). Used to
     // populate the substitute-driver picker — a substitute must be someone who
     // doesn't already own a car.
@@ -163,6 +177,9 @@ export async function GET(req) {
     const includeUnlinkedRows = includeUnlinked
       && (!status || status === "all" || status === "Incomplete")
       && (!licenseClass || licenseClass === "all")
+      // Unlinked rows project 'Passenger' (no stored classification yet), so
+      // they belong to a Passenger filter and to no filter — never to Cargo.
+      && (!typeFilter || typeFilter === "Passenger")
       && !unassigned
       && !pickupAt
       && !returnAt;
@@ -182,6 +199,10 @@ export async function GET(req) {
           NULL AS license_verification_method,
           0 AS years_of_experience,
           NULL::VARCHAR(50) AS driver_type,
+          -- Unlinked (incomplete-account) rows have no drivers row: the UI
+          -- treats a missing classification as Passenger (design §4), so the
+          -- API projects the same default instead of null.
+          'Passenger' AS driver_type,
           'Incomplete' AS driver_status,
           NULL AS current_latitude,
           NULL AS current_longitude,
@@ -312,7 +333,7 @@ export async function POST(req) {
       license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
       driver_type: {
-        validate: (v) => (["Passenger", "Cargo"].includes(v) ? null : "Driver classification must be Passenger or Cargo."),
+        validate: (v) => (!v || ["Passenger", "Cargo"].includes(v) ? null : "Driver classification must be Passenger or Cargo."),
       },
       birthdate: {
         type: "date",
@@ -512,7 +533,7 @@ export async function POST(req) {
             normalizeLicenseType(license_type),
             normalizeLicenseClasses(license_class)?.join(", ") || null,
             years_of_experience ? Number(years_of_experience) : 0,
-            driver_type ?? "Passenger",
+            driver_type === "Cargo" ? "Cargo" : "Passenger",
             driver_status || "Available",
             residentialText,
             sex || null,
@@ -540,7 +561,7 @@ export async function POST(req) {
           action: "create",
           resource: "drivers",
           resourceId: newDriverId,
-          newValues: { changed_fields: ["employee", "license", "profile"], driver_type: driver_type ?? "Passenger", driver_status: driver_status || "Available", outcome: "created" },
+          newValues: { changed_fields: ["employee", "license", "profile"], driver_type: driver_type === "Cargo" ? "Cargo" : "Passenger", driver_status: driver_status || "Available", outcome: "created" },
         });
 
         return newDriverId;

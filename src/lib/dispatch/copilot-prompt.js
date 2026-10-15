@@ -26,6 +26,8 @@ export const CONVERSATION_STYLE = `Speak like a helpful dispatcher colleague, no
 
 export const SCOPE_RULES = 'Scope is routing only. Greetings and acknowledgements may receive a brief friendly FleetOps-focused reply. A short follow-up inherits context only from a recent in-scope FleetOps turn or an active reservation recommendation review; a previous unrelated turn does not establish context. Clearly unrelated requests must receive the FleetOps redirect and no substantive general-knowledge answer. Scope never decides availability, eligibility, ranking, server evidence, displayed options, assignment state, reservation state, or any other operational record. Existing safety and evidence rules remain authoritative.';
 
+export const CARGO_RULES = 'CARGO. When serverEvidence.requestCargo.loadType is Cargo, reason in kilograms, never seats or passenger counts. Usable payload decides when supplied; legacy recorded payload is transitional only. SHADOW physical findings are advisory; ENFORCE blocks assignment. Handling and temperature are separate checks from weight. Never invent manifest lines.';
+
 export const COPILOT_PROMPT_BLOCKS = [
   ANSWER_GUIDANCE,
   `${EVIDENCE_TRUST_RULES} ${SCOPE_RULES}`,
@@ -37,6 +39,7 @@ export const COPILOT_PROMPT_BLOCKS = [
   SIMULATION_INSTRUCTIONS,
   RECOVERY_INSTRUCTIONS,
   CONVERSATION_STYLE,
+  CARGO_RULES,
 ];
 
 export function buildCopilotSystemInstructions() {

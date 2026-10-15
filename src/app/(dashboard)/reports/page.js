@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { MotionConfig, motion } from "framer-motion";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Area, Bar, CartesianGrid, Cell, ComposedChart, Legend, Line, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -31,6 +31,9 @@ import { isNarrativeForReport, isValidReportPayload } from "@/lib/ai/report-narr
 import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { rolesFor } from "@/lib/auth/permissions";
+import { getOpenFuelDiagnostics } from "@/services/maintenance.service";
+import { FuelDiagnosticAction } from "@/components/maintenance/fuel-diagnostic-action";
 import { SERIES as CHART_COLORS } from "@/lib/chart-tokens";
 const EASE = [0.32, 0.72, 0, 1];
 const CARD_SHADOW = "shadow-[0_1px_2px_rgba(17,24,39,0.04),0_20px_44px_-30px_rgba(17,24,39,0.28)]";
@@ -272,7 +275,11 @@ function ChartStage({ children, height = 320 }) {
 }
 
 export default function ReportsPage() {
-  useRequireRole();
+  const { role } = useRequireRole();
+  // Manual fuel-diagnostic filing is an FM/admin act (maintenance.create):
+  // management can read this report but never files from it. The server
+  // re-checks on POST; this only hides the button.
+  const canFileDiagnostic = rolesFor("maintenance", "create").includes(role);
   // Report + range hydrate from the URL so a configured view is bookmarkable,
   // shareable, and refresh-stable instead of dying with the component.
   const PRESET_IDS = ["today", "7d", "month", "quarter", "custom"];
@@ -552,7 +559,7 @@ export default function ReportsPage() {
           ) : (
             <>
               {selectedReport === "fleet" && <FleetReport query={fleet} data={fleetData} />}
-              {selectedReport === "fuel" && <FuelReport query={fuel} trend={fuelTrend} categories={fuelCategories} />}
+              {selectedReport === "fuel" && <FuelReport query={fuel} trend={fuelTrend} categories={fuelCategories} from={dateBounds.from} to={dateBounds.to} canFileDiagnostic={canFileDiagnostic} />}
               {selectedReport === "maintenance" && <MaintenanceReport query={maintenance} data={maintenanceData} due={maintDue} />}
               {selectedReport === "drivers" && <DriversReport query={drivers} data={driverData} />}
               {selectedReport === "financial" && <FinancialReport query={financial} data={costData} total={totalCost} />}
@@ -838,7 +845,7 @@ function FleetReport({ query, data }) {
   );
 }
 
-function FuelReport({ query, trend, categories }) {
+function FuelReport({ query, trend, categories, from, to, canFileDiagnostic }) {
   const report = query.data || {};
   const efficiencyRows = (report.byVehicle || []).slice(0, 10);
   const categoryData = categories.slice(0, 6).map((item) => ({
@@ -848,6 +855,14 @@ function FuelReport({ query, trend, categories }) {
   }));
   const totalCategoryLiters = categoryData.reduce((sum, item) => sum + item.value, 0);
 
+  const queryClient = useQueryClient();
+  const vehicleIds = efficiencyRows.map((vehicle) => vehicle.vehicle_id);
+  const diagnosticsQuery = useQuery({
+    queryKey: ["open-fuel-diagnostics", vehicleIds],
+    queryFn: () => getOpenFuelDiagnostics(vehicleIds),
+    enabled: canFileDiagnostic && vehicleIds.length > 0,
+    staleTime: 30_000,
+  });
   return (
     <>
       <StatGrid cols={4}>
@@ -1083,7 +1098,7 @@ function FuelReport({ query, trend, categories }) {
       >
         {query.isLoading ? <LoadingChart /> : efficiencyRows.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[860px] border-collapse text-left text-sm">
               <thead className="border-b border-border text-xs text-foreground-muted">
                 <tr>
                   <th className="px-3 py-3 font-semibold">Vehicle</th>
@@ -1093,6 +1108,7 @@ function FuelReport({ query, trend, categories }) {
                   <th className="px-3 py-3 text-right font-semibold">Estimated</th>
                   <th className="px-3 py-3 text-right font-semibold">Baseline</th>
                   <th className="px-3 py-3 font-semibold">Status</th>
+                  {canFileDiagnostic && <th className="px-3 py-3 font-semibold">Action</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
@@ -1105,10 +1121,36 @@ function FuelReport({ query, trend, categories }) {
                     <td className="px-3 py-3 text-right font-data font-semibold">{vehicle.estimated_kmpl == null ? "—" : `${Number(vehicle.estimated_kmpl).toFixed(2)} km/L`}</td>
                     <td className="px-3 py-3 text-right font-data">{vehicle.baseline_efficiency ? `${Number(vehicle.baseline_efficiency).toFixed(2)} km/L` : "—"}</td>
                     <td className="px-3 py-3"><StatusBadge status={vehicle.status} entity="efficiency" /></td>
+                    {canFileDiagnostic && (
+                      <td className="px-3 py-3">
+                        {vehicle.status === "Below baseline" && vehicle.estimated_kmpl != null ? (
+                          <FuelDiagnosticAction
+                            key={`${vehicle.vehicle_id}:${from}:${to}`}
+                            vehicle={vehicle}
+                            from={from}
+                            to={to}
+                            lookup={diagnosticsQuery}
+                            existingDiagnostic={diagnosticsQuery.data?.find((row) => Number(row.vehicle_id) === Number(vehicle.vehicle_id))}
+                            onFiled={() => {
+                              queryClient.invalidateQueries({ queryKey: ["open-fuel-diagnostics"] });
+                              queryClient.invalidateQueries({ queryKey: ["maintenance-records"] });
+                            }}
+                          />
+                        ) : (
+                          <span className="text-xs text-foreground-muted">—</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
+            {canFileDiagnostic && (
+              <p className="mt-2 text-[11px] leading-relaxed text-foreground-muted">
+                Below-baseline is a period aggregate, not a per-fill fault — diagnostics inspect, never infer
+                pilferage. Diagnostics are scheduled for tomorrow; they become due then. Review an open diagnostic before creating another.
+              </p>
+            )}
           </div>
         ) : <NoData />}
       </Panel>

@@ -14,7 +14,7 @@ import { getVehicles, deleteVehicle } from "@/services/vehicle.service";
 import { getUvvrpPolicy } from "@/services/settings.service";
 import { isRestricted } from "@/lib/uvvrp/policy";
 import { formatDate, formatNumber } from "@/lib/utils";
-import { Archive, CalendarClock, CircleGauge, Eye, Pencil, Truck, Users } from "lucide-react";
+import { Archive, CalendarClock, CircleGauge, Eye, Package, Pencil, Truck, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -46,6 +46,10 @@ export function FleetTable({ filters = {} }) {
     return allVehicles.filter((v) => {
       // status filter
       if (filters.status && v.vehicle_status !== filters.status) {
+        return false;
+      }
+      // operational use filter
+      if (filters.operational_use && v.operational_use !== filters.operational_use) {
         return false;
       }
       // UVVRP number-coding filter
@@ -100,12 +104,25 @@ export function FleetTable({ filters = {} }) {
       }),
       columnHelper.accessor("seating_capacity", {
         header: "Capacity",
-        cell: (info) => (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground-secondary">
-            <Users className="h-3.5 w-3.5 text-foreground-muted" />
-            {info.getValue()} seats
-          </span>
-        ),
+        cell: (info) => {
+          // Cargo rows show measured-capability kg (legacy column as display
+          // fallback); Passenger rows keep the exact seats rendering.
+          if (info.row.original.operational_use === "Cargo") {
+            const kg = Number(info.row.original.cargo_capacity_kg);
+            return (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground-secondary">
+                <Package className="h-3.5 w-3.5 text-foreground-muted" />
+                {Number.isFinite(kg) ? `${formatNumber(kg)} kg` : "—"}
+              </span>
+            );
+          }
+          return (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground-secondary">
+              <Users className="h-3.5 w-3.5 text-foreground-muted" />
+              {info.getValue()} seats
+            </span>
+          );
+        },
       }),
 
       columnHelper.accessor("mileage", {

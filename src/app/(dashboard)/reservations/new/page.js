@@ -40,6 +40,7 @@ import {
   FileText,
   CarFront,
   AlertCircle,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
@@ -185,6 +186,35 @@ export default function MockInjectorPage() {
     toast.success("Filled mock transport request data!");
   };
 
+  const handleCargoMockFill = () => {
+    const r = Math.floor(Math.random() * 9000) + 1000;
+    const dateStr = nowPlusHoursLocal(Math.floor(Math.random() * 48) + 1);
+    const cargoCode = CARGO_SERVICE_OPTIONS[0]?.[0] || "RESTAURANT_SUPPLY_PICKUP";
+
+    setForm((current) => ({
+      ...current,
+      external_booking_id: `CARGO-2026-${r}`,
+      source_system: "POS",
+      booking_reference: `CARGO-REF-${r}`,
+      guest_name: "",
+      pickup_location: form.pickup_location || defaultPickup,
+      dropoff_location: form.dropoff_location || defaultDropoff,
+      pickup_datetime: dateStr,
+      passenger_count: 1,
+      special_requests: "",
+      requested_vehicle_type: categories[0]?.category_name || "",
+      priority: "Normal",
+      service_code: cargoCode,
+      cargo_description: "Vegetables",
+      cargo_weight_kg: "650",
+      source_department: "Restaurant",
+    }));
+    setCargoLines([blankCargoDraftLine("first", { declared_weight_kg: "650", description: "Vegetables" })]);
+    setCargoErrors({});
+    setCargoNotice("");
+    toast.success("Filled mock cargo reservation (650 kg vegetables)!");
+  };
+
   const submit = (e) => {
     e.preventDefault();
     if (isCargo) {
@@ -262,6 +292,9 @@ export default function MockInjectorPage() {
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleRandomFill} className="rounded-xl text-xs">
               <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-500" /> Fill Mock Data
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleCargoMockFill} className="rounded-xl text-xs">
+              <Package className="w-3.5 h-3.5 mr-1 text-emerald-500" /> Fill Cargo Mock
             </Button>
             <Button
               variant="secondary"

@@ -1,11 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState, Linking, Image, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, View, Text, Animated, PanResponder, useWindowDimensions, Pressable, ScrollView, AppState, Linking, Image, ActivityIndicator, RefreshControl } from 'react-native';
 import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
+import OffDutyIllustration from "../../../components/OffDutyIllustration";
+import RouteOptionsSheet from "../../../components/RouteOptionsSheet";
+import TripOperationalSummary, { CargoMapStandby } from "../../../components/TripOperationalSummary";
+import { navigationTarget, externalNavigationUrl } from "../../../lib/navigation-route";
 import { METEOCON_ASSETS } from "../../../components/WeatherChip";
-import { api, wasQueued } from "../../../lib/api";
+import { api, wasQueued, subscribeApiEvents } from "../../../lib/api";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAmbientWeather } from "../../../lib/ambient-weather";
 import { useAuth } from "../../../lib/auth";
@@ -33,6 +37,7 @@ import {
 import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
 import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
+import { readinessFor } from "../../../lib/trip-detail";
 import { cargoApi } from "../../../lib/cargo-api";
 import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from "../../../lib/cargo-sync";
 import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
@@ -45,9 +50,6 @@ import {
   mergeStoredKm,
   legForStatus,
 } from "../../../lib/background-tracking";
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const BOTTOM_SHEET_MIN_HEIGHT = 260; // Height of the collapsed view
-const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.72; // Expanded height
 
 // PR #3.1: a queued write reached the local outbox, NOT the server.
 // Transition behavior is unchanged; only the wording stays honest — the
@@ -82,6 +84,11 @@ const GPS_TRACKING_STATUSES = new Set([
 function isGpsTrackedTrip(trip) {
   return trip?.trip_id != null && GPS_TRACKING_STATUSES.has(trip.trip_status);
 }
+
+// The driver map has no live responder feed of its own (rescue positions are
+// server-side); the fleet bridge prop still gets a stable empty identity so
+// no per-render array ever reaches the WebView.
+const NO_FLEET_RESPONDERS = [];
 
 // Poll churn guard: the 15 s refetch builds fresh objects every time, and a new
 // identity alone re-renders the whole screen plus every memo'd downstream prop
@@ -465,6 +472,7 @@ export default function MapTab() {
   const params = useLocalSearchParams();
   const { colors, scheme, type } = useTheme();
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const { triggerMilestone, notifyInteraction } = useCoachMarkActions();
   const { activeMilestone, mapIntroPending, mapIntroAwaitingTap } =
     useCoachMarkStatus();
@@ -479,6 +487,17 @@ export default function MapTab() {
   const [tripSession, setTripSession] = useState(null);
   const tripConfirmed = isCurrentCargoSession(tripSession);
   const [activeTrip, setActiveTrip] = useState(null);
+  const [completedCargo, setCompletedCargo] = useState(null);
+  if (completedCargo && (completedCargo.session.actorId !== String(user?.employeeId) || profile?.driverType !== 'Cargo' || !isCurrentCargoSession(completedCargo.session))) {
+    setCompletedCargo(null);
+  }
+  useEffect(() => {
+    const signal = completedCargo?.session?.signal;
+    if (!signal) return;
+    const clear = () => setCompletedCargo(null);
+    signal.addEventListener('abort', clear);
+    return () => signal.removeEventListener('abort', clear);
+  }, [completedCargo]);
 
   const emptyStateKey = useMemo(() => {
     return resolveMapEmptyState({
@@ -516,6 +535,10 @@ export default function MapTab() {
   // not Ionicons names) — hoisted so no new object is built inside the JSX.
   const weatherArt = weather ? METEOCON_ASSETS[weather.icon] : null;
   const standbyBottom = getDynamicBottomOffset(insets.bottom) + 64 + 16;
+  const [primarySheetHeight, setPrimarySheetHeight] = useState(260);
+  const maxSheetHeight = Math.max(120, Math.min(screenHeight * 0.72, screenHeight - standbyBottom - insets.top - 64));
+  const collapsedY = screenHeight - standbyBottom - Math.min(primarySheetHeight, maxSheetHeight);
+  const expandedY = screenHeight - standbyBottom - maxSheetHeight;
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -525,12 +548,19 @@ export default function MapTab() {
   // True when the WebView reported ROUTE_UNAVAILABLE: the last routeData (if
   // any) is retained for context but must NOT be presented as a live ETA.
   const [routeStale, setRouteStale] = useState(false);
+  const [routePhase, setRoutePhase] = useState('calculating');
+  const [routeChoices, setRouteChoices] = useState([]);
+  const [routePreferences, setRoutePreferences] = useState({ tripId: null, avoidTolls: false, selectedIndex: 0 });
+  const [routeOptionsVisible, setRouteOptionsVisible] = useState(false);
+  const applyingRoute = useRef(false);
+  const routeSessionRef = useRef(null);
   // Contract with TomTomMap.js WebView messages:
   //   ROUTE_CALCULATED  → fresh traffic-aware live route
   //   ROUTE_REFRESHING  → recalculation started (keep old numbers, not stale)
   //   ROUTE_UNAVAILABLE → TomTom failed; stop presenting old numbers as live
   const handleRouteMessage = useCallback((msg) => {
     if (!msg || typeof msg !== "object") return;
+    if (msg.sessionKey !== routeSessionRef.current) return;
     if (msg.type === "ROUTE_CALCULATED") {
       setRouteData({
         travelTimeInSeconds: msg.travelTimeInSeconds,
@@ -541,9 +571,18 @@ export default function MapTab() {
         source: "tomtom-live",
         trafficAware: true,
       });
+      setRouteChoices(msg.routes || []);
+      setRoutePreferences({ ...msg.preferences, tripId: msg.tripId, sessionKey: msg.sessionKey });
+      setRoutePhase('valid');
+      if (applyingRoute.current) setRouteOptionsVisible(false);
+      applyingRoute.current = false;
       setRouteStale(false);
     } else if (msg.type === "ROUTE_UNAVAILABLE") {
+      applyingRoute.current = false;
+      setRoutePhase('failed');
       setRouteStale(true);
+    } else if (msg.type === "ROUTE_REFRESHING") {
+      setRoutePhase('refreshing');
     }
   }, []);
   // In-flight lock for the swipe transitions: SwipeButton honors `busy` so a
@@ -679,37 +718,49 @@ export default function MapTab() {
 
 
   // Bottom Sheet Animation State
-  const [panY] = useState(() => new Animated.Value(SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60)); // -60 for tab bar approx
+  const [panY] = useState(() => new Animated.Value(collapsedY));
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
   const isExpandedRef = useRef(false);
+  const isMinimizedRef = useRef(false);
+  const snapToRef = useRef(null);
 
   const snapTo = useCallback((expanded) => {
     isExpandedRef.current = expanded;
     setIsExpanded(expanded);
     setIsMinimized(false);
+    isMinimizedRef.current = false;
     Animated.spring(panY, {
-      toValue: expanded ? SCREEN_HEIGHT - BOTTOM_SHEET_MAX_HEIGHT - 60 : SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60,
+      toValue: expanded ? expandedY : collapsedY,
       tension: 50,
       friction: 8,
       useNativeDriver: false,
     }).start();
-  }, [panY]);
+  }, [panY, expandedY, collapsedY]);
 
   const snapToMinimized = useCallback((minimize) => {
     setIsMinimized(minimize);
+    isMinimizedRef.current = minimize;
     if (minimize) {
       isExpandedRef.current = false;
       setIsExpanded(false);
     }
     Animated.spring(panY, {
-      toValue: minimize ? SCREEN_HEIGHT + 20 : SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60,
+      toValue: minimize ? screenHeight + 20 : collapsedY,
       tension: 50,
       friction: 8,
       useNativeDriver: false,
     }).start();
-  }, [panY]);
+  }, [panY, screenHeight, collapsedY]);
+
+  useEffect(() => {
+    snapToRef.current = snapTo;
+  }, [snapTo]);
+  useEffect(() => {
+    // Measured copy, warnings and larger text must stay above the navigation pill.
+    panY.setValue(isMinimizedRef.current ? screenHeight + 20 : isExpandedRef.current ? expandedY : collapsedY);
+  }, [panY, screenHeight, expandedY, collapsedY]);
 
   const panResponder = useRef(
     // eslint-disable-next-line react-hooks/refs -- RN gesture responder reads live drag refs; created once via lazy state
@@ -723,11 +774,11 @@ export default function MapTab() {
       onPanResponderRelease: (evt, gestureState) => {
         panY.flattenOffset();
         if (gestureState.dy < -50 || gestureState.vy < -0.5) {
-          snapTo(true);
+          snapToRef.current?.(true);
         } else if (gestureState.dy > 50 || gestureState.vy > 0.5) {
-          snapTo(false);
+          snapToRef.current?.(false);
         } else {
-          snapTo(isExpandedRef.current);
+          snapToRef.current?.(isExpandedRef.current);
         }
       },
     })
@@ -789,10 +840,16 @@ export default function MapTab() {
       const isReturning = next === "active";
 
       if (isLeavingActive && hadActiveTrip) {
+        const expectedTripId = activeTripRef.current?.trip_id;
         updateLegContext({
           tripId: activeTripRef.current?.trip_id ?? null,
           leg: legForStatus(activeTripRef.current?.trip_status),
-        }).then(() => startBackgroundTracking()).catch(() => {});
+        }).then(async () => {
+          if (activeTripRef.current?.trip_id !== expectedTripId || appState.current === 'active') return;
+          await startBackgroundTracking();
+          // Completion/foreground return may arrive while OS permission/start is pending.
+          if (activeTripRef.current?.trip_id !== expectedTripId || appState.current === 'active') await stopBackgroundTracking();
+        }).catch(() => {});
       } else if (isReturning) {
         // Clear the straddling fix synchronously so a foreground watcher tick
         // that fires before the merge resolves cannot double-count the gap
@@ -859,6 +916,24 @@ export default function MapTab() {
       setLoading(false);
     }
   }, [user?.employeeId]);
+
+  useEffect(() => subscribeApiEvents(event => {
+    if (event.type !== 'trip-completed' || String(event.tripId) !== String(activeTripRef.current?.trip_id)) return;
+    // This event only follows a server-confirmed PUT, never an outbox save.
+    const completed = activeTripRef.current;
+    const completionSession = captureCargoSession(user?.employeeId);
+    if (profile?.driverType === 'Cargo' && isCargoLoad(completed) && completionSession && isCurrentCargoSession(completionSession)) {
+      setCompletedCargo({ tripId: completed.trip_id, reference: completed.dispatch_number || `TRP-${completed.trip_id}`, session: completionSession });
+    }
+    ++tripRequest.current;
+    activeTripRef.current = null;
+    setActiveTrip(null);
+    setRouteData(null);
+    setRouteChoices([]);
+    updateLegContext({ tripId: null, leg: null }).catch(() => {});
+    stopBackgroundTracking().catch(() => {});
+    loadTrip();
+  }), [loadTrip, profile?.driverType, user?.employeeId]);
 
   // `duty` is a fresh object every render (useDuty spreads state), so it must
   // never appear in a dep array — only the stable `refresh` callback.
@@ -945,6 +1020,9 @@ export default function MapTab() {
 
   useFocusEffect(useCallback(() => {
     focusedRef.current = true;
+    // Resume WebView interpolation/camera work; the bridge keeps buffering
+    // fixes while unfocused via lastFixRef, so resume is instant.
+    mapRef.current?.setMapActive?.(true);
     // Re-seed the map from fixes collected while unfocused. Functional set
     // with an equality bail-out so a re-run with an unchanged fix does not
     // mint a new object and re-render for nothing.
@@ -960,7 +1038,12 @@ export default function MapTab() {
       loadTrip();
     }
     dutyRefresh?.();
-    return () => { focusedRef.current = false; };
+    return () => {
+      focusedRef.current = false;
+      // Pause rAF interpolation + camera glides while on another tab so a
+      // hidden WebView holds no animation loop or WebGL churn.
+      mapRef.current?.setMapActive?.(false);
+    };
   }, [loadTrip, emptyStateKey, dutyRefresh]));
 
   // Auto-polling dispatch queue every 15 seconds — foreground AND focused
@@ -974,6 +1057,19 @@ export default function MapTab() {
     }, 15000);
     return () => clearInterval(timer);
   }, [loadTrip, emptyStateKey]);
+
+  // Backgrounding pauses WebView animation/camera work (same as tab blur);
+  // foreground return resumes only when this tab is still the focused one.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next.match(/inactive|background/)) {
+        mapRef.current?.setMapActive?.(false);
+      } else if (next === "active" && focusedRef.current) {
+        mapRef.current?.setMapActive?.(true);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Radar markers rebuild on a ~11 m quantized grid, not on every GPS object
   // identity: heading-only fixes must not re-stringify + re-render markers
@@ -1073,9 +1169,14 @@ export default function MapTab() {
         setDriverLocation(initialFix);
       }
 
-      // Subscribe to real-time updates (every 5 meters or 3 seconds)
+      // Subscribe to real-time updates. Local UI map updates and backend
+      // telemetry are decoupled: fixes stream here for the odometer + map
+      // marker, while server POSTs stay on the poster's own 30 s cadence
+      // (lib/tracking.js) so network I/O never blocks UI updates. The
+      // WebView bridge itself is throttled to one inject per 1500 ms inside
+      // TomTomMap (FLEET_BRIDGE_PUSH_MS), gated on MAP_READY.
       subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
+        { accuracy: Location.Accuracy.High, timeInterval: 1500, distanceInterval: 3 },
         (newLoc) => {
 
           // 1. Map Marker Update
@@ -1303,12 +1404,10 @@ export default function MapTab() {
   // is no active trip. Stable identities keep TomTomMap's memo + the JS
   // bridge quiet — without them every MapTab render mints fresh objects and
   // spams injects on each GPS tick.
-  const destLat = activeTrip ? (isHeadingToPickup ? activeTrip.origin_latitude : activeTrip.destination_latitude) : null;
-  const destLng = activeTrip ? (isHeadingToPickup ? activeTrip.origin_longitude : activeTrip.destination_longitude) : null;
   const destName = activeTrip ? (isHeadingToPickup ? activeTrip.origin : activeTrip.destination) : null;
-  // Use driver location as start, fallback to trip origin if GPS not ready
-  const startLat = driverLocation?.lat ?? activeTrip?.origin_latitude;
-  const startLng = driverLocation?.lng ?? activeTrip?.origin_longitude;
+  // A pickup location is not a GPS fix. Never place the driver there as a fallback.
+  const startLat = driverLocation?.lat ?? null;
+  const startLng = driverLocation?.lng ?? null;
   const originHeading = driverLocation?.heading;
   const originProp = useMemo(() => (
     driverLocation
@@ -1316,22 +1415,44 @@ export default function MapTab() {
       : { lat: startLat, lng: startLng }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- primitives only; driverLocation identity churns per fix
   ), [startLat, startLng, originHeading]);
+  const trustedTarget = navigationTarget(activeTrip);
+  const targetLat = trustedTarget?.lat;
+  const targetLng = trustedTarget?.lng;
+  const hasDriverFix = !!driverLocation;
   const destinationProp = useMemo(() => (
-    isPending ? null : { lat: destLat, lng: destLng }
-  ), [isPending, destLat, destLng]);
+    hasDriverFix && targetLat != null && targetLng != null ? { lat: targetLat, lng: targetLng } : null
+  ), [hasDriverFix, targetLat, targetLng]);
   // Pickup → destination leg changes keep the same trip_id, so the trip-id
   // reset above is not enough: an old "3 min to pickup" ETA would linger on
   // the "EN ROUTE TO DESTINATION" header until TomTom answers (or forever if
   // it fails). Clear live route numbers whenever the routing target changes.
-  const routeLegKey = `${activeTrip?.trip_id ?? "none"}|${isHeadingToPickup ? "pickup" : "dest"}|${destLat ?? ""}|${destLng ?? ""}`;
+  const routeLegKey = `${driverId ?? 'none'}|${activeTrip?.trip_id ?? "none"}|${isHeadingToPickup ? "pickup" : "dest"}|${targetLat ?? ""}|${targetLng ?? ""}`;
   const lastRouteLegKey = useRef(routeLegKey);
+  const routeTripId = activeTrip?.trip_id;
+  const effectivePreferences = useMemo(() => routePreferences.tripId === routeTripId
+    ? { avoidTolls: routePreferences.avoidTolls, selectedIndex: routePreferences.sessionKey === routeLegKey ? routePreferences.selectedIndex : 0 }
+    : { avoidTolls: false, selectedIndex: 0 }, [routePreferences, routeTripId, routeLegKey]);
   useEffect(() => {
+    routeSessionRef.current = routeLegKey;
     if (routeLegKey !== lastRouteLegKey.current) {
       lastRouteLegKey.current = routeLegKey;
       setRouteData(null);
       setRouteStale(false);
+      setRouteChoices([]);
+      setRoutePhase('calculating');
+      setRouteOptionsVisible(false);
+      applyingRoute.current = false;
     }
   }, [routeLegKey]);
+  const routeDisabledReason = connectivity === 'offline' ? 'Reconnect to calculate a route.'
+    : !driverLocation ? 'Current GPS location is unavailable.'
+    : !trustedTarget ? 'A verified pickup or delivery location is required. Contact Dispatch.'
+    : !mapReady ? 'The map is still loading.' : null;
+  const openExternalNavigation = () => {
+    const url = externalNavigationUrl(trustedTarget);
+    if (!url) return AppAlert.alert('Navigation unavailable', 'Ask Dispatch to verify the current pickup or delivery location.');
+    Linking.openURL(url).catch(() => AppAlert.alert('Navigation unavailable', 'Unable to open Google Maps on this device.'));
+  };
   const handleMapReady = useCallback(() => setMapReady(true), []);
   const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
   const handleMapDragged = useCallback(() => {}, []);
@@ -1480,29 +1601,30 @@ export default function MapTab() {
           }
         >
           <View style={styles.emptyCenterContent}>
-            {/* Glowing Icon Card */}
-            <View style={styles.iconGlowWrapper}>
-              <View style={[styles.iconAmbientHalo, { backgroundColor: emptyTheme.haloBg, shadowColor: emptyTheme.haloShadow }]} />
-              <LinearGradient
-                colors={emptyTheme.cardColors}
-                start={{ x: 0.1, y: 0.1 }}
-                end={{ x: 0.9, y: 0.9 }}
-                style={[styles.iconCardSurface, { borderColor: emptyTheme.cardBorder, shadowColor: emptyTheme.cardShadow }]}
-              >
-                {config.iconType === 'off_duty' && (
-                  <MaterialCommunityIcons name="map-marker-off" size={46} color={emptyTheme.iconColor} />
-                )}
-                {config.iconType === 'rest_day' && (
-                  <MaterialCommunityIcons name="calendar-minus" size={48} color={emptyTheme.iconColor} />
-                )}
-                {config.iconType === 'on_leave' && (
-                  <View style={styles.calendarSlashIconWrap}>
-                    <MaterialCommunityIcons name="calendar-blank-outline" size={48} color={emptyTheme.iconColor} />
-                    <View style={[styles.calendarSlashBar, { backgroundColor: emptyTheme.iconColor }]} />
-                  </View>
-                )}
-              </LinearGradient>
-            </View>
+            {/* Off Duty uses the shared supplied illustration. Other non-operational states keep their distinct symbols. */}
+            {config.iconType === 'off_duty' ? (
+              <OffDutyIllustration size="hero" />
+            ) : (
+              <View style={styles.iconGlowWrapper}>
+                <View style={[styles.iconAmbientHalo, { backgroundColor: emptyTheme.haloBg, shadowColor: emptyTheme.haloShadow }]} />
+                <LinearGradient
+                  colors={emptyTheme.cardColors}
+                  start={{ x: 0.1, y: 0.1 }}
+                  end={{ x: 0.9, y: 0.9 }}
+                  style={[styles.iconCardSurface, { borderColor: emptyTheme.cardBorder, shadowColor: emptyTheme.cardShadow }]}
+                >
+                  {config.iconType === 'rest_day' && (
+                    <MaterialCommunityIcons name="calendar-minus" size={48} color={emptyTheme.iconColor} />
+                  )}
+                  {config.iconType === 'on_leave' && (
+                    <View style={styles.calendarSlashIconWrap}>
+                      <MaterialCommunityIcons name="calendar-blank-outline" size={48} color={emptyTheme.iconColor} />
+                      <View style={[styles.calendarSlashBar, { backgroundColor: emptyTheme.iconColor }]} />
+                    </View>
+                  )}
+                </LinearGradient>
+              </View>
+            )}
 
             {/* Status Pill */}
             <View style={[styles.emptyStatusPill, { backgroundColor: emptyTheme.pillBg, borderColor: emptyTheme.pillBorder }]}>
@@ -1604,6 +1726,7 @@ export default function MapTab() {
           radarMode={true}
           radarRadiusKm={radarRadiusKm}
           radarMarkers={filteredRadarMarkers}
+          responders={NO_FLEET_RESPONDERS}
           showVehicleMarker={coverageVisibility.vehicle}
           topInset={Math.max(insets.top, 20) + 10}
           onMarkerPress={handleMarkerPress}
@@ -1941,8 +2064,9 @@ export default function MapTab() {
           </View>
         )}
 
-        <View style={[styles.standbyWeather, { bottom: standbyBottom }]} pointerEvents="none">
-          {weather && <ClayCard variant="compact" style={styles.standbyWeatherCard} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={[styles.standbyWeather, { bottom: standbyBottom }]} pointerEvents={profile?.driverType === 'Cargo' ? 'auto' : 'none'}>
+          {profile?.driverType === 'Cargo' ? <CargoMapStandby completed={completedCargo?.session?.actorId === String(user?.employeeId) && isCurrentCargoSession(completedCargo?.session) ? completedCargo : null} onViewDetails={() => router.push(`/trip/${completedCargo.tripId}`)} onDismiss={() => setCompletedCargo(null)} /> : null}
+          {weather && profile?.driverType !== 'Cargo' && <ClayCard variant="compact" style={styles.standbyWeatherCard} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             {weatherArt && <Image source={weatherArt} resizeMode="contain" accessible={false} style={{ width: 26, height: 26 }} />}
             <View style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto', minWidth: 0 }}>
               <Text style={[type.labelLg, { color: colors.onSurface }]}>{weather.temperature}</Text>
@@ -1961,12 +2085,13 @@ export default function MapTab() {
 
 
 
-  // Departure-window gate for the START ROUTE button. When earliest_start is
-  // null (no scheduled departure / no ETA) the window is open — fail-open.
+  // Departure-window gate: Passenger/legacy retains its unknown-timing exception.
+  // Cargo must resolve timing and the shift-wide baseline before accept/start.
   const workspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip: activeTrip });
   // Blocked mismatches render the STORED trip type (never the driver-mode
   // label) so the driver can tell Dispatch what the trip actually is.
   const activeBlocked = workspace.tripReady === false;
+  const cargoPresentation = activeBlocked ? isCargoLoad(activeTrip) : profile?.driverType === 'Cargo';
   const earliestStart = activeTrip?.earliest_start
     ? new Date(activeTrip.earliest_start).getTime()
     : null;
@@ -1976,7 +2101,21 @@ export default function MapTab() {
     ? new Date(activeTrip.departure_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : null;
   const preStart = isPending || isDriverAccepted;
+  const cargoStartReadiness = readinessFor(activeTrip, now, { preShiftPassed: duty?.loaded === true && duty?.checkedIn === true });
+  const cargoStartLabel = !serverConfirmed || !tripConfirmed || connectivity !== 'online' ? 'REFRESH REQUIRED'
+    : cargoStartReadiness.startReady ? 'START ROUTE'
+    : cargoStartReadiness.unavailableReason === 'pre_shift' ? 'START YOUR SHIFT'
+    : cargoStartReadiness.unavailableReason === 'schedule' ? 'START NOT YET SCHEDULED'
+    : cargoStartReadiness.unavailableReason === 'window' ? `OPENS AT ${new Date(cargoStartReadiness.earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}`
+    : 'PRE-TRIP CHECK';
   const preDeparture = preStart && earliestStart != null && !windowOpen;
+  const cargoReadinessText = workspace.tripReady !== true ? workspaceBlockReason(workspace)
+    : !serverConfirmed || !tripConfirmed || connectivity !== 'online' ? 'Connect online and refresh your profile and current trip before continuing.'
+    : cargoStartReadiness.unavailableReason === 'pre_shift' ? 'Start Pre-Shift and confirm your duty before starting.'
+    : cargoStartReadiness.unavailableReason === 'schedule' ? 'Start timing not supplied. Check trip details before starting.'
+    : cargoStartReadiness.unavailableReason === 'window' ? `Start window opens at ${new Date(cargoStartReadiness.earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    : cargoStartReadiness.unavailableReason === 'inspection' ? 'Cargo Pre-Trip inspection required'
+    : 'Pre-Trip passed · Ready to start';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -1984,11 +2123,15 @@ export default function MapTab() {
         ref={mapRef}
         origin={originProp}
         destination={destinationProp}
+        routeSessionKey={routeLegKey}
+        routeTripId={routeTripId}
+        routePreferences={effectivePreferences}
+        responders={NO_FLEET_RESPONDERS}
         originAddress={isHeadingToPickup ? "My Location" : activeTrip.origin}
         destAddress={destName}
         scrollEnabled={true}
         pickupLabel="Your Location"
-        dropoffLabel={isHeadingToPickup ? `Pickup: ${destName || 'TBD'}` : `Drop-off: ${destName || 'TBD'}`}
+        dropoffLabel={isHeadingToPickup ? `Pickup: ${destName || 'TBD'}` : `${isCargoLoad(activeTrip) ? 'Delivery' : 'Drop-off'}: ${destName || 'TBD'}`}
         showCarIcon={true}
         autoSwoop={true}
         topInset={Math.max(insets.top, 20) + 10}
@@ -2043,7 +2186,7 @@ export default function MapTab() {
       
       {activeTrip && (
         <Animated.View 
-          style={[styles.bottomSheet, mats.clayShade, { transform: [{ translateY: panY }], backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}
+          style={[styles.bottomSheet, mats.clayShade, { transform: [{ translateY: panY }], height: panY.interpolate({ inputRange: [0, screenHeight - standbyBottom], outputRange: [screenHeight - standbyBottom, 0], extrapolate: 'clamp' }), backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}
         >
           {/* Floating Map Controls (Sticks to top of sheet) */}
           {/* radius 18 matches the control buttons' own corners, so the hole
@@ -2056,6 +2199,12 @@ export default function MapTab() {
               accessibilityLabel="Recenter map on your location"
             >
               <Ionicons name="navigate" size={20} color={colors.primary} />
+            </Pressable>
+            <Pressable style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }]} onPress={() => setRouteOptionsVisible(true)} accessibilityRole="button" accessibilityLabel="Route options">
+              <Ionicons name="options-outline" size={20} color={colors.primary} />
+            </Pressable>
+            <Pressable style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, opacity: trustedTarget ? 1 : 0.55 }]} onPress={openExternalNavigation} disabled={!trustedTarget} accessibilityRole="button" accessibilityLabel="Open current target in Google Maps" accessibilityState={{ disabled: !trustedTarget }}>
+              <Ionicons name="open-outline" size={20} color={colors.primary} />
             </Pressable>
             <Pressable
               style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}
@@ -2070,12 +2219,15 @@ export default function MapTab() {
             </Pressable>
           </CoachMarkTarget>
 
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+          <View onLayout={event => { const height = Math.ceil(event.nativeEvent.layout.height); setPrimarySheetHeight(previous => previous === height ? previous : height); }}>
           {/* eslint-disable-next-line react-hooks/refs -- spreading the once-created responder's handlers */}
       <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
             <Pressable onPress={() => snapTo(!isExpandedRef.current)}>
               {/* Drag Handle */}
               <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant }]} />
 
+              <TripOperationalSummary cargo={cargoPresentation} trip={activeTrip} target={preStart ? activeTrip.origin : destName} preStart={preStart} readinessText={cargoReadinessText} pickupAt={pickupAt} routeData={routeData} routePhase={routePhase} routeStale={routeStale} routeDisabledReason={routeDisabledReason} expanded={isExpanded}>
               {/* Location Header */}
               <CoachMarkTarget targetId="map.standby_status" style={styles.sheetHeader}>
                 <View style={[styles.locationIconWrapper, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
@@ -2089,10 +2241,10 @@ export default function MapTab() {
                       {(isDriverAccepted && !preDeparture) && "READY TO START"}
                       {isState1 && "EN ROUTE TO PICKUP"}
                       {isState2 && "ARRIVED AT PICKUP"}
-                      {isState3 && "EN ROUTE TO DESTINATION"}
-                      {isState4 && "ARRIVED AT DESTINATION"}
+                      {isState3 && (isCargoLoad(activeTrip) ? "EN ROUTE TO DELIVERY" : "EN ROUTE TO DESTINATION")}
+                      {isState4 && (isCargoLoad(activeTrip) ? "AT DELIVERY" : "ARRIVED AT DESTINATION")}
                     </Text>
-                    <Text style={[type.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                    <Text style={[type.cardTitle, { color: colors.onSurface }]}>
                       {preDeparture
                         ? `${activeTrip.origin || "Pickup"} → ${activeTrip.destination || "Destination"}`
                         : destName}
@@ -2129,7 +2281,7 @@ export default function MapTab() {
                                   <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.onSurfaceVariant, marginBottom: 2 }}> min</Text>
                                 </View>
                                 <Text style={{ fontFamily: fonts.body, fontSize: 10, color: colors.onSurfaceVariant, marginBottom: 4 }}>
-                                  {routeStale ? "Route temporarily unavailable" : "Calculating live route…"}
+                                  {routeDisabledReason || (routeStale ? "Route unavailable" : "Calculating route…")}
                                 </Text>
                                 {(plannedMin != null || plannedKm != null) && (
                                   <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
@@ -2181,8 +2333,16 @@ export default function MapTab() {
               </CoachMarkTarget>
 
               <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+              </TripOperationalSummary>
             </Pressable>
           </View>
+
+          {(routePhase === 'refreshing' || routeStale) && routeData ? <Text accessibilityLiveRegion="polite" style={[type.supporting, { marginBottom: 8 }]}>{routePhase === 'refreshing' ? 'Recalculating… Previous route remains visible.' : 'Route update unavailable. Previous route remains visible; its arrival estimate is out of date.'}</Text> : null}
+          {cargoPresentation ? <View style={{ gap: 8, marginBottom: 12 }}>
+            <ClayButton label="View trip details" variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}`)} />
+            {profile?.driverType === 'Cargo' && serverConfirmed && tripConfirmed && connectivity === 'online' && workspace.tripReady === true ? <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${['Drop-off', 'Arrived'].includes(activeTrip.trip_status) ? 'cargo-delivery' : activeTrip.trip_status === 'At Pickup' ? 'cargo-pickup' : 'cargo'}`)} /> : null}
+            {(isState2 || isState4) ? <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>Cargo verification and Fleet clearance are required before this step can be confirmed.</Text> : null}
+          </View> : null}
 
           {/* Action Button — outside panResponder zone so SwipeButton doesn't conflict */}
           {/* PR #3 arrival suggestion: server says inside the geofence — the
@@ -2252,6 +2412,7 @@ export default function MapTab() {
               <SwipeButton
                 title={
                   workspace.tripReady !== true ? "TRIP ACTION UNAVAILABLE" :
+                  workspace.mode === 'cargo' && preStart ? cargoStartLabel :
                   // Single clock gate: label AND disabled state both derive from
                   // earliest_start/windowOpen so they can never disagree.
                   (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
@@ -2259,7 +2420,7 @@ export default function MapTab() {
                   (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
                   tripActionLabel(activeTrip.trip_status, profile?.driverType)
                 }
-                disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || ((isPending || isDriverAccepted) && preTripDone && !windowOpen)}
+                disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || (workspace.mode === 'cargo' && preStart ? !cargoStartReadiness.startReady : preStart && preTripDone && !windowOpen)}
                 busy={inFlight}
                 backgroundColor={colors.primary}
                 textColor={colors.onPrimary}
@@ -2271,7 +2432,10 @@ export default function MapTab() {
                     AppAlert.alert("Assignment needs review", workspaceBlockReason(currentWorkspace));
                     return;
                   }
+                  if (currentWorkspace.mode === 'cargo' && (isPending || isDriverAccepted)
+                    && !readinessFor(activeTrip, Date.now(), { preShiftPassed: duty?.loaded === true && duty?.checkedIn === true }).startReady) return;
                   setInFlight(true);
+                  let confirmed = false;
                   try {
                     if (currentWorkspace.mode === "cargo") {
                       const snapshot = captureCargoSession(user?.employeeId);
@@ -2311,6 +2475,7 @@ export default function MapTab() {
                         assertCurrentOperation(activeTrip);
                         const startRes = await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                         if (wasQueued(startRes)) announceSavedForSync();
+                        confirmed = !wasQueued(startRes);
                         loadTrip();
                       } else if (isState1) {
                         // Arrival gate: the server 409s ARRIVED AT PICKUP filed
@@ -2338,6 +2503,7 @@ export default function MapTab() {
                           assertCurrentOperation(activeTrip);
                         const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(pickupRes)) announceSavedForSync();
+                          confirmed = !wasQueued(pickupRes);
                         } catch (e) {
                           // Check→PUT race (a new fix landed between the two
                           // calls): surface the same override offer.
@@ -2378,6 +2544,7 @@ export default function MapTab() {
                           assertCurrentOperation(activeTrip);
                         const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
+                          confirmed = !wasQueued(onboardRes) && !wasQueued(enrouteRes);
                         } catch (e) {
                           if (e?.status === 409) {
                             offerOverride({
@@ -2421,6 +2588,7 @@ export default function MapTab() {
                           assertCurrentOperation(activeTrip);
                         const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {}, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal });
                           if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
+                          confirmed = !wasQueued(legRes) && !wasQueued(dropRes);
                         } catch (e) {
                           if (e?.status === 409) {
                             offerOverride({
@@ -2437,135 +2605,23 @@ export default function MapTab() {
                         }
                         loadTrip();
                       } else if (isState4) {
-                        // Sum the GPS-accumulated km from both legs. If the watcher
-                        // never captured any (e.g. app was backgrounded the whole
-                        // time), fall back to the estimated route distance.
-                        let leg1 = distRef.current.leg1;
-                        let leg2 = distRef.current.leg2;
-                        let totalKm = leg1 + leg2;
-                        if (totalKm <= 0) {
-                          totalKm = Number(activeTrip.estimated_distance) || ((routeData && !routeStale) ? (routeData.lengthInMeters / 1000) : 0);
-                        }
-
-                        // Re-fetch the LIVE vehicle mileage before computing the
-                        // odometer so the derived end reading is always >= the
-                        // server's current mileage (a stale base would otherwise be
-                        // rejected as "below recorded mileage"). In the normal case
-                        // live == loaded mileage, so distance = endOdo - startOdo
-                        // equals totalKm exactly. If another device advanced the
-                        // mileage mid-trip, the derived distance includes that extra
-                        // km — safe (never rejected), just slightly inflated.
-                        let freshMileage = null;
-                        try {
-                          const fresh = await api.get("/api/mobile/driver/trips");
-                          const ft = fresh?.find((t) => String(t.trip_id) === String(activeTrip.trip_id));
-                          freshMileage = ft ? Number(ft.current_mileage) : null;
-                        } catch {
-                          freshMileage = null;
-                        }
-                        const startOdo = Number(freshMileage) || Number(activeTrip.current_mileage) || 0;
-                        const endOdo = startOdo + totalKm;
-                        const completeParams = {
-                          pickup: activeTrip.origin,
-                          destination: activeTrip.destination,
-                          duration: (routeData && !routeStale) ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
-                          distance: totalKm.toFixed(1) + " km",
-                          leg1: leg1.toFixed(1),
-                          leg2: leg2.toFixed(1),
-                          startOdo: Math.round(startOdo).toLocaleString(),
-                          endOdo: Math.round(endOdo).toLocaleString(),
-                          tripId: String(activeTrip.trip_id),
-                          rawDistanceKm: String(totalKm),
-                          rawStartOdo: String(startOdo),
-                          rawEndOdo: String(endOdo),
-                        };
-
-                        // PR #3 completion validation: ask the server whether the
-                        // trip's latest fix is inside the destination geofence
-                        // BEFORE showing the summary. Inside/unknown → existing
-                        // flow. Outside → Go Back / Complete Anyway (the reason
-                        // is captured on the summary screen and the PUT carries
-                        // the override). Fail-open: an unreadable check proceeds.
-                        let destCheck = null;
-                        try {
-                          destCheck = await api.get(`/api/trips/${activeTrip.trip_id}/destination-check`);
-                        } catch {
-                          destCheck = null;
-                        }
-                        if (destCheck && destCheck.state === "outside") {
-                          const m = Number(destCheck.distance_m);
-                          const distanceText = Number.isFinite(m)
-                            ? (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`)
-                            : "an unknown distance";
-                          const destName = destCheck.destination || "the destination";
-                          AppAlert.alert(
-                            "Far from destination",
-                            `You appear to be ${distanceText} from ${destName}.`,
-                            [
-                              { text: "Go Back", style: "cancel" },
-                              {
-                                text: "Complete Anyway",
-                                onPress: () => router.push({
-                                  pathname: '/(app)/trip/complete',
-                                  params: {
-                                    ...completeParams,
-                                    needsOverride: "1",
-                                    farText: `You are completing ${distanceText} from ${destName}. A reason is required.`,
-                                  },
-                                }),
-                              },
-                            ],
-                            { type: "warning" }
-                          );
-                          return;
-                        }
-
-                        // Navigate to the summary, then run the completion API in the
-                        // background. Values match: the screen shows what was sent.
-                        router.push({
-                          pathname: '/(app)/trip/complete',
-                          params: completeParams,
-                        });
-
-                        // Clear the ref before the state update so a location
-                        // callback that lands during completion cannot count one
-                        // more fix for the finished trip. Stop any native task as
-                        // well; foreground completion normally has none running,
-                        // but this also closes a background/foreground race.
-                        activeTripRef.current = null;
-                        updateLegContext({ tripId: null, leg: null }).catch(() => {});
-                        stopBackgroundTracking().catch(() => {});
-                        assertCurrentOperation(activeTrip);
-                        setActiveTrip(null);
-
-                        assertCurrentOperation(activeTrip);
-                        api.put(`/api/trips/${activeTrip.trip_id}/complete`, {
-                          distance: totalKm,
-                          start_odometer: startOdo,
-                          end_odometer: endOdo,
-                        }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: tripSession?.signal }).then((res) => {
-                          if (wasQueued(res)) announceSavedForSync();
-                        }).catch((e) => {
-                          AppAlert.alert("Error", e.message || "Could not complete trip");
-                        });
+                        // Keep tracking until the ending reading is accepted by Fleet.
+                        router.push({ pathname: '/(app)/trip/complete', params: { tripId: String(activeTrip.trip_id) } });
                       }
                     } catch(e) {
                       AppAlert.alert("Error", e.message || "Could not update trip");
                     } finally {
                       setInFlight(false);
                     }
+                    return confirmed && isCurrentCargoSession(tripSession);
                   }}
                 />
             </CoachMarkTarget>
           )}
+          </View>
 
           {/* Expanded Content */}
-          <ScrollView 
-            style={{ flex: 1, marginTop: 24 }}
-            showsVerticalScrollIndicator={false}
-            pointerEvents={isExpanded ? 'auto' : 'none'}
-            contentContainerStyle={{ paddingBottom: 24, gap: 16 }}
-          >
+          {isExpanded && !cargoPresentation ? <View style={{ marginTop: 24, paddingBottom: 24, gap: 16 }}>
             {/* Passenger Card — cargo rows name the consignment in kilograms,
                 never a guest name or a fabricated count. */}
             <View style={[styles.detailCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
@@ -2648,10 +2704,17 @@ export default function MapTab() {
                 </View>
               </View>
             </View>
+          </View> : null}
           </ScrollView>
         </Animated.View>
       )}
       {mapIntroPractice}
+      {routeOptionsVisible ? <RouteOptionsSheet visible routes={routeChoices} preferences={effectivePreferences} phase={routePhase} disabledReason={routeDisabledReason} onClose={() => setRouteOptionsVisible(false)} onApply={preferences => {
+        if (routeDisabledReason) return;
+        applyingRoute.current = true;
+        setRoutePhase('refreshing');
+        mapRef.current?.applyRoutePreferences(preferences);
+      }} /> : null}
     </View>
   );
 }
@@ -2937,7 +3000,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
-    height: SCREEN_HEIGHT,
     paddingHorizontal: 20,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,

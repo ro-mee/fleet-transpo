@@ -1,23 +1,22 @@
 "use client";
 
+import { useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Wrench } from "lucide-react";
-import { getMaintenanceRecords, updateMaintenanceRecord } from "@/services/maintenance.service";
+import { getMaintenanceRecord, getVehicleHistory, updateMaintenanceRecord } from "@/services/maintenance.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { PageEntrance } from "@/components/ui/page-entrance";
 import { QueryErrorBanner } from "@/components/ui/query-feedback";
-import { DetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
-import { WorkOrderDetail } from "@/components/mechanic/work-order-detail";
+import { WorkOrderDetail, WorkOrderDetailSkeleton } from "@/components/mechanic/work-order-detail";
 
-// Work-order detail. The row is resolved from the assignee-scoped list read
-// (ownership is server-enforced: a mechanic's list contains only their own
-// rows, so an id that is not theirs resolves to not-found here). Evidence and
-// transitions PUT through the [id] route with whitelist-only bodies.
+// Work-order detail uses the existing single-record endpoint, which enforces
+// mechanic assignment on the server. Evidence and transitions PUT through the
+// same route with whitelist-only bodies.
 export default function MechanicWorkOrderDetailPage() {
   useRequireRole();
   const params = useParams();
@@ -26,9 +25,11 @@ export default function MechanicWorkOrderDetailPage() {
   const id = String(params?.id ?? "");
 
   const detailQuery = useQuery({
-    queryKey: ["mechanicWorkOrder"],
-    queryFn: () => getMaintenanceRecords(),
+    queryKey: ["mechanicWorkOrder", id],
+    queryFn: () => getMaintenanceRecord(id),
+    enabled: Boolean(id),
     staleTime: 30 * 1000,
+    retry: false,
   });
 
   const save = useMutation({
@@ -49,10 +50,28 @@ export default function MechanicWorkOrderDetailPage() {
     onError: (err) => toast.error(err?.message || "Could not save. Check your connection and try again."),
   });
 
-  const rows = Array.isArray(detailQuery.data)
-    ? detailQuery.data
-    : (detailQuery.data?.rows ?? []);
-  const workOrder = rows.find((r) => String(r.maintenance_id) === id) ?? null;
+  const workOrder = detailQuery.data ?? null;
+
+  // Read-only vehicle history is gated server-side on an assigned work order
+  // for the same vehicle. A failed history fetch degrades to an unavailable
+  // note rather than blocking the job. retry:false — a 403 is final.
+  const vehicleId = Number(workOrder?.vehicle_id);
+  const historyQuery = useQuery({
+    queryKey: ["mechanicVehicleHistory", Number.isInteger(vehicleId) ? vehicleId : null],
+    queryFn: () => getVehicleHistory(vehicleId),
+    enabled: Number.isInteger(vehicleId) && vehicleId > 0,
+    staleTime: 60 * 1000,
+    retry: false,
+  });
+  const history = useMemo(() => {
+    if (!historyQuery.data) return null;
+    return {
+      ...historyQuery.data,
+      maintenance: (historyQuery.data.maintenance ?? []).filter(
+        (row) => String(row.maintenance_id) !== id
+      ),
+    };
+  }, [historyQuery.data, id]);
 
   return (
     <PageEntrance>
@@ -76,7 +95,7 @@ export default function MechanicWorkOrderDetailPage() {
         <QueryErrorBanner query={detailQuery} title="Could not load the work order" />
 
         {detailQuery.isLoading ? (
-          <DetailSkeleton />
+          <WorkOrderDetailSkeleton />
         ) : !workOrder ? (
           <EmptyState
             icon={Wrench}
@@ -95,10 +114,16 @@ export default function MechanicWorkOrderDetailPage() {
           />
         ) : (
           <WorkOrderDetail
+            key={id}
             workOrder={workOrder}
             submitting={save.isPending}
             serverError={save.isError ? (save.error?.message ?? "Could not save.") : null}
+            saveSuccess={save.isSuccess}
+            onEdit={() => save.reset()}
             onSubmit={(body) => save.mutate(body)}
+            history={history}
+            historyLoading={historyQuery.isLoading}
+            historyError={historyQuery.isError ? (historyQuery.error?.message ?? "Could not load history.") : null}
           />
         )}
       </div>

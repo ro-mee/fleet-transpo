@@ -8,7 +8,7 @@
     "should_trigger": true
   },
   {
-    "query": "the drivers table stores total_trips and performance_score but those are computed from the trips table â€” this seems wrong. should i drop them and use a view instead?",
+    "query": "the drivers table stores total_trips and performance_score but those are computed from the trips table — this seems wrong. should i drop them and use a view instead?",
     "should_trigger": true
   },
   {
@@ -16,7 +16,7 @@
     "should_trigger": true
   },
   {
-    "query": "i notice that gpstracking stores vehicle_id and driver_id even though both are reachable through trip_id â€” is that redundant? should i drop driver_id from gpstracking?",
+    "query": "i notice that gpstracking stores vehicle_id and driver_id even though both are reachable through trip_id — is that redundant? should i drop driver_id from gpstracking?",
     "should_trigger": true
   },
   {
@@ -28,11 +28,11 @@
     "should_trigger": true
   },
   {
-    "query": "our schema has estimated_distance in routes, dispatchschedules, AND trips â€” thats three places for the same concept. can you figure out where it really belongs and clean up the rest?",
+    "query": "our schema has estimated_distance in routes, dispatchschedules, AND trips — thats three places for the same concept. can you figure out where it really belongs and clean up the rest?",
     "should_trigger": true
   },
   {
-    "query": "employees.license_number duplicates drivers.license_number â€” which one should we drop and how do i migrate the data?",
+    "query": "employees.license_number duplicates drivers.license_number — which one should we drop and how do i migrate the data?",
     "should_trigger": true
   },
   {

@@ -73,14 +73,30 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
     // Blocking incident ids only (record scope for incident proof). No
     // descriptions, locations, or actions — the drawer resolves those safely.
     incidentIds:(p.hardConflicts ?? []).filter(c=>c?.type === 'incident').map(c=>Number(c?.detail?.incident_id)).filter(id=>Number.isSafeInteger(id)),
+    // Cargo capability projection (additive only). Reads the engine-attached
+    // cargoPhysical facts; never computes eligibility here.
+    cargo:p.vehicle ? {
+      capacityKg:Number.isFinite(Number(p.vehicle.cargo_capacity_kg)) ? Number(p.vehicle.cargo_capacity_kg) : null,
+      usablePayloadKg:Number.isFinite(Number(p.cargoPhysical?.usable_payload_kg ?? p.vehicle?.cargoPhysical?.usable_payload_kg)) ? Number(p.cargoPhysical?.usable_payload_kg ?? p.vehicle?.cargoPhysical?.usable_payload_kg) : null,
+      remainingKg:Number.isFinite(Number(p.cargoPhysical?.remaining_payload_kg)) ? Number(p.cargoPhysical.remaining_payload_kg) : null,
+      nominalVolumeM3:p.cargoPhysical?.totals?.nominal_volume_m3 ?? null,
+      physicalStatus:p.cargoPhysical?.status ?? null,
+    } : null,
   });});
   const exclusionCtx = { requestId: request.request_id };
   const projectedExclusions = exclusions.slice(0,30).map(r=>({vehicleId:r.vehicle_id,plate:r.plate ?? null,reason:r.reason,prefiltered:r.prefiltered === true,
     driverId:r.driver_id ?? null,driverName:r.driver_name ?? null,
     recovery:recoveryActionForExclusion({ reason: r.reason, vehicleId: r.vehicle_id }, {...exclusionCtx, driverId: r.driver_id ?? null})}));
+  const requestWeightKg = Number(request.cargo_weight_kg);
   return {requestId:request.request_id,pickupAt:request.pickup_datetime,status:request.fleet_status,
     pickupLocal:request.pickup_datetime && Number.isFinite(+new Date(request.pickup_datetime)) ? new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',dateStyle:'medium',timeStyle:'short'}).format(new Date(request.pickup_datetime))+' (Philippine time)' : null,
-    passengers:request.passenger_count,evaluatedAt:recommendation.evaluatedAt,
+    passengers:request.passenger_count,
+    requestCargo:{
+      loadType:request.load_type ?? null,
+      weightKg:Number.isFinite(requestWeightKg) && requestWeightKg > 0 ? requestWeightKg : null,
+      cargoText:String(request.cargo_description ?? '').slice(0,200) || null,
+    },
+    evaluatedAt:recommendation.evaluatedAt,
     evaluation:recommendation.evaluation, pairs,
     selection: selectedPair ? {vehicleId:selectedPair.vehicleId,driverId:selectedPair.driverId,status:selected?'resolved':'missing'} : null,
     coverage: {
@@ -478,6 +494,34 @@ function otherOptionsAnswer(evidence, pairs) {
   return `${eligible}\nOther evaluated vehicles were excluded:\n${blocked}`;
 }
 
+// Cargo topic: a kg-first deterministic summary. The request line leads with
+// the declared figures (never seats), the top pair lines follow, and the
+// first physical/capacity recovery hint closes. Pure projection of recorded
+// evidence — no eligibility computation, no new vocabulary.
+function requestCargoLine(cargo = {}) {
+  const parts = [];
+  if (cargo.loadType) parts.push(`Load type: ${cleanOperationalText(cargo.loadType)}.`);
+  if (cargo.weightKg != null) parts.push(`Declared weight: ${cargo.weightKg} kg.`);
+  if (cargo.cargoText) parts.push(`Cargo: ${cleanOperationalText(cargo.cargoText)}.`);
+  return parts.join(' ') || null;
+}
+
+// The first recorded recovery action, preferring a capacity/physical code so
+// an overload block is narrated with its measured fix rather than whatever
+// else happened to sort first.
+function firstRecoveryHint(evidence, pairs) {
+  const all = [...pairs.flatMap(p => p.recoveryActions ?? []), ...(evidence.recoveryActions ?? [])];
+  return all.find(a => /CAPACITY|PHYSICAL/i.test(String(a?.code ?? ''))) ?? all[0] ?? null;
+}
+
+function cargoSummary(evidence, pairs) {
+  const parts = [requestCargoLine(evidence.requestCargo)];
+  parts.push(pairs.slice(0, 2).map(pairLine).join('\n'));
+  const hint = firstRecoveryHint(evidence, pairs);
+  if (hint?.label) parts.push(`Next step: ${cleanOperationalText(hint.label)}.`);
+  return parts.filter(Boolean).join('\n');
+}
+
 export function evidenceSummary(evidence, question = '') {
   if (evidence.selection?.status === 'missing') {
     return `The selected vehicle #${evidence.selection.vehicleId} / driver #${evidence.selection.driverId} is no longer in the current candidate evidence. Recheck this reservation before relying on that pair.`;
@@ -506,6 +550,16 @@ export function evidenceSummary(evidence, question = '') {
     || (hypoClock != null && /\bblock|enforce|allow|fit\b/i.test(question));
   if (pairs.length && shiftTopic) {
     return shiftBreakAnswer(evidence, pairs, question) + coverageDisclosure(evidence.coverage);
+  }
+  // Cargo questions answer kg-first: declared request figures, top pair
+  // lines, first physical/capacity recovery hint. Placed before the
+  // comparison/eta/conflicts branches so a cargo question never reads as a
+  // passenger verdict; passenger questions match none of these words and keep
+  // their byte-identical path. Digit-attached "900kg" has no word boundary,
+  // so it needs its own alternative.
+  const cargoTopic = /cargo|weight|\bkg\b|payload|manifest|handling|temperature|\d\s?kg\b/i.test(question);
+  if (pairs.length && cargoTopic) {
+    return cargoSummary(evidence, pairs) + coverageDisclosure(evidence.coverage);
   }
   const comparison = /\b(why|better|compare|recommend|workload|fair|buffer)\b|bakit|mas maganda/i.test(question);
   const eta = /\b(eta|arrival|arrive|distance|traffic)\b/i.test(question);

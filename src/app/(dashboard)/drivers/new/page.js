@@ -34,7 +34,6 @@ import {
   Globe,
   Phone,
   Mail,
-  UserCheck,
   UserPlus,
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";

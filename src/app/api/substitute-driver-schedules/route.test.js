@@ -8,6 +8,7 @@ afterEach(() => vi.restoreAllMocks());
 
 const DRIVER = {
   driver_id: 7,
+  driver_type: "Passenger",
   first_name: "Sam",
   last_name: "Driver",
   license_number: "A12-34-567890",
@@ -18,7 +19,7 @@ const DRIVER = {
   license_verified_by: 2,
   license_verification_method: "physical_card",
 };
-const VEHICLE = { vehicle_id: 9, plate_number: "ABC-1234", required_license_class: "B" };
+const VEHICLE = { vehicle_id: 9, plate_number: "ABC-1234", required_license_class: "B", operational_use: "Passenger" };
 
 function setup({ driver = DRIVER, vehicle = VEHICLE, body = {} } = {}) {
   vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
@@ -77,5 +78,19 @@ describe("POST /api/substitute-driver-schedules license eligibility", () => {
 
     expect(response.status).toBe(201);
     expect(db.withTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("refuses a Passenger substitute on a Cargo vehicle", async () => {
+    setup({
+      driver: { ...DRIVER, driver_type: "Passenger" },
+      vehicle: { ...VEHICLE, operational_use: "Cargo" },
+    });
+
+    const response = await POST({ json: async () => ({}) });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toMatch(/classification does not match/i);
+    expect(db.withTransaction).not.toHaveBeenCalled();
   });
 });

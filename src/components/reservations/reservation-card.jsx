@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ConflictChips, ReadinessChip } from "@/components/reservations/conflict-chips";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { formatDateTime, formatTime } from "@/lib/utils";
+import { cargoWeightLabel } from "@/lib/cargo/cargo-draft";
 import {
   ArrowRight,
   Building2,
@@ -16,6 +17,7 @@ import {
   Crown,
   Eye,
   MapPin,
+  Package,
   Send,
   StickyNote,
   UserRound,
@@ -69,6 +71,9 @@ export function ReservationCard({
   const assignable = status === L.PENDING || status === L.SCHEDULED;
   const guestName = r.guest_name || "Unnamed Guest";
   const passengerCount = Number(r.passenger_count) || 1;
+  const isCargo = r.load_type === "Cargo";
+  const cargoDescription = r.cargo_description || "Cargo consignment";
+  const cargoWeight = r.cargo_weight_kg;
 
   return (
     <Card className="space-y-4 rounded-card border-border/70 bg-surface p-4 shadow-none transition-colors hover:border-border sm:p-5">
@@ -83,7 +88,7 @@ export function ReservationCard({
               href={`/reservations/${r.request_id}`}
               className="block truncate text-lg font-bold tracking-tight text-foreground transition-colors hover:text-info focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info"
             >
-              {guestName}
+              {isCargo ? cargoDescription : guestName}
             </Link>
             <div className="flex flex-wrap items-center gap-1.5">
               {r.booking_reference && (
@@ -170,12 +175,14 @@ export function ReservationCard({
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="flex min-w-0 items-center gap-3 rounded-card border border-border/70 p-3.5">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-info-bg text-info">
-            <Users className="h-5 w-5" aria-hidden="true" />
+            {isCargo ? <Package className="h-5 w-5" aria-hidden="true" /> : <Users className="h-5 w-5" aria-hidden="true" />}
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Passengers</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+              {isCargo ? "Cargo" : "Passengers"}
+            </p>
             <p className="truncate text-sm font-semibold text-foreground">
-              {passengerCount} {passengerCount === 1 ? "Passenger" : "Passengers"}
+              {isCargo ? cargoWeightLabel(cargoWeight) : `${passengerCount} ${passengerCount === 1 ? "Passenger" : "Passengers"}`}
             </p>
           </div>
         </div>

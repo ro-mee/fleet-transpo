@@ -2,6 +2,7 @@ import { query } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 import { evaluateDriverLicenseEligibility, licenseNumberEvidence, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
 // Substitute driver schedule item routes (migration 032).
 //
@@ -66,15 +67,22 @@ export async function PATCH(req, { params }) {
     }
 
     const { rows: eligibilityRows } = await query(
-      `SELECT d.license_number, d.license_type, d.license_class, d.license_expiry,
+      `SELECT d.driver_type, d.license_number, d.license_type, d.license_class, d.license_expiry,
               d.license_verified_at, d.license_verified_by, d.license_verification_method,
-              v.required_license_class
+              v.operational_use, v.required_license_class
          FROM drivers d
          JOIN vehicles v ON v.vehicle_id = $2 AND v.deleted_at IS NULL
         WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
       [subDriverId, existing.vehicle_id]
     );
     if (!eligibilityRows.length) return err("Driver or vehicle no longer exists.", 404);
+    const compatibility = checkVehicleLoadCompatibility({
+      driverType: eligibilityRows[0].driver_type,
+      operationalUse: eligibilityRows[0].operational_use,
+      loadType: null,
+      requireTypedLoad: false,
+    });
+    if (!compatibility.ok) return err(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
     const driverLicense = eligibilityRows[0];
     const licenseEligibility = evaluateDriverLicenseEligibility(driverLicense, {
       required_license_class: driverLicense.required_license_class,

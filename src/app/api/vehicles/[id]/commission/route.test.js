@@ -5,11 +5,12 @@ vi.mock('@/lib/audit',()=>({writeAuditRequired:mocks.audit}));
 vi.mock('@/lib/api/utils',async()=>({...await vi.importActual('@/lib/api/utils'),requireAuth:mocks.requireAuth}));
 import { POST } from './route';
 const vehicle={vehicle_id:7,plate_number:'ABC1234',fleet_asset_code:'FLT-007',operational_use:'Cargo',cargo_capacity_kg:1000,required_license_class:'B',category_id:1,commissioning_status:'Pending'};
+const profile={vehicle_id:7,supports_supply_delivery:true,rated_payload_kg:1200,gross_vehicle_weight_limit_kg:3500,operating_mass_kg:2000,operational_reserve_kg:200,usable_volume_m3:8,verification_reference:'LTO-MV-001',verification_valid_until:'2028-01-01',verified_by:8,verified_at:'2026-10-01T09:00:00+08:00'};
 const docs=['OR_CR','Insurance'].map((document_type,i)=>({document_id:i+1,document_type,file_url:'/evidence/scan.pdf',document_number:'DOCUMENT-'+i,expiry_date:'2028-01-01'}));
 const call=body=>POST(new Request('https://fleet.test/api/vehicles/7/commission',{method:'POST',body:JSON.stringify(body),headers:{'content-type':'application/json'}}),{params:Promise.resolve({id:'7'})});
 beforeEach(()=>{
  vi.clearAllMocks();mocks.requireAuth.mockResolvedValue({user:{employeeId:8,role:'admin'}});
- mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('UPDATE vehicles')?[{...vehicle,commissioning_status:'Ready'}]:[]}));
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('vehicle_cargo_profiles')?[profile]:sql.includes('UPDATE vehicles')?[{...vehicle,commissioning_status:'Ready'}]:[]}));
 });
 it('requires admin/super_admin authorization and an explicit confirmation', async()=>{
  expect((await call({document_ids:[1,2]})).status).toBe(400);
@@ -23,16 +24,29 @@ it('attests stored evidence and commissions inside the audited transaction',asyn
 });
 it('rejects stale selection, missing scans and missing static vehicle evidence',async()=>{
  expect((await call({confirm:true,document_ids:[3,4]})).status).toBe(409);
- mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs.map(d=>({...d,file_url:null})):[]}));
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs.map(d=>({...d,file_url:null})):sql.includes('vehicle_cargo_profiles')?[profile]:[]}));
  expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(400);
- mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[{...vehicle,required_license_class:null}]:sql.includes('FROM vehicledocuments')?docs:[]}));
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[{...vehicle,required_license_class:null}]:sql.includes('FROM vehicledocuments')?docs:sql.includes('vehicle_cargo_profiles')?[profile]:[]}));
  expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(400);
  expect(mocks.query.mock.calls.some(([sql])=>sql.includes('UPDATE vehicles'))).toBe(false);
 });
 it('refuses commissioning during blocking maintenance and fails if audit fails',async()=>{
- mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('FROM vehiclemaintenance')?[{maintenance_id:2}]:[]}));
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('vehicle_cargo_profiles')?[profile]:sql.includes('FROM vehiclemaintenance')?[{maintenance_id:2}]:[]}));
  expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(409);
- mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('UPDATE vehicles')?[vehicle]:[]}));
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('vehicle_cargo_profiles')?[profile]:sql.includes('UPDATE vehicles')?[vehicle]:[]}));
  mocks.audit.mockRejectedValueOnce(new Error('audit offline'));
  expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(500);
+});
+it('refuses Cargo commission without measured profile',async()=>{
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:[]}));
+ expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(409);
+ expect(mocks.query.mock.calls.some(([sql])=>sql.includes('UPDATE vehicles'))).toBe(false);
+});
+it('refuses Cargo commission on unmeasured or expired profiles and leaves Passenger commissioning on seats',async()=>{
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('vehicle_cargo_profiles')?[{...profile,supports_supply_delivery:false}]:[]}));
+ expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(409);
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[vehicle]:sql.includes('FROM vehicledocuments')?docs:sql.includes('vehicle_cargo_profiles')?[{...profile,verification_valid_until:'2000-01-01'}]:[]}));
+ expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(409);
+ mocks.query.mockImplementation(async sql=>({rows:sql.includes('FROM vehicles')?[{...vehicle,operational_use:'Passenger',seating_capacity:7,cargo_capacity_kg:null}]:sql.includes('FROM vehicledocuments')?docs:[]}));
+ expect((await call({confirm:true,document_ids:[1,2]})).status).toBe(200);
 });

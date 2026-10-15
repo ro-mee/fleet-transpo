@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import TomTomMap from "../../../components/TomTomMap";
@@ -64,6 +64,30 @@ export default function RescueNavigationScreen() {
   // Compass updates fire at very high frequency; the 5° gate below drops the
   // noise before it can re-render the screen and spam the WebView bridge.
   const lastCompassHeading = useRef(null);
+  const navMapRef = useRef(null);
+  // The stranded driver's baked position rides the fleet responders GeoJSON
+  // layer (WebGL circles, repainted only on change) instead of a DOM marker.
+  const rescueResponders = useMemo(
+    () => (bakedDest ? [{ id: "stranded-driver", lat: bakedDest.lat, lng: bakedDest.lng }] : []),
+    [bakedDest]
+  );
+
+  // Pause WebView interpolation/camera work while this screen is blurred or
+  // the app is backgrounded; resume when visible again.
+  useFocusEffect(useCallback(() => {
+    navMapRef.current?.setMapActive?.(true);
+    return () => { navMapRef.current?.setMapActive?.(false); };
+  }, []));
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next.match(/inactive|background/)) {
+        navMapRef.current?.setMapActive?.(false);
+      } else if (next === "active") {
+        navMapRef.current?.setMapActive?.(true);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Mission + destination refresh. The stranded driver's live position is the
   // navigation target; falls back to the report-time coordinates if their
@@ -128,7 +152,10 @@ export default function RescueNavigationScreen() {
       });
 
       subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
+        // Decoupled like the Map tab: fixes stream for the local marker
+        // while server telemetry stays on its own slower cadence, and the
+        // WebView bridge throttles injects to one per 1500 ms past MAP_READY.
+        { accuracy: Location.Accuracy.High, timeInterval: 1500, distanceInterval: 3 },
         (newLoc) => {
           setOwnLocation((prev) => {
             let heading = prev?.heading;
@@ -283,12 +310,14 @@ export default function RescueNavigationScreen() {
         <>
           <View style={styles.mapWrap}>
             <TomTomMap
+              ref={navMapRef}
               origin={{
                 lat: ownLocation.lat,
                 lng: ownLocation.lng,
                 heading: ownLocation.heading,
               }}
               destination={bakedDest}
+              responders={rescueResponders}
               scrollEnabled
               pickupLabel="You"
               dropoffLabel={`Driver: ${driverName}`}

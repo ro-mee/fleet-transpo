@@ -218,3 +218,57 @@ it('answers Other options with eligible pair plus recorded exclusions (RS-UZYD)'
   const solo=conversationEvidence({request_id:2},{pair:{candidates:[ok],recommended:ok}});
   expect(evidenceSummary(solo,'Other options?')).toContain('only evaluated option');
 });
+it('projects cargo load for a cargo request', () => {
+  const request = { request_id: 1, pickup_datetime: '2026-10-20T02:00:00+08:00', fleet_status: 'Pending', load_type: 'Cargo', cargo_weight_kg: 650, cargo_description: 'Vegetables' };
+  const recommendation = { evaluatedAt: new Date().toISOString(), pair: { candidates: [], recommended: null, none_reasons: [] } };
+  const ev = conversationEvidence(request, recommendation, null);
+  expect(ev.requestCargo).toMatchObject({ loadType: 'Cargo', weightKg: 650, cargoText: 'Vegetables' });
+});
+it('answers cargo capacity question with kg-first summary', () => {
+  const cargoRequest = { request_id: 9, pickup_datetime: '2026-10-20T02:00:00+08:00', fleet_status: 'Pending', load_type: 'Cargo', cargo_weight_kg: 650, cargo_description: 'Vegetables' };
+  const cargoRecommendation = { evaluatedAt: new Date().toISOString(), pair: { candidates: [{
+    vehicle_id: 1, driver_id: 2, driver: { driver_name: 'Juan' }, vehicle: { plate_number: 'ABC', cargo_capacity_kg: 1000 },
+    checks: [{ status: 'verified' }], readiness: 'VERIFIED', feasibility: { verdict: 'SAFE', reasons: [] },
+    cargoPhysical: { usable_payload_kg: 800, remaining_payload_kg: 800 },
+  }], recommended: { vehicle_id: 1, driver_id: 2 }, none_reasons: [] } };
+  const ev = conversationEvidence(cargoRequest, cargoRecommendation, null);
+  const text = evidenceSummary(ev, 'kaya ba 900kg?');
+  expect(text).toMatch(/kg/i);
+  expect(text).not.toMatch(/passenger/i);
+  expect(text).toContain('Declared weight: 650 kg');
+  expect(text).toContain('Vegetables');
+  expect(text).toContain('Juan with ABC');
+});
+it('keeps passenger questions on the standard summary for the same cargo evidence', () => {
+  const cargoRequest = { request_id: 9, load_type: 'Cargo', cargo_weight_kg: 650, cargo_description: 'Vegetables' };
+  const cargoRecommendation = { evaluatedAt: new Date().toISOString(), pair: { candidates: [{
+    vehicle_id: 1, driver_id: 2, driver: { driver_name: 'Juan' }, vehicle: { plate_number: 'ABC', cargo_capacity_kg: 1000 },
+    checks: [{ status: 'verified' }], readiness: 'VERIFIED', feasibility: { verdict: 'SAFE', reasons: [] },
+  }], recommended: { vehicle_id: 1, driver_id: 2 }, none_reasons: [] } };
+  const ev = conversationEvidence(cargoRequest, cargoRecommendation, null);
+  const text = evidenceSummary(ev, 'Why this pair?');
+  expect(text).toContain('Juan with ABC');
+  expect(text).not.toMatch(/Declared weight/);
+  expect(text).not.toMatch(/Load type/);
+});
+it('adds the first physical recovery hint to the cargo summary', () => {
+  const ok = { vehicle_id: 1, driver_id: 2, driver: { driver_name: 'Juan' }, vehicle: { plate_number: 'ABC', cargo_capacity_kg: 1000 },
+    checks: [{ status: 'verified' }], readiness: 'VERIFIED', feasibility: { verdict: 'SAFE', reasons: [] } };
+  const ev = conversationEvidence(
+    { request_id: 10, load_type: 'Cargo', cargo_weight_kg: 650, cargo_description: 'Vegetables' },
+    { pair: { candidates: [ok], recommended: ok, none_reasons: [
+      { vehicle_id: 2, plate: 'XYZ 5678', reason: 'cargo capacity 500 kg, request needs 650 kg (over by 150 kg)', prefiltered: true }] } });
+  const text = evidenceSummary(ev, 'cargo payload?');
+  expect(text).toContain('Needs a larger cargo vehicle');
+});
+it('prefers a pair capacity block as the cargo recovery hint', () => {
+  const blocked = { vehicle_id: 1, driver_id: 2, driver: { driver_name: 'Juan' }, vehicle: { plate_number: 'ABC' },
+    checks: [{ id: 'capacity', label: 'Cargo capacity', status: 'blocking', message: 'cargo capacity 500 kg, request needs 650 kg (over by 150 kg)' }],
+    feasibility: { verdict: 'INFEASIBLE', reasons: ['cargo capacity 500 kg, request needs 650 kg (over by 150 kg)'] } };
+  const ev = conversationEvidence(
+    { request_id: 11, load_type: 'Cargo', cargo_weight_kg: 650, cargo_description: 'Vegetables' },
+    { pair: { candidates: [blocked], recommended: blocked, none_reasons: [
+      { vehicle_id: 2, plate: 'XYZ 5678', reason: 'Vehicle status is Under Maintenance.', prefiltered: true }] } });
+  const text = evidenceSummary(ev, 'how much cargo can it take?');
+  expect(text).toContain('Needs a larger cargo vehicle');
+});

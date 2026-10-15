@@ -487,7 +487,6 @@ function buildPlan(rng, ref) {
         completed_date: dayStr(Math.min(WINDOW_DAYS - 1, d + intBetween(rng, 0, 2))),
         cost: round2(between(rng, lo, hi)),
         mileage_at_service: round2(odo.get(v.vehicle_id) * between(rng, 0.8, 0.99)),
-        service_provider: pick(rng, ["Toyota Otis", "Autohub Pasay", "Fleet Care Manila"]),
         created_by: employees.manager,
       });
     }
@@ -893,11 +892,11 @@ async function cmdUp(pool) {
     ids.vehiclemaintenance = await insertMany(
       tx, "vehiclemaintenance",
       ["vehicle_id", "maintenance_type", "description", "maintenance_date",
-       "completed_date", "cost", "mileage_at_service", "service_provider",
+       "completed_date", "cost", "mileage_at_service",
        "status", "priority", "remarks", "created_by"],
       plan.maintenance.map((m) => [
         m.vehicle_id, m.maintenance_type, m.description, m.maintenance_date,
-        m.completed_date, m.cost, m.mileage_at_service, m.service_provider,
+        m.completed_date, m.cost, m.mileage_at_service,
         "Completed", "Normal", MARK, m.created_by,
       ]),
       "maintenance_id"

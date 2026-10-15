@@ -11,6 +11,7 @@ import {
   jobProblem,
   jobVehicle,
   nextMechanicAction,
+  sourceLabels,
 } from "./mechanic-actions";
 import { useIsDesktop } from "./use-is-desktop";
 
@@ -90,6 +91,7 @@ export function HeroJobCard({ job, desktop, onAction, busy = false }) {
   const vehicle = jobVehicle(job);
   const problem = jobProblem(job);
   const age = jobAgeLabel(job);
+  const sources = sourceLabels(job);
   const tone = priorityTone(job.priority);
   const disabled = !isDesktop || busy;
   const disabledTitle = !isDesktop ? DESKTOP_ONLY_TITLE : undefined;
@@ -138,6 +140,15 @@ export function HeroJobCard({ job, desktop, onAction, busy = false }) {
               </span>
             )}
             <span>WO #{job.maintenance_id}</span>
+            {sources.map((label) => (
+              <span
+                key={label}
+                title="Where this job originated"
+                className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-foreground-secondary"
+              >
+                {label}
+              </span>
+            ))}
           </div>
 
           {action && (

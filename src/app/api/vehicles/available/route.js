@@ -7,6 +7,7 @@ import { loadRoadReadiness } from "@/lib/vehicles/readiness-server";
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { loadCargoPhysicalAssessments } from '@/services/cargo-physical.service';
 import { cargoPhysicalPolicy, vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
+import { driverTypeFinding } from '@/lib/drivers/service-groups';
 
 export async function GET(req) {
   try {
@@ -99,7 +100,7 @@ export async function GET(req) {
           AND vm.deleted_at IS NULL
           AND (
             vm.status IN ('In Progress', 'Pending Inspection')
-            OR (vm.status = 'Scheduled' AND vm.maintenance_date <= CURRENT_DATE)
+            OR (vm.status = 'Scheduled' AND vm.maintenance_date <= (NOW() AT TIME ZONE 'Asia/Manila')::date)
           )
       )
     `;
@@ -138,6 +139,20 @@ export async function GET(req) {
         .map((p) => p.driver_id)
         .filter(Boolean);
       const scheduleCtx = await loadDriverScheduleContext(effectiveIds);
+      // Static classification gate: driver types for the effective drivers,
+      // plus the stored request's service (when the caller names one).
+      const [{ rows: typeRows }, { rows: svcRows }] = await Promise.all([
+        effectiveIds.length
+          ? query(`SELECT driver_id, driver_type FROM drivers WHERE driver_id = ANY($1) AND deleted_at IS NULL`, [effectiveIds])
+          : Promise.resolve({ rows: [] }),
+        searchParams.get('request_id')
+          ? query(`SELECT st.service_code FROM transportation_requests r
+              LEFT JOIN service_types st ON st.service_type_id=r.service_type_id AND st.deleted_at IS NULL
+              WHERE r.request_id=$1 AND r.deleted_at IS NULL`, [searchParams.get('request_id')])
+          : Promise.resolve({ rows: [] }),
+      ]);
+      const driverTypeById = new Map(typeRows.map((r) => [Number(r.driver_id), r.driver_type]));
+      const serviceCode = svcRows[0]?.service_code ?? null;
       const pickup = new Date(pickupAt);
       const returnDate = returnAt ? new Date(returnAt) : null;
       const pairByVehicle = new Map(
@@ -154,6 +169,7 @@ export async function GET(req) {
         }
         const block = driverBlockReason({ driverId, pickup, returnAt: returnDate, ctx: scheduleCtx });
         if (block?.blocked) continue;
+        if (serviceCode && driverTypeFinding({ driver: { driver_id: driverId, driver_type: driverTypeById.get(Number(driverId)) ?? null }, serviceCode })) continue;
         filtered.push(v);
       }
       return ok(filtered);

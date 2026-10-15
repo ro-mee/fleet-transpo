@@ -10,10 +10,11 @@
  * All animations: transform + opacity only (GPU-safe, useNativeDriver:true)
  */
 import React, { useRef, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Animated, PanResponder } from 'react-native';
+import { View, Text, StyleSheet, Animated, PanResponder, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../lib/theme-context';
 import { fonts } from '../lib/theme';
+import { useReducedMotion } from '../lib/use-reduced-motion';
 
 const TRACK_HEIGHT  = 56;
 const THUMB_SIZE    = 46;
@@ -32,6 +33,8 @@ export default function SwipeButton({
   const { colors } = useTheme();
   const [containerWidth, setContainerWidth] = useState(0);
   const [swiped, setSwiped]                 = useState(false);
+  const [pending, setPending] = useState(false);
+  const reduceMotion = useReducedMotion();
 
   // ─── Refs — panResponder reads these fresh on every event ────────────────
   const swipedRef     = useRef(false);
@@ -40,6 +43,15 @@ export default function SwipeButton({
   const onSuccessRef  = useRef(onSwipeSuccess);
   const maxXRef       = useRef(260);
   const playSuccessRef = useRef(null);
+  const activateRef = useRef(null);
+  const reducedRef = useRef(true);
+  const mountedRef = useRef(true);
+  const resetTimer = useRef(null);
+  useEffect(() => { reducedRef.current = reduceMotion; }, [reduceMotion]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; clearTimeout(resetTimer.current); };
+  }, []);
 
   useEffect(() => { disabledRef.current = disabled;       }, [disabled]);
   // In-flight lock: the gesture path must not fire a second transition while
@@ -80,7 +92,17 @@ export default function SwipeButton({
   });
 
   // ─── Success animation (glass overlay, not opaque) ────────────────────────
+  const reset = () => {
+    thumbX.setValue(0); glassOpacity.setValue(0); glassScale.setValue(0.82);
+    swipedRef.current = false;
+    setSwiped(false);
+  };
   const playSuccess = () => {
+    if (reducedRef.current) {
+      glassScale.setValue(1); glassOpacity.setValue(1);
+      resetTimer.current = setTimeout(reset, 900);
+      return;
+    }
     Animated.parallel([
       Animated.timing(glassOpacity, {
         toValue: 1, duration: 260,
@@ -91,11 +113,13 @@ export default function SwipeButton({
         useNativeDriver: true,
       }),
     ]).start(() => {
-      setTimeout(() => {
+      if (!mountedRef.current) return;
+      resetTimer.current = setTimeout(() => {
         Animated.parallel([
           Animated.timing(glassOpacity, { toValue: 0, duration: 320, useNativeDriver: true }),
           Animated.timing(thumbX,       { toValue: 0, duration: 320, useNativeDriver: true }),
         ]).start(() => {
+          if (!mountedRef.current) return;
           glassScale.setValue(0.82);
           swipedRef.current = false;
           setSwiped(false);
@@ -105,6 +129,25 @@ export default function SwipeButton({
   };
 
   useEffect(() => { playSuccessRef.current = playSuccess; });
+  const activate = async () => {
+    if (disabledRef.current || busyRef.current || swipedRef.current) return;
+    swipedRef.current = true;
+    setSwiped(true);
+    setPending(true);
+    if (reducedRef.current) thumbX.setValue(maxXRef.current);
+    else Animated.spring(thumbX, { toValue: maxXRef.current, bounciness: 0, speed: 22, useNativeDriver: true }).start();
+    try {
+      const confirmed = await onSuccessRef.current?.();
+      if (!mountedRef.current) return;
+      if (confirmed === true) playSuccessRef.current?.();
+      else reset();
+    } catch {
+      if (mountedRef.current) reset();
+    } finally {
+      if (mountedRef.current) setPending(false);
+    }
+  };
+  useEffect(() => { activateRef.current = activate; });
 
   // ─── PanResponder ─────────────────────────────────────────────────────────
   const panResponder = useRef(
@@ -116,6 +159,7 @@ export default function SwipeButton({
       onMoveShouldSetPanResponderCapture:   () => !disabledRef.current && !busyRef.current && !swipedRef.current,
 
       onPanResponderGrant: () => {
+        if (reducedRef.current) return;
         // Micro-scale press feedback — GPU-only
         Animated.spring(thumbScale, { toValue: 0.93, useNativeDriver: true, speed: 30, bounciness: 0 }).start();
       },
@@ -134,18 +178,9 @@ export default function SwipeButton({
         const max = maxXRef.current;
 
         if (g.dx >= max * THRESHOLD || g.vx >= 0.6) {
-          // Velocity-aware: a fast flick triggers even if distance < threshold.
-          // Fire success IMMEDIATELY (in parallel with the thumb spring) so the
-          // next screen transition starts instantly instead of waiting ~1s for
-          // the animation to settle.
-          swipedRef.current = true;
-          setSwiped(true);
-          Animated.spring(thumbX, {
-            toValue: max, bounciness: 0, speed: 22, useNativeDriver: true,
-          }).start();
-          if (onSuccessRef.current) onSuccessRef.current();
-          if (playSuccessRef.current) playSuccessRef.current();
+          activateRef.current?.();
         } else {
+          if (reducedRef.current) { thumbX.setValue(0); return; }
           // Satisfying elastic snap-back
           Animated.spring(thumbX, {
             toValue: 0, bounciness: 12, speed: 16, useNativeDriver: true,
@@ -156,6 +191,7 @@ export default function SwipeButton({
       onPanResponderTerminate: () => {
         thumbScale.setValue(1);
         if (swipedRef.current) return;
+        if (reducedRef.current) { thumbX.setValue(0); return; }
         Animated.spring(thumbX, { toValue: 0, bounciness: 8, useNativeDriver: true }).start();
       },
     })
@@ -163,18 +199,13 @@ export default function SwipeButton({
 
   const bg = backgroundColor || colors.primary;
   const fg = textColor       || colors.onPrimary;
+  const waiting = busy || pending;
+  const contentColor = disabled || waiting ? colors.onSurfaceVariant : fg;
 
   // Screen-reader activation path — mirrors the gesture release handler's
   // success branch so assistive tech triggers the exact same flow.
   const handleActivate = () => {
-    if (disabledRef.current || busy || swipedRef.current) return;
-    swipedRef.current = true;
-    setSwiped(true);
-    Animated.spring(thumbX, {
-      toValue: maxXRef.current, bounciness: 0, speed: 22, useNativeDriver: true,
-    }).start();
-    if (onSuccessRef.current) onSuccessRef.current();
-    if (playSuccessRef.current) playSuccessRef.current();
+    activateRef.current?.();
   };
 
   return (
@@ -185,7 +216,7 @@ export default function SwipeButton({
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityHint="Double-tap to confirm this action"
-      accessibilityState={{ disabled, busy }}
+      accessibilityState={{ disabled, busy: busy || pending }}
       accessibilityActions={[{ name: 'activate' }]}
       onAccessibilityAction={(event) => {
         if (event.nativeEvent.actionName === 'activate') handleActivate();
@@ -194,7 +225,7 @@ export default function SwipeButton({
 
       {/* ── Inner Track: machined primary pill ────────────────────────────── */}
       <View
-        style={[styles.track, { backgroundColor: (disabled || busy) ? colors.surfaceContainerHighest : bg, opacity: (disabled || busy) ? 0.55 : 1 }]}
+        style={[styles.track, { backgroundColor: disabled || waiting ? colors.surfaceContainerHighest : bg, opacity: disabled && !waiting ? 0.55 : 1 }]}
         onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
       >
 
@@ -211,14 +242,15 @@ export default function SwipeButton({
             width: 2000,
             // Premium Emerald Green — translucent so it overlays nicely
             backgroundColor: 'rgba(16, 185, 129, 0.65)', 
-            opacity: fillOpacity,
+            opacity: waiting ? 0 : fillOpacity,
             transform: [{ translateX: fillTranslate }],
           }}
         />
 
         {/* Label — padded to the right so it never sits under the thumb at rest */}
-        <Animated.View style={[StyleSheet.absoluteFill, styles.labelWrap, { opacity: labelOpacity }]}>
-          <Text style={[styles.label, { color: fg }]} numberOfLines={1}>{title}</Text>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.labelWrap, { opacity: busy || pending ? 1 : labelOpacity }]}>
+          {waiting ? <ActivityIndicator color={contentColor} /> : null}
+          <Text accessibilityLiveRegion="polite" style={[styles.label, { color: contentColor }]} numberOfLines={1}>{waiting ? 'Submitting…' : title}</Text>
         </Animated.View>
 
         {/* ── Thumb (drag handle) ─────────────────────────────────────────── */}
@@ -229,6 +261,7 @@ export default function SwipeButton({
             styles.thumb,
             {
               transform: [{ translateX: thumbX }, { scale: thumbScale }],
+              opacity: waiting ? 0 : 1,
               width:  THUMB_SIZE,
               height: THUMB_SIZE,
               margin: THUMB_MARGIN,

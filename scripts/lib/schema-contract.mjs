@@ -162,6 +162,13 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Registration/insurance documents and their storage references.",
   },
+  document_uploads: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason:
+      "Temporary upload metadata, object keys, hashes and attachment state for driver and vehicle evidence; server-authorized only.",
+    rlsNote:
+      "Live catalog check on 2026-10-13 confirmed RLS enabled and no anon grants; the anon probe returned an explicit refusal (401).",
+  },
   vehicleinspection: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Driver-submitted pre-trip inspection reports.",

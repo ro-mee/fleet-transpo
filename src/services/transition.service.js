@@ -9,7 +9,7 @@ import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/se
 import { writeAudit } from "@/lib/audit";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 import { emitTransportStatus } from "@/services/outbound.service";
-import { assertCargoCheckpoint, prepareCargoLifecycle, cargoLifecycleEnabled } from './cargo-execution.service';
+import { assertCargoCheckpoint, assertCargoDispatchCheckpoint, prepareCargoLifecycle } from './cargo-execution.service';
 
 const DISPATCH_CANCELLED = DISPATCH_STATUS.CANCELLED;
 // A stood-down dispatch RELEASES the request: the pair returns to the pool and
@@ -127,12 +127,10 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
     await assertCargoCheckpoint(before[0], { to, session, patch: extra }, db);
     return db.query(`UPDATE trips SET ${sets.join(", ")} WHERE trip_id = $${values.length} RETURNING *`, values);
   };
-  const { rows } = cargoLifecycleEnabled() || beforeWrite
-    ? await withTransaction(async tx => {
+  const { rows } = await withTransaction(async tx => {
       await prepareCargoLifecycle(tx);
       return updateTrip(tx);
-    })
-    : await updateTrip({ query });
+    });
   if (!rows[0]) throw new AuthError("Trip not found", 404);
 
   // Reconcile derived resources. The trip row is committed; a failure here is
@@ -246,12 +244,7 @@ async function cancelDispatch({ dispatchId, before, session, reason }) {
   const cleanReason = typeof reason === "string" && reason.trim() ? reason.trim() : null;
 
   const { dispatch, request } = await withTransaction(async (tx) => {
-    if (await prepareCargoLifecycle(tx)) {
-      const trips = (await tx.query('SELECT * FROM trips WHERE dispatch_id=$1 AND deleted_at IS NULL ORDER BY trip_id', [dispatchId])).rows;
-      for (const trip of trips.filter(row => !['Completed', 'Cancelled'].includes(row.trip_status))) {
-        await assertCargoCheckpoint(trip, { to: 'Cancelled', session }, tx);
-      }
-    }
+    await assertCargoDispatchCheckpoint(dispatchId, { to: 'Cancelled', session }, tx);
     const { rows: locked } = await tx.query(
       `SELECT dispatch_id, dispatch_number, status, vehicle_id, driver_id, request_id
          FROM dispatchschedules WHERE dispatch_id = $1 FOR UPDATE`,

@@ -7,6 +7,7 @@ import {
   CalendarX,
   CarFront,
   IdCard,
+  Package,
   Sparkles,
   UserX,
   Users,
@@ -24,9 +25,11 @@ const CHIP_ICON = {
   driver_conflict: Users,
   maintenance_conflict: Wrench,
   driver_unavailable: UserX,
+  driver_type_mismatch: IdCard,
   license_expired: IdCard,
   registration_expired: CalendarX,
   capacity_mismatch: Users,
+  cargo_physical: Package,
   vehicle_not_assigned_to_driver: CarFront,
 };
 

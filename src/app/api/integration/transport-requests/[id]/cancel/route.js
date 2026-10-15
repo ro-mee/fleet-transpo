@@ -2,9 +2,10 @@ import { requirePermission, parseBody, ok, err, handleError, AuthError } from "@
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, loadRequest } from "@/services/reservation-lifecycle.service";
 import { writeAudit } from "@/lib/audit";
-import { query } from "@/lib/db";
+import { withTransaction } from "@/lib/db";
 import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
-import { cargoLifecycleEnabled } from '@/services/cargo-execution.service';
+import { assertCargoDispatchCheckpoint, prepareCargoLifecycle } from '@/services/cargo-execution.service';
+import { emitTransportStatus } from '@/services/outbound.service';
 
 // CANCEL a transportation request.
 //
@@ -20,7 +21,7 @@ export async function PUT(req, { params }) {
 
     const before = await loadRequest(id);
     if (!before) return err("Transportation request not found", 404);
-    if (cargoLifecycleEnabled() && before.load_type === 'Cargo') {
+    if (before.load_type === 'Cargo') {
       throw new AuthError('Cargo request cancellation requires approved source coordination.', 503, 'CARGO_CONFIGURATION_REQUIRED');
     }
 
@@ -30,32 +31,47 @@ export async function PUT(req, { params }) {
     // Pending Reassignment (an interrupted run whose pair was already released
     // by the incident grounding) — otherwise cancelling the request would leave
     // a dispatch behind still holding the vehicle.
-    const { rows: dispatches } = await query(
-      `SELECT dispatch_id FROM dispatchschedules
-        WHERE deleted_at IS NULL
-          AND status IN ('Scheduled', 'In Progress', 'Pending Reassignment')
-          AND request_id = $1`,
-      [id]
-    );
-    for (const d of dispatches) {
-      await query(`UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`, [d.dispatch_id]);
-      const { rows: disp } = await query(`SELECT vehicle_id, driver_id FROM dispatchschedules WHERE dispatch_id = $1`, [d.dispatch_id]);
-      await query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [d.dispatch_id]);
-      if (disp[0]?.vehicle_id) await syncVehicleStatus(disp[0].vehicle_id);
-      if (disp[0]?.driver_id) await syncDriverStatus(disp[0].driver_id);
-    }
+    const resources = [];
+    const result = await withTransaction(async tx => {
+      await prepareCargoLifecycle(tx);
+      const stored = (await tx.query('SELECT request_id, load_type FROM transportation_requests WHERE request_id=$1 AND deleted_at IS NULL FOR UPDATE', [id])).rows[0];
+      if (!stored) throw new AuthError('Transportation request not found', 404);
+      if (stored.load_type === 'Cargo') throw new AuthError('Cargo request cancellation requires approved source coordination.', 503, 'CARGO_CONFIGURATION_REQUIRED');
+      if (stored.load_type != null && stored.load_type !== 'Passenger') throw new AuthError('Request load authority could not be resolved.', 409, 'CARGO_LINKAGE_CONFLICT');
+      const { rows: dispatches } = await tx.query(
+        `SELECT dispatch_id FROM dispatchschedules
+          WHERE deleted_at IS NULL
+            AND status IN ('Scheduled', 'In Progress', 'Pending Reassignment')
+            AND request_id = $1`,
+        [id]
+      );
+      for (const d of dispatches) await assertCargoDispatchCheckpoint(d.dispatch_id, { to: 'Cancelled', session }, tx);
+      for (const d of dispatches) {
+        await tx.query(`UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`, [d.dispatch_id]);
+        const { rows: disp } = await tx.query(`SELECT vehicle_id, driver_id FROM dispatchschedules WHERE dispatch_id = $1`, [d.dispatch_id]);
+        await tx.query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [d.dispatch_id]);
+        if (disp[0]) resources.push(disp[0]);
+      }
 
-    const result = await advanceReservation({
-      requestId: id,
-      toStatus: L.CANCELLED,
-      session,
-      eventType: E.CANCELLED,
-      description: reason ? `Request cancelled: ${reason}` : "Request cancelled.",
-      metadata: reason ? { reason, cancelled_from: before.fleet_status } : { cancelled_from: before.fleet_status },
-      patch: { status_reason: reason, vehicle_id: null, driver_id: null },
+      const advanced = await advanceReservation({
+        requestId: id,
+        toStatus: L.CANCELLED,
+        session,
+        eventType: E.CANCELLED,
+        description: reason ? `Request cancelled: ${reason}` : "Request cancelled.",
+        metadata: reason ? { reason, cancelled_from: before.fleet_status } : { cancelled_from: before.fleet_status },
+        patch: { status_reason: reason, vehicle_id: null, driver_id: null },
+        db: tx,
+        notifyBooking: false,
+      });
+      if (!advanced.ok) throw new AuthError(advanced.error, advanced.status || 409);
+      return advanced;
     });
-
-    if (!result.ok) return err(result.error, result.status || 409);
+    for (const resource of resources) {
+      if (resource.vehicle_id) await syncVehicleStatus(resource.vehicle_id);
+      if (resource.driver_id) await syncDriverStatus(resource.driver_id);
+    }
+    if (result.hops?.length && result.bookingNotify == null) result.bookingNotify = await emitTransportStatus(result.request);
 
     await writeAudit(req, session, {
       action: "update",

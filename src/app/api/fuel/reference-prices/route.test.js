@@ -38,4 +38,12 @@ describe("manual reference-price API through the real repository", () => {
     const response = await GET(request("GET"));
     expect(response.status).toBe(200); expect((await response.json()).region).toBe("NCR");
   });
+  it("maps verifier names onto history rows, null when unknown", async () => {
+    fake.rows = [
+      { snapshot_id: 1, verified_by: 48, verifier_first_name: "Juan", verifier_last_name: "Cruz" },
+      { snapshot_id: 2, verified_by: 49, verifier_first_name: null, verifier_last_name: null },
+    ];
+    const rows = (await (await GET(request("GET"))).json()).rows;
+    expect(rows).toMatchObject([{ snapshot_id: 1, verifier_name: "Juan Cruz" }, { snapshot_id: 2, verifier_name: null }]);
+  });
 });

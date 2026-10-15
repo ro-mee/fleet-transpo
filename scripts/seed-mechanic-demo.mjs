@@ -65,7 +65,6 @@ const WORK_ORDERS = [
     priority: "Normal",
     cost: 4500,
     mileage_at_service: 87250,
-    service_provider: "Fleet Care Manila",
     diagnosis: null,
     parts_replaced: null,
     labor_hours: null,
@@ -81,7 +80,6 @@ const WORK_ORDERS = [
     priority: "High",
     cost: 1800,
     mileage_at_service: 91300,
-    service_provider: "Fleet Care Manila",
     diagnosis: "Oil degraded past interval; oil filter clogged.",
     parts_replaced: null,
     labor_hours: null,
@@ -97,7 +95,6 @@ const WORK_ORDERS = [
     priority: "Normal",
     cost: 12500,
     mileage_at_service: 88500,
-    service_provider: "Fleet Care Manila",
     diagnosis: "Front tires at wear bar; sidewall cracking on right front.",
     parts_replaced: ["2x 265/65R17 all-terrain tire", "wheel balancing"],
     labor_hours: 2.5,
@@ -268,17 +265,17 @@ async function cmdUp(pool) {
       const res = await client.query(
         `INSERT INTO vehiclemaintenance
            (vehicle_id, maintenance_type, description, maintenance_date, status,
-            priority, cost, mileage_at_service, service_provider,
+            priority, cost, mileage_at_service,
             assigned_mechanic_id, assigned_at, repair_started_at,
             diagnosis, parts_replaced, labor_hours,
             repair_completed_by, repair_completed_at,
             remarks, created_by)
          VALUES
-           ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            NOW(), $11,
-            $12, $13::jsonb, $14,
-            $15, $16,
-            $17, $18)
+           ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+            NOW(), $10,
+            $11, $12::jsonb, $13,
+            $14, $15,
+            $16, $17)
          RETURNING maintenance_id`,
         [
           vehicle.vehicle_id,
@@ -289,7 +286,6 @@ async function cmdUp(pool) {
           wo.priority,
           wo.cost,
           wo.mileage_at_service,
-          wo.service_provider,
           mechanicId,
           wo.stamp_started ? now : null,
           wo.diagnosis,

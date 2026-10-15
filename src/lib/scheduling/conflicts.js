@@ -16,6 +16,7 @@ import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
 import { travelBufferBlocked } from "@/lib/scheduling/travel-buffer";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
+import { driverTypeFinding } from "@/lib/drivers/service-groups";
 
 // Double-booking prevention.
 //
@@ -249,6 +250,12 @@ function travelBufferFindings(request, resource, kind, cfg) {
  */
 export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null, scheduleContext, travelBufferEnabled, safetyBufferMinutes, bufferFloorMinutes } = {}) {
   const findings = [];
+  if (driver) {
+    // Static classification gate (see service-groups.js): unknown services
+    // and untyped drivers skip, never block.
+    const mismatch = driverTypeFinding({ driver, serviceCode: request?.service_code });
+    if (mismatch) findings.push(mismatch);
+  }
   // Legacy untyped default, used only by the historical seats check below.
   // Typed rows resolve their requirement through the Task 5 gate instead.
   const passengers = Number(request?.passenger_count) || 1;
@@ -533,7 +540,7 @@ export async function detectRequestConflicts(request, opts = {}) {
       ? query(
           `SELECT d.driver_id, d.license_number, d.license_type, d.license_class, d.license_expiry,
                   d.license_verified_at, d.license_verified_by, d.license_verification_method,
-                  d.driver_status, e.first_name, e.last_name
+                  d.driver_status, d.driver_type, e.first_name, e.last_name
              FROM drivers d
              LEFT JOIN employees e ON e.employee_id = d.employee_id
             WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
@@ -760,7 +767,7 @@ export async function detectConflictsForRequests(requests = []) {
       ? query(
           `SELECT d.driver_id, d.license_number, d.license_type, d.license_class, d.license_expiry,
                   d.license_verified_at, d.license_verified_by, d.license_verification_method,
-                  d.driver_status, e.first_name, e.last_name
+                  d.driver_status, d.driver_type, e.first_name, e.last_name
              FROM drivers d
              LEFT JOIN employees e ON e.employee_id = d.employee_id
             WHERE d.driver_id = ANY($1) AND d.deleted_at IS NULL`,

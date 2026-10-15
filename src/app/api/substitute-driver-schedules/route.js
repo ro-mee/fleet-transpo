@@ -2,6 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 import { evaluateDriverLicenseEligibility, licenseNumberEvidence, licenseExpiryIsBefore, licenseReferenceCalendarDay } from "@/lib/drivers/license-eligibility";
+import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
 // Substitute driver schedules (migration 032).
 //
@@ -104,8 +105,8 @@ export async function POST(req) {
 
     // Both sides must exist and be live.
     const [{ rows: vRows }, { rows: dRows }] = await Promise.all([
-      query(`SELECT vehicle_id, plate_number, required_license_class FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`, [vehicleId]),
-      query(`SELECT d.driver_id, e.first_name, e.last_name, d.license_number,
+      query(`SELECT vehicle_id, plate_number, operational_use, required_license_class FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`, [vehicleId]),
+      query(`SELECT d.driver_id, d.driver_type, e.first_name, e.last_name, d.license_number,
                     d.license_type, d.license_class, d.license_expiry,
                     d.license_verified_at, d.license_verified_by, d.license_verification_method
                FROM drivers d
@@ -114,6 +115,14 @@ export async function POST(req) {
     ]);
     if (!vRows.length) return err("Vehicle not found.", 404);
     if (!dRows.length) return err("Substitute driver not found.", 404);
+
+    const compatibility = checkVehicleLoadCompatibility({
+      driverType: dRows[0].driver_type,
+      operationalUse: vRows[0].operational_use,
+      loadType: null,
+      requireTypedLoad: false,
+    });
+    if (!compatibility.ok) return err(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
 
     const licenseEligibility = evaluateDriverLicenseEligibility(dRows[0], vRows[0], from);
     if (!licenseEligibility.eligible) {

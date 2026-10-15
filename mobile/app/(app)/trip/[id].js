@@ -266,7 +266,7 @@ export default function TripDetailsScreen() {
       >
         <Ionicons name="arrow-back" size={22} color={colors.primary} />
       </Pressable>
-      <Text style={type.titleLg}>Trip Details</Text>
+      <Text style={[type.titleLg, { flexShrink: 1 }]}>{isCargoLoad(trip) ? "Cargo Assignment" : "Trip Details"}</Text>
       <View style={{ width: TOUCH_TARGET }} />
     </View>
   );
@@ -383,8 +383,49 @@ export default function TripDetailsScreen() {
         {!isTerminal && workspace.tripReady !== true && <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurfaceVariant, marginBottom: 16 }]}>{workspaceBlockReason(workspace)}</Text>}
         {!isTerminal && !canOperate && <ClayButton label="Refresh assignment" onPress={retry} />}
         {!isTerminal && workspace.tripReady === true && !canOperate && <Text accessibilityRole="alert" style={type.supporting}>Connect online and refresh your profile and current trip before continuing.</Text>}
-        {/* Summary card */}
-        <ClayCard style={styles.card}>
+        {/* Cargo uses the reference's compact assignment sheet; shared readiness
+            and status actions below still own the actual start permissions. */}
+        {isCargo ? (
+          <ClayCard style={styles.card}>
+            <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
+              <ClayBadge text={tripStatusLabel(trip.trip_status, "Cargo")} tone={tone} />
+              <Text style={[type.caption, { color: colors.primary }]}>{trip.booking_reference || `Trip #${id}`}</Text>
+            </View>
+            <View style={styles.cargoTitleRow}>
+              <View style={[styles.cargoEmblem, { backgroundColor: colors.primary }]}>
+                <Ionicons name="cube-outline" size={24} color={colors.onPrimary} />
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={type.cardTitle}>{loadName}</Text>
+                <Text style={type.supporting}>{loadCount || "Declared weight not provided"}</Text>
+              </View>
+            </View>
+            <RouteTimeline accent={colors.primary} stops={[
+              { label: "Pickup", value: trip.origin || "Pickup not provided" },
+              { label: "Delivery", value: trip.destination || "Delivery not provided" },
+            ]} />
+            <View style={styles.cargoFactRow}>
+              <Ionicons name="time-outline" size={20} color={colors.primary} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={type.caption}>SCHEDULED DEPARTURE</Text>
+                <Text style={type.supporting}>{depLabel || "Not provided"}</Text>
+              </View>
+            </View>
+            <View style={styles.cargoFactRow}>
+              <Ionicons name="car-outline" size={20} color={colors.primary} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={type.caption}>ASSIGNED VEHICLE</Text>
+                <Text style={type.cardTitle}>{trip.model || "Vehicle model not provided"}</Text>
+                <Text style={type.supporting}>{trip.plate_number || "Plate not provided"}</Text>
+                {Number(trip.cargo_capacity_kg) > 0 ? <Text style={type.supporting}>{trip.cargo_capacity_kg} kg capacity</Text> : null}
+              </View>
+            </View>
+            {isPreStart ? <View style={styles.cargoChecks}>
+              <ClayBadge text={preShift.loaded ? preShift.passed ? "Pre-Shift ✓" : "Pre-Shift required" : "Pre-Shift unconfirmed"} tone={preShift.loaded && preShift.passed ? "success" : "neutral"} />
+              <ClayBadge text={ready.preTripPassed ? "Pre-Trip ✓" : "Pre-Trip required"} tone={ready.preTripPassed ? "success" : "neutral"} />
+            </View> : null}
+          </ClayCard>
+        ) : <ClayCard style={styles.card}>
           <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
             <ClayBadge
               text={String(tripStatusLabel(trip.trip_status, isTerminal || workspace.tripReady === false ? trip.load_type : profile?.driverType)).toUpperCase()}
@@ -396,7 +437,7 @@ export default function TripDetailsScreen() {
             <Text style={[type.caption, { marginBottom: 2 }]}>Scheduled departure</Text>
             <Text style={type.cardTitle}>{depLabel || "Not provided"}</Text>
           </View>
-        </ClayCard>
+        </ClayCard>}
 
         {isCargo && canOperate && !isTerminal && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
 
@@ -545,7 +586,7 @@ export default function TripDetailsScreen() {
         )}
 
         {/* Route */}
-        <ClayCard style={styles.card}>
+        {!isCargo && <ClayCard style={styles.card}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="navigate-outline" size={16} color={colors.primary} />
             <Text style={[type.label, { letterSpacing: 0.6 }]}>ROUTE</Text>
@@ -554,7 +595,7 @@ export default function TripDetailsScreen() {
             accent={colors.primary}
             stops={routeStops}
           />
-        </ClayCard>
+        </ClayCard>}
 
         {/* Map panel — static route preview only; interactive navigation
             lives on the Live Map tab. */}
@@ -571,7 +612,7 @@ export default function TripDetailsScreen() {
             API has no phone field for this trip). Cargo rows name the
             consignment in kilograms instead; a missing weight renders no
             count line rather than a fabricated zero. */}
-        <ClayCard style={styles.card}>
+        {!isCargo && <ClayCard style={styles.card}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="person-outline" size={16} color={colors.primary} />
             <Text style={[type.label, { letterSpacing: 0.6 }]}>{isCargo ? "CARGO" : "PASSENGER"}</Text>
@@ -587,7 +628,7 @@ export default function TripDetailsScreen() {
               ) : null}
             </View>
           </View>
-        </ClayCard>
+        </ClayCard>}
 
         {/* Notes */}
         {trip?.special_requests ? (
@@ -708,6 +749,10 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  cargoTitleRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  cargoEmblem: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  cargoFactRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  cargoChecks: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   sectionHead: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, paddingBottom: 10 },
   pairRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   pair: { gap: 2, flexShrink: 1 },

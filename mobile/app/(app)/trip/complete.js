@@ -1,841 +1,175 @@
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Animated,
-  ScrollView,
-  TextInput,
-  Modal,
-  Platform,
-  Pressable,
-} from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useTheme } from '../../../lib/theme-context';
-import { fonts } from '../../../lib/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import LottieView from 'lottie-react-native';
-import { AppAlert } from '../../../components/AppAlert';
+import { useTheme } from '../../../lib/theme-context';
 import { api, wasQueued } from '../../../lib/api';
-import { ClayCard, ClayButton, ClayBadge } from '../../../components/clay';
+import { useAuth } from '../../../lib/auth';
+import { useConnectivity } from '../../../lib/connectivity-context';
+import { useDriverProfile } from '../../../lib/driver-profile';
+import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from '../../../lib/cargo-sync';
+import { resolveDriverWorkspace } from '../../../lib/driver-workspace';
+import { resolveCargoMapGate, workspaceBlockReason } from '../../../lib/cargo-view-model';
+import { cargoApi } from '../../../lib/cargo-api';
+import { isCargoLoad, loadTitle, loadSubtitle } from '../../../lib/load-presentation';
+import { validateCompletionReading } from '../../../lib/trip-completion';
+import { stopBackgroundTracking, updateLegContext } from '../../../lib/background-tracking';
+import ClayScreenHeader from '../../../components/ClayScreenHeader';
+import { ClayCard, ClayButton, ClayInput, ClayBadge } from '../../../components/clay';
 
 export default function TripCompleteScreen() {
   const router = useRouter();
-  // `scheme` (not isDark — the context never exposed that key; the old
-  // destructure silently evaluated undefined) drives the gleam/badge tints.
-  const { colors, scheme } = useTheme();
-  const dark = scheme === "dark";
+  const { tripId, needsOverride, farText } = useLocalSearchParams();
+  const { colors, type } = useTheme();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { profile, serverConfirmed } = useDriverProfile();
+  const { status: connectivity } = useConnectivity();
+  const [trip, setTrip] = useState(null);
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [ending, setEnding] = useState('');
+  const [reason, setReason] = useState('');
+  const [overrideNeeded, setOverrideNeeded] = useState(needsOverride === '1');
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const submitLock = useRef(false);
+  const requestNumber = useRef(0);
 
-  // Route params
-  const { pickup, destination, duration, distance, leg1, leg2, startOdo, endOdo } = useLocalSearchParams();
-  // PR #3 override completion: the map screen detected the trip is outside
-  // the destination geofence and deferred the PUT here so a reason can be
-  // captured. Normal completions never carry these params.
-  const { tripId, rawDistanceKm, rawStartOdo, rawEndOdo, needsOverride, farText } = useLocalSearchParams();
-  const overrideMode = needsOverride === "1" && tripId != null;
-  const [overrideReason, setOverrideReason] = useState('');
-  const [overriding, setOverriding] = useState(false);
-
-  const handleCompleteAnyway = async () => {
-    const reason = overrideReason.trim();
-    if (!reason) {
-      AppAlert.alert("Reason required", "Tell dispatch why you are completing away from the destination.");
-      return;
-    }
-    setOverriding(true);
+  const load = useCallback(async () => {
+    const snapshot = captureCargoSession(user?.employeeId);
+    const request = ++requestNumber.current;
+    setLoading(true);
+    setSession(null);
+    setError(null);
     try {
-      const res = await api.put(`/api/trips/${tripId}/complete`, {
-        distance: Number(rawDistanceKm) || undefined,
-        start_odometer: Number(rawStartOdo) || undefined,
-        end_odometer: Number(rawEndOdo) || undefined,
-        geofence_override: true,
-        completion_reason: reason.slice(0, 500),
-      });
-      // PR #3.1: even an override completion can land in the outbox — the
-      // summary screen must not claim server confirmation for it.
-      if (wasQueued(res)) {
-        AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
-      }
-      router.replace('/(app)/(tabs)/map');
+      if (!snapshot || !tripId) throw new Error('Open completion from your current trip.');
+      const rows = await api.get('/api/mobile/driver/trips?status=all');
+      if (request !== requestNumber.current || !isCurrentCargoSession(snapshot)) return;
+      const current = rows?.find(row => String(row.trip_id) === String(tripId));
+      if (!current) throw new Error('This trip could not be confirmed. Return to the map and refresh.');
+      setTrip(current);
+      setSession(snapshot);
+      if (current.trip_status === 'Completed') setResult('confirmed');
     } catch (e) {
-      AppAlert.alert("Error", e.message || "Could not complete trip");
+      if (request === requestNumber.current && snapshot && isCurrentCargoSession(snapshot)) setError(e.message);
     } finally {
-      setOverriding(false);
+      if (request === requestNumber.current) setLoading(false);
+    }
+  }, [user?.employeeId, tripId]);
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => { if (active) load(); });
+    return () => { active = false; };
+  }, [load]);
+
+  const workspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip });
+  const disabledReason = connectivity !== 'online' ? 'Reconnect before completing this trip.'
+    : !serverConfirmed || !isCurrentCargoSession(session) ? 'Refresh your current profile and trip before completing.'
+    : workspace.tripReady !== true ? workspaceBlockReason(workspace)
+    : !['Drop-off', 'Arrived', 'In Progress'].includes(trip?.trip_status) ? 'Return to the map and finish the pickup and delivery steps first.' : null;
+
+  const complete = async () => {
+    if (submitLock.current || disabledReason || result) return;
+    const reading = validateCompletionReading(ending, trip?.current_mileage);
+    if (reading.error) return setError(reading.error);
+    if (overrideNeeded && !reason.trim()) return setError('Enter a reason for completing away from the destination.');
+    submitLock.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      // Re-read mileage and cargo authority after the driver has entered the reading.
+      const rows = await api.get('/api/mobile/driver/trips');
+      if (!isCurrentCargoSession(session)) return;
+      const fresh = rows?.find(row => String(row.trip_id) === String(tripId));
+      if (!fresh) throw new Error('Refresh the map to confirm this trip before completing.');
+      setTrip(fresh);
+      const checked = validateCompletionReading(ending, fresh.current_mileage);
+      if (checked.error) throw new Error(checked.error);
+      const gate = await resolveCargoMapGate(fresh, {
+        driverType: profile?.driverType,
+        readExecution: () => cargoApi.getExecution(tripId, user?.employeeId, session?.signal),
+        readSyncState: () => getCargoSyncState(user?.employeeId, tripId),
+      });
+      if (!isCurrentCargoSession(session)) return;
+      if (!gate.allowed) throw new Error(gate.reason);
+      const check = await api.get(`/api/trips/${tripId}/destination-check`);
+      if (!isCurrentCargoSession(session)) return;
+      if (check?.state === 'outside' && !overrideNeeded) {
+        setOverrideNeeded(true);
+        setError('You are outside the destination area. Return to the destination or enter a reason to complete here.');
+        return;
+      }
+      const response = await api.put(`/api/trips/${tripId}/complete`, {
+        end_odometer: checked.value,
+        ...(overrideNeeded ? { geofence_override: true, completion_reason: reason.trim().slice(0, 500) } : {}),
+      }, { queueOnFailure: false, cargoActorId: user?.employeeId, signal: session?.signal });
+      if (!isCurrentCargoSession(session)) return;
+      if (wasQueued(response)) {
+        setResult('queued');
+        return;
+      }
+      setResult('confirmed');
+      // Only a server-confirmed completion releases the tracked trip.
+      updateLegContext({ tripId: null, leg: null }).catch(() => {});
+      stopBackgroundTracking().catch(() => {});
+    } catch (e) {
+      if (isCurrentCargoSession(session)) setError(e.message || 'Could not complete this trip. Your reading is still here.');
+    } finally {
+      submitLock.current = false;
+      setBusy(false);
     }
   };
 
-  // Animation values
-  const [heroScale] = useState(() => new Animated.Value(0.4));
-  const [heroOpacity] = useState(() => new Animated.Value(0));
-  const [cardTranslateY] = useState(() => new Animated.Value(30));
-  const [cardOpacity] = useState(() => new Animated.Value(0));
-  const [actionsTranslateY] = useState(() => new Animated.Value(20));
-  const [actionsOpacity] = useState(() => new Animated.Value(0));
-
-  // Modals for Note & Issue
-  const [noteModalVisible, setNoteModalVisible] = useState(false);
-  const [noteText, setNoteText] = useState('');
-  const [savedNote, setSavedNote] = useState('');
-
-  const [issueModalVisible, setIssueModalVisible] = useState(false);
-  const [issueText, setIssueText] = useState('');
-  const [reportedIssue, setReportedIssue] = useState('');
-
-  useEffect(() => {
-    // Choreographed staggered fluid entry
-    Animated.sequence([
-      Animated.parallel([
-        Animated.spring(heroScale, {
-          toValue: 1,
-          friction: 6,
-          tension: 70,
-          useNativeDriver: true,
-        }),
-        Animated.timing(heroOpacity, {
-          toValue: 1,
-          duration: 350,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.parallel([
-        Animated.spring(cardTranslateY, {
-          toValue: 0,
-          friction: 7,
-          tension: 65,
-          useNativeDriver: true,
-        }),
-        Animated.timing(cardOpacity, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.parallel([
-        Animated.spring(actionsTranslateY, {
-          toValue: 0,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-        Animated.timing(actionsOpacity, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start();
-  }, [heroScale, heroOpacity, cardTranslateY, cardOpacity, actionsTranslateY, actionsOpacity]);
-
-  const timeStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const dateStr = new Date().toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-
-  const handleSaveNote = () => {
-    setSavedNote(noteText.trim());
-    setNoteModalVisible(false);
-    AppAlert.alert('Note Saved', 'Your driver note has been attached to this trip record.');
-  };
-
-  const handleReportIssue = () => {
-    setReportedIssue(issueText.trim());
-    setIssueModalVisible(false);
-    AppAlert.alert('Issue Logged', 'Your issue report has been submitted to fleet operations dispatch.');
-  };
-
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingTop: Math.max(insets.top + 20, 36),
-            paddingBottom: Math.max(insets.bottom + 24, 32),
-          },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* ─── Hero Section ─── */}
-        <Animated.View
-          style={[
-            styles.heroSection,
-            {
-              opacity: heroOpacity,
-              transform: [{ scale: heroScale }],
-            },
-          ]}
-        >
-          {/* Eyebrow badge */}
-          <ClayBadge
-            text="MISSION COMPLETE"
-            tone="success"
-            dot
-            dotColor={colors.primary}
-            style={{ marginBottom: 12 }}
-          />
-
-          {/* Title Row with Check Animation following after Trip Completed */}
-          <View style={styles.titleRow}>
-            <Text style={[styles.heroTitle, { color: colors.onBackground }]}>Trip Completed</Text>
-            <LottieView
-              source={require('../../../assets/Green tick.json')}
-              autoPlay
-              loop={false}
-              style={styles.inlineLottieIcon}
-            />
-          </View>
-
-          <Text style={[styles.heroSubtitle, { color: colors.onSurfaceVariant }]}>
-            Flawless run. Trip telemetry and logs are synchronized.
-          </Text>
-
-          {/* PR #3: far-from-destination override — the completion PUT waits
-              for an explicit reason instead of firing from the map screen. */}
-          {overrideMode && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.errorContainer, maxWidth: 340 }}>
-              <Ionicons name="warning" size={18} color={colors.onErrorContainer} />
-              <Text style={{ flex: 1, fontFamily: fonts.bodySemiBold, fontSize: 13, color: colors.onErrorContainer }}>
-                {farText || "You appear to be away from the destination. A reason is required."}
-              </Text>
-            </View>
-          )}
-
-          {/* Timestamp Pill */}
-          <View style={[styles.timePill, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '30' }]}>
-            <Ionicons name="time-outline" size={13} color={colors.outline} />
-            <Text style={[styles.timeText, { color: colors.onSurfaceVariant }]}>
-              {dateStr} • {timeStr}
-            </Text>
-          </View>
-        </Animated.View>
-
-        {/* ─── Telemetry Double-Bezel Card ─── */}
-        <Animated.View
-          style={[
-            styles.cardContainer,
-            {
-              opacity: cardOpacity,
-              transform: [{ translateY: cardTranslateY }],
-            },
-          ]}
-        >
-          {/* Outer Shell */}
-          <ClayCard variant="standard" style={styles.cardOuterShell}>
-            {/* Inner Core */}
-            <View style={styles.cardInner}>
-
-              {/* Waypoint Route Flow */}
-              <View style={styles.routeBlock}>
-                {/* Pickup Row */}
-                <View style={styles.waypointRow}>
-                  <View style={styles.waypointIndicatorCol}>
-                    <View style={[styles.pickupDot, { backgroundColor: colors.primaryContainer, borderColor: colors.primary }]}>
-                      <View style={[styles.pickupDotCore, { backgroundColor: colors.primary }]} />
-                    </View>
-                    <View style={[styles.routeConnectorLine, { borderColor: colors.outlineVariant }]} />
-                  </View>
-                  <View style={styles.waypointTextCol}>
-                    <Text style={[styles.metaLabel, { color: colors.outline }]}>ORIGIN PICKUP</Text>
-                    <Text style={[styles.waypointTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                      {pickup || 'Hotel Seda'}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Dropoff Row */}
-                <View style={styles.waypointRow}>
-                  <View style={styles.waypointIndicatorCol}>
-                    <View style={[styles.destPinBadge, { backgroundColor: colors.secondaryContainer, borderColor: colors.secondary }]}>
-                      <Ionicons name="location" size={12} color={colors.secondary} />
-                    </View>
-                  </View>
-                  <View style={styles.waypointTextCol}>
-                    <Text style={[styles.metaLabel, { color: colors.outline }]}>FINAL DESTINATION</Text>
-                    <Text style={[styles.waypointTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                      {destination || 'NAIA Terminal 3'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Divider */}
-              <View style={[styles.cardDivider, { backgroundColor: colors.outlineVariant + '35' }]} />
-
-              {/* Key Metrics Bento Grid */}
-              <View style={styles.bentoGrid}>
-                {/* Duration */}
-                <View style={[styles.bentoCell, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '25' }]}>
-                  <View style={styles.bentoHeaderRow}>
-                    <Ionicons name="timer-outline" size={14} color={colors.primary} />
-                    <Text style={[styles.metaLabel, { color: colors.outline }]}>DURATION</Text>
-                  </View>
-                  <Text style={[styles.bentoValue, { color: colors.onSurface }]}>
-                    {duration || '42 min'}
-                  </Text>
-                </View>
-
-                {/* Total Distance */}
-                <View style={[styles.bentoCell, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '25' }]}>
-                  <View style={styles.bentoHeaderRow}>
-                    <Ionicons name="speedometer-outline" size={14} color={colors.primary} />
-                    <Text style={[styles.metaLabel, { color: colors.outline }]}>TOTAL DISTANCE</Text>
-                  </View>
-                  <Text style={[styles.bentoValue, { color: colors.onSurface }]}>
-                    {distance || '11.4 km'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Legs Sub-Grid (if provided) */}
-              {(leg1 != null || leg2 != null) && (
-                <View style={[styles.legsGrid, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '25' }]}>
-                  <View style={styles.legItem}>
-                    <Text style={[styles.metaMicroLabel, { color: colors.outline }]}>TO PICKUP</Text>
-                    <Text style={[styles.legDataValue, { color: colors.onSurfaceVariant }]}>
-                      {leg1 ?? '0.0'} <Text style={styles.unitText}>km</Text>
-                    </Text>
-                  </View>
-                  <View style={[styles.verticalDivider, { backgroundColor: colors.outlineVariant + '40' }]} />
-                  <View style={styles.legItem}>
-                    <Text style={[styles.metaMicroLabel, { color: colors.outline }]}>TO DROP-OFF</Text>
-                    <Text style={[styles.legDataValue, { color: colors.onSurfaceVariant }]}>
-                      {leg2 ?? '0.0'} <Text style={styles.unitText}>km</Text>
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Odometer Track */}
-              <View style={[styles.odometerTrack, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '30' }]}>
-                <View style={styles.odoLabelGroup}>
-                  <Ionicons name="analytics-outline" size={14} color={colors.outline} />
-                  <Text style={[styles.metaLabel, { color: colors.outline }]}>ODOMETER DISPATCH LOG</Text>
-                </View>
-                <View style={styles.odoReadingRow}>
-                  <View style={styles.odoReadingBox}>
-                    <Text style={[styles.odoSub, { color: colors.outline }]}>START</Text>
-                    <Text style={[styles.odoNum, { color: colors.onSurface }]}>{startOdo || '45,820'}</Text>
-                  </View>
-                  <View style={styles.odoArrowBox}>
-                    <Ionicons name="arrow-forward" size={14} color={colors.outline} />
-                  </View>
-                  <View style={styles.odoReadingBox}>
-                    <Text style={[styles.odoSub, { color: colors.outline }]}>END</Text>
-                    <Text style={[styles.odoNum, { color: colors.onSurface }]}>{endOdo || '45,831'}</Text>
-                  </View>
-                  <View style={[styles.kmBadge, dark && { backgroundColor: colors.surfaceContainerHigh }]}>
-                    <Text style={[styles.kmBadgeText, { color: colors.outline }]}>KM</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Dynamic Attached Notes / Issues */}
-              {(savedNote || reportedIssue) ? (
-                <View style={styles.attachedMetaBox}>
-                  {savedNote ? (
-                    <View style={[styles.attachedPill, { backgroundColor: colors.primaryContainer + '40', borderColor: colors.primary + '30' }]}>
-                      <Ionicons name="document-text" size={13} color={colors.primary} />
-                      <Text style={[styles.attachedText, { color: colors.onSurface }]} numberOfLines={1}>
-                        Note: {savedNote}
-                      </Text>
-                    </View>
-                  ) : null}
-                  {reportedIssue ? (
-                    <View style={[styles.attachedPill, { backgroundColor: colors.errorContainer + '40', borderColor: colors.error + '30' }]}>
-                      <Ionicons name="alert-circle" size={13} color={colors.error} />
-                      <Text style={[styles.attachedText, { color: colors.onErrorContainer }]} numberOfLines={1}>
-                        Issue: {reportedIssue}
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-
-            </View>
-          </ClayCard>
-        </Animated.View>
-
-        {/* ─── Bottom Actions ─── */}
-        <Animated.View
-          style={[
-            styles.actionsWrapper,
-            {
-              opacity: actionsOpacity,
-              transform: [{ translateY: actionsTranslateY }],
-            },
-          ]}
-        >
-          {/* Secondary Action Double-Pill Row */}
-          <View style={styles.secondaryActionsRow}>
-            <ClayButton
-              variant="tonal"
-              label={savedNote ? 'Edit Note' : 'Add Note'}
-              icon="document-text-outline"
-              onPress={() => {
-                setNoteText(savedNote);
-                setNoteModalVisible(true);
-              }}
-              style={{ flex: 1 }}
-            />
-            <ClayButton
-              variant="tonal"
-              label={reportedIssue ? 'Edit Issue' : 'Report Issue'}
-              icon="warning-outline"
-              onPress={() => {
-                setIssueText(reportedIssue);
-                setIssueModalVisible(true);
-              }}
-              style={{ flex: 1 }}
-            />
-          </View>
-
-          {/* Primary High-Impact CTA (Island Button Architecture) */}
-          {overrideMode ? (
-            <View style={{ gap: 10, marginTop: 4 }}>
-              <TextInput
-                style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
-                placeholder="Why are you completing away from the destination? (required)"
-                placeholderTextColor={colors.outline}
-                multiline
-                numberOfLines={3}
-                value={overrideReason}
-                onChangeText={setOverrideReason}
-              />
-              <ClayButton
-                variant="danger"
-                size="lg"
-                label={overriding ? "COMPLETING…" : "COMPLETE ANYWAY"}
-                icon="arrow-forward"
-                iconPosition="right"
-                disabled={overriding}
-                loading={overriding}
-                onPress={handleCompleteAnyway}
-                style={{ alignSelf: 'stretch' }}
-              />
-              <ClayButton
-                variant="tonal"
-                label="Go Back"
-                onPress={() => router.back()}
-                style={{ alignSelf: 'stretch' }}
-              />
-            </View>
-          ) : (
-            <ClayButton
-              variant="primary"
-              size="lg"
-              label="COMPLETE & RETURN"
-              icon="arrow-forward"
-              iconPosition="right"
-              onPress={() => router.replace('/(app)/(tabs)/map')}
-              style={{ alignSelf: 'stretch', marginTop: 8 }}
-            />
-          )}
-        </Animated.View>
-      </ScrollView>
-
-      {/* ─── Modal: Add Note ─── */}
-      <Modal visible={noteModalVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setNoteModalVisible(false)}>
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setNoteModalVisible(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss note dialog"
-        >
-          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
-            <ClayCard style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Ionicons name="document-text" size={20} color={colors.primary} />
-                <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Attach Trip Note</Text>
-              </View>
-              <TextInput
-                style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
-                placeholder="e.g. Passenger requested route change, traffic along Roxas Blvd..."
-                placeholderTextColor={colors.outline}
-                multiline
-                numberOfLines={4}
-                value={noteText}
-                onChangeText={setNoteText}
-              />
-              <View style={styles.modalBtnRow}>
-                <ClayButton
-                  variant="outline"
-                  label="Cancel"
-                  onPress={() => setNoteModalVisible(false)}
-                  style={{ flex: 1 }}
-                />
-                <ClayButton
-                  variant="primary"
-                  label="Save Note"
-                  onPress={handleSaveNote}
-                  style={{ flex: 1 }}
-                />
-              </View>
-            </ClayCard>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ─── Modal: Report Issue ─── */}
-      <Modal visible={issueModalVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setIssueModalVisible(false)}>
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setIssueModalVisible(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss issue dialog"
-        >
-          <Pressable style={styles.modalAbsorb} onPress={(e) => e.stopPropagation()}>
-            <ClayCard style={styles.modalCard}>
-              <View style={styles.modalHeader}>
-                <Ionicons name="warning" size={20} color={colors.error} />
-                <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Report Trip Issue</Text>
-              </View>
-              <TextInput
-                style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
-                placeholder="e.g. Flat tire warning, passenger no-show at pickup..."
-                placeholderTextColor={colors.outline}
-                multiline
-                numberOfLines={4}
-                value={issueText}
-                onChangeText={setIssueText}
-              />
-              <View style={styles.modalBtnRow}>
-                <ClayButton
-                  variant="outline"
-                  label="Cancel"
-                  onPress={() => setIssueModalVisible(false)}
-                  style={{ flex: 1 }}
-                />
-                <ClayButton
-                  variant="danger"
-                  label="Submit Issue"
-                  onPress={handleReportIssue}
-                  style={{ flex: 1 }}
-                />
-              </View>
-            </ClayCard>
-          </Pressable>
-        </Pressable>
-      </Modal>
-    </View>
-  );
+  const confirmed = result === 'confirmed';
+  return <KeyboardAvoidingView style={[s.screen, { backgroundColor: colors.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <ClayScreenHeader title={confirmed ? 'Trip completed' : 'Complete trip'} onBack={() => router.back()} />
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[s.content, { paddingBottom: insets.bottom + 24 }]}>
+      {loading ? <ActivityIndicator color={colors.primary} accessibilityLabel="Loading current trip" /> : null}
+      {trip ? <ClayCard variant="standard">
+        <ClayBadge text={confirmed ? 'Completed' : result === 'queued' ? 'Sync pending' : isCargoLoad(trip) ? 'Cargo delivery' : 'Passenger trip'} tone={confirmed ? 'success' : 'neutral'} />
+        <Text style={type.cardTitle}>{trip.dispatch_number || `Trip #${trip.trip_id}`}</Text>
+        <Text style={type.labelLg}>{loadTitle(trip)}</Text>
+        {loadSubtitle(trip) ? <Text style={type.supporting}>{loadSubtitle(trip)}</Text> : null}
+        <Text style={type.supporting}>Pickup: {trip.origin || 'Location not provided'}</Text>
+        <Text style={type.supporting}>{isCargoLoad(trip) ? 'Delivery' : 'Drop-off'}: {trip.destination || 'Location not provided'}</Text>
+        <Text style={type.supporting}>{[trip.vehicle_model || trip.model, trip.vehicle_plate || trip.plate_number].filter(Boolean).join(' · ') || 'Vehicle details unavailable'}</Text>
+      </ClayCard> : null}
+      {confirmed ? <ClayCard variant="standard">
+        <Ionicons name="checkmark-circle" size={48} color={colors.primary} />
+        <Text style={type.cardTitle}>{isCargoLoad(trip) ? 'Cargo delivery completed' : 'Trip completed'}</Text>
+        <Text style={type.supporting}>Fleet has confirmed this trip is complete. Return to the map for your next assignment or standby.</Text>
+        <ClayButton label="Return to map" onPress={() => router.replace('/(app)/(tabs)/map')} />
+        <ClayButton label="View trip details" variant="secondary" onPress={() => router.replace(`/trip/${tripId}`)} />
+      </ClayCard> : result === 'queued' ? <ClayCard variant="standard">
+        <Text style={type.cardTitle}>Saved for sync</Text>
+        <Text style={type.supporting}>This update is waiting to reach Fleet. Trip completion has not been confirmed.</Text>
+        <ClayButton label="Return to map" onPress={() => router.replace('/(app)/(tabs)/map')} />
+      </ClayCard> : trip ? <ClayCard variant="standard">
+        <Text style={type.cardTitle}>Ending odometer</Text>
+        {trip.start_odometer != null ? <Text style={type.supporting}>Starting reading: {trip.start_odometer} km</Text> : null}
+        {trip.current_mileage != null ? <Text style={type.supporting}>Current recorded mileage: {trip.current_mileage} km</Text> : null}
+        <ClayInput label="Ending odometer (km) *" value={ending} onChangeText={setEnding} keyboardType="decimal-pad" editable={!busy} accessibilityLabel="Ending odometer in kilometres" helperText="Enter the vehicle's actual reading. It cannot be below its recorded mileage." />
+        {overrideNeeded ? <>
+          <Text style={type.supporting}>{farText || 'Completing away from the destination requires a reason.'}</Text>
+          <ClayInput label="Reason *" value={reason} onChangeText={setReason} multiline maxLength={500} editable={!busy} accessibilityLabel="Reason for completing away from the destination" />
+        </> : null}
+        {disabledReason ? <Text style={type.supporting}>{disabledReason}</Text> : null}
+        {error ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={[type.supporting, { color: colors.error }]}>{error}</Text> : null}
+        <ClayButton label="Complete trip" onPress={complete} loading={busy} disabled={!!disabledReason || busy || !ending.trim()} />
+        <ClayButton label="Cancel" variant="secondary" disabled={busy} onPress={() => router.back()} />
+        <ClayButton label="Report incident" variant="outline" disabled={busy} onPress={() => router.push('/incidents')} />
+      </ClayCard> : !loading ? <>
+        <Text style={type.supporting}>{error || 'No current trip could be confirmed.'}</Text>
+        <ClayButton label="Retry" onPress={load} />
+      </> : null}
+    </ScrollView>
+  </KeyboardAvoidingView>;
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    maxWidth: 520,
-    alignSelf: 'center',
-    width: '100%',
-  },
-
-  // ─── Hero Section ───
-  heroSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginBottom: 6,
-  },
-  inlineLottieIcon: {
-    width: 28,
-    height: 28,
-    marginTop: 1,
-  },
-  heroTitle: {
-    fontFamily: fonts.displayBold,
-    fontSize: 24,
-    lineHeight: 30,
-    letterSpacing: -0.5,
-  },
-  heroSubtitle: {
-    fontFamily: fonts.body,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    maxWidth: 320,
-    marginBottom: 12,
-  },
-  timePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 6,
-  },
-  timeText: {
-    fontFamily: fonts.data,
-    fontSize: 11,
-    letterSpacing: 0.2,
-  },
-
-  // ─── Double-Bezel Card ───
-  cardContainer: {
-    marginBottom: 24,
-  },
-  cardOuterShell: {
-    borderRadius: 24,
-    borderWidth: 1,
-    padding: 4,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 12 },
-        shadowOpacity: 0.08,
-        shadowRadius: 24,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
-    overflow: 'hidden',
-  },
-  cardInner: {
-    padding: 20,
-    borderRadius: 20,
-    gap: 16,
-  },
-
-  // ─── Route Flow ───
-  routeBlock: {
-    gap: 12,
-  },
-  waypointRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 14,
-  },
-  waypointIndicatorCol: {
-    alignItems: 'center',
-    width: 20,
-  },
-  pickupDot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pickupDotCore: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  routeConnectorLine: {
-    width: 2,
-    height: 24,
-    borderStyle: 'dashed',
-    borderLeftWidth: 1.5,
-    marginTop: 3,
-    marginBottom: -3,
-  },
-  destPinBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  waypointTextCol: {
-    flex: 1,
-    gap: 2,
-  },
-  metaLabel: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 10,
-    letterSpacing: 0.8,
-  },
-  waypointTitle: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 15,
-    lineHeight: 20,
-  },
-
-  // ─── Divider ───
-  cardDivider: {
-    height: 1,
-    width: '100%',
-  },
-
-  // ─── Bento Grid ───
-  bentoGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  bentoCell: {
-    flex: 1,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 6,
-  },
-  bentoHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  bentoValue: {
-    fontFamily: fonts.displayBold,
-    fontSize: 20,
-    lineHeight: 24,
-  },
-
-  // ─── Legs Grid ───
-  legsGrid: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  legItem: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 2,
-  },
-  verticalDivider: {
-    width: 1,
-    height: 24,
-  },
-  metaMicroLabel: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 9,
-    letterSpacing: 0.8,
-  },
-  legDataValue: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 14,
-  },
-  unitText: {
-    fontFamily: fonts.body,
-    fontSize: 11,
-  },
-
-  // ─── Odometer ───
-  odometerTrack: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    gap: 10,
-  },
-  odoLabelGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  odoReadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  odoReadingBox: {
-    gap: 2,
-  },
-  odoSub: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 9,
-    letterSpacing: 0.8,
-  },
-  odoNum: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 15,
-    letterSpacing: 0.5,
-  },
-  odoArrowBox: {
-    paddingHorizontal: 8,
-  },
-  kmBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
-  },
-  kmBadgeText: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 10,
-  },
-
-  // ─── Attached Metadata ───
-  attachedMetaBox: {
-    gap: 6,
-  },
-  attachedPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 8,
-  },
-  attachedText: {
-    fontFamily: fonts.bodyMedium,
-    fontSize: 12,
-    flex: 1,
-  },
-
-  // ─── Bottom Actions ───
-  actionsWrapper: {
-    gap: 12,
-  },
-  secondaryActionsRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-
-  // ─── Modal Styles ───
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  modalAbsorb: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  modalCard: {
-    width: '100%',
-    maxWidth: 380,
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 20,
-    gap: 16,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  modalTitle: {
-    fontFamily: fonts.displayBold,
-    fontSize: 17,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    fontFamily: fonts.body,
-    fontSize: 14,
-    minHeight: 90,
-    textAlignVertical: 'top',
-  },
-  modalBtnRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 10,
-  },
+const s = StyleSheet.create({
+  screen: { flex: 1 }, content: { padding: 16, gap: 16 },
 });
 

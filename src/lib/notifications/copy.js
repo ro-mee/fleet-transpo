@@ -331,7 +331,7 @@ export function endDutyStillNotReported({ shiftEnd }) {
 
 // ---- Mechanic work-order lifecycle (Task 5 fan-out) --------------------------
 // Mechanic-audience rows are written with reference_type "mechanic_maintenance"
-// (staff taps on the same WO keep resolving to /fleet/vehicles/:id), and the
+// (staff taps on the same WO open the maintenance register), and the
 // mechanic deep-link map lives in target.js MECHANIC_ROUTES (Task 6 consumes).
 // Follow the vehicleRepaired shape: { title, message, pushBody }. Title rules:
 // stable, ≤200 chars, no IDs/dates — the dedupe key is
@@ -393,5 +393,20 @@ export function maintenanceApproved({ plate }) {
     title: "Maintenance Work Approved",
     message: `Your repair for vehicle ${plate || "the vehicle"} was approved and the vehicle is back in service.`,
     pushBody: `Repair approved${plate ? `: ${plate}` : ""}.`,
+  };
+}
+
+// ---- Fuel efficiency diagnostic (manual filing from the Fuel report) --------
+// Staff-only audience (the maintenance queue). Title rules apply as everywhere:
+// stable, no IDs/dates — the dedupe key is
+// (employee_id, title, reference_type, reference_id). The message carries the
+// honesty line the work order remarks carry: a below-baseline window is a
+// period aggregate, never evidence about a single fill.
+export function fuelDiagnosticFiled({ plate, workOrderId }) {
+  const where = plate ? ` for vehicle ${plate}` : "";
+  return {
+    title: "Fuel Efficiency Diagnostic Filed",
+    message: `Work order #${workOrderId} was filed from a below-baseline fuel efficiency window${where}. A below-baseline reading is a period aggregate, not a per-fill fault — inspect before dispatch action.`,
+    pushBody: `Fuel diagnostic filed${plate ? ` for ${plate}` : ""} — inspect before dispatch.`,
   };
 }

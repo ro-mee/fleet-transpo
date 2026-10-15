@@ -20,6 +20,25 @@ export const LIVE_GATES_DEFERRED = ["MAINTENANCE_NOT_CLEARED", "SAFETY_NOT_CLEAR
 const isBlank = (v) => v === null || v === undefined || String(v).trim() === "";
 const positiveFinite = v=>Number.isFinite(Number(v)) && Number(v) > 0;
 
+// Usable payload from a measured cargo profile, mirroring
+// deriveUsablePayload's positivity rule (least of rated and gross-minus-
+// operating, less reserve, strictly positive) with plain finite-number
+// semantics. It stays local instead of importing
+// `../cargo/physical-load.js` because that module's `@/` specifiers do not
+// resolve under the plain-node audit script that loads this summarizer;
+// the commission gate remains the enforcing consumer of deriveUsablePayload.
+function profileUsableKg(profile) {
+  if (!profile || typeof profile !== "object") return null;
+  const mass = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const rated = mass(profile.rated_payload_kg);
+  const gross = mass(profile.gross_vehicle_weight_limit_kg);
+  const operating = mass(profile.operating_mass_kg);
+  const reserve = mass(profile.operational_reserve_kg);
+  if (rated === null || rated <= 0 || gross === null || operating === null || reserve === null || reserve < 0) return null;
+  const usable = Math.min(rated, gross - operating) - reserve;
+  return usable > 0 ? usable : null;
+}
+
 /**
  * @param {object} args
  * @param {Array<{vehicle:object,documents:object[]}>} args.rows
@@ -71,10 +90,16 @@ export function summarizeFleetInventory({ rows = [], assignments = [], now } = {
 
     // Usable payload evidence for the declared use. Unclassified legacy stock
     // records no payload expectation, so it is not accused of missing one.
+    // A Cargo row carrying its measured profile is judged on the profile's
+    // usable payload; legacy kg stays a display fallback and never counts as
+    // evidence once the measured path is present.
     if (vehicle.operational_use === "Passenger") {
       if (!positiveFinite(vehicle.seating_capacity)) missing.payload.push(id);
     } else if (vehicle.operational_use === "Cargo") {
-      if (!positiveFinite(vehicle.cargo_capacity_kg)) missing.payload.push(id);
+      const profile = entry?.cargoProfile;
+      if (profile !== undefined && profile !== null) {
+        if (profileUsableKg(profile) === null) missing.payload.push(id);
+      } else if (!positiveFinite(vehicle.cargo_capacity_kg)) missing.payload.push(id);
     }
 
     // Cohort membership: the pure road-readiness contract with the two live

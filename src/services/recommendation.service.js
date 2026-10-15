@@ -16,6 +16,7 @@ import { readDispatchRevision } from '@/services/dispatch-evidence.service';
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 import { loadCargoPhysicalAssessments } from './cargo-physical.service';
 import { vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
+import { driverTypeFinding } from '@/lib/drivers/service-groups';
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
 // recommendations (migration 027).
@@ -312,7 +313,7 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   const wanted = [...new Set([driverId, designatedId, substituteId].filter((v) => v != null).map(Number))];
 
   const { rows: drivers } = await query(
-    `SELECT d.driver_id, d.driver_status, d.license_number, d.license_type,
+    `SELECT d.driver_id, d.driver_status, d.driver_type, d.license_number, d.license_type,
             d.license_class, d.license_expiry, d.license_verified_at,
             d.license_verified_by, d.license_verification_method,
             COALESCE((
@@ -331,6 +332,18 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     [windowStart, windowEnd, wanted, request?.dispatch_id ?? null, request?.request_id ?? null]
   );
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
+
+  // Static classification gate: the service group comes from the stored row
+  // (authoritative, never the caller's override), and a mismatch blocks before
+  // license, pairing, or evidence checks run. Unknown services and drivers
+  // with no recorded type are skipped, never blocked.
+  if (request?.request_id) {
+    const mismatch = driverTypeFinding({
+      driver: driverById.get(Number(driverId)) ?? null,
+      serviceCode: request.service_code,
+    });
+    if (mismatch) return { ok: false, conflict: mismatch };
+  }
 
   const proposedLicense = evaluateDriverLicenseEligibility(
     driverById.get(Number(driverId)),

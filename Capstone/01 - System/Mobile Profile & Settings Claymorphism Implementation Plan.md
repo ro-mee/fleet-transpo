@@ -101,7 +101,7 @@ Profile
 
 A focused encoding sweep of the entire `mobile/` source tree (every non-ASCII run attempted a CP1252→UTF-8 reverse decode) found corruption only in `mobile/app/(app)/(tabs)/map.js` — 11 CP1252-mojibake sequences across 9 lines, including three user-visible strings. Each was inspected in context and replaced only where the intended character was unambiguous; no global substitution, no other files touched, no behavior change:
 
-- User-visible: "You are on duty • Waiting for assignments" (was `â€¢`), "NEXT TRIP · {time}" label (was `Â·`), "Pickup → Destination" template (was `â†’`).
+- User-visible: "You are on duty • Waiting for assignments" (was `•`), "NEXT TRIP · {time}" label (was `·`), "Pickup → Destination" template (was `→`).
 - Comments: `≤` and `≈` in the GPS-jump-threshold comment, `→` in the background-tracking state comment, `—` in three comments/JSX comments.
 
 Verified: re-scan of `mobile/` finds zero remaining decodable mojibake runs; git diff touches only the 11 intended lines; ESLint on map.js clean; mobile Vitest 102/102; `expo export --platform android` passed. SYSTEM.md left untouched (no documented behavior changed). No commit created.

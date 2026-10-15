@@ -21,67 +21,46 @@ import { formatDate } from "@/lib/utils";
 // "Not assessed" (or anything unmapped) renders the neutral outline chip.
 const SEVERITY_TONE = { Critical: "critical", Major: "high", Moderate: "medium", Minor: "low" };
 
-function ProblemCard({ item }) {
+function ProblemRow({ item }) {
+  const report = item.report?.kind === "free_text"
+    ? item.report.text || "No description was recorded with this report."
+    : (item.report?.items ?? [])
+      .map((entry) => [entry.label, entry.remarks].filter(Boolean).join(": "))
+      .join(" · ") || "No description was recorded with this report.";
+
   return (
-    <Card className="rounded-card border-border/70 shadow-sm">
-      <CardContent className="space-y-2 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-semibold text-foreground">
-            {item.plateNumber || `Vehicle #${item.vehicleId}`}
-          </p>
-          {item.vehicleName && (
-            <span className="text-xs text-foreground-secondary">{item.vehicleName}</span>
-          )}
-          <StatusBadge
-            status={item.inspectionType}
-            className="rounded-control px-2.5 py-0.5 text-[11px] font-bold"
-          />
-          <span className="text-xs font-medium text-foreground-secondary">
-            {formatDate(item.inspectionDate)}
-          </span>
+    <li className="grid min-w-0 gap-3 border-b border-border/60 px-4 py-4 last:border-0 md:grid-cols-[minmax(125px,0.8fr)_minmax(0,1.6fr)_minmax(155px,0.9fr)] md:items-center">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">
+          {item.plateNumber || `Vehicle #${item.vehicleId}`}
+        </p>
+        {item.vehicleName && <p className="truncate text-xs text-foreground-secondary">{item.vehicleName}</p>}
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-foreground-secondary">
+          <StatusBadge status={item.inspectionType} className="rounded-control px-2.5 py-0.5 text-[11px] font-bold" />
+          <span>{formatDate(item.inspectionDate)}</span>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-semibold uppercase tracking-wider text-foreground-secondary">
-            Severity:
-          </span>
-          <StatusBadge
-            severity={SEVERITY_TONE[item.severityLabel]}
-            label={item.severityLabel}
-            className="rounded-control px-2.5 py-0.5 font-bold"
-          />
-          {item.driverName && (
-            <span className="text-foreground-secondary">Reported by {item.driverName}</span>
-          )}
-        </div>
-        {item.report?.kind === "free_text" ? (
-          <p className="whitespace-pre-wrap break-words text-sm text-foreground">
-            {item.report.text || "No description was recorded with this report."}
-          </p>
-        ) : (
-          <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
-            {(item.report?.items ?? []).map((entry, i) => (
-              <li key={`${entry.label}-${i}`}>
-                <span className="font-semibold">{entry.label}</span>
-                {entry.remarks ? <span className="text-foreground-secondary"> — {entry.remarks}</span> : null}
-              </li>
-            ))}
-          </ul>
-        )}
+      </div>
+
+      <p className="whitespace-pre-wrap break-words text-sm text-foreground-secondary">{report}</p>
+
+      <div className="flex min-w-0 flex-wrap items-center gap-2 md:justify-end">
+        <StatusBadge
+          severity={SEVERITY_TONE[item.severityLabel]}
+          label={item.severityLabel}
+          className="rounded-control px-2.5 py-0.5 font-bold"
+        />
+        {item.driverName && <span className="text-xs text-foreground-secondary">Reported by {item.driverName}</span>}
         {item.workOrderId && (
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <a
-              href={`/mechanic/work-orders/${item.workOrderId}`}
-              className="inline-flex min-h-[44px] items-center rounded-control bg-info-bg px-3 text-xs font-bold text-info-700 transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
-            >
-              WO #{item.workOrderId}
-            </a>
-            {item.workOrderStatus && (
-              <StatusBadge status={item.workOrderStatus} entity="maintenance" />
-            )}
-          </div>
+          <a
+            href={`/mechanic/work-orders/${item.workOrderId}`}
+            className="inline-flex min-h-[44px] items-center rounded-control border border-border px-3 text-xs font-semibold text-foreground transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transition-none"
+          >
+            WO #{item.workOrderId}
+          </a>
         )}
-      </CardContent>
-    </Card>
+        {item.workOrderId && item.workOrderStatus && <StatusBadge status={item.workOrderStatus} entity="maintenance" />}
+      </div>
+    </li>
   );
 }
 
@@ -121,17 +100,18 @@ export default function MechanicProblemsPage() {
           />
         ) : (
           <div className="space-y-3">
-            {counts.tracked > 0 && (
+            {(counts.tracked > 0 || counts.reportedUntracked + counts.failedUntracked > 0) && (
               <p className="text-xs text-foreground-secondary" aria-live="polite">
-                {counts.tracked} tracked to a work order
-                {counts.reportedUntracked + counts.failedUntracked > 0
-                  ? ` · ${counts.reportedUntracked + counts.failedUntracked} awaiting triage`
-                  : ""}
+                {counts.tracked} tracked to a work order · {counts.reportedUntracked + counts.failedUntracked} awaiting triage
               </p>
             )}
-            {items.map((item) => (
-              <ProblemCard key={item.inspectionId} item={item} />
-            ))}
+            <Card className="overflow-hidden rounded-card border-border/70 shadow-sm">
+              <CardContent className="p-0">
+                <ul className="m-0 list-none p-0">
+                  {items.map((item) => <ProblemRow key={item.inspectionId} item={item} />)}
+                </ul>
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>

@@ -2,6 +2,16 @@ import { describe, it, expect } from "vitest";
 import { getNotificationHref } from "./target";
 
 describe("getNotificationHref", () => {
+  it("opens maintenance work order 44 in the staff register and mechanic detail", () => {
+    expect(getNotificationHref({ reference_type: "maintenance", reference_id: 44 }, "fleet_manager")).toBe("/maintenance");
+    expect(getNotificationHref({ reference_type: "maintenance", reference_id: 44 }, "admin")).toBe("/maintenance");
+    expect(getNotificationHref({ reference_type: "mechanic_maintenance", reference_id: 44 }, "mechanic")).toBe("/mechanic/work-orders/44");
+  });
+  it("opens the staff maintenance register for fuel work order 44, never vehicle 44", () => {
+    expect(getNotificationHref({ reference_type: "fuel_diagnostic", reference_id: 44 }, "fleet_manager")).toBe("/maintenance");
+    expect(getNotificationHref({ reference_type: "fuel_diagnostic", reference_id: 44 }, "mechanic")).toBeNull();
+    expect(getNotificationHref({ reference_type: "fuel_diagnostic", reference_id: 44 }, "driver")).toBeNull();
+  });
   it("gives a driver a destination for a duty reminder", () => {
     expect(getNotificationHref({ reference_type: "duty", reference_id: 20260924 }, "driver"))
       .toBe("/driver");

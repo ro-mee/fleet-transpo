@@ -61,9 +61,12 @@ export function getPool() {
 export async function query(text, params = []) {
   assertServerOnly("query");
   const result = await getPool().query(text, params);
+  // Utility statements (ALTER, DO) may return no `rows` array depending on
+  // the pg version / multi-statement handling — never throw a TypeError here.
+  const rows = result?.rows ?? [];
   return {
-    rows: result.rows,
-    rowCount: result.rowCount ?? result.rows.length,
+    rows,
+    rowCount: result?.rowCount ?? rows.length,
   };
 }
 
@@ -90,9 +93,10 @@ export async function withTransaction(fn) {
   const tx = {
     query: async (text, params = []) => {
       const result = await client.query(text, params);
+      const rows = result?.rows ?? [];
       return {
-        rows: result.rows,
-        rowCount: result.rowCount ?? result.rows.length,
+        rows,
+        rowCount: result?.rowCount ?? rows.length,
       };
     },
   };
