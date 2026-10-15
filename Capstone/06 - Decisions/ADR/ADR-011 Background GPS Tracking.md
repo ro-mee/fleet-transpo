@@ -42,6 +42,8 @@ Automated verification on 2026-10-15: strict test-first handoff, warning, cancel
 
 Task 4 review follow-up: ordinary tracking transitions are serialized. The handoff waits for prior cleanup and owns readiness/rollback until launch settles; permission-related foreground returns cannot race its native start. A true Maps return during a pending platform promise is cleaned up by that owner after settlement. Replacement of its warning runs dismissal cleanup once and cannot leave background fallback suppressed. The five new RED/GREEN reproductions pass with all 1,050 mobile tests across 76 suites; physical acceptance remains pending.
 
+Task 4 second-departure correction: owner return cleanup also joins the ordered tracking queue. A background departure during its pending native stop or distance merge queues the ordinary permission-free fallback behind cleanup instead of being discarded by the navigation lock. Ownership releases before the queued fallback rechecks the current trip/status and app state; returning, cancelling or reassigning while it waits prevents an obsolete restart. The existing task and exact-once stop-before-merge boundary remain unchanged. The second-departure reproduction failed before the fix; five new timing/stale-work cases pass with 128/128 focused Task 4 tests and all 1,055 mobile tests across 76 suites. Physical device acceptance remains pending.
+
 ## Costs / trade-offs — accepted
 
 - **Requires a custom dev build** (background location is not supported in Expo Go): `expo prebuild --clean` + reinstall. ADR-010's blocker.

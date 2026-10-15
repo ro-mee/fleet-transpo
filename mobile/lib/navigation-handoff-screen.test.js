@@ -129,6 +129,39 @@ describe('Map handoff actions', () => {
     opened.resolve(); await running;
     expect(h.stop).toHaveBeenCalledOnce(); expect(h.navigationBusyRef.current).toBe(false);
   });
+  it.each(['stop', 'merge'])('preserves a second departure during late Maps return %s', async pendingStage => {
+    const opened = deferred(), cleaned = deferred(); let registered = false;
+    const h = screen(trip, async () => { registered = true; return { ok: true }; });
+    const merge = vi.fn(async () => { if (pendingStage === 'merge') await cleaned.promise; }); h.context.mergeStoredKm = merge;
+    h.openURL.mockImplementation(() => opened.promise);
+    h.stop.mockImplementation(async () => { if (pendingStage === 'stop') await cleaned.promise; registered = false; return { ok: true }; });
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background'); change('active'); opened.resolve(); await flush();
+    expect(h.stop).toHaveBeenCalledOnce(); expect(h.navigationBusyRef.current).toBe(true);
+    change('background'); await flush();
+    expect(h.prepareBackgroundTracking).toHaveBeenCalledOnce();
+    cleaned.resolve(); await running; await h.context.trackingTransitionRef.current;
+    expect(registered).toBe(true); expect(h.navigationBusyRef.current).toBe(false);
+    expect(h.prepareBackgroundTracking).toHaveBeenLastCalledWith({ tripId: 7, leg: 'leg2', requestPermission: false });
+    expect(merge).toHaveBeenCalledOnce();
+    expect(merge.mock.invocationCallOrder[0]).toBeLessThan(h.prepareBackgroundTracking.mock.invocationCallOrder[1]);
+    expect(h.openURL).toHaveBeenCalledOnce(); expect(h.alert).not.toHaveBeenCalled();
+  });
+  it.each(['foreground', 'cancelled', 'reassigned'])('rechecks %s before replaying a departure held behind owner cleanup', async changeDuringCleanup => {
+    const opened = deferred(), stopped = deferred(); let registered = false;
+    const h = screen(trip, async () => { registered = true; return { ok: true }; });
+    h.openURL.mockImplementation(() => opened.promise);
+    h.stop.mockImplementation(async () => { await stopped.promise; registered = false; return { ok: true }; });
+    const change = attachLifecycle(h), running = h.action(); await flush();
+    change('background'); change('active'); opened.resolve(); await flush();
+    change('background');
+    if (changeDuringCleanup === 'foreground') change('active');
+    if (changeDuringCleanup === 'cancelled') h.activeTripRef.current = { ...trip, trip_status: 'Cancelled' };
+    if (changeDuringCleanup === 'reassigned') h.activeTripRef.current = { ...trip, trip_id: 8 };
+    stopped.resolve(); await running; await h.context.trackingTransitionRef.current;
+    expect(registered).toBe(false); expect(h.prepareBackgroundTracking).toHaveBeenCalledOnce();
+    expect(h.navigationBusyRef.current).toBe(false); expect(h.openURL).toHaveBeenCalledOnce();
+  });
 });
 
 describe('Map AppState preparation fallback', () => {

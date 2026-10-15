@@ -840,7 +840,7 @@ export default function MapTab() {
       if (navigation?.launching && isLeavingActive) navigation.left = true;
       if (navigation?.left && isReturning) navigation.returned = true;
 
-      if (isLeavingActive && hadActiveTrip && !navigationBusyRef.current) {
+      if (isLeavingActive && hadActiveTrip && (!navigationBusyRef.current || navigation?.cleaning)) {
         const expectedTripId = activeTripRef.current?.trip_id;
         trackingTransitionRef.current = trackingTransitionRef.current.then(() => updateLegContext({
           tripId: activeTripRef.current?.trip_id ?? null,
@@ -1446,8 +1446,12 @@ export default function MapTab() {
     const finish = async () => {
       try {
         if (operation.returned && appState.current === 'active') {
-          await stopBackgroundTracking();
-          await mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null);
+          // A new departure must wait behind cleanup rather than lose its fallback.
+          operation.cleaning = true;
+          const cleanup = trackingTransitionRef.current.then(() => stopBackgroundTracking())
+            .then(() => mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null));
+          trackingTransitionRef.current = cleanup.catch(() => {});
+          await cleanup;
         }
       } finally { release(); }
     };
