@@ -46,6 +46,12 @@ Task 4 second-departure correction: owner return cleanup also joins the ordered 
 
 Task 5 return recovery (2026-10-15): background GPS now awaits the server response and clears/stops the existing task on explicit `tracked: false` before accumulating that fix. Network errors remain non-queued and do not imply trip completion. Deliveries, context changes and merges serialize their storage work. Ordinary and late platform-launch foreground returns retain the ordered stop/merge boundary, capture the returning accumulator and trip, then refresh the canonical assignment. The live trip ref changes immediately on an accepted refresh, with existing request/session fencing; Passenger and Cargo share the same recovery and next-target rules. Strict RED/GREEN reproductions plus all 1,068 mobile tests across 76 suites and touched-file strict lint passed. Physical Android acceptance remains open.
 
+## Physical acceptance hold - 2026-10-15 (Task 7)
+
+The accepted design is user-visible preflight plus AppState fallback using the same background task; this ADR does not claim measured Android delivery. Task 7 host inventory found no ADB/emulator command, configured/default SDK or AVD directory, running Android tool process or present Android device. No custom development build was installed, and device/build/battery details, real background fix timestamps, notification return and exact-once distance measurements remain unrecorded. The isolated checkout's missing Google services configuration is a separate native build/notification limit. [[Tracking]] contains the complete pending device matrix, safe evidence fields and force-stop/vendor checks.
+
+The committed Task 6 evidence (`8d5b38e8`) is 21/21 release checks, 1,089/1,089 mobile tests in 77 files, full zero-warning lint, encoding/whitespace and Android Hermes export (1,468 modules, 87 assets, 5,698,753 bytes). None proves physical background delivery. Release 1 physical acceptance remains **PENDING**. Release 2/the Android bubble is **blocked and not implemented**: it requires real Task 7 evidence and the user's confirmation that the existing foreground-service notification return path is insufficient. No second GPS collector, overlay permission or bubble dependency was introduced.
+
 ## Costs / trade-offs — accepted
 
 - **Requires a custom dev build** (background location is not supported in Expo Go): `expo prebuild --clean` + reinstall. ADR-010's blocker.

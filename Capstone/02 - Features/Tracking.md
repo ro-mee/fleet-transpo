@@ -74,6 +74,31 @@ Summary: a headless task (`fleetops-background-location`) posts GPS and accumula
 
 **Automated navigation release gate (2026-10-15, Task 6):** `mobile/lib/navigation-release.test.js` brings the Release 1 contract into one executable gate: Passenger/Cargo pickup and destination use the same leg authority, Maps receives encoded driving-navigation coordinates, unsafe targets never reach permission/platform work, readiness settles before launch, tracking failures require the explicit override, duplicate taps cannot launch twice, ended-trip overrides are refused, and return cleanup stops/merges before canonical refresh. It also guards the existing background-location and foreground-service permissions/plugin configuration. Controlled source/configuration regressions failed before restoration; all 21 release checks and all 1,089 mobile tests across 77 suites passed. Full zero-warning lint, tracked-text encoding and whitespace checks passed. Android Hermes export passed with 1,468 modules, 87 assets and a 5,698,753-byte bundle; current handoff markers were confirmed in the bytecode. Native compiler scratch files needed the approved main workspace write area after permission errors in the default/worktree temporary folders. The isolated checkout also emitted a missing `services/google-services.json` configuration warning; JavaScript export is not native-build acceptance. The requested `check:artifacts` command is unavailable in this repository and is not claimed as passing. Generated export/scratch directories were removed after recording evidence. Physical Android permission choices, notification return, moving/background GPS delivery, kill/lock/network behavior and distance continuity remain pending under Task 7. No application, dependency, database or deployment change belongs to this test-only gate.
 
+## Google Maps physical Android acceptance - PENDING (2026-10-15, Task 7)
+
+Release 1 has automated evidence, but physical acceptance has **not passed**. Read-only host checks found no `adb` or `emulator` command on PATH, no Android SDK environment variables, no default Android SDK or AVD directory, no running ADB/emulator process and no present Android/ADB/vendor/MTP device in Windows device inventory. The restricted inventory initially denied CIM access; the same checks succeeded outside that restriction and returned no matching device. No development build was installed, no drive occurred and no device result is inferred from an export or test double.
+
+Device model, Android version, FleetOps native build version, battery optimization/vendor restrictions and Google Maps version are **not recorded: no usable physical device was available**. A fresh custom Android development build is required; Expo Go and an emulator do not establish the moving-device acceptance below. Cargo live integration remains disabled; use authorized nonproduction assignments without enabling a production provider or changing operating records for this check.
+
+Physical checklist - every item below remains unperformed:
+
+- [ ] Record device model, Android version, FleetOps native build version, Maps version and battery optimization/vendor settings after installing a fresh development build.
+- [ ] For Passenger and Cargo, Driver Accepted and Trip Started navigate to the trusted pickup; Passenger Onboard, En Route, Drop-off, Arrived and In Progress navigate to the trusted destination.
+- [ ] Confirm Google Maps navigation or route preview according to actual device location availability.
+- [ ] With real movement and Maps in front, confirm the dispatcher receives at least two new background fixes.
+- [ ] Confirm each leg gains distance once, with no jump when FleetOps returns.
+- [ ] Tap the existing foreground-service notification and confirm return to FleetOps and the canonical current assignment.
+- [ ] Confirm missing, invalid and untrusted coordinates cannot open Maps.
+- [ ] Deny foreground/background permission, verify the honest warning, Stay Here, Continue Without Tracking and hardware Back; record the permission outcome without assuming background delivery.
+- [ ] Complete/cancel the authorized test trip and confirm trip-specific background work stops; check remote ended-trip recovery too.
+- [ ] Record lock/unlock, network loss/recovery, app removal/force-stop and vendor battery restrictions; force-stop survival is not promised by ADR-011.
+
+Measurement record remains blank because no drive was performed: last foreground fix time; first and second dispatcher-confirmed background fix times; first resumed fix time; leg1/leg2 km before leaving, before return and after merge; notification return outcome; permission and vendor settings; cleanup outcome. Record timestamps with timezone and the associated non-sensitive test/build identifier. Do not record raw coordinates, passenger/cargo details, tokens or device serial numbers in this note.
+
+Automated evidence is from the committed Task 6 run at `8d5b38e8a533423c7cec948a275bf24e1f089dc4`, not a physical run: release gate 21/21; all mobile library tests 1,089/1,089 across 77 files; full zero-warning lint; tracked-text encoding and whitespace checks; Android Hermes export 1,468 modules, 87 assets, 5,698,753-byte bundle with current handoff markers. The isolated checkout's missing Google services configuration warning leaves native notification/build configuration unaccepted. `check:artifacts` is unavailable in this repository and is not a passed gate.
+
+**Release 2 / Android bubble: blocked and not implemented.** The existing notification is the only implemented return path. Starting the separate bubble plan requires both real Task 7 physical evidence and the user's confirmation that this notification return path is insufficient. Neither condition is satisfied by automated checks. The source implementation plan exists only as an untracked file in the main checkout; Task 7 leaves that file unchanged to preserve the user's working copy. See [[Trips]], [[Mobile Architecture]] and [[ADR-011 Background GPS Tracking]].
+
 ## Trip-Scoped & Status-Aware Live GPS Architecture — 2026-08-31 (Commit `abdc001`)
 
 To prevent idle or stationary vehicles from polluting historical trip breadcrumbs and to give operators accurate visibility into active fleet movement:
