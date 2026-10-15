@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import {
   escapeHtmlText,
   finiteNumberInRange,
@@ -31,6 +32,9 @@ vi.mock("react", () => {
     useImperativeHandle() {},
     useMemo(callback) {
       return callback();
+    },
+    useCallback(callback) {
+      return callback;
     },
     useRef(current) {
       return { current };
@@ -165,6 +169,29 @@ describe("WebView data serialization", () => {
 });
 
 describe("generated TomTomMap WebView document", () => {
+  it("moves standby coverage with the driver and retains the last valid heading", () => {
+    const script = inlineScripts(buildHtml({
+      origin: { lat: 14.6, lng: 121, heading: 270 },
+      radarMode: true,
+      showCarIcon: true,
+    }))[0][2];
+    const start = script.indexOf('window.__updateFleetPositions = function');
+    const end = script.indexOf('// Route geometry updates', start);
+    const updateCoverage = vi.fn();
+    const window = {
+      __mapActive: false,
+      __paintResponders: vi.fn(),
+      __paintDriverPoint: vi.fn(),
+      updateRadarCirclePositions: updateCoverage,
+      lastHeading: 270,
+    };
+    runInNewContext(script.slice(start, end), { window });
+    window.__updateFleetPositions(14.61, 121.02, null, []);
+    expect(updateCoverage).toHaveBeenCalledWith(121.02, 14.61);
+    expect(window.lastHeading).toBe(270);
+    expect(window.__paintDriverPoint).toHaveBeenCalledWith(121.02, 14.61);
+  });
+
   it("keeps hostile booking data inside the generated script and parses the full script", () => {
     const attack = `</script><script>alert('map')</script>`;
     const html = buildHtml({

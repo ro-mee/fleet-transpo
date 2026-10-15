@@ -85,6 +85,11 @@ function isGpsTrackedTrip(trip) {
   return trip?.trip_id != null && GPS_TRACKING_STATUSES.has(trip.trip_status);
 }
 
+// The driver map has no live responder feed of its own (rescue positions are
+// server-side); the fleet bridge prop still gets a stable empty identity so
+// no per-render array ever reaches the WebView.
+const NO_FLEET_RESPONDERS = [];
+
 // Poll churn guard: the 15 s refetch builds fresh objects every time, and a new
 // identity alone re-renders the whole screen plus every memo'd downstream prop
 // (radar markers, WebView origin/destination, intro layers). Keep the previous
@@ -1015,6 +1020,9 @@ export default function MapTab() {
 
   useFocusEffect(useCallback(() => {
     focusedRef.current = true;
+    // Resume WebView interpolation/camera work; the bridge keeps buffering
+    // fixes while unfocused via lastFixRef, so resume is instant.
+    mapRef.current?.setMapActive?.(true);
     // Re-seed the map from fixes collected while unfocused. Functional set
     // with an equality bail-out so a re-run with an unchanged fix does not
     // mint a new object and re-render for nothing.
@@ -1030,7 +1038,12 @@ export default function MapTab() {
       loadTrip();
     }
     dutyRefresh?.();
-    return () => { focusedRef.current = false; };
+    return () => {
+      focusedRef.current = false;
+      // Pause rAF interpolation + camera glides while on another tab so a
+      // hidden WebView holds no animation loop or WebGL churn.
+      mapRef.current?.setMapActive?.(false);
+    };
   }, [loadTrip, emptyStateKey, dutyRefresh]));
 
   // Auto-polling dispatch queue every 15 seconds — foreground AND focused
@@ -1044,6 +1057,19 @@ export default function MapTab() {
     }, 15000);
     return () => clearInterval(timer);
   }, [loadTrip, emptyStateKey]);
+
+  // Backgrounding pauses WebView animation/camera work (same as tab blur);
+  // foreground return resumes only when this tab is still the focused one.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next.match(/inactive|background/)) {
+        mapRef.current?.setMapActive?.(false);
+      } else if (next === "active" && focusedRef.current) {
+        mapRef.current?.setMapActive?.(true);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Radar markers rebuild on a ~11 m quantized grid, not on every GPS object
   // identity: heading-only fixes must not re-stringify + re-render markers
@@ -1143,9 +1169,14 @@ export default function MapTab() {
         setDriverLocation(initialFix);
       }
 
-      // Subscribe to real-time updates (every 5 meters or 3 seconds)
+      // Subscribe to real-time updates. Local UI map updates and backend
+      // telemetry are decoupled: fixes stream here for the odometer + map
+      // marker, while server POSTs stay on the poster's own 30 s cadence
+      // (lib/tracking.js) so network I/O never blocks UI updates. The
+      // WebView bridge itself is throttled to one inject per 1500 ms inside
+      // TomTomMap (FLEET_BRIDGE_PUSH_MS), gated on MAP_READY.
       subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
+        { accuracy: Location.Accuracy.High, timeInterval: 1500, distanceInterval: 3 },
         (newLoc) => {
 
           // 1. Map Marker Update
@@ -1695,6 +1726,7 @@ export default function MapTab() {
           radarMode={true}
           radarRadiusKm={radarRadiusKm}
           radarMarkers={filteredRadarMarkers}
+          responders={NO_FLEET_RESPONDERS}
           showVehicleMarker={coverageVisibility.vehicle}
           topInset={Math.max(insets.top, 20) + 10}
           onMarkerPress={handleMarkerPress}
@@ -2094,6 +2126,7 @@ export default function MapTab() {
         routeSessionKey={routeLegKey}
         routeTripId={routeTripId}
         routePreferences={effectivePreferences}
+        responders={NO_FLEET_RESPONDERS}
         originAddress={isHeadingToPickup ? "My Location" : activeTrip.origin}
         destAddress={destName}
         scrollEnabled={true}

@@ -48,7 +48,11 @@ export const ROUTE_CONTROLLER_SCRIPT = String.raw`
       map.removeLayer('alt-route');
       if (map.getSource('alt-route')) map.removeSource('alt-route');
     }
-    if (map.getLayer('route')) map.getSource('route').setData(geojson);
+    // Route geometry refreshes only on fetch/recalculate — never on GPS
+    // ticks. Prefer the fleet layer updater when the document provides it.
+    if (window.__updateRoutePolyline) {
+      window.__updateRoutePolyline(geojson);
+    } else if (map.getLayer('route')) map.getSource('route').setData(geojson);
     else map.addLayer({ id: 'route', type: 'line', source: { type: 'geojson', data: geojson }, paint: { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 1 } });
     preferences.selectedIndex = index;
     window.routeCoords = candidate.feature.geometry.coordinates;
