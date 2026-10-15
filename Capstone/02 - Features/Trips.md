@@ -18,6 +18,14 @@ related: ["[[Dispatch]]", "[[Mobile Architecture]]"]
 
 # Feature: Trips
 
+## Current Android trip shortcut - 2026-10-16, Task 5
+
+The Android-only bubble is implemented in source through `2ca921c0`, including optional permission/Maps integration and authenticated return/cleanup. The user's explicit build request superseded the earlier implementation-start hold below; native and physical acceptance remain **PENDING**. It is one private return icon, with no trip details or state-changing action. Tapping returns through existing authentication/consent guards and canonical assignment refresh; the URL never selects or authorizes a trip. Passenger and Cargo keep the same navigation, tracking and lifecycle authority.
+
+Only successful existing tracking readiness can offer/arm the shortcut. Denial, Back, unsupported or older native builds and native failure keep navigation usable; Continue Without Tracking skips the bubble. Its presence proves neither GPS delivery nor distance continuity. The existing tracking notification remains the fallback. A fresh custom native build is required, and force-stop still ends tracking under [[ADR-011 Background GPS Tracking]].
+
+Task 5 verification: 1,183/1,183 mobile tests in 82 files, full zero-warning lint, encoding and whitespace passed. Native JUnit/debug assembly and separate manifest merging each stopped before compilation because Java/JAVA_HOME is absent; SDK/ADB/device and ignored Google services configuration are also absent. Kotlin compile, ten JUnit cases, merged manifest, APK and every physical permission/drag/return/cleanup/accessibility/GPS check remain pending. [[Tracking]] holds the complete unperformed matrix and exact evidence. The untracked main-checkout source plan was preserved; task ledger/report record its status exception.
+
 ## Android bubble return - 2026-10-16, Task 4
 
 The return link now waits for restored driver authentication and routes through the existing Map/consent guards. Its trip ID is only a validated hint: Map reloads the current assignment from the existing driver-trips endpoint and never uses that ID to authorize, select or mutate a trip. Confirmed completion/cancellation, replacement, failed restore and session boundaries remove/invalidate obsolete shortcuts. The user's earlier explicit build authorization supersedes the historical Release 2 implementation hold below; native compilation and physical acceptance remain pending. Verification: focused 231/231 and full mobile 1,178/1,178 tests (82 files), strict touched lint, encoding and whitespace passed. See [[Tracking]].
@@ -28,7 +36,7 @@ Passenger and Cargo share the trusted pickup/destination phase rules and ordered
 
 Task 6 committed automated evidence (`8d5b38e8`): release gate 21/21, all mobile library tests 1,089/1,089 in 77 files, full zero-warning lint, encoding/whitespace and Android Hermes export (1,468 modules, 87 assets, 5,698,753 bytes). These are not physical acceptance. Task 7 found no Android tooling, SDK/AVD, running emulator or present Android device; no build was installed and no moving/permission/notification/distance measurements were taken. Native Google services configuration is also absent from the isolated checkout. The complete unperformed device matrix and evidence fields are in [[Tracking]]. Cargo production integration remains disabled.
 
-Release 1 physical acceptance remains **PENDING**. Release 2/the Android bubble remains **blocked and unimplemented** until physical evidence exists and the user confirms the notification return path is insufficient. No production trip, provider, database or deployment change was made by this acceptance documentation.
+Release 1 physical acceptance remains **PENDING**. Historical Task 7 implementation hold: Release 2 was then blocked and unimplemented pending device evidence and confirmation about notification return. The subsequent informed user request superseded that implementation-start hold; the current source feature is described above, with native/device acceptance still pending. No production trip, provider, database or deployment change was made by this acceptance documentation.
 
 ## Stored driver type on accept and start — 2026-10-12
 

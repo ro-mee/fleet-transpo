@@ -20,6 +20,29 @@ related: ["[[Trips]]", "[[Mobile Architecture]]", "[[Live Map Radar]]"]
 
 # Feature: Tracking
 
+## Current Android trip bubble - 2026-10-16, Task 5
+
+Tasks 1-4 are implemented in source through `2ca921c0`. The user's informed request to build now superseded the earlier implementation-start hold; it did not waive native or physical acceptance. Historical Task 1 scaffold and Task 2/3 integration limits below describe those checkpoints, not the current feature.
+
+After successful existing live-tracking readiness, Navigate may offer the optional Android shortcut once. **Not now**, denial, Back, missing native module and native failure leave Maps navigation usable. The saved explanation choice prevents repeated prompts; returning from explicit Android Settings checks the real permission. **Continue Without Tracking** never offers or arms it. A fresh custom Android build is required: Expo Go, iOS/web and older installed Android builds without the module safely continue without the bubble.
+
+The private native service implements one 56 dp draggable icon with edge snap, safe bounds and an accessible return tap. It shows only after successful Maps launch and a current departure; return, terminal/replaced trips, session changes and explicit remote `trip-not-live` invalidate stale work and attempt removal. The return URL is only a hint: authenticated Map reloads the canonical assignment. The icon exposes no passenger, cargo, destination or GPS data and no state-changing trip action. The existing foreground-service notification remains the fallback return path. The bubble owns no GPS, distance or trip lifecycle work; seeing it does not prove tracking delivery. Android can stop its ordinary service, and force-stop still ends tracking under [[ADR-011 Background GPS Tracking]].
+
+Fresh automated gate: all 1,183 mobile tests across 82 files, full zero-warning lint, tracked-text UTF-8/mojibake and whitespace checks passed. Native unit tests plus debug assembly, and a separate manifest-merge attempt, both stopped before compilation with `ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.` Kotlin compilation, the ten position JUnit cases, merged manifest and APK remain **PENDING**. Host inventory found no Java/JDK, Android SDK/AVD, adb/emulator or present Android device; device/build/Maps versions and vendor settings are unrecorded. The isolated checkout lacks ignored `mobile/services/google-services.json`; no configuration was invented.
+
+Android Hermes export also passed with the installed Expo SDK 54 CLI and one worker: 1,472 modules, 87 unique asset files (89 metadata references) and a 5,714,055-byte bundle. Recovery first found complete output without its process exit; a fresh rerun then exited 0, and metadata, every asset, the Hermes header and current bubble/return markers were checked. The missing Google services file still produced a configuration warning; bundling does not verify native compilation, notification setup or background delivery. Exact task export/scratch folders were removed after recording evidence.
+
+### Bubble physical acceptance - every item PENDING
+
+- [ ] Install a fresh native build; record device model, Android/FleetOps/Maps versions and vendor battery/overlay restrictions without serial numbers or private trip data.
+- [ ] Verify first explanation, Settings handoff, grant, denial, Back, later revocation and no repeated offers. Maps and GPS must remain usable for every optional-overlay outcome, measuring GPS separately.
+- [ ] Verify the 56 dp icon and touch target over Maps, vertical drag, both edge snaps, no tap after drag, safe insets/cutouts/rotation and no obstruction of critical Maps controls; tap must restore authenticated FleetOps/current assignment.
+- [ ] Verify cleanup on foreground return, completion, cancellation, remote `trip-not-live`, logout/expiry, process removal and fresh launch; record lock/unlock and Android/vendor service limits.
+- [ ] Verify content description, TalkBack focus, large-font independence and high-contrast icon visibility; inspect that no private data or state-changing action is exposed.
+- [ ] Complete the separate Google Maps moving/background-fix, notification-return and exact-once distance matrix below; force-stop survival is not promised.
+
+No device step was performed. Task 5 records automated checks and remaining release gates only. The source plan exists untracked only in the main checkout and was left unchanged; its status is recorded in the task ledger and report instead of copying it into this worktree.
+
 ## Android bubble return and cleanup - 2026-10-16, Task 4
 
 Review correction: foreground return preserves only the explicit, still-current Android Settings request. Pending availability/storage, an undecided alert and resolved offers are invalidated; Map unmount always clears them, including Settings. Four regressions failed first (actual Map availability round trip, stale alert action, Settings unmount, delayed storage). Covering checks passed 221/221 before the additional real Settings-denial case; the final full mobile run passed 1,183/1,183 across 82 files. Strict touched lint, encoding and whitespace passed. Tracking preparation/permission ownership and busy-state release remain unchanged; native/device acceptance is still pending.
