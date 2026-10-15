@@ -56,3 +56,7 @@ Two stashes remain: `0c215b4f` (Copilot singular/plural driver wording) and `2d8
 Evidence: registered worktree inventory; status in every checkout; all local and remote branch heads; live remote verification; main ancestry and ahead/behind counts; patch-equivalence checks; affected-file blob comparisons; squash ancestry; read-only merge previews; stash inventory; and leftover-directory inspection. No application tests were required or run for this history/content audit. Clean working trees and conflict-free ancestry do not establish release safety.
 
 Related notes: [[Worktree and Merge Audit 2026-10-08]], [[Google Maps Navigation and Android Bubble Implementation Plan]], [[Fuel]].
+
+## Follow-up: user-authorized sequential merges
+
+The user subsequently authorized one-at-a-time integration into local main. Mechanic, Google Maps handoff and Android trip-bubble source were merged separately. Old fuel and driver-save documentation histories were reconciled with the current content retained: the fuel feature was already squashed into main and the media protection/note had newer replacements. This supersedes the unmerged-branch snapshot above; the snapshot remains as pre-merge evidence. See [[Sequential Branch Merges 2026-10-16]] for commit descriptions, conflict resolutions and fresh verification limits. Native/device acceptance and publication remain separate.

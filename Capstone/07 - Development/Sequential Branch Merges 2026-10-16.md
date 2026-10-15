@@ -20,8 +20,14 @@ Source: `codex/android-trip-bubble` at `cdcfb86c`, nine commits beyond the hando
 
 Source: `origin/feat/fuel-guide-microsim` at `2d82e115`. Verified again that every path in its original 13-file feature slice is byte-identical to squash commit `99ad71c5`, which is an ancestor of main. Used the `ours` merge strategy to record the old 18-commit history as integrated while retaining current main content and all later tutorial/accessibility changes. The staged tree was identical to the first parent before adding this record. No old fuel source was replayed.
 
-## Remaining sequence
+## 5. Superseded driver-save documentation history
 
-Merge Google Maps handoff, then the Android trip bubble, separately. Preserve map pause/performance fixes while resolving navigation cleanup. Record already-squashed fuel history and superseded documentation history using the current content after verifying that their feature/rules are already included; do not replay obsolete snapshots.
+Source: `fix/driver-edit-save-feedback` at `c9c245a5`. Its remaining commit adds only media/worktree ignore rules, the motion reel note and a system paragraph. All five rules are present in current main; the walkthrough note has since grown from 4,588 to 16,771 characters with newer specifications. Used the `ours` merge strategy to record the historical parent while retaining current content. Confirmed a zero-content merge before adding this completion record; no driver runtime behavior was changed by this step.
+
+## Completion and verification
+
+Separate merge commits: mechanic `44868f61`, Google Maps `bdd72e44`, Android bubble `a698836d`, fuel history `aadba739`, followed by this legacy documentation merge. Existing commits and all branches/worktrees/stashes remain preserved. Final Git checks confirmed all 16 local branch tips and all five audited live remote branch tips are ancestors of local main. All seven registered worktrees were clean, remote main remained at 75a5e668, and local main was 86 commits ahead with zero behind. The four exact temporary export/compiler directories created by this task were checked and removed. The final documentation-only amendment records these observed results; it does not add another merge or replay any source.
+
+Fresh evidence: strict lint on 204 mechanic JavaScript files, 18 handoff JavaScript files and 23 Android JavaScript/TypeScript files; UTF-8 checks; all 163 migration-file validations; all 334 route guards; JSON/Android XML parsing; conflict and whitespace checks; and combined offline Android Hermes export (1,475 modules, 88 assets, 5.74 MB). Windows CRLF files were accounted for during whitespace checking. No application test suite was rerun. Prior test counts are historical, not a fresh combined-suite pass. Native Android compilation/device acceptance, isolated Google services configuration and release/cloud-upload consent remain unresolved. No source/configuration was uploaded, no database was applied, and remote main was not pushed by this task.
 
 See [[Worktree and Merge Audit 2026-10-16]] and [[Google Maps Navigation and Android Bubble Implementation Plan]].
