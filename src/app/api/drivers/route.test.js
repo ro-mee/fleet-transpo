@@ -43,7 +43,7 @@ vi.mock("@/lib/drivers/media", () => ({
   toStoredMediaRef: vi.fn((value) => (value === undefined ? undefined : value ?? null)),
 }));
 
-import { POST } from "./route";
+import { POST, GET } from "./route";
 import * as db from "@/lib/db";
 import * as utils from "@/lib/api/utils";
 import { saveAddress } from "@/services/address.service";
@@ -539,5 +539,50 @@ describe("strict driver classification", () => {
     const response = await POST(request(baseBody({ driver_type })));
     expect(response.status).toBe(400);
     expect(db.withTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/drivers — driver_type filter", () => {
+  const ROSTER = [
+    { driver_id: 1, driver_type: "Cargo", license_number: "N01-23-456789", employees: null, account: null },
+    { driver_id: 2, driver_type: "Passenger", license_number: "N01-23-456790", employees: null, account: null },
+  ];
+
+  // The database is doubled with its WHERE semantics intact: when the route
+  // binds a driver_type value, only matching rows come back — the same rows
+  // Postgres would return for `AND d.driver_type = $n`. A route that ignores
+  // the query param binds nothing, so the double returns the full roster and
+  // the filter assertion below fails.
+  function installRosterDb() {
+    db.query.mockImplementation(async (sql, params = []) => {
+      if (String(sql).includes("ALTER TABLE drivers")) return { rows: [], rowCount: 0 };
+      const bound = (params || []).find((p) => p === "Passenger" || p === "Cargo");
+      const rows = bound ? ROSTER.filter((r) => r.driver_type === bound) : [...ROSTER];
+      return { rows, rowCount: rows.length };
+    });
+  }
+
+  const get = (qs) => GET(new Request(`http://localhost/api/drivers${qs}`));
+
+  it("filters roster by driver_type", async () => {
+    installRosterDb();
+    const res = await get("?driver_type=Cargo");
+    expect(res.status).toBe(200);
+    const rows = await res.json();
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.driver_type === "Cargo")).toBe(true);
+  });
+
+  it("leaves the roster unfiltered without driver_type", async () => {
+    installRosterDb();
+    const rows = await (await get("")).json();
+    expect(rows.map((r) => r.driver_type).sort()).toEqual(["Cargo", "Passenger"]);
+  });
+
+  it("ignores an unsupported driver_type value instead of breaking the roster", async () => {
+    installRosterDb();
+    const res = await get("?driver_type=Motorcycle");
+    expect(res.status).toBe(200);
+    expect((await res.json()).length).toBe(ROSTER.length);
   });
 });

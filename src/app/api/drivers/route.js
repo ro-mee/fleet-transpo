@@ -115,6 +115,16 @@ export async function GET(req) {
       params.push(status);
     }
 
+    // Roster classification filter. Allow-listed so a stray value can never
+    // silently empty the directory — anything outside Passenger/Cargo behaves
+    // as if no filter was given.
+    const driverType = searchParams.get("driver_type");
+    const typeFilter = ["Passenger", "Cargo"].includes(driverType) ? driverType : null;
+    if (typeFilter) {
+      sql += ` AND d.driver_type = $${idx++}`;
+      params.push(typeFilter);
+    }
+
     // Only drivers with NO currently active custodial vehicle (017). Used to
     // populate the substitute-driver picker — a substitute must be someone who
     // doesn't already own a car.
@@ -167,6 +177,9 @@ export async function GET(req) {
     const includeUnlinkedRows = includeUnlinked
       && (!status || status === "all" || status === "Incomplete")
       && (!licenseClass || licenseClass === "all")
+      // Unlinked rows project 'Passenger' (no stored classification yet), so
+      // they belong to a Passenger filter and to no filter — never to Cargo.
+      && (!typeFilter || typeFilter === "Passenger")
       && !unassigned
       && !pickupAt
       && !returnAt;
