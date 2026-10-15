@@ -273,6 +273,64 @@ describe("background tracking status compatibility", () => {
   );
 });
 
+describe("background stale-trip recovery", () => {
+  it("clears rejected trip context before counting a fix and stops the remaining batch", async () => {
+    await saveContext({ tripId: "trip-1", leg: "leg1", km1: 0, km2: 0,
+      prev: { lat: 14.6, lng: 121, atMs: 1000 }, pending: { lat: 14.6, lng: 121, atMs: 500 } });
+    Location.hasStartedLocationUpdatesAsync.mockResolvedValue(true);
+    api.post.mockResolvedValue({ success: true, tracked: false, reason: "trip-not-live" });
+
+    await mocks.taskHandler({ data: { locations: [location(14.6005, 121, 4000), location(14.601, 121, 7000)] } });
+
+    expect(await loadContext()).toEqual({ tripId: null, leg: null, km1: 0, km2: 0, prev: null, pending: null });
+    expect(api.post).toHaveBeenCalledOnce();
+    expect(Location.stopLocationUpdatesAsync).toHaveBeenCalledWith("fleetops-background-location");
+    await mocks.taskHandler({ data: { locations: [location(14.6015, 121, 10000)] } });
+    expect(api.post).toHaveBeenCalledOnce();
+  });
+
+  it("keeps collecting locally after a non-queued network failure", async () => {
+    await saveContext({ tripId: "trip-1", leg: "leg1", km1: 0, km2: 0, prev: { lat: 14.6, lng: 121, atMs: 1000 } });
+    api.post.mockRejectedValue(new Error("Offline"));
+    await mocks.taskHandler({ data: { locations: [location(14.6005, 121, 4000)] } });
+    expect(await loadContext()).toMatchObject({ tripId: "trip-1", leg: "leg1", pending: null });
+    expect((await loadContext()).km1).toBeGreaterThan(0.05);
+    expect(api.post).toHaveBeenCalledWith("/api/mobile/driver/trips/trip-1/gps", expect.any(Object), { queueOnFailure: false });
+    expect(Location.stopLocationUpdatesAsync).not.toHaveBeenCalled();
+  });
+
+  it("drains an in-flight fix before merging, without writing its distance twice", async () => {
+    await saveContext({ tripId: "trip-1", leg: "leg1", km1: 2, km2: 0, prev: { lat: 14.6, lng: 121, atMs: 1000 } });
+    let resolvePost;
+    api.post.mockImplementation(() => new Promise(resolve => { resolvePost = resolve; }));
+    const delivery = mocks.taskHandler({ data: { locations: [location(14.6005, 121, 4000)] } });
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    const distRef = { current: { leg1: 0, leg2: 0 } };
+    const merge = backgroundTracking.mergeStoredKm(distRef, "trip-1");
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(distRef.current.leg1).toBe(0);
+    resolvePost({ success: true, tracked: true });
+    await delivery; await merge;
+    expect(distRef.current.leg1).toBeGreaterThan(2.05);
+    expect((await loadContext()).km1).toBe(0);
+    const distance = distRef.current.leg1;
+    await backgroundTracking.mergeStoredKm(distRef, "trip-1");
+    expect(distRef.current.leg1).toBe(distance);
+  });
+
+  it("does not let a late rejected fix erase a replacement trip context", async () => {
+    await saveContext({ tripId: "trip-1", leg: "leg1", km1: 2, km2: 0 });
+    let resolvePost;
+    api.post.mockImplementation(() => new Promise(resolve => { resolvePost = resolve; }));
+    const delivery = mocks.taskHandler({ data: { locations: [location(14.6005, 121, 4000)] } });
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    const replace = backgroundTracking.updateLegContext({ tripId: "trip-2", leg: "leg2" });
+    resolvePost({ success: true, tracked: false, reason: "trip-not-live" });
+    await delivery; await replace;
+    expect(await loadContext()).toEqual({ tripId: "trip-2", leg: "leg2", km1: 0, km2: 0, prev: null, pending: null });
+  });
+});
+
 describe("background odometer anchor persistence", () => {
   it.each(['before-delivery', 'during-context-read'])('does not duplicate foreground GPS or distance %s', async timing => {
     const stored = { tripId: 'trip-1', leg: 'leg1', km1: 2, km2: 0, prev: { lat: 14.6, lng: 121, atMs: 1000 } };

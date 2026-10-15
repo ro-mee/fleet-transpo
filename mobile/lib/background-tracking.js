@@ -79,7 +79,7 @@ async function saveContext(ctx) {
  * uses (so the web dashboard live map updates) and accumulates per-leg km into
  * AsyncStorage (merged back into the foreground accumulator on resume).
  */
-TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
+async function processBackgroundLocations({ data, error }) {
   if (error || AppState.currentState === 'active') return;
   const { locations } = data || {};
   if (!locations || !locations.length) return;
@@ -88,6 +88,7 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
   if (AppState.currentState === 'active') return;
 
   for (const loc of locations) {
+    if (AppState.currentState === 'active' || !ctx.tripId) break;
     const lat = loc.coords?.latitude;
     const lng = loc.coords?.longitude;
     if (lat == null || lng == null) continue;
@@ -111,7 +112,12 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
       // geofence/monitor verdicts derived from it. The responder and standby
       // branches of lib/tracking.js already say exactly this; the trip branch
       // and this task were the two that did not.
-      api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body, { queueOnFailure: false }).catch(() => {});
+      const result = await api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body, { queueOnFailure: false }).catch(() => null);
+      if (result?.tracked === false) {
+        await saveContext({ ...DEFAULT_CONTEXT });
+        await stopBackgroundTracking();
+        return;
+      }
     }
 
     // Accumulate km per leg through the SAME rules the foreground watcher uses
@@ -142,6 +148,13 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
   }
 
   await saveContext(ctx);
+}
+
+TaskManager.defineTask(TASK_NAME, event => {
+  // Drain accepted deliveries before a return merge or replacement context write.
+  const write = contextWrite.then(() => processBackgroundLocations(event));
+  contextWrite = write.catch(() => {});
+  return write;
 });
 
 async function ensureBackgroundTracking(requestPermission) {
@@ -231,16 +244,19 @@ export async function updateLegContext({ tripId, leg }) {
  * starts fresh.
  */
 export async function mergeStoredKm(distRef, expectedTripId = null) {
-  await contextWrite;
-  const ctx = await loadContext();
-  const sameTrip = expectedTripId != null && ctx.tripId != null && String(ctx.tripId) === String(expectedTripId);
-  if (sameTrip) {
-    if (ctx.km1 > 0) distRef.current.leg1 += ctx.km1;
-    if (ctx.km2 > 0) distRef.current.leg2 += ctx.km2;
-  }
-  ctx.km1 = 0;
-  ctx.km2 = 0;
-  ctx.prev = null;
-  ctx.pending = null;
-  await saveContext(ctx);
+  const write = contextWrite.then(async () => {
+    const ctx = await loadContext();
+    const sameTrip = expectedTripId != null && ctx.tripId != null && String(ctx.tripId) === String(expectedTripId);
+    if (sameTrip) {
+      if (ctx.km1 > 0) distRef.current.leg1 += ctx.km1;
+      if (ctx.km2 > 0) distRef.current.leg2 += ctx.km2;
+    }
+    ctx.km1 = 0;
+    ctx.km2 = 0;
+    ctx.prev = null;
+    ctx.pending = null;
+    await saveContext(ctx);
+  });
+  contextWrite = write.catch(() => {});
+  return write;
 }

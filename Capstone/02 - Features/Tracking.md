@@ -70,6 +70,8 @@ Summary: a headless task (`fleetops-background-location`) posts GPS and accumula
 
 → [[Mobile Architecture]] · [[ADR-011 Background GPS Tracking]]
 
+**Return and stale-trip recovery (2026-10-15, Task 5):** The background task awaits the existing non-queued GPS response. An explicit `tracked: false` clears its trip, leg, distance and anchor context before counting that fix, stops the native task and drops the rest of that delivery batch. A network failure keeps local distance collection without inventing an ended-trip result. Task delivery, context changes and distance merges share the existing storage write queue, so an in-flight response cannot overwrite a newer assignment or replay already merged distance. Both ordinary foreground return and a delayed Maps launch return stop, merge only the returning trip's distance, then refresh the canonical assignment. The return captures its accumulator so a replacement assignment cannot receive old distance. Accepted refreshes update the live trip ref immediately; absent/terminal trips disappear, valid Passenger/Cargo trips retain the shared next-target rules, and existing request/session guards reject obsolete responses. Strict RED/GREEN reproduced missing rejection cleanup, missing refresh, delayed return refresh, immediate ref invalidation and replacement-distance mixing. All 1,068 mobile tests across 76 suites and touched-file strict lint passed. Physical Android delivery, notification return and distance continuity remain pending.
+
 ## Trip-Scoped & Status-Aware Live GPS Architecture — 2026-08-31 (Commit `abdc001`)
 
 To prevent idle or stationary vehicles from polluting historical trip breadcrumbs and to give operators accurate visibility into active fleet movement:

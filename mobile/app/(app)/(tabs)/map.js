@@ -707,6 +707,7 @@ export default function MapTab() {
   const navigationBusyRef = useRef(false);
   const navigationOperationRef = useRef(null);
   const trackingTransitionRef = useRef(Promise.resolve());
+  const loadTripRef = useRef(null);
   const [navigationBusy, setNavigationBusy] = useState(false);
 
   // Focus gate: tabs stay mounted after first visit, so without this the
@@ -866,8 +867,11 @@ export default function MapTab() {
         // The handoff owns preparation/rollback until launch; a permission return
         // must not stop a task it is about to hand over to Google Maps.
         if (navigationBusyRef.current) return;
+        const expectedTripId = activeTripRef.current?.trip_id ?? null;
+        const returningDistance = { current: distRef.current };
         trackingTransitionRef.current = trackingTransitionRef.current.then(() => stopBackgroundTracking())
-          .then(() => mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null))
+          .then(() => mergeStoredKm(returningDistance, activeTripRef.current?.trip_id === expectedTripId ? expectedTripId : null))
+          .then(() => loadTripRef.current?.())
           .catch(() => {});
       }
     });
@@ -898,6 +902,8 @@ export default function MapTab() {
       // always wins; only when there is none do we fall back to pre-start.
       const list = Array.isArray(data) ? data : [];
       const active = list.find(isGpsTrackedTrip) || list.find((t) => !["Completed", "Cancelled"].includes(t.trip_status));
+      // Invalidate stale navigation/GPS callbacks before React commits the new trip.
+      activeTripRef.current = active || null;
       // Bail out on identical payloads (see samePayload): every poll mints new
       // objects, and without this the screen re-renders every 15 s forever.
       setActiveTrip((prev) => {
@@ -924,6 +930,8 @@ export default function MapTab() {
       setLoading(false);
     }
   }, [user?.employeeId]);
+
+  useEffect(() => { loadTripRef.current = loadTrip; }, [loadTrip]);
 
   useEffect(() => subscribeApiEvents(event => {
     if (event.type !== 'trip-completed' || String(event.tripId) !== String(activeTripRef.current?.trip_id)) return;
@@ -1448,8 +1456,11 @@ export default function MapTab() {
         if (operation.returned && appState.current === 'active') {
           // A new departure must wait behind cleanup rather than lose its fallback.
           operation.cleaning = true;
+          const expectedTripId = activeTripRef.current?.trip_id ?? null;
+          const returningDistance = { current: distRef.current };
           const cleanup = trackingTransitionRef.current.then(() => stopBackgroundTracking())
-            .then(() => mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null));
+            .then(() => mergeStoredKm(returningDistance, activeTripRef.current?.trip_id === expectedTripId ? expectedTripId : null))
+            .then(() => loadTripRef.current?.());
           trackingTransitionRef.current = cleanup.catch(() => {});
           await cleanup;
         }

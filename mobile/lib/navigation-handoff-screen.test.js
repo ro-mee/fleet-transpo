@@ -21,7 +21,7 @@ function screen(value = trip, prepare = async () => ({ ok: true })) {
     navigationTarget, externalNavigationUrl, beginNavigationHandoff, launchExternalNavigation, prepareBackgroundTracking, stopBackgroundTracking: stop,
     isGpsTrackedTrip: value => value && ['Driver Accepted', 'Trip Started', 'At Pickup', 'En Route'].includes(value.trip_status),
     Linking: { openURL }, AppAlert: { alert }, trustedTarget: navigationTarget(value),
-    mergeStoredKm: async () => {}, distRef: { current: {} },
+    mergeStoredKm: async () => {}, distRef: { current: {} }, loadTripRef: { current: vi.fn() },
   };
   const start = source.indexOf('  const openExternalNavigation =');
   const end = source.indexOf('  const handleMapReady', start);
@@ -128,6 +128,8 @@ describe('Map handoff actions', () => {
     expect(h.stop).not.toHaveBeenCalled();
     opened.resolve(); await running;
     expect(h.stop).toHaveBeenCalledOnce(); expect(h.navigationBusyRef.current).toBe(false);
+    expect(h.context.loadTripRef.current).toHaveBeenCalledOnce();
+    expect(h.stop.mock.invocationCallOrder[0]).toBeLessThan(h.context.loadTripRef.current.mock.invocationCallOrder[0]);
   });
   it.each(['stop', 'merge'])('preserves a second departure during late Maps return %s', async pendingStage => {
     const opened = deferred(), cleaned = deferred(); let registered = false;
@@ -175,7 +177,7 @@ describe('Map AppState preparation fallback', () => {
       useRef: current => ({ current }), useEffect: fn => fn(), activeTripRef, navigationBusyRef, navigationOperationRef: { current: null }, trackingTransitionRef: { current: Promise.resolve() },
       AppState: { currentState: 'active', addEventListener: (_, fn) => { change = fn; return { remove() {} }; } },
       isGpsTrackedTrip: value => value?.trip_status === 'En Route', legForStatus, updateLegContext: async () => {}, prepareBackgroundTracking: prepare, startBackgroundTracking: async () => {},
-      stopBackgroundTracking: stop, mergeStoredKm: merge, distRef: { current: {} },
+      stopBackgroundTracking: stop, mergeStoredKm: merge, distRef: { current: {} }, loadTripRef: { current: async () => {} },
     });
     return { change, activeTripRef, navigationBusyRef, stop, merge };
   }
