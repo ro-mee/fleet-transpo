@@ -3,6 +3,7 @@ package expo.modules.fleetopstripbubble
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -32,22 +33,21 @@ class FleetOpsTripBubbleModule : Module() {
       }
     }.runOnQueue(Queues.MAIN)
 
-    AsyncFunction("showTripBubble") { tripId: String ->
+    AsyncFunction("showTripBubble") { tripId: String, promise: Promise ->
       val context = appContext.reactContext
-      when {
-        tripId.isBlank() -> mapOf("shown" to false, "reason" to "invalid-trip")
-        context == null -> mapOf("shown" to false, "reason" to "start-failed")
-        !Settings.canDrawOverlays(context) -> mapOf("shown" to false, "reason" to "permission-denied")
-        // Task 2 must acknowledge a real window before this can report shown.
-        else -> mapOf("shown" to false, "reason" to "start-failed")
+      if (context == null) {
+        promise.resolve(mapOf("shown" to false, "reason" to "start-failed"))
+      } else {
+        FleetOpsTripBubbleService.requestShow(context, tripId) { promise.resolve(it) }
       }
     }.runOnQueue(Queues.MAIN)
 
-    AsyncFunction("hideTripBubble") {
-      appContext.reactContext?.let { context ->
-        context.stopService(Intent(context, FleetOpsTripBubbleService::class.java))
+    AsyncFunction("hideTripBubble") { promise: Promise ->
+      if (FleetOpsTripBubbleService.requestHide(appContext.reactContext)) {
+        promise.resolve()
+      } else {
+        promise.reject("ERR_TRIP_BUBBLE_HIDE", "Could not remove the trip bubble", null)
       }
-      Unit
     }.runOnQueue(Queues.MAIN)
   }
 }
