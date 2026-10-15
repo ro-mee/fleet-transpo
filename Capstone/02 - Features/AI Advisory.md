@@ -17,6 +17,10 @@ related: ["[[Dispatch]]", "[[AI Architecture]]"]
 
 # Feature: AI Advisory
 
+## Dispatch pair exclusion clarity - 2026-10-16
+
+Pair recommendations now report the effective driver's service-type mismatch before the broader driver/vehicle/load compatibility message when both fail. Both checks still exclude the pair. Updated Cargo fixtures supply a consistent typed driver/vehicle/request, and dispatch-window fixtures separately exercise Passenger scheduling, unconfigured Cargo refusal, and simulated approved Cargo authority. The pair-scoring, recommendation-availability and dispatch-window suites passed 94 tests across three files. No provider was activated and no operational data was changed.
+
 ## Dispatch Copilot audit correction wave — 2026-10-07 (adversarial review fixes, `bafd6c5a`)
 
 Same thirteen fixes as `[[Reservations]]` correction-wave entry (touch targets, 700-ink + pulse removal, blocked-row note, Assigned-never-Completed fallback, km units, hero stacking, dock tab stop, status-only suggestions, reset gating). Verification: focused 13-file set GREEN (68 + 73 + 68 + 24), ESLint clean, `git diff --check` clean; full suite 3662/3668 with the same 6 pre-existing unrelated failures; build not re-run here (no `NEXT_PUBLIC_SUPABASE_URL`); browser acceptance PENDING.

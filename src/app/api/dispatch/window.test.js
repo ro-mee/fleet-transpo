@@ -30,6 +30,7 @@ import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { POST } from "./route";
 import { PUT } from "./[id]/route";
+import { createCargoExecutionService } from "@/services/cargo-execution.service";
 
 const departure = new Date(Date.now()+2*86400000);departure.setUTCHours(2,0,0,0);
 const planned = new Date(+departure+60*60000).toISOString();
@@ -42,6 +43,30 @@ const request = (body) => new Request("http://localhost/api/dispatch", {
 });
 const create = (body) => POST(request({ request_id: 3, vehicle_id: 2, driver_id: 7, scheduled_departure: departure.toISOString(), ...body }));
 const edit = (body) => PUT(request(body), { params: Promise.resolve({ id: "10" }) });
+
+// Passenger-consistent triple for scheduling-mechanics tests. The cargo
+// checkpoint passes these through (its contract is "refuse unconfigured
+// Cargo authority without globally blocking Passenger trips"), so the
+// window/identity/expiry assertions below exercise the route rather than the
+// authority boundary (pinned by the 503 test above). The driver row also
+// carries the vehicle's use because the mocked join returns the driver row
+// for the assignment query — a mock artifact, not a schema claim.
+const passengerTriple = (original) => async (sql, values) => {
+  if (sql.includes("stored_request_id")) return { rows: [{ dispatch_id: 10, request_id: 3, service_type: null, stored_request_id: 3, load_type: "Passenger" }] };
+  if (sql.includes("FROM transportation_requests")) {
+    const result = await original(sql, values);
+    return { rows: result.rows.map((row) => ({ ...row, load_type: "Passenger", passenger_count: 4, cargo_weight_kg: null, cargo_description: null })) };
+  }
+  if (sql.includes("FROM vehicles")) {
+    const result = await original(sql, values);
+    return { rows: result.rows.map((row) => ({ ...row, operational_use: "Passenger", seating_capacity: 10 })) };
+  }
+  if (sql.includes("FROM drivers")) {
+    const result = await original(sql, values);
+    return { rows: result.rows.map((row) => ({ ...row, driver_type: "Passenger", operational_use: "Passenger" })) };
+  }
+  return original(sql, values);
+};
 afterEach(() => vi.unstubAllEnvs());
 
 beforeEach(async () => {
@@ -51,6 +76,11 @@ beforeEach(async () => {
   const {validatePairAvailability:realGate}=await vi.importActual("@/services/recommendation.service");
   validatePairAvailability.mockImplementation(realGate);
   query.mockImplementation(async (sql, values = []) => {
+    // Cargo-authority checkpoint (assertCargoDispatchCheckpoint): its explicit
+    // column list never matches the "SELECT *" branches below, and its LATERAL
+    // join would otherwise misroute to the request branch and fake a linkage
+    // break. Route it to faithful dispatch linkage rows (cargo, no provider).
+    if (sql.includes("stored_request_id")) return { rows: [{ dispatch_id: 10, request_id: 3, service_type: null, stored_request_id: 3, load_type: "Cargo" }] };
     if (sql.includes("FROM transportation_requests")) return { rows: [{ request_id: 3, fleet_status: "Pending", load_type: "Cargo", cargo_weight_kg: 650,passenger_count:null,cargo_description:"Supplies",requested_category_id:1,pickup_datetime:departure.toISOString(),pickup_location:"Review pickup",dropoff_location:"Review dropoff" }] };
     if (sql.includes("FROM vehicles")) return { rows: [{ vehicle_id: 2, vehicle_status: "Available", plate_number: "TEST", fleet_asset_code:"REVIEW-002",category_id:1,required_license_class:"B",operational_use:"Cargo",cargo_capacity_kg:1000,commissioning_status:"Ready",fuel_level:90,registration_expiry: "2099-01-01", insurance_expiry: "2099-01-01" }] };
     if (sql.includes("FROM drivers")) return { rows: [{ driver_id: 7, driver_status: "Available",driver_type:"Cargo",license_number:"N04-19-013583",license_type:"Professional",license_class:"B",license_expiry:"2099-01-01",license_verified_at:"2026-01-01T00:00:00Z",license_verified_by:8,license_verification_method:"physical_card",operational_use:"Cargo",_schedule_load:0 }] };
@@ -95,6 +125,14 @@ describe("dispatch window boundary", () => {
     expect(query.mock.calls.some(([sql]) => sql.startsWith('UPDATE dispatchschedules'))).toBe(false);
   });
   it('keeps the final token and saved dispatch on its stored cargo request despite an extraneous request ID', async () => {
+    // Identity hygiene, not authority: run the checkpoint through as
+    // Passenger (the pair gate stays mocked) so the assertions below
+    // exercise request-identity preservation.
+    const original = query.getMockImplementation();
+    query.mockImplementation(async (sql, values) => {
+      if (sql.includes("stored_request_id")) return { rows: [{ dispatch_id: 10, request_id: 3, service_type: null, stored_request_id: 3, load_type: "Passenger" }] };
+      return original(sql, values);
+    });
     validatePairAvailability.mockImplementation(async ({ request: candidate }) => ({ ok: true,
       commitToken: { requestId: candidate.request_id, driverId: 7, vehicleId: 2, revision: 'fixture' } }));
     const response = await edit({ driver_id: 7, request_id: 99, service_code: 'GUEST_TRANSPORT' });
@@ -121,6 +159,15 @@ describe("dispatch window boundary", () => {
     expect(findDispatchConflicts).toHaveBeenLastCalledWith(expect.objectContaining({ arrival: buffered }));
   });
   it("stores and overlap-checks the accepted buffered window on update", async () => {
+    // Cargo authority BOUND (the complement to the 503 test above): the same
+    // cargo fixture proceeds, pinning that buffered handling windows still
+    // store on update once authority exists.
+    const service = createCargoExecutionService({
+      db: { withTransaction: async () => {} },
+      config: { schemaReady: true, simulated: true, environment: 'test', ...Object.fromEntries(['dataApprovalRef', 'privacyApprovalRef', 'receivingApprovalRef', 'retentionApprovalRef', 'sourceApprovalRef', 'safetyApprovalRef', 'fleetApprovalRef', 'lifecycleApprovalRef'].map((key) => [key, 'simulated:approval'])) },
+      authorizeLifecycle: async () => true,
+    });
+    commitDispatchEvidence.mockImplementationOnce(async (_token, write) => write(service.bindLifecycleTransaction({ query })));
     const res = await edit({ scheduled_arrival: null });
     expect(res.status).toBe(200);
     expect((await res.json()).scheduled_arrival).toBe(buffered);
@@ -133,6 +180,9 @@ describe("dispatch window boundary", () => {
     expect(query.mock.calls.some(([sql])=>sql.startsWith("INSERT INTO dispatchschedules")||sql.startsWith("UPDATE dispatchschedules"))).toBe(false);
   });
   it.each([create,edit])("preserves an adequate explicit saved window",async call=>{
+    // Same Passenger-triple pass-through as the buffered-window test: the
+    // cargo authority boundary is pinned by the 503 test above.
+    query.mockImplementation(passengerTriple(query.getMockImplementation()));
     const res=await call({scheduled_arrival:adequate});
     expect(res.status).toBe(call===create?201:200);
     expect(new Date((await res.json()).scheduled_arrival).toISOString()).toBe(adequate);
@@ -147,9 +197,12 @@ describe("dispatch window boundary", () => {
   });
   it.each([create, edit])("lets the shared typed document gate decide renewed expiry", async (call) => {
     const original = query.getMockImplementation();
+    // Passenger triple first (checkpoint + pair gate pass-through), then the
+    // expired row-level dates the document gate must decide on.
+    const passenger = passengerTriple(original);
     query.mockImplementation((sql, values) => sql.includes("FROM vehicles")
-      ? original(sql,values).then(result=>({rows:result.rows.map(row=>({...row,registration_expiry:"2020-01-01",insurance_expiry:"2020-01-01"}))}))
-      : original(sql, values));
+      ? passenger(sql,values).then(result=>({rows:result.rows.map(row=>({...row,registration_expiry:"2020-01-01",insurance_expiry:"2020-01-01"}))}))
+      : passenger(sql, values));
     const res = await call({ scheduled_arrival: adequate });
     expect(res.status).toBe(call === create ? 201 : 200);
     expect(validatePairAvailability).toHaveBeenCalled();

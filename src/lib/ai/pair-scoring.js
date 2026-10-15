@@ -709,6 +709,15 @@ export function buildFleetPairRecommendations({
     }
 
     const chosen = pairing.driver;
+    // Static classification gate first: the request-level "right driver type
+    // for this job" verdict is more actionable than the assignment-level
+    // triple verdict below, and must stay reachable when both would fire.
+    const mismatch = driverTypeFinding({ driver: chosen, serviceCode: request?.service_code });
+    if (mismatch) {
+      skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number,
+        driver_id: chosen.driver_id, driver_name: pairDriverName(chosen), reason: mismatch.message });
+      continue;
+    }
     const compatibility = checkVehicleLoadCompatibility({
       driverType: chosen.driver_type,
       operationalUse: vehicle.operational_use,
@@ -719,14 +728,6 @@ export function buildFleetPairRecommendations({
       skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number,
         driver_id: chosen.driver_id, driver_name: pairDriverName(chosen),
         reason: vehicleLoadCompatibilityMessage(compatibility.reason) });
-      continue;
-    }
-    // Static classification gate: a mismatched driver type skips the pair
-    // with its reason, the same verdict the commit funnel would return.
-    const mismatch = driverTypeFinding({ driver: chosen, serviceCode: request?.service_code });
-    if (mismatch) {
-      skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number,
-        driver_id: chosen.driver_id, driver_name: pairDriverName(chosen), reason: mismatch.message });
       continue;
     }
     const designated = pairing.designated;

@@ -32,7 +32,17 @@ it('pins the stored catalog service over a caller override and blocks a mismatch
 });
 it('passes a driver whose type matches the stored service',async()=>{
  record.service_code='HOTEL_SUPPLY_TRANSFER';
+ // Consistent cargo triple (Cargo driver + Cargo vehicle + typed Cargo load):
+ // the load-compatibility invariant holds, so the service-code gate decides.
+ record={...record,load_type:'Cargo',passenger_count:null,cargo_weight_kg:300,cargo_description:'Rice'};
  driver.driver_type='Cargo';
+ query.mockImplementation(async sql=>{
+  if(sql.includes('FROM transportation_requests r'))return {rows:[record]};
+  if(sql.includes('FROM vehicles WHERE'))return {rows:[{vehicle_id:2,plate_number:'TRK5678',category_id:1,operational_use:'Cargo',cargo_capacity_kg:1000,vehicle_status:'Available',seating_capacity:10,required_license_class:'B',commissioning_status:'Ready',fleet_asset_code:'TRK-002',fuel_level:90,registration_expiry:'2099-01-01',insurance_expiry:'2099-01-01'}]};
+  if(sql.includes('FROM drivers d'))return {rows:[driver]};
+  if(sql.includes('FROM vehicledocuments'))return {rows:['OR_CR','Insurance'].map(document_type=>({document_type,verification_status:'Verified',verified_by:8,verified_at:'2026-01-01T00:00:00Z',expiry_date:'2099-01-01'}))};
+  return {rows:[]};
+ });
  const result=await validatePairAvailability({request:{...record},vehicleId:2,driverId:7,allowReview:true});
  expect(result.ok).toBe(true);
 });

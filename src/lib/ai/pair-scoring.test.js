@@ -50,8 +50,10 @@ const mkRequest = (over = {}) => ({
 });
 
 describe('driver_type gate on the effective substitute',()=>{
+ // Consistent cargo triple (Cargo vehicle + typed Cargo load): the
+ // load-compatibility invariant holds, so the service-code gate decides.
  const build=(serviceCode,substituteType='Cargo')=>buildFleetPairRecommendations({
-  request:mkRequest({service_code:serviceCode,pickup_datetime:NOW}),vehicles:[mkVehicle()],
+  request:mkRequest({service_code:serviceCode,load_type:'Cargo',pickup_datetime:NOW}),vehicles:[mkVehicle({operational_use:'Cargo'})],
   drivers:[mkDriver({driver_id:5,driver_status:DRIVER_STATUS.ON_LEAVE}),mkDriver({driver_id:9,driver_type:substituteType})],
   activePairs:[{vehicle_id:1,driver_id:5}],activeSubstitutes:[{vehicle_id:1,substitute_driver_id:9,effective_from:'2026-08-01'}],now:NOW,
  });
