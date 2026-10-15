@@ -137,3 +137,7 @@ Vehicle list/detail archive, vehicle-category archive, and maintenance-record ar
 ## Cargo capability consolidation - 2026-10-13
 
 Saved Cargo vehicle editing now owns the reusable measured capability editor formerly in Supply Deliveries. New/unsaved Cargo vehicles show save-first guidance. It displays derived usable payload, legacy kg disagreement, save provenance and expiry without copying values or implying independent approval. Existing vehicles.update permission and profile API validation remain. Enhanced physical eligibility uses measured profiles only under explicitly configured dispatch-policy enforcement; OFF preserves the existing transition. See [[Supply Chain Consolidation Implementation 2026-10-13]].
+
+## Registry use-switch capacity hygiene - 2026-10-15
+
+`PUT /api/vehicles/[id]` validates an incoming cargo capacity against the effective operational use (incoming, else the stored row), so a capacity sent against a stored Passenger vehicle is now rejected instead of passing on the incoming-use-only check. An explicit use switch clears the opposite capacity (to Passenger clears a stale kg, to Cargo clears seats, mirroring the create form) only when the switch is explicit and the cleared field was not sent; untouched rows are never wiped. The fleet CSV export now includes Operational Use, Cargo Capacity (kg) and Commissioning Status. Verified with the vehicle update suite (7/7) plus the vehicles/lib neighbor suites (78 passed, 1 pre-existing postgres skip); strict ESLint clean. No migration or live write.
