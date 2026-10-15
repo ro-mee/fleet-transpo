@@ -16,12 +16,17 @@ source:
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
   - src/services/driver-qualification.service.js
-  - src/components/drivers/service-qualifications.jsx
 last_verified: 2026-10-12
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
 # Feature: Driver Management
+
+## Driver profile deployment build fix - 2026-10-16
+
+Removed the unused `ServiceQualifications` import from `src/app/(dashboard)/drivers/[id]/page.js`. The component had already been deleted when service qualifications were retired, but the leftover import still required Next.js to resolve it and caused the Vercel production build to fail. The page no longer rendered that component, so removing the import does not change the driver profile or the existing driver classification gate.
+
+Verification: driver-page ESLint passed with zero warnings; the UTF-8 encoding gate passed; source search found no remaining `ServiceQualifications` or `service-qualifications` references under `src`. The normal production build stopped on a Windows Turbopack existing-junction error (`.next/node_modules/pg-*`, OS error 80). The supported `--webpack` fallback compiled the application with the existing `geoip.js` dynamic-dependency warning, then failed with `ENOSPC` (local disk full). A complete production build and Vercel redeployment remain unverified. No database or deployment change was made.
 
 ## Driver classification & duty status onboarding — 2026-10-12
 

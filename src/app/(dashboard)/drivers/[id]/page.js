@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ServiceQualifications } from "@/components/drivers/service-qualifications";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getDriver, getDriverLicenseMasks, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
