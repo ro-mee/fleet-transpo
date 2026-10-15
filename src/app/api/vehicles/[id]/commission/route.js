@@ -3,7 +3,27 @@ import { requireAuth, parseBody, ok, err, handleError } from '@/lib/api/utils';
 import { writeAuditRequired } from '@/lib/audit';
 import { loadRoadReadiness } from '@/lib/vehicles/readiness-server';
 import { evaluateVehicleCapacity } from '@/lib/scheduling/load-capacity';
+import { deriveUsablePayload } from '@/lib/cargo/physical-load';
 import { SUPPORTED_LICENSE_CLASSES } from '@/lib/drivers/license-eligibility';
+
+// A Cargo vehicle commissions on measured-profile evidence only: legacy kg
+// stays a display fallback and never commissions one. The provenance bar
+// mirrors the supply cargo-profile writer (measured fields present, recorded
+// by staff, reference present, verification unexpired).
+function cargoProfileCommissionBlocker(profile, now) {
+  const usable = profile?.supports_supply_delivery === true ? deriveUsablePayload(profile) : null;
+  if (!Number.isFinite(usable) || usable <= 0)
+    return 'Record a verified measured cargo profile with positive usable payload before verification.';
+  const verifiedBy = Number(profile.verified_by);
+  const verifiedAt = +new Date(profile.verified_at);
+  const validUntil = +new Date(profile.verification_valid_until);
+  if (!Number.isSafeInteger(verifiedBy) || verifiedBy <= 0 ||
+      typeof profile.verification_reference !== 'string' || !profile.verification_reference.trim() ||
+      !Number.isFinite(verifiedAt) || verifiedAt > now.getTime() ||
+      !Number.isFinite(validUntil) || validUntil <= now.getTime())
+    return 'Record a verified measured cargo profile with positive usable payload before verification.';
+  return null;
+}
 
 // An explicit staff attestation, never a general-purpose vehicle write.
 export async function POST(req, {params}) {
@@ -24,8 +44,20 @@ export async function POST(req, {params}) {
       if (!vehicle) return {error:'Vehicle not found.',status:404};
       if (!String(vehicle.fleet_asset_code ?? '').trim() || !vehicle.category_id || !SUPPORTED_LICENSE_CLASSES.includes(vehicle.required_license_class))
         return {error:'Record the fleet asset code, category and supported registration license class before verification.',status:400};
-      const capacity = evaluateVehicleCapacity({load_type:vehicle.operational_use,passenger_count:1,cargo_weight_kg:Number(vehicle.cargo_capacity_kg)},vehicle);
-      if (!['Passenger','Cargo'].includes(vehicle.operational_use) || !capacity.eligible)
+      if (!['Passenger','Cargo'].includes(vehicle.operational_use))
+        return {error:'Record the operational use and positive usable capacity before verification.',status:400};
+      const now = new Date();
+      let capacity;
+      if (vehicle.operational_use === 'Cargo') {
+        const {rows:profiles} = await tx.query(`SELECT * FROM vehicle_cargo_profiles WHERE vehicle_id=$1 FOR UPDATE`,[vehicleId]);
+        const blocker = cargoProfileCommissionBlocker(profiles[0] ?? null, now);
+        if (blocker) return {error:blocker,status:409};
+        const usable = deriveUsablePayload(profiles[0]);
+        capacity = evaluateVehicleCapacity({load_type:'Cargo',cargo_weight_kg:usable},{...vehicle,cargo_capacity_kg:usable});
+      } else {
+        capacity = evaluateVehicleCapacity({load_type:vehicle.operational_use,passenger_count:1,cargo_weight_kg:Number(vehicle.cargo_capacity_kg)},vehicle);
+      }
+      if (!capacity.eligible)
         return {error:'Record the operational use and positive usable capacity before verification.',status:400};
       const {rows:documents} = await tx.query(`SELECT document_id,document_type,document_number,file_url,expiry_date::text AS expiry_date
         FROM vehicledocuments WHERE vehicle_id=$1 AND deleted_at IS NULL AND document_type IN ('OR_CR','Insurance') FOR UPDATE`,[vehicleId]);
@@ -33,7 +65,6 @@ export async function POST(req, {params}) {
         return {error:'Saved documents changed or contain competing records. Refresh and review them.',status:409};
       if (documents.some(d=>!String(d.file_url ?? '').trim() || !String(d.document_number ?? '').trim()))
         return {error:'Each document needs its saved scan and official document number.',status:400};
-      const now = new Date();
       // Assess the proposed attestation before writing it. The queries still
       // supply actual live maintenance and incidents under the same locks.
       const verifiedDocs = documents.map(d=>({...d,verification_status:'Verified',verified_by:employeeId,verified_at:now}));
