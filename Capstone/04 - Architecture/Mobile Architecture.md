@@ -37,6 +37,16 @@ last_verified: 2026-10-12
 
 Expo SDK ~54, expo-router ~6. **Drivers only.** A separate app with a separate auth system, not a wrapper around the web dashboard.
 
+## Repository tracking cleanup (2026-10-16)
+
+Commit closeout verification: 275 affected and neighboring tests across 18 files passed, including the new heading/coverage and real Home-render regressions. Strict lint passed on all 17 changed JavaScript files; upload-filter examples, tracked UTF-8 and whitespace checks passed. Whole-repository lint and full-suite attempts ran out of host memory; they remain incomplete. No new native build, device acceptance or merge is claimed. The related Android worktree is clean at `cdcfb86c`. The detailed dated review and corrections are in [[Google Maps Navigation and Android Bubble Implementation Plan]].
+
+Commit preparation also keeps generated mobile dependencies/native projects out of the parent Git index and restores signing-file exclusions in `mobile/.easignore` (`.jks`, `.keystore`, `.p8`, `.p12`, `.key`, `.mobileprovision` and `credentials.json`). The required Google services configuration remains eligible only for the existing private build archive and stays excluded from Git. This change does not submit a build or authorize a cloud upload.
+
+The mobile app is tracked by the parent `capstone` Git repository, not a separate repository inside `mobile/`. An empty nested `mobile/.git` directory incorrectly showed all 334 existing app files as untracked. With user approval, only that directory was moved to `C:\Users\lenovo\.codex\backups\fleetops-mobile-git-20261016-01\.git` for recovery; no app files were removed or committed. Do not initialize another Git repository inside `mobile/`.
+
+Verification: the nested repository had zero tracked files, references and objects before the move. SHA-256 checks confirmed all 334 listed app files were unchanged afterward. Git run inside `mobile/` now resolves to the parent `capstone` repository; its 15 genuine mobile changes and parent commit were unchanged. No app behavior, build, upload or database change occurred.
+
 ## Navigation — CONFIRMED (`mobile/app/(app)/(tabs)/_layout.js`)
 
 Visible tab order = declaration order (2026-09-10: explicit `trips` entry added — it previously auto-registered with no icon and landed out of order):
@@ -137,6 +147,7 @@ the interactive preview is limited to one card per Home render.
 **Decoupling the sensor from the upload is the right shape**: position updates arrive at whatever rate the GPS produces them, but network traffic is bounded at one request per 30 s.
 
 - **Single publish per tick (2026-09-22):** trip → one full publish; responder → one `lastSentAt` publish; standby → one combined `{standbyObservedAt, lastSentAt, error:null}` publish (the old trailing `!tripId` publish double-fired on standby and re-rendered all subscribers every 30 s). Idle duty GET cadence is unchanged (every 30 s — a move onto the 60 s gate was planned and explicitly rejected to keep standby response ≤30 s).
+- **WebView bridge throttle + WebGL fleet layers (2026-10-15):** the local map path is now throttled independently of the 30 s poster — `mobile/lib/fleet-bridge.js` caps native→WebView injects at one per 1500 ms past `MAP_READY` via direct `window.__updateFleetPositions` calls (no `postMessage`); the document renders driver/responders as GeoJSON circle layers with ~1200 ms rAF interpolation and repaints responders only on change; `window.__setMapActive` pauses hidden-tab/background work and `pagehide`/`beforeunload` releases the WebGL context. Foreground watchers run `{ accuracy: High, timeInterval: 1500, distanceInterval: 3 }`. Detail → [[Tracking]].
 
 Background tracking **requires a custom dev build** (not Expo Go) — see the "Version warning" note below — and Android production release needs Play Store review. The old foreground-only decision is superseded: [[ADR-010 Foreground Only GPS]] → [[ADR-011 Background GPS Tracking]].
 
