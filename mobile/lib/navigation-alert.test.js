@@ -5,6 +5,7 @@ import { transform } from 'esbuild';
 import { beginNavigationHandoff } from './navigation-handoff';
 import { navigationTarget } from './navigation-route';
 import { launchExternalNavigation } from './external-navigation';
+import { createTripBubbleHandoff } from './trip-bubble-handoff';
 
 const { code } = await transform(readFileSync('mobile/components/AppAlert.js', 'utf8'), { loader: 'jsx', format: 'cjs' });
 
@@ -74,6 +75,7 @@ describe('shared warning alert opt-ins', () => {
     const prepare = vi.fn().mockResolvedValue({ ok: false, reason: 'permission-denied' });
     const action = runInNewContext(`${source.slice(start, end)}; openExternalNavigation`, {
       navigationBusyRef, navigationOperationRef: { current: null }, trackingTransitionRef: { current: Promise.resolve() }, setNavigationBusy: () => {},
+      tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
       activeTripRef: { current: { trip_id: 7, trip_status: 'En Route', destination_latitude: 14.7, destination_longitude: 121.1 } },
       appState: { current: 'active' }, user: { employeeId: 23 }, captureCargoSession: () => ({}), isCurrentCargoSession: () => true,
       navigationTarget, beginNavigationHandoff, launchExternalNavigation, prepareBackgroundTracking: prepare, stopBackgroundTracking: async () => {},

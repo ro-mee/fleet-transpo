@@ -9,6 +9,8 @@ source:
   - mobile/lib/navigation-route.js
   - mobile/lib/external-navigation.js
   - mobile/lib/navigation-handoff.js
+  - mobile/lib/trip-bubble.js
+  - mobile/lib/trip-bubble-handoff.js
   - mobile/app/(app)/(tabs)/map.js
   - mobile/components/TomTomMap.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
@@ -102,6 +104,14 @@ Automated evidence is from the committed Task 6 run at `8d5b38e8a533423c7cec948a
 **Release 2 / Android bubble scaffold (2026-10-15, Task 1):** The user explicitly authorized building the bubble after being informed that physical acceptance is deferred, overriding the earlier implementation-start hold. Physical acceptance remains PENDING. `mobile/modules/fleetops-trip-bubble` is now an Android-only local Expo SDK 54 module with typed optional imports, overlay permission/settings calls and durable permission/service declarations. iOS, web and older Android builds safely return unsupported. The non-exported service is a nonsticky scaffold that immediately stops; no overlay is implemented or called from app screens yet. Native show returns `invalid-trip`, `permission-denied` or `start-failed`, never a fabricated success. Task 2 must implement and acknowledge a real overlay before returning `shown: true`. The existing notification remains the implemented return path; GPS, trip state and distance collection are unchanged.
 
 Task 1 verification: four optional-bridge checks failed before implementation and then passed; all 1,093 mobile checks across 78 files passed, with strict touched ESLint and TypeScript checks. Installed SDK 54 autolinking finds the module once on Android and excludes it on Apple. XML checks verified one generated overlay permission and the source service's non-exported/stop-with-task flags. Android prebuild was attempted but stopped at the absent ignored `services/google-services.json`; Gradle's manifest task could not run because Java is unavailable, and no Android SDK/device is installed. Neither a merged-manifest/native compile nor physical overlay behavior is claimed. See [[Mobile Architecture]].
+
+## Android bubble permission and Maps lifecycle — Task 3 (2026-10-15)
+
+After successful existing live-tracking readiness, Navigate checks the optional Android bridge. Missing modules, iOS/web and native failures continue without a shortcut. Missing overlay permission gets one themed AppAlert explanation with stacked **Not now** / **Open Android settings** actions; the offer is saved before presentation, so dismissal/replacement and repeated taps do not nag. A storage failure skips the offer. Settings return checks real permission; denial, Back or opening failure still continues Maps. Explicit **Continue Without Tracking** never offers or arms the bubble, preserving the Driver Accepted GPS boundary.
+
+The controller arms immediately before the Maps request and requires both platform success and a departure within five seconds. It survives either launch/AppState ordering, checks the captured trip/status/target/session before show, and never treats the earlier Settings departure as Maps. Return clears ownership and calls native hide immediately; tracking stop/merge and failed-launch rollback await that removal attempt. A new navigation attempt cancels an older arm, trip changes invalidate it, and Map unmount hides it. Native queued-show generations provide the attachment race guard. This uses only the existing successful tracking foreground-service eligibility and adds no GPS collector or service management.
+
+Verification: wrapper RED (11 missing-module failures), helper RED (missing module), six callback/expiry RED failures, then separate late-hide/prior-arm/failed-launch rollback regressions before each correction. One full mobile run passed 1,135/1,135 tests across 80 files; after the final rollback regression, seven focused suites passed 163/163. Touched strict lint passed. Native compilation and physical Android permission, overlay, Maps-return and GPS acceptance remain pending; root/auth/deep-link/remote rejection cleanup belongs to Task 4.
 
 ## Android bubble native service — Task 2 (2026-10-15)
 
