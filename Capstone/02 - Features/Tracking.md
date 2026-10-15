@@ -20,6 +20,12 @@ related: ["[[Trips]]", "[[Mobile Architecture]]", "[[Live Map Radar]]"]
 
 # Feature: Tracking
 
+## Android native rebuild preparation - 2026-10-16
+
+The user requested a native rebuild of `codex/android-trip-bubble`. Existing Expo development APK history and remote signing are available, so the feature branch can be built directly without merging the dirty main checkout. The existing ignored Android Google services configuration was copied from the main checkout, verified identical and kept out of Git; no credentials were invented or printed.
+
+Installed EAS CLI 24.8.0 archives from the Git root. Its Windows nested-ignore prefix comparison failed for backslash paths, so the mobile-only ignore file did not reliably exclude generated native folders. A root `.easignore` now explicitly excludes those directories, environment files, signing files, local reports, dependencies and Git metadata while retaining the local bubble module, return route, lockfile and required Android configuration. Both path-separator cases and a fresh 2,426-file upload preview were checked; generated Android/iOS projects and Git metadata are absent. Three task-created preview copies were removed from the main workspace after verification; existing main-checkout source edits were preserved. Cloud compilation and physical acceptance are still pending at this preparation checkpoint.
+
 ## Current Android trip bubble - 2026-10-16, Task 5
 
 Tasks 1-4 are implemented in source through `2ca921c0`. The user's informed request to build now superseded the earlier implementation-start hold; it did not waive native or physical acceptance. Historical Task 1 scaffold and Task 2/3 integration limits below describe those checkpoints, not the current feature.
