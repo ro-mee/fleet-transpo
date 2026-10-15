@@ -22,27 +22,38 @@ vi.mock('@/lib/ai/pair-scoring', async importOriginal => ({
 import { query } from '@/lib/db';
 import { GET } from './route';
 
-let vehicle, driver, loadType;
+let vehicle, driver, loadType, cargoKg;
 beforeEach(() => {
   vi.clearAllMocks();
   vehicle = { vehicle_id: 9, vehicle_name: 'Truck', plate_number: 'TRK-9', vehicle_status: 'Available',
     operational_use: 'Cargo', seating_capacity: 2, cargo_capacity_kg: 1000, category_name: 'Cargo' };
   driver = { driver_id: 7, driver_type: 'Cargo', driver_status: 'Available', first_name: 'Casey', last_name: 'Driver' };
   loadType = null;
+  cargoKg = null;
   query.mockImplementation(async sql => {
     if (sql.includes('FROM vehicles v')) return { rows: [vehicle] };
     if (sql.includes('FROM drivers d')) return { rows: [driver] };
     if (sql.includes('FROM driver_vehicle_assignments')) return { rows: [{ driver_id: 7, vehicle_id: 9 }] };
     if (sql.includes('FROM substitute_vehicle_schedules')) return { rows: [] };
     if (sql.includes('FROM dispatchschedules')) return { rows: [] };
-    if (sql.includes('FROM transportation_requests')) return { rows: [{ request_id: 1, load_type: loadType }] };
+    if (sql.includes('FROM transportation_requests')) return { rows: [{ request_id: 1, load_type: loadType, cargo_weight_kg: cargoKg }] };
     return { rows: [] };
   });
 });
 
 const get = (search = '') => GET(new Request(`http://localhost/api/dispatch/availability-pairs${search}`));
 
-it('keeps a matching Cargo custody pair available when no request is selected', async () => {
+it('does not list Cargo pair as ready without typed load', async () => {
+  const response = await get();
+  const body = await response.json();
+  expect(response.status).toBe(200);
+  expect(body.ready).toHaveLength(0);
+  expect(body.blocked[0].block_reason).toMatch(/marked as Cargo/i);
+});
+
+it('keeps a matching Passenger custody pair available when no request is selected', async () => {
+  vehicle.operational_use = 'Passenger';
+  driver.driver_type = 'Passenger';
   const response = await get();
   const body = await response.json();
   expect(response.status).toBe(200);
@@ -70,4 +81,33 @@ it('requests driver type and vehicle operational use for the availability check'
   await get();
   expect(query.mock.calls.find(([sql]) => sql.includes('FROM vehicles v'))[0]).toMatch(/operational_use/);
   expect(query.mock.calls.find(([sql]) => sql.includes('FROM drivers d'))[0]).toMatch(/driver_type/);
+});
+
+it('blocks a Cargo request when the vehicle payload is too small', async () => {
+  loadType = 'Cargo';
+  cargoKg = 1500;
+  const response = await get('?request_id=1');
+  const body = await response.json();
+  expect(response.status).toBe(200);
+  expect(body.ready).toHaveLength(0);
+  expect(body.blocked[0].block_reason).toMatch(/over by 500 kg/i);
+});
+
+it('keeps a Cargo pair ready when the payload fits the stored weight', async () => {
+  loadType = 'Cargo';
+  cargoKg = 500;
+  const response = await get('?request_id=1');
+  const body = await response.json();
+  expect(response.status).toBe(200);
+  expect(body.ready).toHaveLength(1);
+  expect(body.blocked).toHaveLength(0);
+});
+
+it('accepts min_cargo_kg and blocks when the payload is too small', async () => {
+  const fitting = await (await get('?min_cargo_kg=500')).json();
+  expect(fitting.ready).toHaveLength(1);
+  expect(fitting.blocked).toHaveLength(0);
+  const heavy = await (await get('?min_cargo_kg=1500')).json();
+  expect(heavy.ready).toHaveLength(0);
+  expect(heavy.blocked[0].block_reason).toMatch(/cargo capacity 1000 kg, request needs 1500 kg/i);
 });

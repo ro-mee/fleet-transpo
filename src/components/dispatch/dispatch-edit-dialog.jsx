@@ -20,6 +20,8 @@ import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { formatDateTime } from "@/lib/utils";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { evaluateVehicleCapacity } from "@/lib/scheduling/load-capacity";
+import { checkVehicleLoadCompatibility } from "@/lib/trips/vehicle-load-compatibility";
+import { driverTypeFinding } from "@/lib/drivers/service-groups";
 import { Save, Shuffle, UserCheck, CheckCircle2, Search, Users, AlertCircle, CarFront } from "lucide-react";
 
 const TITLES = {
@@ -124,9 +126,29 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
       .map((d) => d.driver_id)
   );
 
+  // Advisory type gate mirroring the PATCH 409 (assertStoredVehicleLoadCompatibility
+  // with requireTypedLoad). The server stays authoritative — this only stops
+  // offering pairs the server would reject (mismatched driver/vehicle/load
+  // types, wrong driver group for the request's service).
+  const serviceCode = linkedRequest.service_code ?? linkedRequest.service_types?.service_code ?? null;
+  const typeCompatible = (vehicleId, driverId) => {
+    const v = vById.get(vehicleId);
+    const d = dById.get(driverId);
+    if (!v || !d) return false;
+    const verdict = checkVehicleLoadCompatibility({
+      driverType: d.driver_type,
+      operationalUse: v.operational_use,
+      loadType: linkedRequest.load_type ?? null,
+      requireTypedLoad: true,
+    });
+    if (!verdict.ok) return false;
+    if (serviceCode && driverTypeFinding({ driver: { driver_id: driverId, driver_type: d.driver_type ?? null }, serviceCode })) return false;
+    return true;
+  };
+
   const eligible = (vehicleId, driverId) => {
     const v = vById.get(vehicleId);
-    return Boolean(v && onDuty.has(driverId) && !loadTooHeavy(v));
+    return Boolean(v && onDuty.has(driverId) && !loadTooHeavy(v) && typeCompatible(vehicleId, driverId));
   };
 
   const assigned = pairingData?.assignments ?? [];

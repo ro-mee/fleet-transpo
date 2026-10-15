@@ -13,6 +13,10 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { numberCodingBlockReason } from "@/lib/uvvrp/availability-reason";
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from '@/lib/trips/vehicle-load-compatibility';
 import { driverTypeFinding } from '@/lib/drivers/service-groups';
+import { evaluateVehicleCapacity, formatCapacityBlocker } from '@/lib/scheduling/load-capacity';
+import { getDispatchPolicy } from '@/services/dispatch-settings.service';
+import { loadCargoPhysicalAssessments } from '@/services/cargo-physical.service';
+import { cargoPhysicalPolicy, vehicleWithCargoPhysical } from '@/lib/cargo/physical-policy';
 
 // Pair-coupled availability for the Resource Availability board.
 //
@@ -72,6 +76,9 @@ export async function GET(req) {
       return ok({ error: "Invalid pickup_at / return_at" }, 400);
     }
     const minCapacity = sp.get("min_capacity") ? Number(sp.get("min_capacity")) : null;
+    const minCargoRaw = sp.get("min_cargo_kg");
+    const minCargoKg = minCargoRaw != null && minCargoRaw !== "" ? Number(minCargoRaw) : null;
+    const hasMinCargo = Number.isFinite(minCargoKg) && minCargoKg > 0;
     const categoryId = sp.get("category_id") ? Number(sp.get("category_id")) : null;
     // Strict default: only an explicit mode=today opts into the day-scoped
     // overview interpretation. Never inferred from the window shape.
@@ -80,7 +87,7 @@ export async function GET(req) {
     const [vehiclesRes, driversRes, pairsRes, subsRes, clashesRes] = await Promise.all([
       query(
         `SELECT v.vehicle_id, v.vehicle_name, v.plate_number, v.vehicle_status,
-                v.seating_capacity, v.operational_use, v.registration_expiry, v.insurance_expiry,
+                v.seating_capacity, v.operational_use, v.cargo_capacity_kg, v.registration_expiry, v.insurance_expiry,
                 v.category_id, v.required_license_class, vc.category_name
            FROM vehicles v
            LEFT JOIN vehiclecategories vc ON vc.category_id = v.category_id
@@ -156,7 +163,7 @@ export async function GET(req) {
     let serviceCode = null;
     let selectedRequest = null;
     if (requestId) {
-      const { rows: svcRows } = await query(`SELECT st.service_code, r.load_type FROM transportation_requests r
+      const { rows: svcRows } = await query(`SELECT st.service_code, r.load_type, r.cargo_weight_kg FROM transportation_requests r
         LEFT JOIN service_types st ON st.service_type_id=r.service_type_id AND st.deleted_at IS NULL
         WHERE r.request_id=$1 AND r.deleted_at IS NULL`, [requestId]);
       serviceCode = svcRows[0]?.service_code ?? null;
@@ -169,6 +176,28 @@ export async function GET(req) {
       travelCtx = await loadVehicleTravelContext(pickupAt);
     } catch (e) {
       console.warn("availability-pairs: travel context skipped:", e.message);
+    }
+
+    // Cargo honesty signal for this board query. A stored Cargo request weighs
+    // by its recorded kg; an ad-hoc ?min_cargo_kg weighs by the caller's floor.
+    // Either way the kg/physical gate runs before ready below, and a Cargo
+    // vehicle with neither signal is never ready (typed load required).
+    const isCargoRequest = selectedRequest?.load_type === 'Cargo';
+    let physicalByVehicle = null;
+    if (isCargoRequest || hasMinCargo) {
+      try {
+        const policy = await getDispatchPolicy();
+        if (cargoPhysicalPolicy(policy).mode !== 'OFF') {
+          const assessed = await loadCargoPhysicalAssessments(
+            { request_id: requestId != null ? Number(requestId) : null, load_type: 'Cargo', scheduled_arrival: returnAt.toISOString() },
+            vehicles.map((cand) => cand.vehicle_id),
+            { policy }
+          );
+          physicalByVehicle = assessed.results;
+        }
+      } catch (e) {
+        console.warn("availability-pairs: cargo physical skipped:", e.message);
+      }
     }
 
     const ready = [];
@@ -274,6 +303,30 @@ export async function GET(req) {
       if (mismatch) {
         blocked.push({ vehicle: slimVehicle(v), driver: slimDriver(pairing.driver), pairing_kind: pairing.kind,
           block_reason: mismatch.message, unpaired: false, action: null, clashes: tripClashes });
+        continue;
+      }
+
+      // Typed cargo gate before ready — the shared evaluator, with the measured
+      // profile attached when physical checks are enforced. Without any typed
+      // cargo signal a Cargo vehicle reads blocked, never ready: the board must
+      // not offer cargo capacity for untyped work. Passenger pairs with no
+      // cargo signal are untouched by both branches.
+      if (isCargoRequest || hasMinCargo) {
+        const weight = isCargoRequest ? Number(selectedRequest.cargo_weight_kg) : minCargoKg;
+        const verdict = evaluateVehicleCapacity(
+          { load_type: 'Cargo', cargo_weight_kg: weight },
+          vehicleWithCargoPhysical(v, physicalByVehicle?.get(vehicleId))
+        );
+        if (!verdict.eligible) {
+          blocked.push({ vehicle: slimVehicle(v), driver: slimDriver(pairing.driver), pairing_kind: pairing.kind,
+            block_reason: formatCapacityBlocker(verdict, `Vehicle ${v.plate_number || `#${vehicleId}`}`),
+            unpaired: false, action: null, clashes: tripClashes });
+          continue;
+        }
+      } else if (v.operational_use === 'Cargo') {
+        const reason = vehicleLoadCompatibilityMessage('cargo_requires_typed_load');
+        blocked.push({ vehicle: slimVehicle(v), driver: slimDriver(pairing.driver), pairing_kind: pairing.kind,
+          block_reason: reason, unpaired: false, action: null, clashes: tripClashes });
         continue;
       }
       ready.push({

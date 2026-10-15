@@ -359,6 +359,15 @@ window?"
   Header badge/description switch per mode (Today Overview vs exact window).
   Source: `src/app/api/dispatch/availability-pairs/route.js`,
   `src/components/dispatch/pair-availability-board.jsx`.
+- **Cargo honesty on the board + edit dialog (2026-10-15).** The board accepts
+  `?min_cargo_kg` and runs the shared `evaluateVehicleCapacity` gate (with the
+  measured profile attached when physical checks are enforced) before `ready`;
+  a Cargo vehicle with no typed cargo signal (stored Cargo request or
+  `min_cargo_kg`) reads blocked — never ready — with the typed-load reason.
+  Passenger pairs with no cargo signal are byte-identical. The reassign dialog
+  `eligible()` additionally applies `checkVehicleLoadCompatibility` +
+  `driverTypeFinding`, so it stops offering pairs the PATCH 409 would reject;
+  the server stays authoritative and the current pair is still always offered.
 
 ## What I learned
 
