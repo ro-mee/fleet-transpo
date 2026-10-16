@@ -16,7 +16,6 @@ source:
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
   - src/services/driver-qualification.service.js
-  - src/components/drivers/service-qualifications.jsx
 last_verified: 2026-10-12
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
@@ -805,3 +804,7 @@ Catalog reconciliation confirmed ledger162 removed the separate service qualific
 **FIXED.** The incomplete-account branch of `/api/drivers?includeUnlinked=1` now projects `NULL::VARCHAR(50) AS driver_type` in the same position as the linked-profile SELECT. This aligns the `UNION ALL` columns while leaving classification unknown when an account has no driver profile.
 
 Verification: read-only live PostgreSQL checks confirmed both branches expose 21 columns and `EXPLAIN` accepts the combined query. The authenticated browser retry cleared the failure state and loaded 12 directory results. Scoped ESLint and `git diff --check` passed. Automated tests were not run; existing directory filter tests mock the database and do not validate PostgreSQL union compatibility.
+
+## Driver profile production build fix - 2026-10-16
+
+Removed the unused ServiceQualifications import from src/app/(dashboard)/drivers/[id]/page.js on main. Its component was already deleted when qualifications were retired; the leftover import blocked Vercel's Production build. The rendered page and driver_type enforcement are unchanged. The same one-line fix was previously committed on feat/mechanic-integration as 65403284; Production needs it on main too. Verification: corrected page matches the lint-verified feature-branch page byte-for-byte. Production build/deployment verification is pending. No database change.
