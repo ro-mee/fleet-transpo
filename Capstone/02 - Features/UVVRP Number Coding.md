@@ -93,6 +93,10 @@ Encoding a real-world regulation as data (`weekdayRestrictions` map) rather than
 
 `src/lib/uvvrp/availability-reason.js` now names number coding only when the shared `isRestricted(plate, policy, date)` predicate is true and the vehicle is not in the context's exemption set. The reason includes the evaluated plate digit, weekday, and restricted digits. If the vehicle is blocked for expired documents or its paired driver, Availability reports that separate cause. The assignment-time guard is unchanged.
 
+## Exemption expiry calendar alignment - 2026-10-16
+
+The Vehicle Exemption Passes form now uses the shared themed `DatePicker` for its optional Expires on field. Its compact trigger matches the neighboring 36 px controls, and the calendar uses the system UI instead of the browser-native popup. Clearing or selecting a date still supplies the same optional date-only value to the existing create-pass request. No API, permission, or exemption behavior changed.
+
 ## Related
 
 [[Dispatch]] · [[Fleet And Vehicles]] · [[Pure Core Imperative Shell]] · [[Feature Index]]

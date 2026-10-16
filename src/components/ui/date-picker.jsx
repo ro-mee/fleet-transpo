@@ -137,6 +137,7 @@ export function DatePicker({
   maxDate = null,
   minAge = null,
   maxAge = null,
+  compact = false,
   error,
   className,
 }) {
@@ -320,40 +321,53 @@ export function DatePicker({
           type="button"
           id={id}
           disabled={disabled}
+          aria-label={compact ? `${label}: ${selectedDate ? formattedDateString : placeholder}` : undefined}
           className={cn(
-            "flex w-full items-center justify-between rounded-2xl p-[5px] text-left transition-all cursor-pointer",
-            "bg-gradient-to-b from-border/70 to-border/30 ring-1 hover:ring-primary/50",
-            error ? "ring-danger/60" : selectedDate ? "ring-primary/60" : "ring-border/70",
-            open && !error && "ring-primary",
+            compact
+              ? "flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-border bg-surface px-3 text-left text-sm text-foreground transition-all duration-200 cursor-pointer"
+              : "flex w-full items-center justify-between rounded-2xl p-[5px] text-left transition-all cursor-pointer bg-gradient-to-b from-border/70 to-border/30 ring-1 hover:ring-primary/50",
+            compact
+              ? error ? "border-danger/70" : "hover:border-primary/50"
+              : error ? "ring-danger/60" : selectedDate ? "ring-primary/60" : "ring-border/70",
+            open && !error && (compact ? "border-primary ring-2 ring-primary/20" : "ring-primary"),
             "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             disabled && "opacity-50 cursor-not-allowed",
             className
           )}
         >
-          <div className="relative flex w-full items-center justify-between bg-surface px-4 py-2 rounded-[11px] min-h-[42px] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-            {/* Floating Top Pill Label */}
-            <div className="-top-2.5 left-4 absolute bg-surface border border-primary/30 px-2.5 py-0.5 rounded-full text-[11px] font-bold text-primary flex items-center gap-1.5 z-10">
-              <CalendarIcon className="w-3.5 h-3.5 text-primary shrink-0" />
-              <span>{label}</span>
-            </div>
-
-            {/* Value Display or Placeholder */}
-            {selectedDate ? (
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground pt-0.5">
-                <span>{formattedDateString}</span>
+          {compact ? (
+            <>
+              <span className={cn(
+                "min-w-0 truncate",
+                selectedDate ? "font-medium text-foreground" : "text-foreground-muted",
+                selectedDate && !disabled && "pr-12"
+              )}>
+                {selectedDate ? formattedDateString : placeholder}
+              </span>
+              <CalendarIcon className="h-4 w-4 shrink-0 text-foreground-muted transition-colors group-hover:text-primary" aria-hidden="true" />
+            </>
+          ) : (
+            <div className="relative flex w-full items-center justify-between bg-surface px-4 py-2 rounded-[11px] min-h-[42px] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+              <div className="-top-2.5 left-4 absolute bg-surface border border-primary/30 px-2.5 py-0.5 rounded-full text-[11px] font-bold text-primary flex items-center gap-1.5 z-10">
+                <CalendarIcon className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span>{label}</span>
               </div>
-            ) : (
-              <div className="text-sm font-medium text-foreground-muted pt-0.5">
-                {placeholder}
-              </div>
-            )}
 
-            {/* Calendar Icon Badge (clear lives as an overlay sibling below,
-                so we never nest a button inside this one) */}
-            <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white dark:group-hover:text-slate-950 transition-colors">
-              <CalendarIcon className="w-4 h-4" />
+              {selectedDate ? (
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground pt-0.5">
+                  <span>{formattedDateString}</span>
+                </div>
+              ) : (
+                <div className="text-sm font-medium text-foreground-muted pt-0.5">
+                  {placeholder}
+                </div>
+              )}
+
+              <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white dark:group-hover:text-slate-950 transition-colors">
+                <CalendarIcon className="w-4 h-4" />
+              </div>
             </div>
-          </div>
+          )}
         </button>
       </PopoverTrigger>
 
@@ -365,7 +379,10 @@ export function DatePicker({
           onClick={handleClear}
           title="Clear date"
           aria-label="Clear date"
-          className="absolute right-[49px] top-1/2 -translate-y-1/2 z-20 rounded-lg p-1 text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-danger"
+          className={cn(
+            "absolute top-1/2 -translate-y-1/2 z-20 rounded-lg p-1 text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-danger",
+            compact ? "right-9" : "right-[49px]"
+          )}
         >
           <X className="w-3.5 h-3.5" />
         </button>

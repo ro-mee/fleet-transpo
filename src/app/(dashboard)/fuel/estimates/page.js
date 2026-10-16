@@ -8,6 +8,7 @@ import { HeroHeader } from "@/components/ui/hero-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { QueryErrorBanner } from "@/components/ui/query-feedback";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiFetch } from "@/lib/api/client";
@@ -137,8 +138,8 @@ export default function FuelEstimatesPage() {
             className="grid gap-3 rounded-xl border border-border/70 bg-hover/30 p-3 sm:grid-cols-2 xl:grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_minmax(8rem,1fr)_minmax(10rem,1.25fr)_auto] xl:items-end"
             onSubmit={(event) => { event.preventDefault(); setApplied({ from, to, region, search }); }}
           >
-            <div className="min-w-0 space-y-1.5"><Label htmlFor="est-from">From</Label><Input id="est-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
-            <div className="min-w-0 space-y-1.5"><Label htmlFor="est-to">To</Label><Input id="est-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
+            <div className="min-w-0 space-y-1.5"><Label htmlFor="est-from">From</Label><DatePicker id="est-from" label="From" value={from} onChange={setFrom} compact /></div>
+            <div className="min-w-0 space-y-1.5"><Label htmlFor="est-to">To</Label><DatePicker id="est-to" label="To" value={to} onChange={setTo} compact /></div>
             <div className="min-w-0 space-y-1.5"><Label htmlFor="est-region">Region</Label><Input id="est-region" value={region} maxLength={100} placeholder="NCR" onChange={(e) => setRegion(e.target.value)} /></div>
             <div className="min-w-0 space-y-1.5"><Label htmlFor="est-search">Vehicle</Label><Input id="est-search" value={search} maxLength={60} placeholder="Plate or name" onChange={(e) => setSearch(e.target.value)} /></div>
             <Button type="submit" className="h-11 w-full sm:col-span-2 xl:col-span-1">Apply filters</Button>

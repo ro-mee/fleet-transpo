@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -262,11 +263,13 @@ export default function NumberCodingSettingsPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="exemption-expires" className="text-xs font-semibold text-foreground-secondary">Expires on</Label>
-                  <Input
+                  <DatePicker
                     id="exemption-expires"
-                    type="date"
+                    label="Expires on"
                     value={exForm.expires_on}
-                    onChange={(e) => setExForm({ ...exForm, expires_on: e.target.value })}
+                    onChange={(value) => setExForm({ ...exForm, expires_on: value })}
+                    placeholder="mm/dd/yyyy"
+                    compact
                     className="h-9 rounded-3xl border-border/80 text-xs font-data font-medium"
                   />
                 </div>
