@@ -14,6 +14,7 @@ import * as apiUtils from "@/lib/api/utils";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 function mockReq(url = "http://x/api/mobile/driver/trips") {
@@ -48,6 +49,20 @@ function tripRow(overrides = {}) {
     ...overrides,
   };
 }
+
+it('returns saved ending readings and server photo policy without signing images', async () => {
+  vi.stubEnv('ODOMETER_PHOTO_REQUIRED', '1');
+  vi.spyOn(apiUtils, 'requireDriver').mockResolvedValue({ user: { driverId: 7 } });
+  const queried = mockQuery([tripRow({ trip_status: 'Completed', start_odometer: '100', end_odometer: '125', distance: '25', gps_distance_km: '24', distance_source: 'odometer', odometer_capture_required: true })]);
+  const response = await GET(mockReq('http://x/api/mobile/driver/trips?trip_id=470'));
+  expect(response.status).toBe(200);
+  expect((await response.json())[0]).toMatchObject({ end_odometer: '125', distance: '25', distance_source: 'odometer', odometer_capture_required: true, odometer_photo_required_at_start: true });
+  const select = queried.mock.calls.find(([sql]) => sql.includes('FROM trips t'))[0];
+  expect(select).toContain('t.end_odometer');
+  expect(select).toContain('t.distance_provenance AS distance_source');
+  expect(select).toContain('t.odometer_capture_required');
+  expect(queried.mock.calls.some(([sql]) => sql.includes('trip_odometer_captures'))).toBe(false);
+});
 
 describe("GET /api/mobile/driver/trips — endpoint coordinate fallback", () => {
   it("fills routeless-trip coordinates from the gazetteer on endpoint text", async () => {

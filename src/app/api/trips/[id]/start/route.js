@@ -18,6 +18,8 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { validatePairAvailability } from '@/services/recommendation.service';
 import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { evaluateDriverLicenseEligibility } from '@/lib/drivers/license-eligibility';
+import { requiresOdometerPhoto, odometerPhotoRequired } from '@/lib/trips/odometer-gate';
+import { consumeOdometerCapture, replayOdometerCapture } from '@/services/trip-odometer.service';
 
 export async function PUT(req, { params }) {
   try {
@@ -25,6 +27,11 @@ export async function PUT(req, { params }) {
     const id = (await params).id;
     const body = await parseBody(req);
     const trip = await assertTripOwnership(session, id);
+    const captureId = body.odometer_capture_id;
+    const replay = await replayOdometerCapture({ trip, session, stage: 'start', captureId });
+    if (replay) return ok(replay);
+    const photoStart = requiresOdometerPhoto({ trip, stage: 'start' }) || captureId != null;
+    if (photoStart && !captureId) odometerPhotoRequired();
 
     const gate = canTransitionTrip(trip.trip_status, "Trip Started");
     if (!gate.ok) return err(gate.reason, 409);
@@ -218,13 +225,12 @@ export async function PUT(req, { params }) {
       if (!checked.ok) return err(checked.conflict?.message || 'Dispatch evidence must be rechecked before starting.',409);
       startEvidence = checked.commitToken;
     }
-    const rawOdometer =
-      typeof body.odometer === "number" || typeof body.odometer === "string" ? body.odometer : null;
+    let rawOdometer = !photoStart && (typeof body.odometer === "number" || typeof body.odometer === "string") ? body.odometer : null;
     // Odometer is OPTIONAL at start — a driver may begin without a reading, in
     // which case start_odometer stays NULL (same as legacy starts). Only a
     // PRESENT reading is validated, so a bad one is still rejected.
     const hasOdometer = rawOdometer !== null && rawOdometer !== undefined && rawOdometer !== "";
-    const odo = hasOdometer
+    let odo = hasOdometer
       ? validateOdometerReading({
           reading: rawOdometer,
           currentMileage: vehicleMileage,
@@ -236,8 +242,18 @@ export async function PUT(req, { params }) {
     // permanent facts that cannot be re-derived later, so they commit (or roll
     // back) together. The derived statuses run after COMMIT, best-effort.
     const commitStart = startEvidence ? write => commitDispatchEvidence(startEvidence,write) : withTransaction;
+    let startedNow = false;
     const { rows } = await commitStart(async (tx) => {
       await prepareCargoLifecycle(tx);
+      const current = (await tx.query('SELECT * FROM trips WHERE trip_id = $1 AND deleted_at IS NULL FOR UPDATE', [id])).rows[0];
+      if (!current || (session.user?.role === 'driver' && Number(current.driver_id) !== Number(session.user.driverId))) throw new AuthError('Trip not found', 404);
+      const saved = await replayOdometerCapture({ db: tx, trip: current, session, stage: 'start', captureId });
+      if (saved) return { rows: [saved] };
+      if (current.driver_id !== trip.driver_id || current.vehicle_id !== trip.vehicle_id || current.dispatch_id !== trip.dispatch_id) throw new AuthError('The assigned pair changed. Refresh this trip before starting.', 409, 'ODOMETER_CAPTURE_MISMATCH');
+      const currentGate = canTransitionTrip(current.trip_status, 'Trip Started');
+      if (!currentGate.ok || current.trip_status === 'Trip Started') throw new AuthError(currentGate.reason || 'Trip has already started.', 409);
+      const lockedVehicle = (await tx.query('SELECT * FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL FOR UPDATE', [current.vehicle_id])).rows[0];
+      if (!lockedVehicle) throw new AuthError('The assigned vehicle is no longer available.', 409);
       const { rows: assignmentRows } = await tx.query(
         `SELECT d.driver_type, tr.load_type, v.operational_use
            FROM trips t
@@ -266,9 +282,19 @@ export async function PUT(req, { params }) {
         operationalUse: assignmentRows[0]?.operational_use,
       });
       if (!compatibility.ok) throw new AuthError(vehicleLoadCompatibilityMessage(compatibility.reason), 409);
-      await assertCargoCheckpoint(trip, { to: 'Trip Started', session }, tx);
-      const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 AND trip_status = $3 RETURNING *`, [rawOdometer, id, trip.trip_status]);
+      await assertCargoCheckpoint(current, { to: 'Trip Started', session }, tx);
+      const requirePhoto = requiresOdometerPhoto({ trip: current, stage: 'start' }) || photoStart;
+      if (requirePhoto && !captureId) odometerPhotoRequired();
+      vehicleMileage = lockedVehicle.mileage;
+      if (requirePhoto) {
+        const captured = await consumeOdometerCapture({ tx, trip: { ...current, vehicle_mileage: vehicleMileage }, session, stage: 'start', captureId });
+        rawOdometer = captured.readingKm;
+      }
+      odo = rawOdometer == null || rawOdometer === '' ? { ok: true } : validateOdometerReading({ reading: rawOdometer, currentMileage: vehicleMileage });
+      if (!odo.ok) throw new AuthError(odo.error, 400);
+      const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1, odometer_capture_required = odometer_capture_required OR $4 WHERE trip_id = $2 AND trip_status = $3 RETURNING *`, [rawOdometer, id, current.trip_status, requirePhoto]);
       if (!r.rows[0]) throw new AuthError("Trip not found", 404);
+      startedNow = true;
       const txWrites = [];
       // Feed the odometer back into the vehicle. GREATEST is a second guard
       // beyond the validation above: a late-arriving low reading from a retried
@@ -285,8 +311,15 @@ export async function PUT(req, { params }) {
       }
       await Promise.all(txWrites);
       return r;
+    }).catch(async error => {
+      // Evidence revalidation can lose a race to this same already-committed start.
+      const latest = await assertTripOwnership(session, id);
+      const saved = await replayOdometerCapture({ trip: latest, session, stage: 'start', captureId });
+      if (saved) return { rows: [saved] };
+      throw error;
     });
     if (!rows[0]) return err("Trip not found", 404);
+    if (!startedNow) return ok(rows[0]);
     // Audit the start transition itself (follow-up: every transition is audited).
     await writeAudit(req, session, {
       action: "update",

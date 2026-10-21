@@ -31,7 +31,7 @@ export async function assertTripOwnership(session, tripId) {
   }
 
   const { rows } = await query(
-    `SELECT trip_id, driver_id, vehicle_id, trip_status, dispatch_id
+    `SELECT *
        FROM trips
       WHERE trip_id = $1 AND deleted_at IS NULL
       LIMIT 1`,

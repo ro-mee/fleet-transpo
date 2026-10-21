@@ -1,5 +1,6 @@
 import { appendTripFilters, validateServiceCode } from "@/lib/trips/filters";
 import { query, withTransaction } from "@/lib/db";
+import { assertGenericOdometerWriteAllowed } from '@/lib/trips/odometer-gate';
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
@@ -170,6 +171,7 @@ export async function POST(req) {
   try {
     const session = await requirePermission(req, "trips", "create");
     const body = await parseBody(req);
+    assertGenericOdometerWriteAllowed({ before: null, patch: body });
     const columns = [];
     const values = [];
     for (const key of TRIP_WRITABLE) {

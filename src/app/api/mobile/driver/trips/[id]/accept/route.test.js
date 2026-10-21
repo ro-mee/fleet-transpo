@@ -13,6 +13,11 @@ import { assertCargoCheckpoint } from '@/services/cargo-execution.service';
 let assignment;
 beforeEach(()=>{vi.clearAllMocks();assignment={trip_status:'Assigned',load_type:'Passenger',operational_use:'Passenger',driver_type:'Passenger'};query.mockImplementation(async sql=>({rows:sql.startsWith('UPDATE')?[{trip_status:'Driver Accepted'}]:[assignment]}));});
 const run=(accept=true,extra={})=>PUT(new Request('http://localhost/accept',{method:'PUT',body:JSON.stringify({accept,...extra})}),{params:Promise.resolve({id:'7'})});
+it('does not reset a photo-required trip that started while acceptance waited',async()=>{
+ assignment={...assignment,trip_status:'Trip Started',odometer_capture_required:true};
+ const response=await run();expect(response.status).toBe(409);
+ expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});
 it.each([['Passenger','Passenger'],['Cargo','Cargo'],[null,'Passenger']])('accepts %s with %s',async(load_type,operational_use)=>{assignment={...assignment,load_type,operational_use,driver_type:operational_use};expect((await run()).status).toBe(200);expect(query.mock.calls.some(([sql])=>sql.includes('v.operational_use')&&sql.includes('tr.load_type'))).toBe(true);});
 it.each([['Cargo','Passenger'],['Passenger','Cargo'],[null,'Cargo'],['Unknown','Passenger'],['Passenger',null],['Passenger','Unknown']])('rejects %s with %s before changes',async(load_type,operational_use)=>{assignment={...assignment,load_type,operational_use,driver_type:operational_use};const response=await run();expect(response.status).toBe(409);expect((await response.json()).error).toMatch(/dispatch|fleet/i);expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);});
 it('checks before bridging a legacy status',async()=>{assignment={trip_status:'Dispatched',load_type:'Cargo',operational_use:'Passenger'};assertTripOwnership.mockResolvedValueOnce({trip_status:'Dispatched',driver_id:2,vehicle_id:3});expect((await run()).status).toBe(409);expect(query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);});

@@ -10,6 +10,7 @@ import { writeAudit } from "@/lib/audit";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 import { emitTransportStatus } from "@/services/outbound.service";
 import { assertCargoCheckpoint, assertCargoDispatchCheckpoint, prepareCargoLifecycle } from './cargo-execution.service';
+import { assertGenericOdometerWriteAllowed } from '@/lib/trips/odometer-gate';
 
 const DISPATCH_CANCELLED = DISPATCH_STATUS.CANCELLED;
 // A stood-down dispatch RELEASES the request: the pair returns to the pool and
@@ -73,10 +74,11 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
     throw new AuthError(`"${to}" is not a valid trip status.`, 400);
   }
   const { rows: before } = await query(
-    `SELECT trip_id, trip_status, vehicle_id, driver_id, dispatch_id FROM trips WHERE trip_id = $1 LIMIT 1`,
+    `SELECT trip_id, trip_status, vehicle_id, driver_id, dispatch_id, odometer_capture_required FROM trips WHERE trip_id = $1 LIMIT 1`,
     [tripId]
   );
   if (!before[0]) throw new AuthError("Trip not found", 404);
+  assertGenericOdometerWriteAllowed({ before: before[0], patch: { ...extra, trip_status: to } });
 
   const check = canTransitionTrip(before[0].trip_status, to);
   if (!check.ok) throw new AuthError(check.reason, 409);
@@ -123,6 +125,11 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
   }
   values.push(tripId);
   const updateTrip = async db => {
+    const current = (await db.query('SELECT trip_id, trip_status, vehicle_id, driver_id, dispatch_id, odometer_capture_required FROM trips WHERE trip_id = $1 AND deleted_at IS NULL FOR UPDATE', [tripId])).rows[0];
+    if (!current) throw new AuthError('Trip not found', 404);
+    assertGenericOdometerWriteAllowed({ before: current, patch: { ...extra, trip_status: to } });
+    const currentGate = canTransitionTrip(current.trip_status, to);
+    if (!currentGate.ok) throw new AuthError(currentGate.reason, 409);
     if (beforeWrite) await beforeWrite(db);
     await assertCargoCheckpoint(before[0], { to, session, patch: extra }, db);
     return db.query(`UPDATE trips SET ${sets.join(", ")} WHERE trip_id = $${values.length} RETURNING *`, values);

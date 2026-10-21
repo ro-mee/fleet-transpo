@@ -10,6 +10,9 @@ import { fuelPrices, fuelSchemaError } from "@/lib/fuel/price-repository";
 import { trailDistanceKm } from "@/lib/geo/geofence";
 import { resolveMonitorAlerts } from "@/services/live-trip-monitor.service";
 import { assertCargoCheckpoint, prepareCargoLifecycle } from './cargo-execution.service';
+import { requiresOdometerPhoto, odometerPhotoRequired } from '@/lib/trips/odometer-gate';
+import { consumeOdometerCapture, replayOdometerCapture } from './trip-odometer.service';
+import { isPreStartTripStatus } from '@/lib/scheduling/trip-state';
 
 const TERMINAL = new Set(["Completed", "Cancelled"]);
 
@@ -37,13 +40,12 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  *                                               completion time, for the timeline
  * @returns {Promise<object>} the updated trip row
  */
-export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
+export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, odometerCaptureId, beforeComplete = null, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
   let before;
   let odo;
   let completedNow = false;
   const { rows } = await withTransaction(async (tx) => {
     await prepareCargoLifecycle(tx);
-    await assertCargoCheckpoint({ trip_id: tripId }, { to: 'Completed', session }, tx);
     const initial = await tx.query(
       `SELECT t.*, t.distance AS planned_distance,
               v.mileage AS vehicle_mileage, v.fuel_efficiency_kmpl, v.fuel_type
@@ -55,9 +57,29 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
     );
     before = initial.rows;
     if (!before[0]) throw new AuthError("Trip not found", 404);
+    if (session.user?.role === 'driver' && Number(before[0].driver_id) !== Number(session.user.driverId)) throw new AuthError('Trip not found', 404);
+    const replay = await replayOdometerCapture({ db: tx, trip: before[0], session, stage: 'end', captureId: odometerCaptureId });
+    if (replay) return { rows: [replay] };
+    if (isPreStartTripStatus(before[0].trip_status) && requiresOdometerPhoto({ trip: before[0], stage: 'start' })) odometerPhotoRequired();
+    const photoEnd = requiresOdometerPhoto({ trip: before[0], stage: 'end' }) || odometerCaptureId != null;
+    if (photoEnd && !odometerCaptureId) odometerPhotoRequired();
+    if (photoEnd && before[0].trip_status === 'Completed') throw new AuthError('This trip already completed with different odometer evidence.', 409, 'ODOMETER_CAPTURE_MISMATCH');
     if (before[0].trip_status === "Completed") return { rows: [before[0]] };
     if (TERMINAL.has(before[0].trip_status)) {
       throw new AuthError(`Trip is already ${before[0].trip_status} and cannot be completed.`, 409);
+    }
+    if (beforeComplete) destinationCheck = await beforeComplete(tx);
+    await assertCargoCheckpoint(before[0], { to: 'Completed', session }, tx);
+    if (before[0].vehicle_id) {
+      const vehicle = (await tx.query('SELECT * FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL FOR UPDATE', [before[0].vehicle_id])).rows[0];
+      if (!vehicle) throw new AuthError('The assigned vehicle is no longer available.', 409);
+      Object.assign(before[0], { vehicle_mileage: vehicle.mileage, fuel_efficiency_kmpl: vehicle.fuel_efficiency_kmpl, fuel_type: vehicle.fuel_type });
+    }
+    if (photoEnd) {
+      const captured = await consumeOdometerCapture({ tx, trip: before[0], session, stage: 'end', captureId: odometerCaptureId });
+      endOdometer = captured.readingKm;
+      startOdometer = before[0].start_odometer;
+      distance = undefined;
     }
     // Narrowed at the boundary first: Number() coerces `true` to 1 and `[]` to
     // 0, so an untyped body could otherwise pass as a plausible reading.
