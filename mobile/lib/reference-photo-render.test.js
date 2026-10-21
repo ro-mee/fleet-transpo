@@ -22,7 +22,8 @@ async function harness(path, props) {
     for (const match of code.matchAll(/require\("([^" ]+)"\)/g)) {
       const name = match[1];
       if (deps[name]) continue;
-      if (name.endsWith('.webp')) deps[name] = name;
+      if (name.endsWith('/coachmarks')) deps[name] = { CoachMarkTarget: 'Target' };
+      else if (name.endsWith('.webp')) deps[name] = name;
       else if (name.endsWith('theme-context')) deps[name] = { useTheme: () => ({ colors: { onSurfaceVariant: '#53615A', surfaceContainerLow: '#FBF8F3', primary: '#285448' }, type: {} }) };
       else if (name.endsWith('/clay')) deps[name] = { ClayButton: 'Button', ClayInput: 'Input' };
       else deps[name] = await load(resolve(dirname(file), name + (name.endsWith('.jsx') || name.endsWith('.js') ? '' : name.includes('/lib/') ? '.js' : '.jsx')));
