@@ -797,7 +797,7 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
     const mapScreen = readFileSync(
       new URL("../app/(app)/(tabs)/map.js", import.meta.url),
       "utf8"
-    );
+    ) + readFileSync(new URL("../components/map/PassengerMapSummary.jsx", import.meta.url), "utf8");
     const practice = readFileSync(
       new URL("../components/MapIntroPractice.jsx", import.meta.url),
       "utf8"
@@ -1042,7 +1042,7 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
       // because the trigger's reason is derived from the baseline — they are
       // booleans, so they settle rather than churning the effect.
       expect(tripScreen).toContain(
-        "[loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed]"
+        "[loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed, guideVersion2, canOperate]"
       );
     });
   });

@@ -251,7 +251,7 @@ async function refreshAccessToken(session = null) {
  * is bounded by fetchWithTimeout.
  */
 export async function apiFetch(path, options = {}) {
-  const { skipAuth = false, queueOnFailure = true, cargoActorId = null, ...init } = options;
+  const { skipAuth = false, queueOnFailure = true, skipQueueDrain = false, cargoActorId = null, ...init } = options;
   const assertCargoActor = () => {
     if (cargoActorId != null && !isCurrentCargoActor(cargoActorId)) {
       throw new ApiError("Cargo request cancelled because the signed-in account changed.", 0, "CARGO_SYNC_CANCELLED");
@@ -385,7 +385,7 @@ export async function apiFetch(path, options = {}) {
   // the if/else were identical — for a queue that is empty almost always.
   // hasPendingWork() fails open while the count is unknown, so the first
   // success after cold start still drains and converges the mirror.
-  if (hasPendingWork()) {
+  if (!skipQueueDrain && hasPendingWork()) {
     syncQueue().catch(() => {});
   }
 

@@ -1,3 +1,5 @@
+import DriverGuideTrigger from '../../components/coachmarks/DriverGuideTrigger';
+import { guardLegacyGuideLinks } from '../../components/coachmarks/LegacyGuideLinkGuard';
 import { moderateScale } from '../../lib/scaling';
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
@@ -37,7 +39,7 @@ import {
   inspectionTypeForMode,
 } from "../../lib/inspection-checklist";
 
-export default function PreShiftInspection() {
+function PreShiftInspection() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { tripId, tour, mode, from, continuation } = useLocalSearchParams();
@@ -324,6 +326,7 @@ export default function PreShiftInspection() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <DriverGuideTrigger guideId={screenMode === 'preshift' ? 'inspection.daily' : 'inspection.quick'} trip={tripContext} requireTrip={screenMode !== 'preshift'} enabled={!isTour} />
       {/* Top App Bar */}
       <View
         style={[
@@ -882,3 +885,5 @@ const styles = StyleSheet.create({
     marginBottom: moderateScale(10),
   },
 });
+
+export default guardLegacyGuideLinks(PreShiftInspection);

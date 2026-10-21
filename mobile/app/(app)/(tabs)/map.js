@@ -1,3 +1,5 @@
+import DriverGuideTrigger from '../../../components/coachmarks/DriverGuideTrigger';
+import { guardLegacyGuideLinks } from '../../../components/coachmarks/LegacyGuideLinkGuard';
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { StyleSheet, View, Text, Animated, PanResponder, useWindowDimensions, Pressable, ScrollView, AppState, Linking, Image, ActivityIndicator, RefreshControl } from 'react-native';
 import LottieView from "lottie-react-native";
@@ -472,7 +474,7 @@ export function resolveMapEmptyState({ duty, profile, user, paramStatus, activeT
   return null;
 }
 
-export default function MapTab() {
+function MapTab() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { colors, scheme, type } = useTheme();
@@ -2071,6 +2073,7 @@ export default function MapTab() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <DriverGuideTrigger guideId={activeTrip?.load_type === 'Passenger' && ['Trip Started', 'At Pickup'].includes(activeTrip?.trip_status) ? 'passenger.pickup' : activeTrip?.load_type === 'Passenger' && ['Passenger Onboard', 'Drop-off'].includes(activeTrip?.trip_status) ? 'passenger.dropoff' : 'map.controls'} trip={activeTrip} requireTrip={!!activeTrip} enabled={serverConfirmed && (!activeTrip || tripConfirmed)} />
       <TomTomMap 
         ref={mapRef}
         origin={originProp}
@@ -3120,3 +3123,5 @@ const styles = StyleSheet.create({
     maxWidth: 290,
   },
 });
+
+export default guardLegacyGuideLinks(MapTab);

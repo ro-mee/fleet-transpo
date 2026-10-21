@@ -1,3 +1,4 @@
+import DriverGuideWorkWatch from '../../components/coachmarks/DriverGuideWorkWatch';
 import { Redirect, Stack, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
@@ -76,6 +77,7 @@ export default function AppLayout() {
   return (
     <CoachMarkProvider driverId={driverId}>
       <NotificationFeedProvider>
+        <DriverGuideWorkWatch />
         <ConnectivityProvider>
           {/* PR #3.1 global connectivity status: layout-participating sibling
               above the navigator — driver-only (guards above already redirected

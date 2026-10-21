@@ -1,3 +1,5 @@
+import DriverGuideTrigger from '../../components/coachmarks/DriverGuideTrigger';
+import { guardLegacyGuideLinks } from '../../components/coachmarks/LegacyGuideLinkGuard';
 import FuelRequestForm from '../../components/fuel/FuelRequestForm';
 import FuelReceiptReview from '../../components/fuel/FuelReceiptReview';
 import { moderateScale } from '../../lib/scaling';
@@ -28,7 +30,7 @@ import {
   CoachMarkTarget,
 } from "../../components/coachmarks";
 
-export default function FuelReport() {
+function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
@@ -911,6 +913,7 @@ export default function FuelReport() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={[styles.root, { backgroundColor: colors.background }]}
     >
+      <DriverGuideTrigger guideId={mode === 'details' ? 'fuel.receipt' : 'fuel.request'} enabled={!isTour} />
       {/* Top App Bar */}
       <View
         style={[
@@ -1405,3 +1408,5 @@ const styles = StyleSheet.create({
   evidenceReady: { fontSize: 12, fontFamily: fonts.bodySemiBold },
   evidenceError: { fontSize: 12, fontFamily: fonts.bodySemiBold },
 });
+
+export default guardLegacyGuideLinks(FuelReport);

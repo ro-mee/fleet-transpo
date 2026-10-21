@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { AccessibilityInfo, Animated, StyleSheet, Text, View } from "react-native";
+import { AccessibilityInfo, Animated, StyleSheet, Text, View, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../lib/theme-context";
@@ -120,10 +120,10 @@ export function ConnectivityBanner() {
   const { status, phase, pendingCount, gpsRecording, lastSuccessAt } = useConnectivity();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const { triggerMilestone } = useCoachMarkActions();
+  const { triggerMilestone, replayGuide } = useCoachMarkActions();
   // Only "is a guide open", which changes on milestone transitions — not the
   // step or the measured rectangle. This banner sits above the whole app tree.
-  const { activeMilestone } = useCoachMarkStatus();
+  const { activeMilestone, guideVersion2, workspace } = useCoachMarkStatus();
   const [reduceMotion, setReduceMotion] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(-8));
@@ -189,6 +189,7 @@ export function ConnectivityBanner() {
               </Text>
             ) : null}
           </View>
+          {guideVersion2 ? <Pressable accessibilityRole="button" accessibilityLabel="Explain connection and saved updates" onPress={() => replayGuide({ guideId: 'offline', variant: ['passenger', 'cargo'].includes(workspace) ? workspace : 'common' })} style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}><Text style={[styles.subtitle, { color: tone.title }]}>Details</Text></Pressable> : null}
           {visual.badge ? (
             <View style={[styles.badge, { borderColor: tone.border }]}>
               <Text style={[styles.badgeText, { color: tone.title }]}>{visual.badge}</Text>

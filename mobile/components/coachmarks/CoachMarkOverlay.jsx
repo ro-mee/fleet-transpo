@@ -588,6 +588,7 @@ export function CoachMarkOverlay({
             <CoachMarkTooltip
               title={step.title}
               body={bodyText}
+              details={step.details}
               stepIndex={stepIndex}
               totalSteps={totalSteps}
               actionText={step.actionText || "Got it"}
@@ -990,6 +991,7 @@ export function CoachMarkOverlay({
             <CoachMarkTooltip
               title={step.title}
               body={bodyText}
+              details={step.details}
               stepIndex={stepIndex}
               totalSteps={totalSteps}
               actionText={

@@ -38,6 +38,8 @@ import { saveTokens, getAccessToken, getRefreshToken, getUser, clearAll } from "
 import { completeSignIn, getRestorableSignedInUser, persistSignedInSession } from "./auth-session";
 import * as SecureStore from "expo-secure-store";
 import { setCargoSessionActor, captureCargoSession, isCurrentCargoSession, isCurrentCargoActor } from "./cargo-sync";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { enqueueRequest } from './sync';
 
 const jsonRes = (status, body) => ({
   ok: status >= 200 && status < 300,
@@ -61,6 +63,16 @@ async function seedSession(access = "OLD-A", refresh = "OLD-R") {
 }
 
 describe("reconnect burst with an expired access token", () => {
+  it('allows a read-only practice readiness check without draining pending real submissions', async () => {
+    await seedSession();
+    await enqueueRequest('POST', '/api/driver/incidents', { description: 'Real queued report' });
+    vi.clearAllMocks();
+    global.fetch.mockResolvedValueOnce(jsonRes(200, []));
+    await apiFetch('/api/mobile/driver/trips', { queueOnFailure: false, skipQueueDrain: true });
+    expect(AsyncStorage.getItem).not.toHaveBeenCalled();
+    expect(global.fetch.mock.calls[0][1].skipQueueDrain).toBeUndefined();
+    expect(global.fetch).toHaveBeenCalledOnce();
+  });
   it('notifies a hidden Map only after server-confirmed completion, never queued or refused writes', async () => {
     await seedSession();
     const events = [];

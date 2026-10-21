@@ -41,7 +41,7 @@ export default function TripDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
   const { triggerMilestone, dismiss } = useCoachMarkActions();
-  const { activeMilestone } = useCoachMarkStatus();
+  const { activeMilestone, guideVersion2 } = useCoachMarkStatus();
   // Today's shift-wide baseline. Called here, at the top, because it is a hook
   // and the render below returns early for loading/not-found.
   const preShift = usePreShift();
@@ -171,6 +171,7 @@ export default function TripDetailsScreen() {
     // when a trip CAN begin, then left steps 2 and 3 with no target at all: the
     // overlay hid while the milestone stayed active and could never complete.
     if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;
+    if (guideVersion2 && !canOperate) return;
     // The reason tells step 3 what this button does HERE. In the pre_shift state
     // it opens the baseline check rather than starting the trip, and copy that
     // promised otherwise would be wrong in exactly the state this feature adds.
@@ -187,7 +188,7 @@ export default function TripDetailsScreen() {
     // This effect is pre-start only, so the step's isContinue branch cannot
     // originate from this call site.
     triggerMilestone("trip_readiness", { reason });
-  }, [loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed]);
+  }, [loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed, guideVersion2, canOperate]);
 
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.

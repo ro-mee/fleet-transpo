@@ -1,4 +1,6 @@
 import IncidentCriticalConfirmation from '../../components/incidents/IncidentCriticalConfirmation';
+import DriverGuideTrigger from '../../components/coachmarks/DriverGuideTrigger';
+import { guardLegacyGuideLinks } from '../../components/coachmarks/LegacyGuideLinkGuard';
 import IncidentReportForm, { IncidentSubmitButton } from '../../components/incidents/IncidentReportForm';
 import { moderateScale } from '../../lib/scaling';
 import { useState, useEffect, useRef } from "react";
@@ -23,7 +25,7 @@ import {
   recommendIncidentSeverity,
 } from "../../../shared/incidents/severity.js";
 
-export default function IncidentsScreen() {
+function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { tripId, tour } = useLocalSearchParams();
@@ -343,6 +345,7 @@ export default function IncidentsScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={[styles.root, { backgroundColor: colors.background }]}
     >
+      <DriverGuideTrigger guideId={'incident.report'} enabled={!isTour} />
       {/* Top App Bar */}
       <View
         style={[
@@ -611,3 +614,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
 });
+
+export default guardLegacyGuideLinks(IncidentsScreen);
