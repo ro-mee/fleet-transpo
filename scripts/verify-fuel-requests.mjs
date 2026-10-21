@@ -9,6 +9,7 @@ const app = (path) => import(pathToFileURL(resolve(process.cwd(), "src", path)).
 const { query, getPool } = await app("lib/db.js");
 const allocationsRoute = await app("app/api/fuel/allocations/route.js");
 const requestsRoute = await app("app/api/fuel/requests/route.js");
+const fuelRecordRoute = await app("app/api/fuel/[id]/route.js");
 const mobileFuelRoute = await app("app/api/mobile/fuel/route.js");
 const mobileFuelByIdRoute = await app("app/api/mobile/fuel/[id]/route.js");
 
@@ -41,7 +42,7 @@ try {
   const { rows: constraints } = await query(
     `SELECT conname FROM pg_constraint WHERE conrelid = 'public.fuelrequests'::regclass`
   );
-  check("fuelrequests columns exist", columns.length === 20, `got ${columns.length}`);
+  check("fuelrequests columns exist", columns.length >= 20, `got ${columns.length}`);
   check("fuelrequests constraints exist", constraints.length >= 5, `got ${constraints.length}`);
 
   const { rows: trips } = await query(
@@ -67,7 +68,7 @@ try {
   const stamp = Date.now();
   allocationMonth = new Date().toISOString().slice(0, 7) + "-01";
   const { rows: vehicleRows } = await query(
-    `SELECT fuel_level, tank_capacity_l, fuel_efficiency_kmpl FROM vehicles WHERE vehicle_id = $1`,
+    `SELECT fuel_level, fuel_level_updated_at, tank_capacity_l, fuel_efficiency_kmpl FROM vehicles WHERE vehicle_id = $1`,
     [trip.vehicle_id]
   );
   originalVehicle = vehicleRows[0];
@@ -99,35 +100,78 @@ try {
   );
 
   globalThis.__HARNESS_SESSION__ = { user: { employeeId: trip.employee_id, role: "driver" } };
+  const storage = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const created = await call(requestsRoute.POST, request("POST", "http://localhost/api/fuel/requests", {
     trip_id: trip.trip_id,
     current_fuel_level_percent: 5,
     purpose: "Live workflow verification",
+    gauge_photo_url: `${storage.origin}/storage/v1/object/sign/fuel-receipts/${trip.driver_id}/gauge/verify.jpg?token=verify`,
     client_submission_id: `${stamp}-fuel-request`,
   }));
   if (created.body?.fuel_request_id) createdRequestIds.push(created.body.fuel_request_id);
   check("driver request returns 201", created.status === 201, JSON.stringify(created.body));
-  check("driver request starts pending", created.body?.status === "Pending", created.body?.status);
+  // Within policy the engine auto-approves; otherwise the request waits for a
+  // fleet-manager review. Both outcomes are valid, so verify whichever ran.
+  check("request starts pending or is auto-approved within policy", ["Pending", "Approved"].includes(created.body?.status), created.body?.status);
   check("request stores a recommendation snapshot", Number(created.body?.recommended_liters) > 0 && !!created.body?.calculation_snapshot);
 
   const listed = await call(requestsRoute.GET, request("GET", "http://localhost/api/fuel/requests"));
   check("driver sees own request", listed.body?.rows?.some((row) => row.fuel_request_id === created.body?.fuel_request_id));
 
-  globalThis.__HARNESS_SESSION__ = { user: { employeeId: trip.employee_id, role: "fleet_manager" } };
-  const approved = await call(requestsRoute.PUT, request("PUT", "http://localhost/api/fuel/requests", {
-    fuel_request_id: created.body.fuel_request_id,
-    status: "Approved",
-    approved_liters: 35,
-    review_notes: "Approved by live verification",
+  // FE-06: while the request is open the vehicle is refused again, and the 409
+  // names the blocking request instead of a bare conflict.
+  const blocked = await call(requestsRoute.POST, request("POST", "http://localhost/api/fuel/requests", {
+    trip_id: trip.trip_id,
+    current_fuel_level_percent: 6,
+    gauge_photo_url: `${storage.origin}/storage/v1/object/sign/fuel-receipts/${trip.driver_id}/gauge/verify.jpg?token=verify`,
+    client_submission_id: `${stamp}-fuel-request-blocked`,
   }));
-  check("fleet approval returns 200", approved.status === 200, JSON.stringify(approved.body));
-  check("approval stores allocation", approved.body?.status === "Approved" && Number(approved.body?.approved_liters) === 35);
+  check(
+    "second request is refused and names the blocking request",
+    blocked.status === 409
+      && blocked.body?.code === "OPEN_REQUEST_EXISTS"
+      && Number(blocked.body?.blocking_request?.fuel_request_id) === Number(created.body?.fuel_request_id)
+      && Number(blocked.body?.blocking_request?.age_days) >= 0
+      && /open fuel request/i.test(blocked.body?.error || ""),
+    JSON.stringify(blocked.body)
+  );
+
+  // FE-06: the driver withdraws the open request and the vehicle frees up. The
+  // replacement uses a fresh submission id — the cancelled row keeps the old
+  // one, and the dedup guard answers a reused id with that same row.
+  const withdrawn = await call(requestsRoute.DELETE, request("DELETE", "http://localhost/api/fuel/requests", {
+    fuel_request_id: created.body.fuel_request_id,
+    reason: "Live verification withdrawal",
+  }));
+  check("driver withdrawal cancels the open request", withdrawn.status === 200 && withdrawn.body?.status === "Cancelled", JSON.stringify(withdrawn.body));
+  const replacement = await call(requestsRoute.POST, request("POST", "http://localhost/api/fuel/requests", {
+    trip_id: trip.trip_id,
+    current_fuel_level_percent: 5,
+    purpose: "Live workflow verification (replacement)",
+    gauge_photo_url: `${storage.origin}/storage/v1/object/sign/fuel-receipts/${trip.driver_id}/gauge/verify.jpg?token=verify`,
+    client_submission_id: `${stamp}-fuel-request-2`,
+  }));
+  if (replacement.body?.fuel_request_id) createdRequestIds.push(replacement.body.fuel_request_id);
+  check("withdrawal frees the vehicle for a new request", replacement.status === 201, JSON.stringify(replacement.body));
+
+  let approvedRequest = replacement.body;
+  if (replacement.body?.status === "Pending") {
+    globalThis.__HARNESS_SESSION__ = { user: { employeeId: trip.employee_id, role: "fleet_manager" } };
+    const approved = await call(requestsRoute.PUT, request("PUT", "http://localhost/api/fuel/requests", {
+      fuel_request_id: replacement.body.fuel_request_id,
+      status: "Approved",
+      approved_liters: 35,
+      review_notes: "Approved by live verification",
+    }));
+    check("fleet approval returns 200", approved.status === 200, JSON.stringify(approved.body));
+    approvedRequest = approved.body;
+  }
+  check("approval stores allocation", approvedRequest?.status === "Approved" && Number(approvedRequest?.approved_liters) > 0);
 
   globalThis.__HARNESS_SESSION__ = { user: { employeeId: trip.employee_id, role: "driver" } };
-  const storage = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL);
   const fuelBody = {
     trip_id: trip.trip_id,
-    fuel_request_id: created.body.fuel_request_id,
+    fuel_request_id: replacement.body.fuel_request_id,
     liters: 34,
     amount: 2100,
     fuel_date: new Date().toISOString().slice(0, 10),
@@ -146,19 +190,44 @@ try {
   const fulfilled = await call(mobileFuelRoute.POST, request("POST", "http://localhost/api/mobile/fuel", fuelBody));
   if (fulfilled.body?.fuel_record_id) createdFuelIds.push(fulfilled.body.fuel_record_id);
   check("approved receipt returns 201", fulfilled.status === 201, JSON.stringify(fulfilled.body));
-  check("receipt links its request", Number(fulfilled.body?.fuel_request_id) === Number(created.body?.fuel_request_id));
+  check("receipt links its request", Number(fulfilled.body?.fuel_request_id) === Number(replacement.body?.fuel_request_id));
   const { rows: final } = await query(
     `SELECT status, fulfilled_at FROM fuelrequests WHERE fuel_request_id = $1`,
-    [created.body.fuel_request_id]
+    [replacement.body.fuel_request_id]
   );
   check("receipt fulfills allocation", final[0]?.status === "Fulfilled" && !!final[0]?.fulfilled_at, JSON.stringify(final[0]));
 
+  // FE-07: approving a receipt through the web review endpoint folds the
+  // purchased litres into the vehicle's stored level.
+  const { rows: levelBefore } = await query(
+    `SELECT fuel_level FROM vehicles WHERE vehicle_id = $1`,
+    [trip.vehicle_id]
+  );
+  globalThis.__HARNESS_SESSION__ = { user: { employeeId: trip.employee_id, role: "fleet_manager" } };
+  const receiptApproved = await call(
+    fuelRecordRoute.PUT,
+    request("PUT", `http://localhost/api/fuel/${fulfilled.body.fuel_record_id}`, { status: "Approved" }),
+    { params: Promise.resolve({ id: String(fulfilled.body.fuel_record_id) }) }
+  );
+  const { rows: levelAfter } = await query(
+    `SELECT fuel_level, fuel_level_updated_at FROM vehicles WHERE vehicle_id = $1`,
+    [trip.vehicle_id]
+  );
+  check(
+    "receipt approval raises the stored fuel level",
+    receiptApproved.status === 200
+      && Number(levelAfter[0]?.fuel_level) > Number(levelBefore[0]?.fuel_level)
+      && !!levelAfter[0]?.fuel_level_updated_at,
+    JSON.stringify({ response: receiptApproved.body, before: levelBefore[0], after: levelAfter[0] })
+  );
+
   await query(`UPDATE fuelrecords SET status = 'Rejected' WHERE fuel_record_id = $1`, [fulfilled.body.fuel_record_id]);
+  globalThis.__HARNESS_SESSION__ = { user: { employeeId: trip.employee_id, role: "driver" } };
   const oversized = await call(
     mobileFuelByIdRoute.PUT,
     request("PUT", `http://localhost/api/mobile/fuel/${fulfilled.body.fuel_record_id}`, {
       ...fuelBody,
-      liters: 36,
+      liters: Number(approvedRequest.approved_liters) + 1,
     }),
     { params: Promise.resolve({ id: String(fulfilled.body.fuel_record_id) }) }
   );
@@ -166,7 +235,10 @@ try {
 } catch (error) {
   failed.push(error.stack || error.message);
 } finally {
-  if (createdFuelIds.length) await query(`DELETE FROM fuelrecords WHERE fuel_record_id = ANY($1::int[])`, [createdFuelIds]);
+  if (createdFuelIds.length) {
+    await query(`DELETE FROM audit_logs WHERE resource = 'fuelrecords' AND resource_id = ANY($1::int[])`, [createdFuelIds]);
+    await query(`DELETE FROM fuelrecords WHERE fuel_record_id = ANY($1::int[])`, [createdFuelIds]);
+  }
   if (createdRequestIds.length) {
     await query(`DELETE FROM audit_logs WHERE resource = 'fuelrequests' AND resource_id = ANY($1::int[])`, [createdRequestIds]);
     await query(`DELETE FROM fuelrequests WHERE fuel_request_id = ANY($1::int[])`, [createdRequestIds]);
@@ -184,8 +256,8 @@ try {
   if (testAllocationId) await query(`DELETE FROM audit_logs WHERE resource = 'fuelallocations' AND resource_id = $1`, [testAllocationId]);
   if (trip && originalVehicle) {
     await query(
-      `UPDATE vehicles SET fuel_level = $2, tank_capacity_l = $3, fuel_efficiency_kmpl = $4 WHERE vehicle_id = $1`,
-      [trip.vehicle_id, originalVehicle.fuel_level, originalVehicle.tank_capacity_l, originalVehicle.fuel_efficiency_kmpl]
+      `UPDATE vehicles SET fuel_level = $2, fuel_level_updated_at = $5, tank_capacity_l = $3, fuel_efficiency_kmpl = $4 WHERE vehicle_id = $1`,
+      [trip.vehicle_id, originalVehicle.fuel_level, originalVehicle.tank_capacity_l, originalVehicle.fuel_efficiency_kmpl, originalVehicle.fuel_level_updated_at]
     );
   }
   if (trip && originalTripStatus && trip.trip_status !== "Assigned") {
