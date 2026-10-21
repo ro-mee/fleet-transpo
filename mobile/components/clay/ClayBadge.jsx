@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
-import { statusColorForTone } from '../../lib/theme';
+import { fonts, statusColorForTone } from '../../lib/theme';
 import { moldedMaterials } from './molded-materials';
 
 export const ClayBadge = memo(function ClayBadge({
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   label: {
-    fontFamily: 'PlusJakartaSans-SemiBold',
+    fontFamily: fonts.bodySemiBold,
     letterSpacing: 0.3,
   },
   labelSmall: {

@@ -38,7 +38,10 @@ const ACCOUNT_ROWS = [
   { title: "Personal Information", icon: "person-outline", route: "/profile/personal" },
 ];
 
-const CARGO_WORK_ROWS = [
+// Shared by every driver type. This is the one Profile path to Driver License
+// and Vehicle (Vehicle is also on the Home hero card), so it must not be
+// gated on the Cargo classification it started under.
+const WORK_ROWS = [
   { title: "My Schedule", icon: "calendar-outline", route: "/work-schedule" },
   { title: "Trip History", icon: "time-outline", route: "/history" },
   { title: "Driver License", icon: "document-text-outline", route: "/profile/license" },
@@ -258,7 +261,7 @@ export default function Profile() {
           </View>
         </ClayCard>
 
-        {isCargoDriver ? <Section title="My Work" rows={CARGO_WORK_ROWS} colors={colors} type={type} onNavigate={router.push} /> : null}
+        <Section title="My Work" rows={WORK_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} onNavigate={router.push} />

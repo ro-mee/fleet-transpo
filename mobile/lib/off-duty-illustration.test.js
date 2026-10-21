@@ -63,6 +63,15 @@ describe("shared Off Duty illustration", () => {
     expect(dimensions(compact).width).toBeLessThan(dimensions(card).width);
     expect(dimensions(card).width).toBeLessThan(dimensions(hero).width);
   });
+
+  it.each(["compact", "card", "hero", "unknown"])("overrides bundled image dimensions for %s so artwork cannot fill the screen", async size => {
+    const image = await renderIllustration(size);
+    // Native Image prepends the asset dimensions before the supplied styles.
+    const layout = Object.assign({ width: 800, height: 714 }, ...image.props.style.filter(Boolean));
+    expect(layout.width).toBeLessThanOrEqual(160);
+    expect(layout.height).toBeLessThanOrEqual(144);
+    expect(layout.width / layout.height).toBeCloseTo(800 / 714, 2);
+  });
 });
 
 describe("Off Duty screen coverage", () => {
@@ -78,15 +87,21 @@ describe("Off Duty screen coverage", () => {
     expect(home).toContain('<OffDutyIllustration size="card" />');
   });
 
-  it("uses the shared illustration in Trips and Map Off Duty states", () => {
-    expect(trips).toContain("import OffDutyIllustration");
-    expect(trips).toContain('<OffDutyIllustration size="card" />');
+  it("uses the shared illustration in the Map Off Duty state", () => {
     expect(map).toContain("import OffDutyIllustration");
     expect(map).toContain('<OffDutyIllustration size="hero" />');
   });
 
+  it("keeps Trips date browsing independent of duty status", () => {
+    expect(trips).not.toContain("OffDutyIllustration");
+    expect(trips).not.toContain("useDuty");
+    expect(trips).not.toContain("DUTY_EMPTY_STATES");
+    expect(trips).toContain('accessibilityRole="tablist"');
+    expect(trips).toContain('accessibilityLabel="View my work schedule"');
+  });
+
   it("keeps Rest Day and On Leave on their existing distinct icon branches", () => {
-    for (const source of [homeCards, trips, map]) {
+    for (const source of [homeCards, map]) {
       expect(source).toContain("calendar-minus");
       expect(source).toContain("calendar-blank-outline");
     }

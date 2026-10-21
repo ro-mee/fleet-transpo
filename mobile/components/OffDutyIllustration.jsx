@@ -4,10 +4,11 @@ import { Image, StyleSheet } from "react-native";
 const OFF_DUTY_IMAGE = require("../assets/images/off-duty.webp");
 
 const styles = StyleSheet.create({
-  base: { aspectRatio: 1327 / 1185, flexShrink: 0 },
-  compact: { width: 72 },
-  card: { width: 152 },
-  hero: { width: 220 },
+  // Override both native asset dimensions; aspectRatio alone retains its height.
+  base: { flexShrink: 0, alignSelf: "center" },
+  compact: { width: 44, height: 44 * 714 / 800 },
+  card: { width: 88, height: 88 * 714 / 800 },
+  hero: { width: 132, height: 132 * 714 / 800 },
 });
 
 const SIZE_STYLES = {

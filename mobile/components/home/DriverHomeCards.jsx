@@ -272,7 +272,7 @@ const VARIANT = {
   upcoming: { label: 'UPCOMING', isCurrent: false },
 };
 
-export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, preShiftPassed = true, emptyState = null, workspace = null }) {
+export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false, previewActive = true, preShiftPassed = true, emptyState = null, workspace = null }) {
   const workspaceBlocked = workspace?.tripReady === false;
   const { colors, type, scheme } = useTheme();
   const { width, fontScale } = useWindowDimensions();
@@ -398,8 +398,8 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
           {cargo && readiness ? <View style={[s.cargoReadiness, { backgroundColor: colors.surfaceContainer }]}><Ionicons name={readiness === 'Ready to start' ? 'checkmark-circle-outline' : 'shield-checkmark-outline'} size={20} color={colors.primary} /><Text accessibilityLiveRegion="polite" style={[type.supporting, s.flex, { color: colors.onSurface }]}>{readiness}</Text></View> : null}
         </View>
         <View style={splitLayout ? { width: '42%', gap: 12 } : { gap: 12 }}>
-          {/* ponytail: one interactive route preview on Home; secondary cards stay static until native polyline rendering exists. */}
-          {showRoutePreview ? <TripMapPreview staticMode={!interactivePreview} key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}:${interactivePreview}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} /> : null}
+          {/* Hidden Home keeps its layout without retaining WebGL route renderers. */}
+          {showRoutePreview ? previewActive ? <TripMapPreview staticMode={!interactivePreview} key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}:${interactivePreview}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} /> : <View style={{ width: '100%', aspectRatio: 1.9 }} /> : null}
       {workspaceBlocked ? <View style={{ gap: 8 }}>
         <Text style={[type.labelLg, { color: colors.onSurface }]}>{workspaceHeading(workspace)}</Text>
         <Text style={[type.supporting, { color: colors.onSurfaceVariant }]} accessibilityLiveRegion="polite">{workspaceProblem(workspace)}</Text>

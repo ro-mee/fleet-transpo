@@ -10,7 +10,6 @@ import { apiFetch } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import ClayMenuRow from '../../../components/ClayMenuRow';
 import { ClayCard, ClayButton } from "../../../components/clay";
 import { notify } from "../../../lib/notifications/notify";
 
@@ -156,21 +155,6 @@ export default function PersonalInformation() {
             <InfoRow label="Address" value={profile.emergencyContact?.address || profile.emergency_contact_address} colors={colors} isDark={isDark} isLast />
           </ClayCard>
         )}
-
-        {/* Hub: related compliance screens live inside Personal Information */}
-        <ClayCard variant="standard" style={styles.sectionCard}>
-          <ClayMenuRow
-            title="License & Compliance"
-            icon="card-outline"
-            onPress={() => router.push("/profile/license")}
-          />
-          <ClayMenuRow
-            title="Assigned Vehicle"
-            icon="car-outline"
-            onPress={() => router.push("/profile/vehicle")}
-            isLast
-          />
-        </ClayCard>
       </ScrollView>
     </View>
   );

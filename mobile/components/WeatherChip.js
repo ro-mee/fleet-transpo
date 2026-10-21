@@ -51,7 +51,7 @@ function WeatherChip({ value, compact = false }) {
   const mats = moldedMaterials(isDark);
   // No disc backdrop: the art renders directly in the row at near-disc size
   // so the small glyph stays clearly visible.
-  const artSize = compact ? 30 : 32;
+  const artSize = compact ? 24 : 32;
   const shadow = {
     shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 4 },
@@ -68,7 +68,11 @@ function WeatherChip({ value, compact = false }) {
         mats.clayPill,
         {
           backgroundColor: colors.surfaceContainerLow,
-          width: compact ? 128 : 148,
+          width: compact ? undefined : 148,
+          minWidth: compact ? 72 : undefined,
+          minHeight: compact ? 48 : 44,
+          gap: compact ? 4 : 8,
+          flexShrink: 0,
         },
       ]}
       accessibilityRole="text"
@@ -80,19 +84,19 @@ function WeatherChip({ value, compact = false }) {
         accessible={false}
         style={{ width: artSize, height: artSize }}
       />
-      <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
-        <Text style={[styles.temperature, { color: colors.onSurface }]}>
+      <View style={{ flex: compact ? undefined : 1, minWidth: 0, justifyContent: "center" }}>
+        <Text style={[styles.temperature, { color: colors.onSurface }]} numberOfLines={1}>
           {value.temperature}
         </Text>
         {/* Location/condition stays on one line — long place names ellipsize
             rather than wrapping and growing the header row. */}
-        <Text
+        {!compact && <Text
           style={[styles.label, { color: colors.onSurfaceVariant }]}
           numberOfLines={1}
           ellipsizeMode="tail"
         >
           {value.label}
-        </Text>
+        </Text>}
       </View>
     </View>
   );

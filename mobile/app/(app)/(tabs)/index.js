@@ -48,6 +48,7 @@ import { QUICK_ACTION_ROUTES } from "../../../lib/prefetch-routes";
 import { captureCargoSession, isCurrentCargoSession } from "../../../lib/cargo-sync";
 import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 import { odometerStartRoute } from "../../../lib/trip-odometer";
+import { useScreenClock } from "../../../lib/use-screen-clock";
 
 
 /**
@@ -59,12 +60,12 @@ import { odometerStartRoute } from "../../../lib/trip-odometer";
 // compiling under the strict preserve-manual-memoization rule): first card
 // NEXT TRIP, the rest UPCOMING, plus a "+N more" footer reusing the same
 // /trips destination as the section heading.
-const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview, preShiftPassed = true, driverType }) {
+const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview, previewActive, preShiftPassed = true, driverType }) {
   const { colors, type } = useTheme();
   return <>
     {trips.map((trip, i) => <DriverTripCard workspace={resolveDriverWorkspace({ driverType, trip })} key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
       offline={offline} nowMs={nowMs} canManage={canManage} busy={busy} preShiftPassed={preShiftPassed}
-      onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview} />)}
+      onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview} previewActive={previewActive} />)}
     {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
       style={({ pressed }) => [{ minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }, pressed && { opacity: 0.72 }]}>
       <Text style={[type.labelLg, { color: colors.primary }]}>+{extra} more · View Full Schedule</Text>
@@ -81,13 +82,14 @@ export default function Home() {
   const { user } = useAuth();
   const { colors, type } = useTheme();
   const { unreadCount } = useNotificationFeed();
+  const { now: nowMs, active: screenActive } = useScreenClock();
 
   const [trips, setTrips] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
   const [driverProfile, setDriverProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [loading, setLoading] = useState(true);
-  const skeletonPulse = useSharedSkeletonPulse(loading);
+  const skeletonPulse = useSharedSkeletonPulse(loading && screenActive);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [actingOn, setActingOn] = useState(null);
@@ -95,7 +97,6 @@ export default function Home() {
   const [odometerInput, setOdometerInput] = useState("");
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
-  const [nowMs, setNowMs] = useState(Date.now);
   const { triggerMilestone, notifyInteraction, setTutorialTransition } = useCoachMarkActions();
   // Read-only. The two Home duty controls are each gated on live state that is
   // never true mid-tour (see the banner and card below), so the tour steps have
@@ -199,13 +200,6 @@ export default function Home() {
       if (duty.due) triggerMilestone("end_duty");
     }, [duty.due, triggerMilestone])
   );
-
-  // Keep the GPS-age caption ticking on a calm 30s cadence without an immediate mount duplicate render.
-  useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 30000);
-    return () => clearInterval(timer);
-  }, []);
-
 
   const { current: activeTrip, upcoming } = selectHomeTrips(trips, activeStatuses);
   const visibleUpcoming = upcoming.slice(0, HOME_UPCOMING_LIMIT);
@@ -584,7 +578,7 @@ export default function Home() {
         ref={scrollRef}
         contentContainerStyle={[
           styles.scroll,
-          { paddingBottom: insets.bottom + 100 },
+          { paddingBottom: insets.bottom + 168 },
         ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -778,23 +772,23 @@ export default function Home() {
           <DriverTripCard workspace={workspace} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             emptyState={homeEmptyState}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
-            interactivePreview={Boolean(activeTrip)}
+            interactivePreview={Boolean(activeTrip)} previewActive={screenActive}
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} />
           {workspace.mode !== 'cargo' ? <DriverTripCard trip={upcoming[0] ?? null} variant="next" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
-            interactivePreview={!activeTrip}
+            interactivePreview={!activeTrip} previewActive={screenActive}
             onAction={handleTripAction} onDetails={goDetails} /> : null}
         </> : <>
           {activeTrip ? <DriverTripCard workspace={workspace} trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
-            interactivePreview
+            interactivePreview previewActive={screenActive}
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} /> : null}
           <AssignmentsHeading onPress={goTrips} title={workspace.mode === 'cargo' ? 'Next Cargo Assignments' : 'Upcoming Trips'} />
           <UpcomingTripList driverType={driverProfile?.driverType} trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn} preShiftPassed={preShiftPassed}
-            onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!offline} />
+            onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!offline} previewActive={screenActive} />
         </>)}
 
       </ScrollView>
