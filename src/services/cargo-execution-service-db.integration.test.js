@@ -32,7 +32,8 @@ const source = { subject: 'simulated:owner', system: 'PMS', organization_id: 'si
 const manifest = { manifest_ref: { kind: 'REQUEST', id: randomUUID(), revision: 1, hash: 'a'.repeat(64) }, source_ref: { system: source.system, organization_id: source.organization_id, external_request_id: 'r1' }, service_code: 'HOTEL_SUPPLY_TRANSFER', lines: [{ line_id: 'oil', name: 'Oil', quantity_basis: 'TRANSPORT_PACKAGE', expected_quantity: '10', unit: 'box', reference_image_ref: null, handling: [] }] };
 const manifestSnapshot = { source_ref: manifest.source_ref, service_code: manifest.service_code, lines: manifest.lines };
 manifest.manifest_ref.hash = cargoPayloadHash(manifestSnapshot);
-const receipt = (quantity = '9', stage = 'PICKUP') => ({ submission_id: randomUUID(), manifest_ref: manifest.manifest_ref, stage, observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: quantity, condition: 'INTACT', issue_code: null, remarks: '', evidence_ids: [] }], receiver_confirmation_ref: null });
+const handover = () => ({ version: 1, signer_name: 'Simulated supplier', signer_role_or_dept: 'Supply', acknowledgment: 'CARGO_HANDOVER_V1', captured_at: '2026-10-09T08:00:00.000Z', signature: { width: 600, height: 240, strokes: [[[20, 30], [60, 80]]] }, location: { latitude: 14.6, longitude: 121, accuracy_m: 20, captured_at: '2026-10-09T08:00:00.000Z' } });
+const receipt = (quantity = '9', stage = 'PICKUP') => ({ submission_id: randomUUID(), manifest_ref: manifest.manifest_ref, stage, observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: quantity, condition: 'INTACT', issue_code: null, remarks: '', evidence_ids: [] }], receiver_confirmation_ref: null, handover: handover() });
 const decision = view => ({ event_id: randomUUID(), receipt_id: view.pickup_receipt.receipt_id, manifest_hash: manifest.manifest_ref.hash, action: 'ACCEPT_OBSERVED', reason: 'Simulated owner accepts the count' });
 const proof = (kind, row) => ({ kind, receipt_id: row.receipt_id, manifest_hash: row.manifest_hash, approval_ref: kind === 'POST_LOAD_SECUREMENT' ? config.safetyApprovalRef : config.receivingApprovalRef, method: 'simulated-fixture', reference: randomUUID(), simulated: true });
 let pool, service, migration, manualMigration;
@@ -77,12 +78,16 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
         CREATE TABLE ${storage}.objects(bucket_id text); ALTER TABLE ${storage}.objects ENABLE ROW LEVEL SECURITY;
         INSERT INTO employees VALUES(1),(2); INSERT INTO drivers VALUES(1,1),(2,2);
         INSERT INTO dispatchschedules VALUES(1,1,'PASSENGER'),(2,1,'PASSENGER'); INSERT INTO trips VALUES(1,1,1,NULL,'At Pickup'),(2,2,2,NULL,'At Pickup');`);
-      await tx.query(`ALTER TABLE trips ADD COLUMN vehicle_id integer DEFAULT 1, ADD COLUMN updated_at timestamptz, ADD COLUMN at_pickup_at timestamptz, ADD COLUMN at_pickup_override boolean DEFAULT false;
+      // These historical cargo fixtures retain the shared legacy odometer mode.
+      await tx.query(`ALTER TABLE trips ADD COLUMN vehicle_id integer DEFAULT 1, ADD COLUMN updated_at timestamptz, ADD COLUMN at_pickup_at timestamptz, ADD COLUMN at_pickup_override boolean DEFAULT false, ADD COLUMN odometer_capture_required boolean DEFAULT false, ADD COLUMN distance numeric;
         ALTER TABLE drivers ADD COLUMN deleted_at timestamptz;
+        CREATE TABLE vehicles(vehicle_id integer PRIMARY KEY,mileage numeric,fuel_efficiency_kmpl numeric,fuel_type text,deleted_at timestamptz);
+        INSERT INTO vehicles VALUES(1,100,10,'Diesel',NULL),(2,100,10,'Diesel',NULL);
         CREATE TABLE service_types(service_type_id integer PRIMARY KEY,service_code text,deleted_at timestamptz);
         CREATE TABLE transportation_requests(request_id integer PRIMARY KEY,load_type text,source_system text,external_request_id text,service_type_id integer,deleted_at timestamptz);
         INSERT INTO service_types VALUES(1,'HOTEL_SUPPLY_TRANSFER',NULL);
-        INSERT INTO transportation_requests VALUES(1,'Cargo','PMS','r1',1,NULL);`);
+        INSERT INTO transportation_requests VALUES(1,'Cargo','PMS','r1',1,NULL);
+        ALTER TABLE transportation_requests ADD COLUMN cargo_weight_kg numeric;`);
       await tx.query('INSERT INTO request_cargo_manifest_revisions VALUES($1,1,1,$2,$3)', [manifest.manifest_ref.id, manifest.manifest_ref.hash, JSON.stringify(manifestSnapshot)]);
       await tx.query(readFileSync('supabase/migrations/159_cargo_execution_storage.sql', 'utf8').replaceAll('public.', `${schema}.`).replaceAll('storage.', `${storage}.`));
       migration = readFileSync('supabase/migrations/160_cargo_execution_commands.sql', 'utf8').replaceAll('public.', `${schema}.`);
@@ -176,7 +181,7 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
 
   it('lets passenger trips transition without assignment-time classification recheck', async () => {
     enableLifecycle();
-    await run(tx => tx.query("INSERT INTO service_types VALUES(2,'GUEST_TRANSPORT',NULL); INSERT INTO transportation_requests VALUES(2,'Passenger','PMS','passenger',2,NULL); INSERT INTO dispatchschedules VALUES(4,2,'PASSENGER'); INSERT INTO trips(trip_id,dispatch_id,driver_id,trip_status) VALUES(4,4,1,'Trip Started')"));
+    await run(tx => tx.query("INSERT INTO service_types VALUES(2,'GUEST_TRANSPORT',NULL); INSERT INTO transportation_requests(request_id,load_type,source_system,external_request_id,service_type_id,deleted_at) VALUES(2,'Passenger','PMS','passenger',2,NULL); INSERT INTO dispatchschedules VALUES(4,2,'PASSENGER'); INSERT INTO trips(trip_id,dispatch_id,driver_id,trip_status) VALUES(4,4,1,'Trip Started')"));
     await setTripStatus({ tripId: 4, to: 'In Progress', session: actor });
     expect((await run(tx => tx.query('SELECT trip_status FROM trips WHERE trip_id=4'))).rows[0].trip_status).toBe('In Progress');
   });
@@ -295,12 +300,13 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
     const read=await api.get(new Request('http://localhost/api/trips/1/cargo?history_limit=1'),{params:Promise.resolve({id:'1'})});
     expect(read.status).toBe(200);expect((await read.json()).data.history.rows).toHaveLength(1);
     const first=await api.sourceDecision(request(payload));expect(first.status).toBe(200);const original=await first.json();
-    expect(await (await api.sourceDecision(request(payload))).json()).toEqual(original);
+    const replay=await (await api.sourceDecision(request(payload))).json();
+    expect(replay).toEqual(original);
+    for (const response of [original,replay]) expect(JSON.stringify(response)).not.toMatch(/https?:\/\/|CARGO_HANDOVER_V1|Simulated supplier|handover|signature|strokes|latitude|longitude/);
     expect((await api.sourceDecision(request({...payload,reason:'Changed owner instruction'}))).status).toBe(409);
     expect((await api.sourceDecision(request({...payload,external_request_id:'foreign'}))).status).toBe(404);
     const other=createCargoApi({service,simulated:true,environment:'test',approvalRef:'simulated:api',resolveSourceRequest:adapter.resolveSourceRequest,credentials:[{secret:'fixture-secret',system:source.system,organization_id:'other-hotel',subject:source.subject,approval_ref:'simulated:source',simulated:true,capabilities:source.capabilities}]});
     expect((await other.sourceDecision(request(payload))).status).toBe(404);
-    expect(JSON.stringify(original)).not.toMatch(/https?:\/\//);
   });
   it('preserves 10/9/9 and requires separate source, Fleet and receiver authority', async () => {
     const picked = await prepare(); expect(picked.pickup_state).toBe('AWAITING_DECISION');
@@ -395,5 +401,61 @@ describe.skipIf(process.env.CARGO_FIXTURE_DB_TEST !== '1')('cargo service with r
       await tx.query(`INSERT INTO cargo_execution_commands(command_id,execution_id,command_kind,command_key,payload_hash,receipt_id,audit_log_id,response)
         SELECT $1,execution_id,command_kind,'invented-submission',payload_hash,receipt_id,$2,response FROM cargo_execution_commands WHERE command_key=$3`, [fakeCommand, audit.log_id, input.submission_id]);
     })).rejects.toMatchObject({ code: '23514' });
+  });
+  it('persists private signed receipt content, replays it exactly and keeps all partner events free of handover details', async () => {
+    await stage('At Pickup');
+    const input = receipt('10'), original = await service.submitCargoReceipt(1, input, actor);
+    expect(original.pickup_receipt.payload.handover).toEqual(input.handover);
+    expect(await service.submitCargoReceipt(1, input, actor)).toEqual(original);
+    const changed = { ...input, handover: { ...input.handover, signature: { ...input.handover.signature, strokes: [[[20, 30], [70, 90]]] } } };
+    await expect(service.submitCargoReceipt(1, changed, actor)).rejects.toMatchObject({ status: 409, code: 'CARGO_REPLAY_CONFLICT' });
+    const events = (await run(tx => tx.query('SELECT payload FROM cargo_feedback_outbox WHERE receipt_id=$1', [original.pickup_receipt.receipt_id]))).rows;
+    expect(events).toHaveLength(1);
+    expect(JSON.stringify(events)).not.toMatch(/handover|Simulated supplier|CARGO_HANDOVER_V1|signature|latitude|longitude/);
+    const adapter = createCargoReadAdapter({ config, simulated: true, environment: 'test', approvalRef: 'simulated:read', db: { query: (sql, values) => run(tx => tx.query(sql, values)), withTransaction: db.withTransaction } });
+    const api = createCargoApi({ simulated: true, environment: 'test', approvalRef: 'simulated:api', service, readHistory: adapter.readHistory });
+    const context = { params: Promise.resolve({ id: '1' }) };
+    const ordinary = await api.get(new Request('http://localhost/api/trips/1/cargo'), context);
+    expect(ordinary.status).toBe(200);
+    expect(ordinary.headers.get('cache-control')).toBe('private, no-store');
+    expect(JSON.stringify(await ordinary.json())).not.toMatch(/handover|Simulated supplier|CARGO_HANDOVER_V1|signature|latitude|longitude/);
+    const detail = await api.get(new Request('http://localhost/api/trips/1/cargo?include_handovers=1'), context);
+    expect(detail.status).toBe(200);
+    expect((await detail.json()).data.handovers.pickup).toMatchObject({ receipt_id: original.pickup_receipt.receipt_id, handover: input.handover });
+  });
+  it.each(['PICKUP', 'DELIVERY'])('refuses new unsigned %s observations without writes', async stageName => {
+    await stage(stageName === 'PICKUP' ? 'At Pickup' : 'Drop-off');
+    const input = receipt('10', stageName); delete input.handover;
+    await expect(service.submitCargoReceipt(1, input, actor)).rejects.toMatchObject({ status: 400, code: 'CARGO_HANDOVER_REQUIRED' });
+    expect((await run(tx => tx.query('SELECT receipt_id FROM cargo_receipts WHERE submission_id=$1', [input.submission_id]))).rows).toHaveLength(0);
+  });
+  it('reads and exactly replays an unsigned historical command while current lifecycle and clearance still refuse it', async () => {
+    await stage('At Pickup');
+    const signed = await service.submitCargoReceipt(1, receipt('10'), actor);
+    const input = receipt('10'); delete input.handover;
+    const hash = cargoPayloadHash({ payload: input, employeeId: actor.user.employeeId, driverId: actor.user.driverId });
+    const legacy = await run(async tx => {
+      const execution = (await tx.query('SELECT * FROM cargo_trip_executions WHERE execution_id=$1 FOR UPDATE', [signed.execution_id])).rows[0];
+      const row = (await tx.query(`INSERT INTO cargo_receipts(execution_id,stage,manifest_ref,manifest_hash,submission_id,payload_hash,payload,lines,reporter_employee_id,reporter_driver_id,observed_at,receiver_confirmation_ref,execution_version)
+        VALUES($1,'PICKUP',$2,$3,$4,$5,$6,$7,1,1,$8,NULL,$9) RETURNING *`, [execution.execution_id, JSON.stringify(input.manifest_ref), input.manifest_ref.hash, input.submission_id, hash, JSON.stringify(input), JSON.stringify(input.lines), input.observed_at, execution.version + 1])).rows[0];
+      await tx.query('UPDATE cargo_trip_executions SET version=version+1 WHERE execution_id=$1', [execution.execution_id]);
+      return row;
+    });
+    const original = await service.getCargoExecution(1, actor);
+    expect(original.pickup_receipt.receipt_id).toBe(legacy.receipt_id);
+    expect(original.blockers).toContainEqual(expect.objectContaining({ code: 'CARGO_PICKUP_HANDOVER_REQUIRED' }));
+    expect(original.can_depart).toBe(false);
+    await run(async tx => {
+      const commandId = randomUUID();
+      const audit = (await tx.query("INSERT INTO audit_logs(employee_id,action,resource,resource_id,new_values) VALUES(1,'cargo_receipt','cargo_execution',1,$1) RETURNING log_id", [JSON.stringify({ command_id: commandId })])).rows[0];
+      await tx.query("INSERT INTO cargo_execution_commands(command_id,execution_id,command_kind,command_key,payload_hash,receipt_id,audit_log_id,response) VALUES($1,$2,'RECEIPT',$3,$4,$5,$6,$7)", [commandId, original.execution_id, input.submission_id, hash, legacy.receipt_id, audit.log_id, JSON.stringify(original)]);
+    });
+    expect(await service.submitCargoReceipt(1, input, actor)).toEqual(original);
+    await expect(service.clearCargoDeparture(1, { receipt_id: legacy.receipt_id, expected_version: original.version, reason: 'Fixture safety checked' }, fleet)).rejects.toMatchObject({ code: 'CARGO_PICKUP_HANDOVER_REQUIRED' });
+    const lifecycle = enableLifecycle();
+    await expect(run(tx => assertCargoCheckpoint({ trip_id: 1 }, { to: 'Passenger Onboard', session: actor, patch: { incident_id: randomUUID() } }, lifecycle.bindLifecycleTransaction(tx)))).rejects.toMatchObject({ code: 'CARGO_PICKUP_NOT_CLEARED' });
+    await stage('Drop-off');
+    await expect(completeTrip(1, actor)).rejects.toMatchObject({ code: 'CARGO_PICKUP_NOT_CLEARED' });
+    expect(await service.submitCargoReceipt(1, input, actor)).toEqual(original);
   });
 });

@@ -40,6 +40,8 @@ export function deriveCargoState({ manifest: rawManifest, pickup = null, deliver
   });
   const blockers = [];
   const block = (code, message) => blockers.push({ code, message });
+  if (pickup && !p.handover) block('CARGO_PICKUP_HANDOVER_REQUIRED', 'The current pickup needs a handover acknowledgment.');
+  if (delivery && !d.handover) block('CARGO_DELIVERY_HANDOVER_REQUIRED', 'The current delivery needs a handover acknowledgment.');
   const currentDecision = pickup && decision?.receipt_id === pickup.receipt_id && decision.manifest_hash === manifest.manifest_ref.hash &&
     decision.source_system === manifest.source_ref.system && decision.source_organization_id === manifest.source_ref.organization_id &&
     decision.execution_version > pickup.execution_version && decision.decision_id ? decision : null;
@@ -56,7 +58,7 @@ export function deriveCargoState({ manifest: rawManifest, pickup = null, deliver
     const secure = bound && matchesCargoAuthorityProof(clearance.safety_proof, 'POST_LOAD_SECUREMENT', pickup) && clearance.safety_evidence_ref === clearance.safety_proof.reference;
     if (!bound) block('CARGO_FLEET_CLEARANCE_REQUIRED', 'Fleet departure clearance is required.');
     if (!secure) block('CARGO_SECUREMENT_REQUIRED', 'Approved post-load safety and securement evidence is required.');
-    if (bound && secure) pickup_state = 'READY';
+    if (bound && secure && p.handover) pickup_state = 'READY';
   }
   let delivery_state = 'NOT_RECORDED';
   if (!delivery) block('CARGO_DELIVERY_REQUIRED', 'Verify cargo at delivery.');
@@ -67,7 +69,7 @@ export function deriveCargoState({ manifest: rawManifest, pickup = null, deliver
     if (!clean || !chronological) block('CARGO_DELIVERY_REVIEW_REQUIRED', 'The delivery observation requires review.');
     const confirmed = matchesCargoAuthorityProof(delivery.receiver_proof, 'RECEIVER_CONFIRMATION', delivery);
     if (!confirmed) block('CARGO_RECEIVER_CONFIRMATION_REQUIRED', 'Approved receiver confirmation is required.');
-    if (pickup_state === 'READY' && clean && chronological && confirmed) delivery_state = 'CONFIRMED';
+    if (pickup_state === 'READY' && clean && chronological && confirmed && d.handover) delivery_state = 'CONFIRMED';
   }
   return { pickup_state, delivery_state, can_depart: pickup_state === 'READY', can_complete: delivery_state === 'CONFIRMED', blockers, lines };
 }

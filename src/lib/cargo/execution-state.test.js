@@ -3,6 +3,7 @@ import { deriveCargoState } from './execution-state';
 
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const manifest = { manifest_ref: { kind: 'REQUEST', id: id(1), revision: 1, hash: 'a'.repeat(64) }, source_ref: { system: 'PMS', organization_id: 'hotel', external_request_id: 'r1' }, service_code: 'HOTEL_SUPPLY_TRANSFER', lines: [{ line_id: 'oil', name: 'Oil', quantity_basis: 'TRANSPORT_PACKAGE', expected_quantity: '10', unit: 'box', reference_image_ref: null, handling: [] }] };
+const handover = { version: 1, signer_name: 'Staff', signer_role_or_dept: 'Supply', acknowledgment: 'CARGO_HANDOVER_V1', captured_at: '2026-10-09T08:00:00.000Z', signature: { width: 600, height: 240, strokes: [[[20, 30], [60, 80]]] }, location: null };
 const receipt = (stage, quantity, version = 2) => ({ receipt_id: id(version), execution_id: id(99), execution_version: version, manifest_hash: manifest.manifest_ref.hash, payload: { submission_id: id(version + 20), manifest_ref: manifest.manifest_ref, stage, observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: quantity, condition: 'INTACT', issue_code: null, remarks: '', evidence_ids: [] }], receiver_confirmation_ref: null } });
 const pickup = receipt('PICKUP', '9');
 const decision = { decision_id: id(3), receipt_id: pickup.receipt_id, execution_version: 3, manifest_hash: manifest.manifest_ref.hash, source_system: 'PMS', source_organization_id: 'hotel', action: 'ACCEPT_OBSERVED' };
@@ -11,8 +12,26 @@ const clearance = { clearance_id: id(4), execution_id: pickup.execution_id, rece
 const delivery = receipt('DELIVERY', '9', 5);
 delivery.receiver_proof = proof('RECEIVER_CONFIRMATION', delivery);
 const run = (overrides = {}) => deriveCargoState({ manifest, pickup, delivery: null, decision: null, clearance: null, ...overrides });
+pickup.payload.handover = handover;
+delivery.payload.handover = handover;
 
 describe('cargo state from immutable records', () => {
+  it('keeps unsigned history readable but cannot use legacy pickup clearance to depart or complete', () => {
+    const legacy = { ...pickup, payload: { ...pickup.payload } };
+    delete legacy.payload.handover;
+    const state = run({ pickup: legacy, decision, clearance, delivery });
+    expect(state.can_depart).toBe(false);
+    expect(state.can_complete).toBe(false);
+    expect(state.blockers).toContainEqual(expect.objectContaining({ code: 'CARGO_PICKUP_HANDOVER_REQUIRED' }));
+  });
+  it('requires the current delivery acknowledgment despite independently resolved receiver proof or incident IDs', () => {
+    const legacy = { ...delivery, incident_id: id(55), payload: { ...delivery.payload } };
+    delete legacy.payload.handover;
+    const state = run({ decision, clearance, delivery: legacy });
+    expect(state.can_depart).toBe(true);
+    expect(state.can_complete).toBe(false);
+    expect(state.blockers).toContainEqual(expect.objectContaining({ code: 'CARGO_DELIVERY_HANDOVER_REQUIRED' }));
+  });
   it('waits for acceptance of a 10 to 9 pickup', () => expect(run()).toMatchObject({ pickup_state: 'AWAITING_DECISION', can_depart: false }));
   it('keeps order shortage when all collected boxes arrive', () => {
     const state = run({ decision, clearance, delivery });
@@ -23,6 +42,7 @@ describe('cargo state from immutable records', () => {
   it('handles zero observations without replacing them with missing counts', () => expect(run({ pickup: receipt('PICKUP', '0') }).lines[0]).toMatchObject({ pickup_quantity: '0', order_shortage: '10' }));
   it('requires Fleet and actual post-load proof even for a clean pickup', () => {
     const clean = receipt('PICKUP', '10');
+    clean.payload.handover = handover;
     expect(run({ pickup: clean }).can_depart).toBe(false);
     expect(run({ pickup: clean, clearance: { ...clearance, decision_id: null, safety_proof: null } }).pickup_state).not.toBe('READY');
     expect(run({ pickup: clean, clearance: { ...clearance, decision_id: null } }).pickup_state).toBe('READY');

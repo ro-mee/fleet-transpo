@@ -1,5 +1,6 @@
 import { it, expect } from 'vitest';
 import { manifestSchema, receiptSchema, validateReceiptAgainstManifest } from './contracts';
+import { cargoFeedbackSchema } from './contracts';
 export const manifest = () => ({
   manifest_ref: { kind: 'REQUEST', id: '11111111-1111-4111-8111-111111111111', revision: 1, hash: 'a'.repeat(64) },
   source_ref: { system: 'PMS', organization_id: 'simulated:hotel', external_request_id: 'r1' },
@@ -10,6 +11,14 @@ it('accepts cargo and rejects passenger service and unknown fields', () => {
   expect(manifestSchema.safeParse(manifest()).success).toBe(true);
   expect(manifestSchema.safeParse({ ...manifest(), service_code: 'GUEST_TRANSPORT' }).success).toBe(false);
   expect(manifestSchema.safeParse({ ...manifest(), load_type: 'Passenger' }).success).toBe(false);
+});
+it('keeps historical unsigned receipt parsing while preserving new signed receipt content privately', () => {
+  const legacy = { submission_id: '22222222-2222-4222-8222-222222222222', manifest_ref: manifest().manifest_ref, stage: 'PICKUP', observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: '9', condition: 'INTACT', issue_code: 'SHORTAGE', remarks: '', evidence_ids: [] }], receiver_confirmation_ref: null };
+  const handover = { version: 1, signer_name: 'Supplier', signer_role_or_dept: 'Supply', acknowledgment: 'CARGO_HANDOVER_V1', captured_at: '2026-10-09T08:00:00.000Z', signature: { width: 600, height: 240, strokes: [[[20, 30], [60, 80]]] }, location: null };
+  expect(receiptSchema.parse(legacy)).toEqual(legacy);
+  expect(receiptSchema.parse({ ...legacy, handover }).handover).toEqual(handover);
+  const feedback = { execution_id: legacy.submission_id, execution_version: 2, source_ref: manifest().source_ref, event_type: 'PICKUP_RECORDED', manifest_ref: legacy.manifest_ref, receipt: { receipt_id: legacy.submission_id, payload: { ...legacy, handover } }, decision: null };
+  expect(cargoFeedbackSchema.safeParse(feedback).success).toBe(false);
 });
 it.each(['bad', '-1', 'NaN', 'Infinity', '1.0001', '0', '1.5'])('returns a validation failure for invalid expected quantity %s', expected_quantity => {
   const input = manifest();

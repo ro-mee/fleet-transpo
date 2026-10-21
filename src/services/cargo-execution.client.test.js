@@ -6,6 +6,7 @@ import {
   clearCargoDeparture,
   getCargoEvidence,
   getCargoExecution,
+  getCargoHandovers,
   recordManualCargoDecision,
   resolveCargoSourceHref,
   retryCargoFeedback,
@@ -14,6 +15,21 @@ import {
 const evidenceId = "11111111-1111-4111-8111-111111111111";
 
 beforeEach(() => apiFetch.mockReset());
+
+it("requests private handovers explicitly, bypasses cache and forwards cancellation", async () => {
+  const handovers = { pickup: null, delivery: null };
+  apiFetch.mockResolvedValue({ data: { trip_id: 7, handovers } });
+  const signal = new AbortController().signal;
+  await expect(getCargoHandovers(7, { signal })).resolves.toEqual(handovers);
+  expect(apiFetch).toHaveBeenCalledWith("/api/trips/7/cargo?include_handovers=1", { signal, cache: "no-store" });
+});
+
+it("refuses a private projection for another trip or without explicit handovers", async () => {
+  apiFetch.mockResolvedValue({ data: { trip_id: 8, handovers: { pickup: null, delivery: null } } });
+  await expect(getCargoHandovers(7)).rejects.toThrow("unavailable");
+  apiFetch.mockResolvedValue({ data: { trip_id: 7 } });
+  await expect(getCargoHandovers(7)).rejects.toThrow("unavailable");
+});
 
 it("reads the bounded trip execution without putting private detail URLs in a cached query", async () => {
   apiFetch.mockResolvedValue({ data: { trip_id: 7, version: 3 } });
