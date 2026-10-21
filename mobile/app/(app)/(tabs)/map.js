@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
 import OffDutyIllustration from "../../../components/OffDutyIllustration";
+import { Logo } from "../../../components/logo";
 import RouteOptionsSheet from "../../../components/RouteOptionsSheet";
 import TripOperationalSummary, { CargoMapStandby } from "../../../components/TripOperationalSummary";
 import { navigationTarget, externalNavigationUrl } from "../../../lib/navigation-route";
@@ -1486,15 +1487,7 @@ export default function MapTab() {
           </View>
         </View>
         <View style={[styles.emptyHeader, { paddingTop: Math.max(insets.top, 16) + 6 }]}>
-          <View style={styles.headerBrandRow}>
-            <View style={styles.headerLogoBadge}>
-              <Ionicons name="car" size={20} color="#042F24" />
-            </View>
-            <View style={styles.headerBrandTextCol}>
-              <Text style={[styles.headerBrandTitle, { color: emptyTheme.brandTitle }]}>FleetOps</Text>
-              <Text style={[styles.headerBrandSubtitle, { color: emptyTheme.brandSubtitle }]}>DRIVER COMPANION</Text>
-            </View>
-          </View>
+          <Logo size={40} style={styles.headerBrandRow} />
           <Pressable
             onPress={() => router.push('/notifications')}
             accessibilityRole="button"
@@ -1560,15 +1553,7 @@ export default function MapTab() {
 
         {/* Top App Header */}
         <View style={[styles.emptyHeader, { paddingTop: Math.max(insets.top, 16) + 6 }]}>
-          <View style={styles.headerBrandRow}>
-            <View style={styles.headerLogoBadge}>
-              <Ionicons name="car" size={20} color="#042F24" />
-            </View>
-            <View style={styles.headerBrandTextCol}>
-              <Text style={[styles.headerBrandTitle, { color: emptyTheme.brandTitle }]}>FleetOps</Text>
-              <Text style={[styles.headerBrandSubtitle, { color: emptyTheme.brandSubtitle }]}>DRIVER COMPANION</Text>
-            </View>
-          </View>
+          <Logo size={40} style={styles.headerBrandRow} />
           <Pressable
             onPress={() => router.push('/notifications')}
             accessibilityRole="button"
