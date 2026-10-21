@@ -23,6 +23,15 @@ async function request(path, options) {
 }
 
 export const cargoApi = {
+  async getHandovers(tripId, actorId, signal) {
+    const response = await request(`/api/trips/${encodeURIComponent(tripId)}/cargo?include_handovers=1`, actorOptions(actorId, { method: "GET", cache: "no-store" }, signal));
+    const view = response?.data ?? response;
+    if (String(view?.trip_id) !== String(tripId) || !view?.handovers ||
+      !Object.hasOwn(view.handovers, "pickup") || !Object.hasOwn(view.handovers, "delivery")) {
+      throw new CargoApiError("Saved signatures could not be verified. Refresh this trip and try again.");
+    }
+    return view;
+  },
   getExecution(tripId, actorId, signal) {
     return request(`/api/trips/${encodeURIComponent(tripId)}/cargo`, actorOptions(actorId, { method: "GET" }, signal));
   },

@@ -1,3 +1,4 @@
+import { CoachMarkTarget } from '../coachmarks';
 import { View, Text } from "react-native";
 import { CargoButton as ClayButton } from "./CargoButton";
 import { useTheme } from "../../lib/theme-context";
@@ -39,17 +40,18 @@ export function CargoWorkflowContent({ canOperate = false, mode, execution, trip
       </> : <>
         {!atStage && <Text style={type.bodyMd}>This observation is available {stage === "PICKUP" ? "at pickup" : "at delivery"}. Return to the map to follow the trip.</Text>}
         {stale && <Text style={[type.bodyMd, { color: colors.error }]}>The manifest changed. Your earlier count is preserved; begin a new count against this revision.</Text>}
-        {pending && <Text style={type.bodyMd}>This saved submission is locked for retry. Quantities and submission identity stay unchanged.</Text>}
-        {issueLine ? <CargoIssueSheet line={manifest.lines.find(line => line.line_id === issueLine)} issue={form.issues?.[issueLine]} onChange={onIssueChange} onPhoto={onPhoto} onClose={onCloseIssue} busy={busy || !canObserve} /> : review ? <>
+        {pending && <Text style={type.bodyMd}>This saved submission is locked for retry. Quantities, signer acknowledgment and submission identity stay unchanged.</Text>}
+        {issueLine ? <CargoIssueSheet line={manifest.lines.find(line => line.line_id === issueLine)} issue={form.issues?.[issueLine]} onChange={onIssueChange} onPhoto={onPhoto} onClose={onCloseIssue} busy={busy || !canObserve || pending} /> : review ? <>
           <CargoReceiptSummary manifest={manifest} lines={execution.lines} counts={form.counts} stage={stage} />
           <ClayButton label="Back to counts" variant="tonal" onPress={() => onReview(false)} disabled={busy} />
         </> : <CargoManifestList manifest={manifest} lines={execution.lines} evidence={execution.evidence} counts={form.counts} issues={form.issues} errors={errors || {}} stage={stage} onChange={onChange} onIssue={onIssue} editable={editable} />}
         {!issueLine && <>
           {!review && <ClayButton label="Review counts" variant="tonal" onPress={() => onReview(true)} disabled={!canObserve || busy} />}
           {review && <>
+            {!pending && <Text style={type.bodyMd}>Next, the {stage === "PICKUP" ? "releasing" : "receiving"} staff member reviews and signs this count. A signature does not grant business or safety approval.</Text>}
             {stage === "PICKUP" ? <>
-              <ClayButton label="Confirm pickup" onPress={() => onSubmit(false)} disabled={!canObserve || hasIssue || busy} loading={busy && !hasIssue} />
-              <ClayButton label="Report pickup issue" variant="secondary" onPress={() => onSubmit(true)} disabled={!canObserve || !hasIssue || busy} loading={busy && hasIssue} />
+              {hasIssue ? <ClayButton label="Confirm pickup" onPress={() => onSubmit(false)} disabled={!canObserve || hasIssue || busy} loading={busy && !hasIssue} /> : <CoachMarkTarget targetId="cargo.signature"><ClayButton label="Confirm pickup" onPress={() => onSubmit(false)} disabled={!canObserve || hasIssue || busy} loading={busy && !hasIssue} /></CoachMarkTarget>}
+              {hasIssue ? <CoachMarkTarget targetId="cargo.signature"><ClayButton label="Report pickup issue" variant="secondary" onPress={() => onSubmit(true)} disabled={!canObserve || !hasIssue || busy} loading={busy && hasIssue} /></CoachMarkTarget> : <ClayButton label="Report pickup issue" variant="secondary" onPress={() => onSubmit(true)} disabled={!canObserve || !hasIssue || busy} loading={busy && hasIssue} />}
             </> : <>
               <ClayButton label="Record delivery observation" onPress={() => onSubmit(hasIssue)} disabled={!canObserve || busy} loading={busy} />
               <Text style={type.supporting}>Your observation remains pending review. Expected, picked-up and delivered amounts stay separate.</Text>
@@ -57,7 +59,7 @@ export function CargoWorkflowContent({ canOperate = false, mode, execution, trip
           </>}
           {stage === "DELIVERY" && <>
             <Text style={type.bodyMd}>{view.summary.receiverLabel}</Text>
-            <Text style={type.supporting}>Receiver name and method: unavailable in the current server contract.</Text>
+            <Text style={type.supporting}>Staff acknowledgment records who signed. Receiving authority must still be confirmed separately by the server.</Text>
             <ClayButton label={view.canConfirmDelivery ? "Delivery confirmed by server" : "Confirm delivery"} disabled />
           </>}
           {(stale || form.pendingSubmissionId) && <ClayButton label="Begin a new count" variant="tonal" onPress={onRecount} disabled={!canOperate || busy || (pending && !stale)} />}

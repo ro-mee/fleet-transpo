@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildCargoViewModel, blankCargoCounts, validateCargoCounts, buildCargoReceipt, cargoMapAction, resolveCargoMapGate, cargoFormHasIssue, readCargoScreenSources } from "./cargo-view-model";
+
+it("binds a normalized signature to exactly the reviewed receipt and rejects malformed drawings", () => {
+  const handover = { version: 1, signer_name: "Alex Santos", signer_role_or_dept: "Receiving", acknowledgment: "CARGO_HANDOVER_V1", captured_at: "2026-10-20T02:00:00.000Z", signature: { width: 600, height: 240, strokes: [[[20, 30], [60, 80], [100, 40]]] }, location: null };
+  expect(buildCargoReceipt(execution, { stage: "PICKUP", counts: { boxes: "10" }, handover }).handover).toEqual(handover);
+  expect(() => buildCargoReceipt(execution, { stage: "PICKUP", counts: { boxes: "10" }, handover: { ...handover, signature: { ...handover.signature, strokes: [] } } })).toThrow();
+});
 const cargoTrip = { trip_id: 701, vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "At Pickup" };
 const manifest = { manifest_ref: { kind: "REQUEST", id: "b8da95aa-6670-4dd5-a0b0-367cab368017", revision: 1, hash: "a".repeat(64) }, source_ref: { system: "POS", organization_id: "restaurant", external_request_id: "order-12" }, service_code: "RESTAURANT_SUPPLY_PICKUP", lines: [{ line_id: "boxes", name: "Fresh produce", expected_quantity: "10", unit: "boxes", quantity_basis: "TRANSPORT_PACKAGE", handling: ["SECURE_LOAD"], reference_image_ref: null }] };
 export const execution = { manifest, pickup_state: "NOT_RECORDED", delivery_state: "NOT_RECORDED", can_depart: false, can_complete: false, capabilities: { observe: true }, blockers: [{ code: "CARGO_PICKUP_REQUIRED", message: "Verify cargo at pickup." }], lines: [{ line_id: "boxes", expected_quantity: "10", pickup_quantity: null, delivery_quantity: null, order_shortage: null, delivery_shortage: null }], feedback: { state: "NOT_QUEUED" } };

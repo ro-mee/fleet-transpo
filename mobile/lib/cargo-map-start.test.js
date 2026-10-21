@@ -30,9 +30,9 @@ describe('real Cargo Map start control', () => {
   it('enables Cargo start only with known passed checks and open timing', () => {
     expect(render()).toMatchObject({ title: 'START ROUTE', disabled: false });
   });
-  it.each([null, 'Failed'])('holds Cargo start for unresolved or failed Pre-Trip: %s', pre_trip_status => {
+  it.each([null, 'Failed'])('allows Cargo inspection navigation while actual start remains gated: %s', pre_trip_status => {
     const props = render({ activeTrip: { trip_id: 7, vehicle_id: 2, operational_use: 'Cargo', load_type: 'Cargo', trip_status: 'Driver Accepted', earliest_start: '2020-01-01T00:00:00Z', pre_trip_status } });
-    expect(props).toMatchObject({ title: 'PRE-TRIP CHECK', disabled: true });
+    expect(props).toMatchObject({ title: 'PRE-TRIP CHECK', disabled: false });
   });
   it('blocks an incompatible assignment even when timing and inspections pass', () => {
     const props = render({ profile: { driverType: 'Passenger' } });

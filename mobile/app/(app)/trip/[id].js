@@ -23,6 +23,7 @@ import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, cargoVerificatio
 import { usePreShift } from "../../../lib/use-pre-shift";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
+import { CargoTripHandovers } from "../../../components/cargo/CargoTripHandovers";
 import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../../components/coachmarks";
 
 // Scheme-aware clay material (clayMaterials) — the old local copy baked in
@@ -445,6 +446,8 @@ export default function TripDetailsScreen() {
         </ClayCard>}
 
         {isCargo && canOperate && !isTerminal && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
+
+        {isCargoLoad(trip) && <CargoTripHandovers tripId={String(id)} actorId={user?.employeeId} session={tripSession} confirmed={tripConfirmed && String(trip.trip_id) === String(id)} online={status === "online"} onRefreshTrip={retry} />}
 
         {/* Readiness panel (pre-start) or completion summary (terminal) */}
         {isTerminal ? (

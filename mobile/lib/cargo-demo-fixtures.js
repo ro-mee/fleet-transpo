@@ -94,6 +94,15 @@ function createExecution({ base, serviceCode, pickupCount, pickupVersion = 2, pi
       manifest_ref: manifestRef,
       stage,
       observed_at: demoTime,
+      handover: {
+        version: 1,
+        signer_name: stage === "PICKUP" ? "Demo releasing staff" : "Demo receiving staff",
+        signer_role_or_dept: stage === "PICKUP" ? "Demo supplier" : "Demo receiving",
+        acknowledgment: "CARGO_HANDOVER_V1",
+        captured_at: demoTime,
+        signature: { width: 600, height: 240, strokes: [[[20, 30], [60, 80], [100, 40]]] },
+        location: null,
+      },
       lines: [{
         line_id: sampleLine.line_id,
         observed_quantity: String(count),

@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { saveCargoDraft, listCargoDrafts } from "./cargo-drafts";
 import { captureCargoSession, isCurrentCargoSession, syncCargoDrafts } from "./cargo-sync";
 import { buildCargoReceipt } from "./cargo-view-model";
+import { validateCargoHandover } from "../../shared/cargo-handover";
 const writes = new Map();
 const submissions = new Map();
 function keyFor({ actorId, tripId, stage }) {
@@ -26,8 +27,10 @@ export async function readCargoForm(input) {
 }
 export function saveCargoForm(input) {
   const snapshot = current(input.actorId), key = keyFor(input);
+  // Editable counts may autosave; an unsent acknowledgment stays in memory only.
+  const { handover: _unsentHandover, ...form } = input.form;
   const write = (writes.get(key) || Promise.resolve()).catch(() => {}).then(async () => {
-    check(snapshot, input.isAuthorized, input.tripId); await AsyncStorage.setItem(key, JSON.stringify(input.form)); check(snapshot, input.isAuthorized, input.tripId); return input.form;
+    check(snapshot, input.isAuthorized, input.tripId); await AsyncStorage.setItem(key, JSON.stringify(form)); check(snapshot, input.isAuthorized, input.tripId); return form;
   });
   writes.set(key, write);
   return write.finally(() => { if (writes.get(key) === write) writes.delete(key); });
@@ -46,7 +49,8 @@ export async function submitCargoObservation(input) {
     let row = rows.find(item => String(item.tripId) === String(input.tripId) && item.draft.stage === input.stage && item.manifestHash === hash && (item.submissionId === savedForm?.pendingSubmissionId || item.submissionId === input.form?.pendingSubmissionId));
     if (!row) row = rows.filter(item => String(item.tripId) === String(input.tripId) && item.draft.stage === input.stage && item.manifestHash === hash && item.syncState !== "FLEET_SAVED").at(-1);
     if (!row) {
-      const draft = buildCargoReceipt(input.execution, { stage: input.stage, counts: input.form.counts, issues: input.form.issues, reportIssue: input.reportIssue === true });
+      const handover = validateCargoHandover(input.handover);
+      const draft = buildCargoReceipt(input.execution, { stage: input.stage, counts: input.form.counts, issues: input.form.issues, reportIssue: input.reportIssue === true, handover });
       check(snapshot, input.isAuthorized, input.tripId); row = await saveCargoDraft({ actorId: input.actorId, tripId: input.tripId, manifestRef: input.execution.manifest.manifest_ref, draft, isCurrent: () => { check(snapshot, input.isAuthorized, input.tripId); return true; } }); check(snapshot, input.isAuthorized, input.tripId);
     }
     if (input.reportIssue && !row.draft.lines.some(line => ["SHORTAGE", "EXCESS", "DAMAGE"].includes(line.issue_code))) throw new Error("Report an issue only for a shortage, excess or damage. Retry this clean receipt through Confirm pickup.");

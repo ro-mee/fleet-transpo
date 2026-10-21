@@ -8,6 +8,25 @@ import { cargoApi } from "./cargo-api";
 beforeEach(() => fetchMock.mockReset());
 
 describe("typed cargo API", () => {
+  it("requests private handovers explicitly with the current actor, no cache and cancellation", async () => {
+    const view = { trip_id: 7, handovers: { pickup: null, delivery: null } };
+    fetchMock.mockResolvedValueOnce({ data: view });
+    const controller = new AbortController();
+    expect(await cargoApi.getHandovers("7", "employee-7", controller.signal)).toEqual(view);
+    expect(fetchMock).toHaveBeenCalledWith("/api/trips/7/cargo?include_handovers=1", {
+      method: "GET", cache: "no-store", cargoActorId: "employee-7", queueOnFailure: false, signal: controller.signal,
+    });
+  });
+
+  it.each([
+    { trip_id: 8, handovers: { pickup: null, delivery: null } },
+    { trip_id: 7 },
+    { trip_id: 7, handovers: { pickup: null } },
+  ])("refuses mismatched or incomplete private detail responses", async view => {
+    fetchMock.mockResolvedValueOnce({ data: view });
+    await expect(cargoApi.getHandovers("7", "employee-7")).rejects.toThrow("Saved signatures could not be verified");
+  });
+
   it("uses the reviewed endpoints and never lets cargo writes enter the generic outbox", async () => {
     fetchMock.mockResolvedValueOnce({ data: { manifest: { manifest_ref: { hash: "h1" } } } })
       .mockResolvedValueOnce({ data: { execution_id: "e1", evidence_upload: { evidence_id: "ev-1" } } })

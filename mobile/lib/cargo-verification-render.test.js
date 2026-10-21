@@ -21,7 +21,8 @@ async function load(path) {
   const deps = { react: React, "react-native": { View: primitive("div"), Text: primitive("span"), Pressable: primitive("button"), TextInput: primitive("input"), Image: primitive("img"), StyleSheet: { create: v => v }, Platform: { OS: "android" } } };
   for (const match of code.matchAll(/require\("([^" ]+)"\)/g)) {
     const name = match[1]; if (deps[name]) continue;
-    if (name.endsWith('.webp')) deps[name] = 1;
+    if (name.endsWith('/coachmarks')) deps[name] = { CoachMarkTarget: primitive('div') };
+    else if (name.endsWith('.webp')) deps[name] = 1;
     else if (name.endsWith("theme-context")) deps[name] = { useTheme: () => theme };
     else if (name.endsWith("/clay")) deps[name] = { ClayCard: primitive("section"), ClayButton: ({ label, disabled }) => React.createElement("button", { disabled }, label), ClayInput: ({ label, value, error, editable, inputStyle, placeholderTextColor }) => React.createElement("label", null, label, React.createElement("input", { value, readOnly: true, disabled: editable === false, style: inputStyle, "data-placeholder-color": placeholderTextColor }), error) };
     else { let target = resolve(dirname(path), name); for (const suffix of ["", ".jsx", ".js"]) if (existsSync(target + suffix)) { target += suffix; break; } deps[name] = await load(target); }
@@ -30,6 +31,17 @@ async function load(path) {
 }
 const base = new URL("../components/cargo/", import.meta.url);
 const manifest = { manifest_ref: { revision: 1 }, lines: [{ line_id: "boxes", name: "Fresh produce", expected_quantity: "10", unit: "boxes", quantity_basis: "TRANSPORT_PACKAGE", reference_image_ref: null, handling: ["SECURE_LOAD"] }] };
+
+it("explains signing after review while keeping receiver authority separate", async () => {
+  const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
+  const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "delivery", review: true, execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "Drop-off" }, view: { canSubmit: true, stage: "DELIVERY", summary: {}, blockers: [] }, form: { counts: { boxes: "10" }, issues: {} } }));
+  expect(html).toContain("Next, the receiving staff"); expect(html).toContain("Receiving authority must still be confirmed separately");
+});
+it("locks the issue editor of a saved immutable pending receipt", async () => {
+  const { CargoWorkflowContent } = await load(fileURLToPath(new URL("CargoWorkflowContent.jsx", base)));
+  const html = renderToStaticMarkup(React.createElement(CargoWorkflowContent, { mode: "pickup", pending: true, issueLine: "boxes", execution: { manifest, capabilities: { observe: true } }, trip: { trip_status: "At Pickup" }, view: { canSubmit: true, stage: "PICKUP", summary: {}, blockers: [] }, form: { counts: { boxes: "9" }, issues: { boxes: { remarks: "One missing" } } } }));
+  expect(html).toMatch(/<input[^>]*disabled=""/); expect(html).toContain('<button disabled="">Add observation photo');
+});
 describe("rendered native cargo components", () => {
   it("shows source physical facts beside blank actual counts without granting observation authority", async () => {
     const { CargoItemReceiptRow } = await load(fileURLToPath(new URL("CargoItemReceiptRow.jsx", base)));
@@ -279,9 +291,13 @@ it.each(["submit", "photo", "recount", "edit"])("direct Cargo route blocks %s wh
 
 it("detail rechecks driver type after accept before start", async () => {
   const path = "../app/(app)/trip/[id].js", writes = [];
+  const helper = { exports: {} };
+  const { code } = await transform(readFileSync(new URL('./trip-odometer.js', import.meta.url), 'utf8'), { format: 'cjs' });
+  runInNewContext(code, { module: helper, exports: helper.exports, require: () => ({}) });
+  const { odometerStartRoute } = helper.exports;
   const trip = { trip_id: 701, vehicle_id: 3, operational_use: "Passenger", load_type: "Passenger", trip_status: "Assigned" };
   const operationRef = { current: { profile: { driverType: "Passenger" }, trip, canOperate: true, session: {} } };
-  const action = runInNewContext(`(${screenVariable(path, "handleAcceptStart")})`, { canOperate: true, resolveDriverWorkspace, profile: { driverType: "Passenger" }, trip, operationRef, dismiss: async () => {}, setAccepting: () => {}, isAccepted: false, id: 701, user: { employeeId: 12 }, tripSession: {}, isCurrentCargoSession: () => true, status: "online", api: { put: async path => { writes.push(path); operationRef.current.profile.driverType = "Cargo"; return {}; } }, wasQueued: () => false, router: { replace: () => {} }, AppAlert: { alert: () => {} } });
+  const action = runInNewContext(`(${screenVariable(path, "handleAcceptStart")})`, { canOperate: true, resolveDriverWorkspace, odometerStartRoute, profile: { driverType: "Passenger" }, trip, operationRef, dismiss: async () => {}, setAccepting: () => {}, isAccepted: false, id: 701, user: { employeeId: 12 }, tripSession: {}, isCurrentCargoSession: () => true, status: "online", api: { put: async path => { writes.push(path); operationRef.current.profile.driverType = "Cargo"; return {}; } }, wasQueued: () => false, router: { replace: () => {} }, AppAlert: { alert: () => {} } });
   await action();
   expect(writes).toEqual(["/api/trips/701/accept"]);
 });

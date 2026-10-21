@@ -2406,7 +2406,7 @@ export default function MapTab() {
                   (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
                   tripActionLabel(activeTrip.trip_status, profile?.driverType)
                 }
-                disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || (workspace.mode === 'cargo' && preStart ? !cargoStartReadiness.startReady : preStart && preTripDone && !windowOpen)}
+                disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || (workspace.mode === 'cargo' && preStart ? !cargoStartReadiness.startReady && cargoStartReadiness.unavailableReason !== 'inspection' : preStart && preTripDone && !windowOpen)}
                 busy={inFlight}
                 backgroundColor={colors.primary}
                 textColor={colors.onPrimary}
