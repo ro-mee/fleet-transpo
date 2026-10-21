@@ -16,6 +16,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -39,6 +40,7 @@ export function NotificationFeedProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
 
   const seenRef = useRef(new Set());
   const seededRef = useRef(false);
@@ -48,7 +50,11 @@ export function NotificationFeedProvider({ children }) {
     try {
       const data = await api.get("/api/notifications");
       const list = Array.isArray(data) ? data : [];
-      setNotifications(list);
+      // Unchanged polls should not redraw every subscribed screen.
+      setNotifications((previous) =>
+        JSON.stringify(previous) === JSON.stringify(list) ? previous : list
+      );
+      setError(null);
       if (!seededRef.current) {
         // First load: remember every id, announce nothing.
         seededRef.current = true;
@@ -88,7 +94,7 @@ export function NotificationFeedProvider({ children }) {
         });
       });
     } catch {
-      // Non-critical; the Alerts tab will surface a real error if needed.
+      setError("Your inbox couldn’t be updated. Please try again.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -151,16 +157,17 @@ export function NotificationFeedProvider({ children }) {
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
-  const value = {
+  const value = useMemo(() => ({
     notifications,
     loading,
     refreshing,
+    error,
     unreadCount,
     refresh,
     markRead,
     markAllRead,
     dismiss,
-  };
+  }), [notifications, loading, refreshing, error, unreadCount, refresh, markRead, markAllRead, dismiss]);
 
   return (
     <NotificationFeedContext.Provider value={value}>
