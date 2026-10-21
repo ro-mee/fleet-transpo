@@ -14,7 +14,7 @@ function setup({ state = 1, queued = false, cargo = false, allowed = true, outsi
   const deps = { inFlight: false, serverConfirmed: true, tripConfirmed: true, connectivity: 'online', profile: { driverType: cargo ? 'Cargo' : 'Passenger' }, activeTrip: trip, tripSession: session, user: { employeeId: 23 },
     resolveDriverWorkspace: () => ({ tripReady: true, mode: cargo ? 'cargo' : 'passenger' }), setInFlight: vi.fn(), AppAlert: { alert: vi.fn() }, workspaceBlockReason: () => 'blocked', captureCargoSession: () => session, isCurrentCargoSession: () => current,
     resolveCargoMapGate: async () => ({ allowed, reason: 'Fleet hold', route: 'cargo' }), cargoApi: {}, getCargoSyncState: () => ({}), router: { push: vi.fn() }, api, assertCurrentOperation: () => {}, wasQueued: response => !!response?.queued, announceSavedForSync: vi.fn(), loadTrip: vi.fn(), offerOverride: vi.fn(), preTripDone: true, windowOpen: true,
-    readinessFor, duty: { loaded: true, checkedIn: true },
+    readinessFor, odometerStartRoute: () => null, duty: { loaded: true, checkedIn: true },
     isPending: false, isDriverAccepted: state === 0, isState1: state === 1, isState2: state === 2, isState3: state === 3, isState4: state === 4 };
   return { action: runInNewContext(`(${code})`, deps), api, deps };
 }

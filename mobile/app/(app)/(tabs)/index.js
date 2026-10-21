@@ -47,6 +47,7 @@ import {
 import { QUICK_ACTION_ROUTES } from "../../../lib/prefetch-routes";
 import { captureCargoSession, isCurrentCargoSession } from "../../../lib/cargo-sync";
 import { shouldRevalidateHome } from "../../../lib/home-revalidate";
+import { odometerStartRoute } from "../../../lib/trip-odometer";
 
 
 /**
@@ -360,6 +361,8 @@ export default function Home() {
     setActingOn(trip.trip_id);
     try {
       const action = nextObj?.action || "start";
+      const photoRoute = action === 'start' ? odometerStartRoute(trip) : null;
+      if (photoRoute) { router.push(photoRoute); return; }
       const path =
         action === "accept"
           ? `/api/trips/${trip.trip_id}/accept`
@@ -384,7 +387,7 @@ export default function Home() {
     } finally {
       setActingOn(null);
     }
-  }, [load, canManageTrip, confirmedSession, driverProfile?.driverType]);
+  }, [load, canManageTrip, confirmedSession, driverProfile?.driverType, router]);
 
   const handleTripAction = useCallback(async (trip) => {
     if (!canManageTrip || resolveDriverWorkspace({ driverType: driverProfile?.driverType, trip }).tripReady !== true) return;
@@ -392,6 +395,12 @@ export default function Home() {
     if (!isCurrentCargoSession(confirmedSession)) return;
     if (!nextObj || !nextObj.status) {
       AppAlert.alert("Trip Completed or Paused", "No further action is required for this trip at this time.");
+      return;
+    }
+    const photoRoute = ['accept', 'start'].includes(nextObj.action) ? odometerStartRoute(trip) : null;
+    if (photoRoute) { router.push(photoRoute); return; }
+    if (nextObj.status === 'Completed' && trip.odometer_capture_required === true) {
+      router.push({ pathname: '/(app)/trip/complete', params: { tripId: String(trip.trip_id) } });
       return;
     }
     // Cargo shares Map's current-stage verification and the manual completion form.

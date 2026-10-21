@@ -16,7 +16,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
-import { api } from "../../lib/api";
+import { api, apiFetch } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { captureCargoSession, isCurrentCargoSession } from "../../lib/cargo-sync";
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { ReferencePhotoGuide } from '../../components/ReferencePhotoGuide';
@@ -39,7 +41,11 @@ import {
 export default function PreShiftInspection() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { tripId, tour, mode, from } = useLocalSearchParams();
+  const { tripId, tour, mode, from, continuation } = useLocalSearchParams();
+  const { user } = useAuth();
+  const submitLock = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const isTour = tour === "1" || tour === true;
   const { colors, type, scheme } = useTheme();
   const isDark = scheme === "dark";
@@ -84,18 +90,20 @@ export default function PreShiftInspection() {
   const [contextRetry, setContextRetry] = useState(0);
 
   useEffect(() => {
-    if (screenMode !== "pretrip" || !tripId) return;
+    if (isTour || screenMode !== "pretrip" || !tripId) return;
     let cancelled = false;
-    api.get("/api/mobile/driver/trips?status=all")
+    const snapshot = captureCargoSession(user?.employeeId);
+    if (!snapshot) return;
+    apiFetch(`/api/mobile/driver/trips?trip_id=${encodeURIComponent(tripId)}`, { queueOnFailure: false, cargoActorId: snapshot.actorId, signal: snapshot.signal })
       .then((trips) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrentCargoSession(snapshot)) return;
         const found = Array.isArray(trips) ? trips.find((trip) => String(trip.trip_id) === String(tripId)) : null;
         setTripContext(found || null);
         if (!found) setTripContextError("This trip is not in your loaded assignments. Refresh or contact dispatch.");
       })
-      .catch((error) => { if (!cancelled) setTripContextError(error.message || "Connect online to load this trip's safety checklist."); });
+      .catch((error) => { if (!cancelled && isCurrentCargoSession(snapshot)) setTripContextError(error.message || "Connect online to load this trip's safety checklist."); });
     return () => { cancelled = true; };
-  }, [tripId, screenMode, contextRetry]);
+  }, [tripId, screenMode, contextRetry, isTour, user?.employeeId]);
 
   useEffect(() => {
     if (screenMode !== "preshift" || isTour) return;
@@ -192,6 +200,7 @@ export default function PreShiftInspection() {
   };
 
   const handleSubmit = async () => {
+    if (submitLock.current) return;
     if (!allAnswered) {
       AppAlert.alert("Checklist Incomplete", `Please complete all ${checkNoun} inspection items before submitting.`);
       return;
@@ -215,6 +224,9 @@ export default function PreShiftInspection() {
       setShowTourSuccessModal(true);
       return;
     }
+    const snapshot = captureCargoSession(user?.employeeId);
+    if (!snapshot) return;
+    submitLock.current = true;
     try {
       setSubmitting(true);
       const result = await api.post("/api/mobile/driver/inspections", {
@@ -228,7 +240,8 @@ export default function PreShiftInspection() {
           remarks: remarks[item.id] || "",
         })),
         inspected_at: new Date().toISOString(),
-      });
+      }, { cargoActorId: snapshot.actorId, signal: snapshot.signal });
+      if (!mounted.current || !isCurrentCargoSession(snapshot)) return;
       if (result?.queued) {
         AppAlert.alert("Saved Offline", `Your ${checkNoun} inspection is saved and will automatically sync once your connection is restored.`, [
           { text: "Done", onPress: () => router.back() },
@@ -252,6 +265,11 @@ export default function PreShiftInspection() {
         return;
       } else {
         // Pre-Trip
+        if (continuation === 'odometer-start' && result?.status === 'Passed'
+          && String(result.trip_id) === String(tripId) && result.inspection_type === 'Pre-Trip') {
+          router.replace({ pathname: '/trip/odometer', params: { tripId: String(tripId), stage: 'start' } });
+          return;
+        }
         if (statuses.brakes_tires === "FAIL") {
           AppAlert.alert(
             "Safety Issue Reported",
@@ -285,9 +303,10 @@ export default function PreShiftInspection() {
         );
       }
     } catch (e) {
-      AppAlert.alert("Unable to Submit Inspection", e.message || "Please check your network connection and try submitting again.");
+      if (mounted.current && isCurrentCargoSession(snapshot)) AppAlert.alert("Unable to Submit Inspection", e.message || "Please check your network connection and try submitting again.");
     } finally {
-      setSubmitting(false);
+      submitLock.current = false;
+      if (mounted.current && isCurrentCargoSession(snapshot)) setSubmitting(false);
     }
   };
 

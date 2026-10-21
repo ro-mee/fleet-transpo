@@ -8,6 +8,7 @@ import RouteTimeline from "../../../components/RouteTimeline";
 import { api, wasQueued } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { captureCargoSession, isCurrentCargoSession } from "../../../lib/cargo-sync";
+import { odometerStartRoute } from "../../../lib/trip-odometer";
 import { useAuth } from "../../../lib/auth";
 import { CACHE_KEYS, getCached, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
 import { useConnectivity } from "../../../lib/connectivity-context";
@@ -209,6 +210,8 @@ export default function TripDetailsScreen() {
   // reach this — CONTINUE TO MAP navigates without writing status.
   const handleAcceptStart = async () => {
     if (!canOperate || resolveDriverWorkspace({ driverType: profile?.driverType, trip }).tripReady !== true) return;
+    const photoRoute = odometerStartRoute(trip);
+    if (photoRoute) { router.push(photoRoute); return; }
     // The guide explains how to start this trip and the driver just started it,
     // so retire it now. Accepting flips this screen out of its pre-start
     // presentation, which unmounts the controls every step targets — the overlay
@@ -342,6 +345,8 @@ export default function TripDetailsScreen() {
       router.push({ pathname: "/inspection", params: { mode: "preshift" } });
       return;
     }
+    const photoRoute = odometerStartRoute(trip);
+    if (photoRoute) { router.push(photoRoute); return; }
     if (ready.unavailableReason === "inspection") {
       router.push({ pathname: "/inspection", params: { tripId: String(id) } });
       return;
@@ -464,11 +469,22 @@ export default function TripDetailsScreen() {
                 </Text>
               </View>
               <View style={[styles.pair, { alignItems: "flex-end" }]}>
-                <Text style={type.caption}>VEHICLE MILEAGE</Text>
+                <Text style={type.caption}>END ODOMETER</Text>
                 <Text style={[type.data, { color: colors.onSurface }]}>
-                  {trip?.current_mileage != null && trip.current_mileage !== "" ? `${trip.current_mileage} km` : "Not recorded"}
+                  {trip?.end_odometer != null && trip.end_odometer !== "" ? `${trip.end_odometer} km` : "Not recorded"}
                 </Text>
               </View>
+            </View>
+            <View style={{ marginTop: 16, gap: 4 }}>
+              <Text style={type.caption}>DISTANCE TRAVELLED</Text>
+              <Text style={[type.data, { color: colors.onSurface }]}>
+                {trip?.distance != null && trip.distance !== "" ? `${trip.distance} km` : "Not recorded"}
+              </Text>
+              {trip?.distance != null && trip.distance !== "" && (
+                <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
+                  {trip.distance_source === "odometer" ? "From odometer readings" : trip.distance_source === "gps-trail" ? "GPS distance" : trip.distance_source === "trip-distance" ? "Saved trip distance" : "Source not recorded"}
+                </Text>
+              )}
             </View>
           </ClayCard>
         ) : (

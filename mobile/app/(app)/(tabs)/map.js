@@ -39,6 +39,7 @@ import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
 import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { readinessFor } from "../../../lib/trip-detail";
+import { odometerStartRoute } from "../../../lib/trip-odometer";
 import { cargoApi } from "../../../lib/cargo-api";
 import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from "../../../lib/cargo-sync";
 import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
@@ -2418,7 +2419,15 @@ export default function MapTab() {
                     return;
                   }
                   if (currentWorkspace.mode === 'cargo' && (isPending || isDriverAccepted)
-                    && !readinessFor(activeTrip, Date.now(), { preShiftPassed: duty?.loaded === true && duty?.checkedIn === true }).startReady) return;
+                    && !['inspection', null].includes(readinessFor(activeTrip, Date.now(), { preShiftPassed: duty?.loaded === true && duty?.checkedIn === true }).unavailableReason)) return;
+                  if (isPending || isDriverAccepted) {
+                    const photoRoute = odometerStartRoute(activeTrip);
+                    if (photoRoute) { router.push(photoRoute); return; }
+                    if (currentWorkspace.mode === 'cargo' && activeTrip.pre_trip_status !== 'Passed') {
+                      router.push({ pathname: '/inspection', params: { tripId: String(activeTrip.trip_id) } });
+                      return;
+                    }
+                  }
                   setInFlight(true);
                   let confirmed = false;
                   try {
