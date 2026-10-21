@@ -42,6 +42,15 @@ import {
 } from "../../scripts/lib/schema-contract.mjs";
 import { referencedTablesInFile } from "../../scripts/lib/sql-references.mjs";
 
+import { KNOWN_MEDIA_BUCKETS } from "../lib/storage/key-format.js";
+
+describe("trip odometer evidence", () => {
+  it("registers odometer evidence as private", () => {
+    expect(TABLES.trip_odometer_captures?.classification).toBe(CLASSIFICATION.PRIVATE);
+    expect(KNOWN_MEDIA_BUCKETS.has("trip-odometer-photos")).toBe(true);
+  });
+});
+
 const ROOT = process.cwd();
 const SCHEMA_SQL = join(ROOT, "schema.sql");
 const MIGRATIONS_DIR = join(ROOT, "supabase", "migrations");
