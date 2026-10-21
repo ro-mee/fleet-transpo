@@ -113,3 +113,53 @@ export function formatCalendarDate(value, options = {}) {
     ...options,
   }).format(new Date(y, m - 1, d));
 }
+
+/**
+ * A Manila-pinned datetime for operational timestamps.
+ *
+ * formatDateTime in @/lib/utils renders in the *viewer's* zone, so a trip that
+ * completed at 06:00 Manila on Nov 1 prints as "Oct 31" for anyone west of
+ * UTC (FE-16). Trip completion and price effectivity are Manila operations, so
+ * the zone is pinned here rather than inferred from the browser.
+ *
+ * @returns {string} e.g. "Nov 1, 2026, 6:00 AM", or `fallback` when unparseable
+ */
+export function formatManilaDateTime(value, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+/** "YYYY-MM-DD" calendar-day arithmetic, timezone-free (keys are day labels). */
+export function addDaysToKey(key, days) {
+  const [y, m, d] = String(key).split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
+/**
+ * A whole Manila calendar month as inclusive "YYYY-MM-DD" keys.
+ * offset 0 = the current Manila month, -1 = last month, +1 = next month.
+ */
+export function manilaMonthRange(offset = 0, reference = new Date()) {
+  const key = manilaDateKey(reference);
+  if (!key) return null;
+  const [y, m] = key.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + offset, 1));
+  // Day 0 of the month after the target is the target's last day.
+  const last = new Date(Date.UTC(y, m + offset, 0));
+  const toKey = (dt) => `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+  return { from: toKey(first), to: toKey(last) };
+}
+
+/** Inclusive Manila range of `days` calendar days ending on the Manila today. */
+export function manilaTrailingRange(days, reference = new Date()) {
+  const to = manilaDateKey(reference);
+  if (!to) return null;
+  return { from: addDaysToKey(to, -(Math.max(1, days) - 1)), to };
+}

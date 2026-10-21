@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { estimateEfficiency } from "@/lib/ai/rule-engine";
+import { estimateFuel } from "@/lib/geo/distance";
 import { buildDispatchRecommendation } from "./dispatch-advisor";
 
 const REQUEST = {
@@ -74,5 +76,50 @@ describe("buildDispatchRecommendation prefiltered merge", () => {
       activeSubstitutes: [],
     });
     expect(rec.pair.none_reasons).toEqual([]);
+  });
+});
+
+describe("vehicle fuel estimate caliber (FE-08)", () => {
+  const base = {
+    vehicle_id: 7,
+    plate_number: "ABC 1234",
+    vehicle_status: "Available",
+    seating_capacity: 4,
+    fuel_type: "Gasoline",
+    tank_capacity: 50,
+    _schedule_load: 0,
+  };
+  // Stored estimate → estimateForRequest() resolves 36 km deterministically.
+  const RESOLVED_REQUEST = { ...REQUEST, estimated_distance: 36, estimated_duration: 60 };
+
+  it("uses the configured profile first and labels the basis", () => {
+    const rec = buildDispatchRecommendation({
+      request: RESOLVED_REQUEST,
+      vehicles: [{ ...base, fuel_efficiency_kmpl: 7.5 }],
+      drivers: [],
+      activePairs: [],
+      activeSubstitutes: [],
+    });
+    const v = rec.vehicle.recommended;
+    const fuel = estimateFuel(36, 7.5, 50);
+    expect(v.estimated_fuel_basis).toBe("profile");
+    expect(v.estimated_fuel_efficiency_kmpl).toBe(7.5);
+    expect(v.estimated_fuel_liters).toBe(fuel.liters);
+    expect(v.estimated_fuel_percent_of_tank).toBe(fuel.percentOfTank);
+  });
+
+  it("labels the seat/fuel-type heuristic as the fallback when no profile exists", () => {
+    const rec = buildDispatchRecommendation({
+      request: RESOLVED_REQUEST,
+      vehicles: [base],
+      drivers: [],
+      activePairs: [],
+      activeSubstitutes: [],
+    });
+    const v = rec.vehicle.recommended;
+    const heuristic = estimateEfficiency(base);
+    expect(v.estimated_fuel_basis).toBe("heuristic");
+    expect(v.estimated_fuel_efficiency_kmpl).toBe(heuristic);
+    expect(v.estimated_fuel_liters).toBe(estimateFuel(36, heuristic, 50).liters);
   });
 });

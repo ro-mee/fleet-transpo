@@ -3,6 +3,7 @@ import { RISK } from "@/lib/ai/predictive-maintenance";
 import {
   isProximityRelevant,
   estimateEfficiency,
+  resolveVehicleEfficiency,
   scoreProximity,
   scoreFuelEconomy,
   scheduleGapGain,
@@ -43,6 +44,37 @@ describe("estimateEfficiency", () => {
     expect(estimateEfficiency({ seating_capacity: 4, fuel_type: "Diesel" })).toBeGreaterThan(
       estimateEfficiency({ seating_capacity: 15, fuel_type: "Gasoline" })
     );
+  });
+});
+
+describe("resolveVehicleEfficiency", () => {
+  it("prefers the configured profile over the seat heuristic", () => {
+    expect(
+      resolveVehicleEfficiency({ fuel_efficiency_kmpl: 12.5, seating_capacity: 4, fuel_type: "Gasoline" })
+    ).toEqual({ kmpl: 12.5, basis: "profile" });
+  });
+
+  it("accepts the numeric string pg returns for a numeric column", () => {
+    expect(resolveVehicleEfficiency({ fuel_efficiency_kmpl: "11.2" })).toEqual({ kmpl: 11.2, basis: "profile" });
+  });
+
+  it("prefers an eligible measured basis over the configured profile (Level 3)", () => {
+    expect(
+      resolveVehicleEfficiency({ fuel_efficiency_kmpl: 9, _measured_efficiency: { eligible: true, kmpl: 7.5 } })
+    ).toEqual({ kmpl: 7.5, basis: "measured" });
+  });
+
+  it("falls back to the profile when the measured basis did not pass its gates", () => {
+    expect(
+      resolveVehicleEfficiency({ fuel_efficiency_kmpl: 9, _measured_efficiency: { eligible: false, kmpl: null } })
+    ).toEqual({ kmpl: 9, basis: "profile" });
+  });
+
+  it("labels the seat/fuel-type heuristic as the fallback when no usable profile exists", () => {
+    const vehicle = { fuel_efficiency_kmpl: 0, seating_capacity: 4, fuel_type: "Diesel" };
+    expect(resolveVehicleEfficiency(vehicle)).toEqual({ kmpl: estimateEfficiency(vehicle), basis: "heuristic" });
+    expect(resolveVehicleEfficiency(null)).toMatchObject({ basis: "heuristic" });
+    expect(resolveVehicleEfficiency({ fuel_efficiency_kmpl: "not-a-number" })).toMatchObject({ basis: "heuristic" });
   });
 });
 

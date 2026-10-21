@@ -25,7 +25,7 @@ describe("estimateFuelCost", () => {
   });
   it("computes 36 km at 9 km/L and PHP 62.70/L as 4.00 L / PHP 250.80", () => {
     const r = estimateFuelCost({ distanceKm: 36, efficiencyKmpl: 9, pricePerLiter: 62.7 });
-    expect(r).toMatchObject({ liters: 4, cost: 250.8, basis: "measured" });
+    expect(r).toMatchObject({ liters: 4, cost: 250.8, basis: "estimated" });
   });
 
   it("reports a missing basis with reason instead of 0 or a fake actual", () => {
@@ -35,11 +35,16 @@ describe("estimateFuelCost", () => {
     for (const r of [
       estimateFuelCost({ distanceKm: null, efficiencyKmpl: 9, pricePerLiter: 62.7 }),
       estimateFuelCost({ distanceKm: 36, efficiencyKmpl: null, pricePerLiter: 62.7 }),
-      estimateFuelCost({ distanceKm: 36, efficiencyKmpl: 9, pricePerLiter: null }),
     ]) {
       expect(r.liters).toBeNull();
       expect(r.cost).toBeNull();
+      expect(r.basis).toBe("unavailable");
     }
+  });
+
+  it("keeps the litres it can compute when only the reference price is missing", () => {
+    const r = estimateFuelCost({ distanceKm: 36, efficiencyKmpl: 9, pricePerLiter: null });
+    expect(r).toEqual({ liters: 4, cost: null, basis: "partial", reason: "no-price" });
   });
   it("never coerces boolean or object inputs into a measured estimate", () => {
     for (const value of [true, [36], {}]) expect(estimateFuelCost({ distanceKm: value, efficiencyKmpl: 9, pricePerLiter: 62.7 }).reason).toBe("no-distance");

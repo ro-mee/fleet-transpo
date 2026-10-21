@@ -277,18 +277,46 @@ export function estimateTrip(pickup, dropoff, overrides) {
   };
 }
 
+/** The fallback efficiency (km/L) — surfaced in the result, never applied silently (FE-08). */
+export const FALLBACK_EFFICIENCY_KMPL = 8;
+
 /**
  * Estimate fuel needed for a trip.
  *
- * @param {number} distanceKm
- * @param {number} [kmPerLiter=8] vehicle efficiency; 8 is a fair sedan/van average
- * @returns {{ liters: number, percentOfTank: number|null }}
+ * `distanceKm` is the caller's scheduled distance for one leg. The vehicle has
+ * to come back, so a SINGLE return leg is assumed by default; this is a
+ * parameter rather than hidden `* 2` arithmetic, so a caller that already
+ * knows the return is covered (or has no basis to assume one) can pass
+ * `assumeReturn: false` and count only what was measured.
+ *
+ * No silent numbers (FE-08): callers resolve the efficiency profile-first
+ * (`resolveVehicleEfficiency`); when none is supplied this helper stands in
+ * `FALLBACK_EFFICIENCY_KMPL` AND reports it (`efficiencyKmpl` +
+ * `efficiencyDefaulted`). An unknown distance yields `liters: null` — never a
+ * fabricated zero.
+ *
+ * @param {number|null} distanceKm
+ * @param {number} [kmPerLiter] vehicle efficiency; falls back to FALLBACK_EFFICIENCY_KMPL
+ * @param {number|null} [tankCapacityL]
+ * @param {{ assumeReturn?: boolean }} [options]
+ * @returns {{ liters: number|null, percentOfTank: number|null, efficiencyKmpl: number, efficiencyDefaulted: boolean }}
  */
-export function estimateFuel(distanceKm, kmPerLiter = 8, tankCapacityL = null) {
-  const efficiency = kmPerLiter > 0 ? kmPerLiter : 8;
-  const liters = (distanceKm * 2) / efficiency;
+export function estimateFuel(distanceKm, kmPerLiter, tankCapacityL = null, { assumeReturn = true } = {}) {
+  const provided = Number(kmPerLiter);
+  const efficiencyDefaulted = !(Number.isFinite(provided) && provided > 0);
+  const efficiency = efficiencyDefaulted ? FALLBACK_EFFICIENCY_KMPL : provided;
+  const km = Number(distanceKm);
+  const distanceUnknown =
+    distanceKm === null || distanceKm === undefined || distanceKm === "" || !Number.isFinite(km) || km < 0;
+  if (distanceUnknown) {
+    return { liters: null, percentOfTank: null, efficiencyKmpl: efficiency, efficiencyDefaulted };
+  }
+  const coveredKm = assumeReturn ? km * 2 : km;
+  const liters = coveredKm / efficiency;
   return {
     liters: Number(liters.toFixed(2)),
     percentOfTank: tankCapacityL ? Number(((liters / tankCapacityL) * 100).toFixed(1)) : null,
+    efficiencyKmpl: efficiency,
+    efficiencyDefaulted,
   };
 }

@@ -25,7 +25,9 @@ export function isProximityRelevant(pickupDatetime, now = new Date(), windowHrs 
 
 /**
  * Fuel efficiency heuristic (km/L) inferred from seating capacity and fuel type.
- * Shared by the scoring and the payload so "estimated fuel" means one number.
+ * This is the LABELLED fallback: the configured `vehicles.fuel_efficiency_kmpl`
+ * profile is authoritative (see resolveVehicleEfficiency), and this heuristic
+ * is only used when no usable profile exists.
  */
 export function estimateEfficiency(vehicle) {
   const seats = Number(vehicle?.seating_capacity) || 4;
@@ -35,6 +37,30 @@ export function estimateEfficiency(vehicle) {
   else if (seats <= 15) kmPerLiter = 7;
   else kmPerLiter = 5;
   return /diesel/i.test(vehicle?.fuel_type || "") ? kmPerLiter * 1.15 : kmPerLiter;
+}
+
+/**
+ * The single efficiency-precedence rule (FE-08, extended by Level 3): an
+ * eligible measured basis attached by an async caller (`_measured_efficiency`,
+ * see src/lib/fuel/measured-efficiency.js) outranks the configured profile
+ * (`vehicles.fuel_efficiency_kmpl`), which outranks the seat/fuel-type
+ * heuristic — every step labelled, never a silent equal. Every consumer that
+ * needs an operational efficiency resolves it here, so the same vehicle cannot
+ * show one number on the dispatch payload and another in the fuel request.
+ *
+ * @param {object} vehicle
+ * @returns {{ kmpl: number, basis: "measured"|"profile"|"heuristic" }}
+ */
+export function resolveVehicleEfficiency(vehicle) {
+  const measuredKmpl = Number(vehicle?._measured_efficiency?.kmpl);
+  if (vehicle?._measured_efficiency?.eligible && Number.isFinite(measuredKmpl) && measuredKmpl > 0) {
+    return { kmpl: measuredKmpl, basis: "measured" };
+  }
+  const configured = Number(vehicle?.fuel_efficiency_kmpl);
+  if (Number.isFinite(configured) && configured > 0) {
+    return { kmpl: configured, basis: "profile" };
+  }
+  return { kmpl: estimateEfficiency(vehicle), basis: "heuristic" };
 }
 
 function kmLabel(distanceKm) {
