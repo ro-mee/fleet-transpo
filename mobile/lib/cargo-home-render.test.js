@@ -44,6 +44,14 @@ runInNewContext(code, { module: scope, exports: scope.exports, React, require: n
 } });
 const { DriverTripCard, DriverWorkspaceCard, DriverHeroCard, HomeQuickActions, AssignmentsHeading } = scope.exports;
 describe("rendered cargo Home card", () => {
+  it('unmounts hidden Home route renderers while keeping the trip facts and actions', () => {
+    const trip = { trip_id: 702, trip_status: 'Assigned', load_type: 'Passenger', origin: 'Hotel', destination: 'Airport', passenger_count: 2 };
+    const hidden = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, nowMs: Date.now(), previewActive: false }));
+    expect(hidden).not.toContain('route-preview');
+    expect(hidden).toContain('Hotel'); expect(hidden).toContain('Airport'); expect(hidden).toContain('Trip Details');
+    const visible = renderToStaticMarkup(React.createElement(DriverTripCard, { trip, nowMs: Date.now(), previewActive: true }));
+    expect(visible).toContain('route-preview');
+  });
   it('does not repeat the Cargo duty band when a dedicated inspection prompt is visible', () => {
     const html = renderToStaticMarkup(React.createElement(DriverHeroCard, { workspaceMode: 'cargo', duty: { loaded: true, checkedIn: false }, showDuty: false }));
     expect(html).not.toContain('Off Duty');
@@ -187,7 +195,7 @@ const { code: homeCode } = await transform(readFileSync(new URL("../app/(app)/(t
 
 const cachedCargoTrip = { trip_id: 701, vehicle_id: 12, vehicle_plate: 'ABC-123', operational_use: 'Cargo', load_type: 'Cargo', trip_status: 'Passenger Onboard', cargo_description: 'Fresh vegetables', cargo_weight_kg: 650, passenger_name: 'Ghost Guest', passenger_count: 0, origin: 'Supplier', destination: 'Hotel' };
 
-function homeHarness({ cards, dutyState, preShiftState, activeMilestone = null } = {}) {
+function homeHarness({ cards, dutyState, preShiftState, activeMilestone = null, screenActive = true } = {}) {
   const actorId = 'employee-1';
   const slots = [];
   let cursor = 0;
@@ -253,6 +261,8 @@ function homeHarness({ cards, dutyState, preShiftState, activeMilestone = null }
     '../../../lib/prefetch-routes': { QUICK_ACTION_ROUTES: [] },
     '../../../lib/cargo-sync': { captureCargoSession: id => (id === actorId ? incidentSession : null), isCurrentCargoSession: session => session === incidentSession },
     '../../../lib/home-revalidate': { shouldRevalidateHome: () => false },
+    '../../../lib/trip-odometer': { odometerStartRoute: () => null },
+    '../../../lib/use-screen-clock': { useScreenClock: () => ({ now: Date.now(), active: screenActive }) },
   };
   runInNewContext(homeCode, { module: scope, exports: scope.exports, React, require: name => {
     if (name.endsWith('.png')) return 1;
@@ -287,10 +297,10 @@ function apiGetRejects(h) {
   h.apiGet.mockRejectedValue(Object.assign(new Error('Network request failed'), { status: 0 }));
 }
 
-function seedOfflineCache(h) {
+function seedOfflineCache(h, { trips = [cachedCargoTrip], driverType = 'Cargo' } = {}) {
   h.cached.mockImplementation(async (driverId, key) => {
-    if (key === CACHE_KEYS.HOME_TRIPS) return { data: [cachedCargoTrip], syncedAt: Date.now() - 60000 };
-    if (key === CACHE_KEYS.DRIVER_ME) return { data: { driverType: 'Cargo', driverStatus: 'Active' }, syncedAt: Date.now() - 60000 };
+    if (key === CACHE_KEYS.HOME_TRIPS) return { data: trips, syncedAt: Date.now() - 60000 };
+    if (key === CACHE_KEYS.DRIVER_ME) return { data: { driverType, driverStatus: 'Active' }, syncedAt: Date.now() - 60000 };
     return null;
   });
   apiGetRejects(h);
@@ -303,6 +313,21 @@ async function renderOfflineHome(h) {
 }
 
 describe('Home offline read-only gate (index.js canManageTrip)', () => {
+  it('removes all four route preview components from hidden Home and restores the same trips when visible', async () => {
+    const trips = [
+      { ...cachedCargoTrip, load_type: 'Passenger', operational_use: 'Passenger' },
+      ...[1, 2, 3].map(i => ({ ...cachedCargoTrip, trip_id: 701 + i, load_type: 'Passenger', operational_use: 'Passenger', trip_status: 'Assigned', departure_time: new Date(Date.now() + i * 3600000).toISOString() })),
+    ];
+    for (const screenActive of [true, false]) {
+      const h = homeHarness({ screenActive }); seedOfflineCache(h, { trips, driverType: 'Passenger' });
+      h.renderHome();
+      await vi.waitFor(() => { expect(renderToStaticMarkup(h.renderHome())).toContain('Passenger workspace'); });
+      const html = renderToStaticMarkup(h.renderHome());
+      expect((html.match(/data-testid="route-preview"/g) || []).length).toBe(screenActive ? 4 : 0);
+      expect(html).toContain('NEXT TRIP'); expect(html).toContain('CURRENT TRIP');
+      expect(h.apiPut).not.toHaveBeenCalled();
+    }
+  });
   it('keeps the Incident shortcut visible while on Cargo duty', async () => {
     const h = homeHarness(); seedOfflineCache(h);
     const html = await renderOfflineHome(h);

@@ -68,6 +68,10 @@ export const CLASSIFICATION = Object.freeze({
  * the table's RLS state is itself notable or still unsettled.
  */
 export const TABLES = Object.freeze({
+  trip_odometer_captures: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Private trip-bound odometer photos and extracted readings, accessible only through authorized server operations.",
+  },
   document_uploads: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Owner-scoped private document drafts, attachment metadata and storage keys. Access only through authorized APIs.",

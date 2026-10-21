@@ -9,8 +9,8 @@ import { clayMaterials } from "../lib/clay";
 /**
  * Clay menu row — the exact anatomy established on the Profile tab: forest
  * clayTile icon, label, chevron, softened divider, ≥48dp row, pressed/hover
- * state. Extracted so every clay menu (Profile sections, Personal Information
- * hub rows) reuses one row instead of inventing siblings.
+ * state. Extracted so every clay menu reuses one row instead of inventing
+ * siblings — currently the Profile tab's section rows.
  */
 export default function ClayMenuRow({ title, icon, onPress, isLast = false }) {
   const { colors, type, scheme } = useTheme();

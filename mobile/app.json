@@ -13,9 +13,9 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F5F2EC",
-        "foregroundImage": "./assets/fleetops-icon.png",
+        "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/fleetops-icon.png"
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -39,6 +39,19 @@
     ],
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F5F2EC",
+          "image": "./assets/brand/splash-mark-light.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#0D1713",
+            "image": "./assets/brand/splash-mark-dark.png"
+          }
+        }
+      ],
       [
         "expo-secure-store",
         {

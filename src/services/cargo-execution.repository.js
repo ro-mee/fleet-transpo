@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { manifestSchema, receiptSchema, decisionSchema, cargoFeedbackSchema, validateReceiptAgainstManifest } from '@/lib/cargo/contracts';
+import { manifestSchema, receiptSchema, decisionSchema, cargoFeedbackSchema, validateReceiptAgainstManifest, assertNewReceiptHandover, cargoFeedbackReceiptPayload } from '@/lib/cargo/contracts';
 import { assertCargoConfiguration, cargoError } from './cargo-manifest.service';
 import { compareQuantities } from '@/lib/cargo/quantities';
 import { manualDecisionSchema, manualAuthorityProofSchema } from '@/lib/cargo/manual-decision';
@@ -67,6 +67,7 @@ export async function insertReceipt(input, actor, tx) {
     if (replay.payload_hash !== hash) fail('CARGO_REPLAY_CONFLICT', 'Submission was already used for different content.');
     return replay;
   }
+  assertNewReceiptHandover(payload);
   if (cargoPayloadHash(payload.manifest_ref) !== cargoPayloadHash(execution.manifest.manifest_ref)) fail('CARGO_MANIFEST_CONFLICT', 'The manifest has changed.');
   try { validateReceiptAgainstManifest(payload, execution.manifest); } catch { fail('CARGO_INVALID_RECEIPT', 'Observe every manifest line using its quantity basis.', 400); }
   const evidenceIds = payload.lines.flatMap(line => line.evidence_ids);
@@ -155,14 +156,14 @@ export async function appendCargoFeedback({ execution, eventType, receipt = null
   assertCargoStorageConfiguration(tx?.cargoConfig);
   const payload = parse(cargoFeedbackSchema, { execution_id: execution?.execution_id, execution_version: execution?.version,
     source_ref: execution?.manifest?.source_ref, manifest_ref: execution?.manifest?.manifest_ref, event_type: eventType,
-    receipt: receipt ? { receipt_id: receipt.receipt_id, payload: receipt.payload } : null,
+    receipt: receipt ? { receipt_id: receipt.receipt_id, payload: cargoFeedbackReceiptPayload(receipt.payload) } : null,
     decision: decision ? { decision_id: decision.decision_id, payload: decision.payload } : null });
   const bound = (await tx.query('SELECT * FROM cargo_trip_executions WHERE execution_id=$1 FOR UPDATE', [execution.execution_id])).rows[0];
   if (!bound || cargoPayloadHash(bound.manifest) !== cargoPayloadHash(execution.manifest)) fail('CARGO_EVENT_CONFLICT', 'Event does not match the locked execution.');
   // Never accept an otherwise well-formed foreign or invented receipt/decision object.
   if (receipt) {
     const stored = (await tx.query('SELECT payload FROM cargo_receipts WHERE receipt_id=$1 AND execution_id=$2', [receipt.receipt_id, execution.execution_id])).rows[0];
-    if (!stored || cargoPayloadHash(stored.payload) !== cargoPayloadHash(receipt.payload)) fail('CARGO_EVENT_CONFLICT', 'Event receipt does not match.');
+    if (!stored || cargoPayloadHash(cargoFeedbackReceiptPayload(stored.payload)) !== cargoPayloadHash(cargoFeedbackReceiptPayload(receipt.payload))) fail('CARGO_EVENT_CONFLICT', 'Event receipt does not match.');
   }
   if (decision) {
     const stored = (await tx.query('SELECT payload FROM cargo_decisions WHERE decision_id=$1 AND receipt_id=$2', [decision.decision_id, receipt.receipt_id])).rows[0];

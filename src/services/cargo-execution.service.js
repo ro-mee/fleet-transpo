@@ -1,7 +1,7 @@
 ﻿import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { writeAuditRequired } from '@/lib/audit';
-import { receiptSchema, decisionSchema, validateReceiptAgainstManifest } from '@/lib/cargo/contracts';
+import { receiptSchema, decisionSchema, validateReceiptAgainstManifest, assertNewReceiptHandover } from '@/lib/cargo/contracts';
 import { deriveCargoState, matchesCargoAuthorityProof } from '@/lib/cargo/execution-state';
 import { cargoError, resolveTripManifest } from './cargo-manifest.service';
 import { canTransitionTrip, isPreStartTripStatus } from '@/lib/scheduling/trip-state';
@@ -288,6 +288,7 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
       const payload = parse(receiptSchema, input), execution = await createExecution();
       const hash = cargoPayloadHash({ payload, employeeId: session.user.employeeId, driverId: session.user.driverId });
       const old = await replay(execution, 'RECEIPT', payload.submission_id, hash, tx); if (old) return old;
+      assertNewReceiptHandover(payload);
       if (payload.stage === 'PICKUP' ? !beforeCustody(trip.trip_status) : !atDelivery(trip.trip_status)) fail('CARGO_CUSTODY_LOCKED', 'This cargo observation is not allowed at the current trip stage.');
       if (cargoPayloadHash(payload.manifest_ref) !== cargoPayloadHash(execution.manifest.manifest_ref)) fail('CARGO_MANIFEST_CONFLICT', 'The manifest has changed.');
       try { validateReceiptAgainstManifest(payload, execution.manifest); } catch { fail('CARGO_INVALID_RECEIPT', 'Observe the current manifest lines.', 400); }
@@ -328,6 +329,7 @@ export function createCargoExecutionService({ db, config, authorizeFleet, author
       const current = await rowsFor(execution, tx);
       if (execution.version !== payload.expected_version || current.pickup?.receipt_id !== payload.receipt_id) fail('CARGO_RECEIPT_STALE', 'Refresh the pickup before Fleet review.');
       const state = deriveCargoState({ manifest: execution.manifest, ...current });
+      if (!current.pickup?.payload.handover) fail('CARGO_PICKUP_HANDOVER_REQUIRED', 'The current pickup needs a handover acknowledgment.');
       if (['AWAITING_DECISION', 'REJECTED'].includes(state.pickup_state) || current.decision?.action === 'WAIT') fail('CARGO_SOURCE_DECISION_REQUIRED', 'Current source acceptance is required.');
       const safetyProof = resolveSafetyProof ? approvedProof(await resolveSafetyProof({ receipt: current.pickup, trip, tx, approvalRef: config.safetyApprovalRef }), 'POST_LOAD_SECUREMENT', current.pickup, config.safetyApprovalRef) : null;
       if (!safetyProof) fail('CARGO_SECUREMENT_REQUIRED', 'Approved post-load safety and securement evidence is required.');

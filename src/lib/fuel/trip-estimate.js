@@ -3,8 +3,10 @@
  *
  * Pure math over captured inputs. `estimated_fuel_l` is NOT measured burn and
  * is never written to the legacy `fuel_consumed` column, which keeps its
- * meaning unchanged. Missing basis yields null with a reason — never 0 and
- * never a fabricated actual.
+ * meaning unchanged. Litres need only distance and efficiency: a missing
+ * reference price yields measurable litres with `cost: null` and a reason
+ * (`basis: "partial"`), never a fabricated cost. A missing distance or
+ * efficiency yields nulls with a reason — never 0 and never a fake actual.
  *
  * Decimal handling: litres round to 3 dp, cost to 2 dp (round-half-up via
  * exact decimal integer ratios), and cost derives from the ROUNDED litres so
@@ -51,15 +53,17 @@ export function estimateFuelCost({ distanceKm = null, efficiencyKmpl = null, pri
   if (!Number.isFinite(efficiency) || efficiency <= 0) {
     return { liters: null, cost: null, basis: "unavailable", reason: "no-efficiency" };
   }
-  const price = validKm(pricePerLiter);
-  if (!Number.isFinite(price) || price <= 0) {
-    return { liters: null, cost: null, basis: "unavailable", reason: "no-price" };
-  }
   const [kmNumerator, kmDenominator] = fraction(distance);
   const [effNumerator, effDenominator] = fraction(efficiency);
-  const [priceNumerator, priceDenominator] = fraction(price);
   const milliliters = halfUp(kmNumerator * effDenominator * 1000n, kmDenominator * effNumerator);
+  if (milliliters > 999999999999n) return { liters: null, cost: null, basis: "unavailable", reason: "out-of-range" };
+  const liters = Number(milliliters) / 1000;
+  const price = validKm(pricePerLiter);
+  if (!Number.isFinite(price) || price <= 0) {
+    return { liters, cost: null, basis: "partial", reason: "no-price" };
+  }
+  const [priceNumerator, priceDenominator] = fraction(price);
   const cents = halfUp(milliliters * priceNumerator * 100n, 1000n * priceDenominator);
-  if (milliliters > 999999999999n || cents > 999999999999n) return { liters: null, cost: null, basis: "unavailable", reason: "out-of-range" };
-  return { liters: Number(milliliters) / 1000, cost: Number(cents) / 100, basis: "measured", reason: null };
+  if (cents > 999999999999n) return { liters, cost: null, basis: "partial", reason: "out-of-range" };
+  return { liters, cost: Number(cents) / 100, basis: "estimated", reason: null };
 }

@@ -8,8 +8,9 @@ import RouteTimeline from "../../../components/RouteTimeline";
 import { api, wasQueued } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { captureCargoSession, isCurrentCargoSession } from "../../../lib/cargo-sync";
+import { odometerStartRoute } from "../../../lib/trip-odometer";
 import { useAuth } from "../../../lib/auth";
-import { CACHE_KEYS, getCached, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
+import { getCachedTrip, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { SyncNote, NeverSyncedCard } from "../../../components/OfflineStates";
 import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
@@ -22,6 +23,7 @@ import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, cargoVerificatio
 import { usePreShift } from "../../../lib/use-pre-shift";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
+import { CargoTripHandovers } from "../../../components/cargo/CargoTripHandovers";
 import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../../components/coachmarks";
 
 // Scheme-aware clay material (clayMaterials) — the old local copy baked in
@@ -39,7 +41,7 @@ export default function TripDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
   const { triggerMilestone, dismiss } = useCoachMarkActions();
-  const { activeMilestone } = useCoachMarkStatus();
+  const { activeMilestone, guideVersion2 } = useCoachMarkStatus();
   // Today's shift-wide baseline. Called here, at the top, because it is a hook
   // and the render below returns early for loading/not-found.
   const preShift = usePreShift();
@@ -91,26 +93,13 @@ export default function TripDetailsScreen() {
     const request = ++requestNumber.current;
     const current = () => request === requestNumber.current && isCurrentCargoSession(snapshot);
     setTripSession(null);
-    // Offline Read Mode: list-cache-first. The shared TRIPS_ALL snapshot is
-    // the primary source; the per-trip key covers trips opened before that
-    // list was ever cached.
+    // Reuse the newest saved copy from any schedule page or prior detail visit.
     let cachedTrip = null;
     let cachedSyncedAt = null;
     if (driverId) {
-      const listCached = await getCached(driverId, CACHE_KEYS.TRIPS_ALL);
-      const inList = Array.isArray(listCached?.data)
-        ? listCached.data.find((t) => String(t.trip_id) === String(id))
-        : null;
-      if (inList) {
-        cachedTrip = inList;
-        cachedSyncedAt = listCached.syncedAt;
-      } else {
-        const singleCached = await getCached(driverId, tripCacheKey(id));
-        if (singleCached?.data) {
-          cachedTrip = singleCached.data;
-          cachedSyncedAt = singleCached.syncedAt;
-        }
-      }
+      const cached = await getCachedTrip(driverId, id);
+      cachedTrip = cached?.data ?? null;
+      cachedSyncedAt = cached?.syncedAt ?? null;
       if (cachedTrip && current()) {
         setTrip(cachedTrip);
         setLastSynced(cachedSyncedAt);
@@ -120,15 +109,10 @@ export default function TripDetailsScreen() {
     try {
       setLoadError(null);
       setNotFound(false);
-      // limit=100 widens coverage past the default page cap. This is the only
-      // trip source — the old /api/trips/{id} fallback required
-      // trips:read_all (drivers get 403), so it could never succeed here.
-      const data = await api.get("/api/mobile/driver/trips?status=all&limit=100");
+      // Fetch this owned trip directly; list pagination must never hide details.
+      const data = await api.get(`/api/mobile/driver/trips?trip_id=${encodeURIComponent(id)}`);
       if (!current()) return;
       const list = Array.isArray(data) ? data : [];
-      // Display-only: refresh both the shared list and this trip's key.
-      if (driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
-      if (!current()) return;
       const found = list.find((t) => String(t.trip_id) === String(id));
       if (found) {
         setTripSession(snapshot);
@@ -187,6 +171,7 @@ export default function TripDetailsScreen() {
     // when a trip CAN begin, then left steps 2 and 3 with no target at all: the
     // overlay hid while the milestone stayed active and could never complete.
     if (loading || !trip || isTerminal || !isPreStart || activeMilestone) return;
+    if (guideVersion2 && !canOperate) return;
     // The reason tells step 3 what this button does HERE. In the pre_shift state
     // it opens the baseline check rather than starting the trip, and copy that
     // promised otherwise would be wrong in exactly the state this feature adds.
@@ -203,12 +188,14 @@ export default function TripDetailsScreen() {
     // This effect is pre-start only, so the step's isContinue branch cannot
     // originate from this call site.
     triggerMilestone("trip_readiness", { reason });
-  }, [loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed]);
+  }, [loading, trip, isTerminal, isPreStart, activeMilestone, triggerMilestone, preShift.loaded, preShift.passed, guideVersion2, canOperate]);
 
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.
   const handleAcceptStart = async () => {
     if (!canOperate || resolveDriverWorkspace({ driverType: profile?.driverType, trip }).tripReady !== true) return;
+    const photoRoute = odometerStartRoute(trip);
+    if (photoRoute) { router.push(photoRoute); return; }
     // The guide explains how to start this trip and the driver just started it,
     // so retire it now. Accepting flips this screen out of its pre-start
     // presentation, which unmounts the controls every step targets — the overlay
@@ -342,6 +329,8 @@ export default function TripDetailsScreen() {
       router.push({ pathname: "/inspection", params: { mode: "preshift" } });
       return;
     }
+    const photoRoute = odometerStartRoute(trip);
+    if (photoRoute) { router.push(photoRoute); return; }
     if (ready.unavailableReason === "inspection") {
       router.push({ pathname: "/inspection", params: { tripId: String(id) } });
       return;
@@ -441,6 +430,8 @@ export default function TripDetailsScreen() {
 
         {isCargo && canOperate && !isTerminal && <ClayButton label={cargoVerificationLabel(trip)} onPress={() => router.push(`/trip/${id}/cargo`)} />}
 
+        {isCargoLoad(trip) && <CargoTripHandovers tripId={String(id)} actorId={user?.employeeId} session={tripSession} confirmed={tripConfirmed && String(trip.trip_id) === String(id)} online={status === "online"} onRefreshTrip={retry} />}
+
         {/* Readiness panel (pre-start) or completion summary (terminal) */}
         {isTerminal ? (
           <ClayCard style={styles.card}>
@@ -464,11 +455,22 @@ export default function TripDetailsScreen() {
                 </Text>
               </View>
               <View style={[styles.pair, { alignItems: "flex-end" }]}>
-                <Text style={type.caption}>VEHICLE MILEAGE</Text>
+                <Text style={type.caption}>END ODOMETER</Text>
                 <Text style={[type.data, { color: colors.onSurface }]}>
-                  {trip?.current_mileage != null && trip.current_mileage !== "" ? `${trip.current_mileage} km` : "Not recorded"}
+                  {trip?.end_odometer != null && trip.end_odometer !== "" ? `${trip.end_odometer} km` : "Not recorded"}
                 </Text>
               </View>
+            </View>
+            <View style={{ marginTop: 16, gap: 4 }}>
+              <Text style={type.caption}>DISTANCE TRAVELLED</Text>
+              <Text style={[type.data, { color: colors.onSurface }]}>
+                {trip?.distance != null && trip.distance !== "" ? `${trip.distance} km` : "Not recorded"}
+              </Text>
+              {trip?.distance != null && trip.distance !== "" && (
+                <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
+                  {trip.distance_source === "odometer" ? "From odometer readings" : trip.distance_source === "gps-trail" ? "GPS distance" : trip.distance_source === "trip-distance" ? "Saved trip distance" : "Source not recorded"}
+                </Text>
+              )}
             </View>
           </ClayCard>
         ) : (

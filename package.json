@@ -10,6 +10,7 @@
     "lint:ci": "eslint --max-warnings 0",
     "test": "vitest",
     "test:run": "vitest run",
+    "mobile:brand": "node scripts/generate-mobile-brand.mjs",
     "verify:auth": "node scripts/verify-route-auth.mjs",
     "verify:encoding": "node scripts/verify-encoding.mjs",
     "verify:anon": "node scripts/verify-anon-access.mjs",
@@ -115,6 +116,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
     "globals": "^17.9.0",
+    "sharp": "^0.34.5",
     "tailwindcss": "^4",
     "vitest": "^3.2.7"
   },

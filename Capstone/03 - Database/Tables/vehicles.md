@@ -5,7 +5,7 @@ tags: [database, table, fleet]
 source:
   - src/lib/uvvrp/
   - src/lib/driver/grounding.js
-last_verified: 2026-09-27
+last_verified: 2026-10-18
 ---
 
 # Table: `vehicles`
@@ -55,6 +55,10 @@ GVW at most 5,000 kg. Staff select the class from the vehicle registration; seat
 not establish GVW or the registration category. NULL is deliberately ineligible at dispatch,
 so existing vehicles need review before assignment. B2 (goods vehicles) and other classes
 remain unsupported pending confirmation of fleet requirements and an explicit system extension.
+
+## Fuel level timestamp — migration 165
+
+`fuel_level_updated_at` (timestamptz, nullable) records when `fuel_level` was last written — by the driver's gauge-report POST (`/api/fuel/requests`) or by a verified receipt approval (`PUT /api/fuel/[id]`, which adds the purchased litres as `min(100, level + litres / tank)` in the same transaction as the approval). NULL means the age is unknown: no backfill was performed, and `updated_at` moves for *any* vehicle edit so it cannot stand in. Consumers should not treat a stored level as fresh without it. → [[Fuel]]
 
 ## Assignment constraint
 

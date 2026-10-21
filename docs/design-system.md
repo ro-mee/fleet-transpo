@@ -316,6 +316,20 @@ The product voice is direct, calm, and practical.
 
 ## Appendix: FleetOps domain patterns
 
+### Paired private evidence review
+
+For a saved record with before/after evidence, compose one existing Card with two peer regions, using existing Button and Radix Dialog controls. The trip odometer implementation is `src/components/trips/trip-odometer-evidence.jsx`: two equal columns from 768 px, stacked below it, 24 px gap, 16 px narrow / 24 px desktop padding, shared Inter and tabular figures. Reserve a 16:10 neutral image well and use `object-contain` so units and digits remain visible. Do not nest raised cards or invent colors/fonts.
+
+Keep saved readings, recorded times and distance provenance readable when an image is missing, loading, unavailable or fails to sign. Distinguish `No photo recorded`, `Not recorded yet` and `Photo unavailable`; Retry refreshes authorized evidence without erasing saved numbers. Keep signed links in memory only. The thumbnail and explicit View photo button have meaningful accessible names and stay mounted during failed refreshes so the Dialog can restore focus to the exact opener. The Dialog has a stage/vehicle title, description, contained image, Close, focus trap and Escape.
+
+The shared native camera/review counterpart composes ClayScreenHeader/ClayButton, existing fonts and theme/text-size tokens, a contained photo, one detected value and one confirm action with Retake/Cancel. It allows scrolling at narrow/large-text sizes and shows actual upload/scan/save phases. Browser fixtures checked real components and shared assets at mobile 390 light / 320 dark 2× text and web 360/768/1280/1440, including error/slow-image states and keyboard focus restoration. Those fixtures use synthetic data and mocked native boundaries; authenticated staff, native camera/screen-reader/safe-area acceptance remains unverified. Exact evidence and limitations: `Capstone/07 - Development/Trip Odometer Photo Verification 2026-10-19.md`.
+
+### Paired cargo handover evidence
+
+Web refinement (2026-10-20): lead with explicit signature status, signer/department, device/server times and exact signed item counts. Put secondary receipt/revision/observation/GPS fields behind the existing native details pattern with visible keyboard focus and a44px summary target. Use the shared Badge/Skeleton and semantic warning700 text; View/Hide exposes expanded/controlled state, loading has a live status and busy region, and narrow buttons are44px. Dispatch's View signatures fragment waits for client data before focusing this section or its cargo-unavailable state; it leaves private data collapsed. This local refinement preserves dashboard tokens and backend/private-read semantics.
+
+The cargo verification panel composes the existing Card/Button primitives into two peer pickup/delivery regions. Signatures are hidden until an explicit authorized detail request, rendered only as fixed SVG paths from validated numeric strokes, and retained only in current trip/session component memory. Stack below the medium breakpoint; preserve readable counts, signer/department and device/server times in both themes. Borrow item names/units only from the exact matching manifest revision. Keep receipt reference and revision available, and omit technical hashes from the operational display. Label unsigned history, absent records, unavailable location and refresh failure honestly; a drawn acknowledgment is separate from verified receiving authority. Implementation and visual/device limits: `Capstone/07 - Development/Dual Cargo Signatures Implementation 2026-10-20.md`.
+
 FleetOps adds a few patterns that other systems may reuse conceptually, but not necessarily visually:
 
 - **License plate:** a compact physical-plate treatment for vehicle identity in high-value contexts such as a record header, dispatch card, or map marker. Use a plain code in dense logs and filters.

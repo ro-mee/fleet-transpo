@@ -46,6 +46,20 @@ describe("cargo demo fixtures", () => {
     });
   });
 
+  it("uses explicit simulated staff acknowledgments only for cargo receipts", () => {
+    expect(byId["guest-transport"].execution).toBeNull();
+    for (const fixture of fixtures.filter(item => item.load_type === "CARGO")) {
+      for (const receipt of [fixture.execution.pickup, fixture.execution.delivery].filter(Boolean)) {
+        expect(receipt.payload.handover).toMatchObject({
+          version: 1,
+          signer_name: receipt.payload.stage === "PICKUP" ? "Demo releasing staff" : "Demo receiving staff",
+          acknowledgment: "CARGO_HANDOVER_V1",
+          location: null,
+        });
+      }
+    }
+  });
+
   it("preserves the accepted shortage when all collected boxes arrive", () => {
     const result = state(byId["accepted-shortage"]);
     expect(result).toMatchObject({ pickup_state: "READY", delivery_state: "CONFIRMED", can_depart: true, can_complete: true });

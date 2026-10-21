@@ -77,10 +77,19 @@ export function DriverSos() {
         shadowOpacity: 0.22,
       };
   const [open, setOpen] = useState(false);
-  const { triggerMilestone, dismissCoachMark, notifyInteraction } = useCoachMarkActions();
+  const { triggerMilestone, dismissCoachMark, notifyInteraction, interruptGuidance, updateGuideContext } = useCoachMarkActions();
   // A guide being open, and the driving lock — both milestone-scale facts. This
   // button is mounted on every screen, so it stays off the step-driven state.
   const { activeMilestone, isDriving } = useCoachMarkStatus();
+  const showSos = useCallback(() => {
+    interruptGuidance?.();
+    updateGuideContext?.({ sosOpen: true });
+    setOpen(true);
+  }, [interruptGuidance, updateGuideContext]);
+  useEffect(() => {
+    if (!open) updateGuideContext?.({ sosOpen: false });
+    return () => { updateGuideContext?.({ sosOpen: false }); };
+  }, [open, updateGuideContext]);
 
   // Never allow tutorial state to delay, intercept, or prevent a real emergency SOS action.
   useEffect(() => {
@@ -114,9 +123,9 @@ export function DriverSos() {
   }, [pathname, isDriving, open, activeMilestone, positionReady, triggerMilestone]);
 
   useEffect(() => {
-    registerSosHandler(() => setOpen(true));
+    registerSosHandler(showSos);
     return () => registerSosHandler(null);
-  }, []);
+  }, [showSos]);
   const [sending, setSending] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [position] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
@@ -186,7 +195,7 @@ export function DriverSos() {
   };
   const handleRelease = () => {
     if (!moved.current) {
-      setOpen(true);
+      showSos();
       return;
     }
     const screen = Dimensions.get("window");
@@ -314,7 +323,7 @@ export function DriverSos() {
           accessibilityLabel="Emergency actions"
           accessibilityHint="Tap to open. Drag to reposition."
           accessible
-          onAccessibilityTap={() => setOpen(true)}
+          onAccessibilityTap={showSos}
         >
           <LinearGradient
             colors={sosTheme.gradient}

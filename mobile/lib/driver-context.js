@@ -6,7 +6,9 @@
  * driver's vehicle. Before this module each screen did its own live fetch
  * with a silent catch, so offline meant a silently missing vehicle. Now they
  * read the SAME cache entries the core screens already write
- * (HOME_TRIPS/TRIPS_ALL + DRIVER_ME) and resolve through one priority chain.
+ * (HOME_TRIPS/TRIPS_ALL/TRIPS_TODAY + DRIVER_ME) and resolve through one
+ * priority chain. The trip snapshots are read together and the newest
+ * syncedAt wins, so a date-scoped snapshot never shadows fresher data.
  *
  * Vehicle priority (locked):
  *   1. trip explicitly opened — the trip's own vehicle
@@ -83,9 +85,9 @@ export function resolveVehicleContext({ trip, trips, me, activeStatuses } = {}) 
 
 /**
  * Read the cached driver context (no network). The caches are the ones the
- * core screens already maintain: the trips snapshot (TRIPS_ALL, falling back
- * to HOME_TRIPS — Trips tab writes the former, Home the latter) and the
- * DRIVER_ME profile. Returns a resolver-ready input object; `null` entries
+ * core screens already maintain: legacy, Today and Home snapshots, plus
+ * DRIVER_ME. The newest work-list snapshot wins; an older active trip must
+ * not be reintroduced after a fresher list removes it. `null` entries
  * mean "that source was never cached". Never throws.
  */
 export async function getCachedVehicleContext(driverId) {
@@ -97,14 +99,17 @@ export async function getCachedVehicleContext(driverId) {
       return null;
     }
   };
-  const [tripsAll, homeTrips, meC] = await Promise.all([
+  const [tripsAll, homeTrips, todayTrips, meC] = await Promise.all([
     read(CACHE_KEYS.TRIPS_ALL),
     read(CACHE_KEYS.HOME_TRIPS),
+    read(CACHE_KEYS.TRIPS_TODAY),
     read(CACHE_KEYS.DRIVER_ME),
   ]);
-  const tripsEntry = tripsAll ?? homeTrips ?? null;
+  const latest = [tripsAll, homeTrips, todayTrips]
+    .filter((entry) => Array.isArray(entry?.data) || Array.isArray(entry?.data?.trips))
+    .sort((a, b) => (b.syncedAt || 0) - (a.syncedAt || 0))[0];
   return {
-    trips: tripsEntry ? (Array.isArray(tripsEntry.data) ? tripsEntry.data : null) : null,
+    trips: latest ? (Array.isArray(latest.data) ? latest.data : latest.data.trips).filter((trip) => trip?.trip_id != null) : null,
     me: meC?.data ?? null,
   };
 }

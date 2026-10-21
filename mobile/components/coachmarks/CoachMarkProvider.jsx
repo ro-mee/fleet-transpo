@@ -10,6 +10,8 @@ import {
   resetAllCoachMarks,
 } from "../../lib/coach-mark-storage";
 import CoachMarkOverlay from "./CoachMarkOverlay";
+import DriverGuideProvider from './DriverGuideProvider';
+import { DRIVER_GUIDES_V2 } from '../../lib/driver-guidance-config';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -74,7 +76,13 @@ const CoachMarkStateContext = createContext({
   currentRoute: "/",
 });
 
+const guideContexts = { Actions: CoachMarkActionsContext, Status: CoachMarkStatusContext, State: CoachMarkStateContext };
+
 export function CoachMarkProvider({ children, driverId }) {
+  return DRIVER_GUIDES_V2 ? <DriverGuideProvider driverId={driverId} contexts={guideContexts}>{children}</DriverGuideProvider> : <LegacyCoachMarkProvider driverId={driverId}>{children}</LegacyCoachMarkProvider>;
+}
+
+function LegacyCoachMarkProvider({ children, driverId }) {
   // Driving Safety Lock (Capstone: Driver In-App Guide §7.1). Read from the
   // hook, never a prop: the previous version accepted an `isDriving` prop that
   // its only call site never passed, so the lock could never engage. No caller

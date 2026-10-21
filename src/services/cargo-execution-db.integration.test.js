@@ -13,7 +13,7 @@ const manifestId = randomUUID(), foreignManifestId = randomUUID();
 const actor = { user: { role: 'driver', driverId: 1, employeeId: 1 } };
 const config = { dataApprovalRef: 'simulated:data', privacyApprovalRef: 'simulated:privacy', receivingApprovalRef: 'simulated:receiving', retentionApprovalRef: 'simulated:retention', sourceApprovalRef: 'simulated:source', schemaReady: true, simulated: true, environment: 'test' };
 const manifest = { manifest_ref: { kind: 'REQUEST', id: manifestId, revision: 1, hash: 'a'.repeat(64) }, source_ref: { system: 'PMS', organization_id: 'simulated:hotel', external_request_id: 'r1' }, service_code: 'HOTEL_SUPPLY_TRANSFER', lines: [{ line_id: 'oil', name: 'Oil', quantity_basis: 'TRANSPORT_PACKAGE', expected_quantity: '10', unit: 'box', reference_image_ref: null, handling: [] }] };
-const receipt = () => ({ submission_id: randomUUID(), manifest_ref: manifest.manifest_ref, stage: 'PICKUP', observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: '9', condition: 'INTACT', issue_code: 'SHORTAGE', remarks: 'Simulated shortage', evidence_ids: [] }], receiver_confirmation_ref: null });
+const receipt = () => ({ submission_id: randomUUID(), manifest_ref: manifest.manifest_ref, stage: 'PICKUP', observed_at: '2026-10-09T08:00:00Z', lines: [{ line_id: 'oil', observed_quantity: '9', condition: 'INTACT', issue_code: 'SHORTAGE', remarks: 'Simulated shortage', evidence_ids: [] }], receiver_confirmation_ref: null, handover: { version: 1, signer_name: 'Simulated supplier', signer_role_or_dept: 'Supply', acknowledgment: 'CARGO_HANDOVER_V1', captured_at: '2026-10-09T08:00:00.000Z', signature: { width: 600, height: 240, strokes: [[[20, 30], [60, 80]]] }, location: null } });
 let pool, migration, execution, saved;
 const database = () => ({ cargoConfig: config, withTransaction: async work => {
   const client = await pool.connect();
@@ -82,8 +82,19 @@ describe.skipIf(!enabled)('cargo storage candidate, isolated real PostgreSQL nam
   it('serializes two sessions, preserves exact replay, rejects changed replay and keeps expected count', async () => {
     const input = receipt();
     const sessions = [];
-    const submit = () => run(async tx => { sessions.push((await tx.query('SELECT pg_backend_pid() pid')).rows[0].pid); return insertReceipt(input, actor, tx); });
-    const outcomes = await Promise.all([submit(), submit()]);
+    let releaseReady;
+    const bothReady = new Promise(resolve => { releaseReady = resolve; });
+    const submit = () => run(async tx => {
+      sessions.push((await tx.query('SELECT pg_backend_pid() pid')).rows[0].pid);
+      // Hold both checked-out clients before either can commit and re-enter the pool.
+      if (sessions.length === 2) releaseReady();
+      await bothReady;
+      return insertReceipt(input, actor, tx);
+    }).catch(error => { releaseReady(); throw error; });
+    // Drain both transactions even if one fails, before afterAll removes the schema.
+    const settled = await Promise.allSettled([submit(), submit()]);
+    for (const outcome of settled) if (outcome.status === 'rejected') throw outcome.reason;
+    const outcomes = settled.map(outcome => outcome.value);
     expect(new Set(sessions).size).toBe(2);
     expect(outcomes[0]).toEqual(outcomes[1]); saved = outcomes[0];
     expect(saved.payload.lines[0].observed_quantity).toBe('9');

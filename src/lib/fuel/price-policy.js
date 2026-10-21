@@ -18,6 +18,12 @@
 export const REFERENCE_PRICE_MIN = 1;
 export const REFERENCE_PRICE_MAX = 200;
 
+// FE-11: display-only staleness horizon in days. An estimate whose reference
+// price was already older than this when the trip completed is labelled
+// "stale reference" — the label never changes which price was eligible or how
+// the estimate was computed; it only tells reviewers to distrust it.
+export const REFERENCE_PRICE_STALE_AFTER_DAYS = 14;
+
 export const VERIFICATION_METHODS = ["Manual", "Automatic"];
 
 const isBlank = (v) => v === null || v === undefined || String(v).trim() === "";

@@ -9,8 +9,8 @@ import * as presentation from './load-presentation';
 
 const { code } = await transform(readFileSync(new URL('../app/(app)/trip/complete.js', import.meta.url), 'utf8'), { loader: 'jsx', format: 'cjs' });
 const base = { trip_id: 7, trip_status: 'Drop-off', load_type: 'Passenger', operational_use: 'Passenger', vehicle_id: 2, current_mileage: 1000, start_odometer: 990, origin: 'Pickup', destination: 'Hotel' };
-function render({ reading = '1010', offline = false, mismatch = false, cargo = false, result = null, override = false, reason = '', freshMileage = 1000, status = 'Drop-off' } = {}) {
-  const trip = { ...base, trip_status: status, load_type: cargo ? 'Cargo' : 'Passenger', operational_use: mismatch ? 'Cargo' : cargo ? 'Cargo' : 'Passenger' };
+function render({ reading = '1010', offline = false, mismatch = false, cargo = false, result = null, override = false, reason = '', freshMileage = 1000, status = 'Drop-off', required = false } = {}) {
+  const trip = { ...base, trip_status: status, odometer_capture_required: required, load_type: cargo ? 'Cargo' : 'Passenger', operational_use: mismatch ? 'Cargo' : cargo ? 'Cargo' : 'Passenger' };
   const session = { actorId: 10 };
   const values = [trip, session, false, false, reading, reason, override, null, result];
   const updates = [];
@@ -24,24 +24,47 @@ function render({ reading = '1010', offline = false, mismatch = false, cargo = f
   const stubReact = { ...React, useState: initial => { const index = stateIndex++; return [index < values.length ? values[index] : initial, value => updates.push({ index, value })]; }, useEffect: () => {}, useCallback: fn => fn, useRef: current => ({ current }), createElement: (component, props, ...children) => { const node = { component, props: props || {}, children }; elements.push(node); return node; } };
   const native = { View: 'View', Text: 'Text', ScrollView: 'ScrollView', ActivityIndicator: 'ActivityIndicator', KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' }, StyleSheet: { create: x => x } };
   const deps = {
-    react: stubReact, 'react-native': native, 'expo-router': { useRouter: () => ({ back: vi.fn(), push: vi.fn(), replace: vi.fn() }), useLocalSearchParams: () => ({ tripId: '7', needsOverride: override ? '1' : undefined }) },
+    react: stubReact, 'react-native': native, 'expo-router': { useFocusEffect: () => {}, useRouter: () => ({ back: vi.fn(), push: vi.fn(), replace: vi.fn() }), useLocalSearchParams: () => ({ tripId: '7', needsOverride: override ? '1' : undefined }) },
     '@expo/vector-icons': { Ionicons: 'Icon' }, 'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, bottom: 16 }) },
-    '../../../lib/theme-context': { useTheme: () => ({ colors: {}, type: {} }) }, '../../../lib/api': { api, wasQueued: res => res?.queued === true },
+    '../../../lib/theme-context': { useTheme: () => ({ colors: {}, type: {} }) }, '../../../lib/api': { api, apiFetch: path => path.includes('driver/me') ? Promise.resolve({ driverType: cargo ? 'Cargo' : 'Passenger' }) : api.get(path), wasQueued: res => res?.queued === true },
     '../../../lib/auth': { useAuth: () => ({ user: { employeeId: 10 } }) }, '../../../lib/connectivity-context': { useConnectivity: () => ({ status: offline ? 'offline' : 'online' }) },
     '../../../lib/driver-profile': { useDriverProfile: () => ({ profile: { driverType: cargo ? 'Cargo' : 'Passenger' }, serverConfirmed: true }) },
     '../../../lib/cargo-sync': { captureCargoSession: () => session, isCurrentCargoSession: () => alive, getCargoSyncState: vi.fn() },
     '../../../lib/driver-workspace': { resolveDriverWorkspace }, '../../../lib/cargo-view-model': { resolveCargoMapGate: gate, workspaceBlockReason: () => 'Assignment mismatch' },
     '../../../lib/cargo-api': { cargoApi: { getExecution: vi.fn() } }, '../../../lib/load-presentation': presentation,
     '../../../lib/trip-completion': { validateCompletionReading }, '../../../lib/background-tracking': { stopBackgroundTracking: stop, updateLegContext: context },
+    '../../../lib/use-trip-odometer': { useTripOdometer: props => ({ phase: 'review', reading: 1010, onConfirm: () => props.onConfirm('capture-7') }) },
+    '../../../lib/trip-odometer': { odometerRequestOptions: () => ({ queueOnFailure: false, cargoActorId: 10 }), odometerApi: { read: vi.fn().mockResolvedValue({ state: 'committed', stage: 'end' }) } },
+    '../../../components/trips/OdometerCapture': { default: 'Capture', __esModule: true },
     '../../../components/ClayScreenHeader': { default: 'Header', __esModule: true }, '../../../components/clay': { ClayCard: 'Card', ClayButton: 'Button', ClayInput: 'Input', ClayBadge: 'Badge' },
   };
   const scope = { exports: {} };
   runInNewContext(code, { React: stubReact, module: scope, exports: scope.exports, require: name => { if (!deps[name]) throw Error(name); return deps[name]; } });
   scope.exports.default();
-  return { elements, updates, api, gate, stop, context, expire: () => { alive = false; }, complete: elements.find(node => node.props.label === 'Complete trip')?.props.onPress };
+  return { elements, updates, api, gate, stop, context, expire: () => { alive = false; }, complete: elements.find(node => node.props.label === 'Complete trip')?.props.onPress || elements.find(node => node.component === 'Capture')?.props.onConfirm };
 }
 
 describe('real completion form interactions', () => {
+  it.each([false, true])('uses the shared camera for required Cargo=%s completion without a manual reading', async cargo => {
+    const h = render({ required: true, cargo, reading: '' });
+    expect(h.elements.find(node => node.component === 'Header').props.title).toBe('Ending odometer');
+    expect(h.elements.some(node => node.component === 'Capture')).toBe(true);
+    expect(h.elements.some(node => node.props.label === 'Ending odometer (km) *')).toBe(false);
+    await h.complete();
+    expect(h.api.put).toHaveBeenCalledWith('/api/trips/7/complete', { odometer_capture_id: 'capture-7' }, expect.objectContaining({ queueOnFailure: false, cargoActorId: 10 }));
+    expect(h.stop).toHaveBeenCalledOnce();
+  });
+  it('retains required evidence and tracking when receiver authority rejects completion', async () => {
+    const h = render({ required: true, cargo: true });
+    h.gate.mockResolvedValueOnce({ allowed: false, reason: 'Receiver confirmation required' });
+    await expect(h.complete()).rejects.toThrow('Receiver confirmation required');
+    expect(h.api.put).not.toHaveBeenCalled(); expect(h.stop).not.toHaveBeenCalled();
+  });
+  it('does not stop tracking for a queued required-photo completion', async () => {
+    const h = render({ required: true }); h.api.put.mockResolvedValueOnce({ queued: true });
+    await h.complete(); expect(h.stop).not.toHaveBeenCalled();
+    expect(h.updates).toContainEqual({ index: 8, value: 'queued' });
+  });
   it('shows a blank required input, Cancel and no premature completion claim', () => {
     const h = render({ reading: '' });
     expect(h.elements.find(node => node.props.label === 'Ending odometer (km) *').props.value).toBe('');

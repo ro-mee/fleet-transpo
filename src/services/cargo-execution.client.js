@@ -16,6 +16,15 @@ export async function getCargoExecution(tripId, { historyLimit = 20, historyOffs
   return responseData(await apiFetch(`${tripPath(tripId)}${buildQuery({ history_limit: historyLimit, history_offset: historyOffset })}`));
 }
 
+export async function getCargoHandovers(tripId, { signal } = {}) {
+  const data = responseData(await apiFetch(`${tripPath(tripId)}${buildQuery({ include_handovers: 1 })}`, { signal, cache: "no-store" }));
+  if (Number(data?.trip_id) !== Number(tripId) || !data?.handovers ||
+    !("pickup" in data.handovers) || !("delivery" in data.handovers)) {
+    throw new Error("The private cargo signatures are unavailable.");
+  }
+  return data.handovers;
+}
+
 export async function getCargoEvidence(tripId, evidenceId) {
   if (!UUID.test(evidenceId || "")) throw new Error("A valid cargo photo reference is required.");
   const data = responseData(await apiFetch(`${tripPath(tripId)}${buildQuery({ evidence_id: evidenceId })}`));

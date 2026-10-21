@@ -919,7 +919,7 @@ CREATE TABLE fuelrequests (
   CONSTRAINT chk_fuelrequest_approved_liters CHECK (((approved_liters IS NULL) OR ((approved_liters > (0)::numeric) AND (approved_liters <= (1000)::numeric)))),
   CONSTRAINT chk_fuelrequest_current_level CHECK (((current_fuel_level_percent IS NULL) OR ((current_fuel_level_percent >= (0)::numeric) AND (current_fuel_level_percent <= (100)::numeric)))),
   CONSTRAINT fuelrequests_requested_liters_check CHECK (((requested_liters > (0)::numeric) AND (requested_liters <= (1000)::numeric))),
-  CONSTRAINT fuelrequests_status_check CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Rejected'::character varying, 'Fulfilled'::character varying])::text[]))),
+  CONSTRAINT fuelrequests_status_check CHECK (((status)::text = ANY (ARRAY[('Pending'::character varying)::text, ('Approved'::character varying)::text, ('Rejected'::character varying)::text, ('Fulfilled'::character varying)::text, ('Cancelled'::character varying)::text]))),
   CONSTRAINT fuelrequests_pkey PRIMARY KEY (fuel_request_id)
 );
 
@@ -1513,6 +1513,44 @@ CREATE TABLE trip_monitor_alerts (
   CONSTRAINT uq_trip_monitor_alerts_trip_signal UNIQUE (trip_id, signal_key)
 );
 
+CREATE TABLE trip_odometer_captures (
+  capture_id uuid NOT NULL,
+  trip_id integer NOT NULL,
+  driver_id integer NOT NULL,
+  vehicle_id integer NOT NULL,
+  stage text NOT NULL,
+  storage_key text NOT NULL,
+  image_sha256 text NOT NULL,
+  content_type text NOT NULL,
+  byte_size integer NOT NULL,
+  state text DEFAULT 'uploaded'::text NOT NULL,
+  reading_text text,
+  reading_km numeric(12,2),
+  unit text,
+  display_kind text,
+  failure_code text,
+  model_name text,
+  scan_version text,
+  scan_attempts integer DEFAULT 0 NOT NULL,
+  scan_started_at timestamptz,
+  uploaded_at timestamptz DEFAULT now() NOT NULL,
+  scanned_at timestamptz,
+  committed_at timestamptz,
+  CONSTRAINT trip_odometer_captures_byte_size_check CHECK (((byte_size > 0) AND (byte_size <= 5242880))),
+  CONSTRAINT trip_odometer_captures_check CHECK (((state <> ALL (ARRAY['ready'::text, 'committed'::text])) OR (((reading_km IS NOT NULL) AND (unit = 'km'::text) AND (display_kind = 'total'::text) AND (scanned_at IS NOT NULL)) IS TRUE))),
+  CONSTRAINT trip_odometer_captures_check1 CHECK (((state = 'committed'::text) = (committed_at IS NOT NULL))),
+  CONSTRAINT trip_odometer_captures_content_type_check CHECK ((content_type = ANY (ARRAY['image/jpeg'::text, 'image/png'::text]))),
+  CONSTRAINT trip_odometer_captures_display_kind_check CHECK ((display_kind = ANY (ARRAY['total'::text, 'trip'::text, 'unclear'::text]))),
+  CONSTRAINT trip_odometer_captures_image_sha256_check CHECK ((image_sha256 ~ '^[0-9a-f]{64}$'::text)),
+  CONSTRAINT trip_odometer_captures_reading_km_check CHECK (((reading_km > (0)::numeric) AND (reading_km <= (2000000)::numeric))),
+  CONSTRAINT trip_odometer_captures_scan_attempts_check CHECK (((scan_attempts >= 0) AND (scan_attempts <= 3))),
+  CONSTRAINT trip_odometer_captures_stage_check CHECK ((stage = ANY (ARRAY['start'::text, 'end'::text]))),
+  CONSTRAINT trip_odometer_captures_state_check CHECK ((state = ANY (ARRAY['uploaded'::text, 'scanning'::text, 'ready'::text, 'unreadable'::text, 'failed'::text, 'committed'::text]))),
+  CONSTRAINT trip_odometer_captures_unit_check CHECK ((unit = ANY (ARRAY['km'::text, 'mi'::text, 'unknown'::text]))),
+  CONSTRAINT trip_odometer_captures_pkey PRIMARY KEY (capture_id),
+  CONSTRAINT trip_odometer_captures_storage_key_key UNIQUE (storage_key)
+);
+
 CREATE TABLE trips (
   trip_id integer DEFAULT nextval('trips_trip_id_seq'::regclass) NOT NULL,
   vehicle_id integer NOT NULL,
@@ -1566,6 +1604,7 @@ CREATE TABLE trips (
   planned_estimated_fuel_cost numeric(12,2),
   fuel_estimate_reason varchar(40),
   fuel_estimate_captured_at timestamptz,
+  odometer_capture_required boolean DEFAULT false NOT NULL,
   CONSTRAINT chk_trip_status CHECK (((trip_status)::text = ANY ((ARRAY['Assigned'::character varying, 'Pending'::character varying, 'Approved'::character varying, 'Vehicle Assigned'::character varying, 'Driver Assigned'::character varying, 'Dispatched'::character varying, 'Driver Accepted'::character varying, 'Trip Started'::character varying, 'At Pickup'::character varying, 'Passenger Onboard'::character varying, 'En Route'::character varying, 'Drop-off'::character varying, 'Arrived'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT trips_pkey PRIMARY KEY (trip_id)
 );
@@ -1776,6 +1815,7 @@ CREATE TABLE vehicles (
   operational_use varchar(20),
   cargo_capacity_kg numeric(12,3),
   commissioning_status varchar(20) DEFAULT 'Pending'::character varying,
+  fuel_level_updated_at timestamptz,
   CONSTRAINT chk_vehicle_fuel_efficiency CHECK (((fuel_efficiency_kmpl IS NULL) OR ((fuel_efficiency_kmpl > (0)::numeric) AND (fuel_efficiency_kmpl <= (100)::numeric)))),
   CONSTRAINT chk_vehicle_status CHECK (((vehicle_status)::text = ANY ((ARRAY['Available'::character varying, 'Reserved'::character varying, 'In Use'::character varying, 'Under Maintenance'::character varying, 'Decommissioned'::character varying])::text[]))),
   CONSTRAINT chk_vehicle_tank_capacity CHECK (((tank_capacity_l IS NULL) OR ((tank_capacity_l > (0)::numeric) AND (tank_capacity_l <= (1000)::numeric)))),
@@ -1952,6 +1992,9 @@ ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_revie
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_service_type_id_fkey FOREIGN KEY (service_type_id) REFERENCES service_types(service_type_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE trip_monitor_alerts ADD CONSTRAINT trip_monitor_alerts_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
+ALTER TABLE trip_odometer_captures ADD CONSTRAINT trip_odometer_captures_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE trip_odometer_captures ADD CONSTRAINT trip_odometer_captures_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
+ALTER TABLE trip_odometer_captures ADD CONSTRAINT trip_odometer_captures_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE trips ADD CONSTRAINT fk_trips_fuel_price_snapshot FOREIGN KEY (fuel_price_snapshot_id) REFERENCES fuel_price_snapshots(snapshot_id);
 ALTER TABLE trips ADD CONSTRAINT trips_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE trips ADD CONSTRAINT trips_dispatch_id_fkey FOREIGN KEY (dispatch_id) REFERENCES dispatchschedules(dispatch_id);
@@ -2159,6 +2202,8 @@ CREATE INDEX idx_web_sessions_employee_active ON public.web_sessions USING btree
 CREATE UNIQUE INDEX locations_location_code_uq ON public.locations USING btree (location_code);
 CREATE UNIQUE INDEX service_types_service_code_unique ON public.service_types USING btree (service_code);
 CREATE UNIQUE INDEX transportation_requests_source_request_uq ON public.transportation_requests USING btree (source_system, external_request_id);
+CREATE UNIQUE INDEX trip_odometer_one_committed_stage ON public.trip_odometer_captures USING btree (trip_id, stage) WHERE (committed_at IS NOT NULL);
+CREATE INDEX trip_odometer_owner_lookup ON public.trip_odometer_captures USING btree (driver_id, trip_id, stage, uploaded_at DESC);
 CREATE UNIQUE INDEX uq_ai_report_narrative_key ON public.ai_report_narratives USING btree (report, COALESCE(range_from, '*'::character varying), COALESCE(range_to, '*'::character varying));
 CREATE UNIQUE INDEX uq_attendance_driver_end_duty_submission ON public.driverattendance USING btree (driver_id, end_duty_submission_id) WHERE (end_duty_submission_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_driverincidents_driver_submission ON public.driverincidents USING btree (driver_id, client_submission_id) WHERE ((deleted_at IS NULL) AND (client_submission_id IS NOT NULL));

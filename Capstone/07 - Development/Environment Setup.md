@@ -12,6 +12,10 @@ last_verified: 2026-10-12
 
 # Environment Setup
 
+## Local odometer activation - 2026-10-19
+
+The owner enabled required start/end odometer photos in root `.env.local` with `ODOMETER_PHOTO_REQUIRED=1`. `GEMINI_ODOMETER_MODEL=gemini-3.1-flash-lite` selects the existing receipt-scan model; a read-only authenticated metadata request returned HTTP 200 and generation support. No secrets are reproduced here. Next environment loading was checked in development and production modes. The mobile development API remains `192.168.0.200:3000`; hosted settings and `.env.example` default-off behavior are unchanged. Restart the local API server after changing these settings. See [[Trip Odometer Photo Verification 2026-10-19]] for checks and remaining real-device acceptance.
+
 ## What's in `.env` — CONFIRMED (12 keys, values not reproduced)
 
 | Key | Purpose |
@@ -101,6 +105,33 @@ production origins or application access permissions.
 > dead session). Fix: `cd mobile && npm start -- --dev-client --lan` (plus root
 > `npm run dev` for the API), then confirm the phone is on the same WiFi/LAN
 > (192.168.0.x) and `http://<IP>:8081` loads in the phone browser.
+>
+> **Dev-client dialing `127.0.0.1:8081` — wrong-address variant (seen 2026-10-17).**
+> If the phone's dev-client error names `127.0.0.1:8081` instead of a
+> `192.168.0.x` address, the app is dialing its own loopback and can never
+> reach this computer. Distinguish the variants by the address in the message:
+> the LAN-IP variant above is about reachability, this one means the saved
+> dev-server URL in the dev client is stale or wrong (a "Recently opened"
+> entry or an entered URL) — or, less often, the running terminal's own QR
+> advertises loopback, because the CLI silently falls back to `127.0.0.1`
+> when `lan-network` finds no LAN address, so `--lan` alone is not a
+> guarantee. PC-side checks all passed on 2026-10-17 while Metro was up:
+> `http://127.0.0.1:8081/status` and `http://192.168.0.200:8081/status` both
+> return `packager-status:running`; the manifest fetched via the LAN IP
+> contains no `127.0.0.1` and reports `extra.expoGo.debuggerHost =
+> 192.168.0.200:8081`; the Android bundle is served 200 / 11.1 MB over the
+> LAN; Windows Firewall allows `node.exe` inbound on Public and Private
+> (the Ethernet profile "Network 10" is Public). Fix on the phone: open the
+> project from the live terminal's QR — the `Metro waiting on` line must
+> contain the LAN IP (e.g. `exp+fleetops://expo-development-client/?url=http%3A%2F%2F192.168.0.200%3A8081`)
+> — or use the dev client's "Enter URL manually" with `http://192.168.0.200:8081`,
+> and delete stale "Recently opened" entries showing `127.0.0.1`. If a
+> restart still advertises loopback, force the host:
+> `$env:REACT_NATIVE_PACKAGER_HOSTNAME="192.168.0.200"; npm start -- --dev-client --lan`
+> (update the value when the DHCP lease changes). Phone-side confirmation:
+> `http://192.168.0.200:8081/status` from the phone browser must show
+> `packager-status:running`; otherwise the phone is not on the same LAN (or
+> a VPN/proxy intervenes).
 
 > **Local-only mobile iteration (2026-09-21).** Keep `mobile/.env` pointed at
 > the computer's current LAN IP and use the root `npm run dev` API together

@@ -1,10 +1,11 @@
-import React, { useEffect } from "react";
-import { StyleSheet, Text, View, Pressable, AccessibilityInfo } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { StyleSheet, Text, View, Pressable, AccessibilityInfo, findNodeHandle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { moderateScale } from "../../lib/scaling";
 import { TOOLTIP_MAX_WIDTH } from "../../lib/spotlight-geometry";
+import GuideDetailsSheet from './GuideDetailsSheet';
 
 /**
  * CoachMarkTooltip
@@ -15,6 +16,7 @@ import { TOOLTIP_MAX_WIDTH } from "../../lib/spotlight-geometry";
 export function CoachMarkTooltip({
   title,
   body,
+  details = null,
   stepIndex = 0,
   totalSteps = 1,
   actionText = "Got it",
@@ -35,6 +37,13 @@ export function CoachMarkTooltip({
 }) {
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsOpener = useRef(null);
+  const closeDetails = () => {
+    setDetailsOpen(false);
+    const node = findNodeHandle(detailsOpener.current);
+    if (node) AccessibilityInfo.setAccessibilityFocus(node);
+  };
 
   const showStepCounter = totalSteps > 1;
   const showBack = allowBack && stepIndex > 0;
@@ -183,6 +192,13 @@ export function CoachMarkTooltip({
         >
           {body}
         </Text>
+
+        {details ? <>
+          <Pressable ref={detailsOpener} onPress={() => setDetailsOpen(true)} accessibilityRole="button" accessibilityLabel="More details" accessibilityState={{ expanded: detailsOpen }} style={{ minHeight: TOUCH_TARGET, justifyContent: 'center', alignSelf: 'flex-start' }}>
+            <Text style={[styles.secBtnText, { color: colors.primary }]}>More details</Text>
+          </Pressable>
+          <GuideDetailsSheet visible={detailsOpen} title={title} body={details} onClose={closeDetails} />
+        </> : null}
 
         {/* Action Footer */}
         <View style={[styles.footer, compact && styles.compactFooter]}>

@@ -5,6 +5,7 @@ import { TRIP_WRITABLE } from "../route";
 import { assertCargoCheckpoint, prepareCargoLifecycle } from '@/services/cargo-execution.service';
 import { assertStoredVehicleLoadCompatibility } from '@/lib/trips/vehicle-load-compatibility';
 import { tripDriverTypeMismatch } from "@/lib/drivers/trip-type-gate";
+import { assertGenericOdometerWriteAllowed } from '@/lib/trips/odometer-gate';
 
 export async function GET(req, { params }) {
   try {
@@ -53,9 +54,10 @@ export async function PUT(req, { params }) {
       // never reaches the pre-transaction mismatch gate above, so reassignment
       // onto a Cargo vehicle without typed load is refused here with 409.
       const { rows: current } = await tx.query(
-        `SELECT driver_id, vehicle_id, dispatch_id FROM trips WHERE trip_id = $1 AND deleted_at IS NULL`,
+        `SELECT driver_id, vehicle_id, dispatch_id, trip_status, odometer_capture_required FROM trips WHERE trip_id = $1 AND deleted_at IS NULL FOR UPDATE`,
         [id]
       );
+      assertGenericOdometerWriteAllowed({ before: current[0], patch: body });
       const effDriverId = body.driver_id !== undefined ? body.driver_id : current[0]?.driver_id;
       const effVehicleId = body.vehicle_id !== undefined ? body.vehicle_id : current[0]?.vehicle_id;
       const effDispatchId = body.dispatch_id !== undefined ? body.dispatch_id : current[0]?.dispatch_id;

@@ -1,3 +1,5 @@
+import DriverGuideTrigger from '../../../components/coachmarks/DriverGuideTrigger';
+import { guardLegacyGuideLinks } from '../../../components/coachmarks/LegacyGuideLinkGuard';
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { StyleSheet, View, Text, Animated, PanResponder, useWindowDimensions, Pressable, ScrollView, AppState, Linking, Image, ActivityIndicator, RefreshControl } from 'react-native';
 import LottieView from "lottie-react-native";
@@ -5,6 +7,7 @@ import { useFocusEffect, useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
 import OffDutyIllustration from "../../../components/OffDutyIllustration";
+import { Logo } from "../../../components/logo";
 import RouteOptionsSheet from "../../../components/RouteOptionsSheet";
 import TripOperationalSummary, { CargoMapStandby } from "../../../components/TripOperationalSummary";
 import { navigationTarget } from "../../../lib/navigation-route";
@@ -20,6 +23,7 @@ import { useAmbientWeather } from "../../../lib/ambient-weather";
 import { useAuth } from "../../../lib/auth";
 import { resolveDriverId } from "../../../lib/offline-cache";
 import { ClayCard } from "../../../components/clay/ClayCard";
+import { ClayBadge } from "../../../components/clay/ClayBadge";
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { getDynamicBottomOffset } from "../../../components/CurvedPillTabBar";
 import { useTheme } from "../../../lib/theme-context";
@@ -29,6 +33,8 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useDuty } from "../../../lib/use-duty";
 import { useDriverProfile } from "../../../lib/driver-profile";
+import PassengerMapSummary from '../../../components/map/PassengerMapSummary';
+import MapControlCluster from '../../../components/map/MapControlCluster';
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
@@ -43,6 +49,7 @@ import MapIntroPractice from "../../../components/MapIntroPractice";
 import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
 import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { readinessFor } from "../../../lib/trip-detail";
+import { odometerStartRoute } from "../../../lib/trip-odometer";
 import { cargoApi } from "../../../lib/cargo-api";
 import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from "../../../lib/cargo-sync";
 import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
@@ -472,7 +479,7 @@ export function resolveMapEmptyState({ duty, profile, user, paramStatus, activeT
   return null;
 }
 
-export default function MapTab() {
+function MapTab() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { colors, scheme, type } = useTheme();
@@ -654,62 +661,28 @@ export default function MapTab() {
   const mats = clayMaterials(scheme === 'dark');
   const isDark = scheme === 'dark';
 
-  const emptyTheme = useMemo(() => {
-    if (isDark) {
-      return {
-        bgColors: ['#06130E', '#030A07', '#020504'],
-        bgLocations: [0, 0.45, 1],
-        waveBorderColor: 'rgba(52, 211, 153, 0.12)',
-        wave1Colors: ['rgba(20, 83, 62, 0.35)', 'rgba(6, 40, 29, 0.10)', 'transparent'],
-        wave2Colors: ['rgba(16, 185, 129, 0.14)', 'rgba(5, 46, 32, 0.06)', 'transparent'],
-        wave3Colors: ['rgba(52, 211, 153, 0.12)', 'rgba(4, 28, 20, 0.04)', 'transparent'],
-        brandTitle: '#FFFFFF',
-        brandSubtitle: 'rgba(255, 255, 255, 0.55)',
-        bellBg: 'rgba(255, 255, 255, 0.06)',
-        bellBorder: 'rgba(255, 255, 255, 0.12)',
-        bellIcon: '#FFFFFF',
-        haloBg: 'rgba(16, 185, 129, 0.16)',
-        haloShadow: '#10B981',
-        cardColors: ['#103C2E', '#0A251C'],
-        cardBorder: 'rgba(52, 211, 153, 0.45)',
-        cardShadow: '#34D399',
-        iconColor: '#FFFFFF',
-        pillBg: 'rgba(16, 185, 129, 0.12)',
-        pillBorder: 'rgba(52, 211, 153, 0.28)',
-        pillDot: '#34D399',
-        pillText: '#E6FFFA',
-        title: '#FFFFFF',
-        description: '#94A3B8',
-        spinner: '#34D399',
-      };
-    }
-    return {
-      bgColors: ['#F0FDF4', '#F4F7F5', '#EAEFEA'],
-      bgLocations: [0, 0.5, 1],
-      waveBorderColor: 'rgba(40, 84, 72, 0.08)',
-      wave1Colors: ['rgba(40, 84, 72, 0.10)', 'rgba(40, 84, 72, 0.03)', 'transparent'],
-      wave2Colors: ['rgba(16, 185, 129, 0.08)', 'rgba(40, 84, 72, 0.02)', 'transparent'],
-      wave3Colors: ['rgba(52, 211, 153, 0.07)', 'rgba(40, 84, 72, 0.02)', 'transparent'],
-      brandTitle: '#17382F',
-      brandSubtitle: '#285448',
-      bellBg: '#FFFFFF',
-      bellBorder: 'rgba(40, 84, 72, 0.14)',
-      bellIcon: '#17382F',
-      haloBg: 'rgba(40, 84, 72, 0.08)',
-      haloShadow: '#285448',
-      cardColors: ['#FFFFFF', '#E8F5EE'],
-      cardBorder: 'rgba(40, 84, 72, 0.22)',
-      cardShadow: 'rgba(40, 84, 72, 0.18)',
-      iconColor: '#17382F',
-      pillBg: '#DCFCE7',
-      pillBorder: 'rgba(22, 101, 52, 0.20)',
-      pillDot: '#16A34A',
-      pillText: '#166534',
-      title: '#17382F',
-      description: '#53615A',
-      spinner: '#285448',
-    };
-  }, [isDark]);
+  const emptyTheme = useMemo(() => ({
+    bgColors: [colors.background, colors.background, colors.background],
+    bgLocations: [0, 0.5, 1],
+    waveBorderColor: colors.outlineVariant + '14',
+    wave1Colors: [colors.primary + '08', colors.primary + '03', 'transparent'],
+    wave2Colors: [colors.primary + '05', colors.primary + '02', 'transparent'],
+    wave3Colors: [colors.primary + '05', colors.primary + '02', 'transparent'],
+    brandTitle: colors.onSurface,
+    brandSubtitle: colors.onSurfaceVariant,
+    bellBg: colors.surfaceContainerLow,
+    bellBorder: colors.outlineVariant + '35',
+    bellIcon: colors.primary,
+    haloBg: colors.primaryContainer,
+    haloShadow: colors.primary,
+    cardColors: [colors.surfaceContainerLow, colors.surfaceContainer],
+    cardBorder: colors.outlineVariant + '35',
+    cardShadow: colors.shadow,
+    iconColor: colors.primary,
+    title: colors.onSurface,
+    description: colors.onSurfaceVariant,
+    spinner: colors.primary,
+  }), [colors]);
 
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
@@ -1615,15 +1588,7 @@ export default function MapTab() {
           </View>
         </View>
         <View style={[styles.emptyHeader, { paddingTop: Math.max(insets.top, 16) + 6 }]}>
-          <View style={styles.headerBrandRow}>
-            <View style={styles.headerLogoBadge}>
-              <Ionicons name="car" size={20} color="#042F24" />
-            </View>
-            <View style={styles.headerBrandTextCol}>
-              <Text style={[styles.headerBrandTitle, { color: emptyTheme.brandTitle }]}>FleetOps</Text>
-              <Text style={[styles.headerBrandSubtitle, { color: emptyTheme.brandSubtitle }]}>DRIVER COMPANION</Text>
-            </View>
-          </View>
+          <Logo size={40} style={styles.headerBrandRow} />
           <Pressable
             onPress={() => router.push('/notifications')}
             accessibilityRole="button"
@@ -1689,15 +1654,7 @@ export default function MapTab() {
 
         {/* Top App Header */}
         <View style={[styles.emptyHeader, { paddingTop: Math.max(insets.top, 16) + 6 }]}>
-          <View style={styles.headerBrandRow}>
-            <View style={styles.headerLogoBadge}>
-              <Ionicons name="car" size={20} color="#042F24" />
-            </View>
-            <View style={styles.headerBrandTextCol}>
-              <Text style={[styles.headerBrandTitle, { color: emptyTheme.brandTitle }]}>FleetOps</Text>
-              <Text style={[styles.headerBrandSubtitle, { color: emptyTheme.brandSubtitle }]}>DRIVER COMPANION</Text>
-            </View>
-          </View>
+          <Logo size={40} style={styles.headerBrandRow} />
           <Pressable
             onPress={() => router.push('/notifications')}
             accessibilityRole="button"
@@ -1717,7 +1674,7 @@ export default function MapTab() {
         <ScrollView
           contentContainerStyle={[
             styles.emptyScrollContent,
-            { paddingBottom: insets.bottom + 90 },
+            { paddingBottom: insets.bottom + 168 },
           ]}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -1756,10 +1713,7 @@ export default function MapTab() {
             )}
 
             {/* Status Pill */}
-            <View style={[styles.emptyStatusPill, { backgroundColor: emptyTheme.pillBg, borderColor: emptyTheme.pillBorder }]}>
-              <View style={[styles.emptyStatusDot, { backgroundColor: emptyTheme.pillDot, shadowColor: emptyTheme.pillDot }]} />
-              <Text style={[styles.emptyStatusPillText, { color: emptyTheme.pillText }]}>{config.statusPill}</Text>
-            </View>
+            <ClayBadge label={config.statusPill} tone="primary" statusDot size="sm" style={styles.emptyStatusPill} />
 
             {/* Title */}
             <Text style={[styles.emptyStateTitle, { color: emptyTheme.title }]}>{config.title}</Text>
@@ -2248,6 +2202,7 @@ export default function MapTab() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <DriverGuideTrigger guideId={activeTrip?.load_type === 'Passenger' && ['Trip Started', 'At Pickup'].includes(activeTrip?.trip_status) ? 'passenger.pickup' : activeTrip?.load_type === 'Passenger' && ['Passenger Onboard', 'Drop-off'].includes(activeTrip?.trip_status) ? 'passenger.dropoff' : 'map.controls'} trip={activeTrip} requireTrip={!!activeTrip} enabled={serverConfirmed && (!activeTrip || tripConfirmed)} />
       <TomTomMap 
         ref={mapRef}
         origin={originProp}
@@ -2321,31 +2276,12 @@ export default function MapTab() {
           {/* radius 18 matches the control buttons' own corners, so the hole
               outlines the row rather than falling back to the generic 12. */}
           <CoachMarkTarget targetId="map.controls" radius={18} style={styles.floatingControlsContainer}>
-            <Pressable
-              style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}
-              onPress={() => mapRef.current?.recenter()}
-              accessibilityRole="button"
-              accessibilityLabel="Recenter map on your location"
-            >
-              <Ionicons name="navigate" size={20} color={colors.primary} />
-            </Pressable>
-            <Pressable style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }]} onPress={() => setRouteOptionsVisible(true)} accessibilityRole="button" accessibilityLabel="Route options">
-              <Ionicons name="options-outline" size={20} color={colors.primary} />
-            </Pressable>
-            <Pressable style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, opacity: trustedTarget && !navigationBusy ? 1 : 0.55 }]} onPress={openExternalNavigation} disabled={!trustedTarget || navigationBusy} accessibilityRole="button" accessibilityLabel={navigationBusy ? "Preparing Google Maps navigation" : "Open current target in Google Maps"} accessibilityState={{ disabled: !trustedTarget || navigationBusy, busy: navigationBusy }}>
-              <Ionicons name="open-outline" size={20} color={colors.primary} />
-            </Pressable>
-            <Pressable
-              style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}
-              onPress={() => {
-                mapRef.current?.overview();
-                snapToMinimized(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Show full route overview"
-            >
-              <Ionicons name="scan-outline" size={20} color={colors.onSurfaceVariant} />
-            </Pressable>
+            <MapControlCluster buttonStyle={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]} controls={[
+              { id: 'recenter', label: 'Recenter map on your location', icon: 'navigate', onPress: () => mapRef.current?.recenter() },
+              { id: 'options', label: 'Route options', icon: 'options-outline', onPress: () => setRouteOptionsVisible(true) },
+              { id: 'external', label: navigationBusy ? 'Preparing Google Maps navigation' : 'Open current target in Google Maps', icon: 'open-outline', disabled: !trustedTarget || navigationBusy, busy: navigationBusy, onPress: openExternalNavigation },
+              { id: 'overview', label: 'Show full route overview', icon: 'scan-outline', color: colors.onSurfaceVariant, onPress: () => { mapRef.current?.overview(); snapToMinimized(true); } },
+            ]} />
           </CoachMarkTarget>
 
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
@@ -2357,111 +2293,7 @@ export default function MapTab() {
               <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant }]} />
 
               <TripOperationalSummary cargo={cargoPresentation} trip={activeTrip} target={preStart ? activeTrip.origin : destName} preStart={preStart} readinessText={cargoReadinessText} pickupAt={pickupAt} routeData={routeData} routePhase={routePhase} routeStale={routeStale} routeDisabledReason={routeDisabledReason} expanded={isExpanded}>
-              {/* Location Header */}
-              <CoachMarkTarget targetId="map.standby_status" style={styles.sheetHeader}>
-                <View style={[styles.locationIconWrapper, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
-                  <Ionicons name="location-sharp" size={20} color={colors.primary} />
-                </View>
-                <CoachMarkTarget targetId="map.current_target" style={{ flex: 1 }}>
-                  <View style={styles.locationTextWrapper}>
-                    <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
-                      {preDeparture && `NEXT TRIP · ${pickupAt || "TBD"}`}
-                      {!preDeparture && isPending && "PICK UP LOCATION"}
-                      {(isDriverAccepted && !preDeparture) && "READY TO START"}
-                      {isState1 && "EN ROUTE TO PICKUP"}
-                      {isState2 && "ARRIVED AT PICKUP"}
-                      {isState3 && (isCargoLoad(activeTrip) ? "EN ROUTE TO DELIVERY" : "EN ROUTE TO DESTINATION")}
-                      {isState4 && (isCargoLoad(activeTrip) ? "AT DELIVERY" : "ARRIVED AT DESTINATION")}
-                    </Text>
-                    <Text style={[type.cardTitle, { color: colors.onSurface }]}>
-                      {preDeparture
-                        ? `${activeTrip.origin || "Pickup"} → ${activeTrip.destination || "Destination"}`
-                        : destName}
-                    </Text>
-                  </View>
-                </CoachMarkTarget>
-                
-                {/* ETA & Distance or Contextual Info */}
-                {/* Live numbers come ONLY from TomTom ROUTE_CALCULATED. The
-                    server's estimated_duration/distance is the PLANNED whole
-                    trip (pickup → destination), not remaining live ETA, so it
-                    is never substituted into the live slot — it renders as a
-                    separate "Planned" line while the live route resolves. The
-                    main minutes already INCLUDE traffic; the badge names the
-                    traffic portion instead of implying an addition. */}
-                <CoachMarkTarget targetId="map.telemetry">
-                  <View style={styles.headerStatsRight}>
-                    {preDeparture ? null : (isPending || isDriverAccepted || isState1 || isState3) ? (
-                      <>
-                        {(() => {
-                          const live = routeData && !routeStale;
-                          const liveMin = live ? Math.ceil(routeData.travelTimeInSeconds / 60) : null;
-                          const delayMin = live ? Math.ceil((routeData.trafficDelayInSeconds || 0) / 60) : 0;
-                          const liveKm = live ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" : null;
-                          const plannedMin = activeTrip.estimated_duration != null ? Math.ceil(activeTrip.estimated_duration) : null;
-                          const plannedKm = activeTrip.estimated_distance != null ? Number(activeTrip.estimated_distance).toFixed(1) + " km" : null;
-                          const showTraffic = live && delayMin >= 2;
-                          const heavyTraffic = live && delayMin >= 5;
-                          if (!live) {
-                            return (
-                              <>
-                                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                                  <Text style={[type.headlineMd, { color: colors.onSurfaceVariant }]}>--</Text>
-                                  <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.onSurfaceVariant, marginBottom: 2 }}> min</Text>
-                                </View>
-                                <Text style={{ fontFamily: fonts.body, fontSize: 10, color: colors.onSurfaceVariant, marginBottom: 4 }}>
-                                  {routeDisabledReason || (routeStale ? "Route unavailable" : "Calculating route…")}
-                                </Text>
-                                {(plannedMin != null || plannedKm != null) && (
-                                  <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
-                                    Planned{plannedMin != null ? ` ~${plannedMin} min` : ""}{plannedKm != null ? ` · ${plannedKm}` : ""}
-                                  </Text>
-                                )}
-                              </>
-                            );
-                          }
-                          return (
-                            <>
-                              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                                <Text style={[type.headlineMd, { color: colors.primary }]}>
-                                  {liveMin}
-                                </Text>
-                                <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.primary, marginBottom: 2 }}> min</Text>
-                              </View>
-
-                              {showTraffic && (
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: (heavyTraffic ? colors.error : colors.warning) + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
-                                  <Ionicons name="warning" size={10} color={heavyTraffic ? colors.error : colors.warning} />
-                                  <Text style={{ fontFamily: fonts.dataSemiBold, fontSize: 10, color: heavyTraffic ? colors.error : colors.warning }}>
-                                    {heavyTraffic ? `Heavy traffic · incl. ~${delayMin} min` : `Incl. ~${delayMin} min traffic`}
-                                  </Text>
-                                </View>
-                              )}
-
-                              <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
-                                {liveKm}
-                              </Text>
-                            </>
-                          );
-                        })()}
-                      </>
-                    ) : (
-                      <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                        <Text style={[type.cardTitle, { color: colors.primary }]}>
-                          {(activeBlocked ? isCargoLoad(activeTrip) : profile?.driverType === "Cargo")
-                            ? loadSubtitle(activeBlocked ? activeTrip : { ...activeTrip, load_type: profile?.driverType }) || 'Cargo consignment'
-                            : `${activeTrip.passenger_count || 1} ${activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}`}
-                        </Text>
-                        <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
-                          {isState2 ? 'Waiting at pickup' : 'Ready for drop-off'}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </CoachMarkTarget>
-              </CoachMarkTarget>
-
-              <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+              <PassengerMapSummary {...{ activeTrip, destName, preDeparture, pickupAt, isPending, isDriverAccepted, isState1, isState2, isState3, isState4, routeData, routeStale, routeDisabledReason, activeBlocked, profile }} />
               </TripOperationalSummary>
             </Pressable>
           </View>
@@ -2549,7 +2381,7 @@ export default function MapTab() {
                   (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
                   tripActionLabel(activeTrip.trip_status, profile?.driverType)
                 }
-                disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || (workspace.mode === 'cargo' && preStart ? !cargoStartReadiness.startReady : preStart && preTripDone && !windowOpen)}
+                disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || workspace.tripReady !== true || (workspace.mode === 'cargo' && preStart ? !cargoStartReadiness.startReady && cargoStartReadiness.unavailableReason !== 'inspection' : preStart && preTripDone && !windowOpen)}
                 busy={inFlight}
                 backgroundColor={colors.primary}
                 textColor={colors.onPrimary}
@@ -2562,7 +2394,15 @@ export default function MapTab() {
                     return;
                   }
                   if (currentWorkspace.mode === 'cargo' && (isPending || isDriverAccepted)
-                    && !readinessFor(activeTrip, Date.now(), { preShiftPassed: duty?.loaded === true && duty?.checkedIn === true }).startReady) return;
+                    && !['inspection', null].includes(readinessFor(activeTrip, Date.now(), { preShiftPassed: duty?.loaded === true && duty?.checkedIn === true }).unavailableReason)) return;
+                  if (isPending || isDriverAccepted) {
+                    const photoRoute = odometerStartRoute(activeTrip);
+                    if (photoRoute) { router.push(photoRoute); return; }
+                    if (currentWorkspace.mode === 'cargo' && activeTrip.pre_trip_status !== 'Passed') {
+                      router.push({ pathname: '/inspection', params: { tripId: String(activeTrip.trip_id) } });
+                      return;
+                    }
+                  }
                   setInFlight(true);
                   let confirmed = false;
                   try {
@@ -3169,46 +3009,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     opacity: 0.4,
   },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 16,
-  },
-  locationIconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  locationTextWrapper: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  locationIndicator: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 12,
-    marginBottom: 3,
-    letterSpacing: 0.5,
-  },
-  divider: {
-    height: 1,
-    width: '100%',
-    opacity: 0.4,
-    marginBottom: 16,
-  },
-  headerStatsRight: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    flexShrink: 0,
-    minWidth: 70,
-  },
-  headerDistValue: {
-    fontFamily: fonts.data || fonts.body,
-    fontSize: 13,
-    marginTop: 2,
-  },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3357,39 +3157,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   headerBrandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerLogoBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 13,
-    backgroundColor: '#34D399',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#10B981',
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  headerBrandTextCol: {
-    marginLeft: 12,
-  },
-  headerBrandTitle: {
-    fontFamily: fonts.displayBold || 'System',
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-  headerBrandSubtitle: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold || 'System',
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.55)',
-    letterSpacing: 1.4,
-    marginTop: 2,
+    flex: 1,
+    minWidth: 0,
+    marginRight: 12,
   },
   headerBellBtn: {
     width: 42,
@@ -3460,34 +3230,8 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '45deg' }],
   },
   emptyStatusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 26,
-    paddingVertical: 7,
-    paddingHorizontal: 16,
-    borderRadius: 22,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(52, 211, 153, 0.28)',
-  },
-  emptyStatusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: '#34D399',
-    marginRight: 9,
-    shadowColor: '#34D399',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.85,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  emptyStatusPillText: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold || 'System',
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#E6FFFA',
-    letterSpacing: 1.4,
+    alignSelf: 'center',
+    marginTop: 24,
   },
   emptyStateTitle: {
     fontFamily: fonts.displayBold || 'System',
@@ -3508,3 +3252,5 @@ const styles = StyleSheet.create({
     maxWidth: 290,
   },
 });
+
+export default guardLegacyGuideLinks(MapTab);

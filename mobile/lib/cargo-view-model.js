@@ -1,4 +1,5 @@
 import { resolveDriverWorkspace } from "./driver-workspace";
+import { validateCargoHandover } from "../../shared/cargo-handover";
 // Display facts from CargoExecutionView; never grant source, Fleet or receiver authority.
 const SERVICES = { RESTAURANT_SUPPLY_PICKUP: "Restaurant supply pickup", RESTAURANT_FOOD_DELIVERY: "Restaurant food delivery", HOTEL_SUPPLY_TRANSFER: "Hotel supply transfer" };
 const SYNC = { NONE: "No observation saved", DEVICE_SAVED: "Saved on this device", FLEET_SAVED: "Saved to Fleet", STALE_REVIEW: "Manifest changed — review your count", TERMINAL_REVIEW: "Saved draft needs Fleet review", REAUTHENTICATION_REQUIRED: "Sign in again to sync" };
@@ -12,7 +13,7 @@ export function cargoMapAction(trip, driverType) {
   return null;
 }
 export function blankCargoCounts(manifest) { return Object.fromEntries((manifest?.lines || []).map(line => [line.line_id, ""])); }
-export function cargoQuantity(value, line) {
+function cargoQuantity(value, line) {
   const text = String(value ?? "").trim();
   if (!/^\d{1,15}(?:\.\d{1,3})?$/.test(text)) return null;
   const [whole, fraction = ""] = text.split(".");
@@ -59,7 +60,7 @@ export function buildCargoViewModel(execution, { offline = false, syncState = {}
   return { stage, legacyHold, primaryAction: stage === "PICKUP" ? "Record pickup" : stage === "READY" ? "Review departure" : stage === "DELIVERY" ? "Record delivery observation" : "Refresh status", canSubmit: !offline && fresh && !pending && view.capabilities?.observe === true && (tripStatus === "At Pickup" || atDelivery), canDepart, canConfirmDelivery,
     summary: { serviceLabel: SERVICES[manifest.service_code], sourceLabel: `${manifest.source_ref?.system || "Source"} · ${manifest.source_ref?.external_request_id || "Reference unavailable"}`, itemCount: manifest.lines.length, revision: manifest.manifest_ref.revision, syncLabel: SYNC[state] || "Save state unavailable", feedbackLabel: FEEDBACK[view.feedback?.state] || "Partner receipt state unavailable", sourceDecisionLabel: view.source_decision?.action === "ACCEPT_OBSERVED" ? "Source accepted the observed amount" : view.source_decision?.action === "REJECT_PICKUP" ? "Source rejected pickup" : ["WAITING", "AWAITING_DECISION"].includes(view.pickup_state) ? "Awaiting source decision or Fleet clearance" : "No source decision recorded", clearanceLabel: canDepart ? "Fleet departure clearance confirmed" : "Fleet clearance required", securementLabel: view.securement_confirmed === true ? "Server verified post-load securement" : "Post-load securement required", receiverLabel: view.receiver_confirmed === true ? "Receiver confirmation verified by server" : "Receiver authority unavailable", progress: canConfirmDelivery ? "Pickup verified · Delivery confirmed" : view.pickup_receipt ? "Pickup recorded · Delivery pending" : "Pickup pending · Delivery pending" }, blockers };
 }
-export function buildCargoReceipt(execution, { stage, counts, issues = {}, observedAt = new Date().toISOString(), confirm = false, reportIssue = false }) {
+export function buildCargoReceipt(execution, { stage, counts, issues = {}, observedAt = new Date().toISOString(), confirm = false, reportIssue = false, handover }) {
   const view = execution?.data ?? execution;
   const manifest = view?.manifest;
   if (!validManifest(manifest) || !["PICKUP", "DELIVERY"].includes(stage)) throw new Error("A current manifest and receipt stage are required.");
@@ -76,10 +77,11 @@ export function buildCargoReceipt(execution, { stage, counts, issues = {}, obser
       return { line_id: line.line_id, observed_quantity: observed, condition: issue.damaged ? "DAMAGED" : "INTACT", issue_code: issueCode, remarks: issue.remarks?.trim() || "", evidence_ids: [], evidence: issue.evidence || [] };
     }) };
   if (reportIssue && !receipt.lines.some(line => line.issue_code)) throw new Error("Report an issue only for a shortage, excess or damage. Equal counts with a remark can use Confirm pickup.");
+  if (handover !== undefined) receipt.handover = validateCargoHandover(handover);
   return receipt;
 }
 
-export function compareCargoQuantities(left, right) {
+function compareCargoQuantities(left, right) {
   const scaled = value => { const [whole, fraction = ""] = String(value).split("."); return BigInt(whole) * 1000n + BigInt(fraction.padEnd(3, "0")); };
   const a = scaled(left), b = scaled(right);
   return a === b ? 0 : a < b ? -1 : 1;

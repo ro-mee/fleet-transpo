@@ -227,7 +227,7 @@ describe("setDispatchStatus — cancellation releases the request", () => {
 describe('setTripStatus acceptance write hook',()=>{
  it('runs a rejecting guard inside the transaction before any trip write or audit',async()=>{
   vi.spyOn(db,'query').mockResolvedValue({rows:[{trip_id:7,trip_status:'Assigned',driver_id:2,vehicle_id:3}]});
-  const tx={query:vi.fn()};vi.spyOn(db,'withTransaction').mockImplementation(async write=>write(tx));
+  const tx={query:vi.fn(async()=>({rows:[{trip_id:7,trip_status:'Assigned',driver_id:2,vehicle_id:3}]}))};vi.spyOn(db,'withTransaction').mockImplementation(async write=>write(tx));
   const beforeWrite=vi.fn(async()=>{throw new Error('assignment mismatch');});
   await expect(setTripStatus({tripId:7,to:'Driver Accepted',session:SESSION,beforeWrite})).rejects.toThrow('assignment mismatch');
   expect(beforeWrite).toHaveBeenCalledWith(tx);expect(tx.query.mock.calls.some(([sql])=>/^UPDATE/.test(sql))).toBe(false);expect(writeAudit).not.toHaveBeenCalled();

@@ -84,8 +84,18 @@ function privateRead(value) {
   if (Array.isArray(value)) return value.map(privateRead);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !/url|contact|phone|email|receiver_name|proof|provenance|safety_evidence_ref|acknowledgement/i.test(key))
+    .filter(([key]) => !/url|contact|phone|email|receiver.*name|proof|provenance|safety_evidence_ref|acknowledg|handover|signer|signature|strokes|latitude|longitude|accuracy_m|^location$/i.test(key))
     .map(([key, item]) => [key, privateRead(item)]));
+}
+
+function handoverDetail(row, stage) {
+  if (!row?.payload?.handover) return null;
+  const payload = parse(receiptSchema, row.payload);
+  if (payload.stage !== stage || row.stage !== stage || !z.string().uuid().safeParse(row.receipt_id).success || !z.string().datetime({ offset: true }).safeParse(row.received_at).success) {
+    fail('CARGO_INVALID_RECEIPT', 'The saved handover does not match this cargo receipt.', 409);
+  }
+  return { receipt_id: row.receipt_id, stage, received_at: row.received_at, observed_at: payload.observed_at, manifest_ref: payload.manifest_ref,
+    lines: payload.lines.map(({ line_id, observed_quantity, condition, issue_code, remarks }) => ({ line_id, observed_quantity, condition, issue_code, remarks })), handover: payload.handover };
 }
 
 function safeSourceLink(value, manifest) {
@@ -101,7 +111,7 @@ function safeSourceLink(value, manifest) {
 
 function pagination(req) {
   const options = new URL(req.url).searchParams;
-  const allowed = ['history_limit', 'history_offset', 'evidence_id'];
+  const allowed = ['history_limit', 'history_offset', 'evidence_id', 'include_handovers'];
   if ([...options.keys()].some(key => !allowed.includes(key))) {
     fail('CARGO_INVALID_INPUT', 'Unknown cargo read option.', 400);
   }
@@ -115,20 +125,25 @@ function pagination(req) {
   if (ids.length > 5 || new Set(ids).size !== ids.length || ids.some(id => !z.string().uuid().safeParse(id).success)) {
     fail('CARGO_INVALID_INPUT', 'Invalid cargo evidence selection.', 400);
   }
-  return { limit: Number(limit), offset: Number(offset), evidenceIds: ids };
+  const handovers = options.getAll('include_handovers');
+  if (handovers.length > 1 || handovers.length === 1 && handovers[0] !== '1') fail('CARGO_INVALID_INPUT', 'Invalid cargo handover selection.', 400);
+  return { limit: Number(limit), offset: Number(offset), evidenceIds: ids, includeHandovers: handovers.length === 1 };
 }
 
 function handlers(deps) {
   const wrap = work => async (...args) => {
+    let response;
     try {
       if (deps.simulated && process.env.NODE_ENV === 'production') unavailable();
-      return await work(...args);
+      response = await work(...args);
     } catch (error) {
       if (!(error instanceof AuthError) && /^CARGO_/.test(error?.code) && [400, 403, 404, 409, 503].includes(error.status)) {
         error = new AuthError(error.message, error.status, error.code);
       }
-      return handleError(error);
+      response = handleError(error);
     }
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
   };
 
   async function actor(req, context, action) {
@@ -169,6 +184,7 @@ function handlers(deps) {
       const history = await deps.readHistory({ tripId, session, limit: page.limit, offset: page.offset });
       if (!Array.isArray(history?.rows) || history.rows.length > page.limit) unavailable();
       const data = privateRead({ ...view, history: { rows: history.rows, has_more: history.has_more === true } });
+      if (page.includeHandovers) data.handovers = { pickup: handoverDetail(view?.pickup_receipt, 'PICKUP'), delivery: handoverDetail(view?.delivery_receipt, 'DELIVERY') };
       const latestFeedback = history.latest_feedback;
       data.feedback = latestFeedback ? {
         ...(data.feedback || {}),
@@ -254,7 +270,9 @@ function handlers(deps) {
       if (!deps.resolveSourceRequest) unavailable();
       const tripId = await deps.resolveSourceRequest({ principal, externalRequestId: external_request_id, receiptId: input.receipt_id });
       if (!Number.isSafeInteger(tripId) || tripId <= 0) fail('CARGO_RECEIPT_NOT_FOUND', 'Cargo receipt was not found.', 404);
-      return ok({ data: await deps.service.recordSourceDecision(tripId, input, principal) });
+      // A machine source is not an authorized private handover-detail reader.
+      // Project the response only; retain the immutable internal replay snapshot.
+      return ok({ data: privateRead(await deps.service.recordSourceDecision(tripId, input, principal)) });
     }),
   };
 }

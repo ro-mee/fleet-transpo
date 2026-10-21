@@ -2,9 +2,11 @@ let complete = false;
 const listeners = new Set();
 
 export function completeLaunch() {
+  if (complete) return;
   complete = true;
-  listeners.forEach((listener) => listener());
+  const pending = [...listeners];
   listeners.clear();
+  pending.forEach((listener) => listener());
 }
 
 export function onLaunchComplete(listener) {

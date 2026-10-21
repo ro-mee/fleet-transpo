@@ -2,7 +2,8 @@ import { query } from "@/lib/db";
 import { buildDispatchRecommendation } from "@/lib/ai/dispatch-advisor";
 import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
 import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
-import { estimateEfficiency } from "@/lib/ai/rule-engine";
+import { resolveVehicleEfficiency } from "@/lib/ai/rule-engine";
+import { attachMeasuredEfficiency } from "@/lib/fuel/measured-efficiency";
 import { predictVehicle } from "@/lib/ai/predictive-maintenance";
 import { estimateFuel } from "@/lib/geo/distance";
 import { estimateForRequest, resolveRequestEstimate } from "@/services/route-resolver.service";
@@ -168,14 +169,23 @@ export async function fetchCandidates(request, trip = estimateForRequest(request
         request?.requested_category_id ?? null,
         excludedStatuses,
       ]
-    ).then((r) =>
-      r.rows.map((v) => {
-        v._est_fuel_liters = estimateFuel(trip.distanceKm, estimateEfficiency(v), v.tank_capacity ?? null).liters;
+    ).then(async (r) => {
+      // Level 3: attach each candidate's rolling measured efficiency before
+      // resolving — the resolver ranks an eligible measured basis above the
+      // configured profile, and the basis label travels with the number.
+      await attachMeasuredEfficiency(r.rows);
+      return r.rows.map((v) => {
+        // FE-08: the resolver owns the precedence (measured → profile →
+        // heuristic); the basis label lets a reader tell which estimate
+        // they are looking at.
+        const efficiency = resolveVehicleEfficiency(v);
+        v._est_fuel_liters = estimateFuel(trip.distanceKm, efficiency.kmpl, v.tank_capacity ?? null).liters;
+        v._est_fuel_basis = efficiency.basis;
         v._schedule_load = Number(v.schedule_load) || 0;
         v._maintenance = predictVehicle(v);
         return v;
-      })
-    ),
+      });
+    }),
 
     query(
       `SELECT d.driver_id,d.driver_type,d.driver_status,d.license_number,d.license_type,d.license_class,

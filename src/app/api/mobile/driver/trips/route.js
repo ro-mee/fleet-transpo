@@ -1,4 +1,5 @@
 import { query } from "@/lib/db";
+import { requiresOdometerPhoto } from '@/lib/trips/odometer-gate';
 import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
 import { computeDepartureWindow } from "@/lib/scheduling/departure-window";
 import { resolveEtaMinutes } from "@/lib/scheduling/start-window";
@@ -12,7 +13,10 @@ import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-proven
  * The home screen's work list. Always filtered to the token's own driver_id;
  * there is no driver_id parameter to override.
  *
- * ?status=pending|active|completed  (default: pending + active)
+ * ?status=pending|active|completed|all (legacy array response)
+ * ?view=today|upcoming|history (paginated schedule response, Manila dates)
+ * ?offset= non-negative integer, for scoped reads only
+ * ?trip_id= owned trip detail read (legacy array response)
  * ?limit=  1..100, default 50
  */
 
@@ -91,15 +95,44 @@ export async function GET(req) {
     const session = await requireDriver(req);
     const sp = req.nextUrl.searchParams;
 
+    const view = sp.get("view");
+    if (view != null && !["today", "upcoming", "history"].includes(view)) {
+      return err("Unknown trips view", 400);
+    }
     const requested = sp.get("status");
-    const statuses = requested
+    if (view && requested) return err("Use either view or status, not both", 400);
+    const tripId = sp.get("trip_id");
+    if (tripId != null && (!/^\d+$/.test(tripId) || !Number.isInteger(Number(tripId)) || Number(tripId) < 1 || Number(tripId) > 2147483647 || view || requested)) {
+      return err("Use a valid trip_id without view or status", 400);
+    }
+    const statuses = tripId ? STATUS_GROUPS.all : view
+      ? view === "history" ? STATUS_GROUPS.completed : [...STATUS_GROUPS.pending, ...STATUS_GROUPS.active]
+      : requested
       ? STATUS_GROUPS[requested]
       : [...STATUS_GROUPS.pending, ...STATUS_GROUPS.active];
     if (!statuses) {
       return err(`Unknown status group '${requested}'`, 400);
     }
 
-    const limit = Math.min(Math.max(Number(sp.get("limit")) || 50, 1), 100);
+    const rawLimit = Number(sp.get("limit") ?? 50);
+    const offset = Number(sp.get("offset") ?? 0);
+    if (view && (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 100
+      || !Number.isSafeInteger(offset) || offset < 0 || offset > 2147483547)) {
+      return err("Use a limit from 1 to 100 and a valid non-negative offset", 400);
+    }
+    const limit = Math.min(Math.max(Math.trunc(rawLimit) || 50, 1), 100);
+    const underway = "t.trip_status IN ('Trip Started', 'At Pickup', 'Passenger Onboard', 'En Route', 'Drop-off', 'Arrived', 'In Progress')";
+    const departureDate = "(ds.scheduled_departure AT TIME ZONE 'Asia/Manila')::date";
+    const today = "(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date";
+    // Apply scope before pagination so historical rows cannot crowd out assignments.
+    const scope = view === "today"
+      ? `AND (${underway} OR ds.scheduled_departure IS NULL OR ${departureDate} <= ${today})`
+      : view === "upcoming" ? `AND NOT (${underway}) AND ${departureDate} > ${today}` : "";
+    const order = view === "history"
+      ? "COALESCE(CASE WHEN t.trip_status = 'Cancelled' THEN t.updated_at ELSE t.end_time END, ds.scheduled_departure, t.start_time, t.created_at) DESC NULLS LAST, t.trip_id DESC"
+      : view === "today"
+        ? `CASE WHEN ${underway} THEN 0 WHEN ds.scheduled_departure < CURRENT_TIMESTAMP THEN 1 ELSE 2 END, ds.scheduled_departure ASC NULLS LAST, t.trip_id ASC`
+        : "ds.scheduled_departure ASC NULLS LAST, t.trip_id ASC";
 
     const { rows } = await query(
       `SELECT t.trip_id, t.trip_status,
@@ -107,10 +140,11 @@ export async function GET(req) {
               COALESCE(r.destination, tr.dropoff_location) AS destination,
               ol.latitude  AS origin_latitude,  ol.longitude  AS origin_longitude,
               dl.latitude  AS destination_latitude, dl.longitude AS destination_longitude,
-              t.start_time, t.end_time,
+              t.start_time, t.end_time, t.created_at, t.updated_at,
               COALESCE(r.estimated_distance, tr.estimated_distance) AS estimated_distance,
               COALESCE(r.estimated_duration, tr.estimated_duration) AS estimated_duration,
-              t.dispatch_id, t.notes, t.start_odometer,
+              t.dispatch_id, t.notes, t.start_odometer, t.end_odometer, t.distance,
+              t.gps_distance_km, t.distance_provenance AS distance_source, t.odometer_capture_required,
               v.vehicle_id,
               v.plate_number,
               v.plate_number AS vehicle_plate,
@@ -159,16 +193,22 @@ export async function GET(req) {
          LEFT JOIN locations dropoff_registry ON dropoff_registry.location_id = tr.dropoff_location_id
         WHERE t.driver_id = $1 AND t.deleted_at IS NULL
           AND t.trip_status = ANY($2)
-        ORDER BY ds.scheduled_departure ASC NULLS LAST, t.trip_id ASC
-        LIMIT $3`,
-      [session.user.driverId, statuses, limit]
+          ${tripId ? "AND t.trip_id = $4" : ""}
+          ${scope}
+        ORDER BY ${order}
+        LIMIT $3 ${view ? "OFFSET $4" : ""}`,
+      view ? [session.user.driverId, statuses, limit + 1, offset]
+        : tripId ? [session.user.driverId, statuses, limit, Number(tripId)] : [session.user.driverId, statuses, limit]
     );
+    const hasMore = Boolean(view && rows.length > limit);
+    if (hasMore) rows.pop();
 
     // V2 coordinates are only taken from active Fleet locations joined through
     // the request's explicit IDs. Partner text and proposals remain review data;
     // the legacy endpoint-text fallback below is retained for v1 rows only.
     const db = { query };
     for (const t of rows) {
+      t.odometer_photo_required_at_start = requiresOdometerPhoto({ trip: t, stage: 'start' });
       if (t._external_create_fingerprint != null) {
         const pickup = v2Endpoint(t, "pickup");
         const dropoff = v2Endpoint(t, "dropoff");
@@ -242,7 +282,9 @@ export async function GET(req) {
 
     for (const t of preStart) {
       t.pre_trip_status = await preTripStatus(t.trip_id);
-      
+      // Future schedule browsing needs dates, not a live driving ETA per row.
+      if (view === "upcoming") continue;
+
       if (!t.departure_time) continue;
       const etaMinutes = await resolveEta(t);
       const window = computeDepartureWindow({
@@ -257,7 +299,7 @@ export async function GET(req) {
       t.eta_to_pickup_min = window?.eta_minutes ?? etaMinutes ?? null;
     }
 
-    return ok(rows);
+    return ok(view ? { trips: rows, hasMore, nextOffset: hasMore ? offset + rows.length : null } : rows);
   } catch (e) {
     return handleError(e);
   }

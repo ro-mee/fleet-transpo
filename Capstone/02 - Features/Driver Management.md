@@ -22,6 +22,12 @@ related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 
 # Feature: Driver Management
 
+## Driver profile deployment build fix - 2026-10-16
+
+Removed the unused `ServiceQualifications` import from `src/app/(dashboard)/drivers/[id]/page.js`. The component had already been deleted when service qualifications were retired, but the leftover import still required Next.js to resolve it and caused the Vercel production build to fail. The page no longer rendered that component, so removing the import does not change the driver profile or the existing driver classification gate.
+
+Verification: driver-page ESLint passed with zero warnings; the UTF-8 encoding gate passed; source search found no remaining `ServiceQualifications` or `service-qualifications` references under `src`. The normal production build stopped on a Windows Turbopack existing-junction error (`.next/node_modules/pg-*`, OS error 80). The supported `--webpack` fallback compiled the application with the existing `geoip.js` dynamic-dependency warning, then failed with `ENOSPC` (local disk full). A complete production build and Vercel redeployment remain unverified. No database or deployment change was made.
+
 ## Driver classification & duty status onboarding — 2026-10-12
 
 The "Add Driver" onboarding flow (`/drivers/new`) no longer prompts for an initial duty status. All newly registered drivers default automatically to `Available` in the database.
@@ -698,6 +704,10 @@ The mobile driver app's Personal Information screen (`mobile/app/(app)/profile/p
 - A dedicated Emergency Contact `ClayCard` section displaying Contact Name, Phone Number, and Address when emergency contact data is present on file.
 
 Verified with mobile test suite: 46 test files passed, 525 tests passed in `mobile/lib/`.
+
+## Mobile Personal Information hub trim (2026-10-17)
+
+The Personal Information screen (`mobile/app/(app)/profile/personal.js`) is now identity/biodata-only: the "License & Compliance" and "Assigned Vehicle" hub rows were removed. Both destinations are reached from the Profile tab's "My Work" section, which is now rendered for every driver type instead of Cargo only — it had been the only remaining path to the mobile License & Compliance screen for Passenger drivers. No API, permission, or data change; the phone PATCH flow and Emergency Contact card are untouched. See [[Mobile Profile & Settings Claymorphism Implementation Plan]]. Verified: mobile Vitest 81 files / 1,052 tests, touched-file ESLint clean, `git diff --check` and `verify:encoding` clean, Android export passed with `--no-bytecode` (the Hermes bytecode step fails machine-wide with a Windows permission error, independent of this change). Native device acceptance pending.
 
 ## Open questions
 

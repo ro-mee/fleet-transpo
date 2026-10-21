@@ -34,6 +34,7 @@ const req = (body, suffix = '', headers = {}) => new Request(`http://localhost/a
     method: body ? 'POST' : 'GET', headers, body: body ? JSON.stringify(body) : undefined
 });
 const context = { params: Promise.resolve({ id: '7' }) };
+const handover = { version: 1, signer_name: 'Private supplier', signer_role_or_dept: 'Supply', acknowledgment: 'CARGO_HANDOVER_V1', captured_at: '2026-10-09T08:00:00.000Z', signature: { width: 600, height: 240, strokes: [[[20, 30], [60, 80]]] }, location: { latitude: 14.6, longitude: 121, accuracy_m: 20, captured_at: '2026-10-09T08:00:00.000Z' } };
 let api;
 beforeEach(() => {
     resolveIdentity.mockResolvedValue(driver);
@@ -50,6 +51,30 @@ it('uses actual promised params and records own-driver observations', async () =
     const response = await api.receipts(req(receipt), context);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ data: { trip_id: 7, submission_id: id } });
+});
+it.each(['driver', 'management', 'super_admin'])('only exposes current handovers on an explicitly authorized %s detail request', async role => {
+    resolveIdentity.mockResolvedValue({ user: { ...driver.user, role } });
+    const row = { receipt_id: id, stage: 'PICKUP', received_at: '2026-10-09T08:01:00.000Z', observed_at: receipt.observed_at, manifest_ref: receipt.manifest_ref, payload: { ...receipt, handover }, reporter_employee_id: 1, secret: 'hidden' };
+    const detailed = createCargoApi({ simulated: true, environment: 'test', approvalRef: 'fixture:api', authorizeStaff: async () => true, service: { getCargoExecution: async () => ({ trip_id: 7, pickup_receipt: row, arbitrary: { handover, signer_name: 'Private supplier', signature: handover.signature, latitude: 14.6 } }) }, readHistory: async () => ({ rows: [{ handover, receiver_name: 'Private supplier' }] }) });
+    const ordinaryResponse = await detailed.get(req(), context);
+    const ordinary = await ordinaryResponse.json();
+    expect(ordinaryResponse.headers.get('cache-control')).toBe('private, no-store');
+    expect(JSON.stringify(ordinary)).not.toMatch(/CARGO_HANDOVER_V1|Private supplier|strokes|latitude/);
+    expect(ordinary.data.handovers).toBeUndefined();
+    const response = await detailed.get(req(null, '?include_handovers=1'), context);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.handovers).toEqual({ pickup: { receipt_id: id, stage: 'PICKUP', received_at: row.received_at, observed_at: receipt.observed_at, manifest_ref: receipt.manifest_ref, lines: receipt.lines.map(({ evidence_ids: _evidence, ...line }) => line), handover }, delivery: null });
+    expect(body.data.pickup_receipt.payload.handover).toBeUndefined();
+    expect(body.data.handovers.pickup.reporter_employee_id).toBeUndefined();
+});
+it.each(['0', 'true', '2', '1&include_handovers=1'])('rejects unsupported explicit handover detail selection %s', async option => {
+    expect((await api.get(req(null, `?include_handovers=${option}`), context)).status).toBe(400);
+});
+it('keeps historical unsigned detail empty and production authority disabled', async () => {
+    expect((await (await api.get(req(null, '?include_handovers=1'), context)).json()).data.handovers).toEqual({ pickup: null, delivery: null });
+    expect((await cargoApi.get(req(null, '?include_handovers=1'), context)).status).toBe(503);
+    expect((await api.get(req(null, '?include_handovers=1'), { params: Promise.resolve({ id: '8' }) })).status).toBe(404);
 });
 it('refuses foreign trip with 404', async () => expect((await api.get(req(), { params: Promise.resolve({ id: '8' }) })).status).toBe(404));
 it('refuses foreign driver with 404', async () => {
@@ -163,6 +188,25 @@ it('machine decision refuses invalid bearer without calling cookie auth', async 
     const response = await api.sourceDecision(req({ ...decision, external_request_id: 'r1' }, '', { authorization: 'Bearer invalid' }));
     expect(response.status).toBe(401);
     expect(resolveIdentity).not.toHaveBeenCalled();
+});
+it('redacts private handovers from machine source-decision responses and exact HTTP retries without changing saved snapshots', async () => {
+    const snapshot = { trip_id: 7, version: 3, source_decision: { decision_id: id, action: decision.action }, pickup_receipt: { receipt_id: id, stage: 'PICKUP', payload: { ...receipt, handover } } };
+    const machine = createCargoApi({
+        simulated: true, environment: 'test', approvalRef: 'fixture', credentials: [{ secret: 'fixture', system: 'PMS', organization_id: 'hotel', subject: 'owner', approval_ref: 'fixture', simulated: true, capabilities: ['cargo:decision:write'] }],
+        resolveSourceRequest: async () => 7,
+        service: { recordSourceDecision: async () => snapshot }
+    });
+    const request = () => req({ ...decision, external_request_id: 'r1' }, '', { authorization: 'Bearer fixture' });
+    const firstResponse = await machine.sourceDecision(request());
+    expect(firstResponse.status).toBe(200);
+    expect(firstResponse.headers.get('cache-control')).toBe('private, no-store');
+    const first = await firstResponse.json();
+    expect(first.data).toMatchObject({ trip_id: 7, version: 3, pickup_receipt: { receipt_id: id, stage: 'PICKUP' }, source_decision: { action: 'ACCEPT_OBSERVED' } });
+    expect(JSON.stringify(first)).not.toMatch(/CARGO_HANDOVER_V1|Private supplier|handover|signer_name|signature|strokes|latitude|longitude|accuracy_m/);
+    const replayResponse = await machine.sourceDecision(request());
+    expect(replayResponse.status).toBe(200);
+    expect(await replayResponse.json()).toEqual(first);
+    expect(snapshot.pickup_receipt.payload.handover).toEqual(handover);
 });
 it('resolves source trip only from persisted credential-bound request and receipt', async () => {
     const principal = { system: 'PMS', organization_id: 'fixture:hotel' }, queries = [];

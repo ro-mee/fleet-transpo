@@ -1,3 +1,4 @@
+import { CoachMarkTarget } from '../coachmarks';
 import { View, Text, StyleSheet } from "react-native";
 import { ReferencePhotoGuide } from "../ReferencePhotoGuide";
 import { cargoItemIllustrationFor } from "../../lib/cargo-item-illustrations";
@@ -28,7 +29,7 @@ export function CargoPhysicalManifest({ manifest }) {
   </View>;
 }
 
-export function CargoItemReceiptRow({ line, value = "", stage = "PICKUP", pickupQuantity, onChange, onIssue, issue, error, imageUrl, editable = true }) {
+export function CargoItemReceiptRow({ line, value = "", stage = "PICKUP", pickupQuantity, onChange, onIssue, issue, error, imageUrl, editable = true, guideTarget = false }) {
   const { colors, type } = useTheme();
   const illustration = cargoItemIllustrationFor(line.name);
   const countHint = line.quantity_basis === 'TRANSPORT_PACKAGE'
@@ -46,9 +47,9 @@ export function CargoItemReceiptRow({ line, value = "", stage = "PICKUP", pickup
     <ReferencePhotoGuide source={imageUrl ? { uri: imageUrl } : illustration.source} subject={line.name} caption={imageUrl ? 'Source reference only — not this pickup or delivery’s actual condition.' : illustration.caption} />
     {!!line.handling?.length && <Text style={type.supporting}>Handling: {line.handling.map(value => value.replace(/_/g, " ").toLowerCase()).join(" · ")}</Text>}
     <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>{countHint}</Text>
-    <ClayInput label={`Actual ${stage === "DELIVERY" ? "delivery" : "pickup"} count (${line.unit})`} accessibilityLabel={`${line.name}, actual ${stage.toLowerCase()} count in ${line.unit}`} accessibilityHint={error || countHint} value={value} onChangeText={onChange} keyboardType={line.quantity_basis === "TRANSPORT_PACKAGE" ? "number-pad" : "decimal-pad"} editable={editable} error={error} placeholder="Enter counted amount" placeholderTextColor={colors.onSurfaceVariant} inputStyle={{ ...type.bodyMd, minWidth: 0 }} style={{ borderWidth: 1.5, borderColor: error ? colors.error : colors.onSurfaceVariant }} />
+    {guideTarget ? <CoachMarkTarget targetId={stage === 'DELIVERY' ? 'cargo.delivery' : 'cargo.counts'}><ClayInput label={`Actual ${stage === "DELIVERY" ? "delivery" : "pickup"} count (${line.unit})`} accessibilityLabel={`${line.name}, actual ${stage.toLowerCase()} count in ${line.unit}`} accessibilityHint={error || countHint} value={value} onChangeText={onChange} keyboardType={line.quantity_basis === "TRANSPORT_PACKAGE" ? "number-pad" : "decimal-pad"} editable={editable} error={error} placeholder="Enter counted amount" placeholderTextColor={colors.onSurfaceVariant} inputStyle={{ ...type.bodyMd, minWidth: 0 }} style={{ borderWidth: 1.5, borderColor: error ? colors.error : colors.onSurfaceVariant }} /></CoachMarkTarget> : <ClayInput label={`Actual ${stage === "DELIVERY" ? "delivery" : "pickup"} count (${line.unit})`} accessibilityLabel={`${line.name}, actual ${stage.toLowerCase()} count in ${line.unit}`} accessibilityHint={error || countHint} value={value} onChangeText={onChange} keyboardType={line.quantity_basis === "TRANSPORT_PACKAGE" ? "number-pad" : "decimal-pad"} editable={editable} error={error} placeholder="Enter counted amount" placeholderTextColor={colors.onSurfaceVariant} inputStyle={{ ...type.bodyMd, minWidth: 0 }} style={{ borderWidth: 1.5, borderColor: error ? colors.error : colors.onSurfaceVariant }} />}
     {issue?.remarks && <Text style={type.bodyMd}>Issue: {issue.remarks}</Text>}
-    {onIssue && <ClayButton label={`Report issue: ${line.name}`} variant="tonal" onPress={onIssue} disabled={!editable} textStyle={styles.wrap} />}
+    {onIssue && (guideTarget ? <CoachMarkTarget targetId="cargo.issue"><ClayButton label={`Report issue: ${line.name}`} variant="tonal" onPress={onIssue} disabled={!editable} textStyle={styles.wrap} /></CoachMarkTarget> : <ClayButton label={`Report issue: ${line.name}`} variant="tonal" onPress={onIssue} disabled={!editable} textStyle={styles.wrap} />)}
   </View>;
 }
 const styles = StyleSheet.create({ row: { gap: 8, paddingVertical: 16, borderBottomWidth: 1 }, expectation: { gap: 4, padding: 12, borderRadius: 12 }, wrap: { flexShrink: 1 } });

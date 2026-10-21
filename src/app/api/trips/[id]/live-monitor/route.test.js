@@ -63,7 +63,7 @@ function monitorTripRow(overrides = {}) {
 function mockDb({ ownershipRow = null, monitorRows = null } = {}) {
   return vi.spyOn(db, "query").mockImplementation(async (sql) => {
     const s = String(sql);
-    if (s.includes("SELECT trip_id, driver_id, vehicle_id, trip_status, dispatch_id")) {
+    if (s.replace(/\s+/g, " ").trim() === "SELECT * FROM trips WHERE trip_id = $1 AND deleted_at IS NULL LIMIT 1") {
       return { rows: ownershipRow ? [ownershipRow] : [] };
     }
     if (s.includes("FROM trips t")) {

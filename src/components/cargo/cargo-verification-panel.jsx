@@ -6,7 +6,9 @@ import { AlertTriangle, Camera, ExternalLink, RefreshCw, ShieldCheck, Truck } fr
 import { CargoDecisionHistory } from "./cargo-decision-history";
 import { CargoFeedbackStatus } from "./cargo-feedback-status";
 import { CargoQuantityTable } from "./cargo-quantity-table";
+import { CargoHandoverEvidence, CargoHandoverEvidenceContent } from "./cargo-handover-evidence";
 import { createCargoDecisionCommandManager } from "./cargo-decision-command";
+import { useCargoHandoverAnchor } from "./use-cargo-handover-anchor";
 import {
   clearCargoDeparture,
   getCargoEvidence,
@@ -191,7 +193,9 @@ export function CargoVerificationPanelContent({
   onSubmitClearance,
   onRetryFeedback,
   retrying = false,
+  handoverEvidence,
 }) {
+  const section = useCargoHandoverAnchor(tripId, isLoading);
   const manifest = view?.manifest;
   const pickup = view?.pickup_receipt ?? null;
   const delivery = view?.delivery_receipt ?? null;
@@ -206,7 +210,7 @@ export function CargoVerificationPanelContent({
   };
 
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-surface shadow-xs" aria-labelledby={`cargo-verification-${tripId}`}>
+    <section ref={section} tabIndex={-1} className="scroll-mt-24 overflow-hidden rounded-xl border border-border bg-surface shadow-xs outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2" aria-labelledby={`cargo-verification-${tripId}`}>
       <header className="flex flex-col gap-2 border-b border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2">
           <Truck className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
@@ -263,6 +267,7 @@ export function CargoVerificationPanelContent({
             </div>
 
             <PrivateCargoPhotos tripId={tripId} pickup={pickup} delivery={delivery} reviewerState={reviewerState} />
+            {handoverEvidence ?? <CargoHandoverEvidenceContent />}
 
             <div className="space-y-2">
               <h3 className="text-xs font-semibold text-foreground">Review actions</h3>
@@ -518,6 +523,7 @@ export function CargoVerificationPanel({ tripId, linkedRequestId }) {
       tripId={id}
       linkedRequestId={linkedRequestId}
       view={query.data}
+      handoverEvidence={<CargoHandoverEvidence tripId={id} manifest={query.data?.manifest} pickupRecorded={!!query.data?.pickup_receipt} deliveryRecorded={!!query.data?.delivery_receipt} />}
       isLoading={query.isLoading || query.isFetching && !query.data}
       error={query.error}
       reviewerState={{ ...reviewerState, retryError }}

@@ -28,13 +28,14 @@ import { hideTripBubble } from "../lib/trip-bubble";
 // never exposes a fallback typeface or an empty handoff frame.
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
-function ThemedApp({ showLaunch, onLaunchDone }) {
+export function ThemedApp({ showLaunch, onLaunchDone }) {
   const { scheme, colors } = useTheme();
+  const splashHidden = useRef(false);
 
-  useEffect(() => {
-    // Hide the native splash only after the app shell has committed. Hiding
-    // at font-ready time can expose a blank frame while SettingsProvider is
-    // still loading its persisted preferences.
+  const handleLayout = useCallback(() => {
+    if (splashHidden.current) return;
+    splashHidden.current = true;
+    // Wait for the themed shell's first layout, including the launch overlay.
     SplashScreen.hideAsync().catch(() => { });
   }, []);
 
@@ -48,27 +49,27 @@ function ThemedApp({ showLaunch, onLaunchDone }) {
   }, [showLaunch]);
 
   return (
-    <ErrorBoundary>
-      <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-      <View
-        style={{ flex: 1 }}
-        pointerEvents={showLaunch ? "none" : "auto"}
-        accessibilityElementsHidden={showLaunch}
-        importantForAccessibility={showLaunch ? "no-hide-descendants" : "auto"}
-      >
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        />
-      </View>
-      {/* Premium alert overlay — above everything, below nothing */}
-      <AppAlertHost />
-      {/* Heads-up banners + toasts for the 3-tier notification system */}
-      <NotificationHost />
-      {showLaunch && <LaunchScreen onComplete={onLaunchDone} />}
-    </ErrorBoundary>
+    <View style={{ flex: 1 }} onLayout={handleLayout}>
+      <ErrorBoundary>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
+        <View
+          style={{ flex: 1 }}
+          pointerEvents={showLaunch ? "none" : "auto"}
+          accessibilityElementsHidden={showLaunch}
+          importantForAccessibility={showLaunch ? "no-hide-descendants" : "auto"}
+        >
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background },
+            }}
+          />
+        </View>
+        <AppAlertHost />
+        <NotificationHost />
+        {showLaunch && <LaunchScreen onComplete={onLaunchDone} />}
+      </ErrorBoundary>
+    </View>
   );
 }
 
@@ -94,6 +95,7 @@ export default function RootLayout() {
   const ready = loaded || error;
 
   const appState = useRef(AppState.currentState);
+  const launchFinished = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -103,6 +105,8 @@ export default function RootLayout() {
   }, []);
 
   const handleLaunchDone = useCallback(() => {
+    if (launchFinished.current) return;
+    launchFinished.current = true;
     setShowLaunch(false);
     completeLaunch();
   }, []);

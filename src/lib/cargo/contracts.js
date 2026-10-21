@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalizeQuantity, compareQuantities } from './quantities';
 import { physicalManifestLineSchema } from './physical-load';
+import { validateCargoHandover } from '../../../shared/cargo-handover';
 
 const text = max => z.string().min(1).max(max).refine(value => value.trim().length > 0);
 const uuid = z.string().uuid();
@@ -47,18 +48,36 @@ export const manifestSchema = manifestContent.extend({ manifest_ref: manifestRef
   if ((manifest.manifest_ref.kind === 'SUPPLY') !== (manifest.source_ref.system === 'SCM')) ctx.addIssue({ code: 'custom', message: 'Manifest kind and source must agree.' });
 });
 export const requestManifestEnvelopeSchema = z.object({ event_id: text(255), revision: z.number().int().positive().max(2147483647), manifest: manifestContentSchema }).strict();
+const handoverSchema = z.unknown().transform((value, ctx) => {
+  try { return validateCargoHandover(value); }
+  catch { ctx.addIssue({ code: 'custom', message: 'Invalid cargo handover acknowledgment.' }); return z.NEVER; }
+});
 export const receiptSchema = z.object({
   submission_id: uuid, manifest_ref: manifestRefSchema, stage: z.enum(['PICKUP', 'DELIVERY']), observed_at: z.string().datetime({ offset: true }),
   lines: uniqueLines(z.object({ line_id: text(128), observed_quantity: quantity, condition: z.enum(['INTACT', 'DAMAGED']), issue_code: z.enum(['SHORTAGE', 'EXCESS', 'DAMAGE']).nullable(), remarks: z.string().max(2000), evidence_ids: z.array(uuid).max(5) }).strict()),
   receiver_confirmation_ref: uuid.nullable(),
+  handover: handoverSchema.optional(),
 }).strict();
+// Only new submissions apply clock checks. Historical parsing/replay is deterministic.
+export function assertNewReceiptHandover(payload, now = Date.now()) {
+  const fail = (code, message) => { throw Object.assign(new Error(message), { code, status: 400 }); };
+  if (!payload.handover) fail('CARGO_HANDOVER_REQUIRED', 'Capture the cargo handover acknowledgment.');
+  if ([payload.handover.captured_at, payload.handover.location?.captured_at].filter(Boolean).some(value => Date.parse(value) > now + 300000)) {
+    fail('CARGO_INVALID_HANDOVER', 'Cargo handover capture time is ahead of the server time.');
+  }
+}
+const publicReceiptSchema = receiptSchema.omit({ handover: true }).strict();
+export function cargoFeedbackReceiptPayload(payload) {
+  const receipt = receiptSchema.parse(payload);
+  return publicReceiptSchema.parse(Object.fromEntries(Object.entries(receipt).filter(([key]) => key !== 'handover')));
+}
 export const decisionSchema = z.object({ event_id: uuid, receipt_id: uuid, manifest_hash: z.string().regex(/^[a-f0-9]{64}$/), action: z.enum(['WAIT', 'ACCEPT_OBSERVED', 'REJECT_PICKUP']), reason: text(2000) }).strict();
 
 export const cargoFeedbackEventTypeSchema = z.enum(['PICKUP_RECORDED', 'DISCREPANCY_REPORTED', 'SOURCE_DECISION_RECORDED', 'DELIVERY_RECORDED', 'TRANSPORT_CLOSED']);
 export const cargoFeedbackSchema = z.object({
   execution_id: uuid, execution_version: z.number().int().positive(), source_ref: sourceRefSchema,
   event_type: cargoFeedbackEventTypeSchema, manifest_ref: manifestRefSchema,
-  receipt: z.object({ receipt_id: uuid, payload: receiptSchema }).strict().nullable(),
+  receipt: z.object({ receipt_id: uuid, payload: publicReceiptSchema }).strict().nullable(),
   decision: z.object({ decision_id: uuid, payload: decisionSchema }).strict().nullable(),
 }).strict().superRefine((event, ctx) => {
   const invalid = message => ctx.addIssue({ code: 'custom', message });

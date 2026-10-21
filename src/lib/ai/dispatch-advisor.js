@@ -1,4 +1,4 @@
-import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
+import { scoreReservationVehicles, scoreDispatchDrivers, resolveVehicleEfficiency } from "@/lib/ai/rule-engine";
 import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
 import { buildFleetPairRecommendations, vehicleOperationallyAvailable, daysUntil } from "@/lib/ai/pair-scoring";
 import { estimateFuel } from "@/lib/geo/distance";
@@ -137,8 +137,10 @@ function driverRisks(driver) {
 /** Shape one scored vehicle candidate into the advisor payload. */
 function toVehicleCandidate(scored, request, trip) {
   const vehicle = scored.vehicle;
-  const efficiency = estimateEfficiency(vehicle);
-  const fuel = estimateFuel(trip.distanceKm, efficiency, vehicle?.tank_capacity ?? null);
+  // Efficiency precedence (FE-08): configured profile first; the seat/fuel-type
+  // heuristic is a fallback and the payload labels which one produced the litres.
+  const efficiency = resolveVehicleEfficiency(vehicle);
+  const fuel = estimateFuel(trip.distanceKm, efficiency.kmpl, vehicle?.tank_capacity ?? null);
 
   return {
     vehicle_id: vehicle.vehicle_id,
@@ -153,6 +155,8 @@ function toVehicleCandidate(scored, request, trip) {
     reasons: scored.reasons,
     estimated_fuel_liters: fuel.liters,
     estimated_fuel_percent_of_tank: fuel.percentOfTank,
+    estimated_fuel_efficiency_kmpl: efficiency.kmpl,
+    estimated_fuel_basis: efficiency.basis,
     schedule_load: vehicle._schedule_load ?? null,
     availability: availabilityLabel(vehicle.vehicle_status, vehicle._schedule_load, "vehicle"),
     maintenance: vehicle._maintenance

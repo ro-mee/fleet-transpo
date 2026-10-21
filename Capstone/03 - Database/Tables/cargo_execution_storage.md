@@ -1,11 +1,17 @@
 ---
 type: reference
 status: applied-runtime-disabled
-last_verified: 2026-10-13
+last_verified: 2026-10-20
 tags: [database, cargo, privacy]
 ---
 
 # Cargo execution storage — Task 5
+
+## Private signed receipt payloads - 2026-10-20
+
+New receipt commands require a normalized version1 handover inside the existing immutable cargo_receipts.payload JSON. The receipt itself binds trip/execution, stage, manifest revision, exact per-item observations, authenticated reporter and server received_at; cargo_execution_commands retains original responses/hashes for exact replay. Historical absent handover remains parseable/replayable but cannot authorize current departure/completion or new clearance. No new table, schema migration or schema.sql edit was required.
+
+Explicit authorized GET include_handovers=1 projects paired private receipt details. Default cargo reads strip handover/signers/strokes/GPS. All responses are private/no-store. Partner feedback schemas reject private handover, and its public projection is hashed/persisted without signatures; machine source-decision HTTP responses also redact private fields without altering internal command snapshots. Live read-only checks show166applied/0pending/0changed and89relations/0catalog violations; cargo tables explicitly refuse public anon reads. Full verification and limits: [[Dual Cargo Signatures Implementation 2026-10-20]].
 
 ## Task 6 service and immutable response candidate — 2026-10-10
 

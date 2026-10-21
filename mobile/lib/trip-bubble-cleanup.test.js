@@ -167,6 +167,9 @@ describe('actual Map authoritative cleanup handlers', () => {
     runInNewContext(source.slice(start, end), {
       useFocusEffect: fn => fn(), useCallback: fn => fn, focusedRef: { current: false }, lastFixRef: { current: null },
       emptyStateKey: 'off-duty', params: { bubbleReturn: '123' }, loadTrip, dutyRefresh: null,
+      // The focus handler also resumes the map bridge and re-seeds the driver
+      // location; the harness only needs those bindings to exist.
+      mapRef: { current: { setMapActive: () => {} } }, setDriverLocation: () => {},
     });
     expect(loadTrip).toHaveBeenCalledOnce();
   });

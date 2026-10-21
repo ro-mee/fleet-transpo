@@ -251,7 +251,7 @@ async function refreshAccessToken(session = null) {
  * is bounded by fetchWithTimeout.
  */
 export async function apiFetch(path, options = {}) {
-  const { skipAuth = false, queueOnFailure = true, cargoActorId = null, ...init } = options;
+  const { skipAuth = false, queueOnFailure = true, skipQueueDrain = false, cargoActorId = null, ...init } = options;
   const assertCargoActor = () => {
     if (cargoActorId != null && !isCurrentCargoActor(cargoActorId)) {
       throw new ApiError("Cargo request cancelled because the signed-in account changed.", 0, "CARGO_SYNC_CANCELLED");
@@ -293,10 +293,10 @@ export async function apiFetch(path, options = {}) {
     // slow cold start should not fail the whole request immediately.
     const handleNetworkFailure = async () => {
       if (init.body instanceof FormData) {
-        throw new ApiError("Network request failed. Receipt upload was not queued; retry when online.", 0);
+        throw new ApiError("Network request failed. Upload was not queued; retry when online.", 0);
       }
       if (!queueOnFailure) {
-        throw new ApiError("Network request failed. The queued request will be retried later.", 0);
+        throw new ApiError("Network request failed. Nothing was queued; retry when online.", 0);
       }
       const method = init.method || 'GET';
       // Auth requests are interactive: replaying a queued login minutes later
@@ -385,7 +385,7 @@ export async function apiFetch(path, options = {}) {
   // the if/else were identical — for a queue that is empty almost always.
   // hasPendingWork() fails open while the count is unknown, so the first
   // success after cold start still drains and converges the mirror.
-  if (hasPendingWork()) {
+  if (!skipQueueDrain && hasPendingWork()) {
     syncQueue().catch(() => {});
   }
 

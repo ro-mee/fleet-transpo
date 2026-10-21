@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { CargoVerificationPanel } from "@/components/cargo/cargo-verification-panel";
+import { TripOdometerEvidence } from "@/components/trips/trip-odometer-evidence";
 
 const TripRouteMap = dynamic(() => import("@/components/maps/live-locations-map"), {
   ssr: false,
@@ -399,6 +400,8 @@ export default function TripDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      <TripOdometerEvidence trip={trip} />
 
       {hasPerformanceMetrics && (
         <Card className="border-0 shadow-xs rounded-3xl bg-surface overflow-hidden">

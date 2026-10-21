@@ -1,90 +1,80 @@
 import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Image, View, Text, StyleSheet } from "react-native";
 import { useTheme } from "../lib/theme-context";
+import { useSettings } from "../lib/settings-context";
 import { fonts } from "../lib/theme";
 
-/**
- * FleetOps Logo — matches Stitch FleetOps prototype branding:
- * Deep Indigo badge with truck icon, "FleetOps" in Inter Bold
- */
-export function Logo({ size = 48, showText = true, style }) {
-  const { colors, type } = useTheme();
+const marks = {
+  light: require("../assets/brand/mark-light.png"),
+  dark: require("../assets/brand/mark-dark.png"),
+  highContrastLight: require("../assets/brand/mark-high-contrast-light.png"),
+  highContrastDark: require("../assets/brand/mark-high-contrast-dark.png"),
+};
+const inks = {
+  light: ["#285448", "#8A632C"],
+  dark: ["#F5F2EC", "#D2A765"],
+  highContrastLight: ["#000000", "#000000"],
+  highContrastDark: ["#FFFFFF", "#FFFFFF"],
+};
 
+function useBrandVariant(variant) {
+  const { scheme } = useTheme();
+  const { settings } = useSettings();
+  return variant || (settings.highContrast
+    ? (scheme === "dark" ? "highContrastDark" : "highContrastLight")
+    : (scheme === "dark" ? "dark" : "light"));
+}
+
+/** Shared road-ribbon geometry: local PNG exports of the vector master. */
+export function FleetOpsMark({ size = 48, variant }) {
+  const selected = useBrandVariant(variant);
   return (
-    <View style={[styles.container, style]}>
-      <View
-        style={[
-          styles.badge,
-          {
-            width: size,
-            height: size,
-            borderRadius: size * 0.25,
-            backgroundColor: colors.primary,
-          },
-        ]}
-      >
-        <Ionicons name="car-sport" size={size * 0.55} color={colors.onPrimary} />
-      </View>
+    <Image
+      source={marks[selected]}
+      resizeMode="contain"
+      accessible={false}
+      importantForAccessibility="no"
+      style={[styles.mark, { width: size, height: size }]}
+    />
+  );
+}
 
+export function FleetOpsWordmark({ size = 28, variant }) {
+  const selected = useBrandVariant(variant);
+  const [fleet, ops] = inks[selected];
+  return (
+    <Text
+      accessible={false}
+      // The wordmark is artwork; surrounding copy still follows system text size.
+      allowFontScaling={false}
+      style={[styles.wordmark, { fontSize: size, lineHeight: size * 1.3, color: fleet }]}
+    >
+      Fleet<Text style={{ color: ops }}>Ops</Text>
+    </Text>
+  );
+}
+
+export function Logo({ size = 48, showText = true, style, variant, subtitle = true }) {
+  const { colors } = useTheme();
+  return (
+    <View accessible accessibilityLabel="FleetOps" style={[styles.container, style]}>
+      <FleetOpsMark size={size} variant={variant} />
       {showText && (
-        <View style={styles.textGroup}>
-          <Text style={[type.titleLg, styles.brandText, { color: colors.primary }]}>
-            FleetOps
-          </Text>
-          <Text style={[type.caption, styles.subText, { color: colors.onSurfaceVariant }]}>
-            DRIVER COMPANION
-          </Text>
+        <View accessible={false} importantForAccessibility="no-hide-descendants" style={styles.textGroup}>
+          <FleetOpsWordmark variant={variant} size={size < 40 ? 21 : 28} />
+          {subtitle && (
+            <Text style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>DRIVER COMPANION</Text>
+          )}
         </View>
       )}
     </View>
   );
 }
 
-/**
- * BrandBar — top brand header strip used on the consent and auth screens.
- * Matches the Stitch FleetOps TopAppBar design.
- */
-export function BrandBar() {
-  const { colors } = useTheme();
-  return (
-    <View style={[styles.bar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
-      <Logo size={40} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  badge: {
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  textGroup: { justifyContent: "center" },
-  brandText: {
-    letterSpacing: -0.5,
-  },
-  subText: {
-    letterSpacing: 1.5,
-    textTransform: "uppercase",
-  },
-  bar: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
-  },
+  container: { flexDirection: "row", alignItems: "center", gap: 12, flexShrink: 1 },
+  mark: { flexShrink: 0 },
+  textGroup: { justifyContent: "center", flexShrink: 1 },
+  wordmark: { fontFamily: fonts.displaySemiBold, letterSpacing: -0.7 },
+  subtitle: { fontFamily: fonts.bodyMedium, fontSize: 9, lineHeight: 14, letterSpacing: 1.4 },
 });

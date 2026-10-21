@@ -54,6 +54,7 @@ function setup() {
     if (s.includes('AS stored_dispatch_id')) return { rows: [BEFORE_ROW] };
     if (s.includes("t.distance AS planned_distance")) return { rows: [BEFORE_ROW] };
     if (s.includes("SELECT vehicle_id, driver_id")) return { rows: [BEFORE_ROW] };
+    if (s.startsWith("SELECT * FROM vehicles")) return { rows: [{ mileage: 1000, fuel_efficiency_kmpl: 9, fuel_type: "Diesel" }] };
     if (s.includes("FROM gpstracking")) return { rows: [] };
     if (s.includes("fuel_price_region")) return { rows: [{ setting_value: "NCR" }] };
     if (s.includes("SELECT") && s.includes("fuel_price_snapshots")) return { rows: [{ snapshot_id: 4, fuel_product: "Diesel", region: "NCR", currency: "PHP", unit: "L", reference_price: "62.70", effective_at: "2020-01-01T00:00:00Z", verification_method: "Manual", verified_by: 1, lifecycle: "Active" }] };
@@ -155,6 +156,7 @@ describe("trip lifecycle → monitor alert resolution", () => {
       if (s.includes("t.distance AS planned_distance")) {
         return { rows: [{ ...BEFORE_ROW, fuel_efficiency_kmpl: null, planned_distance: null }] };
       }
+      if (s.startsWith("SELECT * FROM vehicles")) return { rows: [{ mileage: 1000, fuel_efficiency_kmpl: null, fuel_type: "Diesel" }] };
       if (s.includes("FROM gpstracking")) return { rows: [] };
       if (s.includes("UPDATE trips")) return { rows: [{ ...COMPLETED_ROW }] };
       if (s.includes("UPDATE trip_monitor_alerts")) return { rows: [] };

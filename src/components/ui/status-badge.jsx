@@ -86,6 +86,7 @@ const ENTITY_MAPS = {
     rejected: "danger",
     fulfilled: "success",
     completed: "success",
+    cancelled: "secondary",
   },
   efficiency: {
     "below baseline": "warning",

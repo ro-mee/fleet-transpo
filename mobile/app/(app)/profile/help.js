@@ -16,6 +16,8 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
 import { ClayCard, ClayTile, ClayButton } from "../../../components/clay";
 import { AppAlert } from "../../../components/AppAlert";
+import DriverGuideLibrary from '../../../components/coachmarks/DriverGuideLibrary';
+import { DRIVER_GUIDES_V2 } from '../../../lib/driver-guidance-config';
 import { useCoachMarkActions } from "../../../components/coachmarks";
 
 const FAQS = [
@@ -74,8 +76,8 @@ export default function HelpCenter() {
         {
           text: "Reset Tips",
           onPress: async () => {
-            await resetTips();
-            AppAlert.alert("In-App Tips Reset", "Helpful tips will appear again as you use the app.");
+            const saved = await resetTips();
+            AppAlert.alert(saved === false ? "Could not reset tips" : "In-App Tips Reset", saved === false ? "Please try again. Your operational records were not changed." : "Helpful tips will appear again as you use the app.");
           },
         },
       ]
@@ -96,6 +98,7 @@ export default function HelpCenter() {
           </Text>
         </View>
 
+        {DRIVER_GUIDES_V2 ? <DriverGuideLibrary /> : null}
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>IN-APP GUIDANCE</Text>
         <ClayCard variant="standard" style={styles.trainingCard}>
           <View style={styles.trainingTop}>
@@ -103,7 +106,7 @@ export default function HelpCenter() {
             <View style={styles.trainingInfo}>
               <Text style={[styles.trainingTitle, { color: colors.onSurface }]}>In-App Guidance Tips</Text>
               <Text style={[styles.trainingSub, { color: colors.onSurfaceVariant }]}>
-                FleetOps provides contextual tips and walkthroughs directly on real screens during vehicle inspections, live trips, fuel logging, and emergencies.
+                Tips explain the controls on your current screen. Read a section again above, or reset all tips to see them again during your normal work.
               </Text>
             </View>
           </View>

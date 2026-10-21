@@ -95,7 +95,7 @@ describe("release acceptance", () => {
     const distance = resolveEstimateDistance({ odometerKm: null, tripDistanceKm: 36, gpsTrailKm: 35 });
     expect(distance).toEqual({ km: 36, provenance: "trip-distance" });
     const fuel = estimateFuelCost({ distanceKm: distance.km, efficiencyKmpl: 9, pricePerLiter: 62.7 });
-    expect(fuel).toMatchObject({ liters: 4, cost: 250.8, basis: "measured" });
+    expect(fuel).toMatchObject({ liters: 4, cost: 250.8, basis: "estimated" });
     // A completion stores the snapshot basis, never a link: the snapshot row
     // below is data the completion copies, and later rows cannot move it.
     const rows = [

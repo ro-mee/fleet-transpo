@@ -49,7 +49,7 @@ beforeEach(() => {
 
 it('refuses reassignment onto a Cargo vehicle without typed load', async () => {
   txQuery = async sql => {
-    if (sql.includes('SELECT driver_id, vehicle_id, dispatch_id FROM trips')) {
+    if (sql.includes('SELECT driver_id, vehicle_id, dispatch_id')) {
       return { rows: [{ driver_id: 7, vehicle_id: 1, dispatch_id: null }] };
     }
     if (sql.includes('SELECT d.driver_type')) return { rows: [{ driver_type: 'Passenger', operational_use: 'Cargo' }] };
@@ -70,7 +70,7 @@ it('refuses reassignment onto a Cargo vehicle without typed load', async () => {
 
 it('keeps the cargo checkpoint refusal on a Cargo trip', async () => {
   txQuery = async sql => {
-    if (sql.includes('SELECT driver_id, vehicle_id, dispatch_id FROM trips')) {
+    if (sql.includes('SELECT driver_id, vehicle_id, dispatch_id')) {
       return { rows: [{ driver_id: 7, vehicle_id: 9, dispatch_id: 11 }] };
     }
     if (sql.includes('SELECT t.trip_id, t.dispatch_id')) {
@@ -89,7 +89,7 @@ it('keeps the cargo checkpoint refusal on a Cargo trip', async () => {
 
 it('updates a Passenger trip unchanged', async () => {
   txQuery = async sql => {
-    if (sql.includes('SELECT driver_id, vehicle_id, dispatch_id FROM trips')) {
+    if (sql.includes('SELECT driver_id, vehicle_id, dispatch_id')) {
       return { rows: [{ driver_id: 7, vehicle_id: 1, dispatch_id: null }] };
     }
     if (sql.includes('SELECT d.driver_type')) return { rows: [{ driver_type: 'Passenger', operational_use: 'Passenger' }] };

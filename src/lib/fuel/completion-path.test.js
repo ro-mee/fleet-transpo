@@ -15,6 +15,8 @@ beforeEach(() => {
   db.getPool.mockReturnValue({ options: { max: 10 }, totalCount: 0, idleCount: 0, waitingCount: 0 });
   let tail = Promise.resolve();
   const execute = async (sql, params) => {
+    if (sql.startsWith('SELECT * FROM vehicles')) return { rows: [{ ...state, mileage: state.vehicle_mileage }] };
+    if (sql.includes('SELECT *') && sql.includes('FROM trips') && !sql.includes('JOIN')) return { rows: [{ ...state }] };
     if (sql.includes("FOR UPDATE OF t")) return { rows: [{ ...state }] };
     if (sql.includes("SELECT trip_id, driver_id, vehicle_id, trip_status, dispatch_id")) return { rows: [{ ...state }] };
     if (sql.includes("FROM gpstracking")) return { rows: trail };
@@ -130,6 +132,9 @@ describe("production completion route through real service and real price reposi
     const [a, b] = await Promise.all([first, second]);
     expect(writes).toBe(1); expect(a.actual_distance_km).toBe(36); expect(b.actual_distance_km).toBe(36);
     expect(b.fuel_estimate_reason).toBe("no-price"); expect(b.estimated_fuel_cost).toBeNull();
+    // Litres depend only on distance and efficiency: a missing price must not
+    // discard them, it only leaves the cost unpriced.
+    expect(b.estimated_fuel_l).toBe(4);
     price = 70; state.fuel_efficiency_kmpl = 12;
     const later = await completeTrip(1, {}, { distance: 50 });
     expect(writes).toBe(1); expect(later.estimated_fuel_cost).toBeNull(); expect(later.fuel_efficiency_snapshot_kmpl).toBe(9);

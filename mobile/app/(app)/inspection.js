@@ -1,3 +1,5 @@
+import DriverGuideTrigger from '../../components/coachmarks/DriverGuideTrigger';
+import { guardLegacyGuideLinks } from '../../components/coachmarks/LegacyGuideLinkGuard';
 import { moderateScale } from '../../lib/scaling';
 import { useEffect, useMemo, useState, useRef } from "react";
 import {
@@ -16,11 +18,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
-import { api } from "../../lib/api";
+import { api, apiFetch } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { captureCargoSession, isCurrentCargoSession } from "../../lib/cargo-sync";
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
-import { ReferencePhotoGuide } from '../../components/ReferencePhotoGuide';
-import { inspectionReferenceFor } from '../../lib/inspection-reference-images';
+import InspectionChecklist from '../../components/inspection/InspectionChecklist';
 import { raisedControl } from '../../lib/clay';
 import { useCoachMarkActions, useCoachMarkStatus, CoachMarkTarget } from "../../components/coachmarks";
 import {
@@ -36,10 +39,14 @@ import {
   inspectionTypeForMode,
 } from "../../lib/inspection-checklist";
 
-export default function PreShiftInspection() {
+function PreShiftInspection() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { tripId, tour, mode, from } = useLocalSearchParams();
+  const { tripId, tour, mode, from, continuation } = useLocalSearchParams();
+  const { user } = useAuth();
+  const submitLock = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const isTour = tour === "1" || tour === true;
   const { colors, type, scheme } = useTheme();
   const isDark = scheme === "dark";
@@ -84,18 +91,20 @@ export default function PreShiftInspection() {
   const [contextRetry, setContextRetry] = useState(0);
 
   useEffect(() => {
-    if (screenMode !== "pretrip" || !tripId) return;
+    if (isTour || screenMode !== "pretrip" || !tripId) return;
     let cancelled = false;
-    api.get("/api/mobile/driver/trips?status=all")
+    const snapshot = captureCargoSession(user?.employeeId);
+    if (!snapshot) return;
+    apiFetch(`/api/mobile/driver/trips?trip_id=${encodeURIComponent(tripId)}`, { queueOnFailure: false, cargoActorId: snapshot.actorId, signal: snapshot.signal })
       .then((trips) => {
-        if (cancelled) return;
+        if (cancelled || !isCurrentCargoSession(snapshot)) return;
         const found = Array.isArray(trips) ? trips.find((trip) => String(trip.trip_id) === String(tripId)) : null;
         setTripContext(found || null);
         if (!found) setTripContextError("This trip is not in your loaded assignments. Refresh or contact dispatch.");
       })
-      .catch((error) => { if (!cancelled) setTripContextError(error.message || "Connect online to load this trip's safety checklist."); });
+      .catch((error) => { if (!cancelled && isCurrentCargoSession(snapshot)) setTripContextError(error.message || "Connect online to load this trip's safety checklist."); });
     return () => { cancelled = true; };
-  }, [tripId, screenMode, contextRetry]);
+  }, [tripId, screenMode, contextRetry, isTour, user?.employeeId]);
 
   useEffect(() => {
     if (screenMode !== "preshift" || isTour) return;
@@ -192,6 +201,7 @@ export default function PreShiftInspection() {
   };
 
   const handleSubmit = async () => {
+    if (submitLock.current) return;
     if (!allAnswered) {
       AppAlert.alert("Checklist Incomplete", `Please complete all ${checkNoun} inspection items before submitting.`);
       return;
@@ -215,6 +225,9 @@ export default function PreShiftInspection() {
       setShowTourSuccessModal(true);
       return;
     }
+    const snapshot = captureCargoSession(user?.employeeId);
+    if (!snapshot) return;
+    submitLock.current = true;
     try {
       setSubmitting(true);
       const result = await api.post("/api/mobile/driver/inspections", {
@@ -228,7 +241,8 @@ export default function PreShiftInspection() {
           remarks: remarks[item.id] || "",
         })),
         inspected_at: new Date().toISOString(),
-      });
+      }, { cargoActorId: snapshot.actorId, signal: snapshot.signal });
+      if (!mounted.current || !isCurrentCargoSession(snapshot)) return;
       if (result?.queued) {
         AppAlert.alert("Saved Offline", `Your ${checkNoun} inspection is saved and will automatically sync once your connection is restored.`, [
           { text: "Done", onPress: () => router.back() },
@@ -252,6 +266,11 @@ export default function PreShiftInspection() {
         return;
       } else {
         // Pre-Trip
+        if (continuation === 'odometer-start' && result?.status === 'Passed'
+          && String(result.trip_id) === String(tripId) && result.inspection_type === 'Pre-Trip') {
+          router.replace({ pathname: '/trip/odometer', params: { tripId: String(tripId), stage: 'start' } });
+          return;
+        }
         if (statuses.brakes_tires === "FAIL") {
           AppAlert.alert(
             "Safety Issue Reported",
@@ -285,9 +304,10 @@ export default function PreShiftInspection() {
         );
       }
     } catch (e) {
-      AppAlert.alert("Unable to Submit Inspection", e.message || "Please check your network connection and try submitting again.");
+      if (mounted.current && isCurrentCargoSession(snapshot)) AppAlert.alert("Unable to Submit Inspection", e.message || "Please check your network connection and try submitting again.");
     } finally {
-      setSubmitting(false);
+      submitLock.current = false;
+      if (mounted.current && isCurrentCargoSession(snapshot)) setSubmitting(false);
     }
   };
 
@@ -306,6 +326,7 @@ export default function PreShiftInspection() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <DriverGuideTrigger guideId={screenMode === 'preshift' ? 'inspection.daily' : 'inspection.quick'} trip={tripContext} requireTrip={screenMode !== 'preshift'} enabled={!isTour} />
       {/* Top App Bar */}
       <View
         style={[
@@ -481,381 +502,7 @@ export default function PreShiftInspection() {
             </Pressable>
           )}
 
-          {/* Checklist */}
-          <View style={styles.checklist}>
-            {CHECKLIST.map((item, idx) => {
-              if (item.kind === "acknowledgment") {
-                const isAcknowledged = statuses[item.id] === "PASS";
-                const ackBg = isAcknowledged
-                  ? (isDark ? "#1E5647" : colors.primary)
-                  : colors.surfaceContainerHigh;
-                const ackBorder = isAcknowledged
-                  ? (isDark ? "#3E8D75" : colors.primary)
-                  : (isDark ? "rgba(255,255,255,0.06)" : colors.outlineVariant + "50");
-                const ackTextColor = isAcknowledged ? "#FFFFFF" : colors.onSurface;
-
-                return (
-                  <View
-                    key={item.id}
-                    onLayout={(e) => handleCardLayout(item.id, e)}
-                  >
-                    <ClayCard
-                      variant="compact"
-                      style={styles.checkItem}
-                    >
-                      <View style={styles.cardHeaderRow}>
-                        <View
-                          style={[
-                            styles.categoryIconBadge,
-                            {
-                              backgroundColor: isAcknowledged
-                                ? (isDark ? "rgba(46, 125, 50, 0.2)" : "#E8F5E9")
-                                : (isDark ? colors.surfaceContainerHighest : colors.surfaceVariant),
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name={item.icon || "sparkles-outline"}
-                            size={20}
-                            color={isAcknowledged ? colors.primary : colors.onSurfaceVariant}
-                          />
-                        </View>
-                        <View style={{ flex: 1, gap: 2 }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                            <Text style={[styles.cardCategoryTitle, { color: colors.onSurface }]}>
-                              {item.shortTitle || item.label}
-                            </Text>
-                            <Text style={[styles.cardSectionTag, { color: colors.primary }]}>
-                              {item.section || "CABIN READY?"}
-                            </Text>
-                          </View>
-                          <Text style={[styles.cardQuestionText, { color: isDark ? "#CBD5E1" : colors.onSurfaceVariant }]}>
-                            {isCargoPreTrip ? "Clean, tidy, air conditioning working and no unpleasant odors." : "Before departure, make sure:"}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {!isCargoPreTrip && <View style={styles.bulletList}>
-                        {(item.reminders || []).map((reminder, rIdx) => (
-                          <View key={rIdx} style={styles.bulletRow}>
-                            <Text style={[styles.bulletPoint, { color: colors.primary }]}>•</Text>
-                            <Text style={[type.bodyMd, styles.bulletText, { color: colors.onSurface }]}>
-                              {reminder}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>}
-                      {item.supportingText && (
-                        <Text style={[type.supporting, { color: colors.onSurfaceVariant, marginTop: 2, fontStyle: "italic" }]}>
-                          {isCargoPreTrip ? "Prepare the cabin for safe cargo transport. Freshen it if needed." : item.supportingText}
-                        </Text>
-                      )}
-                      <Pressable
-                        onPress={() => setStatus(item.id, isAcknowledged ? null : "PASS")}
-                        accessibilityRole="checkbox"
-                        accessibilityState={{ checked: isAcknowledged }}
-                        style={({ pressed }) => [
-                          styles.cabinAckBtn,
-                          raised,
-                          {
-                            backgroundColor: ackBg,
-                            borderColor: ackBorder,
-                            transform: [{ scale: pressed ? 0.98 : 1 }],
-                            opacity: pressed ? 0.9 : 1,
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name={isAcknowledged ? "checkmark-circle" : "checkmark-circle-outline"}
-                          size={20}
-                          color={isAcknowledged ? "#FFFFFF" : colors.primary}
-                        />
-                        <Text style={[styles.cabinAckBtnText, { color: ackTextColor }]} numberOfLines={1}>
-                          {isCargoPreTrip ? isAcknowledged ? "PASS · CABIN READY" : "CONFIRM CABIN READY" : isAcknowledged ? "✓ CABIN VERIFIED & READY" : (item.buttonLabel || "✓ CABIN READY")}
-                        </Text>
-                      </Pressable>
-                    </ClayCard>
-                  </View>
-                );
-              }
-
-              const status = statuses[item.id];
-              const isPass = status === "PASS";
-              const isFail = status === "FAIL";
-              const isServiceFinding = item.findingTone === "service";
-              const unselectedTextColor = isDark ? "#E2E8F0" : colors.onSurface;
-              const unselectedIconColor = isDark ? "#94A3B8" : colors.onSurfaceVariant;
-
-              const passBg = isPass
-                ? (isDark ? "#1E5647" : colors.primary)
-                : colors.surfaceContainerHigh;
-              const passBorder = isPass
-                ? (isDark ? "#3E8D75" : colors.primary)
-                : (isDark ? "rgba(255,255,255,0.06)" : "transparent");
-              const passTextColor = isPass ? "#FFFFFF" : unselectedTextColor;
-              const passIconColor = isPass ? "#FFFFFF" : unselectedIconColor;
-
-              const failBg = isFail
-                ? (isServiceFinding
-                  ? (isDark ? "rgba(217, 119, 6, 0.22)" : "#FEF3C7")
-                  : colors.errorContainer)
-                : colors.surfaceContainerHigh;
-              const failBorder = isFail
-                ? (isServiceFinding ? "#D97706" : colors.error)
-                : (isDark ? "rgba(255,255,255,0.06)" : "transparent");
-              const failTextColor = isFail
-                ? (isServiceFinding
-                  ? (isDark ? "#FDE68A" : "#92400E")
-                  : colors.onErrorContainer)
-                : unselectedTextColor;
-              const failIconColor = isFail
-                ? (isServiceFinding
-                  ? (isDark ? "#FDE68A" : "#B45309")
-                  : colors.onErrorContainer)
-                : unselectedIconColor;
-              const reference = isCargoPreTrip ? inspectionReferenceFor(item.id) : null;
-
-              return (
-                <View
-                  key={item.id}
-                  onLayout={(e) => handleCardLayout(item.id, e)}
-                >
-                  <ClayCard
-                    variant="compact"
-                    style={styles.checkItem}
-                  >
-                    <View style={styles.cardHeaderRow}>
-                      <View
-                        style={[
-                          styles.categoryIconBadge,
-                          {
-                            backgroundColor: isPass
-                              ? (isDark ? "rgba(46, 125, 50, 0.2)" : "#E8F5E9")
-                              : isFail
-                              ? (isServiceFinding
-                                ? (isDark ? "rgba(217, 119, 6, 0.2)" : "#FEF3C7")
-                                : (isDark ? "rgba(239, 68, 68, 0.2)" : "#FEE2E2"))
-                              : (isDark ? colors.surfaceContainerHighest : colors.surfaceVariant),
-                          },
-                        ]}
-                      >
-                        <Ionicons
-                          name={item.icon || "checkmark-circle-outline"}
-                          size={20}
-                          color={
-                            isPass
-                              ? colors.primary
-                              : isFail
-                              ? (isServiceFinding ? "#D97706" : colors.error)
-                              : colors.onSurfaceVariant
-                          }
-                        />
-                      </View>
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                          <Text style={[styles.cardCategoryTitle, { color: colors.onSurface }]}>
-                            {screenMode === "preshift" ? `${idx + 1}. ${item.shortTitle || item.label}` : (item.shortTitle || item.label)}
-                          </Text>
-                          {item.section && (
-                            <Text style={[styles.cardSectionTag, { color: isCargoPreTrip && isFail ? colors.error : colors.primary }]}>
-                              {isCargoPreTrip ? status || "REQUIRED" : item.section}
-                            </Text>
-                          )}
-                        </View>
-                        <Text style={[styles.cardQuestionText, { color: isDark ? "#CBD5E1" : colors.onSurfaceVariant }]}>
-                          {item.question}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {isCargoPreTrip && (
-                      <ReferencePhotoGuide
-                        source={reference?.source}
-                        subject={item.shortTitle || item.label}
-                        caption={reference?.caption}
-                      >
-                        <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
-                          {item.id === "brakes_tires"
-                            ? "Check the actual tires for visible damage and confirm the brakes work properly. Report any issue before departure."
-                            : "Check the actual load and its straps or restraints. Report loose or unsecured cargo before departure."}
-                        </Text>
-                      </ReferencePhotoGuide>
-                    )}
-
-                    {idx === 0 ? (
-                      <CoachMarkTarget id="inspection.pass_fail" targetId="inspection.pass_fail" radius={14} scrollRef={scrollRef}>
-                        <View style={styles.checkBtnRow}>
-                          {/* PASS button */}
-                          <Pressable
-                            onPress={() => setStatus(item.id, "PASS")}
-                            style={({ pressed }) => [
-                              styles.checkBtn,
-                              raised,
-                              {
-                                backgroundColor: passBg,
-                                borderColor: passBorder,
-                                transform: [{ scale: pressed ? 0.97 : 1 }],
-                                opacity: pressed ? 0.9 : 1,
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name={isPass ? "checkmark-circle" : "checkmark-circle-outline"}
-                              size={16}
-                              color={passIconColor}
-                            />
-                            <Text
-                              style={[
-                                styles.checkBtnText,
-                                { color: passTextColor },
-                              ]}
-                              numberOfLines={1}
-                              adjustsFontSizeToFit
-                              minimumFontScale={0.75}
-                            >
-                              {item.passLabel || "PASS"}
-                            </Text>
-                          </Pressable>
-
-                          {/* FAIL button */}
-                          <Pressable
-                            onPress={() => setStatus(item.id, "FAIL")}
-                            style={({ pressed }) => [
-                              styles.checkBtn,
-                              raised,
-                              {
-                                backgroundColor: failBg,
-                                borderColor: failBorder,
-                                transform: [{ scale: pressed ? 0.97 : 1 }],
-                                opacity: pressed ? 0.9 : 1,
-                              },
-                            ]}
-                          >
-                            <Ionicons
-                              name={item.failLabel === "WARNING" ? "warning-outline" : isFail ? (isServiceFinding ? "bag-outline" : "close-circle") : "close-circle-outline"}
-                              size={16}
-                              color={failIconColor}
-                            />
-                            <Text
-                              style={[
-                                styles.checkBtnText,
-                                { color: failTextColor },
-                              ]}
-                              numberOfLines={1}
-                              adjustsFontSizeToFit
-                              minimumFontScale={0.75}
-                            >
-                              {item.failLabel || "FAIL"}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      </CoachMarkTarget>
-                    ) : (
-                      <View style={styles.checkBtnRow}>
-                        {/* PASS button */}
-                        <Pressable
-                          onPress={() => setStatus(item.id, "PASS")}
-                          style={({ pressed }) => [
-                            styles.checkBtn,
-                            raised,
-                            {
-                              backgroundColor: passBg,
-                              borderColor: passBorder,
-                              transform: [{ scale: pressed ? 0.97 : 1 }],
-                              opacity: pressed ? 0.9 : 1,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name={isPass ? "checkmark-circle" : "checkmark-circle-outline"}
-                            size={16}
-                            color={passIconColor}
-                          />
-                          <Text
-                            style={[
-                              styles.checkBtnText,
-                              { color: passTextColor },
-                            ]}
-                            numberOfLines={1}
-                            adjustsFontSizeToFit
-                            minimumFontScale={0.75}
-                          >
-                            {item.passLabel || "PASS"}
-                          </Text>
-                        </Pressable>
-
-                        {/* FAIL button */}
-                        <Pressable
-                          onPress={() => setStatus(item.id, "FAIL")}
-                          style={({ pressed }) => [
-                            styles.checkBtn,
-                            raised,
-                            {
-                              backgroundColor: failBg,
-                              borderColor: failBorder,
-                              transform: [{ scale: pressed ? 0.97 : 1 }],
-                              opacity: pressed ? 0.9 : 1,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name={item.failLabel === "WARNING" ? "warning-outline" : isFail ? (isServiceFinding ? "bag-outline" : "close-circle") : "close-circle-outline"}
-                            size={16}
-                            color={failIconColor}
-                          />
-                          <Text
-                            style={[
-                              styles.checkBtnText,
-                              { color: failTextColor },
-                            ]}
-                            numberOfLines={1}
-                            adjustsFontSizeToFit
-                            minimumFontScale={0.75}
-                          >
-                            {item.failLabel || "FAIL"}
-                          </Text>
-                        </Pressable>
-                      </View>
-                    )}
-
-                    {/* Remarks input when failed */}
-                    {isFail && (
-                      <View style={{ gap: 6 }}>
-                        <CoachMarkTarget id="inspection.remarks" targetId="inspection.remarks" radius={12} scrollRef={scrollRef}>
-                          <TextInput
-                            placeholder={item.remarksPrompt || "Describe issue..."}
-                            placeholderTextColor={colors.outline}
-                            value={remarks[item.id] || ""}
-                            maxLength={1000}
-                            onChangeText={(text) =>
-                              setRemarks((prev) => ({ ...prev, [item.id]: text }))
-                            }
-                            style={[
-                              styles.remarkInput,
-                              {
-                                borderColor: isServiceFinding ? "#D97706" : (colors.error + "60"),
-                                color: colors.onSurface,
-                                backgroundColor: colors.surfaceContainerLowest,
-                              },
-                            ]}
-                            multiline
-                          />
-                        </CoachMarkTarget>
-                        {isServiceFinding && (
-                          <View style={styles.serviceFindingNoteRow}>
-                            <Ionicons name="information-circle-outline" size={15} color="#D97706" />
-                            <Text style={[type.caption, { color: isDark ? "#FDE68A" : "#92400E", flex: 1 }]}>
-                              Service finding will be logged for dispatch & Lost & Found. You can still proceed with your route.
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    )}
-                  </ClayCard>
-                </View>
-              );
-            })}
-          </View>
+          <InspectionChecklist items={CHECKLIST} answers={statuses} remarks={remarks} onAnswer={setStatus} onRemarks={setRemarks} isCargoPreTrip={isCargoPreTrip} screenMode={screenMode} scrollRef={scrollRef} handleCardLayout={handleCardLayout} styles={styles} raised={raised} />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -1125,7 +772,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
     letterSpacing: 0.3,
   },
-  checkItemLabel: {},
   checkBtnRow: { flexDirection: "row", gap: moderateScale(8) },
   checkBtn: {
     flex: 1,
@@ -1239,3 +885,5 @@ const styles = StyleSheet.create({
     marginBottom: moderateScale(10),
   },
 });
+
+export default guardLegacyGuideLinks(PreShiftInspection);

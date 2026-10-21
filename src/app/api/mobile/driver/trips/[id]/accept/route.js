@@ -5,6 +5,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 
 import { assertTripOwnership } from "@/lib/api/ownership";
+import { assertGenericOdometerWriteAllowed } from '@/lib/trips/odometer-gate';
 
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 
@@ -70,7 +71,7 @@ export async function PUT(req, { params }) {
 
     const trip = await assertTripOwnership(session, id);
 
-    const current = trip.trip_status;
+    let current = trip.trip_status;
 
     const target = body.accept ? TRIP_STATUS.DRIVER_ACCEPTED : TRIP_STATUS.CANCELLED;
 
@@ -96,9 +97,11 @@ export async function PUT(req, { params }) {
 
       if (body.accept) {
 
+        await prepareCargoLifecycle(db);
+
         const { rows: assignmentRows } = await db.query(
 
-          `SELECT d.driver_type, tr.load_type, v.operational_use
+          `SELECT t.trip_status, t.odometer_capture_required, d.driver_type, tr.load_type, v.operational_use
 
              FROM trips t
 
@@ -140,6 +143,10 @@ export async function PUT(req, { params }) {
 
         );
 
+        const lockedTrip = assignmentRows[0];
+        if (!lockedTrip) throw new AuthError('Trip not found', 404);
+        assertGenericOdometerWriteAllowed({ before: lockedTrip, patch: { trip_status: target } });
+        current = lockedTrip.trip_status;
         const compatibility = checkVehicleLoadCompatibility({
 
           driverType: assignmentRows[0]?.driver_type,
@@ -155,7 +162,6 @@ export async function PUT(req, { params }) {
         // Cargo authority mirrors desktop accept: setTripStatus runs this
         // same checkpoint after this same compatibility block. Unconfigured
         // Cargo authority stays 503, missing linkage stays 409.
-        await prepareCargoLifecycle(db);
         await assertCargoCheckpoint(trip, { to: target, session }, db);
 
       }

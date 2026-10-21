@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
+vi.mock("@/lib/fuel/measured-efficiency", () => ({
+  attachMeasuredEfficiency: vi.fn(async (rows) => rows),
+}));
 vi.mock("@/services/route-resolver.service", () => ({
   estimateForRequest: vi.fn(),
   resolveRequestEstimate: vi.fn(),
@@ -8,7 +11,10 @@ vi.mock("@/services/route-resolver.service", () => ({
 }));
 
 import { query } from "@/lib/db";
+import { estimateEfficiency } from "@/lib/ai/rule-engine";
+import { estimateFuel } from "@/lib/geo/distance";
 import { resolveRequestEstimate } from "@/services/route-resolver.service";
+import { attachMeasuredEfficiency } from "@/lib/fuel/measured-efficiency";
 import {
   fetchCandidates,
   prefilterReason,
@@ -211,4 +217,56 @@ it('admits typed renewed-document candidates past stale registration status but 
  const excluded=query.mock.calls.find(([sql])=>sql.includes('vehicle_status = ANY'));
  expect(main[1][4]).toEqual(['Under Maintenance','Decommissioned']);
  expect(excluded[1][2]).toEqual(main[1][4]);
+});
+
+describe("fetchCandidates fuel efficiency (FE-08)", () => {
+  it("resolves the configured profile first and labels the heuristic fallback", async () => {
+    query.mockImplementation(async (sql) => {
+      if (sql.includes("FROM system_settings")) return { rows: [] };
+      if (sql.includes("WITH usage"))
+        return {
+          rows: [
+            { vehicle_id: 7, plate_number: "ABC 1234", tank_capacity: 50, fuel_efficiency_kmpl: "10", seating_capacity: 4, fuel_type: "Gasoline" },
+            { vehicle_id: 8, plate_number: "DEF 5678", tank_capacity: 50, fuel_efficiency_kmpl: null, seating_capacity: 4, fuel_type: "Gasoline" },
+          ],
+        };
+      if (sql.includes("FROM drivers d")) return { rows: [] };
+      if (sql.includes("vehicle_status = ANY")) return { rows: [] };
+      throw new Error(`unexpected query: ${String(sql).slice(0, 80)}`);
+    });
+
+    const { vehicles } = await fetchCandidates(REQUEST, TRIP);
+    const [profiled, unprofiled] = vehicles;
+    expect(profiled._est_fuel_basis).toBe("profile");
+    expect(profiled._est_fuel_liters).toBe(estimateFuel(TRIP.distanceKm, 10, 50).liters);
+    expect(unprofiled._est_fuel_basis).toBe("heuristic");
+    expect(unprofiled._est_fuel_liters).toBe(
+      estimateFuel(TRIP.distanceKm, estimateEfficiency({ seating_capacity: 4, fuel_type: "Gasoline" }), 50).liters
+    );
+  });
+
+  it("lets an eligible measured basis drive the estimate payload (Level 3)", async () => {
+    query.mockImplementation(async (sql) => {
+      if (sql.includes("FROM system_settings")) return { rows: [] };
+      if (sql.includes("WITH usage"))
+        return {
+          rows: [
+            { vehicle_id: 7, plate_number: "ABC 1234", tank_capacity: 50, fuel_efficiency_kmpl: "10", seating_capacity: 4, fuel_type: "Gasoline" },
+          ],
+        };
+      if (sql.includes("FROM drivers d")) return { rows: [] };
+      if (sql.includes("vehicle_status = ANY")) return { rows: [] };
+      throw new Error(`unexpected query: ${String(sql).slice(0, 80)}`);
+    });
+    attachMeasuredEfficiency.mockImplementation(async (rows) => {
+      for (const v of rows) {
+        v._measured_efficiency = { eligible: true, kmpl: 7.5, distance_km: 150, liters: 20, receipts: 4, profile_gap_ratio: 0.25, flags: [] };
+      }
+      return rows;
+    });
+
+    const { vehicles } = await fetchCandidates(REQUEST, TRIP);
+    expect(vehicles[0]._est_fuel_basis).toBe("measured");
+    expect(vehicles[0]._est_fuel_liters).toBe(estimateFuel(TRIP.distanceKm, 7.5, 50).liters);
+  });
 });

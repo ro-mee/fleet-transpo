@@ -446,9 +446,14 @@ export default function DispatchDetailPage() {
             <p className="text-xs font-semibold text-foreground">Cargo review is attached to the trip</p>
             <p className="mt-0.5 text-xs text-foreground-secondary">Open the trip to compare quantities and review the separate source, Fleet, and receiver records.</p>
           </div>
-          <Link href={`/trips/${trip.trip_id}`} className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-info/30 bg-surface px-3 text-xs font-semibold text-primary hover:bg-info/10">
-            Review cargo <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          </Link>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <Button asChild variant="outline" size="sm" className="min-h-11 sm:min-h-9">
+              <Link href={`/trips/${trip.trip_id}`}>Review cargo <ExternalLink className="ml-1.5 size-3.5" aria-hidden="true" /></Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="min-h-11 sm:min-h-9">
+              <Link href={`/trips/${trip.trip_id}#cargo-chain-of-custody`}>View signatures</Link>
+            </Button>
+          </div>
         </div>
       )}
 

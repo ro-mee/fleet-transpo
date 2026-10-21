@@ -1,5 +1,9 @@
 # Mobile Home Claymorphism Implementation Plan
 
+## Keep-clay performance follow-up — 2026-10-21
+
+The owner chose to keep the existing clay appearance. Home now uses the shared focus/foreground presentation clock, stops its loading pulse while hidden, and omits hidden route renderers with equal-aspect placeholders. All applicable current/upcoming road previews return when active; map documents reload on return. Notification polls with identical complete ordered payloads no longer publish a new array/context, avoiding unnecessary Home updates. No shadow recipe, palette, GPS owner or trip/duty gate changed. The sibling Trips list now uses SectionList windowing. Full mobile-filtered verification passed 112 files / 1,272 tests, strict touched lint and Android Hermes export; browser fixtures checked retained Trips clay styling and larger text. Native Android frame rate, shadows, WebView resume and release-build acceptance remain pending. Details and work-count evidence: [[UI UX Audit - Mobile]].
+
 Date: 2026-09-09
 Status: Implemented; automated checks and isolated component review completed. Native device acceptance remains pending.
 

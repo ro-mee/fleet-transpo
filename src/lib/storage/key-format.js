@@ -32,6 +32,7 @@ export const KNOWN_MEDIA_BUCKETS = new Set([
   "driver-licenses",
   "face-captures",
   "fuel-receipts",
+  "trip-odometer-photos",
   "incident-evidence",
   "expense-receipts",
   "vehicle-documents",
