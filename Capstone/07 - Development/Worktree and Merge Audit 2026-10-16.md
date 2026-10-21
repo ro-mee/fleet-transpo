@@ -60,3 +60,25 @@ Related notes: [[Worktree and Merge Audit 2026-10-08]], [[Google Maps Navigation
 ## Follow-up: user-authorized sequential merges
 
 The user subsequently authorized one-at-a-time integration into local main. Mechanic, Google Maps handoff and Android trip-bubble source were merged separately. Old fuel and driver-save documentation histories were reconciled with the current content retained: the fuel feature was already squashed into main and the media protection/note had newer replacements. This supersedes the unmerged-branch snapshot above; the snapshot remains as pre-merge evidence. See [[Sequential Branch Merges 2026-10-16]] for commit descriptions, conflict resolutions and fresh verification limits. Native/device acceptance and publication remain separate.
+
+## Repeat audit after remote synchronization - 2026-10-16
+
+A fresh read of live remote heads now confirms remote main and local main both point to `5e9d73f2e1aeb002a4a28c6203c7a56542ffac47` (zero ahead/behind). This supersedes the earlier publication-pending snapshot: the remote has moved since the merge task, without a push by this audit. All five live remote branch hashes match their local remote-tracking references, including mechanic at `6240d32a`.
+
+Rechecked all 16 local branches and all five live remote branches: every tip is an ancestor of main, with zero commits missing from main. The old branch names and older checkout files remain present because no branch or worktree was deleted or advanced during integration.
+
+| Registered checkout branch | Commits missing from main | Status before saving this repeat-audit record |
+| --- | ---: | --- |
+| feat/mechanic-integration | 0 | Clean |
+| codex/cargo-core-sandbox | 0 | Clean |
+| codex/cargo-mobile-ui | 0 | Clean |
+| codex/android-trip-bubble | 0 | Clean |
+| fix/dispatch-copilot-ui-audit | 0 | Clean |
+| feat/passenger-cargo | 0 | Clean |
+| main (capstone-fuel-pdf) | 0 | Clean |
+
+All statuses included tracked and all untracked files; ignored build outputs/configuration were not counted. The primary mobile folder has no nested .git marker and uses the parent repository. The two previously documented unregistered leftover folders remain outside the seven active checkouts; this repeat audit inspected their markers, not their complete file histories.
+
+Two historical stashes are still preserved. The small stash's actual singular/plural driver-scope change (`drivers?`) is present in main's newer classifier. For the larger stash, all 67 edited tracked paths exist in main: 10 blobs match exactly and 57 differ from later/current content. Of 16 saved untracked paths, 10 match main exactly and three have later/different main versions. The remaining three (IMPLEMENTATION_NOTES.md, SCENE_NOTES.md, STORYBOARD.md) are local-only motion-production notes, present in the primary checkout. The stash base and final driver-info/edit branch are ancestors of main. These comparisons do not prove every old hunk redundant; the large stash remains a preserved historical snapshot, not an unmerged branch. Neither stash was restored or deleted.
+
+This repeat audit changed no application code, branch, worktree registration, stash or database and ran no application tests. Saving this mandatory vault record leaves one documentation-only edit in the main checkout; all other worktrees remain clean. No commit, merge or push was performed during this repeat audit.
