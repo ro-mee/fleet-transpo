@@ -1,3 +1,5 @@
+import FuelRequestForm from '../../components/fuel/FuelRequestForm';
+import FuelReceiptReview from '../../components/fuel/FuelReceiptReview';
 import { moderateScale } from '../../lib/scaling';
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, InteractionManager } from 'react-native';
@@ -74,6 +76,7 @@ export default function FuelReport() {
   const [gaugeBusy, setGaugeBusy] = useState(false);
   const [requestPurpose, setRequestPurpose] = useState("");
   const [requestingFuel, setRequestingFuel] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
   const [fuelDate, setFuelDate] = useState(pFuelDate || new Date().toISOString());
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraPurpose, setCameraPurpose] = useState("scan");
@@ -233,7 +236,7 @@ export default function FuelReport() {
         const latest = rows.find((request) => activeVehicleId
           ? String(request.vehicle_id) === activeVehicleId
           : String(request.trip_id) === String(activeTripId));
-        if (latest?.status === "Rejected" && latest.client_submission_id === requestSubmissionId.current) {
+        if (latest && ["Rejected", "Cancelled"].includes(latest.status) && latest.client_submission_id === requestSubmissionId.current) {
           requestSubmissionId.current = `${Date.now()}-${Math.random().toString(36).slice(2)}-req`;
         }
         return;
@@ -253,6 +256,54 @@ export default function FuelReport() {
       }
     }
   }, [activeTripId, activeVehicleId, driverId, hasAssignedVehicle, id, isOffline]);
+
+  // Withdraw (FE-06): Pending and Approved requests that are never fulfilled
+  // keep blocking the vehicle's next request server-side, and the driver is the
+  // only person who knows the fuel is no longer needed. Confirmed, destructive,
+  // and only reachable with a connection — the API call is not queued offline.
+  const withdrawFuelRequest = useCallback(() => {
+    const request = currentFuelRequest;
+    if (!request) return;
+    if (isOffline) {
+      AppAlert.alert(
+        "You're Offline",
+        "Withdrawing a request needs a connection. Try again once you're back online.",
+        null,
+        { type: "warning" }
+      );
+      return;
+    }
+    const liters = request.approved_liters ?? request.recommended_liters ?? request.requested_liters;
+    AppAlert.alert(
+      "Withdraw Fuel Request",
+      `This cancels your ${request.status === "Approved" ? "approved permit" : "pending request"}${liters ? ` for ${liters} L` : ""} and frees the vehicle for a new request.`,
+      [
+        { text: "Keep Request", style: "cancel" },
+        {
+          text: "Withdraw",
+          style: "destructive",
+          onPress: async () => {
+            setWithdrawing(true);
+            try {
+              // Withdraw is an online-only action: a queued DELETE would report
+              // success while the permit is still open, so the request must
+              // fail loudly instead of being replayed later.
+              await api.del("/api/fuel/requests", { fuel_request_id: request.fuel_request_id }, { queueOnFailure: false });
+              // The cancelled row keeps its client_submission_id; regenerating
+              // the dedup id keeps a later re-request from resolving to it.
+              requestSubmissionId.current = `${Date.now()}-${Math.random().toString(36).slice(2)}-req`;
+              await loadFuelRequests();
+            } catch (error) {
+              AppAlert.alert("Unable to Withdraw", error.message || "Please try again.");
+            } finally {
+              setWithdrawing(false);
+            }
+          },
+        },
+      ],
+      { type: "warning" }
+    );
+  }, [currentFuelRequest, isOffline, loadFuelRequests]);
 
   useEffect(() => {
     // Approval poll: loadFuelRequests early-returns while fully offline
@@ -947,6 +998,19 @@ export default function FuelReport() {
                       Approved: {isTour ? "35.50" : currentFuelRequest.approved_liters} L
                     </Text>
                     <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>You may now refuel and submit the receipt.</Text>
+                    {!isTour ? (
+                      <Pressable
+                        onPress={withdrawFuelRequest}
+                        disabled={withdrawing}
+                        accessibilityRole="button"
+                        accessibilityLabel="Withdraw this approved fuel request"
+                        style={{ marginTop: 8 }}
+                      >
+                        <Text style={{ color: colors.error, fontWeight: "600" }}>
+                          {withdrawing ? "Withdrawing…" : "No longer need it? Withdraw"}
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 </View>
               </CoachMarkTarget>
@@ -956,99 +1020,21 @@ export default function FuelReport() {
                 <View style={styles.methodCopy}>
                   <Text style={[styles.requestStatusTitle, { color: colors.onSurface }]}>Awaiting fleet approval</Text>
                   <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>Recommended {currentFuelRequest.recommended_liters || currentFuelRequest.requested_liters} L from your {currentFuelRequest.current_fuel_level_percent}% reading. This screen refreshes automatically.</Text>
+                  <Pressable
+                    onPress={withdrawFuelRequest}
+                    disabled={withdrawing}
+                    accessibilityRole="button"
+                    accessibilityLabel="Withdraw this fuel request"
+                    style={{ marginTop: 8 }}
+                  >
+                    <Text style={{ color: colors.error, fontWeight: "600" }}>
+                      {withdrawing ? "Withdrawing…" : "Withdraw request"}
+                    </Text>
+                  </Pressable>
                 </View>
               </View>
             ) : (
-              <>
-                {latestFuelRequest?.status === "Rejected" ? (
-                  <Text style={[styles.requestRejected, { color: colors.error }]}>Previous request rejected: {latestFuelRequest.review_notes || "No reason provided"}</Text>
-                ) : null}
-                <View style={styles.fieldGroup}>
-                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>CURRENT FUEL LEVEL (%)</Text>
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                    placeholder="e.g. 25"
-                    placeholderTextColor={colors.outline}
-                    keyboardType="decimal-pad"
-                    accessibilityLabel="Current dashboard fuel level percent"
-                    value={fuelLevelPercent}
-                    onChangeText={setFuelLevelPercent}
-                  />
-                </View>
-                <View style={styles.fieldGroup}>
-                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>GAUGE PHOTO (REQUIRED)</Text>
-                  {gaugePhotoUrl ? (
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Image
-                        source={{ uri: gaugePhotoUrl }}
-                        style={{ width: 96, height: 72, borderRadius: 10, borderWidth: 1, borderColor: colors.outline }}
-                        resizeMode="cover"
-                        accessibilityLabel="Attached fuel gauge photo"
-                      />
-                      <View style={{ marginLeft: 12, flex: 1 }}>
-                        <Text style={{ color: colors.onSurfaceVariant, fontSize: 12 }}>
-                          {gaugeScanEstimate != null ? `AI read ~${gaugeScanEstimate}% from this photo` : "Evidence attached"}
-                        </Text>
-                        <Pressable
-                          onPress={() => { setGaugePhotoUrl(""); setGaugeScanEstimate(null); }}
-                          accessibilityRole="button"
-                          accessibilityLabel="Remove gauge photo and retake"
-                          style={{ marginTop: 6 }}
-                        >
-                          <Text style={{ color: colors.error, fontWeight: "600" }}>Retake photo</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  ) : (
-                    <CoachMarkTarget targetId="fuel.gauge_entry" radius={16} padding={6}>
-                      <ClayButton
-                        label="Capture gauge with camera"
-                        variant="tonal"
-                        icon="camera-outline"
-                        disabled={gaugeBusy}
-                        onPress={() => {
-                          if (isTour) {
-                            // Deliberately does NOT notify: the gauge has not been
-                            // scanned yet, only requested. Notifying here advanced
-                            // the tour to "Request fuel" while the capture modal was
-                            // still opening, so the tooltip appeared over a modal
-                            // the driver had not read. The advance belongs to the
-                            // modal's completion below, once the gauge is captured.
-                            setTourGaugeModalVisible(true);
-                            return;
-                          }
-                          openGaugeCamera();
-                        }}
-                        style={{ alignSelf: 'stretch' }}
-                      />
-                    </CoachMarkTarget>
-                  )}
-                  {gaugeBusy ? <ActivityIndicator size="small" style={{ marginTop: 8 }} /> : null}
-                </View>
-                <View style={styles.fieldGroup}>
-                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>PURPOSE (OPTIONAL)</Text>
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                    placeholder="Why fuel is needed"
-                    placeholderTextColor={colors.outline}
-                    maxLength={500}
-                    accessibilityLabel="Fuel request purpose"
-                    value={requestPurpose}
-                    onChangeText={setRequestPurpose}
-                  />
-                </View>
-                <CoachMarkTarget targetId="fuel.request_button" radius={16} padding={6}>
-                  <ClayButton
-                    label={requestingFuel ? "Submitting…" : "Request fuel"}
-                    variant="primary"
-                    icon="send-outline"
-                    loading={requestingFuel}
-                    disabled={requestingFuel || (!isTour && !hasAssignedVehicle) || !gaugePhotoUrl || gaugeBusy}
-                    onPress={requestFuel}
-                    style={{ alignSelf: 'stretch', marginTop: 8 }}
-                  />
-                </CoachMarkTarget>
-              </>
+              <FuelRequestForm {...{ latestFuelRequest, fuelLevelPercent, setFuelLevelPercent, gaugePhotoUrl, setGaugePhotoUrl, gaugeScanEstimate, setGaugeScanEstimate, gaugeBusy, requestingFuel, requestPurpose, setRequestPurpose, requestFuel, styles }} hasAssignedVehicle={isTour || hasAssignedVehicle} onCaptureGauge={() => { if (isTour) { setTourGaugeModalVisible(true); return; } openGaugeCamera(); }} />
             )}
           </ClayCard>
         ) : null}
@@ -1095,169 +1081,7 @@ export default function FuelReport() {
         ) : null}
 
         {mode === "details" ? (
-          <ClayCard style={styles.formCard}>
-            <View style={styles.formHeading}>
-              <View>
-                <Text style={[styles.formTitle, { color: colors.onSurface }]}>Refuel Details</Text>
-                <Text style={[styles.formSubtitle, { color: colors.onSurfaceVariant }]}>
-                  {entryMethod === "scan" ? "Scanned details. Review before saving." : "Enter the receipt values exactly as shown."}
-                </Text>
-              </View>
-              <View style={[styles.methodBadge, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name={entryMethod === "scan" ? "scan-outline" : "create-outline"} size={14} color={colors.onPrimaryContainer} />
-                <Text style={[styles.methodBadgeText, { color: colors.onPrimaryContainer }]}>{entryMethod === "scan" ? "Receipt scan" : "Manual"}</Text>
-              </View>
-            </View>
-
-            <CoachMarkTarget targetId="fuel.verify" scrollRef={scrollRef}>
-              <View style={styles.fieldRow}>
-                <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>VOLUME (L)</Text>
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                    placeholder="e.g. 45.5"
-                    placeholderTextColor={colors.outline}
-                    keyboardType="decimal-pad"
-                    value={liters}
-                    onChangeText={(value) => { setLiters(value); setPricePerLiter(""); }}
-                  />
-                </View>
-                <View style={[styles.fieldGroup, { flex: 1 }]}>
-                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>TOTAL COST (₱)</Text>
-                  <TextInput
-                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                    placeholder="e.g. 3500"
-                    placeholderTextColor={colors.outline}
-                    keyboardType="decimal-pad"
-                    value={cost}
-                    onChangeText={(value) => { setCost(value); setPricePerLiter(""); }}
-                  />
-                </View>
-              </View>
-            </CoachMarkTarget>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>STATION NAME</Text>
-              <TextInput
-                style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                placeholder="e.g. Shell NLEX"
-                placeholderTextColor={colors.outline}
-                value={station}
-                onChangeText={setStation}
-              />
-            </View>
-
-            <View style={styles.fieldRow}>
-              <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>REFUEL DATE</Text>
-                <TextInput
-                  style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.outline}
-                  value={String(fuelDate).slice(0, 10)}
-                  onChangeText={setFuelDate}
-                />
-              </View>
-              <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>PRICE / LITER</Text>
-                <View style={[styles.input, styles.readOnlyInput, { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerHighest }]}>
-                  <Text style={{ color: colors.onSurface }}>
-                    {Number(pricePerLiter) > 0
-                      ? `₱${Number(pricePerLiter).toFixed(2)}`
-                      : Number(liters) > 0 && Number(cost) > 0
-                        ? `₱${(Number(cost) / Number(liters)).toFixed(2)}`
-                        : "—"}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.evidenceBlock}>
-              <View style={styles.evidenceHeader}>
-                <View style={styles.evidenceCopy}>
-                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>RECEIPT PHOTO *</Text>
-                  <Text style={[styles.evidenceHint, { color: colors.onSurfaceVariant }]}>Attach proof for the details you entered.</Text>
-                </View>
-                {receiptAsset ? (
-                  <Image source={{ uri: receiptAsset.uri }} style={styles.receiptThumb} />
-                ) : (
-                  <View style={[styles.receiptThumbPlaceholder, { backgroundColor: colors.surfaceContainerHighest }]}>
-                    <Ionicons name="receipt-outline" size={22} color={colors.onSurfaceVariant} />
-                  </View>
-                )}
-              </View>
-              {entryMethod === "manual" ? <View style={styles.evidenceButtons}>
-                <Pressable
-                  onPress={() => openReceiptCamera("upload")}
-                  disabled={scanning}
-                  style={({ pressed }) => [
-                    styles.evidenceBtn,
-                    { backgroundColor: colors.primary, opacity: pressed || scanning ? 0.8 : 1 },
-                  ]}
-                >
-                  <Ionicons name="camera-outline" size={18} color={colors.onPrimary} />
-                  <Text style={[styles.evidenceBtnText, { color: colors.onPrimary }]}>{scanning ? "Uploading..." : "Take photo"}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={pickReceipt}
-                  disabled={scanning}
-                  style={({ pressed }) => [
-                    styles.evidenceBtn,
-                    styles.evidenceBtnSecondary,
-                    { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant, opacity: pressed || scanning ? 0.8 : 1 },
-                  ]}
-                >
-                  <Ionicons name="images-outline" size={18} color={colors.primary} />
-                  <Text style={[styles.evidenceBtnText, { color: colors.primary }]}>Gallery</Text>
-                </Pressable>
-              </View> : (
-                <Pressable
-                  onPress={() => receiptAsset && !receiptUrl ? scanReceipt({ asset: receiptAsset }) : openReceiptCamera("scan")}
-                  disabled={scanning}
-                  style={({ pressed }) => [
-                    styles.rescanBtn,
-                    { borderColor: colors.outlineVariant, opacity: pressed || scanning ? 0.75 : 1 },
-                  ]}
-                >
-                  <Ionicons name="scan-outline" size={18} color={colors.primary} />
-                  <Text style={[styles.evidenceBtnText, { color: colors.primary }]}>
-                    {scanning ? "Scanning..." : receiptAsset && !receiptUrl ? "Retry scan" : "Scan receipt again"}
-                  </Text>
-                </Pressable>
-              )}
-              {scanning ? (
-                <Text style={[styles.evidencePending, { color: colors.onSurfaceVariant }]}>
-                  {entryMethod === "scan"
-                    ? scanVisualPhase === "preparing"
-                      ? "Preparing receipt image..."
-                      : scanVisualPhase === "uploading"
-                        ? "Uploading receipt..."
-                        : scanVisualPhase === "reading"
-                          ? "Reading receipt and extracting fuel details..."
-                          : "Reading receipt..."
-                    : "Uploading receipt photo..."}
-                </Text>
-              ) : receiptUrl ? (
-                <Text style={[styles.evidenceReady, { color: colors.success || colors.primary }]}>Receipt attached and ready for review</Text>
-              ) : receiptAsset ? (
-                <Text style={[styles.evidenceError, { color: colors.error }]}>Photo has not uploaded. Try again before saving.</Text>
-              ) : null}
-            </View>
-
-            <CoachMarkTarget id="fuel.submit_button" targetId="fuel.submit_button" radius={16} padding={6}>
-              <ClayButton
-                label={submitting ? "Saving Entry..." : scanning ? "Uploading Receipt..." : "Save Fuel Entry"}
-                variant="primary"
-                size="lg"
-                icon="checkmark"
-                iconPosition="right"
-                disabled={!canSubmit || submitting || scanning}
-                loading={submitting || scanning}
-                onPress={handleSubmit}
-                style={{ marginTop: 16 }}
-              />
-            </CoachMarkTarget>
-          </ClayCard>
+          <FuelReceiptReview {...{ entryMethod, liters, setLiters, cost, setCost, setPricePerLiter, station, setStation, fuelDate, setFuelDate, pricePerLiter, receiptAsset, receiptUrl, scanning, submitting, scanVisualPhase, openReceiptCamera, pickReceipt, scanReceipt, canSubmit, handleSubmit, scrollRef, styles }} />
         ) : null}
 
         {mode === "details" ? (

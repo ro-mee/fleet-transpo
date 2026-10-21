@@ -13,6 +13,7 @@ import {
 import {
   calculateFuelRecommendation,
   assessFuelVariance,
+  planForecastDistance,
   minimumSafeFromSnapshot,
   evaluateFuelPolicy,
   CURRENT_FUEL_TRIP_STATUSES,
@@ -25,6 +26,11 @@ import {
   signFuelReceiptList,
 } from "@/lib/fuel/receipt-storage";
 import { getFuelPolicy } from "@/services/fuel-settings.service";
+import {
+  attachMeasuredEfficiency,
+  MEASURED_EFFICIENCY_WINDOW_DAYS,
+} from "@/lib/fuel/measured-efficiency";
+import { resolveVehicleEfficiency } from "@/lib/ai/rule-engine";
 
 const currentAllocationMonth = () => `${toCalendarDay(new Date()).slice(0, 7)}-01`;
 const SELECT_REQUESTS = `
@@ -81,6 +87,53 @@ async function allocationUsage(db, vehicleId, month) {
   };
 }
 
+// FE-06: the row that blocks a new request through uq_fuelrequests_open_vehicle
+// (Pending/Approved). Age is computed in SQL so the 409 can name how long the
+// vehicle has been parked without the API inventing an expiry policy — a
+// time-based expiry stays a product decision.
+async function openRequestForVehicle(vehicleId) {
+  const { rows } = await query(
+    `SELECT r.fuel_request_id, r.status, r.trip_id, r.created_at,
+            FLOOR(EXTRACT(EPOCH FROM (NOW() - r.created_at)) / 86400)::int AS age_days,
+            t.trip_status, t.deleted_at AS trip_deleted_at,
+            (SELECT COUNT(*)::int FROM fuelrecords f
+              WHERE f.fuel_request_id = r.fuel_request_id AND f.deleted_at IS NULL) AS linked_receipt_count
+       FROM fuelrequests r
+       LEFT JOIN trips t ON t.trip_id = r.trip_id
+      WHERE r.vehicle_id = $1 AND r.status IN ('Pending', 'Approved')
+      ORDER BY r.created_at ASC LIMIT 1`,
+    [vehicleId]
+  );
+  return rows[0] ?? null;
+}
+
+// FE-06: an open request whose trip has ended before review is stale by
+// definition and would park the vehicle forever. Closing it happens here, on
+// the next attempt to request fuel — the trip transitions live in a module
+// this change must not touch — and the driver can also withdraw the request
+// directly (DELETE below). A permit with a linked receipt records fuel that
+// was actually drawn, so it is never closed automatically.
+async function closeOpenRequestForEndedTrip(vehicleId) {
+  const open = await openRequestForVehicle(vehicleId);
+  if (!open || open.trip_id == null) return null;
+  const ended = open.trip_deleted_at != null || ["Cancelled", "Completed"].includes(open.trip_status);
+  if (!ended) return null;
+  if (Number(open.linked_receipt_count) > 0) return null;
+  const completed = open.trip_status === "Completed" && open.trip_deleted_at == null;
+  const { rows } = await query(
+    `UPDATE fuelrequests
+        SET status = 'Cancelled',
+            review_notes = COALESCE(review_notes, $2),
+            updated_at = NOW()
+      WHERE fuel_request_id = $1 AND status IN ('Pending', 'Approved')
+      RETURNING fuel_request_id`,
+    [open.fuel_request_id, completed
+      ? "The linked trip completed before the request was reviewed."
+      : "The linked trip was cancelled before the request was reviewed."]
+  );
+  return rows[0] ? { ...open, ended_reason: completed ? "trip-completed" : "trip-cancelled" } : null;
+}
+
 export async function GET(req) {
   try {
     const session = await requirePermission(req, "fuel_requests", "read");
@@ -94,7 +147,7 @@ export async function GET(req) {
       params.push(session.user.driverId);
       where.push(`r.driver_id = $${params.length}`);
     }
-    if (status && ["Pending", "Approved", "Rejected", "Fulfilled"].includes(status)) {
+    if (status && ["Pending", "Approved", "Rejected", "Fulfilled", "Cancelled"].includes(status)) {
       params.push(status);
       where.push(`r.status = $${params.length}`);
     }
@@ -120,6 +173,7 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
+  let attemptedVehicleId = null;
   try {
     const session = await requireDriver(req);
     const body = await parseBody(req);
@@ -175,12 +229,21 @@ export async function POST(req) {
         );
     const vehicle = vehicleResult.rows[0];
     if (!vehicle) return err("No active vehicle assignment was found", 404);
-    if (!vehicle.tank_capacity_l || !vehicle.fuel_efficiency_kmpl) {
+    // Level 3: attach the vehicle's rolling measured efficiency — eligible
+    // receipts over completed-trip distance over the trailing window. When
+    // its gates pass, the resolver ranks it above the configured profile; a
+    // wide gap raises a review flag recorded with the request, never a
+    // silent switch.
+    await attachMeasuredEfficiency([vehicle]);
+    const efficiency = resolveVehicleEfficiency(vehicle);
+    if (!vehicle.tank_capacity_l || !(vehicle.fuel_efficiency_kmpl || efficiency.basis === "measured")) {
       return err("The vehicle fuel profile is not configured yet", 409);
     }
+    attemptedVehicleId = vehicle.vehicle_id;
 
-    const { rows: forecastRows } = await query(
-      `SELECT COALESCE(SUM(COALESCE(rt.estimated_distance, tr.estimated_distance, NULLIF(t.distance, 0), 0)), 0) AS one_way_distance_km
+    const { rows: forecastLegs } = await query(
+      `SELECT COALESCE(rt.estimated_distance, tr.estimated_distance, NULLIF(t.distance, 0), 0) AS distance_km,
+              rt.origin, rt.destination
          FROM trips t
          LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
          LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
@@ -194,11 +257,15 @@ export async function POST(req) {
           )`,
       [vehicle.vehicle_id, FORECAST_FUEL_TRIP_STATUSES, CURRENT_FUEL_TRIP_STATUSES]
     );
+    // Every scheduled leg counts once. A leg whose reverse (origin/destination
+    // swapped) is also scheduled is a return already covered; only unpaired
+    // legs add ONE assumed return, recorded in the snapshot below.
+    const plan = planForecastDistance(forecastLegs);
     const calculation = calculateFuelRecommendation({
       tankCapacityL: vehicle.tank_capacity_l,
       currentFuelLevelPercent: fuelLevel,
-      fuelEfficiencyKmpl: vehicle.fuel_efficiency_kmpl,
-      oneWayDistanceKm: forecastRows[0].one_way_distance_km,
+      fuelEfficiencyKmpl: efficiency.kmpl,
+      forecastDistanceKm: plan.forecast_distance_km,
       policy: fuelPolicy,
     });
     if (!calculation.needs_refuel || calculation.recommended_liters <= 0) {
@@ -220,31 +287,69 @@ export async function POST(req) {
     const lastReport = lastReportRows[0];
     if (lastReport) {
       const { rows: distanceRows } = await query(
-        `SELECT COALESCE(SUM(t.distance), 0) AS distance_km
+        `SELECT COUNT(*)::int AS completed_trips, SUM(t.distance) AS distance_km
            FROM trips t
           WHERE t.vehicle_id = $1 AND t.deleted_at IS NULL
             AND t.trip_status = 'Completed'
             AND t.end_time >= $2`,
         [vehicle.vehicle_id, lastReport.created_at]
       );
+      // Approved receipts submitted since the last gauge report were poured
+      // into the tank, so they belong on the expected side of the comparison.
+      const { rows: refillRows } = await query(
+        `SELECT COALESCE(SUM(liters), 0) AS refilled_liters
+           FROM fuelrecords
+          WHERE vehicle_id = $1 AND deleted_at IS NULL AND status = 'Approved'
+            AND created_at > $2`,
+        [vehicle.vehicle_id, lastReport.created_at]
+      );
+      const distanceRow = distanceRows[0] ?? {};
+      const completedTrips = Number(distanceRow.completed_trips) || 0;
+      // Completed trips with no distance leave SUM(NULL): that is unknown
+      // distance, not zero consumption, and yields no variance verdict.
+      const distanceSinceLastReportKm = completedTrips === 0
+        ? 0
+        : distanceRow.distance_km == null ? null : Number(distanceRow.distance_km);
       variance = assessFuelVariance({
         tankCapacityL: vehicle.tank_capacity_l,
         lastReportedPercent: lastReport.current_fuel_level_percent,
-        distanceSinceLastReportKm: distanceRows[0].distance_km,
-        efficiencyKmpl: vehicle.fuel_efficiency_kmpl,
+        distanceSinceLastReportKm,
+        refilledLiters: refillRows[0]?.refilled_liters,
+        efficiencyKmpl: efficiency.kmpl,
         reportedPercent: fuelLevel,
         policy: fuelPolicy,
       });
     }
 
+    // The basis travels with the number (FE-08): the calculation snapshot
+    // records which efficiency produced these litres — and, when the measured
+    // basis was used, the evidence (window distance, litres, receipts) plus
+    // any review flags raised against the configured profile.
+    calculation.efficiency_basis = efficiency.basis;
+    calculation.efficiency_kmpl = efficiency.kmpl;
     const snapshot = {
       ...calculation,
+      forecast_legs: plan.legs,
+      paired_forecast_legs: plan.paired_legs,
+      assumed_return_km: plan.assumed_return_km,
+      round_trip_assumed: plan.round_trip_assumed,
       fuel_variance: variance,
       gauge_scan: gaugeScan,
       monthly_allocated_liters: Number(usage.allocated_liters),
       monthly_consumed_liters: Number(usage.consumed_liters),
       monthly_committed_liters: Number(usage.committed_liters),
       monthly_remaining_liters: Number(usage.remaining_liters.toFixed(2)),
+      ...(efficiency.basis === "measured"
+        ? {
+            efficiency_measured: {
+              distance_km: vehicle._measured_efficiency.distance_km,
+              liters: vehicle._measured_efficiency.liters,
+              receipts: vehicle._measured_efficiency.receipts,
+              window_days: MEASURED_EFFICIENCY_WINDOW_DAYS,
+            },
+            efficiency_flags: vehicle._measured_efficiency.flags,
+          }
+        : {}),
     };
 
     const policy = evaluateFuelPolicy({
@@ -262,7 +367,7 @@ export async function POST(req) {
       snapshot.policy_reasons = policy.policy_reasons;
     }
 
-    const { rows } = await query(
+    const insertRequest = () => query(
       `INSERT INTO fuelrequests
          (vehicle_id, driver_id, trip_id, requested_liters, recommended_liters,
           current_fuel_level_percent, forecast_distance_km, allocation_month,
@@ -289,7 +394,30 @@ export async function POST(req) {
         body.gauge_photo_url.trim(),
       ]
     );
-    await query(`UPDATE vehicles SET fuel_level = $2, updated_at = NOW() WHERE vehicle_id = $1`, [vehicle.vehicle_id, fuelLevel]);
+    let insertResult;
+    try {
+      insertResult = await insertRequest();
+    } catch (insertError) {
+      if (insertError?.code !== "23505") throw insertError;
+      // The vehicle's open request may have been stranded by a trip that has
+      // since ended; close it (with an audit trail) and retry once before
+      // giving up.
+      const closed = await closeOpenRequestForEndedTrip(vehicle.vehicle_id);
+      if (!closed) throw insertError;
+      await writeAudit(req, session, {
+        action: "auto-close",
+        resource: "fuelrequests",
+        resourceId: closed.fuel_request_id,
+        oldValues: { status: closed.status, trip_id: closed.trip_id, trip_status: closed.trip_status },
+        newValues: { status: "Cancelled", reason: closed.ended_reason },
+      });
+      insertResult = await insertRequest();
+    }
+    const { rows } = insertResult;
+    await query(
+      `UPDATE vehicles SET fuel_level = $2, fuel_level_updated_at = NOW(), updated_at = NOW() WHERE vehicle_id = $1`,
+      [vehicle.vehicle_id, fuelLevel]
+    );
     await writeAudit(req, session, {
       action: autoAuthorized ? "auto-authorize" : "create",
       resource: "fuelrequests",
@@ -298,7 +426,28 @@ export async function POST(req) {
     });
     return ok(await signFuelReceipt(rows[0]), 201);
   } catch (e) {
-    if (e?.code === "23505") return err("This vehicle already has an open fuel request", 409);
+    if (e?.code === "23505" && attemptedVehicleId) {
+      // Name the blocking request and its age instead of a bare conflict, so
+      // the driver knows which permit is in the way and how stale it is.
+      const blocking = await openRequestForVehicle(attemptedVehicleId);
+      if (!blocking) return err("This vehicle already has an open fuel request", 409);
+      const ageDays = Math.max(0, Number(blocking.age_days) || 0);
+      const opened = ageDays === 0 ? "today" : ageDays === 1 ? "1 day ago" : `${ageDays} days ago`;
+      return err(
+        `This vehicle already has an open fuel request (#${blocking.fuel_request_id}, ${blocking.status}, opened ${opened}).`,
+        409,
+        {
+          code: "OPEN_REQUEST_EXISTS",
+          blocking_request: {
+            fuel_request_id: blocking.fuel_request_id,
+            status: blocking.status,
+            trip_id: blocking.trip_id,
+            age_days: ageDays,
+            created_at: blocking.created_at,
+          },
+        }
+      );
+    }
     return handleError(e);
   }
 }
@@ -381,6 +530,62 @@ export async function PUT(req) {
 
     await writeAudit(req, session, {
       action: body.status === "Approved" ? "approve" : "reject",
+      resource: "fuelrequests",
+      resourceId: requestId,
+      oldValues: result.old,
+      newValues: result.updated,
+    });
+    return ok(await signFuelReceipt(result.updated));
+  } catch (e) {
+    return handleError(e);
+  }
+}
+
+// Driver-initiated withdrawal (FE-06). Pending and Approved permits that were
+// never fulfilled keep blocking the vehicle's next request through
+// uq_fuelrequests_open_vehicle, and only the driver is in a position to know
+// the fuel is no longer needed. A request with a linked receipt has fuel
+// recorded against it and cannot be withdrawn here.
+export async function DELETE(req) {
+  try {
+    const session = await requireDriver(req);
+    const body = await parseBody(req);
+    const requestId = Number(body.fuel_request_id);
+    if (!Number.isInteger(requestId) || requestId <= 0) return err("fuel_request_id is required", 400);
+    if (body.reason && String(body.reason).length > 500) return err("reason is too long", 400);
+
+    const result = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(
+        `SELECT r.*,
+                (SELECT COUNT(*)::int FROM fuelrecords f
+                  WHERE f.fuel_request_id = r.fuel_request_id AND f.deleted_at IS NULL) AS linked_receipt_count
+           FROM fuelrequests r
+          WHERE r.fuel_request_id = $1 AND r.driver_id = $2
+          FOR UPDATE OF r`,
+        [requestId, session.user.driverId]
+      );
+      const current = rows[0];
+      if (!current) throw new AuthError("Fuel request not found", 404);
+      if (!["Pending", "Approved"].includes(current.status)) {
+        throw new AuthError("Only a request that is still open (Pending or Approved) can be withdrawn", 409);
+      }
+      if (Number(current.linked_receipt_count) > 0) {
+        throw new AuthError("A fuel receipt is already linked to this request, so it can no longer be withdrawn", 409);
+      }
+      const { rows: updated } = await tx.query(
+        `UPDATE fuelrequests
+            SET status = 'Cancelled',
+                review_notes = $2,
+                updated_at = NOW()
+          WHERE fuel_request_id = $1
+          RETURNING *`,
+        [requestId, body.reason?.trim() || "Withdrawn by the driver"]
+      );
+      return { old: current, updated: updated[0] };
+    });
+
+    await writeAudit(req, session, {
+      action: "withdraw",
       resource: "fuelrequests",
       resourceId: requestId,
       oldValues: result.old,

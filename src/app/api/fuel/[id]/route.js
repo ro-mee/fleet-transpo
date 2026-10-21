@@ -132,10 +132,32 @@ export async function PUT(req, { params }) {
     const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
     values.push(id);
 
-    const { rows } = await query(
-      `UPDATE fuelrecords SET ${setClause} WHERE fuel_record_id = $${values.length} RETURNING *`,
-      values
-    );
+    const { rows } = await withTransaction(async (tx) => {
+      const { rows } = await tx.query(
+        `UPDATE fuelrecords SET ${setClause} WHERE fuel_record_id = $${values.length} RETURNING *`,
+        values
+      );
+      if (!rows.length) return { rows };
+      // A verified purchase physically moved fuel into the tank. Refresh the
+      // stored level so tank-space checks and dispatch scoring stop trusting a
+      // reading that could be weeks old. Guarded to run only the FIRST time a
+      // record is approved: a re-save must not add the same litres twice, and
+      // neither must a reject -> re-approve cycle, because a rejection never
+      // removes the litres that were already folded into the tank. The
+      // arithmetic stays in SQL so it sees the current value under the row
+      // lock the transaction holds.
+      if (body.status === "Approved" && prev !== "Approved" && before[0].approved_at == null) {
+        await tx.query(
+          `UPDATE vehicles
+              SET fuel_level = LEAST(100, COALESCE(fuel_level, 0) + (100 * $2::numeric / tank_capacity_l)),
+                  fuel_level_updated_at = NOW(),
+                  updated_at = NOW()
+            WHERE vehicle_id = $1 AND deleted_at IS NULL AND tank_capacity_l > 0`,
+          [rows[0].vehicle_id, rows[0].liters]
+        );
+      }
+      return { rows };
+    });
 
     if (!rows.length) return err("Fuel record not found or already deleted", 404);
 
