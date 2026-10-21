@@ -1,6 +1,7 @@
 // mobile/components/auth/AuthHeader.jsx
 import { StyleSheet, Text, View } from "react-native";
 import { ClayTile } from "../clay";
+import { FleetOpsMark, FleetOpsWordmark } from "../logo";
 import { useTheme } from "../../lib/theme-context";
 import { fonts } from "../../lib/theme";
 import { moderateScale } from "../../lib/scaling";
@@ -16,14 +17,25 @@ export function AuthHeader({ icon, title, tagline }) {
   const { colors } = useTheme();
   return (
     <View style={styles.brand}>
-      <ClayTile
-        icon={icon}
-        size="lg"
-        backgroundColor={colors.primary}
-        color={colors.onPrimary}
-        style={styles.logoTile}
-      />
-      <Text style={[styles.appName, { color: colors.primary }]}>{title}</Text>
+      {title === 'FleetOps' ? (
+        <View accessible accessibilityRole="image" accessibilityLabel="FleetOps">
+          <View style={styles.identity} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <FleetOpsMark size={moderateScale(64)} />
+            <FleetOpsWordmark size={moderateScale(28)} />
+          </View>
+        </View>
+      ) : (
+        <>
+          <ClayTile
+            icon={icon}
+            size="lg"
+            backgroundColor={colors.primary}
+            color={colors.onPrimary}
+            style={styles.logoTile}
+          />
+          <Text style={[styles.appName, { color: colors.primary }]}>{title}</Text>
+        </>
+      )}
       <Text style={[styles.tagline, { color: colors.onSurfaceVariant }]}>{tagline}</Text>
     </View>
   );
@@ -37,6 +49,10 @@ const styles = StyleSheet.create({
   },
   logoTile: {
     marginBottom: moderateScale(4),
+  },
+  identity: {
+    alignItems: "center",
+    gap: moderateScale(8),
   },
   appName: {
     fontSize: moderateScale(28),
