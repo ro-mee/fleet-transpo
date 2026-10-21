@@ -33,6 +33,7 @@ const eslintConfig = defineConfig([
     ".worktrees/**",
     // Gitignored local probes and backups are not repository source.
     "scratch/**",
+    ".superpowers/**",
   ]),
 
   // `no-undef` is off for plain .js under eslint-config-next, which is how
