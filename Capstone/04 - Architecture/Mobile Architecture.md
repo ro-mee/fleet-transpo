@@ -30,10 +30,28 @@ source:
   - mobile/app/(app)/(tabs)/map.js
   - mobile/lib/storage.js
   - mobile/AGENTS.md
-last_verified: 2026-10-12
+last_verified: 2026-10-21
 ---
 
 # Mobile Architecture
+
+## Clay performance lifecycle and schedule windowing — 2026-10-21
+
+Trips now uses SectionList for existing grouped schedule data, retaining the shared clay cards and list header/empty/footer workflows. Rows are rendered through a bounded native window instead of eagerly instantiating all loaded pages. Dynamic text heights remain supported; clipping is disabled to retain the existing clay shadow treatment.
+
+Shared `use-screen-clock.js` provides `{ now, active }` through Expo Router focus and native AppState. Home/Trips advance presentation time every 30 seconds only while focused and foregrounded, immediately refreshing on focus/resume and cleaning up on blur/background. This hook does not own GPS or API polling. Home gates its skeleton pulse and route previews with `active`; hidden maps unmount and reload normally when Home returns. Applicable upcoming road previews remain present while active.
+
+The notification provider preserves the previous array for identical complete ordered payloads and publishes a memoized context. Changes to notification content/order/read state/error state still propagate; delivery cadence/deduplication are unchanged. Existing clay material caches and shadow recipes are retained. Verified: 112 files / 1,272 mobile-filtered tests, strict touched lint, browser component fixtures and Android Hermes export (1,508 modules / 5.93 MB / 91 assets). Structural work reductions and physical-device limitations are detailed in [[UI UX Audit - Mobile]]. Native FPS/memory and release-build acceptance are pending.
+
+## Cargo-only handover signatures - 2026-10-20
+
+The existing cargo count-review screen now opens CargoSignatureModal for a new pickup/delivery observation. It reuses installed WebView/Clay/theme/safe-area controls, captures releasing/receiving staff acknowledgment and bounded strokes, and requests optional fresh location with a bounded permission/fix wait. No dependency/native configuration was added. Its isolated drawing document has no network/file access and refuses all navigation except about:blank before the installed adapter can open an external application.
+
+Unsent signer data remains in memory; editable form autosaves omit it. The screen freezes reviewed counts/issues and checks manifest, stage/status, account/session and compatible current assignment on confirmation. Cancel preserves counts; changed context refuses stale signing; pending retries retain original signed immutable draft content and submission ID. No signature component writes trip transitions, odometer readings or fuel. Passenger/Cargo start/end odometer remains shared. Synthetic cargo-demo receipts now include explicitly Demo signer acknowledgments so existing READY/recount examples retain the same real contract; Passenger demo data has none.
+
+Source/Fleet safety/receiver authority remains independently required and production cargo remains unconfigured503. Detailed checks, privacy boundaries, Android export and remaining real phone acceptance: [[Dual Cargo Signatures Implementation 2026-10-20]].
+
+Saved evidence is also available in the cargo-only `CargoTripHandovers` section of shared `trip/[id].js`, including terminal/history records. `cargoApi.getHandovers` explicitly requests the private projection with actor binding, no-store and an abort signal, and rejects a mismatched trip or incomplete stage envelope. Component state is keyed to the confirmed trip/current actor/session generation and connection; no signature data enters the general trip cache. Session abort, hide and unmount cancel outstanding reads; offline/scope changes remount without private details. Revoked access clears prior facts, while transient refresh failure labels retained facts. Cached history can refresh the owned trip after reconnecting. The read-only WebView uses script-free, network-denying fixed SVG markup made from validated numeric paths, with no signer text embedded in HTML and no external navigation/file access. Follow-up checks: 83 mobile files / 1,069 tests, strict scoped lint, Android export and independent review passed; browser component fixtures cover light390/dark320 large text. This is not real native/operating-trip acceptance.
 
 Expo SDK ~54, expo-router ~6. **Drivers only.** A separate app with a separate auth system, not a wrapper around the web dashboard.
 
@@ -46,6 +64,20 @@ Commit preparation also keeps generated mobile dependencies/native projects out 
 The mobile app is tracked by the parent `capstone` Git repository, not a separate repository inside `mobile/`. An empty nested `mobile/.git` directory incorrectly showed all 334 existing app files as untracked. With user approval, only that directory was moved to `C:\Users\lenovo\.codex\backups\fleetops-mobile-git-20261016-01\.git` for recovery; no app files were removed or committed. Do not initialize another Git repository inside `mobile/`.
 
 Verification: the nested repository had zero tracked files, references and objects before the move. SHA-256 checks confirmed all 334 listed app files were unchanged afterward. Git run inside `mobile/` now resolves to the parent `capstone` repository; its 15 genuine mobile changes and parent commit were unchanged. No app behavior, build, upload or database change occurred.
+
+## Shared trip odometer capture - 2026-10-19 (implemented, locally enabled)
+
+`trip/odometer.js` loads fresh trip/profile/session context and owns the starting transition; `/trip/complete` owns ending capture for photo-enabled trips. Both compose `OdometerCapture` and `use-trip-odometer.js`, with the existing Clay header/buttons, theme, text scaling and safe-area conventions. There is one camera surface and no gallery/manual-value fallback. Camera preview is mounted only while focused and foregrounded. Camera permission is refreshed on return from Settings; denied permission offers recovery and Cancel.
+
+Home, Map and trip detail pass only the allowlisted `continuation=odometer-start` and trip ID to Pre-Trip. Only a server-confirmed pass continues directly to capture. Standalone inspection, Pre-Shift and local tours keep their existing paths. Starting accepts only when still needed and uses the canonical start endpoint after review; capture success alone is never reported as trip success. Existing Cargo, account, assignment, timing and geofence rules remain authoritative.
+
+`trip-odometer.js` handles owned upload/read/scan requests; the hook holds photo, stable capture ID and detected reading only in the current screen. No signed link, draft file or transition command is persisted in the offline cache/outbox. Retake creates a new ID; response-loss recovery reads the prior ID first. Active scan state offers Retry without discarding the photo. Late async replies are fenced by session/generation checks. Logout, session change or unmount clears/ignores drafts. A draft expires after 30 minutes; operational holds preserve it until then. Tracking stops only after confirmed completion.
+
+Mobile trip projection supplies `odometer_photo_required_at_start`, persisted `odometer_capture_required`, saved end reading and distance/provenance without image signing during list polling. Historical detail reads the trip's own start/end/distance. The server flag defaults off but is enabled in the local `.env.local` by explicit owner request on 2026-10-19; already-active legacy trips are not retroactively required to supply a starting photo. A requirement latched by an accepted photo start survives global rollback.
+
+The installed Expo 54 / Camera 17 / React Native 0.81 APIs and existing camera pattern are retained without an SDK upgrade. Real component browser fixtures checked 390 px light and 320 px dark at 2× text with reachable actions and no horizontal overflow; OS camera, permissions, focus and insets were mocked. This is layout evidence only. Native camera, screen reader, physical safe areas, background/foreground and real Passenger/Cargo acceptance remain open. See [[Trip Odometer Photo Verification 2026-10-19]].
+
+Final review closed the mobile scan-body mismatch and confirmation-response-loss/expiry recovery defects. The final affected run passed 77/77 tests; the fresh Android Hermes export passed after these fixes. Independent re-review found no additional important issue. Local enforcement is enabled by explicit owner request; real native/provider/role/pilot acceptance remains open; see [[Trip Odometer Photo Verification 2026-10-19]].
 
 ## Navigation — CONFIRMED (`mobile/app/(app)/(tabs)/_layout.js`)
 
@@ -131,10 +163,12 @@ action uses the concise `Revoke` label.
 
 ## Home route preview — CONFIRMED (2026-09-19)
 
-The primary Home assignment card uses the existing deferred TomTom WebView
-preview so the pickup-to-drop-off road line is rendered. Secondary assignment
-cards keep the native static-image preview to avoid mounting multiple WebViews;
-the interactive preview is limited to one card per Home render.
+Applicable Home assignment cards use the existing deferred TomTom WebView
+preview so the pickup-to-drop-off road line is rendered, including upcoming
+cards under the October 3 direction. As of October 21 these renderers mount
+only while Home is focused and the app is foregrounded. Hidden Home retains
+equal-aspect placeholders; previews reload when Home returns. Endpoint-only
+static images are not substituted for visible road geometry.
 
 ## GPS tracking — CONFIRMED
 
@@ -254,7 +288,7 @@ password-change route — full detail in [[Authentication]]):
   mutation uses `queueOnFailure: false` — never queued, offline is a plain
   connection error under the global banner. Profile/Settings stay silent about
   caching per the Offline Read Mode UX rule.
-- **Shared auth brand block (2026-09-24, extracted):** the `ClayTile → title →
+- **Shared auth brand block (2026-09-24, extracted):** the security-icon `ClayTile → title →
   tagline` block that was byte-identical across `login.js`, `forgot-password.js`
   and `reset-password.js` now lives once in
   `mobile/components/auth/AuthHeader.jsx` — `<AuthHeader icon title tagline />`,
@@ -379,7 +413,9 @@ Driver-only global connectivity status, mounted once in `mobile/app/(app)/_layou
 
 ## Offline Read Mode (2026-09-08)
 
-Stale-while-revalidate for the 6 core driver screens in one PR: Trips, History (shares the Trips `TRIPS_ALL` snapshot), Trip Detail (list-cache-first + per-trip `trip:{id}` key), Work Schedule (days/leaves/balances cached independently — one failing never blanks the rest), Activity Logs (submissions + inspections cached independently, rejected sources keep prior state instead of blanking to `[]`), Home (`HOME_TRIPS` + `DRIVER_ME`).
+Stale-while-revalidate for the 6 core driver screens in one PR: Trips, History (originally shared the `TRIPS_ALL` snapshot; see the scoped-tab revision below), Trip Detail (list-cache-first + per-trip `trip:{id}` key), Work Schedule (days/leaves/balances cached independently — one failing never blanks the rest), Activity Logs (submissions + inspections cached independently, rejected sources keep prior state instead of blanking to `[]`), Home (`HOME_TRIPS` + `DRIVER_ME`).
+
+**Trips date-tab revision (2026-10-17):** Today/Upcoming/History now use separately paginated owned-driver API scopes and static driver-namespaced `TRIPS_TODAY`, `TRIPS_UPCOMING`, `TRIPS_HISTORY` snapshots, included in logout cleanup. Cached scope/day confirmation is distinct from saved rows: date rollover may reclassify previously saved assignments but cannot confirm a new day's empty/full schedule. Each scope guards late responses on blur/unmount/tab/driver/date changes; refresh and pagination retain saved rows on failure. History and future assignments no longer compete inside one capped all-status feed. Direct owned `trip_id` reads replace the capped-list detail lookup; newest saved copies across all list/per-trip caches support offline details without overwriting the legacy list with a single row. Cached vehicle context uses the newest Today/Home/legacy work-list snapshot rather than merging an older active trip back into a fresh empty list. Duty-independent browsing leaves all operational gates intact. Android export, touched lint and fixture visual review passed; no automated tests were added/run, and live/native acceptance remains pending. See [[Trips]].
 
 - **Foundation** (`mobile/lib/offline-cache.js`, no new dependencies): entries are `{ data, syncedAt }`, no TTL — last-good kept indefinitely. Every cache call takes an explicit `driverId` (`resolveDriverId`: `employeeId ?? driverId ?? employee_id ?? id ?? driver_id`); the module never imports storage/auth, so no circular dependency. Logout/session-death order is remember-driverId → `clearOfflineCache(driverId)` → `clearAll()` (orchestrated in `auth.js signOut` and a `clearSession()` helper in `api.js` covering both refresh-failure paths) — driver B on a shared phone never sees driver A's trips.
 - **camelCase namespace bug (fixed 2026-09-08, same day):** the login route returns `{ driverId, employeeId, … }` camelCase and `signIn` stores it verbatim, but `resolveDriverId` checked only snake_case — it returned null for every real login, so the cache was never written NOR read on any screen (and `clearOfflineCache` was dead code). The unit tests fed snake_case shapes only, which is exactly how it slipped through. Fix: camelCase first (employeeId preferred — stable server identity matching the logout/login namespace), snake_case kept as fallback for hand-shaped fixtures. Regression-pinned by a test using the exact login-response shape. Lesson: when a resolver dispatches on payload shape, test it against the *wire* shape it actually receives, not the shape you imagined.
@@ -422,23 +458,19 @@ The existing global poster now owns foreground standby publication as well as tr
 Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]]. Full suite: 1,140 passing tests; later focused checks: 37 passing tests; web build, Android export, route-auth audit and migration/query verification passed.
 
 
-## Launch animation and startup optimization - 2026-09-14
+## FleetOps route-ribbon identity and launch - 2026-10-21
 
-The app previously played a five-second car Lottie at 1.2x, faded the launch overlay out over 360 ms, then faded/scaled the entire app in over another 620 ms. This could expose an empty intermediate frame and prolonged the opening sequence. The underlying navigator now stays rendered at its normal scale while one 240 ms native overlay fade reveals it. Touch and accessibility access to the underlying navigator remain disabled until launch completes.
+The custom three-road-ribbon mark and brass connection point replace the car badge and car/compass startup. Shared static/vector assets and four local Lottie variants cover light, dark and monochrome high contrast. Login, onboarding, About, Map brand headers and a small Home signature use the same identity. Password recovery security symbols and operational map car icons remain unchanged. Full asset inventory, rationale and generation instructions: [[FleetOps Mobile Identity]].
 
-The existing car artwork now plays once at 2.5x (about two seconds), with a 2.3-second fallback timer. The dial and wordmark settle earlier; the secondary location-beacon artwork holds a static frame instead of running a second Lottie loop. Motion waits for the OS reduced-motion preference, which uses a 150 ms hold and effectively immediate transition. Completion is guarded against duplicate events, cancelled car animations do not complete launch, and entrance animations stop on cleanup. Auth, consent, fonts and data loading retain their existing guards.
+LaunchScreen is now visual composition only; use-launch-sequence.js owns a mount-anchored timeline. Route lines draw inward, filled road ribbons form by 1,050 ms, the wordmark reveals at 1,050–1,350 ms and the tagline at 1,280–1,540 ms. A short final hold and 180 ms overlay fade complete by 2,080 ms. A premature artwork success cannot skip text (earliest normal handoff 1,720 ms). Reduced motion and preference/artwork failures show static branding with a 150 ms hold and 1 ms exit; the OS preference query is bounded to 120 ms. These are configured animation timings, not measured device cold-start/FPS.
 
-Direct imports load only the six font weights already used by the app. Verified Android export changed from 1,395 modules / 101 assets / 5.15 MB Hermes bundle to 1,373 modules / 79 assets / 5.13 MB; 22 unused font assets no longer enter the export. No typography or clay styling change and no dependency added.
+Fresh callback/theme rerenders do not restart launch; newer OS preference events outrank a late initial query; static mode cannot replay; exit cancellation/missing callbacks have a timed fallback; cleanup stops all timers/animations/subscriptions and fences late callbacks. Root and launch.js also guard repeated completion. Native splash protection, six font weights and font-error continuation, persisted settings, auth/session restore and provider order remain intact. Native splash hides once the themed shell has laid out; the same navigator stays mounted, normal scale and touch/accessibility-blocked behind the overlay until handoff. Post-launch InteractionManager push setup and foreground queue sync are retained. Tabs/foreground return do not replay startup.
 
-Verification: two runnable launch-lifecycle tests passed (completion races, bounded timing, native/non-interaction flags, cleanup, pending/reduced-motion preferences); targeted ESLint passed; final Android Hermes export passed. No connected adb device was available, so physical-device cold-start duration, frame rate and light/dark appearance have not been measured. These are configured animation timings and bundle measurements, not a claimed FPS improvement. Native splash acceptance should be checked in a release build per the Expo splash-screen documentation: https://docs.expo.dev/versions/v57.0.0/sdk/splash-screen/ .
+Old launch-only car animation.json and PRt4x4Ds0p.json were removed after reference checks. app.json now points to the new adaptive foreground/monochrome icons and explicit light/dark expo-splash-screen artwork; installed icons/native splash require a rebuilt binary. No mobile dependency or SDK upgrade.
 
-## Launch Screen & Startup Animation (2026-09-19, restored & verified)
+Verification: 48 focused tests plus the complete mobile/lib run (105 files / 1,176 tests), strict touched lint, encoding, asset generator reproducibility and Android Hermes export passed (1,515 modules / 5.38 MB / 95 assets; workspace-temp retry). Actual-component browser fixtures checked route formation, final launch, both monochrome modes and narrow/large-text brand placements. Independent code/visual review found no important issue in scope. Device/release-build, screen-reader, background interruption, tablet and frame-rate acceptance remain pending. The existing Home name row still wraps heavily at simulated 320 px / 2x text; the new brand signature fits. Details and remaining checks: [[FleetOps Mobile Identity]].
 
-The animated startup sequence in `mobile/components/LaunchScreen.js` plays the moving car Lottie composition (`mobile/assets/car animation.json`) inside the circular compass dial.
-- **Animation timing**: Plays once at 2.2x speed with a 2,300 ms fallback safety timer (`launchHoldMs = 2300`), after which the launch overlay fades out smoothly over 240 ms.
-- **Safety & Error Guards**: Completion is guarded against duplicate events, cancelled animations do not prematurely advance launch, and `onAnimationFailure` gracefully triggers completion. Motion respects the OS reduced-motion preference (`isReducedMotion`) using a 150 ms hold with immediate handoff.
-- **Verification**: `mobile/lib/launch-animation.test.js` pins both the inclusion of `car animation.json` and the bounded timer duration ($\le 2300$ ms).
-
+Historical note: this section supersedes the September car/dial timing and restoration descriptions, including their obsolete 240 ms fade figure.
 ## Driver Avatar & Layered Fallback Architecture (2026-09-20, refined)
 
 In `mobile/components/home/DriverHomeHeader.jsx` and `mobile/app/(app)/(tabs)/profile.js`, the driver avatar employs a **layered architecture**:
@@ -696,3 +728,7 @@ The existing completion screen now uses ClayInput for a blank actual ending read
 Verification: 1,033 mobile/shared/backend focused tests across 80 files passed; strict touched lint, sheet follow-up lint, UTF-8 and whitespace checks passed. Executable WebView and actual completion interaction tests cover provider options, selection, telemetry, failures, timeout, races, manual mileage, cargo holds, override reasons, duplicate presses, queued/errors and session changes. Two synthetic-coordinate read-only TomTom REST smoke requests returned HTTP 200 with three valid routes each, with/without toll avoidance. Initial all-platform exports failed on Windows temporary-file permissions and a full drive. After recovering space and using a workspace temporary folder, `npx expo export --platform android --max-workers 1 --output-dir .expo-cargo-route-export` passed with Hermes: 1,455 modules and a 5.65 MB compiled bundle. Final iOS/web export remains unverified. Task-created temporary cache/incomplete artifacts were removed. Native screenshots, keyboard/screen-reader/device acceptance, cargo production-provider lifecycle acceptance and deployment remain unverified. See [[Trips]] and [[Live Map Radar]].
 
 Final tracking follow-up: a server-confirmed completion uses the existing API event hook to clear the hidden Map's active ref, discard obsolete polls, clear its old route and reload the real next assignment. Pending background starts check the trip and app state before and after the asynchronous OS start, stopping if completion or foreground return intervened. Executable tests cover completion before and during start, refused/queued responses and another trip's event. The final 1,033-test run includes these guards and the single-scroll-area sheet correction. Focused source review found those two fixes resolved; native visual review remains pending (`recapture`) because no device/emulator captures were available.
+
+## Gated driver-guidance architecture - 2026-10-21
+
+The default-off v2 provider preserves the three coach-mark contexts and geometry engine while separating catalogue/progress/policy/presentation from operational controllers. Practice is an authenticated, identity-bound memory capability, not a tour URL. Shared production views receive local handlers; they do not mount real form controllers. Read-only practice readiness opts out of the API helper's normal outbox drain; existing operational callers retain the default. The existing inbox feed invalidates guidance on new work. See [[Driver Guidance Redesign Implementation Plan 2026-10-20]] for verification and the native/participant rollout gate.

@@ -4,6 +4,10 @@ Date: 2026-10-14. Scope: current Cargo mobile presentation/actions, execution/in
 
 ## Verdict
 
+### Current assessment follow-up - 2026-10-20
+
+The signature capture, private saved-signature review on mobile/web and Dispatch connection are now implemented, with hidden-by-default disclosure. The remaining priority is real operating integration: approved manifest/execution/evidence providers, actual source/Fleet/receiving authority and exceptional custody handling, real fleet/physical-policy commissioning, partner feedback/recovery and authenticated phone/web pilot acceptance. Current source still deliberately refuses production cargo operation with503; this is not a missing-table-only problem or a feature-toggle activation. Fresh API/lifecycle/state checks passed89tests across3files. No live activation or setting change. See [[Cargo Remaining Work 2026-10-20]] for the current prioritized assessment; historical findings and verification below retain their original dates.
+
 ### Implemented safety follow-up (2026-10-14)
 
 The historical findings below describe the analysis before implementation. Findings 1, 2 and 4 are now addressed in code and offline regression. The user explicitly chose: "Keep live integration disabled for now; finish the safety fixes and plan." Findings 3, 5, 6 and 7 remain deferred release gates, not completed operations.

@@ -368,3 +368,7 @@ coverage confirms null, blank, and partial pairs are omitted while numeric
 strings and explicit 0,0 remain valid. The focused resolver suite passes 10/10
 and touched-file ESLint passes. Raw database fields were not inspected; no data
 repair was needed for the live acceptance result.
+
+## Gated incident guidance - 2026-10-21
+
+The real incident form, submit control and Critical confirmation are shared with optional local practice. Sample assessment uses the existing severity rules and does not report an incident, request assistance or simulate an emergency dispatch. Critical sample confirmation is explicitly labeled and can exit practice. Real SOS synchronously interrupts guidance before its existing sheet opens. V2 stays default-off; see [[Driver Guidance Redesign Implementation Plan 2026-10-20]] for validation and acceptance gates.

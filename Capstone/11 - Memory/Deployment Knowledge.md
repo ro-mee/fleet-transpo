@@ -18,6 +18,26 @@ last_verified: 2026-09-19
 
 # Deployment Knowledge
 
+## Vercel production-only deployment - 2026-10-16
+
+The operator explicitly requires Production deployments only; do not configure Preview as a workaround. The submitted Vercel log for branch `feat/mechanic-integration`, commit `6540328`, stops in `assertProductionStorageOrigin()` because `NEXT_PUBLIC_SUPABASE_URL` is absent from the build environment. The local `.env.local` value is `https://dnxuphhxlzidvwtdqqkq.supabase.co/`, matching the documented Supabase project. Configure that variable for the Vercel Production environment and rebuild as a Production deployment. A non-main branch in a log alone does not establish the deployment environment; verify its actual target. Keep the build guard because the URL is needed to allow stored images through the Content Security Policy.
+
+Verification: inspected the submitted build log, `next.config.mjs`, local public URL and Vercel environment documentation. No remote environment settings or deployment were changed; Vercel access was not established. Production rebuild remains pending.
+
+### Authenticated CLI recovery checkpoint
+
+Installed the official Vercel CLI 64.0.2 globally at the operator's request and completed browser/device sign-in through the operator's GitHub account (`ro-mee`). Confirmed project `hrms11/fleet-transpo` and that `NEXT_PUBLIC_SUPABASE_URL` already existed for Production only as Secret; the submitted missing-variable build was a Preview deployment, as the operator's screenshot confirmed. Saved the verified public URL as Config for Production only with `vercel env add ... --type config --force`; CLI confirmed the override. No Preview variable was created.
+
+The existing clean source files in the main checkout at `C:/Users/lenovo/OneDrive/Desktop/capstone-fuel-pdf` received the identical one-line import fix and required Driver Management/SYSTEM notes, committed locally as `f9223129`. Preserved its unrelated uncommitted worktree-audit note. Corrected page matches the feature-branch page byte-for-byte; fresh ESLint, main-checkout encoding and diff checks passed. Live remote main was still `5e9d73f2` before the attempted push.
+
+Automatic approval review rejected the combined commit/push command because a default-main push triggers Production and requires explicit approval for that release step. No push ran. A separate local-only commit succeeded. Await explicit operator approval to push `f9223129` to `origin/main`, then follow the Production build and verify the deployed health/login surfaces. No new deployment or database change occurred at this checkpoint.
+
+### Production recovery completed
+
+After the operator explicitly approved the release, pushed `f9223129` to `origin/main`. Vercel automatically created Production deployment `dpl_4rYVuxNnY5uRwLtVcZfkbWh4aYGX`, URL `https://fleet-transpo-qhgx41yki-hrms11.vercel.app`, created 2026-10-16 08:06:21 Asia/Manila. It reached Ready after a 1m 8s build and received aliases `https://fleet-transpo-hrms11.vercel.app` and `https://fleet-transpo-git-main-hrms11.vercel.app`. Remote main was confirmed at `f92231293485342208945981671059bc583b2b66`.
+
+Unauthenticated alias requests reached Vercel sign-in, so their HTTP 200 was not accepted as an app health result. Authenticated `vercel curl` generated the project's deployment-protection bypass and confirmed `/api/health` returned HTTP 200 with `{"ok":true,"service":"fleetops-web"}`, `/login` returned HTTP 200, and the deployed Content-Security-Policy includes the expected Supabase host. Protection remains enabled. No signed-in application workflow, database write or real driver profile was exercised; no Preview deployment was created. Completion notes are local documentation updates after the release and were not pushed as another deployment.
+
 > **Mostly UNKNOWN.** There is no Dockerfile or deploy script; HostForge builds automatically from the repo. **Since 2026-09-24** the repo has `.github/workflows/cron-sync.yml` (external caller, pending operator steps); the `vercel.json` cron paths added the same day were **removed 2026-10-03** (Vercel Hobby caps cron at one run/day — the schedules failed deployment). Mobile EAS configuration is committed; cloud account access remains deployment-specific.
 
 ## HostForge deployment assessment — 2026-09-19

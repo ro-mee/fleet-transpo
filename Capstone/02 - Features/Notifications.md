@@ -11,6 +11,14 @@ related: ["[[Dispatch]]", "[[Trips]]", "[[Authentication]]"]
 
 # Feature: Notifications
 
+## Mobile inbox polish — 2026-10-17
+
+The mobile Notifications page now follows the same raised ivory/forest card system as Home and Trips. It reuses the shared back/title header, an inbox summary and a full-width Mark all read control with pending feedback. Message cards keep full wrapping titles and bodies, category/outline icons, actual severity labels, explicit Read/Unread text and a separate timestamp row. Earlier dates and prior years are visible; invalid dates show Time unavailable. Existing Today/Earlier grouping, ordering, read/dismiss endpoints, notification navigation and delivery policies remain intact.
+
+Dismiss controls are now separate 48×48 dp siblings rather than small nested controls inside the card navigation target. This prevents a dismiss tap from opening or marking the message read. Refresh failures are exposed from the existing feed provider: already-loaded messages remain visible, retry guidance appears and an unsuccessful initial request no longer looks like an empty inbox. A successful refresh clears the error. The 168 dp bottom clearance follows the existing floating-controls convention.
+
+Verification: four new rendering regressions failed before implementation; final 46 focused checks passed across six suites, including controller failure/recovery and interaction isolation. Strict touched ESLint and Android Hermes export passed (1,469 modules, 5.72 MB, 88 assets). Real-component browser previews used sample data at 320 px light and 390 px dark, plus empty/error states. Simulated 1.6× text at 320 px had no horizontal overflow and retained 48×48 dp dismiss controls. Dismiss/mark-all interactions were exercised only on local fixture data. Preview providers and gradients were substituted; native-device, OS font scaling, screen-reader and real notification acceptance remain pending. No migration or live notification mutation. See [[UI UX Audit - Mobile]].
+
 ## What it does
 
 Creates in-app notifications for the events staff and drivers need to know about. **164 rows** — one of the more genuinely exercised features.

@@ -29,6 +29,18 @@ last_verified: 2026-09-21
 
 # Feature: Driver In-App Guidance & Contextual Coach Marks
 
+## Passenger and Cargo redesign proposal review - 2026-10-20
+
+Assessment only: [[Coach Marks Passenger Cargo Proposal Assessment 2026-10-20]]. Recommend independent contextual guides and optional practice using production components, with shared guidance plus distinct Passenger/Cargo workflows. Include current odometer photos, Cargo signed counts and separate clearance requirements. Practice needs visibly labeled, isolated local state and no operational writes or queue effects. The existing forced sequence and current guide behavior remain unchanged; this assessment does not supersede the implementation record below.
+
+Planning follow-up: the owner requested detailed, useful driver explanations and a concrete implementation plan. [[Driver Guidance Redesign Implementation Plan 2026-10-20]] links the complete design/copy catalogue and 13 ordered tasks. The plan covers actions, reasons, results and recovery; per-section replay; conservative progress migration; safe local practice through shared production controls; current odometer and signed Cargo requirements; and native/driver-understanding acceptance. Planning only: the current runtime remains unchanged.
+
+### Implementation in progress - 2026-10-21
+
+The scheduled run is building the new independent guide path behind the default-off EXPO_PUBLIC_DRIVER_GUIDES_V2 switch. See the checkpoint in [[Driver Guidance Redesign Implementation Plan 2026-10-20]] for actual files/checks. Existing production behavior remains the legacy path pending acceptance. The new registry contains23 common/workflow variants; old combined skip/completion values import conservatively as dismissed, without claiming driver mastery. Practice state remains memory-only and separate from operational controllers. Do not treat the concept image or focused tests as native device acceptance.
+
+Migration ownership: CoachMarkProvider remains the single selected overlay/context owner; the new DriverGuideProvider uses a pure controller while the intact legacy provider is selected when the switch is off. Existing screens own operations and old milestone producers. Target wrappers retain instance tokens/routes/presentation generations. Existing inspection/fuel/incident URL tour branches and Home shortcut handoffs must be gated during migration. TripOperationalSummary is already the Cargo Map view seam; PassengerMapSummary and MapControlCluster extract actual production presentation for reuse. New photo/signature/clearance guides do not inherit old tour completion.
+
 ## 1. Product Philosophy
 
 > **"Guidance when needed, not guidance everywhere."**  
@@ -1090,3 +1102,9 @@ Review checks passed99 focused and621 mobile/shared-presentation tests, scoped l
 From the sign-in screen, open **Explore sample cases** to view the cargo examples without an account. The demo starts with 10 expected boxes and 9 counted, then shows the source asking for a recount. Select **After recount** to see the new clean count for the same sample trip and manifest. Restaurant and hotel examples use the same cargo layout; Guest/VIP transport stays in the passenger flow.
 
 Every value is simulated. Choosing a case only changes what is shown on this screen; it does not contact Fleet or a restaurant/hotel system, save a cargo record, upload a photo or send a partner update. Production cargo actions remain unavailable until the real source, Fleet, receiver and privacy approvals are connected.
+
+## Gated redesign software - 2026-10-21
+
+Implemented 23 variant records with full English explanations, independent contextual producers, More details, per-section Help replay and explicitly parked local practice. The actual Map, inspection, odometer, fuel, incident and Cargo views are shared with memory-only sample handlers. Old tutorial URLs cannot create practice capability in v2. Progress is driver/variant/version scoped; ambiguous legacy outcomes are not mastery. SOS takes priority, and offline help stays on the existing banner.
+
+`EXPO_PUBLIC_DRIVER_GUIDES_V2` remains off by default. The legacy runtime is retained pending native Android, staged-operation and participant acceptance. See [[Driver Guidance Redesign Implementation Plan 2026-10-20]] for exact verification, changed-file ownership, safety rules and remaining release gates. No production rollout is claimed.

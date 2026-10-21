@@ -61,6 +61,7 @@ The owner asked to group related screens instead of the flat Profile list, add a
 Profile
 ├── Account
 │   └── Personal Information      (details + phone edit, then rows → License & Compliance, Assigned Vehicle)
+│                                  — hub rows removed 2026-10-17, see "Personal Information hub trim" below
 ├── Privacy & Security
 │   ├── Privacy & Consent         (new — read-only)
 │   ├── App Permissions           (new — moved out of Settings)
@@ -186,4 +187,30 @@ Replaced the native `AppAlert.alert` with a dedicated tactile bottom sheet modal
 - ESLint: 0 errors, 0 warnings on `mobile/app/(app)/(tabs)/profile.js`.
 - Mobile Vitest: 24 test files / 143 tests passed.
 - Full workspace tests: 171 test files / 1931 tests passed.
+
+## Personal Information hub trim + universal My Work (2026-10-17, owner request)
+
+Date: 2026-10-17
+Status: Implemented; automated checks passed. Native device acceptance remains pending.
+
+### Rationale
+
+Personal Information should read as identity/biodata only (the same reasoning that keeps Change Password under Privacy & Security), and its "License & Compliance" / "Assigned Vehicle" hub rows duplicated entries that already exist in the Profile tab's "My Work" section.
+
+Reachability was checked first, because "My Work" was **Cargo-only** since the 2026-10-14 Cargo refinement (`isCargoDriver ? <Section …> : null`): for Passenger/unspecified drivers the hub rows were the ONLY profile path to `/profile/license` (Vehicle is also on the Home hero card). Owner approved the uniform rule, so the section was widened instead of the access being removed.
+
+### What changed
+
+- `mobile/app/(app)/(tabs)/profile.js` — `CARGO_WORK_ROWS` renamed to `WORK_ROWS`; the "My Work" section (My Schedule, Trip History, Driver License, Vehicle) now renders for **every** driver type, no longer gated on the Cargo classification. Cargo-only identity elements ("Cargo Driver" subtitle, cargo card layout) are untouched.
+- `mobile/app/(app)/profile/personal.js` — the two-row hub card and its now-unused `ClayMenuRow` import removed. The details card, phone edit + PATCH `/api/driver/me` flow, and Emergency Contact card are unchanged.
+- `mobile/lib/cargo-supporting-render.test.js` — the pinned Passenger assertion was updated deliberately: Passenger/null still must not show the "Cargo Driver" label, but now must see the shared My Work section with the same four routes.
+
+No API, permission, data, or route removal: `/profile/license` and `/profile/vehicle` remain reachable for every driver via My Work; Vehicle additionally via the Home hero card.
+
+### Verification
+
+- Mobile Vitest: 81 files / 1,052 tests passed (focused `cargo-supporting-render` file: 12/12).
+- Targeted ESLint clean on all three touched files; `git diff --check` clean; `npm run verify:encoding` passed.
+- `npx expo export --platform android --no-bytecode` passed (4.02 MB Android bundle, 1,468 modules). The Hermes bytecode step itself fails on this machine with a Windows permission error even for a trivial 1-line input (`hermesc.exe` exit 6, "Failed to open file … permission denied") — environmental, independent of this change.
+- Native device acceptance pending (Passenger Profile tab now shows My Work; Cargo drivers no longer see duplicate rows in Personal Information).
 

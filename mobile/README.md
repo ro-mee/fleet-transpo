@@ -51,7 +51,7 @@ Routing is file-based via `expo-router`; `package.json` `main` points at
 | `lib/tripRef.js` | Server-fed trip status reference data (`/api/mobile/driver/ref`) |
 | `lib/theme.js` | Semantic tokens from `docs/design-system.md` |
 | `components/ui.js` | Shared primitives (card, pill, button, field) |
-| `components/logo.js` | Brand mark and signed-in top bar |
+| `components/logo.js` | Brand mark and wordmark (FleetOpsMark / FleetOpsWordmark / Logo) |
 | `components/plate.js` | Physical license-plate treatment for vehicle identity |
 
 ## Auth

@@ -705,6 +705,10 @@ The mobile driver app's Personal Information screen (`mobile/app/(app)/profile/p
 
 Verified with mobile test suite: 46 test files passed, 525 tests passed in `mobile/lib/`.
 
+## Mobile Personal Information hub trim (2026-10-17)
+
+The Personal Information screen (`mobile/app/(app)/profile/personal.js`) is now identity/biodata-only: the "License & Compliance" and "Assigned Vehicle" hub rows were removed. Both destinations are reached from the Profile tab's "My Work" section, which is now rendered for every driver type instead of Cargo only — it had been the only remaining path to the mobile License & Compliance screen for Passenger drivers. No API, permission, or data change; the phone PATCH flow and Emergency Contact card are untouched. See [[Mobile Profile & Settings Claymorphism Implementation Plan]]. Verified: mobile Vitest 81 files / 1,052 tests, touched-file ESLint clean, `git diff --check` and `verify:encoding` clean, Android export passed with `--no-bytecode` (the Hermes bytecode step fails machine-wide with a Windows permission error, independent of this change). Native device acceptance pending.
+
 ## Open questions
 
 - The old "Standard Morning Shift" card was replaced by the real schedule; the
