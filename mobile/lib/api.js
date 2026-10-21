@@ -293,10 +293,10 @@ export async function apiFetch(path, options = {}) {
     // slow cold start should not fail the whole request immediately.
     const handleNetworkFailure = async () => {
       if (init.body instanceof FormData) {
-        throw new ApiError("Network request failed. Receipt upload was not queued; retry when online.", 0);
+        throw new ApiError("Network request failed. Upload was not queued; retry when online.", 0);
       }
       if (!queueOnFailure) {
-        throw new ApiError("Network request failed. The queued request will be retried later.", 0);
+        throw new ApiError("Network request failed. Nothing was queued; retry when online.", 0);
       }
       const method = init.method || 'GET';
       // Auth requests are interactive: replaying a queued login minutes later
