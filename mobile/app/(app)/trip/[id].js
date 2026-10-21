@@ -10,7 +10,7 @@ import { useDriverProfile } from "../../../lib/driver-profile";
 import { captureCargoSession, isCurrentCargoSession } from "../../../lib/cargo-sync";
 import { odometerStartRoute } from "../../../lib/trip-odometer";
 import { useAuth } from "../../../lib/auth";
-import { CACHE_KEYS, getCached, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
+import { getCachedTrip, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { SyncNote, NeverSyncedCard } from "../../../components/OfflineStates";
 import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
@@ -93,26 +93,13 @@ export default function TripDetailsScreen() {
     const request = ++requestNumber.current;
     const current = () => request === requestNumber.current && isCurrentCargoSession(snapshot);
     setTripSession(null);
-    // Offline Read Mode: list-cache-first. The shared TRIPS_ALL snapshot is
-    // the primary source; the per-trip key covers trips opened before that
-    // list was ever cached.
+    // Reuse the newest saved copy from any schedule page or prior detail visit.
     let cachedTrip = null;
     let cachedSyncedAt = null;
     if (driverId) {
-      const listCached = await getCached(driverId, CACHE_KEYS.TRIPS_ALL);
-      const inList = Array.isArray(listCached?.data)
-        ? listCached.data.find((t) => String(t.trip_id) === String(id))
-        : null;
-      if (inList) {
-        cachedTrip = inList;
-        cachedSyncedAt = listCached.syncedAt;
-      } else {
-        const singleCached = await getCached(driverId, tripCacheKey(id));
-        if (singleCached?.data) {
-          cachedTrip = singleCached.data;
-          cachedSyncedAt = singleCached.syncedAt;
-        }
-      }
+      const cached = await getCachedTrip(driverId, id);
+      cachedTrip = cached?.data ?? null;
+      cachedSyncedAt = cached?.syncedAt ?? null;
       if (cachedTrip && current()) {
         setTrip(cachedTrip);
         setLastSynced(cachedSyncedAt);
@@ -122,15 +109,10 @@ export default function TripDetailsScreen() {
     try {
       setLoadError(null);
       setNotFound(false);
-      // limit=100 widens coverage past the default page cap. This is the only
-      // trip source — the old /api/trips/{id} fallback required
-      // trips:read_all (drivers get 403), so it could never succeed here.
-      const data = await api.get("/api/mobile/driver/trips?status=all&limit=100");
+      // Fetch this owned trip directly; list pagination must never hide details.
+      const data = await api.get(`/api/mobile/driver/trips?trip_id=${encodeURIComponent(id)}`);
       if (!current()) return;
       const list = Array.isArray(data) ? data : [];
-      // Display-only: refresh both the shared list and this trip's key.
-      if (driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
-      if (!current()) return;
       const found = list.find((t) => String(t.trip_id) === String(id));
       if (found) {
         setTripSession(snapshot);

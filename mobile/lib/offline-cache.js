@@ -25,8 +25,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const PREFIX = "fleetops_cache";
 
 export const CACHE_KEYS = {
-  /** GET /api/mobile/driver/trips?status=all (Trips tab + History tab share this) */
+  /** Legacy GET /api/mobile/driver/trips?status=all snapshot. */
   TRIPS_ALL: "trips:all",
+  /** Scoped Trips schedule snapshots; separate from legacy history/detail data. */
+  TRIPS_TODAY: "trips:today",
+  TRIPS_UPCOMING: "trips:upcoming",
+  TRIPS_HISTORY: "trips:history",
   /** GET /api/mobile/driver/trips (Home dashboard default view) */
   HOME_TRIPS: "home:trips",
   /** GET /api/mobile/driver/submissions (Activity Logs) */
@@ -57,6 +61,9 @@ export function tripCacheKey(id) {
 /** Static keys enumerated by clearOfflineCache without a full keyscan. */
 const STATIC_KEYS = [
   CACHE_KEYS.TRIPS_ALL,
+  CACHE_KEYS.TRIPS_TODAY,
+  CACHE_KEYS.TRIPS_UPCOMING,
+  CACHE_KEYS.TRIPS_HISTORY,
   CACHE_KEYS.HOME_TRIPS,
   CACHE_KEYS.SUBMISSIONS,
   CACHE_KEYS.INSPECTIONS,
@@ -107,6 +114,20 @@ export async function getCached(driverId, key) {
   } catch {
     return null;
   }
+}
+
+/** Newest saved copy, including trips reached through paginated schedule tabs. */
+export async function getCachedTrip(driverId, id) {
+  const keys = [CACHE_KEYS.TRIPS_ALL, CACHE_KEYS.HOME_TRIPS, CACHE_KEYS.TRIPS_TODAY, CACHE_KEYS.TRIPS_UPCOMING, CACHE_KEYS.TRIPS_HISTORY, tripCacheKey(id)];
+  const snapshots = await Promise.all(keys.map((key) => getCached(driverId, key)));
+  const candidates = snapshots.flatMap((snapshot) => {
+    if (!snapshot) return [];
+    const data = snapshot.data;
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.trips) ? data.trips : data ? [data] : [];
+    const trip = rows.find((row) => row?.trip_id != null && String(row.trip_id) === String(id));
+    return trip ? [{ data: trip, syncedAt: snapshot.syncedAt }] : [];
+  });
+  return candidates.sort((a, b) => (b.syncedAt || 0) - (a.syncedAt || 0))[0] ?? null;
 }
 
 /**
