@@ -8,6 +8,7 @@ import {
 } from "./cargo-verification-panel";
 
 const pickupId = "11111111-1111-4111-8111-111111111111";
+globalThis.React = React;
 const manifest = {
   manifest_ref: { kind: "REQUEST", id: pickupId, revision: 1, hash: "a".repeat(64) },
   source_ref: { system: "POS", organization_id: "restaurant-1", external_request_id: "source-only" },
@@ -53,6 +54,8 @@ it("does not show decision controls unless the server returned those capabilitie
   expect(markup).not.toContain("Record Fleet clearance");
   expect(markup).toContain("partner received the message");
   expect(markup).not.toContain("Approval recorded");
+  expect(markup).toContain("Cargo chain of custody");
+  expect(markup).toContain("View signatures");
 });
 
 it("labels physical facts as source requirements without enabling closed review actions", () => {
