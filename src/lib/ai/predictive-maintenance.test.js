@@ -45,13 +45,13 @@ describe("computeUsageRate", () => {
     // calendar day. Projecting a future date is a calendar question, so
     // dividing by active_days would overstate the burn rate by the idle ratio
     // and pull every due date forward.
-    const usage = computeUsageRate({ km_90d: 600, trip_count: 5, active_days: 5 });
+    const usage = computeUsageRate({ km_90d: 600, trip_count: 5, valid_trip_count: 5, observation_days: 90, active_days: 5 });
     expect(usage.kmPerDay).toBeCloseTo(600 / 90, 5);
     expect(usage.activeDays).toBe(5);
   });
 
   it("marks high confidence at the trip floor", () => {
-    const usage = computeUsageRate({ km_90d: 900, trip_count: 5, active_days: 20 });
+    const usage = computeUsageRate({ km_90d: 900, trip_count: 5, valid_trip_count: 5, observation_days: 90, active_days: 20 });
     expect(usage.confidence).toBe("high");
   });
 
@@ -79,7 +79,7 @@ describe("computeUsageRate", () => {
     // node-postgres returns DECIMAL/BIGINT aggregates as strings. Unguarded,
     // "900" / 90 works but "900" + 0 does not, and tripCount comparisons
     // against a string silently misbehave.
-    const usage = computeUsageRate({ km_90d: "900", trip_count: "10", active_days: "30" });
+    const usage = computeUsageRate({ km_90d: "900", trip_count: "10", valid_trip_count: "10", observation_days: 90, active_days: "30" });
     expect(usage.kmPerDay).toBeCloseTo(10, 5);
     expect(usage.tripCount).toBe(10);
     expect(usage.confidence).toBe("high");
@@ -337,6 +337,8 @@ function row(overrides = {}) {
     vehicle_status: "Available",
     km_90d: 9000,
     trip_count: 30,
+    valid_trip_count: 30,
+    observation_days: 90,
     active_days: 60,
     corrective_count: 0,
     total_count: 4,
@@ -351,6 +353,8 @@ describe("predictVehicle", () => {
       [
         "basis",
         "confidence",
+        "evidence",
+        "services",
         "daysToService",
         "effectiveDays",
         "kmPerDay",
@@ -454,7 +458,7 @@ describe("observed due status and missing readings", () => {
   });
 
   it("does not round one kilometre overdue into due today at a high usage rate", () => {
-    const p = predictVehicle({ mileage: 5001, next_service_mileage: 5000, km_90d: 90000, trip_count: 30 }, now);
+    const p = predictVehicle({ mileage: 5001, next_service_mileage: 5000, km_90d: 90000, trip_count: 30, valid_trip_count: 30, observation_days: 90 }, now);
     expect(p.projectedDaysToService).toBeLessThan(0);
     expect(p.risk).toBe("overdue");
     expect(p.mileageOverdue).toBe(true);
@@ -559,4 +563,62 @@ describe("predictFleet", () => {
     predictFleet(rows, NOW);
     expect(rows.map((r) => r.vehicle_id)).toEqual(before);
   });
+});
+
+
+describe("measured evidence and independent service outlooks", () => {
+  it("does not promote five trips with only one qualifying distance", () => {
+    expect(computeUsageRate({ km_90d: 500, trip_count: 5, valid_trip_count: 1, observation_days: 90 }).confidence).toBe("low");
+  });
+  it("withholds mileage forecasts when completed-trip distance coverage is incomplete", () => {
+    expect(computeUsageRate({ km_90d: 500, trip_count: 100, valid_trip_count: 5, observation_days: 90 }).confidence).toBe("low");
+  });
+  it("requires a known calendar period of at least a week", () => {
+    for (const observation_days of [undefined, 0, 1, 6]) {
+      expect(computeUsageRate({ km_90d: 500, trip_count: 5, valid_trip_count: 5, observation_days }).kmPerDay).toBe(0);
+    }
+    expect(computeUsageRate({ km_90d: 700, trip_count: 5, valid_trip_count: 5, observation_days: 14 }).kmPerDay).toBe(50);
+  });
+  it("excludes invalid readings without turning a mileage threshold into due", () => {
+    for (const mileage of [-1, "NaN", Infinity, 2000001]) {
+      const result = predictVehicle(row({ mileage, next_service_date: null }), NOW);
+      expect(result.mileage).toBeNull();
+      expect(result.serviceStatus).toBe("needs_data");
+      expect(result.dataIssues).toContain("missing_mileage");
+    }
+  });
+  it("leaves an undated odometer unknown despite an unrelated vehicle update", () => {
+    const result = predictVehicle(row({ updated_at: "2026-08-03T12:00:00Z" }), NOW);
+    expect(result.evidence.latestReadingAt).toBeNull();
+    expect(result.evidence.latestReadingSource).toBeNull();
+    expect(result.dataIssues).toContain("unknown_odometer_time");
+  });
+  it("aggregates the most urgent known plan while retaining missing-data plans and deferral facts", () => {
+    const result = predictFleet([row({ service_plans: [
+      { plan_id: 10, version: 2, service_code: "routine", next_service_date: "2026-09-18" },
+      { plan_id: 11, version: 1, service_code: "brakes", next_service_mileage: 49999, deferred_until: "2026-08-10", deferral_reason: "Awaiting slot" },
+      { plan_id: 12, version: 1, service_code: "tires", interval_km: 10000 },
+    ] })], NOW);
+    const p = result.predictions[0];
+    expect(p.risk).toBe("overdue");
+    expect(p.next_service_mileage).toBe(49999);
+    expect(p.services).toHaveLength(3);
+    expect(p.services.find(s => s.service_code === "brakes")).toMatchObject({ plan_id: 11, version: 1, serviceStatus: "overdue", deferred_until: "2026-08-10", deferral_reason: "Awaiting slot" });
+    expect(p.services.find(s => s.service_code === "tires")).toMatchObject({ serviceStatus: "needs_data", dataIssues: expect.arrayContaining(["missing_schedule"]) });
+    expect(p.dataIssues).toContain("missing_schedule");
+    expect(result.summary).toMatchObject({ overdue: 1, needsData: 1, unscheduled: 0 });
+  });
+  it("keeps explicit empty plans unscheduled and date-only schedules actionable", () => {
+    expect(predictVehicle(row({ service_plans: [] }), NOW).services).toEqual([]);
+    const p = predictVehicle(row({ mileage: null, service_plans: [{ plan_id: 10, service_code: "routine", next_service_date: "2026-08-04" }] }), NOW);
+    expect(p.serviceStatus).toBe("due");
+    expect(p.daysToService).toBe(0);
+  });
+});
+
+it("retains valid large plan thresholds while restricting only the odometer reading range", () => {
+  const p = predictVehicle({ mileage: 1000000, next_service_mileage: 3000000 });
+  expect(p.next_service_mileage).toBe(3000000);
+  expect(p.kmToService).toBe(2000000);
+  expect(p.dataIssues).not.toContain("missing_schedule");
 });
