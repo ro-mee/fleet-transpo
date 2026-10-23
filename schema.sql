@@ -1683,6 +1683,50 @@ CREATE TABLE vehicle_cargo_profiles (
   CONSTRAINT vehicle_cargo_profiles_pkey PRIMARY KEY (vehicle_id)
 );
 
+CREATE TABLE vehicle_odometer_observations (
+  observation_id integer DEFAULT nextval('vehicle_odometer_observations_observation_id_seq'::regclass) NOT NULL,
+  vehicle_id integer NOT NULL,
+  reading_km numeric(12,2) NOT NULL,
+  observed_at timestamptz NOT NULL,
+  recorded_at timestamptz DEFAULT clock_timestamp() NOT NULL,
+  recorded_by integer NOT NULL,
+  reason text NOT NULL,
+  CONSTRAINT vehicle_odometer_observations_no_future CHECK ((observed_at <= recorded_at)),
+  CONSTRAINT vehicle_odometer_observations_reading_km_check CHECK (((reading_km >= (0)::numeric) AND (reading_km <= (2000000)::numeric))),
+  CONSTRAINT vehicle_odometer_observations_reason_check CHECK (((NULLIF(btrim(reason), ''::text) IS NOT NULL) AND (length(reason) <= 1000))),
+  CONSTRAINT vehicle_odometer_observations_pkey PRIMARY KEY (observation_id)
+);
+
+CREATE TABLE vehicle_service_plans (
+  plan_id integer DEFAULT nextval('vehicle_service_plans_plan_id_seq'::regclass) NOT NULL,
+  vehicle_id integer NOT NULL,
+  service_code varchar(20) NOT NULL,
+  interval_days integer,
+  interval_km numeric(12,2),
+  last_service_date date,
+  last_service_mileage numeric(12,2),
+  next_service_date date,
+  next_service_mileage numeric(12,2),
+  deferred_until date,
+  defer_reason text,
+  version integer DEFAULT 1 NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  created_by integer,
+  updated_by integer,
+  CONSTRAINT vehicle_service_plans_configured CHECK (((interval_days IS NOT NULL) OR (interval_km IS NOT NULL) OR (next_service_date IS NOT NULL) OR (next_service_mileage IS NOT NULL))),
+  CONSTRAINT vehicle_service_plans_deferral CHECK (((deferred_until IS NULL) OR (NULLIF(btrim(defer_reason), ''::text) IS NOT NULL))),
+  CONSTRAINT vehicle_service_plans_interval_days_check CHECK ((interval_days > 0)),
+  CONSTRAINT vehicle_service_plans_interval_km_check CHECK ((interval_km > (0)::numeric)),
+  CONSTRAINT vehicle_service_plans_last_service_mileage_check CHECK ((last_service_mileage >= (0)::numeric)),
+  CONSTRAINT vehicle_service_plans_next_service_mileage_check CHECK ((next_service_mileage >= (0)::numeric)),
+  CONSTRAINT vehicle_service_plans_service_code_check CHECK (((service_code)::text = ANY ((ARRAY['routine'::character varying, 'brakes'::character varying, 'tires'::character varying])::text[]))),
+  CONSTRAINT vehicle_service_plans_version_check CHECK ((version > 0)),
+  CONSTRAINT vehicle_service_plans_pkey PRIMARY KEY (plan_id),
+  CONSTRAINT vehicle_service_plans_plan_vehicle_key UNIQUE (plan_id, vehicle_id),
+  CONSTRAINT vehicle_service_plans_vehicle_code_key UNIQUE (vehicle_id, service_code)
+);
+
 CREATE TABLE vehiclecategories (
   category_id integer DEFAULT nextval('vehiclecategories_category_id_seq'::regclass) NOT NULL,
   category_name varchar(100) NOT NULL,
@@ -1775,6 +1819,9 @@ CREATE TABLE vehiclemaintenance (
   parts_replaced jsonb DEFAULT '[]'::jsonb,
   labor_hours numeric(8,2),
   rejection_reason text,
+  service_plan_id integer,
+  service_plan_version integer,
+  CONSTRAINT vehiclemaintenance_service_plan_pair CHECK ((((service_plan_id IS NULL) AND (service_plan_version IS NULL)) OR ((service_plan_id IS NOT NULL) AND (vehicle_id IS NOT NULL) AND (service_plan_version IS NOT NULL) AND (service_plan_version > 0)))),
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -2011,6 +2058,11 @@ ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_dispatch_id_fkey FO
 ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicle_cargo_profiles ADD CONSTRAINT vehicle_cargo_profiles_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
 ALTER TABLE vehicle_cargo_profiles ADD CONSTRAINT vehicle_cargo_profiles_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_odometer_observations ADD CONSTRAINT vehicle_odometer_observations_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_odometer_observations ADD CONSTRAINT vehicle_odometer_observations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE vehicle_service_plans ADD CONSTRAINT vehicle_service_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_service_plans ADD CONSTRAINT vehicle_service_plans_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_service_plans ADD CONSTRAINT vehicle_service_plans_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicledocuments ADD CONSTRAINT vehicledocuments_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
@@ -2021,6 +2073,7 @@ ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_inspected_by_fkey FOREIGN KEY (inspected_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_manager_approved_by_fkey FOREIGN KEY (manager_approved_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_repair_completed_by_fkey FOREIGN KEY (repair_completed_by) REFERENCES employees(employee_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_service_plan_vehicle_fk FOREIGN KEY (service_plan_id, vehicle_id) REFERENCES vehicle_service_plans(plan_id, vehicle_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_incident_id_fkey FOREIGN KEY (source_incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_inspection_id_fkey FOREIGN KEY (source_inspection_id) REFERENCES vehicleinspection(inspection_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -2223,6 +2276,8 @@ CREATE UNIQUE INDEX uq_supply_shipment_source_event ON public.supply_shipment_ev
 CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehiclemaintenance_source_incident ON public.vehiclemaintenance USING btree (source_incident_id) WHERE (source_incident_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehiclemaintenance_source_inspection ON public.vehiclemaintenance USING btree (source_inspection_id) WHERE (source_inspection_id IS NOT NULL);
+CREATE INDEX vehicle_odometer_observations_vehicle_time ON public.vehicle_odometer_observations USING btree (vehicle_id, observed_at DESC, observation_id DESC);
+CREATE UNIQUE INDEX vehiclemaintenance_active_service_plan_key ON public.vehiclemaintenance USING btree (service_plan_id) WHERE ((service_plan_id IS NOT NULL) AND (deleted_at IS NULL) AND ((status)::text = ANY ((ARRAY['Scheduled'::character varying, 'In Progress'::character varying, 'Pending Inspection'::character varying])::text[])));
 CREATE UNIQUE INDEX vehicles_fleet_asset_code_uq ON public.vehicles USING btree (fleet_asset_code);
 
 -- ============================= VIEWS ============================

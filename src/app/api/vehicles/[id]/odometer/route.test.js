@@ -1,0 +1,10 @@
+import { it,expect,vi } from "vitest";
+const h=vi.hoisted(()=>({record:vi.fn(async()=>({observation_id:1})),audit:vi.fn(),permission:vi.fn(async()=>({user:{employeeId:8}}))}));
+vi.mock("@/lib/db",()=>({query:vi.fn(),withTransaction:async run=>run({query:vi.fn()})}));
+vi.mock("@/lib/api/utils",async()=>({...await vi.importActual("@/lib/api/utils"),requirePermission:h.permission}));
+vi.mock("@/lib/audit",()=>({writeAuditRequired:h.audit}));
+vi.mock("@/services/maintenance-plans.service",()=>({recordOdometerObservation:h.record}));
+import {POST} from "./route";
+const request=()=>new Request("https://fleet.test/api/vehicles/7/odometer",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({reading_km:100,observed_at:"2026-10-01T00:00:00Z",reason:"Fleet check"})});
+it("requires vehicles:update and audits the dated observation",async()=>{expect((await POST(request(),{params:Promise.resolve({id:"7"})})).status).toBe(201);expect(h.permission).toHaveBeenCalledWith(expect.anything(),"vehicles","update");expect(h.record).toHaveBeenCalled();expect(h.audit).toHaveBeenCalled();});
+it("fails atomically when the audit is unavailable",async()=>{h.audit.mockRejectedValueOnce(new Error("audit failed"));expect((await POST(request(),{params:Promise.resolve({id:"7"})})).status).toBe(500);});

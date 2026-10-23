@@ -1,5 +1,7 @@
 import { query } from "@/lib/db";
 import { toCalendarDay } from "@/lib/dates";
+import { syncRoutineLegacy } from "@/services/maintenance-plans.service";
+import { AuthError } from "@/lib/api/utils";
 
 /**
  * Derives a vehicle's next service due-dates when a maintenance record
@@ -60,122 +62,23 @@ export function deriveNextSchedule({
   };
 }
 
-/**
- * Postgres types of the columns deriveNextSchedule writes, so GREATEST gets two
- * arguments of the same type instead of leaving Postgres to infer one from an
- * untyped string parameter. Per migration 001: both dates are DATE and
- * next_service_mileage is DECIMAL(12,2).
- */
-const COLUMN_CASTS = {
-  last_service_date: "date",
-  next_service_date: "date",
-  next_service_mileage: "numeric",
-};
-
-/**
- * Applies deriveNextSchedule to the vehicle. No-ops unless the maintenance
- * record is Completed Routine work — a Scheduled or In Progress record has not moved the
- * service clock and must not advance the due-date.
- *
- * Only non-null derived fields are written, so a vehicle with one interval set
- * keeps its other hand-entered due-date instead of having it blanked.
- *
- * Every write is clamped with GREATEST so the schedule can only ever move
- * forward. Without it, an old maintenance record flipped to Completed today
- * would overwrite a correct schedule with its own earlier values and mark a
- * freshly-serviced vehicle overdue. The clamp lives in SQL rather than in a
- * read-then-compare here because a read-compare-write is a race between two
- * concurrent completions, and the write is already a single statement. This is
- * the same shape the trip routes use for vehicles.mileage.
- *
- * COALESCE is inside GREATEST, not around it: a NULL existing column must adopt
- * the derived value, and `GREATEST(NULL, x)` in Postgres does return x — but
- * relying on that would leave the intent implicit, and the COALESCE also pins
- * the type of the existing side.
- *
- * The clamp's cost is that one bad entry is permanent through this path: a
- * typo'd year or a mis-keyed odometer pushes the schedule out, and every later
- * correct completion is clamped away, so the vehicle's effective service
- * interval silently lengthens. Two things address that. The UPDATE RETURNS the
- * written columns and this function logs any column where the clamp kept the
- * existing value over the incoming one, so the condition is at least
- * observable rather than silent. And the correction path is
- * PUT /api/vehicles/[id], whose allowlist includes next_service_date and
- * next_service_mileage and which does NOT clamp — an authorized fleet manager
- * can pull a schedule back there. last_service_date is deliberately absent from
- * that allowlist, so the record of when a service actually happened stays owned
- * by this function.
- */
+/** Completions and compatibility columns share the caller's transaction and vehicle lock. */
 export async function recomputeVehicleSchedule(vehicleId, maintenanceRow = {}, executor = { query }) {
-  if (!vehicleId) return;
-  if (String(maintenanceRow.status || "").toLowerCase() !== "completed") return;
-
-  if (maintenanceRow.maintenance_type !== "Routine") return;
-
-  const { rows } = await executor.query(
-    `SELECT service_interval_km, service_interval_days
-       FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [vehicleId]
-  );
-  const vehicle = rows[0];
-  if (!vehicle) return;
-
-  const derived = deriveNextSchedule({
-    // Planned dates are not evidence that service happened.
-    completedDate: maintenanceRow.completed_date,
-    mileageAtService: maintenanceRow.mileage_at_service,
-    intervalDays: vehicle.service_interval_days,
-    intervalKm: vehicle.service_interval_km,
-  });
-
-  const sets = [];
-  const values = [];
-  const attempted = {};
-  for (const [column, value] of Object.entries(derived)) {
-    if (value === null) continue;
-    values.push(String(value));
-    attempted[column] = String(value);
-    const cast = `$${values.length}::${COLUMN_CASTS[column]}`;
-    sets.push(`${column} = GREATEST(COALESCE(${column}, ${cast}), ${cast})`);
-  }
-  if (sets.length === 0) return;
-
-  const written = Object.keys(attempted);
-  values.push(vehicleId);
-  const { rows: after } = await executor.query(
-    `UPDATE vehicles SET ${sets.join(", ")}, updated_at = NOW()
-      WHERE vehicle_id = $${values.length}
-      RETURNING ${written.join(", ")}`,
-    values
-  );
-
-  logSuppressedWrites(vehicleId, attempted, after[0]);
-}
-
-/**
- * Reports any column where GREATEST kept the existing value over the incoming
- * one.
- *
- * Without this the clamp is invisible: the request succeeds, the response is a
- * 200, and the only evidence that a completion did not move the schedule is the
- * absence of a change nobody is watching for. Comparison is on the calendar day
- * and on the number, not on the raw strings, because Postgres hands DATE back
- * as a Date and DECIMAL back as a string with its own scale — "55000" and
- * "55000.00" are the same value and must not read as a suppressed write.
- */
-function logSuppressedWrites(vehicleId, attempted, row) {
-  if (!row) return;
-  for (const [column, incoming] of Object.entries(attempted)) {
-    const kept = row[column];
-    const same =
-      COLUMN_CASTS[column] === "numeric"
-        ? Number(kept) === Number(incoming)
-        : toCalendarDay(kept) === toCalendarDay(incoming);
-    if (same) continue;
-    console.warn(
-      `[maintenance-schedule] clamp suppressed a write on vehicle ${vehicleId}: ` +
-        `${column} stayed at ${toCalendarDay(kept) ?? kept} rather than moving back to ${incoming}. ` +
-        `Correct it through PUT /api/vehicles/${vehicleId} if the existing value is wrong.`
-    );
-  }
+ if (!vehicleId || String(maintenanceRow.status || "").toLowerCase() !== "completed") return;
+ if (!maintenanceRow.service_plan_id && maintenanceRow.maintenance_type !== "Routine") return;
+ if (!toCalendarDay(maintenanceRow.completed_date)) return;
+ const { rows } = await executor.query(
+  `SELECT * FROM vehicle_service_plans WHERE vehicle_id=$1 AND ${maintenanceRow.service_plan_id ? "plan_id=$2" : "service_code='routine'"} FOR UPDATE`,
+  maintenanceRow.service_plan_id ? [vehicleId,maintenanceRow.service_plan_id] : [vehicleId]);
+ const plan=rows[0]; if (!plan) return;
+ if (maintenanceRow.service_plan_id && Number(maintenanceRow.service_plan_version)!==Number(plan.version)) throw new AuthError("Service plan changed since this work order was scheduled.",409);
+ const derived=deriveNextSchedule({completedDate:maintenanceRow.completed_date,mileageAtService:maintenanceRow.mileage_at_service,intervalDays:plan.interval_days,intervalKm:plan.interval_km});
+ // Backdated records cannot rewind a newer service cycle. Unknown mileage remains unknown.
+ const { rows: after }=await executor.query(`UPDATE vehicle_service_plans SET
+ last_service_date=GREATEST(last_service_date,$1::date),
+ last_service_mileage=CASE WHEN last_service_date IS NULL OR last_service_date <= $1::date THEN $2::numeric ELSE last_service_mileage END,
+ next_service_date=GREATEST(next_service_date,$3::date), next_service_mileage=GREATEST(next_service_mileage,$4::numeric),
+ deferred_until=NULL,defer_reason=NULL,version=version+1,updated_at=NOW(),updated_by=$5
+ WHERE plan_id=$6 RETURNING *`,[derived.last_service_date,maintenanceRow.mileage_at_service ?? null,derived.next_service_date,derived.next_service_mileage,maintenanceRow.completed_by ?? null,plan.plan_id]);
+ if (after[0]) await syncRoutineLegacy(executor,after[0]);
 }

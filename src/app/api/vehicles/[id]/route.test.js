@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   requirePermission: vi.fn(async () => ({ user: { employeeId: 8 } })),
   writeAuditRequired: vi.fn(async () => ({ log_id: 1 })),
   syncVehicleStatus: vi.fn(),
+  syncRoutinePlanFromLegacy: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({ query: mocks.query, withTransaction: mocks.withTransaction }));
@@ -15,6 +16,8 @@ vi.mock("@/lib/api/utils", async () => {
 });
 vi.mock("@/lib/audit", () => ({ writeAuditRequired: mocks.writeAuditRequired }));
 vi.mock("@/services/status.service", () => ({ syncVehicleStatus: mocks.syncVehicleStatus }));
+
+vi.mock("@/services/maintenance-plans.service", async () => ({ ...await vi.importActual("@/services/maintenance-plans.service"), syncRoutinePlanFromLegacy: mocks.syncRoutinePlanFromLegacy }));
 
 import { DELETE, PUT } from "./route";
 
@@ -142,4 +145,15 @@ describe("vehicle update and archive audit events", () => {
     const updateCall = tx.query.mock.calls.find(([sql]) => sql.startsWith('UPDATE vehicles SET'));
     expect(updateCall[0]).toMatch(/seating_capacity/);
   });
+});
+
+it("routes legacy form schedule fields through the authority inside the vehicle transaction",async()=>{
+ mocks.requirePermission.mockResolvedValueOnce({user:{employeeId:8,role:"fleet_manager"}});
+ const res=await PUT(request("PUT",{vehicle_name:"Toyota Hiace",service_interval_days:30}),{params:Promise.resolve({id:"29"})});
+ expect(res.status).toBe(200);expect(mocks.requirePermission).toHaveBeenCalledWith(expect.anything(),"maintenance","update");
+ expect(mocks.syncRoutinePlanFromLegacy).toHaveBeenCalledWith(tx,"29",expect.objectContaining({service_interval_days:30}),8);
+});
+it("denies legacy service edits from roles outside the configuration guard",async()=>{
+ mocks.requirePermission.mockResolvedValueOnce({user:{employeeId:8,role:"mechanic"}});
+ expect((await PUT(request("PUT",{vehicle_name:"Toyota Hiace",service_interval_days:30}),{params:Promise.resolve({id:"29"})})).status).toBe(403);
 });

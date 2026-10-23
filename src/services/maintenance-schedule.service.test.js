@@ -134,19 +134,26 @@ describe("qualifying routine completions", () => {
     expect(tx.query).not.toHaveBeenCalled();
   });
   it("uses only the supplied executor to advance a completed Routine service", async () => {
-    const tx = { query: vi.fn().mockResolvedValueOnce({ rows: [{ mileage: 90000, service_interval_days: 30, service_interval_km: 5000 }] }).mockResolvedValueOnce({ rows: [] }) };
+    const tx = { query: vi.fn().mockResolvedValueOnce({ rows: [{ plan_id: 4, interval_days: 30, interval_km: 5000 }] }).mockResolvedValueOnce({ rows: [] }) };
     await recomputeVehicleSchedule(7, { status: "Completed", maintenance_type: "Routine", completed_date: "2026-10-01", mileage_at_service: 20000 }, tx);
     expect(tx.query).toHaveBeenCalledTimes(2);
-    expect(tx.query.mock.calls[1][1]).toEqual(["2026-10-01", "2026-10-31", "25000", 7]);
+    expect(tx.query.mock.calls[1][1]).toEqual(["2026-10-01", 20000, "2026-10-31", 25000, null, 4]);
   });
   it("never substitutes the planned date for missing actual completion evidence", async () => {
-    const tx = { query: vi.fn().mockResolvedValue({ rows: [{ mileage: 90000, service_interval_days: 30, service_interval_km: 5000 }] }) };
+    const tx = { query: vi.fn().mockResolvedValue({ rows: [{ plan_id: 4, interval_days: 30, interval_km: 5000 }] }) };
     await recomputeVehicleSchedule(7, { status: "Completed", maintenance_type: "Routine", maintenance_date: "2030-01-01" }, tx);
     expect(tx.query.mock.calls.some(([sql]) => sql.includes("UPDATE"))).toBe(false);
   });
   it("lets schedule write errors abort its caller's transaction", async () => {
     const failure = new Error("schedule update failed");
-    const tx = { query: vi.fn().mockResolvedValueOnce({ rows: [{ service_interval_days: 30 }] }).mockRejectedValueOnce(failure) };
+    const tx = { query: vi.fn().mockResolvedValueOnce({ rows: [{ plan_id: 4, interval_days: 30 }] }).mockRejectedValueOnce(failure) };
     await expect(recomputeVehicleSchedule(7, { status: "Completed", maintenance_type: "Routine", completed_date: "2026-10-01" }, tx)).rejects.toThrow(failure);
   });
 });
+
+ it("updates the authoritative plan and mirrors routine fields on the completion connection",async()=>{
+ const tx={query:vi.fn(async sql=>({rows:sql.includes("SELECT")?[{plan_id:4,vehicle_id:7,service_code:"routine",version:2,interval_days:30,interval_km:5000}]:sql.includes("vehicle_service_plans")?[{plan_id:4,vehicle_id:7,service_code:"routine",version:3,interval_days:30,interval_km:5000}]:[]}))};
+ await recomputeVehicleSchedule(7,{status:"Completed",maintenance_type:"Routine",completed_date:"2026-10-01",mileage_at_service:20000},tx);
+ expect(tx.query.mock.calls.some(([sql])=>sql.includes("UPDATE vehicle_service_plans"))).toBe(true);
+ expect(tx.query.mock.calls.some(([sql])=>sql.includes("UPDATE vehicles SET service_interval_days"))).toBe(true);
+ });

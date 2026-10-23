@@ -8,7 +8,7 @@ vi.mock("@/lib/db", () => ({
     await h.client.query("SAVEPOINT request");
     try {
       const result = await run({ query: async (sql, values) => {
-        if (h.fail === "schedule" && sql.startsWith("UPDATE vehicles SET last_service_date")) throw new Error("Fixture schedule failure");
+        if (h.fail === "schedule" && sql.startsWith("UPDATE vehicle_service_plans SET")) throw new Error("Fixture schedule failure");
         if (h.fail === "status" && sql.startsWith("UPDATE vehicles SET vehicle_status")) throw new Error("Fixture status failure");
         return h.client.query(sql, values);
       } });
@@ -42,6 +42,8 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
     await h.client.query(`CREATE TEMP TABLE vehicles(vehicle_id int PRIMARY KEY, vehicle_status text, registration_expiry date, deleted_at timestamptz,
       mileage numeric, service_interval_days int, service_interval_km numeric, last_service_date date, next_service_date date, next_service_mileage numeric, updated_at timestamptz,
       ${checks[0].definition}) ON COMMIT DROP;
+      CREATE TEMP TABLE vehicle_service_plans(plan_id int PRIMARY KEY, vehicle_id int, service_code text, interval_days int, interval_km numeric,
+       last_service_date date,last_service_mileage numeric,next_service_date date,next_service_mileage numeric,deferred_until date,defer_reason text,version int,updated_at timestamptz,updated_by int) ON COMMIT DROP;
       CREATE TEMP TABLE vehiclemaintenance(maintenance_id int PRIMARY KEY DEFAULT 124, vehicle_id int, status text, maintenance_type text, maintenance_date date,
         completed_date date, mileage_at_service numeric, deleted_at timestamptz, created_by int, repair_completed_by int, assigned_mechanic_id int,
         repair_started_at timestamptz, repair_completed_at timestamptz, priority text, manager_approved_by int, manager_approved_at timestamptz,
@@ -55,6 +57,7 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
     h.fail = null; await h.client.query("ROLLBACK TO SAVEPOINT fixture");
     await h.client.query(`INSERT INTO vehicles(vehicle_id,vehicle_status,registration_expiry,mileage,service_interval_days,service_interval_km)
       VALUES(7,'Under Maintenance','2099-01-01',90000,30,5000),(3,'Available','2099-01-01',10000,30,5000);
+      INSERT INTO vehicle_service_plans(plan_id,vehicle_id,service_code,interval_days,interval_km,version) VALUES(1,7,'routine',30,5000,1);
       INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,status,maintenance_type,maintenance_date,mileage_at_service)
       VALUES(123,7,'Scheduled','Routine','2099-01-01',20000);`);
   });
