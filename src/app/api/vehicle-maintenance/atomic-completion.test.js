@@ -50,6 +50,14 @@ describe("maintenance atomic writes", () => {
     expect(h.committed.status).toBe("Completed");
     expect(h.committed.completed_date).toBe("2026-10-24");
   });
+  it("locks the resulting Routine plan before its order when approval also changes vehicle and type", async () => {
+    h.state.maintenance_type="Corrective";
+    expect((await put({status:"Completed",vehicle_id:3,maintenance_type:"Routine"})).status).toBe(200);
+    const calls=h.tx.query.mock.calls;
+    const plan=calls.findIndex(([sql])=>sql.includes("FROM vehicle_service_plans") && sql.includes("FOR UPDATE"));
+    const order=calls.findIndex(([sql])=>sql.includes("FROM vehiclemaintenance") && sql.includes("FOR UPDATE"));
+    expect(plan).toBeGreaterThan(-1); expect(plan).toBeLessThan(order); expect(calls[plan][1]).toEqual([3]);
+  });
   it.each(["schedule", "status"])("rolls completion back when %s fails", async (failure) => {
     h.fail = failure;
     expect((await put({ status: "Completed" })).status).toBe(500);

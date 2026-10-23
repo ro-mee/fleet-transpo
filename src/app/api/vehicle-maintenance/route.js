@@ -1,3 +1,4 @@
+import { isReviewedPlanRequest, reviewPlanWorkOrder } from "@/services/maintenance-plan-workorders.service";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
@@ -63,7 +64,7 @@ const MT_LIST_SELECT = `
   vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
   vm.completed_date, vm.status, vm.priority, vm.cost,
   vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
-  vm.source_incident_id, vm.source_inspection_id, vm.assigned_mechanic_id,
+  vm.source_incident_id, vm.source_inspection_id, vm.assigned_mechanic_id, vm.service_plan_id, vm.service_plan_version,
   vm.assigned_at, vm.repair_started_at, vm.repair_completed_at, vm.repair_completed_by,
   NULLIF(trim(concat_ws(' ', repairer.first_name, repairer.last_name)), '') AS repair_completed_by_name,
   vm.diagnosis, vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
@@ -340,11 +341,19 @@ export async function POST(req) {
     const insertSql = assigningMechanic
       ? `INSERT INTO vehiclemaintenance (${columns.join(", ")}, assigned_at) VALUES (${placeholders}, CURRENT_TIMESTAMP) RETURNING *`
       : `INSERT INTO vehiclemaintenance (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`;
-    const row = await withTransaction(async (tx) => {
-      await tx.query(
+    const result = await withTransaction(async (tx) => {
+      const review = isReviewedPlanRequest(body) ? await reviewPlanWorkOrder(tx, session.user, body) : null;
+      if (review?.existing) return { row: review.existing, created: false };
+      if (!review) await tx.query(
         "SELECT vehicle_id FROM vehicles WHERE vehicle_id = $1 FOR UPDATE", [Number(body.vehicle_id)]
       );
-      const { rows } = await tx.query(insertSql, values);
+      const linkedColumns = review ? [...columns, "service_plan_id", "service_plan_version"] : columns;
+      const linkedValues = review ? [...values, review.plan.plan_id, review.plan.version] : values;
+      if (review) linkedValues[columns.indexOf("maintenance_type")] = review.plan.service_code === "routine" ? "Routine" : "Preventive";
+      const linkedSql = review
+        ? `INSERT INTO vehiclemaintenance (${linkedColumns.join(", ")}${assigningMechanic ? ", assigned_at" : ""}) VALUES (${linkedValues.map((_,i) => `$${i+1}`).join(", ")}${assigningMechanic ? ", CURRENT_TIMESTAMP" : ""}) RETURNING *`
+        : insertSql;
+      const { rows } = await tx.query(linkedSql, linkedValues);
       if (rows[0]?.vehicle_id) await syncVehicleStatus(rows[0].vehicle_id, tx);
       await writeAuditRequired(tx, req, session, {
         action: "maintenance_created",
@@ -353,14 +362,16 @@ export async function POST(req) {
         newValues: {
           vehicle_id: rows[0]?.vehicle_id,
           status: rows[0]?.status,
-          changed_fields: columns,
+          changed_fields: linkedColumns,
+          ...(review ? { service_plan_id: review.plan.plan_id, service_plan_version: review.plan.version, service_code: review.plan.service_code } : {}),
           source_incident_id: rows[0]?.source_incident_id,
           ...(assigningMechanic ? { assigned_mechanic_id: rows[0]?.assigned_mechanic_id } : {}),
         },
       });
-      return rows[0];
+      return { row: rows[0], created: true, reviewedService: review?.reviewedService ?? null };
     });
-    if (assigningMechanic && row?.maintenance_id) {
+    const { row, created } = result;
+    if (created && assigningMechanic && row?.maintenance_id) {
       try {
         const plate = (await query("SELECT plate_number FROM vehicles WHERE vehicle_id = $1", [row.vehicle_id])).rows[0]?.plate_number ?? null;
         // One ping, not two: an urgent assignment pages as the Alert only —
@@ -402,6 +413,6 @@ export async function POST(req) {
         });
       }
     }
-    return ok(row, 201);
+    return ok(row, created ? 201 : 200);
   } catch (e) { return handleError(e); }
 }

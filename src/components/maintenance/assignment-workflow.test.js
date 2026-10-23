@@ -137,3 +137,10 @@ it("preserves the existing assignment when directory loading fails", async () =>
   await save(form(assigned));
   expect(apiFetch.mock.calls.at(-1)[1].body).not.toHaveProperty("assigned_mechanic_id");
 });
+
+it("submits the reviewed task identity and version from the existing scheduling form", async () => {
+ const draft={vehicle_id:12,service_plan_id:4,expected_version:2,service_code:"brakes",maintenance_type:"Preventive"};
+ await save(form(draft));
+ expect(apiFetch.mock.calls.at(-1)[1].body).toMatchObject({vehicle_id:12,service_plan_id:4,expected_version:2});
+ expect(find(form(draft),node=>node?.type==="select" && node.props.name==="vehicle_id").props.disabled).toBe(true);
+});

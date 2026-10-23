@@ -102,7 +102,9 @@ export default function FleetMaintenancePage() {
             data={predictiveData} 
             isLoading={isPredictiveLoading} 
             onScheduleService={(vehicle) => {
-              setSelectedRecord({ vehicle_id: vehicle.vehicle_id, maintenance_type: "Routine", status: "Scheduled" });
+              const service = vehicle.services?.find(task => task.plan_id === vehicle.primary_service_plan_id);
+              setSelectedRecord({ vehicle_id: vehicle.vehicle_id, maintenance_type: service && service.service_code !== "routine" ? "Preventive" : "Routine", status: "Scheduled",
+                ...(service ? {service_plan_id: service.plan_id, expected_version: service.version, service_code: service.service_code} : {}) });
               setIsFormOpen(true);
             }} 
           />

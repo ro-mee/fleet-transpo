@@ -67,3 +67,8 @@ export async function getVehicleHistory(vehicleId) {
 export async function getPredictiveMaintenance() {
   return apiFetch(`/api/ai/predictive-maintenance`);
 }
+
+export async function createReviewedPlanWorkOrder(vehicleId, service, data) {
+  return createMaintenanceRecord({ ...data, vehicle_id: vehicleId, service_plan_id: service.plan_id,
+    expected_version: service.version, maintenance_type: service.service_code === "routine" ? "Routine" : "Preventive" });
+}

@@ -24,7 +24,10 @@ vi.mock("@/lib/api/utils", () => ({
   errValidation: (errors) => Response.json({ errors }, { status: 400 }),
   handleError: (e) => Response.json({ error: e.message }, { status: 500 }),
 }));
-vi.mock("@/lib/audit", () => ({ writeAuditRequired: async (tx, _req, _session, entry) => tx.query("INSERT INTO audit_logs(action) VALUES ($1)", [entry.action]) }));
+vi.mock("@/lib/audit", () => ({ writeAuditRequired: async (tx, _req, _session, entry) => {
+  if (h.fail === "audit") throw new Error("Fixture audit failure");
+  return tx.query("INSERT INTO audit_logs(action) VALUES ($1)", [entry.action]);
+} }));
 vi.mock("@/lib/maintenance/notifications", () => ({ fanoutMaintenanceNotification: vi.fn() }));
 import { PUT } from "./[id]/route";
 import { POST } from "./route";
@@ -47,7 +50,7 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
       CREATE TEMP TABLE vehiclemaintenance(maintenance_id int PRIMARY KEY DEFAULT 124, vehicle_id int, status text, maintenance_type text, maintenance_date date,
         completed_date date, mileage_at_service numeric, deleted_at timestamptz, created_by int, repair_completed_by int, assigned_mechanic_id int,
         repair_started_at timestamptz, repair_completed_at timestamptz, priority text, manager_approved_by int, manager_approved_at timestamptz,
-        completed_by int, completed_at timestamptz, remarks text) ON COMMIT DROP;
+        completed_by int, completed_at timestamptz, remarks text, service_plan_id int,service_plan_version int,rejection_reason text, assigned_at timestamptz) ON COMMIT DROP;
       CREATE TEMP TABLE driverincidents(incident_id int, vehicle_id int, severity text, status text, deleted_at timestamptz) ON COMMIT DROP;
       CREATE TEMP TABLE trips(trip_id int, vehicle_id int, trip_status text, deleted_at timestamptz) ON COMMIT DROP;
       CREATE TEMP TABLE audit_logs(action text) ON COMMIT DROP;`);
@@ -63,6 +66,37 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
   });
   afterAll(async () => { try { await h.client?.query("ROLLBACK"); } finally { await h.client?.end(); } });
   const vehicle = async (id = 7) => (await h.client.query("SELECT vehicle_status,last_service_date::text,next_service_date::text,next_service_mileage FROM vehicles WHERE vehicle_id=$1", [id])).rows[0];
+  it("completes only the linked brake task, audits its cycle, and freezes completion retries", async () => {
+    await h.client.query(`INSERT INTO vehicle_service_plans(plan_id,vehicle_id,service_code,interval_days,version) VALUES(2,7,'brakes',90,1);
+      UPDATE vehiclemaintenance SET service_plan_id=2,service_plan_version=1`);
+    expect((await put({status:"Completed",completed_date:"2026-10-01"})).status).toBe(200);
+    expect((await h.client.query("SELECT service_code,version,last_service_date::text FROM vehicle_service_plans ORDER BY plan_id")).rows).toEqual([
+      {service_code:"routine",version:1,last_service_date:null},{service_code:"brakes",version:2,last_service_date:"2026-10-01"}]);
+    expect((await vehicle()).next_service_date).toBeNull();
+    expect((await h.client.query("SELECT action FROM audit_logs ORDER BY action")).rows).toEqual([{action:"maintenance_completed"},{action:"service_plan_completed"}]);
+    expect((await put({status:"Completed"})).status).toBe(409);
+  });
+  it("rolls a changed linked cycle back and permits retry when the reviewed version is restored", async () => {
+    await h.client.query("UPDATE vehiclemaintenance SET service_plan_id=1,service_plan_version=2");
+    expect((await put({status:"Completed"})).status).toBe(500);
+    expect((await h.client.query("SELECT status FROM vehiclemaintenance")).rows[0].status).toBe("Scheduled");
+    await h.client.query("UPDATE vehiclemaintenance SET service_plan_version=1");
+    expect((await put({status:"Completed"})).status).toBe(200);
+  });
+  it("rolls linked completion, plan version and routine mirror back if required audit fails", async () => {
+    await h.client.query("UPDATE vehiclemaintenance SET service_plan_id=1,service_plan_version=1"); h.fail="audit";
+    expect((await put({status:"Completed"})).status).toBe(500);
+    expect((await h.client.query("SELECT version,last_service_date FROM vehicle_service_plans")).rows[0]).toEqual({version:1,last_service_date:null});
+    expect((await h.client.query("SELECT status FROM vehiclemaintenance")).rows[0].status).toBe("Scheduled");
+    expect((await vehicle()).next_service_date).toBeNull();
+  });
+  it("does not advance a linked plan on rejection, cancellation or archive", async () => {
+    await h.client.query("UPDATE vehiclemaintenance SET service_plan_id=1,service_plan_version=1,status='Pending Inspection'");
+    expect((await put({status:"In Progress",rejection_reason:"Needs rework"})).status).toBe(200);
+    expect((await h.client.query("SELECT version FROM vehicle_service_plans")).rows[0].version).toBe(1);
+    expect((await put({deleted_at:"2026-10-24"})).status).toBe(200);
+    expect((await h.client.query("SELECT version FROM vehicle_service_plans")).rows[0].version).toBe(1);
+  });
   it("commits Routine completion, actual service date, odometer baseline, status and audit together", async () => {
     const response = await put({ status: "Completed", completed_date: "2026-10-01" }); expect(response.status).toBe(200);
     expect(await vehicle()).toEqual({ vehicle_status: "Available", last_service_date: "2026-10-01", next_service_date: "2026-10-31", next_service_mileage: "25000" });

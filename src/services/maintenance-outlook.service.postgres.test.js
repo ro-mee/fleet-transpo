@@ -3,11 +3,13 @@ import pg from "pg";
 import { loadEnvLocal } from "../../scripts/load-env.mjs";
 const state = vi.hoisted(() => ({ client: null, user: { role: "fleet_manager", employeeId: 9 } }));
 vi.mock("@/lib/db", () => ({ query: (...args) => state.client.query(...args) }));
-vi.mock("@/lib/api/utils", () => ({
+vi.mock("@/lib/api/utils", async importOriginal => ({
+  ...await importOriginal(),
   requirePermission: vi.fn(async () => ({ user: state.user })),
   ok: data => Response.json({ data }),
   handleError: error => { throw error; },
 }));
+import { reviewPlanWorkOrder } from "./maintenance-plan-workorders.service";
 import { GET } from "../app/api/ai/predictive-maintenance/route";
 let client;
 const predictions = async () => (await (await GET(new Request("http://localhost/api/ai/predictive-maintenance"))).json()).data;
@@ -17,13 +19,19 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance ou
     client = new pg.Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 5000 });
     await client.connect(); state.client = client;
     await client.query("BEGIN; SET LOCAL search_path TO pg_temp,pg_catalog; SET LOCAL statement_timeout='8s'");
-    await client.query(`CREATE TEMP TABLE vehicles(vehicle_id int,plate_number text,vehicle_name text,mileage numeric,next_service_date date,next_service_mileage numeric,last_service_date date,deleted_at timestamptz,vehicle_status text,updated_at timestamptz);
+    await client.query(`CREATE TEMP TABLE vehicles(vehicle_id int PRIMARY KEY,plate_number text,vehicle_name text,mileage numeric,next_service_date date,next_service_mileage numeric,last_service_date date,deleted_at timestamptz,vehicle_status text,updated_at timestamptz);
       CREATE TEMP TABLE trips(trip_id int,vehicle_id int,trip_status text,deleted_at timestamptz,start_time timestamptz,end_time timestamptz,start_odometer numeric,end_odometer numeric,distance numeric,actual_distance_km numeric,distance_provenance text);
-      CREATE TEMP TABLE vehiclemaintenance(maintenance_id int,vehicle_id int,assigned_mechanic_id int,deleted_at timestamptz,status text,maintenance_type text,maintenance_date date);
-      CREATE TEMP TABLE vehicle_service_plans(plan_id int,vehicle_id int,service_code text,next_service_date date,next_service_mileage numeric,last_service_date date,last_service_mileage numeric,interval_days int,interval_km numeric,version int,deferred_until date,deferral_reason text);
+      CREATE TEMP TABLE vehiclemaintenance(maintenance_id int,vehicle_id int,assigned_mechanic_id int,deleted_at timestamptz,status text,maintenance_type text,maintenance_date date,service_plan_id int,service_plan_version int,CHECK ((service_plan_id IS NULL) = (service_plan_version IS NULL)));
+      CREATE TEMP TABLE vehicle_service_plans(plan_id int PRIMARY KEY,vehicle_id int,service_code text,next_service_date date,next_service_mileage numeric,last_service_date date,last_service_mileage numeric,interval_days int,interval_km numeric,version int,deferred_until date,defer_reason text,UNIQUE(plan_id,vehicle_id));
       CREATE TEMP TABLE vehicle_odometer_observations(vehicle_id int,reading_km numeric,observed_at timestamptz,recorded_at timestamptz);
       CREATE TEMP TABLE trip_odometer_captures(trip_id int,vehicle_id int,stage text,state text,reading_km numeric,committed_at timestamptz);
+      ALTER TABLE vehiclemaintenance ADD FOREIGN KEY(service_plan_id,vehicle_id) REFERENCES vehicle_service_plans(plan_id,vehicle_id);
       SAVEPOINT fixture`);
+    const indexes=(await client.query(`SELECT pg_get_expr(i.indpred,i.indrelid) AS predicate FROM pg_index i
+      WHERE i.indrelid='public.vehiclemaintenance'::regclass AND i.indisunique AND pg_get_indexdef(i.indexrelid) LIKE '%(service_plan_id)%'`)).rows;
+    expect(indexes).toHaveLength(1);
+    await client.query(`CREATE UNIQUE INDEX fixture_active_service_plan ON vehiclemaintenance(service_plan_id) WHERE ${indexes[0].predicate}`);
+    await client.query("RELEASE SAVEPOINT fixture; SAVEPOINT fixture");
   });
   afterAll(async () => { try { await client?.query("ROLLBACK"); } finally { await client?.end(); } });
   beforeEach(async () => {
@@ -41,6 +49,44 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance ou
       state.user = { role: "mechanic", employeeId: -1 };
       expect((await predictions()).predictions).toEqual([]);
     } finally { await client.query("SET LOCAL search_path TO pg_temp,pg_catalog"); }
+  });
+  it("uses real review SQL, current server evidence, same-vehicle FK and live active-index predicate", async () => {
+    const commands=[];
+    const tx={query:(sql,values)=>{commands.push(sql);return client.query(sql,values);}};
+    const request={vehicle_id:7,service_plan_id:10,expected_version:1,forecast:{risk:"made up"}};
+    const review=await reviewPlanWorkOrder(tx,state.user,request);
+    expect(review.plan.plan_id).toBe(10); expect(review.existing).toBeNull();
+    expect(review.reviewedService).toMatchObject({vehicle_id:7,plan_id:10,version:1});
+    expect(review.reviewedService.risk).not.toBe("made up");
+    const locks=commands.filter(sql=>sql.includes("FOR UPDATE"));
+    expect(locks[0]).toContain("FROM vehicles"); expect(locks[1]).toContain("FROM vehicle_service_plans"); expect(locks[2]).toContain("FROM vehiclemaintenance");
+    await client.query("INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,service_plan_id,service_plan_version,status) VALUES(55,7,10,1,'Scheduled')");
+    expect((await reviewPlanWorkOrder(tx,state.user,request)).existing.maintenance_id).toBe(55);
+    await client.query("SAVEPOINT invalid");
+    await expect(client.query("INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,service_plan_id,service_plan_version,status) VALUES(56,7,10,1,'In Progress')")).rejects.toMatchObject({code:"23505"});
+    await client.query("ROLLBACK TO SAVEPOINT invalid");
+    await expect(client.query("INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,service_plan_id,service_plan_version,status) VALUES(56,8,10,1,'Completed')")).rejects.toMatchObject({code:"23503"});
+    await client.query("ROLLBACK TO SAVEPOINT invalid");
+    await expect(reviewPlanWorkOrder(tx,state.user,{...request,expected_version:2})).rejects.toMatchObject({status:409});
+    await client.query("UPDATE vehiclemaintenance SET status='Cancelled'");
+    expect((await reviewPlanWorkOrder(tx,state.user,request)).existing).toBeNull();
+  });
+  it("links only the current active order while retaining factual overdue and deferral", async () => {
+    await client.query(`UPDATE vehicle_service_plans SET next_service_date=CURRENT_DATE-5,deferred_until=CURRENT_DATE+10,defer_reason='Awaiting parts';
+      INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,service_plan_id,service_plan_version,status,maintenance_date) VALUES(55,7,10,1,'Scheduled',CURRENT_DATE+1)`);
+    const service=(await predictions()).predictions.find(p => p.vehicle_id===7).services[0];
+    expect(service.active_work_order).toMatchObject({maintenance_id:55,status:"Scheduled",service_plan_version:1});
+    expect(service.serviceStatus).toBe("overdue"); expect(service.deferral_reason).toBe("Awaiting parts");
+    await client.query("UPDATE vehiclemaintenance SET status='Completed'");
+    expect((await predictions()).predictions.find(p => p.vehicle_id===7).services[0].active_work_order).toBeNull();
+  });
+  it("identifies the summarized task and hides another mechanic's active-order link", async () => {
+    await client.query(`UPDATE vehicle_service_plans SET next_service_date=CURRENT_DATE-5;
+      INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,assigned_mechanic_id,status,service_plan_id,service_plan_version) VALUES(1,7,99,'Scheduled',10,1),(2,7,9,'Completed',NULL,NULL)`);
+    let p=(await predictions()).predictions.find(p=>p.vehicle_id===7);
+    expect(p.primary_service_plan_id).toBe(10);
+    state.user={role:"mechanic",employeeId:9}; p=(await predictions()).predictions[0];
+    expect(p.services[0].active_work_order).toBeNull();
   });
   it("excludes unproven/estimated-only distance and reports incomplete coverage", async () => {
     await client.query(`INSERT INTO trips(trip_id,vehicle_id,trip_status,start_time,end_time,distance,actual_distance_km,distance_provenance)

@@ -357,14 +357,15 @@ export function predictVehicle(row = {}, now = new Date()) {
     last_service_mileage: numOrNull(plan.last_service_mileage),
     schedule_mode: plan.interval_days == null && plan.interval_km == null ? "manual" : "interval",
     deferred_until: toCalendarDay(plan.deferred_until),
-    deferral_reason: plan.deferral_reason ?? null,
+    deferral_reason: plan.defer_reason ?? plan.deferral_reason ?? null,
+    active_work_order: plan.active_work_order ?? null,
     evidence,
   }));
   const primary = [...services].sort(compareUrgency)[0]
     ?? predictThreshold({ ...row, next_service_date: null, next_service_mileage: null, last_service_date: null }, now);
   // Keep the vehicle summary fields stable; plan identity lives in services[].
   const summary = predictThreshold({ ...row, next_service_date: primary.next_service_date, next_service_mileage: primary.next_service_mileage, last_service_date: primary.last_service_date }, now);
-  return { ...summary, services, evidence, dataIssues: [...new Set([...summary.dataIssues, ...services.flatMap(service => service.dataIssues)])] };
+  return { ...summary, primary_service_plan_id: primary.plan_id ?? null, services, evidence, dataIssues: [...new Set([...summary.dataIssues, ...services.flatMap(service => service.dataIssues)])] };
 }
 
 function compareUrgency(a, b) {

@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { MechanicAssignmentField } from "@/components/maintenance/mechanic-assignment-field";
-import { createMaintenanceRecord, updateMaintenanceRecord, getMechanics } from "@/services/maintenance.service";
+import { createMaintenanceRecord, createReviewedPlanWorkOrder, updateMaintenanceRecord, getMechanics } from "@/services/maintenance.service";
 import { getVehicles } from "@/services/vehicle.service";
 import { useAuth } from "@/hooks/use-auth";
 import { normalizeMaintenanceMileage, normalizeVehicleId, selectMaintenanceVehicle } from "@/lib/maintenance/vehicle-selection";
@@ -90,7 +90,10 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
         await updateMaintenanceRecord(initialData.maintenance_id, payload);
         toast.success("Maintenance updated successfully");
       } else {
-        await createMaintenanceRecord(payload);
+        if (initialData?.service_plan_id) {
+          await createReviewedPlanWorkOrder(initialData.vehicle_id, { plan_id: initialData.service_plan_id, version: initialData.expected_version,
+            service_code: initialData.service_code }, payload);
+        } else await createMaintenanceRecord(payload);
         toast.success("Maintenance scheduled successfully");
       }
       queryClient.invalidateQueries(["maintenance-records"]);
@@ -121,12 +124,12 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
           <DialogHeader>
             <DialogTitle>{isEditing ? (formData.status === 'Completed' ? 'View/Edit Record' : 'Resolve Maintenance') : 'Schedule Maintenance'}</DialogTitle>
             <DialogDescription>
-              {isEditing ? "Update details or complete this maintenance record." : "Create a new maintenance record for a vehicle."}
+              {isEditing ? "Update details or complete this maintenance record." : initialData?.service_code ? `Review ${initialData.service_code} service for this vehicle.` : "Create a new maintenance record for a vehicle."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <Field label="Vehicle">
-              <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Vehicle" name="vehicle_id" value={formData.vehicle_id} onChange={handleChange} required disabled={isEditing}>
+              <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Vehicle" name="vehicle_id" value={formData.vehicle_id} onChange={handleChange} required disabled={isEditing || !!initialData?.service_plan_id}>
                 <option value="">Select a vehicle...</option>
                 {vehicles.map(v => (
                   <option key={v.vehicle_id} value={String(v.vehicle_id)}>{v.plate_number} - {v.vehicle_name}</option>
@@ -136,7 +139,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
 
             <div className="grid grid-cols-2 gap-4">
               <Field label="Type">
-                <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Maintenance type" name="maintenance_type" value={formData.maintenance_type} onChange={handleChange} required>
+                <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Maintenance type" name="maintenance_type" value={formData.maintenance_type} onChange={handleChange} required disabled={!!initialData?.service_plan_id}>
                   <option value="Routine">Routine</option>
                   <option value="Corrective">Corrective</option>
                   <option value="Preventive">Preventive</option>

@@ -1,3 +1,4 @@
+import { lockMaintenanceWorkOrder, assertWorkOrderPlanUnchanged } from "@/services/maintenance-plan-workorders.service";
 import { fanoutMaintenanceNotification } from "@/lib/maintenance/notifications";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
@@ -100,7 +101,7 @@ export async function GET(req, { params }) {
       `SELECT vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
          vm.completed_date, vm.status, vm.priority, vm.cost,
          vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
-         vm.source_incident_id, vm.source_inspection_id,
+         vm.source_incident_id, vm.source_inspection_id, vm.service_plan_id, vm.service_plan_version,
          vm.assigned_mechanic_id, vm.assigned_at, vm.repair_started_at,
          vm.repair_completed_at, vm.repair_completed_by, vm.diagnosis,
          vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
@@ -154,12 +155,8 @@ export async function PUT(req, { params }) {
     }
 
     const updateResult = await withTransaction(async (tx) => {
-      // Lock the active row so concurrent reviews cannot both pass the state
-      // guards and commit conflicting maintenance transitions.
-      const beforeRow = (await tx.query(
-        `SELECT status, created_by, repair_completed_by, assigned_mechanic_id, repair_started_at, priority, vehicle_id, maintenance_date FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [id]
-      )).rows[0];
+      const mechanicActor = normalizeRoleName(session.user.role) === "mechanic";
+      const { beforeRow, vehicleIds } = await lockMaintenanceWorkOrder(tx, id, mechanicActor ? null : body.vehicle_id, body.status === "Completed", mechanicActor ? null : body.maintenance_type);
       if (!beforeRow) return { error: err("Maintenance record not found", 404) };
 
       const isMechanic = normalizeRoleName(session.user.role) === "mechanic";
@@ -178,6 +175,8 @@ export async function PUT(req, { params }) {
           if (!MECHANIC_WRITABLE.has(key)) delete body[key];
         }
       }
+
+      assertWorkOrderPlanUnchanged(beforeRow, body);
 
       // Empty actual dates are server-stamped on approval, never copied from
       // the planned date or an earlier prefilled completion field.
@@ -295,13 +294,6 @@ export async function PUT(req, { params }) {
         }
       }
 
-      // Lock both sides before changing work or reading remaining active work.
-      const vehicleIds = [...new Set([beforeRow.vehicle_id, body.vehicle_id ?? beforeRow.vehicle_id]
-        .filter((value) => value != null).map(Number))].sort((a, b) => a - b);
-      if (vehicleIds.length) await tx.query(
-        "SELECT vehicle_id FROM vehicles WHERE vehicle_id = ANY($1::int[]) ORDER BY vehicle_id FOR UPDATE",
-        [vehicleIds]
-      );
       if (isTransitioningToCompleted && !body.completed_date) {
         sets.push("completed_date = (NOW() AT TIME ZONE 'Asia/Manila')::date");
       }
@@ -316,7 +308,11 @@ export async function PUT(req, { params }) {
       if (!rows[0]) return { error: err("Maintenance record not found", 404) };
       for (const vehicleId of vehicleIds) await syncVehicleStatus(vehicleId, tx);
       if (isTransitioningToCompleted && !rows[0].deleted_at) {
-        await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0], tx);
+        const cycle = await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0], tx);
+        if (rows[0].service_plan_id && cycle) await writeAuditRequired(tx, req, session, {
+          action: "service_plan_completed", resource: "vehicle_service_plans", resourceId: cycle.plan.plan_id,
+          oldValues: cycle.before, newValues: { ...cycle.plan, maintenance_id: rows[0].maintenance_id },
+        });
       }
       const action = rows[0].deleted_at
         ? "maintenance_archived"
@@ -328,7 +324,7 @@ export async function PUT(req, { params }) {
         resource: "vehiclemaintenance",
         resourceId: rows[0].maintenance_id,
         oldValues: { status: beforeStatus },
-        newValues: { changed_fields: [...seen], status: rows[0].status, source_incident_id: rows[0].source_incident_id },
+        newValues: { service_plan_id: rows[0].service_plan_id, service_plan_version: rows[0].service_plan_version, changed_fields: [...seen], status: rows[0].status, source_incident_id: rows[0].source_incident_id },
       });
       return { row: rows[0], beforeStatus, beforeAssignee: beforeRow.assigned_mechanic_id ?? null, beforePriority: beforeRow.priority ?? null, beforeVehicleId: beforeRow.vehicle_id, beforeMaintenanceDate: beforeRow.maintenance_date };
     });

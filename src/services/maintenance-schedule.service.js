@@ -80,5 +80,5 @@ export async function recomputeVehicleSchedule(vehicleId, maintenanceRow = {}, e
  next_service_date=GREATEST(next_service_date,$3::date), next_service_mileage=GREATEST(next_service_mileage,$4::numeric),
  deferred_until=NULL,defer_reason=NULL,version=version+1,updated_at=NOW(),updated_by=$5
  WHERE plan_id=$6 RETURNING *`,[derived.last_service_date,maintenanceRow.mileage_at_service ?? null,derived.next_service_date,derived.next_service_mileage,maintenanceRow.completed_by ?? null,plan.plan_id]);
- if (after[0]) await syncRoutineLegacy(executor,after[0]);
+ if (after[0]) { await syncRoutineLegacy(executor,after[0]); return { before: plan, plan: after[0] }; }
 }

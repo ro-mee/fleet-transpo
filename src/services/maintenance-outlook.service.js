@@ -37,8 +37,15 @@ WITH recent_trips AS (
    AND maintenance_date > ($2::timestamptz AT TIME ZONE 'Asia/Manila')::date - 365
  GROUP BY vehicle_id
 ), plans AS (
- SELECT vehicle_id,jsonb_agg(to_jsonb(p) ORDER BY service_code) AS service_plans
- FROM vehicle_service_plans p GROUP BY vehicle_id
+ SELECT p.vehicle_id,jsonb_agg(to_jsonb(p) || jsonb_build_object('active_work_order',active.work_order) ORDER BY service_code) AS service_plans
+ FROM vehicle_service_plans p
+ LEFT JOIN LATERAL (
+   SELECT jsonb_build_object('maintenance_id',vm.maintenance_id,'status',vm.status,'maintenance_date',vm.maintenance_date,
+     'assigned_mechanic_id',vm.assigned_mechanic_id,'service_plan_version',vm.service_plan_version) AS work_order
+   FROM vehiclemaintenance vm WHERE vm.service_plan_id=p.plan_id AND vm.vehicle_id=p.vehicle_id
+     AND vm.deleted_at IS NULL AND vm.status IN ('Scheduled','In Progress','Pending Inspection')
+     AND ($3::int IS NULL OR vm.assigned_mechanic_id=$3::int) LIMIT 1
+ ) active ON true GROUP BY p.vehicle_id
 )
 SELECT v.vehicle_id,v.plate_number,v.vehicle_name,v.mileage,
        v.next_service_date,v.next_service_mileage,v.last_service_date,
@@ -75,8 +82,7 @@ export async function getMaintenanceOutlook(user, now = new Date(), executor = {
   const mechanic = normalizeRoleName(user?.role) === "mechanic";
   const sql = mechanic ? `${FLEET_SQL}
    AND EXISTS(SELECT 1 FROM vehiclemaintenance vm WHERE vm.vehicle_id=v.vehicle_id AND vm.assigned_mechanic_id=$3 AND vm.deleted_at IS NULL)` : FLEET_SQL;
-  const values = [String(USAGE_WINDOW_DAYS), now];
-  if (mechanic) values.push(user.employeeId);
+  const values = [String(USAGE_WINDOW_DAYS), now, mechanic ? user.employeeId : null];
   const { rows } = await executor.query(sql, values);
   return predictFleet(rows, now);
 }

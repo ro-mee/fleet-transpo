@@ -367,6 +367,7 @@ describe("predictVehicle", () => {
         "next_service_date",
         "next_service_mileage",
         "plate_number",
+        "primary_service_plan_id",
         "projectedDaysToService",
         "recommendation",
         "risk",
