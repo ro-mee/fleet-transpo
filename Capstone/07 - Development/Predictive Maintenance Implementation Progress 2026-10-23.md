@@ -20,7 +20,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 1: COMPLETE, commits 13d4754a and a91a6c08; independent scoped re-review approved, 94 focused tests passed.
 - Task 2: COMPLETE, commits f4b9e023 and 558fb2b3; independent review approved after one fix round.
 - Task 3: COMPLETE, commits 132d90ba and 55d9eed9; independent review approved after one fix round.
-- Task 4: pending.
+- Task 4: COMPLETE, commit d1d80c62; independent spec and quality review passed with zero findings.
 - Task 5: pending.
 - Task 6: pending.
 - Task 7: pending.
@@ -61,3 +61,11 @@ Independent review found an integer/decimal compatibility bug in Routine's legac
 The implementer stopped at 5% remaining; the parent check then reported 100% used. Automatic approval review could not execute the progress checkpoint, so it was not written or committed at that time. The code commits, documentation and Task 3 report were already saved. The previous reset (1792796795, 2026-10-24 07:06:35 Manila) has passed. At 07:12 Manila usage reports 98% remaining, with next reset 1792815159. This entry reconciles that interrupted checkpoint. The user confirmed the original .env.local path, matching the restored configuration.
 
 Next unfinished task: Task 4 measured usage and task-level forecast evidence. Do not repeat Tasks 1-3 or reapply/edit migrations 167/168. The continuation schedule stays active. No merge, push or deployment.
+
+## Task 4 completed and reviewed - 2026-10-24
+
+Commit d1d80c62 adds measured-distance selection, per-service outlooks and attributable odometer evidence while retaining vehicle-level compatibility. A mileage rate needs five qualifying trips, complete measured coverage and at least seven observed calendar days (including idle days); partial distance is not imputed. Date-only and observed due facts still work without a rate. Missing reading time remains unknown, including legacy default-zero readings. The confidence field is explicitly evidence sufficiency, not a probability.
+
+Final verification: 127 tests across seven files passed, including eight PostgreSQL/live read cases; strict touched lint, encoding and whitespace checks passed. Independent review passed spec and quality with zero findings. Maintenance.md and SYSTEM.md are updated. No migration or operating-data writes were required. Browser/build/full-suite checks remain later tasks.
+
+Task 5 can call getMaintenanceOutlook(user, now, transactionExecutor) after its required locks, then locate vehicle_id and services[].plan_id/version/service_code for authoritative evidence. See task-4-report.md. Read-only UI preparation is saved at task-7-ui-scout.md for Task 7; it is not visual acceptance or implementation. Next Task 5. Allowance44% remaining at boundary; reset1792815159.

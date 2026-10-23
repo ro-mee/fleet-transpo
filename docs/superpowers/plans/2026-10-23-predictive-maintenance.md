@@ -99,14 +99,16 @@ expect(validateIntervals({ interval_days: null, interval_km: -1 }).ok).toBe(fals
 **Consumes:** Task 1 status semantics; Task 3 service plans; existing trips.actual_distance_km/distance_provenance and odometer evidence.
 **Produces:** prediction.services[] per plan, dataIssues, evidence with valid/total sample counts, observation period, latest attributable reading time and usage rate; preserves existing vehicle-level summary contract.
 
-- [ ] Test that five completed trips with one measured distance are not high quality, estimated-only distance is excluded, invalid/negative readings are excluded, absent odometer timestamps stay unknown, and date-only schedules still work.
+- [x] Test that five completed trips with one measured distance are not high quality, estimated-only distance is excluded, invalid/negative readings are excluded, absent odometer timestamps stay unknown, and date-only schedules still work.
 ```js
 expect(computeUsageRate({ km_90d: 500, trip_count: 5, valid_trip_count: 1 }).confidence).toBe("low");
 ```
-- [ ] Build measured-distance selection using the repository's existing provenance meanings, counting only qualifying samples. Explain a documented evidence-quality rule instead of presenting it as calibrated probability.
-- [ ] Compute task outlooks with the shared pure engine; aggregate vehicle urgency from the most urgent known task while retaining missing-data tasks.
-- [ ] Use actual verified reading timestamps where available; never use vehicle.updated_at as proof of an odometer observation.
-- [ ] Verify API/mechanic/advisory compatibility, document, review and commit: feat: explain service forecasts with measured evidence.
+- [x] Build measured-distance selection using the repository's existing provenance meanings, counting only qualifying samples. Explain a documented evidence-quality rule instead of presenting it as calibrated probability.
+- [x] Compute task outlooks with the shared pure engine; aggregate vehicle urgency from the most urgent known task while retaining missing-data tasks.
+- [x] Use actual verified reading timestamps where available; never use vehicle.updated_at as proof of an odometer observation.
+- [x] Verify API/mechanic/advisory compatibility, document, review and commit: feat: explain service forecasts with measured evidence.
+
+- [x] Align total/qualifying trip counts with the observation period. Incomplete measured coverage must be reported and must not turn a partial-distance sum into a confident full-usage rate or late service forecast; test five qualifying trips among many excluded trips. Do not impute missing distance.
 
 ### Task 5: Link service forecasts to existing work orders
 
