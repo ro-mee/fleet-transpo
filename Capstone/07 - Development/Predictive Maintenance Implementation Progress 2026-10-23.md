@@ -17,7 +17,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 ## Task status
 
 - Setup: baseline verified, plan ready.
-- Task 1: implemented in 13d4754a, review correction a91a6c08; scoped re-review verdict must be checked before marking complete.
+- Task 1: COMPLETE, commits 13d4754a and a91a6c08; independent scoped re-review approved, 94 focused tests passed.
 - Task 2: pending.
 - Task 3: pending.
 - Task 4: pending.
@@ -35,3 +35,7 @@ Independent schema review clarified staff-only configuration, dated manual odome
 ## Usage cutoff checkpoint - 2026-10-24
 
 Five-hour usage reached 96% used (4% remaining). Reset timestamp: 1792789593, October 24 at 05:06:33 Asia/Manila. Stop new implementation until reset. Task 1 has commits 13d4754a and a91a6c08; 94 focused tests, touched lint, encoding and diff checks passed. The independent reviewer requested removal of service-overdue grounding advice; the correction is committed with two red-to-green assertions. Check task-1-report.md and the maintenance_task1/task1 review agents for the scoped re-review verdict before marking Task 1 complete. Next: finish that gate, then Task 2. No Task 2+ code has been implemented. Database configuration remains missing and the local path question is pending. Automation stays active with both usage and configuration guards.
+
+## Resume - configuration restored
+
+The original .env.local is now present and securely copied into the ignored worktree .env.local. No credentials were printed or committed. Fresh db:status: 166 applied, zero pending, zero changed; only historic ledger keys 113/114/115 absent on disk. Task 1 scoped re-review is approved with no Important/Critical findings. Next: Task 2 transactional qualifying completion. Usage service reports 98% available; active continuation remains enabled.

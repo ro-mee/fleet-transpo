@@ -32,7 +32,7 @@
 - [x] Existing focused baseline: 4 files, 82 tests passed.
 - [x] Primary checkout db:status: 166 applied, 0 pending, 0 changed. Recheck before choosing a new migration number.
 - [x] Created a 30-minute continuation heartbeat for this chat.
-- [ ] Commit this plan and the accepted assessment in the isolated worktree.
+- [x] Commit this plan and the accepted assessment in the isolated worktree (0c2f7f46).
 
 ### Task 1: Correct observed due status and unknown readings
 
@@ -40,17 +40,17 @@
 **Consumes:** existing predictVehicle(row, now), resolveDueDate({vehicle, usage, now}), predictFleet(rows, now), isUnscheduled(prediction).
 **Produces:** existing response fields remain compatible; add explicit serviceStatus (overdue, due, upcoming, on_schedule, needs_data), dataIssues array and mileageOverdue boolean. Keep risk bands for existing consumers; unknown rows cannot be displayed as healthy.
 
-- [ ] Add regressions: exceeded mileage with zero trips and future/no calendar date; exact mileage threshold; one kilometre overdue at a high usage rate; null mileage with configured threshold; known overdue date with missing mileage; no schedule.
+- [x] Add regressions: exceeded mileage with zero trips and future/no calendar date; exact mileage threshold; one kilometre overdue at a high usage rate; null mileage with configured threshold; known overdue date with missing mileage; no schedule.
 ```js
 const p = predictVehicle({ mileage: 5001, next_service_mileage: 5000, trip_count: 0 }, new Date("2026-10-23T04:00:00Z"));
 expect(p.risk).toBe("overdue");
 expect(p.kmToService).toBe(-1);
 expect(p.mileageOverdue).toBe(true);
 ```
-- [ ] Run npx vitest run src/lib/ai/predictive-maintenance.test.js and confirm new assertions fail.
-- [ ] Detect known mileage/date thresholds before forecast confidence checks. Keep missing mileage null. Avoid negative-zero rounding hiding an exceeded threshold; do not invent days overdue without a valid rate. Make isUnscheduled mean absent schedule, not merely absent estimated date. Preserve summary counts with an explicit needs-data counter if required.
-- [ ] Run engine and predictive page tests; inspect all callers of isUnscheduled/effectiveDays to keep mechanic upcoming behavior truthful.
-- [ ] Update documentation, lint touched source, diff/encoding checks, review and commit: fix: distinguish overdue maintenance from uncertain forecasts.
+- [x] Run npx vitest run src/lib/ai/predictive-maintenance.test.js and confirm new assertions fail.
+- [x] Detect known mileage/date thresholds before forecast confidence checks. Keep missing mileage null. Avoid negative-zero rounding hiding an exceeded threshold; do not invent days overdue without a valid rate. Make isUnscheduled mean absent schedule, not merely absent estimated date. Preserve summary counts with an explicit needs-data counter if required.
+- [x] Run engine and predictive page tests; inspect all callers of isUnscheduled/effectiveDays to keep mechanic upcoming behavior truthful.
+- [x] Update documentation, lint touched source, diff/encoding checks, review and commit: fix: distinguish overdue maintenance from uncertain forecasts.
 
 ### Task 2: Keep completion, status and qualifying schedule changes consistent
 
