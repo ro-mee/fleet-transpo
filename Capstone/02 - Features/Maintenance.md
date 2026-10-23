@@ -536,3 +536,7 @@ The work-order loading state now uses the same Card components, two-column stack
 Queue rows on both My Line and My Work Orders no longer show issue/description text, keeping the list focused on the vehicle, job type, status, timing, and action. The issue remains available in the vehicle snapshot and work-order details. Focused ESLint and `git diff --check` passed.
 
 The mechanic workspace sidebar now contains only My Line and workshop tasks; the separate Account group and Profile link were removed to keep the navigation focused on repair work. Other roles and the account menu are unchanged. Focused ESLint and `git diff --check` passed.
+
+## Predictive maintenance implementation started - 2026-10-24
+
+The owner approved the practical capstone direction and per-task commits in the isolated codex/predictive-maintenance worktree. See [[Predictive Maintenance Implementation Progress 2026-10-23]] and docs/superpowers/plans/2026-10-23-predictive-maintenance.md. The focused baseline passed 82 tests; implementation is pending and no behavior change is claimed.
