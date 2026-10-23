@@ -237,7 +237,7 @@ function buildRecommendation({ risk, basis, effectiveDays, kmToService, kmPerDay
   if (basis === "mileage") {
     if (risk === RISK.OVERDUE) {
       const rate = effectiveDays === null ? "" : " (~" + Math.round(kmPerDay) + " km/day)";
-      return "Service mileage exceeded by " + Math.abs(roundKm(kmToService)) + " km" + rate + " — ground the vehicle and service it now.";
+      return "Service mileage exceeded by " + Math.abs(roundKm(kmToService)) + " km" + rate + " — arrange service now.";
     }
     if (kmToService === 0) return "Service mileage reached — service the vehicle now.";
     return roundKm(kmToService).toLocaleString() + " km to service at ~" + Math.round(kmPerDay) + " km/day — due in about " + effectiveDays + " day" + (effectiveDays === 1 ? "" : "s") + ".";
@@ -246,7 +246,7 @@ function buildRecommendation({ risk, basis, effectiveDays, kmToService, kmPerDay
   // basis === "time"
   const thin = confidence === "low" ? " — calendar only, not enough trip data to project mileage" : "";
   if (risk === RISK.OVERDUE) {
-    return `Service is ${overdueBy} day${overdueBy === 1 ? "" : "s"} overdue — ground the vehicle and service it now${thin}.`;
+    return `Service is ${overdueBy} day${overdueBy === 1 ? "" : "s"} overdue — arrange service now${thin}.`;
   }
   if (risk === RISK.CRITICAL) {
     return `Service due in ${effectiveDays} day${effectiveDays === 1 ? "" : "s"} — schedule it this week${thin}.`;

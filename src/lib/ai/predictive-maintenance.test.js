@@ -434,7 +434,7 @@ describe("observed due status and missing readings", () => {
     expect(p.mileageOverdue).toBe(true);
     expect(p.effectiveDays).toBeNull();
     expect(p.recommendation).toMatch(/exceeded by 1 km/i);
-    expect(p.recommendation).not.toMatch(/km\/day|days overdue/i);
+    expect(p.recommendation).not.toMatch(/km\/day|days overdue|ground/i);
     expect(isUnscheduled(p)).toBe(false);
   });
 
@@ -482,6 +482,7 @@ describe("observed due status and missing readings", () => {
     expect(p.serviceStatus).toBe("overdue");
     expect(p.risk).toBe("overdue");
     expect(p.dataIssues).toContain("missing_mileage");
+    expect(p.recommendation).not.toMatch(/ground/i);
   });
 
   it("distinguishes no schedule from an incomplete mileage schedule", () => {
