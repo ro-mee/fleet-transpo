@@ -58,18 +58,18 @@ expect(p.mileageOverdue).toBe(true);
 **Consumes:** existing withTransaction(tx), writeAuditRequired and work-order state machine.
 **Produces:** recomputeVehicleSchedule(vehicleId, row, executor) and relevant status helper accept the transaction executor; existing callers retain a default DB executor.
 
-- [ ] Add behavioral regressions for unrelated Corrective/Inspection repair not advancing Routine schedule, qualifying Routine completion advancing it, failed schedule update rolling back completion, and unchanged terminal-state/assignee permissions.
+- [x] Add behavioral regressions for unrelated Corrective/Inspection repair not advancing Routine schedule, qualifying Routine completion advancing it, failed schedule update rolling back completion, and unchanged terminal-state/assignee permissions.
 ```js
 await recomputeVehicleSchedule(7, { status: "Completed", maintenance_type: "Corrective" }, tx);
 expect(tx.query).not.toHaveBeenCalled();
 ```
-- [ ] Run focused tests and confirm failures before implementation.
-- [ ] Restrict legacy routine resets to completed Routine work. Put authoritative schedule/status writes inside the same transaction as completion and audit. Keep notifications post-commit. Inspect POST completed-record path as well as PUT. Ensure transaction-aware helpers never fall back to global query internally.
-- [ ] Run work-order/schedule/status tests including failure paths, lint, document and review.
-- [ ] Commit: fix: complete maintenance and qualifying schedules atomically.
+- [x] Run focused tests and confirm failures before implementation.
+- [x] Restrict legacy routine resets to completed Routine work. Put authoritative schedule/status writes inside the same transaction as completion and audit. Keep notifications post-commit. Inspect POST completed-record path as well as PUT. Ensure transaction-aware helpers never fall back to global query internally.
+- [x] Run work-order/schedule/status tests including failure paths, lint, document and review.
+- [x] Commit: fix: complete maintenance and qualifying schedules atomically.
 
-- [ ] Use only the supplied transaction executor in syncVehicleStatus. Lock affected vehicle rows in stable ID order before reading remaining active work; include old/new vehicles on reassignment. Preserve incident precedence and Manila dates. Verify live pg_constraint before choosing any status value: migration 014 and schema.sql disagree about Registration Expired. If live rejects it, resolve through the normal migration workflow; do not silently remove registration eligibility.
-- [ ] Require or server-stamp the actual completion date on transition; do not substitute a future scheduled date. Missing mileage_at_service stays unknown, without substituting the current vehicle mileage. Add regressions for both cases.
+- [x] Use only the supplied transaction executor in syncVehicleStatus. Lock affected vehicle rows in stable ID order before reading remaining active work; include old/new vehicles on reassignment. Preserve incident precedence and Manila dates. Verify live pg_constraint before choosing any status value: migration 014 and schema.sql disagree about Registration Expired. If live rejects it, resolve through the normal migration workflow; do not silently remove registration eligibility.
+- [x] Require or server-stamp the actual completion date on transition; do not substitute a future scheduled date. Missing mileage_at_service stays unknown, without substituting the current vehicle mileage. Add regressions for both cases.
 
 ### Task 3: Add per-vehicle service schedules and safe configuration
 
