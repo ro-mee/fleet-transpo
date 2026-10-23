@@ -1817,7 +1817,7 @@ CREATE TABLE vehicles (
   commissioning_status varchar(20) DEFAULT 'Pending'::character varying,
   fuel_level_updated_at timestamptz,
   CONSTRAINT chk_vehicle_fuel_efficiency CHECK (((fuel_efficiency_kmpl IS NULL) OR ((fuel_efficiency_kmpl > (0)::numeric) AND (fuel_efficiency_kmpl <= (100)::numeric)))),
-  CONSTRAINT chk_vehicle_status CHECK (((vehicle_status)::text = ANY ((ARRAY['Available'::character varying, 'Reserved'::character varying, 'In Use'::character varying, 'Under Maintenance'::character varying, 'Decommissioned'::character varying])::text[]))),
+  CONSTRAINT chk_vehicle_status CHECK (((vehicle_status)::text = ANY ((ARRAY['Available'::character varying, 'Reserved'::character varying, 'In Use'::character varying, 'Under Maintenance'::character varying, 'Decommissioned'::character varying, 'Registration Expired'::character varying])::text[]))),
   CONSTRAINT chk_vehicle_tank_capacity CHECK (((tank_capacity_l IS NULL) OR ((tank_capacity_l > (0)::numeric) AND (tank_capacity_l <= (1000)::numeric)))),
   CONSTRAINT chk_vehicles_cargo_capacity CHECK (((cargo_capacity_kg IS NULL) OR ((cargo_capacity_kg > (0)::numeric) AND (cargo_capacity_kg <> 'NaN'::numeric)))),
   CONSTRAINT chk_vehicles_commissioning_status CHECK (((commissioning_status)::text = ANY ((ARRAY['Pending'::character varying, 'Ready'::character varying])::text[]))),

@@ -8,7 +8,7 @@ source:
   - src/app/(dashboard)/maintenance/page.js
   - src/app/api/vehicle-maintenance/[id]/route.js
   - supabase/migrations/114_maintenance_repairer_identity.sql
-last_verified: 2026-10-09
+last_verified: 2026-10-24
 ---
 
 # Feature: Maintenance
@@ -336,7 +336,7 @@ runs were replayed against live and return correct shapes.
 
 `predictive-maintenance.js` is one of the pure modules in `src/lib/ai/`. It scores vehicles by proximity to a service threshold (odometer-driven) and surfaces them in the advisory ranking.
 
-**Schedule Clamp:** `recomputeVehicleSchedule()` updates a vehicle's next service date and mileage when a maintenance record is `Completed`. To prevent illegal tampering, this function uses a PostgreSQL `GREATEST()` clamp. If a user modifies an older completed maintenance record with a lower odometer reading, the clamp discards the edit and preserves the furthest advanced predictive schedule, keeping the risk scores strictly safe and forward-moving.
+**Schedule Clamp:** `recomputeVehicleSchedule()` advances a vehicle's legacy routine date and mileage only on completed `Routine` work. Its PostgreSQL `GREATEST()` clamp keeps earlier service records from moving existing values backward. The clamp does not prove a vehicle is safe or correct a mistaken future baseline; an authorized vehicle edit remains the correction path. Terminal maintenance records are frozen except for staff archive.
 
 ## Inspections do not ground a vehicle — 2026-09-23
 
@@ -546,3 +546,16 @@ The owner approved the practical capstone direction and per-task commits in the 
 The service outlook now distinguishes an observed threshold from a forecast. A recorded odometer above the configured service mileage is overdue even with zero recent trips or a future calendar date; reaching the threshold is due. A one-kilometre overrun cannot round to zero days. When the usage rate is unavailable, the result retains the observed overdue kilometres and leaves the day estimate empty. A missing odometer stays null, and a configured mileage threshold with no reading or usable trip rate is marked needs data rather than healthy or unscheduled. The response retains the existing risk bands and adds serviceStatus, dataIssues, mileageOverdue, and a needsData fleet count. No schedule means both date and mileage thresholds are absent.
 
 The predictive and AI overview badges show the observed kilometres or missing reading without a fabricated day or zero-kilometre value. The mechanic upcoming strip includes observed mileage overdue without inventing a day count. This is a service-due assessment, not a roadworthiness judgment or a claim that a scheduled work order is completed. Focused prediction, rule-engine, predictive-page and mechanic tests passed (94 tests across four files), including new red-to-green regressions. No database, migration, or work-order data changed.
+
+
+## Atomic work-order completion and routine schedules - 2026-10-24
+
+Approving a work order now commits the completion row, required audit, vehicle status and qualifying routine schedule together. A failed status, schedule or audit write rolls the request back. Notifications remain best-effort after commit. POST still forces new work to `Scheduled`, removes completion dates and identity stamps, and synchronizes its vehicle before creation commits.
+
+Only completed `Routine` work advances the legacy routine schedule. Corrective, Inspection, emergency and fuel diagnostic work does not reset it. On approval, a supplied actual completion day is validated; if omitted or blank, the server stamps today's Manila calendar day. The planned maintenance date is never used as evidence of completed service. Missing mileage at service stays unknown, even if the vehicle's current mileage is known; existing non-null schedule values remain subject to the forward-only clamp.
+
+PUT locks both old and new vehicle rows in increasing ID order before changing the work order or reading remaining active work, then synchronizes both on reassignment. The helper uses only the supplied transaction connection. Existing callers without a connection receive an internal transaction. Status precedence remains: decommissioned stays unchanged; an open Major/Critical incident or active/due work grounds the vehicle; a live trip is In Use; registration expired before today grounds it; otherwise it is Available. Registration and due-work comparisons use Manila calendar days. Existing mechanic ownership, state transitions, terminal freeze, role approval and separation-of-duties rules remain covered.
+
+Live preflight found the database status check omitted `Registration Expired` despite migration 014 and existing consumers. After verifying version 167 was unspent, migration `167_restore_registration_expired_status.sql` added that value while retaining every accepted status. It was applied with the migration runner and `schema.sql` was regenerated. The live constraint and five actual status/schedule read-query shapes were verified; existing dispatch, trip-start, status labels and availability rules already recognize that status.
+
+Verification: red-to-green regressions exposed 24 failures before implementation. The focused API/schedule/status run passed 96 tests; rollback-only PostgreSQL route/helper fixtures passed 14 cases using connection-local temporary tables and the actual live status constraint. No operating row or application sequence was changed for tests. The fixture covers completion rollback, actual completion day, Routine versus unrelated work, missing mileage, reassignment, remaining repairs/incidents, due-work dates, registration expiry and POST. Strict touched lint, migration filename checks, encoding and whitespace gates passed. Ledger: 167 applied, zero pending/changed. Database contract: 89 classified relations, zero violations. Anon probe: zero exposed, 41 refused, 48 inconclusive empty results resolved by the live contract; empty results alone are not treated as a pass. These checks do not claim production-trigger/RLS execution in temporary tables or an authenticated browser walkthrough.

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { deriveNextSchedule } from "@/services/maintenance-schedule.service";
+import { describe, it, expect, vi } from "vitest";
+import { deriveNextSchedule, recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 
 describe("deriveNextSchedule", () => {
   it("advances both dimensions from the interval", () => {
@@ -29,7 +29,7 @@ describe("deriveNextSchedule", () => {
     expect(out.next_service_mileage).toBe(55000);
   });
 
-  it("falls back to current mileage when the service record has none", () => {
+  it("keeps missing service mileage unknown even when current mileage is known", () => {
     const out = deriveNextSchedule({
       completedDate: "2026-08-04",
       mileageAtService: null,
@@ -37,7 +37,7 @@ describe("deriveNextSchedule", () => {
       intervalDays: 180,
       intervalKm: 5000,
     });
-    expect(out.next_service_mileage).toBe(58000);
+    expect(out.next_service_mileage).toBeNull();
   });
 
   it("leaves the mileage dimension null when no km interval is set", () => {
@@ -123,5 +123,30 @@ describe("deriveNextSchedule", () => {
     expect(out.last_service_date).toBeNull();
     expect(out.next_service_date).toBeNull();
     expect(out.next_service_mileage).toBeNull();
+  });
+});
+
+vi.mock("@/lib/db", () => ({ query: vi.fn(() => { throw new Error("Unexpected global query"); }) }));
+describe("qualifying routine completions", () => {
+  it.each(["Corrective", "Inspection", "Emergency Repair", "Fuel System Diagnostic"])("does not reset routine service for %s", async (maintenance_type) => {
+    const tx = { query: vi.fn() };
+    await recomputeVehicleSchedule(7, { status: "Completed", maintenance_type }, tx);
+    expect(tx.query).not.toHaveBeenCalled();
+  });
+  it("uses only the supplied executor to advance a completed Routine service", async () => {
+    const tx = { query: vi.fn().mockResolvedValueOnce({ rows: [{ mileage: 90000, service_interval_days: 30, service_interval_km: 5000 }] }).mockResolvedValueOnce({ rows: [] }) };
+    await recomputeVehicleSchedule(7, { status: "Completed", maintenance_type: "Routine", completed_date: "2026-10-01", mileage_at_service: 20000 }, tx);
+    expect(tx.query).toHaveBeenCalledTimes(2);
+    expect(tx.query.mock.calls[1][1]).toEqual(["2026-10-01", "2026-10-31", "25000", 7]);
+  });
+  it("never substitutes the planned date for missing actual completion evidence", async () => {
+    const tx = { query: vi.fn().mockResolvedValue({ rows: [{ mileage: 90000, service_interval_days: 30, service_interval_km: 5000 }] }) };
+    await recomputeVehicleSchedule(7, { status: "Completed", maintenance_type: "Routine", maintenance_date: "2030-01-01" }, tx);
+    expect(tx.query.mock.calls.some(([sql]) => sql.includes("UPDATE"))).toBe(false);
+  });
+  it("lets schedule write errors abort its caller's transaction", async () => {
+    const failure = new Error("schedule update failed");
+    const tx = { query: vi.fn().mockResolvedValueOnce({ rows: [{ service_interval_days: 30 }] }).mockRejectedValueOnce(failure) };
+    await expect(recomputeVehicleSchedule(7, { status: "Completed", maintenance_type: "Routine", completed_date: "2026-10-01" }, tx)).rejects.toThrow(failure);
   });
 });

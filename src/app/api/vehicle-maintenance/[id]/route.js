@@ -3,6 +3,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
+import { syncVehicleStatus } from "@/services/status.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 import {
@@ -178,6 +179,12 @@ export async function PUT(req, { params }) {
         }
       }
 
+      // Empty actual dates are server-stamped on approval, never copied from
+      // the planned date or an earlier prefilled completion field.
+      if (body.status === "Completed" && beforeRow.status !== "Completed" && !body.completed_date) {
+        delete body.completed_date;
+      }
+
       const sets = [];
       const values = [];
       const seen = new Set();
@@ -288,6 +295,16 @@ export async function PUT(req, { params }) {
         }
       }
 
+      // Lock both sides before changing work or reading remaining active work.
+      const vehicleIds = [...new Set([beforeRow.vehicle_id, body.vehicle_id ?? beforeRow.vehicle_id]
+        .filter((value) => value != null).map(Number))].sort((a, b) => a - b);
+      if (vehicleIds.length) await tx.query(
+        "SELECT vehicle_id FROM vehicles WHERE vehicle_id = ANY($1::int[]) ORDER BY vehicle_id FOR UPDATE",
+        [vehicleIds]
+      );
+      if (isTransitioningToCompleted && !body.completed_date) {
+        sets.push("completed_date = (NOW() AT TIME ZONE 'Asia/Manila')::date");
+      }
       values.push(id);
       const idParamIndex = values.length;
 
@@ -297,6 +314,10 @@ export async function PUT(req, { params }) {
         values
       );
       if (!rows[0]) return { error: err("Maintenance record not found", 404) };
+      for (const vehicleId of vehicleIds) await syncVehicleStatus(vehicleId, tx);
+      if (isTransitioningToCompleted && !rows[0].deleted_at) {
+        await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0], tx);
+      }
       const action = rows[0].deleted_at
         ? "maintenance_archived"
         : isTransitioningToCompleted
@@ -314,17 +335,6 @@ export async function PUT(req, { params }) {
     if (updateResult.error) return updateResult.error;
     const { beforeStatus, beforeAssignee, beforePriority, beforeVehicleId, beforeMaintenanceDate } = updateResult;
     const rows = [updateResult.row];
-    if (rows[0]?.vehicle_id) {
-      const { syncVehicleStatus } = await import("@/services/status.service");
-      await syncVehicleStatus(rows[0].vehicle_id);
-      // Completing a record is what advances the vehicle's next due-dates.
-      // Skipped when this request archived the record: a row on its way out
-      // must not push a schedule forward, and the clamp would make that
-      // push permanent.
-      if (!rows[0].deleted_at) {
-        await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0]);
-      }
-    }
     // Task 5 — post-commit fan-out for the mechanic work-order lifecycle.
     // Best-effort only: every INSERT is dedupe-guarded on
     // (employee_id, title, reference_type, reference_id) and the whole block is

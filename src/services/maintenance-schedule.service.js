@@ -37,7 +37,6 @@ function numOrNull(value) {
 export function deriveNextSchedule({
   completedDate,
   mileageAtService,
-  currentMileage,
   intervalDays,
   intervalKm,
 } = {}) {
@@ -52,7 +51,7 @@ export function deriveNextSchedule({
   // Measured from the odometer AT the service, not from today. Using current
   // mileage would give away every kilometre driven since the service,
   // shortening the interval by however long the record took to be entered.
-  const baseMileage = numOrNull(mileageAtService) ?? numOrNull(currentMileage);
+  const baseMileage = numOrNull(mileageAtService);
 
   return {
     last_service_date: lastServiceDate,
@@ -75,7 +74,7 @@ const COLUMN_CASTS = {
 
 /**
  * Applies deriveNextSchedule to the vehicle. No-ops unless the maintenance
- * record is Completed — a Scheduled or In Progress record has not moved the
+ * record is Completed Routine work — a Scheduled or In Progress record has not moved the
  * service clock and must not advance the due-date.
  *
  * Only non-null derived fields are written, so a vehicle with one interval set
@@ -107,12 +106,14 @@ const COLUMN_CASTS = {
  * that allowlist, so the record of when a service actually happened stays owned
  * by this function.
  */
-export async function recomputeVehicleSchedule(vehicleId, maintenanceRow = {}) {
+export async function recomputeVehicleSchedule(vehicleId, maintenanceRow = {}, executor = { query }) {
   if (!vehicleId) return;
   if (String(maintenanceRow.status || "").toLowerCase() !== "completed") return;
 
-  const { rows } = await query(
-    `SELECT mileage, service_interval_km, service_interval_days
+  if (maintenanceRow.maintenance_type !== "Routine") return;
+
+  const { rows } = await executor.query(
+    `SELECT service_interval_km, service_interval_days
        FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL LIMIT 1`,
     [vehicleId]
   );
@@ -120,11 +121,9 @@ export async function recomputeVehicleSchedule(vehicleId, maintenanceRow = {}) {
   if (!vehicle) return;
 
   const derived = deriveNextSchedule({
-    // completed_date is the authority; maintenance_date is the fallback for
-    // records completed without one being entered.
-    completedDate: maintenanceRow.completed_date || maintenanceRow.maintenance_date,
+    // Planned dates are not evidence that service happened.
+    completedDate: maintenanceRow.completed_date,
     mileageAtService: maintenanceRow.mileage_at_service,
-    currentMileage: vehicle.mileage,
     intervalDays: vehicle.service_interval_days,
     intervalKm: vehicle.service_interval_km,
   });
@@ -143,7 +142,7 @@ export async function recomputeVehicleSchedule(vehicleId, maintenanceRow = {}) {
 
   const written = Object.keys(attempted);
   values.push(vehicleId);
-  const { rows: after } = await query(
+  const { rows: after } = await executor.query(
     `UPDATE vehicles SET ${sets.join(", ")}, updated_at = NOW()
       WHERE vehicle_id = $${values.length}
       RETURNING ${written.join(", ")}`,

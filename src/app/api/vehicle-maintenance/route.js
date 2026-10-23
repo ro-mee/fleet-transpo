@@ -1,7 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
-import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
+import { syncVehicleStatus } from "@/services/status.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 import { writeAppError } from "@/lib/app-errors";
@@ -274,6 +274,7 @@ export async function POST(req) {
     body.status = "Scheduled";
     delete body.completed_by;
     delete body.completed_at;
+    delete body.completed_date;
 
     // Provenance: the server stamps the filing actor. A client-supplied
     // created_by is never trusted (spoof-proof by deletion, not by hoping the
@@ -340,7 +341,11 @@ export async function POST(req) {
       ? `INSERT INTO vehiclemaintenance (${columns.join(", ")}, assigned_at) VALUES (${placeholders}, CURRENT_TIMESTAMP) RETURNING *`
       : `INSERT INTO vehiclemaintenance (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`;
     const row = await withTransaction(async (tx) => {
+      await tx.query(
+        "SELECT vehicle_id FROM vehicles WHERE vehicle_id = $1 FOR UPDATE", [Number(body.vehicle_id)]
+      );
       const { rows } = await tx.query(insertSql, values);
+      if (rows[0]?.vehicle_id) await syncVehicleStatus(rows[0].vehicle_id, tx);
       await writeAuditRequired(tx, req, session, {
         action: "maintenance_created",
         resource: "vehiclemaintenance",
@@ -355,11 +360,6 @@ export async function POST(req) {
       });
       return rows[0];
     });
-    if (row?.vehicle_id) {
-      const { syncVehicleStatus } = await import("@/services/status.service");
-      await syncVehicleStatus(row.vehicle_id);
-      await recomputeVehicleSchedule(row.vehicle_id, row);
-    }
     if (assigningMechanic && row?.maintenance_id) {
       try {
         const plate = (await query("SELECT plate_number FROM vehicles WHERE vehicle_id = $1", [row.vehicle_id])).rows[0]?.plate_number ?? null;
