@@ -21,7 +21,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 2: COMPLETE, commits f4b9e023 and 558fb2b3; independent review approved after one fix round.
 - Task 3: COMPLETE, commits 132d90ba and 55d9eed9; independent review approved after one fix round.
 - Task 4: COMPLETE, commit d1d80c62; independent spec and quality review passed with zero findings.
-- Task 5: pending.
+- Task 5: IMPLEMENTED in b4b1940c; independent review running under maintenance_task5/task5_review. Not yet complete.
 - Task 6: pending.
 - Task 7: pending.
 - Task 8: pending.
@@ -69,3 +69,13 @@ Commit d1d80c62 adds measured-distance selection, per-service outlooks and attri
 Final verification: 127 tests across seven files passed, including eight PostgreSQL/live read cases; strict touched lint, encoding and whitespace checks passed. Independent review passed spec and quality with zero findings. Maintenance.md and SYSTEM.md are updated. No migration or operating-data writes were required. Browser/build/full-suite checks remain later tasks.
 
 Task 5 can call getMaintenanceOutlook(user, now, transactionExecutor) after its required locks, then locate vehicle_id and services[].plan_id/version/service_code for authoritative evidence. See task-4-report.md. Read-only UI preparation is saved at task-7-ui-scout.md for Task 7; it is not visual acceptance or implementation. Next Task 5. Allowance44% remaining at boundary; reset1792815159.
+
+## Task 5 review checkpoint - 2026-10-24
+
+Work-order linkage is committed in b4b1940c. Existing migration 168 supplied all required constraints; no new migration. Reviewed scheduling checks role, vehicle/plan identity and expected version, reuses an active order, and computes evidence on the server. PUT preserves vehicle-plan-order locking and linked completion/audit atomicity. Outlook links are mechanic-assignment scoped. Maintenance.md and SYSTEM.md were updated.
+
+The combined affected run passed 186 cases with one exact response-shape assertion needing the new additive key; after that test-only correction the engine file passed all 59 cases. These runs cover 187 affected cases on final production code, including 29 rollback-only PostgreSQL cases. Lint, encoding and whitespace passed. No real cross-connection race, browser/build or full-suite claim is made.
+
+Independent review is still running. Do not mark Task 5 complete until its report/verdict and any fix loop are resolved. Report and review package: .superpowers/sdd/2026-10-23-predictive-maintenance/task-5-*. The implementer and reviewer are active; do not duplicate them.
+
+Allowance was 14% remaining before review. Next reset: 1792815159 / 2026-10-24 12:12:39 Asia/Manila (04:12:39 UTC). If the <=5% cutoff arrives, resume the Task 5 review/fix loop first, then Task 6. Task 6 has not started. This early checkpoint preserves the stopping point before automatic approval review can run out of allowance.
