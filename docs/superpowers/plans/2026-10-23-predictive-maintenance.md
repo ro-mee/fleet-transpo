@@ -68,23 +68,30 @@ expect(tx.query).not.toHaveBeenCalled();
 - [ ] Run work-order/schedule/status tests including failure paths, lint, document and review.
 - [ ] Commit: fix: complete maintenance and qualifying schedules atomically.
 
+- [ ] Use only the supplied transaction executor in syncVehicleStatus. Lock affected vehicle rows in stable ID order before reading remaining active work; include old/new vehicles on reassignment. Preserve incident precedence and Manila dates. Verify live pg_constraint before choosing any status value: migration 014 and schema.sql disagree about Registration Expired. If live rejects it, resolve through the normal migration workflow; do not silently remove registration eligibility.
+- [ ] Require or server-stamp the actual completion date on transition; do not substitute a future scheduled date. Missing mileage_at_service stays unknown, without substituting the current vehicle mileage. Add regressions for both cases.
+
 ### Task 3: Add per-vehicle service schedules and safe configuration
 
 **Files:** new src/lib/maintenance/service-catalog.js; new src/services/maintenance-plans.service.js; new src/app/api/maintenance/service-plans/route.js; numbered supabase migration; scripts/lib/schema-contract.mjs; schema.sql; focused service/route/schema tests.
-**Consumes:** vehicle IDs, existing maintenance read/create/edit permissions and audited transactions.
+**Consumes:** vehicle IDs, existing maintenance read/create/update permissions with an explicit staff configuration guard and audited transactions.
 **Produces:** fixed service codes routine, brakes, tires; per-vehicle plans with interval_days/interval_km, last_service_date/last_service_mileage, next_service_date/next_service_mileage, version and audit timestamps. GET returns role-scoped plans; PUT creates/updates an authorized vehicle plan with expected_version conflict checks.
 
 - [ ] Read latest db:status and reserve the next unused version; verify schema and catalog conventions before naming the migration.
-- [ ] Test positive/null intervals (at least one configured), invalid vehicle/code, stale version (409), forbidden role and mechanic assigned-vehicle read scope.
+- [ ] Test positive/null intervals (at least one interval or explicit due threshold configured), invalid vehicle/code, stale version (409), forbidden role and mechanic assigned-vehicle read scope.
 ```js
 expect(SERVICE_CODES).toEqual(["routine", "brakes", "tires"]);
 expect(validateIntervals({ interval_days: null, interval_km: -1 }).ok).toBe(false);
 ```
 - [ ] Create vehicle_service_plans with unique(vehicle_id, service_code), positive interval constraints, FKs, RLS and revoked public grants. Extend vehiclemaintenance with nullable service_plan_id and service_plan_version, without altering historical rows' meaning.
 - [ ] Import only existing usable vehicle routine schedule values as routine plans; do not invent brake/tire intervals or service history. Keep legacy routine fields synchronized for current dispatch/advisory consumers.
-- [ ] Add an audited mileage correction/setup endpoint only if no current authorized path can serve Record odometer; preserve monotonic readings and require an explicit reason for corrections, with no bulk backfill.
+- [ ] Add POST /api/vehicles/[id]/odometer under vehicles:update. Persist vehicle_id, reading_km, observed_at, recorded_at, recorded_by and reason in a private vehicle_odometer_observations table. Validate 0..2,000,000 km, no future observed time, reject readings below current mileage; update vehicle and observation atomically. Manual observations are not photo verification. No bulk backfill or decreasing correction workflow.
 - [ ] Apply via db:up, dump schema, verify constraints/policies/grants and real read queries; run db:contract and verify:anon, resolve inconclusive using catalog.
 - [ ] Update vault/schema documentation, review and commit: feat: configure independent vehicle service plans.
+
+- [ ] Require maintenance:update plus explicit admin/super_admin/fleet_manager guard for configuration, and vehicles:update for odometer recording. Mechanics have maintenance:update and must not gain configuration permission.
+- [ ] Permit legacy explicit due thresholds even without an interval; label these as manual schedules. Add deferred_until/defer_reason fields, version increment on configuration/completion, same-vehicle plan linkage and the active-order partial unique index. Reject plan configuration changes while an active linked order exists (409) rather than allow silent cycle replacement.
+- [ ] Make plans authoritative: route existing vehicle schedule creation/update through the shared service or remove those writable fields only after adapting their forms. Keep routine legacy columns synchronized in the same transaction.
 
 ### Task 4: Ground forecasts in measured usage and expose task-level evidence
 
@@ -118,6 +125,8 @@ expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 - [ ] Test invalidating/retrying completion, rejection, cancellation/archive, linked-plan changes and role separation.
 - [ ] Document, review and commit: feat: connect service forecasts to reviewed work orders.
 
+- [ ] Require expected_version when filing a reviewed plan order; reject stale cycles with 409. Keep plan/vehicle linkage immutable after work starts. Lock vehicle then plan then work order consistently with completion. Recover the existing active order for repeated requests, with no duplicate notifications.
+
 ### Task 6: Add one inspection signal and lightweight outcome evidence
 
 **Files:** new src/lib/maintenance/inspection-signals.js and tests; outlook service; existing work-order findings forms/API; new snapshot persistence service/migration and schema classifications.
@@ -130,6 +139,9 @@ expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 - [ ] Use the existing inspection-to-work-order route/locking semantics where applicable, preserving its source deduplication constraints. No new automatic grounding or duplicate issue-report table.
 - [ ] Test snapshot rollback with failed creation/completion, scoped reads and truthful empty evaluation.
 - [ ] Apply/dump/verify any migration with the same security gates; document, review and commit: feat: trace inspection signals and maintenance outcomes.
+
+- [ ] Store structured checklist_item_id, original inspection IDs, outcome, outcome actor and time on linked work orders or immutable snapshots; extend mechanic validation and scoped reads. Match repeated unresolved items by vehicle and canonical item ID, not free-text repair type. Reuse the active order for that item even if a newer inspection exists; unrelated completed repairs cannot clear it.
+- [ ] Add a GET-no-writes regression. Capture snapshots/observations at the odometer mutation too when needed to observe threshold crossings; otherwise label that outcome unobserved. Early service closes a cycle without counting it as a prediction error.
 
 ### Task 7: Build the shared maintenance workspace
 

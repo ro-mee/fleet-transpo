@@ -17,7 +17,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 ## Task status
 
 - Setup: baseline verified, plan ready.
-- Task 1: pending.
+- Task 1: implemented in 13d4754a, review correction a91a6c08; scoped re-review verdict must be checked before marking complete.
 - Task 2: pending.
 - Task 3: pending.
 - Task 4: pending.
@@ -27,3 +27,11 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 8: pending.
 
 No merge, push, deployment, migration apply or live work-order write has occurred in this implementation.
+
+## Integration preflight
+
+Independent schema review clarified staff-only configuration, dated manual odometer observations, single plan authority, transaction locking, stale-cycle rejection and structured condition outcomes. These implementation details are now in Tasks 2-6. Database configuration is currently absent from both checkouts; db:status fails because no .env/.env.local or DATABASE_URL is available. The user has been asked asynchronously for the current configuration path without sharing secrets. Task 1 remains independent; Task 2 can be coded/tested offline but live status-constraint verification and later migrations require configuration. Do not invent a migration number or claim live validation.
+
+## Usage cutoff checkpoint - 2026-10-24
+
+Five-hour usage reached 96% used (4% remaining). Reset timestamp: 1792789593, October 24 at 05:06:33 Asia/Manila. Stop new implementation until reset. Task 1 has commits 13d4754a and a91a6c08; 94 focused tests, touched lint, encoding and diff checks passed. The independent reviewer requested removal of service-overdue grounding advice; the correction is committed with two red-to-green assertions. Check task-1-report.md and the maintenance_task1/task1 review agents for the scoped re-review verdict before marking Task 1 complete. Next: finish that gate, then Task 2. No Task 2+ code has been implemented. Database configuration remains missing and the local path question is pending. Automation stays active with both usage and configuration guards.
