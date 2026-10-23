@@ -1,3 +1,4 @@
+import { manilaDateKey } from "@/lib/dates";
 import {
   PATTERNS,
   LIMITS,
@@ -72,14 +73,13 @@ export function maintenanceDateRule(value, values = {}) {
   if (!value) return null;
   const status = String(values.status || "").toLowerCase();
   if (status !== "scheduled" && status !== "completed") return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  if (status === "scheduled" && d.getTime() < today.getTime()) {
+  const today = manilaDateKey();
+  const day = String(value).slice(0, 10);
+  if (!isIsoDate(day)) return null;
+  if (status === "scheduled" && day < today) {
     return "Scheduled maintenance cannot be in the past.";
   }
-  if (status === "completed" && d.getTime() > today.getTime()) {
+  if (status === "completed" && day > today) {
     return "Completed maintenance cannot be in the future.";
   }
   return null;
@@ -90,18 +90,16 @@ export function maintenanceDateRule(value, values = {}) {
  *
  * Distinct from maintenanceDateRule, which only bounds maintenance_date and
  * only when status is Scheduled or Completed. completed_date needs its own
- * unconditional rule because recomputeVehicleSchedule prefers it over
- * maintenance_date when advancing a vehicle's next service date, and that
+ * unconditional rule because recomputeVehicleSchedule uses it as actual service
+ * evidence when advancing a vehicle's next service date, and that
  * advance is clamped forward-only — so a future completion date moves the
  * vehicle's schedule out beyond the prediction horizon with no way back.
  */
 export function completionDateRule(value) {
   if (!value) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
-  if (d.getTime() > today.getTime()) {
+  const day = String(value).slice(0, 10);
+  if (!isIsoDate(day)) return null;
+  if (day > manilaDateKey()) {
     return "Completed date cannot be in the future.";
   }
   return null;

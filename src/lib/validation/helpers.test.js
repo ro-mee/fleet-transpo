@@ -1,14 +1,13 @@
-import { describe, it, expect } from "vitest";
-import { completionDateRule, validateField, toProperCase, toVehicleTitleCase } from "@/lib/validation/helpers";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { maintenanceDateRule, completionDateRule, validateField, toProperCase, toVehicleTitleCase } from "@/lib/validation/helpers";
+import { manilaDateKey } from "@/lib/dates";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 
-/** Returns a YYYY-MM-DD string offset from today, staying in local calendar space. */
+/** Calendar offset from the same Manila day used by completion validation. */
 function dayOffset(days) {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + days);
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const d = new Date(`${manilaDateKey()}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 describe("completionDateRule", () => {
@@ -133,5 +132,26 @@ describe("toVehicleTitleCase — vehicle names / models", () => {
   it("is a no-op on null/empty", () => {
     expect(toVehicleTitleCase(null)).toBe("");
     expect(toVehicleTitleCase("")).toBe("");
+  });
+});
+
+
+describe("completion date Manila boundaries on a UTC server", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
+  it("accepts Manila today after its midnight even while UTC is yesterday", () => {
+    vi.stubEnv("TZ", "UTC"); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-23T16:30:00Z"));
+    expect(completionDateRule("2026-10-24")).toBeNull();
+    expect(maintenanceDateRule("2026-10-24", { status: "Completed" })).toBeNull();
+    expect(maintenanceDateRule("2026-10-23", { status: "Scheduled" })).toMatch(/cannot be in the past/i);
+    expect(completionDateRule("2026-10-25")).toMatch(/cannot be in the future/i);
+  });
+  it("rejects tomorrow immediately before Manila midnight", () => {
+    vi.stubEnv("TZ", "UTC"); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-23T15:59:59Z"));
+    expect(completionDateRule("2026-10-24")).toMatch(/cannot be in the future/i);
+  });
+  it("accepts the first Manila day of a new year", () => {
+    vi.stubEnv("TZ", "UTC"); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-12-31T16:00:00Z"));
+    expect(completionDateRule("2027-01-01")).toBeNull();
+    expect(completionDateRule("2027-01-02")).toMatch(/cannot be in the future/i);
   });
 });
