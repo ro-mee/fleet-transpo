@@ -29,7 +29,7 @@ export async function syncRoutineLegacy(executor, plan) {
  if (plan.service_code !== "routine") return;
  await executor.query(`UPDATE vehicles SET service_interval_days=$1, service_interval_km=$2, last_service_date=$3,
  next_service_date=$4, next_service_mileage=$5, updated_at=NOW() WHERE vehicle_id=$6`,
- [plan.interval_days, plan.interval_km, plan.last_service_date, plan.next_service_date, plan.next_service_mileage, plan.vehicle_id]);
+ [plan.interval_days, plan.interval_km === null ? null : Number(plan.interval_km), plan.last_service_date, plan.next_service_date, plan.next_service_mileage, plan.vehicle_id]);
 }
 export async function saveServicePlan(executor, id, code, patch, expectedVersion, actorId = null) {
  id = vehicleId(id);
@@ -47,7 +47,7 @@ export async function saveServicePlan(executor, id, code, patch, expectedVersion
  }
  const merged = Object.fromEntries(PLAN_FIELDS.map(key => [key, Object.hasOwn(patch,key) ? patch[key] : before?.[key] ?? null]));
  for (const key of ["last_service_date","next_service_date","deferred_until"]) if (merged[key] instanceof Date) merged[key] = toCalendarDay(merged[key]);
- const valid = validateIntervals(merged);
+ const valid = validateIntervals({ ...merged, service_code: code });
  if (!valid.ok) throw new AuthError(Object.values(valid.errors)[0],400);
  const values = PLAN_FIELDS.map(key => valid.data[key]);
  const saved = before

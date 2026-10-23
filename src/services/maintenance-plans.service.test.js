@@ -61,3 +61,11 @@ describe("dated manual odometer evidence", () => {
   expect(tx.query.mock.calls.some(([s])=>s.includes("UPDATE vehicles SET mileage"))).toBe(true);
  });
 });
+
+it("rejects Routine kilometre intervals that cannot mirror the legacy integer column",async()=>{
+ for(const interval_km of [5000.5,2147483648]) await expect(saveServicePlan(executor(),7,"routine",{interval_km},2)).rejects.toMatchObject({status:400});
+});
+it("rejects values outside the plan numeric storage range",()=>{
+ expect(validateIntervals({interval_km:1e20}).ok).toBe(false);
+ expect(validateIntervals({next_service_mileage:1e20}).ok).toBe(false);
+});

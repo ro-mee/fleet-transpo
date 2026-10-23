@@ -13,9 +13,10 @@ export function validateIntervals(input = {}) {
  const errors = {};
  for (const key of ["interval_days", "interval_km", "last_service_mileage", "next_service_mileage"]) {
   if (data[key] === null) continue;
-  if (!numeric(data[key]) || Number(data[key]) < (key.startsWith("interval") ? 1 : 0) || (key === "interval_days" && (!Number.isSafeInteger(Number(data[key])) || Number(data[key]) > 2147483647))) errors[key] = `${key} must be a valid ${key.startsWith("interval") ? "positive" : "non-negative"} number.`;
+  if (!numeric(data[key]) || Number(data[key]) < (key.startsWith("interval") ? 1 : 0) || Number(data[key]) > 9999999999.99 || (key === "interval_days" && (!Number.isSafeInteger(Number(data[key])) || Number(data[key]) > 2147483647))) errors[key] = `${key} must be a valid ${key.startsWith("interval") ? "positive" : "non-negative"} number.`;
   else data[key] = Number(data[key]);
  }
+ if (input.service_code === "routine" && data.interval_km !== null && (!Number.isSafeInteger(data.interval_km) || data.interval_km > 2147483647)) errors.interval_km = "Routine interval kilometres must be a whole number from 1 to 2,147,483,647.";
  for (const key of ["last_service_date", "next_service_date", "deferred_until"]) {
   if (data[key] !== null && !validDay(data[key])) errors[key] = `${key} must be a real calendar date (YYYY-MM-DD).`;
  }
