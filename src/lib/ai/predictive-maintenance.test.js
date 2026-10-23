@@ -10,6 +10,7 @@ import {
   healthScore,
   predictVehicle,
   predictFleet,
+  isUnscheduled,
 } from "@/lib/ai/predictive-maintenance";
 
 // Fixed clock. Every day-count assertion below is exact, not approximate.
@@ -355,6 +356,9 @@ describe("predictVehicle", () => {
         "kmPerDay",
         "kmToService",
         "last_service_date",
+        "dataIssues",
+        "mileageOverdue",
+        "serviceStatus",
         "mileage",
         "next_service_date",
         "next_service_mileage",
@@ -419,6 +423,74 @@ describe("predictVehicle", () => {
   });
 });
 
+describe("observed due status and missing readings", () => {
+  const now = new Date("2026-10-23T04:00:00Z");
+
+  it("reports exceeded mileage even with no trips or calendar date", () => {
+    const p = predictVehicle({ mileage: 5001, next_service_mileage: 5000, trip_count: 0 }, now);
+    expect(p.risk).toBe("overdue");
+    expect(p.serviceStatus).toBe("overdue");
+    expect(p.kmToService).toBe(-1);
+    expect(p.mileageOverdue).toBe(true);
+    expect(p.effectiveDays).toBeNull();
+    expect(p.recommendation).toMatch(/exceeded by 1 km/i);
+    expect(p.recommendation).not.toMatch(/km\/day|days overdue/i);
+    expect(isUnscheduled(p)).toBe(false);
+  });
+
+  it("lets observed exceeded mileage override a future calendar date", () => {
+    const p = predictVehicle({ mileage: 5001, next_service_mileage: 5000, next_service_date: "2026-11-23" }, now);
+    expect(p.risk).toBe("overdue");
+    expect(p.serviceStatus).toBe("overdue");
+    expect(p.basis).toBe("mileage");
+  });
+
+  it("marks the exact mileage threshold as due without a usage forecast", () => {
+    const p = predictVehicle({ mileage: 5000, next_service_mileage: 5000, trip_count: 0 }, now);
+    expect(p.serviceStatus).toBe("due");
+    expect(p.mileageOverdue).toBe(false);
+    expect(p.kmToService).toBe(0);
+    expect(p.effectiveDays).toBe(0);
+  });
+
+  it("does not round one kilometre overdue into due today at a high usage rate", () => {
+    const p = predictVehicle({ mileage: 5001, next_service_mileage: 5000, km_90d: 90000, trip_count: 30 }, now);
+    expect(p.projectedDaysToService).toBeLessThan(0);
+    expect(p.risk).toBe("overdue");
+    expect(p.mileageOverdue).toBe(true);
+  });
+
+  it("keeps unknown mileage null when a mileage threshold is configured", () => {
+    const p = predictVehicle({ mileage: null, next_service_mileage: 5000 }, now);
+    expect(p.mileage).toBeNull();
+    expect(p.kmToService).toBeNull();
+    expect(p.serviceStatus).toBe("needs_data");
+    expect(p.dataIssues).toContain("missing_mileage");
+    expect(isUnscheduled(p)).toBe(false);
+  });
+
+  it("explains when mileage is known but there are too few trips to estimate a date", () => {
+    const p = predictVehicle({ mileage: 4000, next_service_mileage: 5000, trip_count: 0 }, now);
+    expect(p.serviceStatus).toBe("needs_data");
+    expect(p.dataIssues).toContain("insufficient_usage");
+    expect(p.recommendation).toMatch(/trip data/i);
+    expect(p.recommendation).not.toMatch(/odometer reading is missing/i);
+  });
+
+  it("keeps a known overdue date overdue when mileage is missing", () => {
+    const p = predictVehicle({ mileage: null, next_service_mileage: 5000, next_service_date: "2026-10-22" }, now);
+    expect(p.serviceStatus).toBe("overdue");
+    expect(p.risk).toBe("overdue");
+    expect(p.dataIssues).toContain("missing_mileage");
+  });
+
+  it("distinguishes no schedule from an incomplete mileage schedule", () => {
+    const p = predictVehicle({ mileage: null, next_service_mileage: null, next_service_date: null }, now);
+    expect(p.serviceStatus).toBe("needs_data");
+    expect(p.dataIssues).toContain("missing_schedule");
+    expect(isUnscheduled(p)).toBe(true);
+  });
+});
 describe("predictFleet", () => {
   it("sorts by effective days, not by raw calendar days", () => {
     // The mileage-critical van has a LATER calendar date but is due sooner once
@@ -469,6 +541,7 @@ describe("predictFleet", () => {
       low: 2, // the low vehicle plus the unscheduled one, which bands as low
       total: 6,
       unscheduled: 1,
+      needsData: 1,
     });
   });
 

@@ -31,6 +31,26 @@ describe("predictive maintenance request states", () => {
     expect(html).toContain("do not measure physical vehicle condition");
   });
 
+  it("shows observed overdue mileage and missing readings without invented days", () => {
+    state.query = {
+      data: {
+        predictions: [
+          { vehicle_id: 1, plate_number: "OVER-01", vehicle_name: "Van", risk: "overdue", serviceStatus: "overdue", mileageOverdue: true, kmToService: -1, effectiveDays: null, mileage: 5001, next_service_date: null, next_service_mileage: 5000, recommendation: "Service mileage exceeded by 1 km." },
+          { vehicle_id: 2, plate_number: "UNKNOWN-02", vehicle_name: "Van", risk: "low", serviceStatus: "needs_data", dataIssues: ["missing_mileage"], mileageOverdue: false, effectiveDays: null, mileage: null, next_service_date: null, next_service_mileage: 5000, recommendation: "Record mileage." },
+        ],
+        summary: { total: 2, overdue: 1, critical: 0, high: 0, medium: 0, low: 1, unscheduled: 0, needsData: 1 },
+      },
+      isLoading: false, isError: false, refetch: vi.fn(),
+    };
+    const html = renderToStaticMarkup(React.createElement(PredictiveMaintenancePage));
+    expect(html).toContain("Mileage overdue by 1 km");
+    expect(html).toContain("Needs mileage");
+    expect(html).not.toContain("null days remaining");
+    expect(html).not.toContain("0 km");
+    const lowCard = html.match(/title="Low Risk"[\s\S]*?<\/button>/)?.[0];
+    expect(lowCard).toMatch(/>0<\/p>/);
+  });
+
   it("states when the score is calendar-only or has enough 90-day trip history", () => {
     state.query = {
       data: {

@@ -150,23 +150,28 @@ export function sourceLabels(job = {}) {
 export const UPCOMING_ACTIONABLE_DAYS = 14;
 
 /**
- * Client-side read-only filter for the predictive endpoint's `predictions`
- * array. Drops unscheduled rows (null basis/effectiveDays — no schedule set,
- * so nothing to act on) and rows due beyond the actionable window. Keeps the
- * endpoint's sort order (effectiveDays ascending, unscheduled last) — no
- * re-sort. Overdue rows (negative effectiveDays) are kept: they head the line.
+ * Client-side read-only filter for the predictive endpoint. Drops unscheduled
+ * and unestimated rows, except a recorded exceeded mileage threshold, which
+ * is actionable without a day estimate. Keeps the endpoint's order.
  */
 export function isActionablePrediction(p, horizonDays = UPCOMING_ACTIONABLE_DAYS) {
-  if (!p || p.basis == null || p.effectiveDays == null) return false;
+  if (!p || p.basis == null) return false;
+  if (p.mileageOverdue) return true;
+  if (p.effectiveDays == null) return false;
   return Number(p.effectiveDays) <= horizonDays;
 }
 
 /**
  * One-line due label for a predictive row: "overdue by 5 days", "due today",
- * or "due in 3 days". Null when the row carries no day count.
+ * or "due in 3 days". An exceeded mileage threshold without a rate is named
+ * in kilometres; other rows without a day count return null.
  */
 export function predictiveDueLabel(p = {}) {
-  if (p.effectiveDays == null) return null;
+  if (p.effectiveDays == null) {
+    return p.mileageOverdue && p.kmToService != null
+      ? "mileage overdue by " + Math.abs(Number(p.kmToService)) + " km"
+      : null;
+  }
   const days = Number(p.effectiveDays);
   if (!Number.isFinite(days)) return null;
   if (days < 0) return `overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}`;

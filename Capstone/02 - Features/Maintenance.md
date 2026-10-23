@@ -540,3 +540,9 @@ The mechanic workspace sidebar now contains only My Line and workshop tasks; the
 ## Predictive maintenance implementation started - 2026-10-24
 
 The owner approved the practical capstone direction and per-task commits in the isolated codex/predictive-maintenance worktree. See [[Predictive Maintenance Implementation Progress 2026-10-23]] and docs/superpowers/plans/2026-10-23-predictive-maintenance.md. The focused baseline passed 82 tests; implementation is pending and no behavior change is claimed.
+
+## Predictive due-status correction - 2026-10-24
+
+The service outlook now distinguishes an observed threshold from a forecast. A recorded odometer above the configured service mileage is overdue even with zero recent trips or a future calendar date; reaching the threshold is due. A one-kilometre overrun cannot round to zero days. When the usage rate is unavailable, the result retains the observed overdue kilometres and leaves the day estimate empty. A missing odometer stays null, and a configured mileage threshold with no reading or usable trip rate is marked needs data rather than healthy or unscheduled. The response retains the existing risk bands and adds serviceStatus, dataIssues, mileageOverdue, and a needsData fleet count. No schedule means both date and mileage thresholds are absent.
+
+The predictive and AI overview badges show the observed kilometres or missing reading without a fabricated day or zero-kilometre value. The mechanic upcoming strip includes observed mileage overdue without inventing a day count. This is a service-due assessment, not a roadworthiness judgment or a claim that a scheduled work order is completed. Focused prediction, rule-engine, predictive-page and mechanic tests passed (94 tests across four files), including new red-to-green regressions. No database, migration, or work-order data changed.

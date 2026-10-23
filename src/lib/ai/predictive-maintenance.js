@@ -114,31 +114,30 @@ function numOrNull(value) {
  * they can be compared in.
  *
  * A dimension with no data is excluded from the minimum rather than counted as
- * zero — otherwise a vehicle with no service mileage set would read as due
- * today. When both are absent, effectiveDays and basis are null and the caller
- * reports "no schedule set" instead of ranking the vehicle as healthy.
+ * zero. A configured mileage threshold without a reading or usable rate has
+ * no estimated day; the caller reports that evidence gap separately.
  */
 export function resolveDueDate({ vehicle = {}, usage = {}, now = new Date() } = {}) {
   const daysToService = daysUntil(vehicle.next_service_date, now);
 
   const nextServiceMileage = numOrNull(vehicle.next_service_mileage);
-  const currentMileage = numOrNull(vehicle.mileage) ?? 0;
+  const currentMileage = numOrNull(vehicle.mileage);
   const kmToService =
-    nextServiceMileage === null ? null : nextServiceMileage - currentMileage;
+    nextServiceMileage === null || currentMileage === null ? null : nextServiceMileage - currentMileage;
 
   // A projection needs both a target and a trustworthy rate. kmPerDay > 0 also
-  // guards the division; a negative kmToService stays negative, so an
-  // already-exceeded service mileage reads as overdue rather than as a future date.
+  // guards the division. Observed threshold crossings are checked separately
+  // and remain overdue even when no rate is available.
   const canProject =
     kmToService !== null && usage.confidence === "high" && usage.kmPerDay > 0;
   const projectedDaysToService = canProject
-    ? Math.round(kmToService / usage.kmPerDay)
+    ? kmToService < 0 ? Math.min(-1, Math.round(kmToService / usage.kmPerDay)) : Math.round(kmToService / usage.kmPerDay)
     : null;
 
   const candidates = [];
   if (daysToService !== null) candidates.push({ days: daysToService, basis: "time" });
-  if (projectedDaysToService !== null) {
-    candidates.push({ days: projectedDaysToService, basis: "mileage" });
+  if (projectedDaysToService !== null || kmToService === 0) {
+    candidates.push({ days: projectedDaysToService ?? 0, basis: "mileage" });
   }
 
   // Sooner wins, so a heavily-used vehicle escalates on mileage before its
@@ -148,12 +147,15 @@ export function resolveDueDate({ vehicle = {}, usage = {}, now = new Date() } = 
     null
   );
 
+  const mileageOverdue = kmToService !== null && kmToService < 0;
+  const observedMileageWins = mileageOverdue && (winner === null || winner.days >= 0);
   return {
     daysToService,
     kmToService,
     projectedDaysToService,
-    effectiveDays: winner ? winner.days : null,
-    basis: winner ? winner.basis : null,
+    effectiveDays: observedMileageWins ? null : winner ? winner.days : null,
+    basis: observedMileageWins ? "mileage" : winner ? winner.basis : null,
+    mileageOverdue,
   };
 }
 
@@ -221,19 +223,24 @@ function roundKm(value) {
  * The UI renders this directly; a reader must be able to tell a mileage-driven
  * escalation from a calendar one, and a projection from a guess.
  */
-function buildRecommendation({ risk, basis, effectiveDays, kmToService, kmPerDay, confidence }) {
+function buildRecommendation({ risk, basis, effectiveDays, kmToService, kmPerDay, confidence, dataIssues }) {
   if (basis === null) {
-    return "No service schedule set — add a next service date or mileage to predict this vehicle.";
+    return dataIssues.includes("missing_schedule")
+      ? "No service schedule set — add a next service date or mileage to predict this vehicle."
+      : dataIssues.includes("missing_mileage")
+        ? "Service mileage is set but the odometer reading is missing — record mileage to assess when it is due."
+        : "Service mileage is set, but trip data is too limited to estimate a due date.";
   }
 
-  const overdueBy = Math.abs(effectiveDays);
+  const overdueBy = effectiveDays === null ? null : Math.abs(effectiveDays);
 
   if (basis === "mileage") {
-    const rate = `~${Math.round(kmPerDay)} km/day`;
     if (risk === RISK.OVERDUE) {
-      return `Service mileage exceeded by ${Math.abs(roundKm(kmToService))} km (${rate}) — ground the vehicle and service it now.`;
+      const rate = effectiveDays === null ? "" : " (~" + Math.round(kmPerDay) + " km/day)";
+      return "Service mileage exceeded by " + Math.abs(roundKm(kmToService)) + " km" + rate + " — ground the vehicle and service it now.";
     }
-    return `${roundKm(kmToService).toLocaleString()} km to service at ${rate} — due in about ${effectiveDays} day${effectiveDays === 1 ? "" : "s"}.`;
+    if (kmToService === 0) return "Service mileage reached — service the vehicle now.";
+    return roundKm(kmToService).toLocaleString() + " km to service at ~" + Math.round(kmPerDay) + " km/day — due in about " + effectiveDays + " day" + (effectiveDays === 1 ? "" : "s") + ".";
   }
 
   // basis === "time"
@@ -258,7 +265,18 @@ export function predictVehicle(row = {}, now = new Date()) {
   const usage = computeUsageRate(row);
   const due = resolveDueDate({ vehicle: row, usage, now });
 
-  const risk = riskForDays(due.effectiveDays);
+  const risk = due.mileageOverdue ? RISK.OVERDUE : riskForDays(due.effectiveDays);
+  const hasSchedule = numOrNull(row.next_service_mileage) !== null || due.daysToService !== null;
+  const dataIssues = [];
+  if (!hasSchedule) dataIssues.push("missing_schedule");
+  if (numOrNull(row.next_service_mileage) !== null && numOrNull(row.mileage) === null) dataIssues.push("missing_mileage");
+  if (due.kmToService > 0 && due.projectedDaysToService === null && due.daysToService === null) {
+    dataIssues.push("insufficient_usage");
+  }
+  const serviceStatus = risk === RISK.OVERDUE ? "overdue"
+    : due.effectiveDays === 0 ? "due"
+    : due.effectiveDays === null ? "needs_data"
+    : due.effectiveDays <= 30 ? "upcoming" : "on_schedule";
   const correctiveCount = num(row.corrective_count);
   const totalCount = num(row.total_count);
 
@@ -266,7 +284,7 @@ export function predictVehicle(row = {}, now = new Date()) {
     vehicle_id: row.vehicle_id,
     plate_number: row.plate_number,
     vehicle_name: row.vehicle_name,
-    mileage: num(row.mileage),
+    mileage: numOrNull(row.mileage),
     // Normalized here, not on the page. pg hands these back as Date objects
     // pinned to *local* midnight; JSON serialization would send them as a UTC
     // instant, and the browser slicing that back to 10 characters reads the UTC
@@ -276,6 +294,9 @@ export function predictVehicle(row = {}, now = new Date()) {
     next_service_mileage: numOrNull(row.next_service_mileage),
     last_service_date: toCalendarDay(row.last_service_date),
     risk,
+    serviceStatus,
+    dataIssues,
+    mileageOverdue: due.mileageOverdue,
     score: healthScore({ effectiveDays: due.effectiveDays, correctiveCount, totalCount }),
     basis: due.basis,
     confidence: usage.confidence,
@@ -291,22 +312,18 @@ export function predictVehicle(row = {}, now = new Date()) {
       kmToService: due.kmToService,
       kmPerDay: usage.kmPerDay,
       confidence: usage.confidence,
+      dataIssues,
     }),
   };
 }
 
 /**
- * True when neither axis had data, so nothing was predicted for this vehicle.
- *
- * riskForDays bands a null effectiveDays as `low` — correct for sorting, since
- * there is no urgency to rank, but wrong for display: rendered beside genuinely
- * healthy vehicles it reads as a clean bill of health nobody established. Every
- * page that colours or counts a prediction should ask this first. basis is the
- * discriminator rather than risk, because it is null exactly when both the
- * calendar and the mileage dimension were excluded from the minimum.
+ * True when neither service threshold is configured. A mileage threshold with
+ * a missing reading or usable rate is scheduled but needs data; a null basis
+ * alone cannot distinguish those cases.
  */
 export function isUnscheduled(prediction) {
-  return !prediction || prediction.basis === null || prediction.basis === undefined;
+  return !prediction || (prediction.next_service_date == null && prediction.next_service_mileage == null);
 }
 
 /**
@@ -317,14 +334,16 @@ export function isUnscheduled(prediction) {
  * lived, and four separate passes over the same array is how two of them
  * drifted apart.
  *
- * Vehicles with no schedule sort last: they have no urgency to rank, and
- * placing them among genuinely healthy vehicles would imply a clean bill of
- * health nobody established.
+ * Observed overdue mileage sorts first even without a day estimate. Rows with
+ * no day estimate otherwise sort last; they need more evidence, not a healthy
+ * ranking.
  */
 export function predictFleet(rows = [], now = new Date()) {
   const predictions = rows.map((r) => predictVehicle(r, now));
 
   const sorted = [...predictions].sort((a, b) => {
+    if (a.serviceStatus === "overdue" && b.serviceStatus !== "overdue") return -1;
+    if (b.serviceStatus === "overdue" && a.serviceStatus !== "overdue") return 1;
     if (a.effectiveDays === null && b.effectiveDays === null) return 0;
     if (a.effectiveDays === null) return 1;
     if (b.effectiveDays === null) return -1;
@@ -339,10 +358,12 @@ export function predictFleet(rows = [], now = new Date()) {
     low: 0,
     total: predictions.length,
     unscheduled: 0,
+    needsData: 0,
   };
   for (const p of predictions) {
     summary[p.risk] += 1;
-    if (p.basis === null) summary.unscheduled += 1;
+    if (isUnscheduled(p)) summary.unscheduled += 1;
+    if (p.serviceStatus === "needs_data") summary.needsData += 1;
   }
 
   return { predictions: sorted, summary };

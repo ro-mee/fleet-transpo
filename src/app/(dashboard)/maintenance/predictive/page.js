@@ -33,7 +33,7 @@ import { HeroHeader } from "@/components/ui/hero-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 
 function predictionTone(prediction) {
-  if (isUnscheduled(prediction)) return "secondary";
+  if (isUnscheduled(prediction) || prediction.serviceStatus === "needs_data") return "secondary";
   return riskTone(prediction.risk);
 }
 
@@ -76,12 +76,12 @@ export default function PredictiveMaintenancePage() {
     if (riskFilter === "overdue") return predictions.filter((p) => p.risk === "overdue");
     if (riskFilter === "critical") return predictions.filter((p) => p.risk === "critical");
     if (riskFilter === "high") return predictions.filter((p) => p.risk === "high");
-    if (riskFilter === "low") return predictions.filter((p) => p.risk === "low" && !isUnscheduled(p));
+    if (riskFilter === "low") return predictions.filter((p) => p.risk === "low" && p.serviceStatus !== "needs_data" && !isUnscheduled(p));
     if (riskFilter === "unscheduled") return predictions.filter((p) => isUnscheduled(p));
     return predictions;
   }, [predictions, riskFilter]);
 
-  const lowRiskCount = Math.max(0, summary.low - summary.unscheduled);
+  const lowRiskCount = Math.max(0, summary.low - (summary.needsData ?? summary.unscheduled));
 
   return (
     <div className="space-y-6 pb-12 w-full">
@@ -177,27 +177,32 @@ export default function PredictiveMaintenancePage() {
                       <div className="flex flex-wrap items-center gap-2 mb-1">
                         <h4 className="font-data text-sm font-bold text-foreground">{p.plate_number}</h4>
                         <span className="text-xs text-foreground-muted font-medium">{p.vehicle_name}</span>
-                        <StatusBadge status={unscheduled ? "unscheduled" : p.risk} entity="risk" className="text-[11px] font-bold">
-                          {unscheduled
-                            ? "No schedule"
-                            : p.effectiveDays < 0
-                            ? `${Math.abs(p.effectiveDays)} days overdue`
-                            : `${p.effectiveDays} days remaining`}
-                        </StatusBadge>
+                        <StatusBadge
+                          status={unscheduled || p.serviceStatus === "needs_data" ? "unscheduled" : p.risk}
+                          entity="risk"
+                          className="text-[11px] font-bold"
+                          label={unscheduled ? "No schedule"
+                            : p.serviceStatus === "needs_data" ? (p.dataIssues?.includes("missing_mileage") ? "Needs mileage" : "Needs trip data")
+                            : p.mileageOverdue && p.effectiveDays == null
+                              ? "Mileage overdue by " + Math.abs(p.kmToService).toLocaleString() + " km"
+                            : p.effectiveDays < 0 ? Math.abs(p.effectiveDays) + " days overdue"
+                            : p.effectiveDays === 0 ? "Due today"
+                            : p.effectiveDays + " days remaining"}
+                        />
                       </div>
 
                       <p className="text-xs text-foreground-secondary font-medium leading-relaxed">{p.recommendation}</p>
 
                       <div className="flex flex-wrap items-center gap-4 mt-2.5 text-xs text-foreground-muted font-medium">
                         <span className="flex items-center gap-1.5 font-data">
-                          <Gauge className="w-3.5 h-3.5 text-primary" /> {p.mileage?.toLocaleString()} km
+                          <Gauge className="w-3.5 h-3.5 text-primary" /> {p.mileage == null ? "Mileage unavailable" : p.mileage.toLocaleString() + " km"}
                         </span>
                         {p.next_service_date && (
                           <span className="flex items-center gap-1.5 font-data">
                             <CalendarDays className="w-3.5 h-3.5 text-primary" /> Next: {formatCalendarDate(p.next_service_date)}
                           </span>
                         )}
-                        {p.kmToService !== null && (
+                        {p.kmToService != null && (
                           <span className="flex items-center gap-1.5 font-data">
                             <Wrench className="w-3.5 h-3.5 text-primary" />{" "}
                             {p.kmToService < 0
@@ -205,12 +210,12 @@ export default function PredictiveMaintenancePage() {
                               : `${p.kmToService.toLocaleString()} km to service`}
                           </span>
                         )}
-                        {p.basis === "mileage" && (
+                        {p.basis === "mileage" && p.projectedDaysToService !== null && (
                           <span className="flex items-center gap-1.5 font-data">
                             <Activity className="w-3.5 h-3.5 text-primary" /> ~{Math.round(p.kmPerDay)} km/day
                           </span>
                         )}
-                        {p.confidence === "low" && p.basis !== null && (
+                        {p.confidence === "low" && p.basis === "time" && (
                           <span className="flex items-center gap-1 text-warning font-bold">
                             <AlertTriangle className="w-3.5 h-3.5" /> Calendar only — limited trip telemetry
                           </span>
@@ -224,10 +229,10 @@ export default function PredictiveMaintenancePage() {
                     </div>
 
                     <div className="w-32 shrink-0 pt-0.5 flex flex-col items-stretch gap-2">
-                      {unscheduled ? (
+                      {(unscheduled || p.effectiveDays == null) ? (
                         <div className="text-right">
                           <span className="font-data text-sm font-bold text-foreground-muted">—</span>
-                          <p className="text-[11px] text-foreground-muted font-medium">No schedule score</p>
+                          <p className="text-[11px] text-foreground-muted font-medium">{unscheduled ? "No schedule score" : "No day estimate"}</p>
                         </div>
                       ) : (
                         <div>
