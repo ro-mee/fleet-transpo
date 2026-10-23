@@ -19,7 +19,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Setup: baseline verified, plan ready.
 - Task 1: COMPLETE, commits 13d4754a and a91a6c08; independent scoped re-review approved, 94 focused tests passed.
 - Task 2: COMPLETE, commits f4b9e023 and 558fb2b3; independent review approved after one fix round.
-- Task 3: pending.
+- Task 3: COMPLETE, commits 132d90ba and 55d9eed9; independent review approved after one fix round.
 - Task 4: pending.
 - Task 5: pending.
 - Task 6: pending.
@@ -49,3 +49,15 @@ Atomic completion, required audit, vehicle status and qualifying Routine schedul
 Independent review found a Manila/UTC boundary in supplied completion-date validation. Fix 558fb2b3 passed 63 focused validation/PUT checks and scoped re-review approved with no unresolved Important or Critical findings. Minor existing expected-403 test stderr is recorded for final review. Maintenance.md and SYSTEM.md contain the behavior and verification details. Full-suite/build/browser checks remain Task 8.
 
 Next: Task 3 per-vehicle plans and dated odometer observations. Configuration is restored; the earlier missing-configuration checkpoint is historical. Remaining five-hour allowance was 39% at the Task 2 boundary; reset timestamp 1792796795. The continuation schedule remains active.
+
+## Task 3 complete / reset recovery - 2026-10-24
+
+Service plans and dated odometer observations are committed in 132d90ba. Migration 168 was applied through the runner and schema.sql regenerated. Ten usable Routine schedules were imported without invented mileage history; the legacy mirror has zero mismatches. Staff-only configuration, scoped reads, stale/active-order conflicts, odometer validation and authoritative Routine bridges are included.
+
+The focused run passed 170 checks. Live schema contract: 91 relations, zero violations. Anon probe: zero exposed, 43 refused, 48 inconclusive empty responses resolved by catalog; both new tables explicitly refused anon. Auth gate: 342 guarded methods. Touched lint, encoding and migration checks passed. Maintenance.md and SYSTEM.md were updated.
+
+Independent review found an integer/decimal compatibility bug in Routine's legacy interval mirror. Fix 55d9eed9 passed 50 covering checks including nine PostgreSQL temporary-table cases; scoped spec and quality review approved with no unresolved Important/Critical findings. Minor expected denial/audit-failure stderr remains for final review. Full build and browser verification remain Task 8.
+
+The implementer stopped at 5% remaining; the parent check then reported 100% used. Automatic approval review could not execute the progress checkpoint, so it was not written or committed at that time. The code commits, documentation and Task 3 report were already saved. The previous reset (1792796795, 2026-10-24 07:06:35 Manila) has passed. At 07:12 Manila usage reports 98% remaining, with next reset 1792815159. This entry reconciles that interrupted checkpoint. The user confirmed the original .env.local path, matching the restored configuration.
+
+Next unfinished task: Task 4 measured usage and task-level forecast evidence. Do not repeat Tasks 1-3 or reapply/edit migrations 167/168. The continuation schedule stays active. No merge, push or deployment.

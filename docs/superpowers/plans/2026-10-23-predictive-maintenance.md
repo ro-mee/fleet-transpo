@@ -77,21 +77,21 @@ expect(tx.query).not.toHaveBeenCalled();
 **Consumes:** vehicle IDs, existing maintenance read/create/update permissions with an explicit staff configuration guard and audited transactions.
 **Produces:** fixed service codes routine, brakes, tires; per-vehicle plans with interval_days/interval_km, last_service_date/last_service_mileage, next_service_date/next_service_mileage, version and audit timestamps. GET returns role-scoped plans; PUT creates/updates an authorized vehicle plan with expected_version conflict checks.
 
-- [ ] Read latest db:status and reserve the next unused version; verify schema and catalog conventions before naming the migration.
-- [ ] Test positive/null intervals (at least one interval or explicit due threshold configured), invalid vehicle/code, stale version (409), forbidden role and mechanic assigned-vehicle read scope.
+- [x] Read latest db:status and reserve the next unused version; verify schema and catalog conventions before naming the migration.
+- [x] Test positive/null intervals (at least one interval or explicit due threshold configured), invalid vehicle/code, stale version (409), forbidden role and mechanic assigned-vehicle read scope.
 ```js
 expect(SERVICE_CODES).toEqual(["routine", "brakes", "tires"]);
 expect(validateIntervals({ interval_days: null, interval_km: -1 }).ok).toBe(false);
 ```
-- [ ] Create vehicle_service_plans with unique(vehicle_id, service_code), positive interval constraints, FKs, RLS and revoked public grants. Extend vehiclemaintenance with nullable service_plan_id and service_plan_version, without altering historical rows' meaning.
-- [ ] Import only existing usable vehicle routine schedule values as routine plans; do not invent brake/tire intervals or service history. Keep legacy routine fields synchronized for current dispatch/advisory consumers.
-- [ ] Add POST /api/vehicles/[id]/odometer under vehicles:update. Persist vehicle_id, reading_km, observed_at, recorded_at, recorded_by and reason in a private vehicle_odometer_observations table. Validate 0..2,000,000 km, no future observed time, reject readings below current mileage; update vehicle and observation atomically. Manual observations are not photo verification. No bulk backfill or decreasing correction workflow.
-- [ ] Apply via db:up, dump schema, verify constraints/policies/grants and real read queries; run db:contract and verify:anon, resolve inconclusive using catalog.
-- [ ] Update vault/schema documentation, review and commit: feat: configure independent vehicle service plans.
+- [x] Create vehicle_service_plans with unique(vehicle_id, service_code), positive interval constraints, FKs, RLS and revoked public grants. Extend vehiclemaintenance with nullable service_plan_id and service_plan_version, without altering historical rows' meaning.
+- [x] Import only existing usable vehicle routine schedule values as routine plans; do not invent brake/tire intervals or service history. Keep legacy routine fields synchronized for current dispatch/advisory consumers.
+- [x] Add POST /api/vehicles/[id]/odometer under vehicles:update. Persist vehicle_id, reading_km, observed_at, recorded_at, recorded_by and reason in a private vehicle_odometer_observations table. Validate 0..2,000,000 km, no future observed time, reject readings below current mileage; update vehicle and observation atomically. Manual observations are not photo verification. No bulk backfill or decreasing correction workflow.
+- [x] Apply via db:up, dump schema, verify constraints/policies/grants and real read queries; run db:contract and verify:anon, resolve inconclusive using catalog.
+- [x] Update vault/schema documentation, review and commit: feat: configure independent vehicle service plans.
 
-- [ ] Require maintenance:update plus explicit admin/super_admin/fleet_manager guard for configuration, and vehicles:update for odometer recording. Mechanics have maintenance:update and must not gain configuration permission.
-- [ ] Permit legacy explicit due thresholds even without an interval; label these as manual schedules. Add deferred_until/defer_reason fields, version increment on configuration/completion, same-vehicle plan linkage and the active-order partial unique index. Reject plan configuration changes while an active linked order exists (409) rather than allow silent cycle replacement.
-- [ ] Make plans authoritative: route existing vehicle schedule creation/update through the shared service or remove those writable fields only after adapting their forms. Keep routine legacy columns synchronized in the same transaction.
+- [x] Require maintenance:update plus explicit admin/super_admin/fleet_manager guard for configuration, and vehicles:update for odometer recording. Mechanics have maintenance:update and must not gain configuration permission.
+- [x] Permit legacy explicit due thresholds even without an interval; label these as manual schedules. Add deferred_until/defer_reason fields, version increment on configuration/completion, same-vehicle plan linkage and the active-order partial unique index. Reject plan configuration changes while an active linked order exists (409) rather than allow silent cycle replacement.
+- [x] Make plans authoritative: route existing vehicle schedule creation/update through the shared service or remove those writable fields only after adapting their forms. Keep routine legacy columns synchronized in the same transaction.
 
 ### Task 4: Ground forecasts in measured usage and expose task-level evidence
 
