@@ -141,3 +141,11 @@ Review fix c848829d adds shared linked-work-order error feedback to both mainten
 Task7 is complete. Next: Task8 six-scenario isolated demonstration, broad checks and independent whole-branch review. Existing task8 brief is the requirements source. Current allowance27%remaining; reset1792891772. Weekly allowance9%remaining. Record meaningful partial evidence before the five-hour cutoff and never mark unfinished Task8 complete. Continuation remains active. No merge, push or deployment.
 
 Task8 dispatched to/root/maintenance_task8 atBASE34a1b07c. Task7 final feature-documentation approval commit isf55c1900. Task8 report: .superpowers/sdd/2026-10-23-predictive-maintenance/task-8-report.md. Resume that agent rather than duplicating work. Parent still owns final whole-branch review and completion/schedule shutdown.
+
+## Task8 verification / usage checkpoint - 2026-10-25
+
+Task8 is IN PROGRESS, with no implementation commit or task review yet. The original agent/root/maintenance_task8 saved task-8-report.md and incremental logs under .superpowers/sdd/2026-10-23-predictive-maintenance/task-8-logs/. Read-only gate runner session36937 had reported exit0 for auth, encoding, db:check, db:status and db:contract; full tests, lint and anon results were still being collected. Inspect summary.json and the report before repeating any command. No tracked Task8 source edits or operating-data writes at this checkpoint.
+
+The old verify-predictive-maintenance.mjs uses retired contracts and must not be used as current verification. Next after collecting existing results: installed-doc-guided build (record any junction failure and webpack fallback), focused compatibility/TEMP rollback fixtures, six-scenario reproducible demo, docs/commit/task review, then parent whole-branch review. No task completion claim.
+
+Allowance7%remaining at parent checkpoint; reset1792891773 / 2026-10-25T09:29:33+08:00 Asia/Manila. At5%orless stop new work; preserve logs/report and resume original agent after reset. Weekly allowance6%remaining. Continuation remains active; no merge,push or deployment.
