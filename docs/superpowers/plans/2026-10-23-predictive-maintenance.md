@@ -116,18 +116,18 @@ expect(computeUsageRate({ km_90d: 500, trip_count: 5, valid_trip_count: 1 }).con
 **Consumes:** service_plan_id/version; existing assignee selection, Scheduled/In Progress/Pending Inspection/Completed lifecycle.
 **Produces:** active_work_order link in outlook; explicit serviced task on completion; optional recorded defer reason/review date that never hides factual overdue status.
 
-- [ ] Test concurrent/repeated scheduling returns the existing active order for the same plan, different plans can have separate jobs, closed jobs allow a new cycle, and unauthorized/foreign vehicle-plan pairs fail.
+- [x] Test concurrent/repeated scheduling returns the existing active order for the same plan, different plans can have separate jobs, closed jobs allow a new cycle, and unauthorized/foreign vehicle-plan pairs fail.
 ```js
 expect(secondResult.maintenance_id).toBe(firstResult.maintenance_id);
 expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 ```
-- [ ] Lock the service-plan row during reviewed creation and use a DB uniqueness guarantee for active linked work orders. Add an idempotent migration only after ledger check if the Task 3 migration is already applied.
-- [ ] Carry server-computed forecast evidence into creation, not trusted browser claims. Reuse existing notification and assignment paths.
-- [ ] On approved completion, update only the linked plan in the existing transaction, audit it, and update legacy routine values only for routine work. A brake inspection cannot reset oil service.
-- [ ] Test invalidating/retrying completion, rejection, cancellation/archive, linked-plan changes and role separation.
-- [ ] Document, review and commit: feat: connect service forecasts to reviewed work orders.
+- [x] Lock the service-plan row during reviewed creation and use a DB uniqueness guarantee for active linked work orders. Add an idempotent migration only after ledger check if the Task 3 migration is already applied.
+- [x] Carry server-computed forecast evidence into creation, not trusted browser claims. Reuse existing notification and assignment paths.
+- [x] On approved completion, update only the linked plan in the existing transaction, audit it, and update legacy routine values only for routine work. A brake inspection cannot reset oil service.
+- [x] Test invalidating/retrying completion, rejection, cancellation/archive, linked-plan changes and role separation.
+- [x] Document, review and commit: feat: connect service forecasts to reviewed work orders.
 
-- [ ] Require expected_version when filing a reviewed plan order; reject stale cycles with 409. Keep plan/vehicle linkage immutable after work starts. Lock vehicle then plan then work order consistently with completion. Recover the existing active order for repeated requests, with no duplicate notifications.
+- [x] Require expected_version when filing a reviewed plan order; reject stale cycles with 409. Keep plan/vehicle linkage immutable after work starts. Lock vehicle then plan then work order consistently with completion. Recover the existing active order for repeated requests, with no duplicate notifications.
 
 ### Task 6: Add one inspection signal and lightweight outcome evidence
 

@@ -21,7 +21,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 2: COMPLETE, commits f4b9e023 and 558fb2b3; independent review approved after one fix round.
 - Task 3: COMPLETE, commits 132d90ba and 55d9eed9; independent review approved after one fix round.
 - Task 4: COMPLETE, commit d1d80c62; independent spec and quality review passed with zero findings.
-- Task 5: IMPLEMENTED in b4b1940c; independent review running under maintenance_task5/task5_review. Not yet complete.
+- Task 5: COMPLETE, commits b4b1940c and 99c12a99; scoped spec/quality re-review passed with both findings addressed.
 - Task 6: pending.
 - Task 7: pending.
 - Task 8: pending.
@@ -79,3 +79,13 @@ The combined affected run passed 186 cases with one exact response-shape asserti
 Independent review is still running. Do not mark Task 5 complete until its report/verdict and any fix loop are resolved. Report and review package: .superpowers/sdd/2026-10-23-predictive-maintenance/task-5-*. The implementer and reviewer are active; do not duplicate them.
 
 Allowance was 14% remaining before review. Next reset: 1792815159 / 2026-10-24 12:12:39 Asia/Manila (04:12:39 UTC). If the <=5% cutoff arrives, resume the Task 5 review/fix loop first, then Task 6. Task 6 has not started. This early checkpoint preserves the stopping point before automatic approval review can run out of allowance.
+
+## Resume Task 5 review fix - 2026-10-24 12:13 Manila
+
+Allowance reset (0% used; next reset1792833225). Review found a missing created guard in the fuel-diagnostic notification branch on existing-order replay. Resume the original implementer for a test-first fix plus completed-cycle reuse coverage, then scoped re-review. Task 6 remains pending. No duplicate implementation was active.
+
+## Task 5 review fix complete - 2026-10-24
+
+Fix 99c12a99 restricts fuel-diagnostic notification to newly created orders. Its replay regression first failed (one failure, fourteen passing cases), then all 38 focused POST/plan/fuel cases passed. Coverage now includes approved linked completion, version increment, stale rejection and new-order creation for the new cycle. Strict touched lint, encoding and whitespace passed. Maintenance.md and SYSTEM.md are updated. Scoped independent spec and quality re-review approved both findings, with no new issues. Task 5 is complete; the earlier pending-review checkpoint is historical.
+
+Task 6 integration: reviewPlanWorkOrder returns reviewedService from authoritative getMaintenanceOutlook inside the scheduling transaction. It is null on existing-order reuse. POST's post-insert/pre-commit seam and completion helper's returned before/plan support later immutable snapshots without trusting browser forecasts. Report: task-5-report.md. Next Task 6; allowance83%remaining at this boundary, reset1792833225.
