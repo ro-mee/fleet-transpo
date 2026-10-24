@@ -27,7 +27,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
   const submitting = useRef(false);
   const [formError, setFormError] = useState(null);
   const [conflicted, setConflicted] = useState(false);
-  
+
   const [loading, setLoading] = useState(false);
   const [pendingCancellationData, setPendingCancellationData] = useState(null);
   const [formData, setFormData] = useState({
