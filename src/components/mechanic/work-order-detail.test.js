@@ -25,6 +25,15 @@ function render(props) {
 }
 
 describe("work-order-detail evidence contract", () => {
+  it("renders linked combined checklist outcomes and preserves their evidence payload", () => {
+    const row={...leanRow(),inspection_items:[{checklist_item_id:"brakes_tires",inspection_ids:[42,43]}]};
+    const html=render({workOrder:row});
+    expect(html).toContain("Brakes and tires");
+    expect(html).toContain("42, 43");
+    expect(html).toContain("Outcome evidence");
+    const outcomes=[{checklist_item_id:"brakes_tires",outcome:"inconclusive",evidence:"Needs road test"}];
+    expect(buildMechanicUpdateBody({inspection_outcomes:outcomes}).inspection_outcomes).toEqual(outcomes);
+  });
   it("submit body keys are a subset of the mechanic whitelist", () => {
     const body = buildMechanicUpdateBody({
       status: "Pending Inspection",

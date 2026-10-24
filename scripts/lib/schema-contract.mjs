@@ -181,6 +181,10 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Per-vehicle service configuration, baselines and audited cycle versions; authenticated role-scoped API only.",
   },
+  maintenance_forecast_snapshots: {
+    classification: CLASSIFICATION.PRIVATE,
+    reason: "Immutable maintenance forecast inputs and item outcomes; assigned-work-order API scope only.",
+  },
   vehicle_odometer_observations: {
     classification: CLASSIFICATION.PRIVATE,
     reason: "Dated manual odometer evidence with recording employee and reason; authenticated API only.",

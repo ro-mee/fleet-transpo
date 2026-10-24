@@ -1,3 +1,4 @@
+import { captureOdometerCrossings } from "@/services/maintenance-evidence.service";
 import { query } from "@/lib/db";
 import { AuthError } from "@/lib/api/utils";
 import { normalizeRoleName } from "@/lib/auth/role-names";
@@ -72,5 +73,6 @@ export async function recordOdometerObservation(executor,id,input,actorId) {
  if (rows[0].mileage !== null && valid.data.reading_km < Number(rows[0].mileage)) throw new AuthError("Reading is below the current odometer. Decreasing corrections are not supported.",409);
  const result=await executor.query(`INSERT INTO vehicle_odometer_observations(vehicle_id,reading_km,observed_at,recorded_by,reason) VALUES($1,$2,$3,$4,$5) RETURNING *`,[id,valid.data.reading_km,valid.data.observed_at,actorId,valid.data.reason]);
  await executor.query("UPDATE vehicles SET mileage=$1,updated_at=NOW() WHERE vehicle_id=$2",[valid.data.reading_km,id]);
+ await captureOdometerCrossings(executor,result.rows[0],rows[0].mileage,actorId);
  return result.rows[0];
 }

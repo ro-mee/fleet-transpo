@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({
     await h.client.query("SAVEPOINT request");
     try {
       const result = await run({ query: async (sql, values) => {
+        if (h.fail === "snapshot" && sql.startsWith("INSERT INTO maintenance_forecast_snapshots")) throw new Error("Fixture snapshot failure");
         if (h.fail === "schedule" && sql.startsWith("UPDATE vehicle_service_plans SET")) throw new Error("Fixture schedule failure");
         if (h.fail === "status" && sql.startsWith("UPDATE vehicles SET vehicle_status")) throw new Error("Fixture status failure");
         return h.client.query(sql, values);
@@ -43,16 +44,20 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
     await h.client.query("SET LOCAL search_path TO pg_temp,pg_catalog; SET LOCAL statement_timeout='8s'; SET LOCAL lock_timeout='3s'");
     const checks = (await h.client.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='public.vehicles'::regclass AND conname='chk_vehicle_status'")).rows;
     await h.client.query(`CREATE TEMP TABLE vehicles(vehicle_id int PRIMARY KEY, vehicle_status text, registration_expiry date, deleted_at timestamptz,
-      mileage numeric, service_interval_days int, service_interval_km numeric, last_service_date date, next_service_date date, next_service_mileage numeric, updated_at timestamptz,
+      plate_number text,vehicle_name text,mileage numeric, service_interval_days int, service_interval_km numeric, last_service_date date, next_service_date date, next_service_mileage numeric, updated_at timestamptz,
       ${checks[0].definition}) ON COMMIT DROP;
       CREATE TEMP TABLE vehicle_service_plans(plan_id int PRIMARY KEY, vehicle_id int, service_code text, interval_days int, interval_km numeric,
        last_service_date date,last_service_mileage numeric,next_service_date date,next_service_mileage numeric,deferred_until date,defer_reason text,version int,updated_at timestamptz,updated_by int) ON COMMIT DROP;
       CREATE TEMP TABLE vehiclemaintenance(maintenance_id int PRIMARY KEY DEFAULT 124, vehicle_id int, status text, maintenance_type text, maintenance_date date,
         completed_date date, mileage_at_service numeric, deleted_at timestamptz, created_by int, repair_completed_by int, assigned_mechanic_id int,
         repair_started_at timestamptz, repair_completed_at timestamptz, priority text, manager_approved_by int, manager_approved_at timestamptz,
-        completed_by int, completed_at timestamptz, remarks text, service_plan_id int,service_plan_version int,rejection_reason text, assigned_at timestamptz) ON COMMIT DROP;
+        completed_by int, completed_at timestamptz, remarks text, service_plan_id int,service_plan_version int,rejection_reason text, assigned_at timestamptz,source_inspection_id int,inspection_items jsonb DEFAULT '[]',inspection_outcomes jsonb DEFAULT '[]') ON COMMIT DROP;
       CREATE TEMP TABLE driverincidents(incident_id int, vehicle_id int, severity text, status text, deleted_at timestamptz) ON COMMIT DROP;
-      CREATE TEMP TABLE trips(trip_id int, vehicle_id int, trip_status text, deleted_at timestamptz) ON COMMIT DROP;
+      CREATE TEMP TABLE trips(trip_id int,vehicle_id int,trip_status text,deleted_at timestamptz,start_time timestamptz,end_time timestamptz,start_odometer numeric,end_odometer numeric,actual_distance_km numeric,distance_provenance text) ON COMMIT DROP;
+      CREATE TEMP TABLE vehicleinspection(inspection_id int,vehicle_id int,inspection_type text,inspection_date date,checklist jsonb) ON COMMIT DROP;
+      CREATE TEMP TABLE vehicle_odometer_observations(vehicle_id int,reading_km numeric,observed_at timestamptz,recorded_at timestamptz) ON COMMIT DROP;
+      CREATE TEMP TABLE trip_odometer_captures(trip_id int,vehicle_id int,stage text,state text,reading_km numeric,committed_at timestamptz) ON COMMIT DROP;
+      CREATE TEMP TABLE maintenance_forecast_snapshots(snapshot_id int GENERATED ALWAYS AS IDENTITY,vehicle_id int,service_plan_id int,maintenance_id int,rule_version text,event text,inputs jsonb,forecast jsonb,outcome jsonb,captured_by int,captured_at timestamptz DEFAULT clock_timestamp()) ON COMMIT DROP;
       CREATE TEMP TABLE audit_logs(action text) ON COMMIT DROP;`);
     await h.client.query("SAVEPOINT fixture");
   }, 20000);
@@ -66,6 +71,21 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
   });
   afterAll(async () => { try { await h.client?.query("ROLLBACK"); } finally { await h.client?.end(); } });
   const vehicle = async (id = 7) => (await h.client.query("SELECT vehicle_status,last_service_date::text,next_service_date::text,next_service_mileage FROM vehicles WHERE vehicle_id=$1", [id])).rows[0];
+  it("rolls linked completion snapshots back when audit fails and rolls completion back when snapshot fails",async()=>{
+    await h.client.query("UPDATE vehiclemaintenance SET service_plan_id=1,service_plan_version=1");
+    h.fail="audit";expect((await put({status:"Completed"})).status).toBe(500);
+    expect((await h.client.query("SELECT count(*)::int n FROM maintenance_forecast_snapshots")).rows[0].n).toBe(0);
+    h.fail="snapshot";expect((await put({status:"Completed"})).status).toBe(500);
+    expect((await h.client.query("SELECT status FROM vehiclemaintenance")).rows[0].status).toBe("Scheduled");
+    expect((await h.client.query("SELECT version FROM vehicle_service_plans")).rows[0].version).toBe(1);
+  });
+  it("rolls created work orders and their schedule snapshot back on required audit failure",async()=>{
+    h.fail="audit";
+    const response=await POST({body:{vehicle_id:7,service_plan_id:1,expected_version:1,maintenance_date:"2026-10-01",maintenance_type:"Routine"}});
+    expect(response.status).toBe(500);
+    expect((await h.client.query("SELECT count(*)::int n FROM vehiclemaintenance")).rows[0].n).toBe(1);
+    expect((await h.client.query("SELECT count(*)::int n FROM maintenance_forecast_snapshots")).rows[0].n).toBe(0);
+  });
   it("completes only the linked brake task, audits its cycle, and freezes completion retries", async () => {
     await h.client.query(`INSERT INTO vehicle_service_plans(plan_id,vehicle_id,service_code,interval_days,version) VALUES(2,7,'brakes',90,1);
       UPDATE vehiclemaintenance SET service_plan_id=2,service_plan_version=1`);

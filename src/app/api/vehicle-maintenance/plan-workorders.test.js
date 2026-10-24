@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const h = vi.hoisted(() => ({ user: null, plans: [], orders: [], queries: [], notifications: [], audit: [], outlook: vi.fn(), fuelNotify: vi.fn(), nextId: 10, serial: Promise.resolve() }));
+const h = vi.hoisted(() => ({ user: null, plans: [], orders: [], queries: [], notifications: [], audit: [], outlook: vi.fn(), fuelNotify: vi.fn(), nextId: 10, snapshots: [], failSnapshot: false, serial: Promise.resolve() }));
 vi.mock("@/lib/db", () => ({ query: async sql => sql.includes("FROM employees") ? { rows: [{ employee_id: 9 }] } : { rows: [{ plate_number: "TEST" }] }, withTransaction: run => { const result = h.serial.then(() => run(h.tx)); h.serial = result.catch(() => {}); return result; } }));
 vi.mock("@/lib/fuel/maintenance", () => ({ notifyFuelDiagnosticTeam: h.fuelNotify }));
 vi.mock("@/services/maintenance-outlook.service", () => ({ getMaintenanceOutlook: h.outlook }));
@@ -13,11 +13,14 @@ const body = (plan = 1, version = 3) => ({ vehicle_id: 7, service_plan_id: plan,
 const post = data => POST({ body: data });
 const put = data => PUT({ body: data }, { params: Promise.resolve({ id: 10 }) });
 beforeEach(() => {
- h.user = { role: "fleet_manager", employeeId: 888 }; h.orders = []; h.nextId = 10; h.queries = []; h.notifications = []; h.audit = []; h.serial = Promise.resolve(); h.fuelNotify.mockReset();
+ h.snapshots=[]; h.failSnapshot=false; h.user = { role: "fleet_manager", employeeId: 888 }; h.orders = []; h.nextId = 10; h.queries = []; h.notifications = []; h.audit = []; h.serial = Promise.resolve(); h.fuelNotify.mockReset();
  h.plans = [{ plan_id: 1, vehicle_id: 7, version: 3, service_code: "routine", interval_days: 30 }, { plan_id: 2, vehicle_id: 7, version: 1, service_code: "brakes" }];
  h.outlook.mockReset().mockImplementation(async (_user,_now,tx) => { expect(tx).toBe(h.tx); return { predictions: [{ vehicle_id: 7, services: h.plans.map(p => ({ ...p, risk: "overdue", evidence: { validTripCount: 5 } })) }] }; });
  h.tx = { query: async (sql, values = []) => {
   h.queries.push(sql);
+  if(sql.includes("INSERT INTO maintenance_forecast_snapshots")) { if(h.failSnapshot) throw new Error("Fixture snapshot failure"); const row={snapshot_id:h.snapshots.length+1,vehicle_id:values[0],maintenance_id:values[2],event:values[4],inputs:JSON.parse(values[5]),forecast:JSON.parse(values[6]),outcome:JSON.parse(values[7])};h.snapshots.push(row);return {rows:[row]}; }
+  if(sql.includes("FROM maintenance_forecast_snapshots")) return {rows:h.snapshots.filter(s=>s.maintenance_id===values[0] && s.event===(sql.includes("threshold_observed")?"threshold_observed":"reviewed_schedule")).slice(-1)};
+
   if (sql.includes("FROM vehicles")) return { rows: [{ vehicle_id: 7 }] };
   if (sql.includes("FROM vehicle_service_plans")) return { rows: h.plans.filter(p => p.vehicle_id === Number(values[0]) && (sql.includes("plan_id=$2") ? p.plan_id === Number(values[1]) : p.service_code === "routine")) };
   if (sql.includes("SELECT status")) return { rows: h.orders.filter(p => p.maintenance_id === Number(values[0])) };
@@ -40,6 +43,13 @@ beforeEach(() => {
  } };
 });
 describe("reviewed plan work orders", () => {
+ it("captures only the server-reviewed schedule once and completed lifecycle evidence", async () => {
+  await post(body()); await post({...body(),forecast:{risk:"invented"}});
+  expect(h.snapshots).toHaveLength(1);
+  expect(h.snapshots[0]).toMatchObject({event:"reviewed_schedule",forecast:{risk:"overdue",evidence:{validTripCount:5}}});
+  expect((await put({status:"Completed",completed_date:"2026-10-01"})).status).toBe(200);
+  expect(h.snapshots.map(s=>s.event)).toEqual(["reviewed_schedule","completed"]);
+ });
  it("serializes repeated scheduling, returns the active order and notifies only once", async () => {
   const responses = await Promise.all([post(body()),post(body())]);
   expect(responses.map(r => r.status)).toEqual([201,200]);
@@ -100,6 +110,10 @@ describe("reviewed plan work orders", () => {
  });
  it("fails closed when the current service outlook cannot establish the reviewed cycle", async () => {
   h.outlook.mockResolvedValue({predictions:[]}); expect((await post(body())).status).toBe(409); expect(h.orders).toHaveLength(0); expect(h.notifications).toHaveLength(0);
+ });
+ it("keeps inspection source orders on their original vehicle",async()=>{
+  await post(body());delete h.orders[0].service_plan_id;h.orders[0].source_inspection_id=42;
+  expect((await put({vehicle_id:8})).status).toBe(409);
  });
  it("takes vehicle, plan, then work-order locks for edits", async () => {
   await post(body()); h.queries=[]; expect((await put({ remarks:"Reviewed" })).status).toBe(200);

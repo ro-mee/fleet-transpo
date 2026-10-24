@@ -204,7 +204,7 @@ async function main() {
   for (const t of triggers) out.push(`${t.def};`);
 
   out.push("");
-  writeFileSync(resolve(process.cwd(), OUT), out.join("\n"), "utf8");
+  writeFileSync(resolve(process.cwd(), OUT), out.join("\n").replace(/\r\n?/g, "\n"), "utf8");
 
   console.log(`Wrote ${OUT}`);
   console.log(

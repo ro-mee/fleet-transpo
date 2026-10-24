@@ -1,5 +1,6 @@
 "use client";
 
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { useState } from "react";
 import { CheckCircle2, Circle, Minus, Plus, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -360,6 +361,13 @@ export function WorkOrderDetail({
   const [laborHours, setLaborHours] = useState(
     workOrder?.labor_hours != null ? String(workOrder.labor_hours) : ""
   );
+  const [itemOutcomes,setItemOutcomes]=useState(()=>workOrder?.inspection_outcomes ?? []);
+  const [outcomesEdited,setOutcomesEdited]=useState(false);
+  const outcomeError=itemOutcomes.some(item=>!item.evidence?.trim() || !item.outcome);
+  const editItemOutcome=(key,patch)=>{
+    setItemOutcomes(items=>{const previous=items.find(i=>i.checklist_item_id===key) ?? {checklist_item_id:key,outcome:"",evidence:""};return [...items.filter(i=>i.checklist_item_id!==key),{...previous,...patch}];});
+    setOutcomesEdited(true);onEdit?.();
+  };
   const [remarks, setRemarks] = useState(workOrder?.remarks ?? "");
 
   if (!workOrder) return null;
@@ -372,19 +380,20 @@ export function WorkOrderDetail({
       ? "Labor hours must be a positive number."
       : null;
   const hasEvidence =
-    String(diagnosis).trim().length > 0 || partsValue.length > 0 || laborHours !== "" || String(remarks).trim().length > 0;
-  const canSave = !submitting && !diagnosisError && !laborError && hasEvidence;
+    String(diagnosis).trim().length > 0 || partsValue.length > 0 || laborHours !== "" || String(remarks).trim().length > 0 || outcomesEdited;
+  const canSave = !submitting && !diagnosisError && !laborError && (!outcomesEdited || !outcomeError) && hasEvidence;
 
   const evidenceBody = () =>
     buildMechanicUpdateBody({
       diagnosis,
+      inspection_outcomes:outcomesEdited?itemOutcomes.map(({checklist_item_id,outcome,evidence})=>({checklist_item_id,outcome,evidence})):undefined,
       parts: partsValue,
       laborHours: laborValue,
       remarks,
     });
 
   const action = nextMechanicAction(workOrder.status);
-  const actionDisabled = submitting;
+  const actionDisabled = submitting || (outcomesEdited && outcomeError);
   const vehicle = jobVehicle(workOrder);
   const problem = jobProblem(workOrder);
   const sources = sourceLabels(workOrder);
@@ -488,6 +497,29 @@ export function WorkOrderDetail({
             }}
             className="space-y-4"
           >
+            {(workOrder.inspection_items ?? []).map(item=>{
+              const saved=itemOutcomes.find(i=>i.checklist_item_id===item.checklist_item_id);
+              const title=item.checklist_item_id==="brakes_tires"?"Brakes and tires":item.checklist_item_id.replaceAll("_"," ");
+              return <fieldset key={item.checklist_item_id} className="space-y-2 border-b border-border/70 pb-4">
+                <legend className="text-sm font-semibold capitalize text-foreground">{title}</legend>
+                <p className="text-xs text-foreground-secondary">Inspection reports: {item.inspection_ids.join(", ")}</p>
+                <p className="text-xs text-foreground-secondary">Record what you checked. The Fleet Manager reviews this with the completed work.</p>
+                <Select value={saved?.outcome ?? ""} onValueChange={outcome=>editItemOutcome(item.checklist_item_id,{outcome})} disabled={submitting}>
+                  <SelectTrigger aria-label={title+" outcome"} className="min-h-[44px]"><SelectValue placeholder="Choose an outcome" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="confirmed">Confirmed and repaired</SelectItem>
+                    <SelectItem value="not_confirmed">Not confirmed</SelectItem>
+                    <SelectItem value="inconclusive">Inconclusive — needs review</SelectItem>
+                  </SelectContent>
+                </Select>
+                <label htmlFor={"wo-outcome-"+item.checklist_item_id} className="block text-xs font-semibold text-foreground">Outcome evidence</label>
+                <textarea id={"wo-outcome-"+item.checklist_item_id} value={saved?.evidence ?? ""} maxLength={1000} rows={2} disabled={submitting}
+                  onChange={e=>editItemOutcome(item.checklist_item_id,{evidence:e.target.value})}
+                  aria-describedby={"wo-outcome-help-"+item.checklist_item_id}
+                  className="min-h-[44px] w-full rounded-control border border-border bg-surface px-3 py-2.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:opacity-60" />
+                <p id={"wo-outcome-help-"+item.checklist_item_id} className="text-xs text-foreground-secondary">Choose an outcome and describe the checks or repair before saving.</p>
+              </fieldset>;
+            })}
             <div className="space-y-1.5">
               <label htmlFor="wo-diagnosis" className="block text-xs font-semibold text-foreground">
                 Diagnosis

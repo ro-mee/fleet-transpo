@@ -30,7 +30,7 @@ export async function reviewPlanWorkOrder(tx, user, body, now = new Date()) {
 }
 
 const WORK_ORDER_SELECT = `SELECT status, created_by, repair_completed_by, assigned_mechanic_id, repair_started_at, priority,
-  vehicle_id, maintenance_date, maintenance_type, service_plan_id, service_plan_version FROM vehiclemaintenance
+  vehicle_id, maintenance_date, maintenance_type, service_plan_id, service_plan_version, source_inspection_id, inspection_items, inspection_outcomes FROM vehiclemaintenance
   WHERE maintenance_id = $1 AND deleted_at IS NULL`;
 
 export async function lockMaintenanceWorkOrder(tx, id, targetVehicleId, completing, targetMaintenanceType) {
@@ -50,5 +50,5 @@ export function assertWorkOrderPlanUnchanged(before, body) {
   for (const key of ["service_plan_id", "service_plan_version"]) {
     if (Object.hasOwn(body,key) && body[key] !== before[key] && Number(body[key]) !== Number(before[key])) throw new AuthError("A work order's service task and cycle cannot be changed. Cancel it and review a new order.",409);
   }
-  if (before.service_plan_id && body.vehicle_id !== undefined && Number(body.vehicle_id) !== Number(before.vehicle_id)) throw new AuthError("A linked work order cannot move to another vehicle. Cancel it and review a new order.",409);
+  if ((before.service_plan_id || before.source_inspection_id || before.inspection_items?.length) && body.vehicle_id !== undefined && Number(body.vehicle_id) !== Number(before.vehicle_id)) throw new AuthError("A linked work order cannot move to another vehicle. Cancel it and review a new order.",409);
 }

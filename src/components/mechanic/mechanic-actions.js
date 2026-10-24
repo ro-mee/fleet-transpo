@@ -23,6 +23,7 @@ export const MECHANIC_WRITABLE_FIELDS = [
   "diagnosis",
   "parts_replaced",
   "labor_hours",
+  "inspection_outcomes",
 ];
 
 const MECHANIC_WRITABLE = new Set(MECHANIC_WRITABLE_FIELDS);
@@ -59,6 +60,7 @@ export function nextMechanicAction(status) {
 export function buildMechanicUpdateBody(input = {}) {
   const raw = {
     status: input.status,
+    inspection_outcomes: input.inspection_outcomes,
     description: input.description,
     remarks: input.remarks,
     mileage_at_service: input.mileage_at_service ?? input.mileageAtService,

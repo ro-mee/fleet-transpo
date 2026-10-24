@@ -1,3 +1,4 @@
+import { inspectionSignalsForVehicles } from "@/services/maintenance-evidence.service";
 import { query } from "@/lib/db";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 import { predictFleet, USAGE_WINDOW_DAYS } from "@/lib/ai/predictive-maintenance";
@@ -84,5 +85,8 @@ export async function getMaintenanceOutlook(user, now = new Date(), executor = {
    AND EXISTS(SELECT 1 FROM vehiclemaintenance vm WHERE vm.vehicle_id=v.vehicle_id AND vm.assigned_mechanic_id=$3 AND vm.deleted_at IS NULL)` : FLEET_SQL;
   const values = [String(USAGE_WINDOW_DAYS), now, mechanic ? user.employeeId : null];
   const { rows } = await executor.query(sql, values);
-  return predictFleet(rows, now);
+  const result=predictFleet(rows, now);
+  const signals=await inspectionSignalsForVehicles(executor,result.predictions.map(p=>Number(p.vehicle_id)),user,now);
+  result.predictions=result.predictions.map(p=>({...p,signals:signals.get(Number(p.vehicle_id)) ?? []}));
+  return result;
 }

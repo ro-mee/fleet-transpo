@@ -1,3 +1,4 @@
+import { appendMaintenanceSnapshot } from "@/services/maintenance-evidence.service";
 import { isReviewedPlanRequest, reviewPlanWorkOrder } from "@/services/maintenance-plan-workorders.service";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
@@ -64,7 +65,7 @@ const MT_LIST_SELECT = `
   vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
   vm.completed_date, vm.status, vm.priority, vm.cost,
   vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
-  vm.source_incident_id, vm.source_inspection_id, vm.assigned_mechanic_id, vm.service_plan_id, vm.service_plan_version,
+  vm.inspection_items, vm.inspection_outcomes, vm.source_incident_id, vm.source_inspection_id, vm.assigned_mechanic_id, vm.service_plan_id, vm.service_plan_version,
   vm.assigned_at, vm.repair_started_at, vm.repair_completed_at, vm.repair_completed_by,
   NULLIF(trim(concat_ws(' ', repairer.first_name, repairer.last_name)), '') AS repair_completed_by_name,
   vm.diagnosis, vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
@@ -354,6 +355,7 @@ export async function POST(req) {
         ? `INSERT INTO vehiclemaintenance (${linkedColumns.join(", ")}${assigningMechanic ? ", assigned_at" : ""}) VALUES (${linkedValues.map((_,i) => `$${i+1}`).join(", ")}${assigningMechanic ? ", CURRENT_TIMESTAMP" : ""}) RETURNING *`
         : insertSql;
       const { rows } = await tx.query(linkedSql, linkedValues);
+      if (review?.reviewedService) await appendMaintenanceSnapshot(tx,{event:"reviewed_schedule",order:rows[0],actorId:session.user.employeeId,forecast:review.reviewedService,inputs:{assessed_at:review.reviewedService.assessed_at,service_plan_version:review.plan.version,mileage:review.reviewedService.mileage,evidence:review.reviewedService.evidence,last_service_date:review.reviewedService.last_service_date,last_service_mileage:review.reviewedService.last_service_mileage,interval_days:review.reviewedService.interval_days,interval_km:review.reviewedService.interval_km}});
       if (rows[0]?.vehicle_id) await syncVehicleStatus(rows[0].vehicle_id, tx);
       await writeAuditRequired(tx, req, session, {
         action: "maintenance_created",
