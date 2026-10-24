@@ -396,10 +396,17 @@ export default function MaintenancePage() {
     []
   );
 
+  const linkedOrderFeedback = linkedOrder.isError ? (
+    <div role="alert" className="rounded-xl border border-danger/30 bg-danger-bg p-4 text-sm text-foreground">
+      Could not open this work order.{" "}
+      <Button type="button" variant="outline" onClick={() => linkedOrder.refetch()}>Retry work order</Button>
+    </div>
+  ) : null;
+
   if (isError) {
     return (
       <div className="space-y-6 pb-12 w-full">
-      {linkedOrder.isError && <div role="alert" className="rounded-xl border border-danger/30 bg-danger-bg p-4 text-sm">Could not open this work order. <Button variant="outline" onClick={() => linkedOrder.refetch()}>Retry</Button></div>}
+        {linkedOrderFeedback}
         <EmptyState
           icon={TriangleAlert}
           title="Could not load maintenance records"
@@ -413,6 +420,7 @@ export default function MaintenancePage() {
 
   return (
     <div className="space-y-6 pb-12 w-full">
+      {linkedOrderFeedback}
       {/* ── TOP HERO HEADER BAR ── */}
       <HeroHeader
         icon={Wrench}
