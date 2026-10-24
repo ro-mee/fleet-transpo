@@ -97,3 +97,11 @@ Task 6 implementation d72cfe68 adds canonical recurring inspection signals, per-
 Independent spec and quality review is running; Task 6 remains incomplete until its verdict/fixes are resolved. No browser/device/full-build/full-suite or actual multi-connection race claim. Only the manual odometer mutation observes crossings here; other unobserved cases remain unknown. The schema dump generator normalizes actual CRLF line endings before writing the generated artifact.
 
 Next after clean review: Task 7, using task-7-ui-scout.md and Task 6's final payloads. Newer attached recurring reports must use signals[].active_work_order rather than inferring tracking solely from original source_inspection_id. Allowance29%remaining before review; reset1792833225. If cutoff interrupts, resume review/fixes first; Task 7 has not started.
+
+## Task 6 completed and reviewed - 2026-10-24
+
+Fix 762da736 resolves both Important review findings: targeted inspection orders retain only their selected item, and outcome edits preserve untouched reports and their original reviewer/time. An unchanged API replay also preserves the original source set even after newer reports arrive. Three regressions first failed, then all 66 covering cases across four files passed; scoped lint, UTF-8 and whitespace checks passed. Maintenance.md and SYSTEM.md are updated.
+
+The allowance exhausted before the scoped review could complete. After the reset, the original reviewer resumed against the saved fix package and approved both spec compliance and task quality, with no new Important/Critical findings. No unchanged test suite was repeated. Review: task-6-fix-1-review.md; implementation commits d72cfe68 and 762da736. Task 6 is complete. Browser/device acceptance, full build/suite and actual multi-connection races remain unclaimed.
+
+Next: Task 7 shared maintenance workspace. Its brief and UI scout report are ready; use final per-item signal active_work_order and source identities. Current allowance78%remaining; next reset1792851533. Stop new work at5%remaining, retain incomplete tasks as incomplete, and resume from the saved report after reset. Continuation remains active. No merge, push or deployment.

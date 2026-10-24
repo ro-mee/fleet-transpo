@@ -135,18 +135,18 @@ expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 **Consumes:** existing unresolved inspection checklist findings and source_inspection_id links; approved service plans/work orders.
 **Produces:** recurring_inspection signal with source record links, explicit review disposition, and maintenance_forecast_snapshots with rule_version, captured_at, inputs, forecast, plan/work-order references and outcome.
 
-- [ ] Test repeat matching normalized checklist findings, resolved findings excluded, combined brakes_tires source retained honestly, no synthetic diagnosis, and mechanic scopes.
-- [ ] Define repeated as the same failed checklist key on at least two distinct inspections within 30 calendar days after the latest relevant completed repair, with explicit counts/dates and links.
-- [ ] Persist snapshots at reviewed scheduling and completion (meaningful lifecycle changes), not as a side effect of GET or every page render. Record mechanic confirmed/not_confirmed/inconclusive with evidence. Do not turn these into failure probabilities.
-- [ ] Use the existing inspection-to-work-order route/locking semantics where applicable, preserving its source deduplication constraints. No new automatic grounding or duplicate issue-report table.
-- [ ] Test snapshot rollback with failed creation/completion, scoped reads and truthful empty evaluation.
-- [ ] Apply/dump/verify any migration with the same security gates; document, review and commit: feat: trace inspection signals and maintenance outcomes.
+- [x] Test repeat matching normalized checklist findings, resolved findings excluded, combined brakes_tires source retained honestly, no synthetic diagnosis, and mechanic scopes.
+- [x] Define repeated as the same failed checklist key on at least two distinct inspections within 30 calendar days after the latest relevant completed repair, with explicit counts/dates and links.
+- [x] Persist snapshots at reviewed scheduling and completion (meaningful lifecycle changes), not as a side effect of GET or every page render. Record mechanic confirmed/not_confirmed/inconclusive with evidence. Do not turn these into failure probabilities.
+- [x] Use the existing inspection-to-work-order route/locking semantics where applicable, preserving its source deduplication constraints. No new automatic grounding or duplicate issue-report table.
+- [x] Test snapshot rollback with failed creation/completion, scoped reads and truthful empty evaluation.
+- [x] Apply/dump/verify any migration with the same security gates; document, review and commit: feat: trace inspection signals and maintenance outcomes.
 
-- [ ] Store structured checklist_item_id, original inspection IDs, outcome, outcome actor and time on linked work orders or immutable snapshots; extend mechanic validation and scoped reads. Match repeated unresolved items by vehicle and canonical item ID, not free-text repair type. Reuse the active order for that item even if a newer inspection exists; unrelated completed repairs cannot clear it.
-- [ ] Add a GET-no-writes regression. Capture snapshots/observations at the odometer mutation too when needed to observe threshold crossings; otherwise label that outcome unobserved. Early service closes a cycle without counting it as a prediction error.
+- [x] Store structured checklist_item_id, original inspection IDs, outcome, outcome actor and time on linked work orders or immutable snapshots; extend mechanic validation and scoped reads. Match repeated unresolved items by vehicle and canonical item ID, not free-text repair type. Reuse the active order for that item even if a newer inspection exists; unrelated completed repairs cannot clear it.
+- [x] Add a GET-no-writes regression. Capture snapshots/observations at the odometer mutation too when needed to observe threshold crossings; otherwise label that outcome unobserved. Early service closes a cycle without counting it as a prediction error.
 
-- [ ] Keep outcomes evidence-based: no accuracy score or exact timing error from a crossing known only between readings. An observation predating its forecast is not prospective prediction evidence. Preserve per-item source associations on multi-item inspection orders; generic legacy completion alone is not confirmed item-specific repair.
-- [ ] An approved not_confirmed disposition retires only its explicitly reviewed source findings from the unresolved set, without inventing a repair or clearing other reports. Inconclusive remains unresolved; new reports can establish a new recurring signal.
+- [x] Keep outcomes evidence-based: no accuracy score or exact timing error from a crossing known only between readings. An observation predating its forecast is not prospective prediction evidence. Preserve per-item source associations on multi-item inspection orders; generic legacy completion alone is not confirmed item-specific repair.
+- [x] An approved not_confirmed disposition retires only its explicitly reviewed source findings from the unresolved set, without inventing a repair or clearing other reports. Inconclusive remains unresolved; new reports can establish a new recurring signal.
 
 ### Task 7: Build the shared maintenance workspace
 
