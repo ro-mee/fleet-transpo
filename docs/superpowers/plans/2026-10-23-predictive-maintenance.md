@@ -145,6 +145,9 @@ expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 - [ ] Store structured checklist_item_id, original inspection IDs, outcome, outcome actor and time on linked work orders or immutable snapshots; extend mechanic validation and scoped reads. Match repeated unresolved items by vehicle and canonical item ID, not free-text repair type. Reuse the active order for that item even if a newer inspection exists; unrelated completed repairs cannot clear it.
 - [ ] Add a GET-no-writes regression. Capture snapshots/observations at the odometer mutation too when needed to observe threshold crossings; otherwise label that outcome unobserved. Early service closes a cycle without counting it as a prediction error.
 
+- [ ] Keep outcomes evidence-based: no accuracy score or exact timing error from a crossing known only between readings. An observation predating its forecast is not prospective prediction evidence. Preserve per-item source associations on multi-item inspection orders; generic legacy completion alone is not confirmed item-specific repair.
+- [ ] An approved not_confirmed disposition retires only its explicitly reviewed source findings from the unresolved set, without inventing a repair or clearing other reports. Inconclusive remains unresolved; new reports can establish a new recurring signal.
+
 ### Task 7: Build the shared maintenance workspace
 
 **Files:** new src/components/maintenance/service-outlook.jsx and supporting small components/tests; src/app/(dashboard)/maintenance/predictive/page.js; src/app/(dashboard)/fleet/maintenance/components/PredictiveOverview.js; fleet maintenance page/form; relevant mechanic detail components.

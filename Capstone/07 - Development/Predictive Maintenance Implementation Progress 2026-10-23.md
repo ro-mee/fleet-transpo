@@ -22,7 +22,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 3: COMPLETE, commits 132d90ba and 55d9eed9; independent review approved after one fix round.
 - Task 4: COMPLETE, commit d1d80c62; independent spec and quality review passed with zero findings.
 - Task 5: COMPLETE, commits b4b1940c and 99c12a99; scoped spec/quality re-review passed with both findings addressed.
-- Task 6: pending.
+- Task 6: IMPLEMENTED in d72cfe68; independent review running under maintenance_task6/task6_review. Not yet complete.
 - Task 7: pending.
 - Task 8: pending.
 
@@ -89,3 +89,11 @@ Allowance reset (0% used; next reset1792833225). Review found a missing created 
 Fix 99c12a99 restricts fuel-diagnostic notification to newly created orders. Its replay regression first failed (one failure, fourteen passing cases), then all 38 focused POST/plan/fuel cases passed. Coverage now includes approved linked completion, version increment, stale rejection and new-order creation for the new cycle. Strict touched lint, encoding and whitespace passed. Maintenance.md and SYSTEM.md are updated. Scoped independent spec and quality re-review approved both findings, with no new issues. Task 5 is complete; the earlier pending-review checkpoint is historical.
 
 Task 6 integration: reviewPlanWorkOrder returns reviewedService from authoritative getMaintenanceOutlook inside the scheduling transaction. It is null on existing-order reuse. POST's post-insert/pre-commit seam and completion helper's returned before/plan support later immutable snapshots without trusting browser forecasts. Report: task-5-report.md. Next Task 6; allowance83%remaining at this boundary, reset1792833225.
+
+## Task 6 review checkpoint - 2026-10-24
+
+Task 6 implementation d72cfe68 adds canonical recurring inspection signals, per-item source/outcome metadata on existing work orders and append-only forecast snapshots. Migration 169 was applied through the runner and schema.sql regenerated; do not edit/reapply 167-169. Live contract: 92 relations, zero violations. Anon: zero exposed, 44 refused, 48 inconclusive resolved by catalog. Pure rules, direct route/client/form checks and rollback-only SQL fixtures have passing covering evidence recorded in task-6-report.md. Final amended evidence/outlook SQL passed18/18 and PUT30/30; encoding/whitespace and touched lint passed. Maintenance.md and SYSTEM.md are updated.
+
+Independent spec and quality review is running; Task 6 remains incomplete until its verdict/fixes are resolved. No browser/device/full-build/full-suite or actual multi-connection race claim. Only the manual odometer mutation observes crossings here; other unobserved cases remain unknown. The schema dump generator normalizes actual CRLF line endings before writing the generated artifact.
+
+Next after clean review: Task 7, using task-7-ui-scout.md and Task 6's final payloads. Newer attached recurring reports must use signals[].active_work_order rather than inferring tracking solely from original source_inspection_id. Allowance29%remaining before review; reset1792833225. If cutoff interrupts, resume review/fixes first; Task 7 has not started.
