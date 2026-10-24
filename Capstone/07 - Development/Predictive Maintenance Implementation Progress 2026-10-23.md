@@ -24,7 +24,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 5: COMPLETE, commits b4b1940c and 99c12a99; scoped spec/quality re-review passed with both findings addressed.
 - Task 6: COMPLETE, commits d72cfe68 and 762da736; independent spec and quality re-review approved.
 - Task 7: COMPLETE, commits f0272bf8, be23a1fc and c848829d; independent spec and quality review approved after one fix round.
-- Task 8: pending.
+- Task 8: IN PROGRESS under /root/maintenance_task8, starting at34a1b07c; demo and full verification remain unfinished.
 
 No merge, push, deployment or live work-order test write has occurred. Migration 167 was applied through the repository runner during Task 2.
 
@@ -139,3 +139,5 @@ At this checkpoint allowance is37%remaining; reset1792891772. Preserve the saved
 Review fix c848829d adds shared linked-work-order error feedback to both maintenance-register paths. Two real-page regressions failed before the change and passed after it; Retry targets only the failed detail request. Strict touched lint, encoding and whitespace checks passed. Independent scoped review approved spec compliance and task quality, with no open findings. Final synthetic browser contrast/wrapping checks also passed; authenticated app, native device/screen-reader, app font preload, zoom and reduced-motion acceptance remain unverified. Maintenance.md and SYSTEM.md record the completed work and limits.
 
 Task7 is complete. Next: Task8 six-scenario isolated demonstration, broad checks and independent whole-branch review. Existing task8 brief is the requirements source. Current allowance27%remaining; reset1792891772. Weekly allowance9%remaining. Record meaningful partial evidence before the five-hour cutoff and never mark unfinished Task8 complete. Continuation remains active. No merge, push or deployment.
+
+Task8 dispatched to/root/maintenance_task8 atBASE34a1b07c. Task7 final feature-documentation approval commit isf55c1900. Task8 report: .superpowers/sdd/2026-10-23-predictive-maintenance/task-8-report.md. Resume that agent rather than duplicating work. Parent still owns final whole-branch review and completion/schedule shutdown.
