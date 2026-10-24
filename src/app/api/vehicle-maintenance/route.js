@@ -394,7 +394,7 @@ export async function POST(req) {
     // INSERT … WHERE NOT EXISTS dedupe. Best-effort only: a notify failure
     // lands in app_errors and never fails the create. Ordinary (non-fuel)
     // creates are untouched — the marker predicate is what arms this.
-    if (fuelDiagnostic && row?.maintenance_id) {
+    if (created && fuelDiagnostic && row?.maintenance_id) {
       try {
         const { notifyFuelDiagnosticTeam } = await import("@/lib/fuel/maintenance");
         const plate = (await query(
