@@ -202,7 +202,10 @@ export async function PUT(req, { params }) {
         }
         try {
           reviewedInspectionItems=items;
-          const outcomes=validateInspectionOutcomes(body.inspection_outcomes,items,session.user.employeeId);
+          const outcomes=validateInspectionOutcomes(body.inspection_outcomes,items,session.user.employeeId).map(value=>{
+            const old=(beforeRow.inspection_outcomes ?? []).find(previous=>previous.checklist_item_id===value.checklist_item_id);
+            return old && old.outcome===value.outcome && old.evidence===value.evidence ? old : value;
+          });
           body.inspection_outcomes=[...(beforeRow.inspection_outcomes ?? []).filter(old=>!outcomes.some(value=>value.checklist_item_id===old.checklist_item_id)),...outcomes];
         }
         catch(e) { return {error:err(e.message,400)}; }

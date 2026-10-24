@@ -37,6 +37,20 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST!=="1")("inspection/evide
   expect(r.workOrder.inspection_items).toEqual([{checklist_item_id:"brakes_tires",inspection_ids:[1,2]}]);
   expect((await h.client.query("SELECT count(*)::int n FROM vehiclemaintenance")).rows[0].n).toBe(1);
  });
+ it("targets only the new item and honestly recovers each item across mixed-source retries",async()=>{
+  await h.client.query("INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,status,source_inspection_id) VALUES(9,7,'Scheduled',1)");
+  const lights=await ensureInspectionMaintenance({inspectionId:2,session,allowChecklistType:true,checklistItemId:"lights"});
+  expect(lights.workOrder.inspection_items).toEqual([{checklist_item_id:"lights",inspection_ids:[2]}]);
+  const brakes=await ensureInspectionMaintenance({inspectionId:2,session,allowChecklistType:true,checklistItemId:"brakes_tires"});
+  expect(brakes.workOrder.maintenance_id).toBe(9);
+  expect((await ensureInspectionMaintenance({inspectionId:2,session,allowChecklistType:true,checklistItemId:"lights"})).workOrder.maintenance_id).toBe(lights.workOrder.maintenance_id);
+  await h.client.query(`UPDATE vehicleinspection SET checklist=checklist || '[{"item_id":"dashboard","status":"FAIL"}]'::jsonb WHERE inspection_id=2`);
+  const added=await ensureInspectionMaintenance({inspectionId:2,session,allowChecklistType:true,checklistItemId:"dashboard"});
+  expect(added.workOrder.maintenance_id).toBe(lights.workOrder.maintenance_id);
+  expect(added.workOrder.inspection_items).toEqual([{checklist_item_id:"dashboard",inspection_ids:[2]},{checklist_item_id:"lights",inspection_ids:[2]}]);
+  const orders=(await h.client.query("SELECT inspection_items FROM vehiclemaintenance")).rows;
+  expect(orders.filter(o=>o.inspection_items.some(i=>i.checklist_item_id==="brakes_tires"))).toHaveLength(1);
+ });
  it("does not overwrite a multi-item generic original order when attaching newer item evidence",async()=>{
   await h.client.query("UPDATE vehicleinspection SET checklist=(SELECT checklist FROM vehicleinspection WHERE inspection_id=2) WHERE inspection_id=1");
   await h.client.query(`INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,status,source_inspection_id) VALUES(9,7,'Scheduled',1)`);

@@ -26,15 +26,21 @@ export async function reuseInspectionItemOrder(tx,inspection,checklistItemId,act
  }
  return null;
 }
-export async function attachOriginalInspectionItems(tx,order,inspection,actorId) {
- const items=normalizeInspectionItems([inspection]);
+export async function attachOriginalInspectionItems(tx,order,inspection,actorId,checklistItemId=null,isNew=false) {
+ const all=normalizeInspectionItems([inspection]);
+ const selected=checklistItemId?all.filter(item=>item.checklist_item_id===checklistItemId):all;
+ // Existing unstructured originals retain every original item. New explicitly
+ // targeted orders own only their selected item; source uniqueness still applies.
+ const existing=order.inspection_items?.length?order.inspection_items:(!isNew || !checklistItemId?all:[]);
+ const items=mergeInspectionItems(existing,selected);
  if(!items.length) return order;
- // A source-unique generic order represents ALL original failed items, never just
- // the requested item. Only subsequent reports are filtered by requested identity.
- if(!order.inspection_items?.length && ["Scheduled","In Progress","Pending Inspection"].includes(order.status)) {
+ if(!["Scheduled","In Progress","Pending Inspection"].includes(order.status)) {
+  if(selected.some(item=>!existing.some(old=>old.checklist_item_id===item.checklist_item_id))) throw new AuthError("The original inspection order is closed. Review a newer report for this item.",409);
+  return order;
+ }
+ if(JSON.stringify(items)!==JSON.stringify(order.inspection_items)) {
   await tx.query("UPDATE vehiclemaintenance SET inspection_items=$1::jsonb WHERE maintenance_id=$2",[JSON.stringify(items),order.maintenance_id]);
   await appendMaintenanceSnapshot(tx,{event:"inspection_reviewed",order,actorId,inputs:{inspection_items:items},outcome:{review_disposition:"work_order_active"}});
-  return {...order,inspection_items:items};
  }
- return order;
+ return {...order,inspection_items:items};
 }

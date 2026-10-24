@@ -180,3 +180,7 @@ export function predictiveDueLabel(p = {}) {
   if (days === 0) return "due today";
   return `due in ${days} day${days === 1 ? "" : "s"}`;
 }
+
+export function editedInspectionOutcomes(items,editedKeys) {
+ return items.filter(item=>editedKeys.includes(item.checklist_item_id)).map(({checklist_item_id,outcome,evidence})=>({checklist_item_id,outcome,evidence}));
+}

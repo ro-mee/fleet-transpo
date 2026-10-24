@@ -83,7 +83,7 @@ export async function ensureInspectionMaintenance({ inspectionId, session, allow
       if (reused) return { workOrder: reused, created: false, inspection };
     }
     const { rows: existingRows } = await tx.query(SELECT_WORK_ORDER, [inspection.inspection_id]);
-    if (existingRows[0]) return { workOrder: isChecklistType ? await attachOriginalInspectionItems(tx, existingRows[0], inspection, session?.user?.employeeId ?? null) : existingRows[0], created: false, inspection };
+    if (existingRows[0]) return { workOrder: isChecklistType ? await attachOriginalInspectionItems(tx, existingRows[0], inspection, session?.user?.employeeId ?? null, checklistItemId) : existingRows[0], created: false, inspection };
 
     const payload = isChecklistType
       ? buildChecklistMaintenancePayload({
@@ -135,7 +135,7 @@ export async function ensureInspectionMaintenance({ inspectionId, session, allow
       if (!recoveredRows[0]) throw new Error("End Duty work order could not be created");
       return { workOrder: recoveredRows[0], created: false, inspection };
     }
-    return { workOrder: isChecklistType ? await attachOriginalInspectionItems(tx, workOrder, inspection, session?.user?.employeeId ?? null) : workOrder, created: true, inspection };
+    return { workOrder: isChecklistType ? await attachOriginalInspectionItems(tx, workOrder, inspection, session?.user?.employeeId ?? null, checklistItemId, true) : workOrder, created: true, inspection };
   });
 }
 

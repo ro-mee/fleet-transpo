@@ -10,6 +10,7 @@ const { WorkOrderDetail } = await import("./work-order-detail");
 const {
   MECHANIC_WRITABLE_FIELDS,
   buildMechanicUpdateBody,
+  editedInspectionOutcomes,
   serializeParts,
   validateDiagnosis,
   DIAGNOSIS_MAX_LENGTH,
@@ -25,6 +26,10 @@ function render(props) {
 }
 
 describe("work-order-detail evidence contract", () => {
+  it("submits only edited item keys, preserving untouched source attribution",()=>{
+    const items=[{checklist_item_id:"brakes_tires",inspection_ids:[1],outcome:"not_confirmed",evidence:"Not reproduced",actor_id:5,recorded_at:"old"},{checklist_item_id:"lights",outcome:"confirmed",evidence:"Replaced lamp"}];
+    expect(editedInspectionOutcomes(items,["lights"])).toEqual([{checklist_item_id:"lights",outcome:"confirmed",evidence:"Replaced lamp"}]);
+  });
   it("renders linked combined checklist outcomes and preserves their evidence payload", () => {
     const row={...leanRow(),inspection_items:[{checklist_item_id:"brakes_tires",inspection_ids:[42,43]}]};
     const html=render({workOrder:row});

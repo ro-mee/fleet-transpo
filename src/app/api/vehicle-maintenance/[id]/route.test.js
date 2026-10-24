@@ -86,6 +86,18 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     expect(JSON.parse(evidence)[0]).toMatchObject({actor_id:77,evidence:"Pads replaced",inspection_ids:[42]});
     expect(JSON.parse(evidence)[0].recorded_at).toBeTruthy();
   });
+  it("preserves unchanged replay outcome sources actor and time when another item is edited",async()=>{
+    mockRecord.status="In Progress";mockRecord.assigned_mechanic_id=77;
+    mockRecord.inspection_items=[{checklist_item_id:"brakes_tires",inspection_ids:[1,2]},{checklist_item_id:"lights",inspection_ids:[2]}];
+    const old={checklist_item_id:"brakes_tires",inspection_ids:[1],outcome:"not_confirmed",evidence:"Not reproduced",actor_id:55,recorded_at:"2026-10-01T00:00:00Z"};
+    mockRecord.inspection_outcomes=[old];
+    const body={inspection_outcomes:[{checklist_item_id:"brakes_tires",outcome:"not_confirmed",evidence:"Not reproduced"},{checklist_item_id:"lights",outcome:"confirmed",evidence:"Lamp replaced"}]};
+    expect((await PUT(mockRequest(body,"mechanic",77),{params:Promise.resolve({id:maintenanceId})})).status).toBe(200);
+    const call=querySpy.mock.calls.find(([sql])=>sql.includes("UPDATE vehiclemaintenance"));
+    const saved=JSON.parse(call[1].find(v=>typeof v==="string" && v.includes('"outcome"')));
+    expect(saved.find(v=>v.checklist_item_id==="brakes_tires")).toEqual(old);
+    expect(saved.find(v=>v.checklist_item_id==="lights")).toMatchObject({actor_id:77,inspection_ids:[2]});
+  });
   it("rejects foreign item outcomes and another mechanic's evidence edit", async () => {
     mockRecord.status="In Progress";mockRecord.assigned_mechanic_id=77;
     mockRecord.inspection_items=[{checklist_item_id:"brakes_tires",inspection_ids:[42]}];

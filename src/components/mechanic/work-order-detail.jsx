@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { cn, formatDate } from "@/lib/utils";
 import {
   buildMechanicUpdateBody,
+  editedInspectionOutcomes,
   jobProblem,
   jobVehicle,
   nextMechanicAction,
@@ -362,11 +363,12 @@ export function WorkOrderDetail({
     workOrder?.labor_hours != null ? String(workOrder.labor_hours) : ""
   );
   const [itemOutcomes,setItemOutcomes]=useState(()=>workOrder?.inspection_outcomes ?? []);
-  const [outcomesEdited,setOutcomesEdited]=useState(false);
-  const outcomeError=itemOutcomes.some(item=>!item.evidence?.trim() || !item.outcome);
+  const [editedOutcomeKeys,setEditedOutcomeKeys]=useState([]);
+  const outcomesEdited=editedOutcomeKeys.length>0;
+  const outcomeError=editedInspectionOutcomes(itemOutcomes,editedOutcomeKeys).some(item=>!item.evidence?.trim() || !item.outcome);
   const editItemOutcome=(key,patch)=>{
     setItemOutcomes(items=>{const previous=items.find(i=>i.checklist_item_id===key) ?? {checklist_item_id:key,outcome:"",evidence:""};return [...items.filter(i=>i.checklist_item_id!==key),{...previous,...patch}];});
-    setOutcomesEdited(true);onEdit?.();
+    setEditedOutcomeKeys(keys=>keys.includes(key)?keys:[...keys,key]);onEdit?.();
   };
   const [remarks, setRemarks] = useState(workOrder?.remarks ?? "");
 
@@ -386,7 +388,7 @@ export function WorkOrderDetail({
   const evidenceBody = () =>
     buildMechanicUpdateBody({
       diagnosis,
-      inspection_outcomes:outcomesEdited?itemOutcomes.map(({checklist_item_id,outcome,evidence})=>({checklist_item_id,outcome,evidence})):undefined,
+      inspection_outcomes:outcomesEdited?editedInspectionOutcomes(itemOutcomes,editedOutcomeKeys):undefined,
       parts: partsValue,
       laborHours: laborValue,
       remarks,
