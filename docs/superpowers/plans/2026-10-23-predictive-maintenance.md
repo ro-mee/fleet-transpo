@@ -154,13 +154,13 @@ expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 **Consumes:** task/evidence/work-order response from Tasks 4-6 and existing shared UI controls.
 **Produces:** one shared outlook presentation, configuration and scheduling actions, with existing routes preserved.
 
-- [ ] Read docs/design-system.md, requested design skills and installed Next.js client/component guide; inspect existing table, dialog, picker and date controls.
-- [ ] Add real-component tests for overdue/no-data/scheduled/error/loading/read-only states, matching values on both maintenance routes, and role-appropriate action destinations.
-- [ ] Use compact summaries followed by a priority list and desktop detail panel; stack into focused mobile detail. Columns: vehicle, service, due status, reason/evidence, next action. Avoid decorative charts and physical-health scores.
-- [ ] Expose Review, Schedule service, View work order, Record odometer and Set schedule only when authorized and applicable. Reuse assignee directory/picker and existing work-order lifecycle. Forms preserve inputs after failure and refresh authoritative state after success.
-- [ ] Keep availability, service urgency and work-order progress distinct. Use Due within 7 days for routine timing. Counters state units and do not imply overlapping categories partition a total.
-- [ ] Verify keyboard/focus, touch, light/dark, narrow/desktop and error states in a browser where available. Clearly label fixtures; never claim fixture checks are live authenticated checks.
-- [ ] Document rendered evidence/limits, review and commit: feat: unify the maintenance service outlook workspace.
+- [x] Read docs/design-system.md, requested design skills and installed Next.js client/component guide; inspect existing table, dialog, picker and date controls.
+- [x] Add real-component tests for overdue/no-data/scheduled/error/loading/read-only states, matching values on both maintenance routes, and role-appropriate action destinations.
+- [x] Use compact summaries followed by a priority list and desktop detail panel; stack into focused mobile detail. Columns: vehicle, service, due status, reason/evidence, next action. Avoid decorative charts and physical-health scores.
+- [x] Expose Review, Schedule service, View work order, Record odometer and Set schedule only when authorized and applicable. Reuse assignee directory/picker and existing work-order lifecycle. Forms preserve inputs after failure and refresh authoritative state after success.
+- [x] Keep availability, service urgency and work-order progress distinct. Use Due within 7 days for routine timing. Counters state units and do not imply overlapping categories partition a total.
+- [x] Verify keyboard/focus, touch, light/dark, narrow/desktop and error states in a browser where available. Clearly label fixtures; never claim fixture checks are live authenticated checks.
+- [x] Document rendered evidence/limits, review and commit: feat: unify the maintenance service outlook workspace.
 
 ### Task 8: Demonstrate, verify and close out
 
