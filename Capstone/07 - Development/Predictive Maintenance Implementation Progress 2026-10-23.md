@@ -22,8 +22,8 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 3: COMPLETE, commits 132d90ba and 55d9eed9; independent review approved after one fix round.
 - Task 4: COMPLETE, commit d1d80c62; independent spec and quality review passed with zero findings.
 - Task 5: COMPLETE, commits b4b1940c and 99c12a99; scoped spec/quality re-review passed with both findings addressed.
-- Task 6: IMPLEMENTED in d72cfe68; independent review running under maintenance_task6/task6_review. Not yet complete.
-- Task 7: pending.
+- Task 6: COMPLETE, commits d72cfe68 and 762da736; independent spec and quality re-review approved.
+- Task 7: IMPLEMENTED in f0272bf8 and be23a1fc; one review fix is being finalized. Not yet complete.
 - Task 8: pending.
 
 No merge, push, deployment or live work-order test write has occurred. Migration 167 was applied through the repository runner during Task 2.
@@ -125,3 +125,11 @@ Implementation and feature documentation are committed in f0272bf8, with extract
 Final code includes the dark-overdue contrast correction, no-wrap vehicle identifier and action-return focus. Amended shared tests6/6,touched lint,staged UTF-8 and whitespace passed. Final rebuilt-preview contrast/wrapping confirmation and independent spec+quality review remain pending; Task7 is NOT complete. Review inputs: task-7-brief.md,task-7-report.md,task-7-review-package.md; exact range4c9d56ce..be23a1fc.
 
 The final parent checkpoint attempt was rejected before execution because automatic approval review exhausted its allowance; this was not an unsafe-action ruling. The implementation/report were already saved. After reset1792872696, allowance is93%remaining and next reset1792891772. Original implementer resumed only fixture rebuild and independent review handoff. Do not repeat completed implementation or passing checks. Task8 remains pending. Continuation stays active; no merge,push or deployment.
+
+## Task 7 final visual and review-fix checkpoint - 2026-10-25
+
+Final rebuilt synthetic preview confirms the dark overdue badge uses rgb(245,245,245) on rgb(127,29,29), and vehicle identifiers stay on one line at 1280px. Temporary viewport override was reset. This remains isolated component evidence, not authenticated app acceptance. Screenshot: C:/Users/lenovo/.codex/visualizations/2026/10/23/01a16867-884a-73c2-aba5-0b0aafb793f9/maintenance-preview-dark.png.
+
+Independent Task7 review found one Important issue: a failed linked work-order request had no visible error/retry when the independent register request succeeded. The original implementer reproduced both request combinations (two failing regressions), corrected the shared error feedback and obtained two passing tests plus strict touched lint. Fix commit, documentation and scoped re-review are being finalized; Task7 is not complete yet. Task8 remains pending.
+
+At this checkpoint allowance is37%remaining; reset1792891772. Preserve the saved work and stop new work at5%remaining. Active implementer/root/maintenance_task7; do not duplicate.
