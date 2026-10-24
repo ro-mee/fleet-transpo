@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
-import { Plus, Wrench, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Plus, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getMaintenanceRecords, getPredictiveMaintenance } from "@/services/maintenance.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -17,7 +17,7 @@ export default function FleetMaintenancePage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);
 
-  const { data: predictiveData, isLoading: isPredictiveLoading } = useQuery({
+  const { data: predictiveData, isLoading: isPredictiveLoading, isError: isPredictiveError, refetch: retryPredictive } = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),
     refetchInterval: 60_000,
@@ -30,7 +30,7 @@ export default function FleetMaintenancePage() {
   });
 
   const records = maintenanceData?.data || [];
-  const activeRecords = records.filter((r) => ["Scheduled", "In Progress"].includes(r.status));
+  const activeRecords = records.filter((r) => ["Scheduled", "In Progress", "Pending Inspection"].includes(r.status));
   const historyRecords = records.filter((r) => r.status === "Completed");
 
   const handleEdit = (record) => {
@@ -49,7 +49,7 @@ export default function FleetMaintenancePage() {
         icon={Wrench}
         title="Fleet Maintenance"
         badge="Service & Diagnostics"
-        description="Monitor vehicle health, manage active repairs, and review service history."
+        description="Review service timing, manage active repairs, and review service history."
         actions={
           <Button className={heroButtonPrimaryClass} onClick={handleNew}>
             <Plus className="w-4 h-4 mr-2" />
@@ -67,7 +67,7 @@ export default function FleetMaintenancePage() {
               : "border-transparent text-foreground-secondary hover:text-foreground hover:border-border"
           }`}
         >
-          Predictive AI Overview
+          Service outlook
         </button>
         <button
           onClick={() => setActiveTab("active")}
@@ -101,12 +101,8 @@ export default function FleetMaintenancePage() {
           <PredictiveOverview 
             data={predictiveData} 
             isLoading={isPredictiveLoading} 
-            onScheduleService={(vehicle) => {
-              const service = vehicle.services?.find(task => task.plan_id === vehicle.primary_service_plan_id);
-              setSelectedRecord({ vehicle_id: vehicle.vehicle_id, maintenance_type: service && service.service_code !== "routine" ? "Preventive" : "Routine", status: "Scheduled",
-                ...(service ? {service_plan_id: service.plan_id, expected_version: service.version, service_code: service.service_code} : {}) });
-              setIsFormOpen(true);
-            }} 
+            isError={isPredictiveError}
+            onRetry={retryPredictive}
           />
         )}
         {activeTab === "active" && (

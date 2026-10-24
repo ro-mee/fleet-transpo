@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAiRecommendations, getAiInsights, getPredictiveMaintenance } from "@/services/ai.service";
+import { dueLabel } from "@/lib/maintenance/outlook-display";
+import { hasRole } from "@/lib/auth/permissions";
 import { isUnscheduled } from "@/lib/ai/predictive-maintenance";
 import { formatDate } from "@/lib/utils";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
@@ -37,7 +39,8 @@ function normalizeSeverity(insight) {
 }
 
 export default function AiDashboardPage() {
-  useRequireRole();
+  const {role} = useRequireRole();
+  const canOpenMaintenance = hasRole({role}, ["super_admin","admin","fleet_manager"]);
 
   const { data: insightsData, isLoading: insightsLoading } = useQuery({
     queryKey: ["ai-insights"],
@@ -49,7 +52,7 @@ export default function AiDashboardPage() {
     queryFn: () => getAiRecommendations(),
   });
 
-  const { data: predictionData, isLoading: predictionsLoading } = useQuery({
+  const { data: predictionData, isLoading: predictionsLoading, isError: predictionsError, refetch: retryPredictions } = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),
   });
@@ -73,7 +76,7 @@ export default function AiDashboardPage() {
     (i) => normalizeSeverity(i) === "high" || normalizeSeverity(i) === "critical"
   ).length;
 
-  const overdueMaint = predictionSummary.overdue + predictionSummary.critical + predictionSummary.high;
+  const overdueMaint = predictionsLoading || predictionsError ? "Unavailable" : (predictionSummary.overdue ?? 0) + (predictionSummary.critical ?? 0) + (predictionSummary.high ?? 0);
 
   return (
     <div className="space-y-6 pb-12 w-full">
@@ -96,7 +99,7 @@ export default function AiDashboardPage() {
       <StatGrid cols={4}>
         <StatCard icon={Lightbulb} label="Active Insights" value={insights.length} trend="Across all telemetry modules" tone="primary" />
         <StatCard icon={AlertTriangle} label="Critical Alerts" value={critical} trend="Requires immediate attention" tone="danger" />
-        <StatCard icon={Wrench} label="Maintenance Alerts" value={overdueMaint} trend="Due or approaching service" tone="warning" />
+        <StatCard icon={Wrench} label="Vehicles due soon" value={overdueMaint} trend="Overdue or due within 30 days" tone="warning" />
         <StatCard icon={TrendingUp} label="Recommendations" value={recommendations.length} trend="Actionable fleet suggestions" tone="success" />
       </StatGrid>
 
@@ -176,15 +179,15 @@ export default function AiDashboardPage() {
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
           <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-            <Wrench className="w-4 h-4 text-warning" /> Predictive Maintenance Telemetry
+            <Wrench className="w-4 h-4 text-warning" /> Vehicle service outlook
           </CardTitle>
-          <Link href="/maintenance/predictive" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
-            Open Maintenance Center <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
+          {canOpenMaintenance && <Link href="/maintenance/predictive" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+            Open service outlook <ChevronRight className="w-3.5 h-3.5" />
+          </Link>}
         </CardHeader>
 
         <CardContent className="p-0">
-          {predictionsLoading ? (
+          {predictionsError ? (<div role="alert" className="p-4 space-y-2"><p>Service outlook unavailable. Refresh to see current evidence.</p><Button variant="outline" onClick={retryPredictions}>Retry</Button></div>) : predictionsLoading ? (
             <div className="p-4 space-y-3">
               {[1, 2, 3].map((n) => (
                 <div key={n} className="flex items-center gap-4 p-3 rounded-3xl border border-border/60">
@@ -199,8 +202,8 @@ export default function AiDashboardPage() {
           ) : predictions.length === 0 ? (
             <EmptyState
               icon={Wrench}
-              title="No vehicles registered in telemetry"
-              description="Add vehicles to initialize AI predictive health scoring."
+              title="No eligible vehicles to assess"
+              description="Service timing appears when eligible vehicle plans are recorded."
               variant="first-run"
               size="compact"
             />
@@ -208,6 +211,7 @@ export default function AiDashboardPage() {
             <div className="divide-y divide-border/60">
               {predictions.slice(0, 8).map((p) => {
                 const unscheduled = isUnscheduled(p);
+                const primary = p.services?.find(service => service.plan_id === p.primary_service_plan_id) || p.services?.[0] || p;
                 const tone = unscheduled || p.serviceStatus === "needs_data" ? "secondary" : riskTone(p.risk);
                 return (
                   <div key={p.vehicle_id} className="flex items-center justify-between gap-4 p-4 hover:bg-hover/50 transition-colors">
@@ -223,13 +227,7 @@ export default function AiDashboardPage() {
                             status={unscheduled || p.serviceStatus === "needs_data" ? "unscheduled" : p.risk}
                             entity="risk"
                             className="text-[11px] font-bold"
-                            label={unscheduled ? "No schedule"
-                              : p.serviceStatus === "needs_data" ? (p.dataIssues?.includes("missing_mileage") ? "Needs mileage" : "Needs trip data")
-                              : p.mileageOverdue && p.effectiveDays == null
-                                ? "Mileage overdue by " + Math.abs(p.kmToService).toLocaleString() + " km"
-                              : p.effectiveDays < 0 ? Math.abs(p.effectiveDays) + "d overdue"
-                              : p.effectiveDays === 0 ? "Due today"
-                              : p.effectiveDays + "d remaining"}
+                            label={unscheduled ? "No schedule" : dueLabel(primary)}
                           />
                         </div>
                         <p className="text-xs text-foreground-secondary mt-0.5 truncate">{p.recommendation}</p>
@@ -238,7 +236,7 @@ export default function AiDashboardPage() {
 
                     <div className="text-right shrink-0">
                       <p className={cn("font-data text-sm font-extrabold", unscheduled || p.effectiveDays == null ? "text-foreground-muted" : "text-foreground")}>
-                        {unscheduled || p.effectiveDays == null ? "—" : `${p.score}/100`}
+                        {p.services?.length ?? 0} services
                       </p>
                       <p className="text-[11px] text-foreground-muted font-medium font-data">
                         {p.mileage == null ? "Mileage unavailable" : p.mileage.toLocaleString() + " km"}

@@ -105,3 +105,15 @@ Fix 762da736 resolves both Important review findings: targeted inspection orders
 The allowance exhausted before the scoped review could complete. After the reset, the original reviewer resumed against the saved fix package and approved both spec compliance and task quality, with no new Important/Critical findings. No unchanged test suite was repeated. Review: task-6-fix-1-review.md; implementation commits d72cfe68 and 762da736. Task 6 is complete. Browser/device acceptance, full build/suite and actual multi-connection races remain unclaimed.
 
 Next: Task 7 shared maintenance workspace. Its brief and UI scout report are ready; use final per-item signal active_work_order and source identities. Current allowance78%remaining; next reset1792851533. Stop new work at5%remaining, retain incomplete tasks as incomplete, and resume from the saved report after reset. Continuation remains active. No merge, push or deployment.
+
+## Task 7 implementation and browser checkpoint - 2026-10-24
+
+Task7 is in progress in the existing worktree, original implementer /root/maintenance_task7, base4c9d56ce. Shared service list/detail, route wrappers and versioned schedule/odometer actions are implemented; code commit and independent review are pending. The earlier saved report was reconciled after a quota interruption. Do not restart this task or mark it complete.
+
+Reported focused evidence includes4route,12form,14consumer checks, touched lint, then failing accessibility/calendar regressions followed by covering picker/assignment13, calendar/integration10 and navigation6 passing checks. The detailed commands and outputs belong in task-7-report.md. Broader suite/build acceptance is still Task8.
+
+Parent browser checks use an explicitly labeled, isolated sample preview of real components at127.0.0.1:3018 with mocked session/API boundaries. The actual app at3017 correctly redirected to login; these are not live authenticated workflow checks. Verified error/retry,loading,stale/empty states, mechanic action restrictions, scheduling failure retaining values, mobile focused detail/return focus, named controls, historical observation date selection,future-day rejection,keyboard date opening/Escape and dark-mode rendering. Fixed preview-only process environment/theme wiring is not an app authentication change.
+
+Remaining before Task7 acceptance: finish the scoped dark-overdue contrast correction (observed2.66:1), optional identifier wrapping polish, save the implementation/docs commit, verify final amended checks, and obtain independent spec+quality review. Detailed browser evidence is task-7-browser.md. Reduced-motion/zoom and live authenticated acceptance remain unverified. Task8 demo,full checks and whole-branch review remain pending.
+
+Current five-hour allowance18%remaining; next reset1792872696 =2026-10-25 04:11:36 Asia/Manila. At5%orless stop new work and preserve exact incomplete status. Resume original Task7 implementer after reset. Schedule remains active; no merge,push or deployment.

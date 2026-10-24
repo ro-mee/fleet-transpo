@@ -3,7 +3,7 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ cells: [], cursor: 0, role: "fleet_manager", directory: null, vehicles: [] }));
 // Preserve form state between event-handler calls without introducing a DOM dependency.
-vi.mock("react", async (original) => ({ ...await original(),
+vi.mock("react", async (original) => ({ ...await original(), useRef: initial => {const i=state.cursor++;if (!(i in state.cells)) state.cells[i]={current:initial};return state.cells[i];},
   useState: (initial) => {
     const i = state.cursor++;
     if (!(i in state.cells)) state.cells[i] = typeof initial === "function" ? initial() : initial;
@@ -143,4 +143,18 @@ it("submits the reviewed task identity and version from the existing scheduling 
  await save(form(draft));
  expect(apiFetch.mock.calls.at(-1)[1].body).toMatchObject({vehicle_id:12,service_plan_id:4,expected_version:2});
  expect(find(form(draft),node=>node?.type==="select" && node.props.name==="vehicle_id").props.disabled).toBe(true);
+});
+
+it("keeps schedule input after failure and exposes a persistent error", async()=>{
+ const draft={vehicle_id:12,service_plan_id:4,expected_version:2,service_code:"brakes",maintenance_type:"Preventive"};
+ apiFetch.mockRejectedValueOnce(new Error("Service plan changed. Reload before saving."));
+ const description=find(form(draft),node=>node?.props?.name==="description");description.props.onChange({target:{name:"description",value:"Inspect brake pads"}});
+ await save(form(draft));
+ expect(textContent(form(draft))).toContain("Service plan changed");expect(find(form(draft),node=>node?.props?.name==="description").props.value).toBe("Inspect brake pads");
+});
+
+it("names the reused schedule fields for keyboard and screen-reader users",()=>{
+ const tree=form({});
+ expect(find(tree,node=>node?.props?.name==="description").props["aria-label"]).toBe("Description");
+ expect(find(tree,node=>node?.props?.name==="mileage_at_service").props["aria-label"]).toBe("Mileage at service (km)");
 });

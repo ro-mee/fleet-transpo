@@ -3,100 +3,24 @@ import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
 const state = vi.hoisted(() => ({ query: {} }));
-vi.mock("@tanstack/react-query", () => ({ useQuery: () => state.query }));
+vi.mock("@tanstack/react-query", () => ({ useQuery: () => state.query, useQueryClient:()=>({invalidateQueries:vi.fn()}) }));
 vi.mock("@/lib/auth/role-guard", () => ({ useRequireRole: () => ({ authorized: true }) }));
 vi.mock("@/hooks/use-theme", () => ({ useTheme: () => ({ theme: "light", setTheme: vi.fn(), toggleTheme: vi.fn() }) }));
 vi.mock("next/link", () => ({ default: ({ children }) => children }));
 
+vi.mock("@/hooks/use-auth",()=>({useAuth:()=>({employee:{roles:{role_name:"fleet_manager"}}})}));
+vi.mock("@/components/ui/toast",()=>({toast:{success:vi.fn(),error:vi.fn()}}));
 vi.stubGlobal("React", React);
 const { default: PredictiveMaintenancePage } = await import("./page");
 
-describe("predictive maintenance request states", () => {
-  it("does not present zero health counts before the vehicle query resolves", () => {
-    state.query = { data: undefined, isLoading: true, isError: false, refetch: vi.fn() };
-    const html = renderToStaticMarkup(React.createElement(PredictiveMaintenancePage));
-    expect(html).toContain("Loading service outlook");
-    expect(html).not.toContain("No maintenance predictions match filter");
+describe("predictive maintenance route", () => {
+  it("labels loading before evidence resolves", () => {
+    state.query={isLoading:true};
+    expect(renderToStaticMarkup(React.createElement(PredictiveMaintenancePage))).toContain("Loading service outlook");
   });
-
-  it("explains a genuinely empty eligible fleet separately from work orders", () => {
-    state.query = {
-      data: { predictions: [], summary: { total: 0, overdue: 0, critical: 0, high: 0, medium: 0, low: 0, unscheduled: 0 } },
-      isLoading: false, isError: false, refetch: vi.fn(),
-    };
-    const html = renderToStaticMarkup(React.createElement(PredictiveMaintenancePage));
-    expect(html).toContain("Service Schedule Outlook");
-    expect(html).toContain("No eligible vehicles to assess");
-    expect(html).toContain("Maintenance work orders are counted separately");
-    expect(html).toContain("do not measure physical vehicle condition");
-  });
-
-  it("shows observed overdue mileage and missing readings without invented days", () => {
-    state.query = {
-      data: {
-        predictions: [
-          { vehicle_id: 1, plate_number: "OVER-01", vehicle_name: "Van", risk: "overdue", serviceStatus: "overdue", mileageOverdue: true, kmToService: -1, effectiveDays: null, mileage: 5001, next_service_date: null, next_service_mileage: 5000, recommendation: "Service mileage exceeded by 1 km." },
-          { vehicle_id: 2, plate_number: "UNKNOWN-02", vehicle_name: "Van", risk: "low", serviceStatus: "needs_data", dataIssues: ["missing_mileage"], mileageOverdue: false, effectiveDays: null, mileage: null, next_service_date: null, next_service_mileage: 5000, recommendation: "Record mileage." },
-        ],
-        summary: { total: 2, overdue: 1, critical: 0, high: 0, medium: 0, low: 1, unscheduled: 0, needsData: 1 },
-      },
-      isLoading: false, isError: false, refetch: vi.fn(),
-    };
-    const html = renderToStaticMarkup(React.createElement(PredictiveMaintenancePage));
-    expect(html).toContain("Mileage overdue by 1 km");
-    expect(html).toContain("Needs mileage");
-    expect(html).not.toContain("null days remaining");
-    expect(html).not.toContain("0 km");
-    const lowCard = html.match(/title="Low Risk"[\s\S]*?<\/button>/)?.[0];
-    expect(lowCard).toMatch(/>0<\/p>/);
-  });
-
-  it("states when the score is calendar-only or has enough 90-day trip history", () => {
-    state.query = {
-      data: {
-        predictions: [
-          {
-            vehicle_id: 1,
-            plate_number: "ABC-1234",
-            vehicle_name: "Van",
-            risk: "low",
-            score: 25,
-            basis: "time",
-            confidence: "high",
-            effectiveDays: 120,
-            mileage: 42000,
-            next_service_date: "2027-01-01",
-            next_service_mileage: null,
-            kmToService: null,
-            recommendation: "Service is not due soon.",
-          },
-          {
-            vehicle_id: 2,
-            plate_number: "XYZ-9876",
-            vehicle_name: "Van",
-            risk: "medium",
-            score: 45,
-            basis: "time",
-            confidence: "low",
-            effectiveDays: 60,
-            mileage: 18000,
-            next_service_date: "2026-12-01",
-            next_service_mileage: null,
-            kmToService: null,
-            recommendation: "Plan the next service.",
-          },
-        ],
-        summary: { total: 2, overdue: 0, critical: 0, high: 0, medium: 1, low: 1, unscheduled: 0 },
-      },
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    };
-
-    const html = renderToStaticMarkup(React.createElement(PredictiveMaintenancePage));
-
-    expect(html).toContain("90-day trip sample supports mileage estimates");
-    expect(html).toContain("Calendar only — limited trip telemetry");
-    expect(html).not.toContain("Health Rating");
+  it("keeps empty eligible fleet separate from completed work and physical condition", () => {
+    state.query={data:{predictions:[],summary:{total:0}},isLoading:false};
+    const html=renderToStaticMarkup(React.createElement(PredictiveMaintenancePage));
+    expect(html).toContain("No eligible vehicles to assess");expect(html).toContain("Maintenance work orders are counted separately");expect(html).toContain("does not establish vehicle availability or completed work");
   });
 });
