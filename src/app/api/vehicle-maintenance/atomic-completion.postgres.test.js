@@ -17,13 +17,13 @@ vi.mock("@/lib/db", () => ({
     } catch (e) { await h.client.query("ROLLBACK TO SAVEPOINT request"); throw e; }
   },
 }));
-vi.mock("@/lib/api/utils", () => ({
+vi.mock("@/lib/api/utils", async importOriginal => ({
+  ...await importOriginal(),
   requirePermission: async () => ({ user: { role: "fleet_manager", employeeId: 888 } }),
   parseBody: (req) => req.body,
   ok: (data, status = 200) => Response.json(data, { status }),
   err: (error, status = 400) => Response.json({ error }, { status }),
   errValidation: (errors) => Response.json({ errors }, { status: 400 }),
-  handleError: (e) => Response.json({ error: e.message }, { status: 500 }),
 }));
 vi.mock("@/lib/audit", () => ({ writeAuditRequired: async (tx, _req, _session, entry) => {
   if (h.fail === "audit") throw new Error("Fixture audit failure");
@@ -71,6 +71,65 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
   });
   afterAll(async () => { try { await h.client?.query("ROLLBACK"); } finally { await h.client?.end(); } });
   const vehicle = async (id = 7) => (await h.client.query("SELECT vehicle_status,last_service_date::text,next_service_date::text,next_service_mileage FROM vehicles WHERE vehicle_id=$1", [id])).rows[0];
+  // The guard must preserve real SQL rollback, including writes before recompute.
+  const requestState = async () => ({
+    orders: (await h.client.query("SELECT * FROM vehiclemaintenance ORDER BY maintenance_id")).rows,
+    plans: (await h.client.query("SELECT * FROM vehicle_service_plans ORDER BY plan_id")).rows,
+    vehicles: (await h.client.query("SELECT * FROM vehicles ORDER BY vehicle_id")).rows,
+    audit: (await h.client.query("SELECT * FROM audit_logs")).rows,
+    snapshots: (await h.client.query("SELECT * FROM maintenance_forecast_snapshots ORDER BY snapshot_id")).rows,
+  });
+  const addLinkedRoutine = async (status = "Scheduled", archived = false) => {
+    await h.client.query("INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,status,maintenance_type,maintenance_date,service_plan_id,service_plan_version,deleted_at) VALUES(125,7,$1,'Routine','2099-01-01',1,1,CASE WHEN $2 THEN NOW() ELSE NULL END)", [status, archived]);
+  };
+  it.each(["Scheduled", "In Progress", "Pending Inspection"])("rolls the whole unlinked approval back when the linked Routine order is %s", async status => {
+    await addLinkedRoutine(status);
+    // Item evidence causes a completion snapshot before recompute; it must roll back too.
+    await h.client.query("UPDATE vehiclemaintenance SET inspection_items=$1::jsonb WHERE maintenance_id=123", [JSON.stringify([{ checklist_item_id: "lights", inspection_ids: [42] }])]);
+    const before = await requestState();
+    const response = await put({ status: "Completed", completed_date: "2026-10-01", remarks: "Must roll back" });
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/active.*Routine.*complete or cancel/i);
+    expect(await requestState()).toEqual(before);
+  });
+  it.each([
+    ["Completed", false], ["Cancelled", false], ["Scheduled", true],
+  ])("allows unlinked Routine completion after linked order %s, archived=%s", async (status, archived) => {
+    await addLinkedRoutine(status, archived);
+    expect((await put({ status: "Completed", completed_date: "2026-10-01" })).status).toBe(200);
+    expect((await h.client.query("SELECT version,last_service_date::text FROM vehicle_service_plans")).rows[0]).toEqual({ version: 2, last_service_date: "2026-10-01" });
+  });
+  it.each([
+    ["type", { maintenance_type: "Routine" }],
+    ["vehicle", { vehicle_id: 7 }],
+    ["vehicle and type", { vehicle_id: 7, maintenance_type: "Routine" }],
+  ])("checks the resulting Routine plan when approval changes the %s", async (change, patch) => {
+    await addLinkedRoutine();
+    await h.client.query("UPDATE vehiclemaintenance SET vehicle_id=$1,maintenance_type=$2 WHERE maintenance_id=123",
+      [change === "type" ? 7 : 3, change === "vehicle" ? "Routine" : "Corrective"]);
+    const before = await requestState();
+    expect((await put({ ...patch, status: "Completed", completed_date: "2026-10-01" })).status).toBe(409);
+    expect(await requestState()).toEqual(before);
+  });
+  it("allows unrelated unlinked corrective completion with an active linked Routine order", async () => {
+    await addLinkedRoutine();
+    await h.client.query("UPDATE vehiclemaintenance SET maintenance_type='Corrective' WHERE maintenance_id=123");
+    expect((await put({ status: "Completed", completed_date: "2026-10-01" })).status).toBe(200);
+    expect((await h.client.query("SELECT version FROM vehicle_service_plans")).rows[0].version).toBe(1);
+  });
+  it("does not treat a linked brake order as a conflicting Routine order", async () => {
+    await h.client.query("INSERT INTO vehicle_service_plans(plan_id,vehicle_id,service_code,interval_days,version) VALUES(2,7,'brakes',90,1); INSERT INTO vehiclemaintenance(maintenance_id,vehicle_id,status,maintenance_type,service_plan_id,service_plan_version) VALUES(125,7,'In Progress','Preventive',2,1)");
+    expect((await put({ status: "Completed", completed_date: "2026-10-01" })).status).toBe(200);
+    expect((await h.client.query("SELECT version FROM vehicle_service_plans ORDER BY plan_id")).rows).toEqual([{ version: 2 }, { version: 1 }]);
+  });
+  it("normalizes a Completed POST to Scheduled without advancing an active Routine cycle", async () => {
+    await addLinkedRoutine();
+    const response = await POST({ body: { vehicle_id: 7, maintenance_date: "2026-10-01", maintenance_type: "Routine", status: "Completed", completed_date: "2026-10-01" } });
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ status: "Scheduled", completed_date: null, completed_by: null });
+    expect((await h.client.query("SELECT version FROM vehicle_service_plans")).rows[0].version).toBe(1);
+    expect((await h.client.query("SELECT count(*)::int n FROM maintenance_forecast_snapshots")).rows[0].n).toBe(0);
+  });
   it("rolls linked completion snapshots back when audit fails and rolls completion back when snapshot fails",async()=>{
     await h.client.query("UPDATE vehiclemaintenance SET service_plan_id=1,service_plan_version=1");
     h.fail="audit";expect((await put({status:"Completed"})).status).toBe(500);
@@ -98,7 +157,7 @@ describe.skipIf(process.env.MAINTENANCE_FIXTURE_DB_TEST !== "1")("maintenance wr
   });
   it("rolls a changed linked cycle back and permits retry when the reviewed version is restored", async () => {
     await h.client.query("UPDATE vehiclemaintenance SET service_plan_id=1,service_plan_version=2");
-    expect((await put({status:"Completed"})).status).toBe(500);
+    expect((await put({status:"Completed"})).status).toBe(409);
     expect((await h.client.query("SELECT status FROM vehiclemaintenance")).rows[0].status).toBe("Scheduled");
     await h.client.query("UPDATE vehiclemaintenance SET service_plan_version=1");
     expect((await put({status:"Completed"})).status).toBe(200);

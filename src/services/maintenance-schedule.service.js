@@ -71,6 +71,11 @@ export async function recomputeVehicleSchedule(vehicleId, maintenanceRow = {}, e
   `SELECT * FROM vehicle_service_plans WHERE vehicle_id=$1 AND ${maintenanceRow.service_plan_id ? "plan_id=$2" : "service_code='routine'"} FOR UPDATE`,
   maintenanceRow.service_plan_id ? [vehicleId,maintenanceRow.service_plan_id] : [vehicleId]);
  const plan=rows[0]; if (!plan) return;
+ // The caller holds the vehicle and plan locks; a separate approval must not strand this cycle.
+ if (!maintenanceRow.service_plan_id) {
+  const active = await executor.query("SELECT maintenance_id FROM vehiclemaintenance WHERE service_plan_id=$1 AND deleted_at IS NULL AND status IN ('Scheduled','In Progress','Pending Inspection') LIMIT 1", [plan.plan_id]);
+  if (active.rows[0]) throw new AuthError("An active linked Routine work order uses this service plan. Complete or cancel it before approving separate Routine work.", 409);
+ }
  if (maintenanceRow.service_plan_id && Number(maintenanceRow.service_plan_version)!==Number(plan.version)) throw new AuthError("Service plan changed since this work order was scheduled.",409);
  const derived=deriveNextSchedule({completedDate:maintenanceRow.completed_date,mileageAtService:maintenanceRow.mileage_at_service,intervalDays:plan.interval_days,intervalKm:plan.interval_km});
  // Backdated records cannot rewind a newer service cycle. Unknown mileage remains unknown.

@@ -8,7 +8,7 @@ source:
   - src/app/(dashboard)/maintenance/page.js
   - src/app/api/vehicle-maintenance/[id]/route.js
   - supabase/migrations/114_maintenance_repairer_identity.sql
-last_verified: 2026-10-24
+last_verified: 2026-10-26
 ---
 
 # Feature: Maintenance
@@ -659,3 +659,12 @@ Broader branch verification: the final full suite passed 561 files / 6,219 tests
 The default Next.js 16.2.11 Turbopack build cannot follow this worktree's node_modules junction outside its filesystem root. The installed CLI's documented fallback, `npm run build -- --webpack`, completed successfully and generated 249 static pages. It retains the existing unchanged geoip.js dynamic-require warning. Route auth passed 342/342 guarded methods. Migration filenames passed (169 files); live ledger 169 applied / 0 pending / 0 changed; live contract 92 classified relations / 0 violations. The anon-only probe returned 0 exposed / 44 refused / 48 inconclusive / 0 unreachable; the catalog contract resolves the 48 empty responses as protected, and an empty response alone is never called a pass.
 
 The synthetic test demo and Task 7 browser fixtures do not establish authenticated live UI, physical device/font/zoom/reduced-motion acceptance or real multi-connection concurrency. No new migration, runtime dependency, operating-data seed, deployment, push or merge is part of Task 8. Independent Task 8 review approved both spec compliance and task quality with no Critical or Important finding. The environment-file wording was corrected against the actual loader. Final whole-branch review remains a parent-owned completion gate.
+
+
+## Routine completion conflict protection - final review fix (2026-10-26)
+
+Approving an unlinked Routine job now returns an actionable 409 when the same Routine plan has a non-archived linked job in Scheduled, In Progress or Pending Inspection. Complete or cancel that linked job before approving separate Routine work. This prevents one approval from advancing the plan version and leaving another reviewed job unable to complete. The check runs under the existing vehicle and plan locks and throws inside the approval transaction, so the whole request rolls back: work-order edits and stamps, vehicle status, plan and legacy schedule, required audits and completion snapshots.
+
+Existing unlinked jobs remain supported. Their approval advances Routine service when no active linked Routine job remains; Completed, Cancelled and archived linked jobs do not block it. Approval checks the resulting vehicle and type, including a PUT that changes either or both to Routine. A linked brake job and unlinked corrective work remain independent. Current-version linked approval and the stale-version guard are preserved. Generic creation still permits a separate job and always normalizes a requested Completed status to Scheduled; no silent rebinding, automatic cancellation or new creation restriction was added.
+
+Verification: the new real-handler and rollback-only PostgreSQL regressions first failed in nine conflict cases (200 instead of 409), then all 98 focused checks passed, including 60 TEMP-table cases across the four existing SQL suites. They verify active/inactive linked states, target vehicle/type changes, POST normalization, valid linked completion after rejection and whole-request rollback including snapshots. The six-case synthetic demo, strict repository lint and documented Webpack production build passed. The final full suite passed 561 files / 6,223 tests, with 16 files / 174 opt-in tests skipped; all 60 maintenance SQL cases were separately enabled in the focused run. The unchanged schema source-scan test had two transient timeout runs, then passed all 14 cases unchanged in 358ms; its exact environmental cause is unproven. No migration, dependency or operating-data write was made. Authenticated live UI and real multi-connection concurrency remain unverified.

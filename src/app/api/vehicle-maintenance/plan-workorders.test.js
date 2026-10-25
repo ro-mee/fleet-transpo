@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({ user: null, plans: [], orders: [], queries: [], notifications: [], audit: [], outlook: vi.fn(), fuelNotify: vi.fn(), nextId: 10, snapshots: [], failSnapshot: false, serial: Promise.resolve() }));
-vi.mock("@/lib/db", () => ({ query: async sql => sql.includes("FROM employees") ? { rows: [{ employee_id: 9 }] } : { rows: [{ plate_number: "TEST" }] }, withTransaction: run => { const result = h.serial.then(() => run(h.tx)); h.serial = result.catch(() => {}); return result; } }));
+vi.mock("@/lib/db", () => ({ query: async sql => sql.includes("FROM employees") ? { rows: [{ employee_id: 9 }] } : { rows: [{ plate_number: "TEST" }] }, withTransaction: run => { const result = h.serial.then(async () => {
+  const before = structuredClone({ plans: h.plans, orders: h.orders, snapshots: h.snapshots, audit: h.audit });
+  try { return await run(h.tx); } catch (error) { Object.assign(h, before); throw error; }
+ }); h.serial = result.catch(() => {}); return result; } }));
 vi.mock("@/lib/fuel/maintenance", () => ({ notifyFuelDiagnosticTeam: h.fuelNotify }));
 vi.mock("@/services/maintenance-outlook.service", () => ({ getMaintenanceOutlook: h.outlook }));
 vi.mock("@/services/status.service", () => ({ syncVehicleStatus: vi.fn() }));
@@ -43,6 +46,28 @@ beforeEach(() => {
  } };
 });
 describe("reviewed plan work orders", () => {
+ it.each(["Scheduled", "In Progress", "Pending Inspection"])("rejects an unlinked Routine completion while its linked cycle is %s", async status => {
+  await post(body());
+  h.orders[0].status = status;
+  const generic = await (await post({ vehicle_id: 7, maintenance_type: "Routine", maintenance_date: "2026-10-01" })).json();
+  const before = structuredClone({ plans: h.plans, orders: h.orders, snapshots: h.snapshots, audit: h.audit, notifications: h.notifications });
+  const response = await PUT({ body: { status: "Completed", completed_date: "2026-10-01" } }, { params: Promise.resolve({ id: generic.maintenance_id }) });
+  expect(response.status).toBe(409);
+  expect((await response.json()).error).toMatch(/active.*Routine.*complete or cancel/i);
+  expect({ plans: h.plans, orders: h.orders, snapshots: h.snapshots, audit: h.audit, notifications: h.notifications }).toEqual(before);
+  expect((await post(body())).status).toBe(200);
+  expect((await put({ status: "Completed", completed_date: "2026-10-01" })).status).toBe(200);
+  expect(h.plans[0].version).toBe(4);
+ });
+ it("keeps client-requested Completed creation Scheduled even with an active linked Routine cycle", async () => {
+  await post(body());
+  const response = await post({ vehicle_id: 7, maintenance_type: "Routine", maintenance_date: "2026-10-01", status: "Completed", completed_date: "2026-10-01" });
+  expect(response.status).toBe(201);
+  expect(await response.json()).toMatchObject({ status: "Scheduled" });
+  expect(h.plans[0].version).toBe(3);
+  expect(h.snapshots.map(snapshot => snapshot.event)).toEqual(["reviewed_schedule"]);
+ });
+
  it("captures only the server-reviewed schedule once and completed lifecycle evidence", async () => {
   await post(body()); await post({...body(),forecast:{risk:"invented"}});
   expect(h.snapshots).toHaveLength(1);
