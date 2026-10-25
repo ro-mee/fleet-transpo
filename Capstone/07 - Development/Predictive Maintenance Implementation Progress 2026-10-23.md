@@ -165,3 +165,11 @@ Task8 independent spec and quality review approved with no Important/Critical fi
 Final whole-branch reviewer/root/maintenance_final_review (gpt-6-astra) is active against6e0e7495..fcf52b95. Prepared full package: .superpowers/sdd/2026-10-23-predictive-maintenance/final-review-package.md. It will save checkpoint final-review-progress.md and final verdict final-review.md. Do not duplicate it or repeat completed checks. Any important findings require one consolidated fix wave and scoped re-review before closure. Task8 overall completion, final plan/ledger update and continuation shutdown remain pending.
 
 Allowance approximately34%remaining at dispatch; reset1792932560 / 2026-10-25T20:49:20+08:00 Asia/Manila. Preserve partial review at20%; stop new work at5%orless and resume the same review after reset. Never approve a partially read branch. No merge,push or deployment.
+
+## Final review partial checkpoint - 2026-10-25
+
+The whole-branch reviewer/root/maintenance_final_review has reviewed the core transaction/evidence services and main maintenance route changes; full branch coverage is incomplete. It raised a potential cross-flow issue to verify: completing an unlinked Routine order may increment the Routine plan version while a linked Routine order remains active, potentially making that linked completion stale. This is a review hypothesis pending bounded confirmation, not an approved defect or a completed review.
+
+Continue from .superpowers/sdd/2026-10-23-predictive-maintenance/final-review-progress.md, where the reviewer is saving exact covered/remaining sections and evidence. Do not repeat reviewed sections or start a fix wave from an incomplete list. Prepared review range remains6e0e7495..fcf52b95; later parent commits contain only progress notes. All prior tests/build/demo evidence remains saved.
+
+Parent allowance8%remaining; reset1792932560 (2026-10-25 20:49:20 Asia/Manila). At5%orless stop new work and preserve the incomplete verdict, then resume review after reset. Task8 overall closure and continuation shutdown remain pending. No merge,push or deployment.
