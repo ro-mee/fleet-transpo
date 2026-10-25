@@ -173,3 +173,9 @@ The whole-branch reviewer/root/maintenance_final_review has reviewed the core tr
 Continue from .superpowers/sdd/2026-10-23-predictive-maintenance/final-review-progress.md, where the reviewer is saving exact covered/remaining sections and evidence. Do not repeat reviewed sections or start a fix wave from an incomplete list. Prepared review range remains6e0e7495..fcf52b95; later parent commits contain only progress notes. All prior tests/build/demo evidence remains saved.
 
 Parent allowance8%remaining; reset1792932560 (2026-10-25 20:49:20 Asia/Manila). At5%orless stop new work and preserve the incomplete verdict, then resume review after reset. Task8 overall closure and continuation shutdown remain pending. No merge,push or deployment.
+
+## Final review resumed after reset - 2026-10-25 21:23 Manila
+
+The recorded reset1792932560 has passed. Working tree is clean atf4a71b04; no old reviewer is active. Resume reviewer/root/maintenance_final_review_resume now owns the remaining coverage from final-review-progress.md, using the existing6e0e7495..fcf52b95 package. No passed tests or previously reviewed sections should be repeated. Final review remains incomplete and the Routine cross-flow concern remains provisional until confirmed.
+
+The live usage-limit tool is unavailable in this session (both tool discovery and callable availability checked). No current allowance percentage is claimed. Save incremental review checkpoints and restore the5%cutoff check when the meter becomes available. The user was informed of this limitation. All code/task commits and prior verification remain saved; continuation schedule remains active. No merge,push or deployment.
