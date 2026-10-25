@@ -24,7 +24,7 @@ Automation: continue-predictive-maintenance-implementation, 30-minute heartbeat,
 - Task 5: COMPLETE, commits b4b1940c and 99c12a99; scoped spec/quality re-review passed with both findings addressed.
 - Task 6: COMPLETE, commits d72cfe68 and 762da736; independent spec and quality re-review approved.
 - Task 7: COMPLETE, commits f0272bf8, be23a1fc and c848829d; independent spec and quality review approved after one fix round.
-- Task 8: IN PROGRESS under /root/maintenance_task8, starting at34a1b07c; demo and full verification remain unfinished.
+- Task 8: IMPLEMENTED and verified in f59a5127; task review and whole-branch review remain pending. Active implementer /root/maintenance_task8_resume, original task base34a1b07c.
 
 No merge, push, deployment or live work-order test write has occurred. Migration 167 was applied through the repository runner during Task 2.
 
@@ -149,3 +149,11 @@ Task8 is IN PROGRESS, with no implementation commit or task review yet. The orig
 The old verify-predictive-maintenance.mjs uses retired contracts and must not be used as current verification. Next after collecting existing results: installed-doc-guided build (record any junction failure and webpack fallback), focused compatibility/TEMP rollback fixtures, six-scenario reproducible demo, docs/commit/task review, then parent whole-branch review. No task completion claim.
 
 Allowance7%remaining at parent checkpoint; reset1792891773 / 2026-10-25T09:29:33+08:00 Asia/Manila. At5%orless stop new work; preserve logs/report and resume original agent after reset. Weekly allowance6%remaining. Continuation remains active; no merge,push or deployment.
+
+## Task8 implemented and verified, review pending - 2026-10-25
+
+Commit f59a5127 adds the isolated six-scenario demo runner and its checks, corrects a stale predictive-route query fixture, and updates Maintenance.md/SYSTEM.md. Reused existing mobile dependencies through an ignored junction; no dependency versions changed. All six real engine/service scenarios passed. Final full suite:561files/6219tests passed,16files/162tests skipped. Compatibility:544passed; separately opted-in PostgreSQL TEMP/rollback fixtures:48passed. Full strict lint, UTF-8 and whitespace checks passed. No app runtime source change in Task8.
+
+Default build reproduced the out-of-root dependency junction limitation. Documented Webpack production build passed with249static pages; an existing unchanged geoip.js warning remains. Auth342/342,ledger169/0/0,live catalog92relations/0violations remain verified. Anon probe0exposed/44refused/48inconclusive is resolved with the catalog contract; empty external responses alone are not a pass.
+
+Independent Task8 spec/quality review is active at/root/maintenance_task8_resume/task8_review, exact range34a1b07c..f59a5127. Original implementer/root/maintenance_task8_resume owns fixes if needed. Parent still owes final whole-branch review, completion checkpoint and schedule shutdown. Task8 is NOT complete yet. Saved logs and task-8-report.md are authoritative; do not repeat passed suites without changed code or a concrete new concern. Allowance47%remaining,reset1792932560. No merge,push or deployment.
