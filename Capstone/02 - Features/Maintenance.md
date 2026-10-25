@@ -637,3 +637,25 @@ Task 7 review fix round 1 (2026-10-25): the existing staff work-order destinatio
 
 
 Task 7 completed after independent fix-round1 review (2026-10-25): spec compliance APPROVED and task quality APPROVED. I1 is addressed, with no new Critical/Important issue or open finding. Reviewed source is f0272bf8 + be23a1fc + c848829d; this completion entry changes documentation only. Shared workspace, configuration/scheduling/odometer actions and all recorded fixture checks stand with the explicit authenticated/device/font/zoom/reduced-motion limits above. No passing suite was rerun for review.
+
+
+## Predictive maintenance demonstration and final verification - Task 8 (2026-10-25)
+
+Run `npm run demo:maintenance` from the repository folder. It prints an explicitly labeled synthetic demonstration and six PASS lines. It uses the installed Vitest runner and the existing real engine/service tests; no forecast logic is copied into the demonstration. The two database scenarios require the usual ignored `.env.local` with the app's existing DATABASE_URL and a reachable PostgreSQL connection. Credentials are read by the existing environment loader and are never placed in the command or demonstration output. With dependencies installed, no seed, server, browser sign-in or extra package is needed.
+
+| Scenario | Synthetic evidence and expected result |
+| --- | --- |
+| Overdue without trips | Reading 5,001 km against a 5,000 km threshold, no trips/date: overdue by 1 km; day estimate stays unknown. |
+| Supported future forecast | 9,000 measured km, 30 qualifying trips over 90 calendar days: 100 km/day; 2,000 km remaining gives 20 days, earlier than the 45-day calendar threshold. Evidence sufficiency is not a failure probability. |
+| Missing inputs | Configured 5,000 km threshold with no reading: mileage and remaining kilometres stay null, status needs_data. |
+| Repeated inspection finding | Two distinct canonical brakes_tires FAIL reports within 30 Manila calendar days produce one count-2 signal; a duplicate report and an out-of-window report do not inflate it. |
+| Active-order reuse | Actual review SQL returns the existing linked service-plan order on repeat review; the live-derived active index rejects a duplicate, and cancelling releases the slot. |
+| Isolated service completion | Approving linked brakes advances only the brake cycle, leaves Routine unchanged, writes required audits, and rejects a completed retry. |
+
+The runner checks the structured test report for every exact case and source file. A missing, skipped, failed or duplicate matching case fails the demonstration even if the test process returned success. Connection failure also fails it. Other tests in the selected files are intentionally filtered out; they do not substitute for any required case. The database fixtures create connection-local TEMP tables and local identity sequences under pg_temp, run inside transactions, and roll back. They read the public catalog/schema where required, but do not create live fleet/work-order records or advance operating sequences.
+
+Broader branch verification: the final full suite passed 561 files / 6,219 tests (16 files / 162 tests skipped), and focused maintenance/mechanic/inspection/dispatch compatibility passed 47 files / 544 tests. Explicitly enabled maintenance PostgreSQL fixtures passed all 48 cases across four files. These overlap the demo and are not added together. The first full run exposed a stale predictive-route query mock plus two missing installed mobile packages in the worktree; the mock now supplies separate forecast/signal rows and checks HTTP 200, and an ignored mobile dependency junction restored the existing installed packages without a package/lockfile change.
+
+The default Next.js 16.2.11 Turbopack build cannot follow this worktree's node_modules junction outside its filesystem root. The installed CLI's documented fallback, `npm run build -- --webpack`, completed successfully and generated 249 static pages. It retains the existing unchanged geoip.js dynamic-require warning. Route auth passed 342/342 guarded methods. Migration filenames passed (169 files); live ledger 169 applied / 0 pending / 0 changed; live contract 92 classified relations / 0 violations. The anon-only probe returned 0 exposed / 44 refused / 48 inconclusive / 0 unreachable; the catalog contract resolves the 48 empty responses as protected, and an empty response alone is never called a pass.
+
+The synthetic test demo and Task 7 browser fixtures do not establish authenticated live UI, physical device/font/zoom/reduced-motion acceptance or real multi-connection concurrency. No new migration, runtime dependency, operating-data seed, deployment, push or merge is part of Task 8. Independent task and final whole-branch review remain separate completion gates.

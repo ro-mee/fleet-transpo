@@ -13,9 +13,12 @@ it("denies an unauthorized request before reading forecast evidence", async () =
 });
 it("keeps the fleet summary response shape and returns date-only service evidence", async () => {
   requirePermission.mockResolvedValue({ user: { role: "fleet_manager", employeeId: 9 } });
-  query.mockResolvedValue({ rows: [{ vehicle_id: 7, mileage: null, service_plans: [{ plan_id: 10, version: 1, service_code: "routine", next_service_date: "2000-01-01" }] }] });
+  query.mockResolvedValueOnce({ rows: [{ vehicle_id: 7, mileage: null, service_plans: [{ plan_id: 10, version: 1, service_code: "routine", next_service_date: "2000-01-01" }] }] }).mockResolvedValueOnce({ rows: [{ vehicle_id: 7, inspections: [], orders: [] }] });
   const response = await GET(new Request("http://localhost/api/ai/predictive-maintenance"));
+  expect(response.status).toBe(200);
   const { data } = await response.json();
+  expect(query).toHaveBeenCalledTimes(2);
+  expect(data.predictions[0].signals).toEqual([]);
   expect(data.summary).toMatchObject({ overdue: 1, total: 1, unscheduled: 0 });
   expect(data.predictions[0]).toMatchObject({ vehicle_id: 7, risk: "overdue", basis: "time", mileage: null, evidence: { latestReadingAt: null } });
   expect(data.predictions[0].services[0]).toMatchObject({ plan_id: 10, service_code: "routine", risk: "overdue" });

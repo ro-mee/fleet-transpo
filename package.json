@@ -11,6 +11,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "mobile:brand": "node scripts/generate-mobile-brand.mjs",
+    "demo:maintenance": "node scripts/maintenance-demo/run.mjs",
     "verify:auth": "node scripts/verify-route-auth.mjs",
     "verify:encoding": "node scripts/verify-encoding.mjs",
     "verify:anon": "node scripts/verify-anon-access.mjs",
