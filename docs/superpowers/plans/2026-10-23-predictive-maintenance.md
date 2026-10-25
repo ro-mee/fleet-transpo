@@ -168,9 +168,9 @@ expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 **Consumes:** all tasks and review evidence.
 **Produces:** reproducible demo steps, verified branch and per-task commit ledger.
 
-- [ ] Cover the six accepted scenarios: overdue without trips, supported future forecast, missing inputs, repeated inspection finding, active-order reuse and isolated service completion.
-- [ ] Demo data must be explicitly labeled and isolated; do not create live fleet/work-order records for a demonstration without an explicit reason and cleanup mechanism.
-- [ ] Run focused maintenance/mechanic/inspection/dispatch compatibility suites, full tests, lint:ci, verify:auth, verify:encoding, db:check, build and applicable live DB gates. Record exact failures or unavailable verification rather than claiming success.
-- [ ] Review the full branch with an independent reviewer; address important findings and rerun affected checks.
-- [ ] Update user-facing documentation and final commit: test: verify predictive maintenance workflow and demo.
+- [x] Cover the six accepted scenarios: overdue without trips, supported future forecast, missing inputs, repeated inspection finding, active-order reuse and isolated service completion.
+- [x] Demo data must be explicitly labeled and isolated; do not create live fleet/work-order records for a demonstration without an explicit reason and cleanup mechanism.
+- [x] Run focused maintenance/mechanic/inspection/dispatch compatibility suites, full tests, lint:ci, verify:auth, verify:encoding, db:check, build and applicable live DB gates. Record exact failures or unavailable verification rather than claiming success.
+- [x] Review the full branch with an independent reviewer; address important findings and rerun affected checks.
+- [x] Update user-facing documentation and final commit: test: verify predictive maintenance workflow and demo.
 - [ ] Confirm clean worktree and commit history, disable continuation heartbeat, report completion and remaining environment limits. Leave branch/worktree available for user review.
