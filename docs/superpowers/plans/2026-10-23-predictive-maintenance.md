@@ -173,4 +173,4 @@ expect(otherPlanResult.maintenance_id).not.toBe(firstResult.maintenance_id);
 - [x] Run focused maintenance/mechanic/inspection/dispatch compatibility suites, full tests, lint:ci, verify:auth, verify:encoding, db:check, build and applicable live DB gates. Record exact failures or unavailable verification rather than claiming success.
 - [x] Review the full branch with an independent reviewer; address important findings and rerun affected checks.
 - [x] Update user-facing documentation and final commit: test: verify predictive maintenance workflow and demo.
-- [ ] Confirm clean worktree and commit history, disable continuation heartbeat, report completion and remaining environment limits. Leave branch/worktree available for user review.
+- [x] Confirm clean worktree and commit history, disable continuation heartbeat, report completion and remaining environment limits. Leave branch/worktree available for user review.
