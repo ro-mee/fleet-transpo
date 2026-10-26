@@ -10,7 +10,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { StatsGridSkeleton, TableSkeleton } from "@/components/ui/skeleton";
-import { Wallet, Fuel, Wrench, TrendingDown, Download } from "lucide-react";
+import { Wallet, Fuel, Wrench, TrendingDown, Download, Receipt } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -37,10 +37,11 @@ export default function FleetCostPage() {
   const kpis = [
     { label: "Total Cost", value: formatCurrency(totals.total_cost || 0), icon: Wallet, tone: "primary" },
     { label: "Fuel Cost", value: formatCurrency(totals.fuel_cost || 0), icon: Fuel, tone: "warning" },
+    { label: "Approved driver expenses", value: formatCurrency(totals.expense_cost || 0), icon: Receipt, tone: "info" },
     { label: "Maintenance Cost", value: formatCurrency(totals.maintenance_cost || 0), icon: Wrench, tone: "danger" },
     // Cost/km is descriptive, not good news — keep the KPI neutral instead of
     // painting an expense metric green.
-    { label: "Cost / km", value: formatCurrency(totals.cost_per_km || 0), icon: TrendingDown },
+    { label: "Cost / km", value: totals.distance ? formatCurrency(totals.cost_per_km || 0) : "—", icon: TrendingDown },
   ];
 
   async function handleExport() {
@@ -62,11 +63,11 @@ export default function FleetCostPage() {
         icon={Wallet}
         title="Fleet Cost Dashboard"
         badge="Reports"
-        description="Fuel, maintenance and operating cost per vehicle and per kilometer."
+        description="Eligible fuel, recorded maintenance and approved PHP driver expenses per vehicle."
         actions={
           <Button
             onClick={handleExport}
-            disabled={isLoading || exporting}
+            disabled={isLoading || isError || exporting}
             className={cn("h-11 rounded-full px-5 text-sm font-semibold", heroButtonPrimaryClass)}
           >
             <Download className="mr-2 h-4 w-4" />
@@ -76,15 +77,17 @@ export default function FleetCostPage() {
       />
 
       {isLoading ? (
-        <StatsGridSkeleton count={4} gridClass="md:grid-cols-2 lg:grid-cols-4" />
+        <StatsGridSkeleton count={5} />
       ) : (
-        <StatGrid cols={4}>
+        <StatGrid cols={5}>
           {kpis.map((k) => (
             <StatCard key={k.label} icon={k.icon} label={k.label} value={k.value} tone={k.tone} />
           ))}
         </StatGrid>
       )}
 
+      {data?.excludedExpenseCurrencies?.length > 0 && <p className="text-sm text-warning-700">Excluded from PHP totals (no exchange rate): {data.excludedExpenseCurrencies.map(row => `${row.count} ${row.currency} records (${row.amount.toLocaleString()} ${row.currency})`).join("; ")}.</p>}
+      {data?.methodology && <p className="text-xs leading-relaxed text-foreground-secondary">{data.methodology}</p>}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Cost Per Vehicle</CardTitle>
@@ -92,7 +95,7 @@ export default function FleetCostPage() {
         <CardContent className="p-0">
           {isLoading ? (
             <div className="p-5">
-              <TableSkeleton rows={6} cols={6} />
+              <TableSkeleton rows={6} cols={7} />
             </div>
           ) : isError ? (
             <div className="p-8 text-center text-sm text-foreground-secondary">
@@ -102,7 +105,7 @@ export default function FleetCostPage() {
               </button>
             </div>
           ) : details.length === 0 ? (
-            <EmptyState icon={Wallet} title="No cost data yet" description="Fuel, maintenance and trip data will populate costs." variant="waiting" size="compact" />
+            <EmptyState icon={Wallet} title="No cost data yet" description="Eligible fuel, recorded maintenance and approved driver expenses will populate costs." variant="waiting" size="compact" />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -111,6 +114,7 @@ export default function FleetCostPage() {
                     <th className="px-5 py-3 font-medium">Vehicle</th>
                     <th className="px-5 py-3 text-right font-medium">Fuel</th>
                     <th className="px-5 py-3 text-right font-medium">Maintenance</th>
+                    <th className="px-5 py-3 text-right font-medium">Approved expenses</th>
                     <th className="px-5 py-3 text-right font-medium">Total Cost</th>
                     <th className="px-5 py-3 text-right font-medium">Distance (km)</th>
                     <th className="px-5 py-3 text-right font-medium">Cost / km</th>
@@ -118,9 +122,9 @@ export default function FleetCostPage() {
                 </thead>
                 <tbody className="divide-y divide-border">
                   {details.map((d) => (
-                    <tr key={d.vehicle_id} className="hover:bg-hover transition-colors">
+                    <tr key={d.vehicle_id ?? "unallocated"} className="hover:bg-hover transition-colors">
                       <td className="px-5 py-3">
-                        {canOpenVehicles ? (
+                        {canOpenVehicles && d.vehicle_id ? (
                           <Link href={`/fleet/vehicles/${d.vehicle_id}`} className="font-medium text-foreground hover:underline">
                             {d.plate_number}
                           </Link>
@@ -131,9 +135,10 @@ export default function FleetCostPage() {
                       </td>
                       <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.fuel_cost)}</td>
                       <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.maintenance_cost)}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.expense_cost || 0)}</td>
                       <td className="px-5 py-3 text-right tabular-nums font-medium text-foreground">{formatCurrency(d.total_cost)}</td>
                       <td className="px-5 py-3 text-right tabular-nums text-foreground">{Number(d.distance).toLocaleString()}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.cost_per_km)}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{d.distance ? formatCurrency(d.cost_per_km) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

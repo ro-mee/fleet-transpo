@@ -131,7 +131,7 @@ export default function ExecutiveKpiPage() {
   const punctualityRate = punctuality.onTimeRate == null ? null : Number(punctuality.onTimeRate);
   const costTrend = (fin.monthlyData || []).slice(-12);
   const tripsTrend = momChange(util.monthlyData, (m) => m.trips);
-  const costMom = momChange(fin.monthlyData, (m) => (Number(m.fuelCost) || 0) + (Number(m.maintenanceCost) || 0));
+  const costMom = momChange(fin.monthlyData, (m) => (Number(m.fuelCost) || 0) + (Number(m.maintenanceCost) || 0) + (Number(m.expenseCost) || 0));
   const reportLink = <Link href="/reports" className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline">Open reports <ArrowRight className="h-3.5 w-3.5" /></Link>;
 
   return (
@@ -161,7 +161,7 @@ export default function ExecutiveKpiPage() {
         <StatCard icon={Gauge} label="Fleet in use now" value={utilization.isLoading || utilization.isError ? "—" : `${Number(util.utilization) || 0}%`} trend={utilization.isLoading || utilization.isError ? "Unavailable while utilization refreshes" : `${util.vehiclesInUse || 0} of ${util.fleetSize || 0} vehicles currently In Use`} tone="primary" />
         <StatCard icon={CheckCircle2} label="Completed trips" value={performance.isLoading || performance.isError ? "—" : Number(perf.totalCompletedTrips ?? 0)} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : tripsTrend ? `Completed trips in the report period · ${tripsTrend}` : "Completed trips in the report period"} tone="success" />
         <StatCard icon={TrendingUp} label="Punctuality" value={performance.isLoading || performance.isError ? "—" : punctualityRate == null ? "—" : `${punctualityRate}%`} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : punctualityRate == null ? "No pickup timing measurements available" : `${measuredTrips} measured completed trips`} tone="info" />
-        <StatCard icon={Wallet} label="Recorded operating cost" value={financial.isLoading || financial.isError ? "—" : formatCurrency(fin.totalCost || 0)} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : costMom ? `Fuel plus maintenance records · ${costMom}` : "Fuel plus maintenance records"} tone="primary" />
+        <StatCard icon={Wallet} label="Recorded operating cost" value={financial.isLoading || financial.isError ? "—" : formatCurrency(fin.totalCost || 0)} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : costMom ? `Fuel, maintenance and approved PHP expenses · ${costMom}` : "Fuel, maintenance and approved PHP expenses"} tone="primary" />
         <StatCard icon={Route} label="Cost per km" value={financial.isLoading || financial.isError ? "—" : fin.totalDistance ? formatCurrency(fin.costPerKm || 0) : "—"} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : fin.totalDistance ? `${Number(fin.totalDistance).toLocaleString()} km recorded` : "No recorded distance denominator"} tone="warning" />
         <StatCard icon={ShieldAlert} label="Critical / major open" value={incidents.isLoading || incidents.isError ? "—" : risk.critical_major_open || 0} trend="Open incident severity exposure" tone="danger" />
       </StatGrid>
@@ -176,13 +176,14 @@ export default function ExecutiveKpiPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--br)" vertical={false} />
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} tickFormatter={(value) => `₱${Number(value).toLocaleString()}`} width={72} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [formatCurrency(value), name === "fuelCost" ? "Fuel" : "Maintenance"]} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [formatCurrency(value), name === "fuelCost" ? "Fuel" : name === "expenseCost" ? "Approved expenses" : "Maintenance"]} />
                   <Area type="monotone" dataKey="fuelCost" stroke="var(--primary)" strokeWidth={2} fill="url(#fuelCostArea)" />
                   <Area type="monotone" dataKey="maintenanceCost" stroke="var(--warning)" strokeWidth={2} fill="url(#maintenanceCostArea)" />
+                  <Area type="monotone" dataKey="expenseCost" stroke="var(--info)" strokeWidth={2} fill="var(--info)" fillOpacity={0.08} />
                 </AreaChart>
               </ResponsiveContainer>
-            </div><table className="sr-only"><caption>Monthly recorded operating costs</caption><thead><tr><th>Month</th><th>Fuel cost</th><th>Maintenance cost</th></tr></thead><tbody>{costTrend.map((row) => <tr key={row.month}><th>{row.month}</th><td>{formatCurrency(row.fuelCost || 0)}</td><td>{formatCurrency(row.maintenanceCost || 0)}</td></tr>)}</tbody></table></>
-          ) : <EmptyState icon={Wallet} title="No cost trend yet" description="Monthly points appear once fuel or maintenance costs are recorded." variant="waiting" size="compact" />}</FeedState>
+            </div><table className="sr-only"><caption>Monthly recorded operating costs</caption><thead><tr><th>Month</th><th>Fuel cost</th><th>Maintenance cost</th><th>Approved expenses</th></tr></thead><tbody>{costTrend.map((row) => <tr key={row.month}><th>{row.month}</th><td>{formatCurrency(row.fuelCost || 0)}</td><td>{formatCurrency(row.maintenanceCost || 0)}</td><td>{formatCurrency(row.expenseCost || 0)}</td></tr>)}</tbody></table></>
+          ) : <EmptyState icon={Wallet} title="No cost trend yet" description="Monthly points appear once eligible fuel, maintenance or approved expenses are recorded." variant="waiting" size="compact" />}</FeedState>
         </Panel>
 
         <Panel title="Fleet activity state" description="Current roster status, separate from historical trip volume." action={<Link href="/analytics" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View analytics <ArrowRight className="h-3.5 w-3.5" /></Link>}>
@@ -203,7 +204,7 @@ export default function ExecutiveKpiPage() {
           ]} /></FeedState>
         </Panel>
         <Panel title="Cost mix" description="Recorded components only; unrecorded trip cost is not estimated.">
-          <FeedState query={financial} errorTitle="The recorded cost mix is unavailable"><div className="space-y-5 p-5"><div><p className="text-xs text-foreground-secondary">Fuel</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{formatCurrency(fin.fuelCost || 0)}</p></div><div><p className="text-xs text-foreground-secondary">Maintenance</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{formatCurrency(fin.maintCost || 0)}</p></div><p className="text-xs leading-relaxed text-foreground-muted">Method: {fin.methodology || "Financial report methodology unavailable."}</p></div></FeedState>
+          <FeedState query={financial} errorTitle="The recorded cost mix is unavailable"><div className="space-y-5 p-5"><div><p className="text-xs text-foreground-secondary">Fuel</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{formatCurrency(fin.fuelCost || 0)}</p></div><div><p className="text-xs text-foreground-secondary">Maintenance</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{formatCurrency(fin.maintCost || 0)}</p></div><div><p className="text-xs text-foreground-secondary">Approved driver expenses</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{formatCurrency(fin.expenseCost || 0)}</p></div>{fin.excludedExpenseCurrencies?.length > 0 && <p className="text-xs text-warning-700">Excluded from PHP totals: {fin.excludedExpenseCurrencies.map(row => `${row.count} ${row.currency} records (${row.amount})`).join("; ")}.</p>}<p className="text-xs leading-relaxed text-foreground-muted">Method: {fin.methodology || "Financial report methodology unavailable."}</p></div></FeedState>
         </Panel>
         <Panel title="Operational risk" description="Current incident attention, not a historical severity forecast.">
           <FeedState query={incidents} errorTitle="Operational risk is unavailable"><StatusBars rows={[
@@ -234,7 +235,7 @@ export default function ExecutiveKpiPage() {
         {[
           ["/reports", Wallet, "Financial reports", financial.isLoading || financial.isError ? "Unavailable" : formatCurrency(fin.totalCost || 0)],
           ["/analytics", Truck, "Fleet analytics", utilization.isLoading || utilization.isError ? "Unavailable" : `${util.fleetSize || 0} vehicles`],
-          ["/reports", Fuel, "Fuel and maintenance", financial.isLoading || financial.isError ? "Unavailable" : formatCurrency((fin.fuelCost || 0) + (fin.maintCost || 0))],
+          ["/reports", Fuel, "Fuel, maintenance and expenses", financial.isLoading || financial.isError ? "Unavailable" : formatCurrency((fin.fuelCost || 0) + (fin.maintCost || 0) + (fin.expenseCost || 0))],
           ["/incidents", AlertTriangle, "Incident oversight", incidents.isLoading || incidents.isError ? "Unavailable" : `${risk.attention || 0} attention items`],
         ].map(([href, Icon, label, detail]) => <Link key={label} href={href} className="group flex min-h-16 items-center gap-3 rounded-[16px] border border-border/70 bg-surface px-4 py-3 shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-all hover:bg-hover/80 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 active:scale-[0.98]"><Icon className="h-5 w-5 shrink-0 text-primary group-hover:scale-110 transition-transform" /><div className="min-w-0 flex-1"><p className="text-[15px] font-semibold text-foreground tracking-tight">{label}</p><p className="mt-0.5 truncate text-[13px] text-foreground-secondary">{detail}</p></div><ArrowRight className="h-5 w-5 text-foreground-muted transition-transform group-hover:text-foreground group-hover:translate-x-0.5" /></Link>)}
       </div>

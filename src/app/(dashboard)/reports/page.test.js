@@ -136,6 +136,19 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+describe("Reports — financial reconciliation", () => {
+  it("shows approved expense categories, currency exclusions and an unavailable distance denominator", () => {
+    vi.stubGlobal("window", { location: { search: "?report=financial", pathname: "/reports" }, history: { replaceState: vi.fn() } });
+    state.queries["report-financial"] = query({ totalCost: 250, fuelCost: 150, maintCost: 60, expenseCost: 40, totalDistance: 0, costPerKm: 0, expensesByCategory: [{ category: "Toll", cost: 40, count: 1 }], excludedExpenseCurrencies: [{ currency: "USD", count: 1, amount: 10 }] });
+    const html = renderToStaticMarkup(React.createElement(TooltipProvider, null, React.createElement(ReportsPage)));
+    expect(html).toContain("Approved driver expenses");
+    expect(html).toContain("Toll");
+    expect(html).toContain("USD");
+    expect(html).toContain("No recorded distance");
+    expect(html).not.toContain("Fuel + maintenance</");
+  });
+});
+
 describe("Reports — fuel diagnostic filing", () => {
   function fuelPage(directory) {
     vi.stubGlobal("window", { location: { search: "?report=fuel", pathname: "/reports" }, history: { replaceState: vi.fn() } });
