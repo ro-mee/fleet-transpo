@@ -56,3 +56,15 @@ Two stashes remain: `0c215b4f` (Copilot singular/plural driver wording) and `2d8
 Evidence: registered worktree inventory; status in every checkout; all local and remote branch heads; live remote verification; main ancestry and ahead/behind counts; patch-equivalence checks; affected-file blob comparisons; squash ancestry; read-only merge previews; stash inventory; and leftover-directory inspection. No application tests were required or run for this history/content audit. Clean working trees and conflict-free ancestry do not establish release safety.
 
 Related notes: [[Worktree and Merge Audit 2026-10-08]], [[Google Maps Navigation and Android Bubble Implementation Plan]], [[Fuel]].
+
+## Stash removal - 2026-10-26
+
+Both preserved stashes were removed with the owner authorization against HEAD `841e4711`, after a fresh per-hunk redundancy check that extends the blob statistics above.
+
+- `stash@{0}` `0c215b4f99d12e87ff6b159bb1347a64dd71a4f2` (Copilot singular/plural driver wording): all three modified files already match HEAD; the `drivers?` classifier regime and both "singular and plural driver terms" documentation sentences are present verbatim.
+- `stash@{1}` `2d8351aecf23eac624c26a5298d3df95f0b67ce0` (driver-info/edit pre-review snapshot): of the 67 tracked paths, 10 blobs are identical in HEAD and 57 are behind later evolution. A line-by-line check of every stash-added line against current HEAD content found no file reverted to its base and no stash-only hunk lost; the only misses are two refreshed `last_verified:` date stamps and lines reworded or rebuilt by the 13 commits between this snapshot and its branch tip `bf9e54be`, which is an ancestor of main (`git merge-base --is-ancestor feature/driver-info-edit-sync HEAD`).
+- The old caution that "restoring either blindly could replace newer fixes" is resolved by that evidence: there is nothing left to restore that is not already present in a current form.
+- Of the 16 saved untracked paths, 13 are tracked in main (four implementation plans including the 2026-09-29 inspection plan, the `mobile/lib` empty-state/odometer/escaping modules with their tests, the Capstone inspection UI/UX plan and the motion reel note) and 3 remain intentionally gitignored local working files still on disk (IMPLEMENTATION_NOTES.md, SCENE_NOTES.md, STORYBOARD.md), matching the local-only policy from `5bdc9a02`.
+- Backup taken before the drop: full patch exports of both stashes (untracked content included) plus their SHAs and restore instructions at gitignored `scratch/stash-retirement-2026-10-26/` (README.txt and two `.patch` files). The dropped commits also remain reachable by SHA in the object store until pruning.
+
+This removal changed no application code. Line membership does not by itself prove semantic equivalence; the branch covered the work with its own commits and pinned tests. Related: [[Worktree and Merge Audit 2026-10-08]], [[2026-10-01]], [[Sequential Branch Merges 2026-10-16]].

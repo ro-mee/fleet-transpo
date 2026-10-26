@@ -30,3 +30,7 @@ Checks used `git worktree list --porcelain`, full `git status --porcelain --untr
 ## Result
 
 Mechanic and both registered feature worktrees are fully merged. The concrete separate unmerged feature is the 18-commit fuel micro-simulation branch. The old documentation commit, saved stashes and leftover folder remain preserved for review. No application code, database row, migration, worktree or stash was changed; no test/build was needed for this history/file audit. Only this audit note and the system/journal cross-references were added.
+
+## Addendum 2026-10-26: stashes removed after full redundancy audit
+
+The caution above — "restoring either blindly could replace newer fixes" — was resolved on 2026-10-26: every line the two stashes added was compared against current HEAD, and the only divergences are later rewording, modules rebuilt by the merged branch's own commits and two updated `last_verified:` date stamps. Both stashes were then dropped with owner authorization; `stash@{0}`'s three files and `stash@{1}`'s 67 tracked paths are all represented in current main, and 13 of the 16 untracked paths are tracked there (the other 3 remain local-only on disk by policy). Patch backups, SHAs and the per-file evidence are recorded in [[Worktree and Merge Audit 2026-10-16]], with exports at gitignored `scratch/stash-retirement-2026-10-26/`.
