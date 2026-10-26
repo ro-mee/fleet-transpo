@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,8 @@ import {
   ArrowRight,
 } from "lucide-react";
 import Link from "next/link";
+
+const PAGE_SIZE = 25;
 
 // The office's worklist of vehicle problems.
 //
@@ -98,12 +101,7 @@ function ProblemRow({ item, onRaise, raising }) {
           <span className="text-foreground-secondary font-semibold uppercase tracking-wider">
             Severity:
           </span>
-          <Badge
-            variant={item.severityLabel === "Not assessed" ? "outline" : "secondary"}
-            className="rounded-full px-2.5 py-0.5 font-bold"
-          >
-            {item.severityLabel}
-          </Badge>
+          <StatusBadge status={item.severityLabel} entity="severity" className="rounded-full px-2.5 py-0.5 font-bold" />
           {item.driverName && (
             <span className="text-foreground-secondary">Reported by {item.driverName}</span>
           )}
@@ -117,20 +115,36 @@ function ProblemRow({ item, onRaise, raising }) {
       <div className="sm:w-64 shrink-0">
         {tracked ? (
           <div className="space-y-2">
+            <p className="text-sm font-semibold tabular-nums">Work order #{item.workOrderId}</p>
             <StatusBadge
               status={item.workOrderStatus || "Scheduled"}
               entity="maintenance"
               className="rounded-full text-xs font-bold"
             />
             <Link
-              href="/maintenance"
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
+              href={`/maintenance?work_order_id=${item.workOrderId}`}
+              className="inline-flex min-h-[44px] items-center gap-1.5 text-xs font-bold text-primary hover:underline focus-visible:ring-2 focus-visible:ring-primary"
             >
-              Open the maintenance register <ArrowRight className="h-3.5 w-3.5" />
+              Open work order <ArrowRight className="h-3.5 w-3.5" />
             </Link>
+            <p className="text-xs text-foreground-secondary">
+              Assigned mechanic: {item.assignedMechanicName || (item.assignedMechanicId ? `Mechanic #${item.assignedMechanicId}` : "Unassigned")}
+            </p>
+            <p className="text-xs text-foreground-secondary">
+              {item.workOrderStatus === "Pending Inspection" ? "Next: Fleet Manager review. Approve completion or return the repair with a reason."
+                : item.workOrderStatus === "Cancelled" ? "Next: Fleet Manager must review this cancelled ticket and confirm how the defect will be handled."
+                  : item.workOrderStatus === "Completed" ? "Repair completed. Review the work order for the recorded outcome."
+                    : !item.assignedMechanicId ? "Next: Fleet Manager assigns a mechanic in the work order."
+                      : "Next: Assigned mechanic updates the repair and submits it for review."}
+            </p>
+            {item.repairCompletedAt && <p className="text-xs text-foreground-secondary">Last submitted: {formatDate(item.repairCompletedAt)}</p>}
+            {!item.repairCompletedAt && item.repairStartedAt && <p className="text-xs text-foreground-secondary">Repair started: {formatDate(item.repairStartedAt)}</p>}
+            {!item.repairCompletedAt && !item.repairStartedAt && item.assignedAt && <p className="text-xs text-foreground-secondary">Assigned: {formatDate(item.assignedAt)}</p>}
           </div>
         ) : (
           <div className="space-y-2">
+            <p className="text-xs text-foreground-secondary">Next: Fleet Manager triage. No repair owner is assigned until a work order is raised and assigned.</p>
+            {["High", "Critical", "Major"].includes(item.severityLabel) && <p className="text-xs font-semibold text-danger-700">Review this safety finding with dispatch now. A failed inspection alone does not take the vehicle out of service.</p>}
             <Button
               size="sm"
               onClick={() => onRaise(item.inspectionId)}
@@ -225,10 +239,11 @@ function Section({ icon: Icon, title, description, count, danger, rows, empty, o
 export default function VehicleProblemsPage() {
   useRequireRole();
   const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ["vehicle-problems"],
-    queryFn: () => getVehicleProblems(),
+    queryKey: ["vehicle-problems", page],
+    queryFn: () => getVehicleProblems({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }),
   });
 
   const items = data?.items || [];
@@ -280,7 +295,7 @@ export default function VehicleProblemsPage() {
         icon={ShieldAlert}
         title="Vehicle Problem Queue"
         badge="Inspections awaiting a repair ticket"
-        description="Problems drivers reported that nothing is tracking yet, plus failed checklist inspections the office can raise by hand."
+        description="Review driver findings, assign repair follow-up and check work awaiting approval. Untracked findings appear first, oldest first. Counts cover the full queue; sections show the current page."
         actions={
           <Link href="/maintenance">
             <Button
@@ -306,29 +321,30 @@ export default function VehicleProblemsPage() {
           icon={ClipboardList}
           label="Failed inspections with no work order"
           value={isLoading || isError ? "—" : counts.failedUntracked}
-          trend="Closable by hand; already answered by the office notification"
+          trend="Fleet Manager triage needed; a notification does not confirm action"
           tone="warning"
         />
         <StatCard
           icon={Wrench}
           label="With a repair ticket"
           value={isLoading || isError ? "—" : counts.tracked}
-          trend="Linked to a vehiclemaintenance row"
+          trend="Check assignment, repair progress and review status"
           tone="success"
         />
       </StatGrid>
 
+      {isLoading ? <p role="status" className="py-6 text-sm text-foreground-secondary">Loading vehicle problems…</p> : <>
       <Section
         icon={ShieldAlert}
         title="Reported defects with no work order"
         description="A driver reported a fault and the automatic raise did not produce a ticket."
-        count={counts.reportedUntracked}
+        count={reported.length}
         danger
         rows={reported}
         empty={{
           icon: ShieldAlert,
-          title: "No untracked reported defects",
-          description: "Every driver-reported defect either has a repair ticket or none were filed.",
+          title: "No untracked reported defects on this page",
+          description: "Use the page controls to review other records when the full queue count is higher.",
         }}
         onRaise={onRaise}
         raisingId={raisingId}
@@ -337,13 +353,13 @@ export default function VehicleProblemsPage() {
       <Section
         icon={ClipboardList}
         title="Failed inspections with no work order"
-        description="A checklist inspection the driver failed. Raising a ticket here is optional, not an escalation."
-        count={counts.failedUntracked}
+        description="Fleet Manager reviews the finding and decides the repair and dispatch response."
+        count={failed.length}
         rows={failed}
         empty={{
           icon: ClipboardList,
-          title: "No failed inspections awaiting a ticket",
-          description: "Failed Pre-Shift and Pre-Trip inspections will appear here.",
+          title: "No failed inspections awaiting a ticket on this page",
+          description: "Failed Pre-Shift and Pre-Trip inspections appear here for office follow-up.",
         }}
         onRaise={onRaise}
         raisingId={raisingId}
@@ -352,17 +368,27 @@ export default function VehicleProblemsPage() {
       <Section
         icon={Wrench}
         title="With a repair ticket"
-        description="Already tracked — the repair lives in the maintenance register."
-        count={counts.tracked}
+        description="A ticket exists. Check who owns the repair and what needs to happen next."
+        count={tracked.length}
         rows={tracked}
         empty={{
           icon: Wrench,
-          title: "Nothing tracked yet",
+          title: "No linked work orders on this page",
           description: "Problems move here once a work order is raised for them.",
         }}
         onRaise={onRaise}
         raisingId={raisingId}
       />
+      </>}
+      {((data?.total ?? 0) > PAGE_SIZE || page > 1) && (
+        <nav aria-label="Problem queue pages" className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-4">
+          <p aria-live="polite" className="text-xs text-foreground-secondary">{isLoading ? "Loading page…" : `Page ${page} of ${Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE))} · ${data?.total ?? 0} problems`}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" aria-label="Previous page" disabled={page <= 1 || isLoading} onClick={() => setPage(value => value - 1)} className="min-h-[44px]">Previous</Button>
+            <Button variant="outline" aria-label="Next page" disabled={isLoading || page * PAGE_SIZE >= (data?.total ?? 0)} onClick={() => setPage(value => value + 1)} className="min-h-[44px]">Next</Button>
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

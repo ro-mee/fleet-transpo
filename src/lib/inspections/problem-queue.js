@@ -34,7 +34,9 @@ const QUEUE_SQL = `
          i.status, i.severity, i.checklist, i.findings, i.driver_id,
          v.plate_number, v.vehicle_name,
          e.first_name, e.last_name,
-         wo.maintenance_id, wo.status AS work_order_status
+         wo.maintenance_id, wo.status AS work_order_status,
+         wo.assigned_mechanic_id, wo.assigned_at, wo.repair_started_at, wo.repair_completed_at,
+         NULLIF(trim(concat_ws(' ', mechanic.first_name, mechanic.last_name)), '') AS assigned_mechanic_name
     FROM vehicleinspection i
     LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
     LEFT JOIN drivers d ON d.driver_id = i.driver_id
@@ -42,9 +44,11 @@ const QUEUE_SQL = `
      LEFT JOIN vehiclemaintenance wo
             ON wo.source_inspection_id = i.inspection_id
            AND wo.deleted_at IS NULL
+    LEFT JOIN employees mechanic ON mechanic.employee_id = wo.assigned_mechanic_id
    WHERE (i.status = 'Failed'
       OR (i.inspection_type = 'Post-Shift' AND i.status = 'Reported'))
-   ORDER BY i.inspection_date DESC, i.inspection_id DESC
+   ORDER BY CASE WHEN wo.maintenance_id IS NULL THEN 0 ELSE 1 END,
+            i.inspection_date ASC, i.inspection_id ASC
    LIMIT $1 OFFSET $2
 `;
 
@@ -89,8 +93,8 @@ const mechanicExists = (param) => `AND EXISTS (
      )`;
 
 const QUEUE_MECHANIC_SQL = QUEUE_SQL.replace(
-  "ORDER BY i.inspection_date DESC",
-  `${mechanicExists("$3")}\n   ORDER BY i.inspection_date DESC`
+  "ORDER BY",
+  `${mechanicExists("$3")}\n   ORDER BY`
 );
 
 const COUNT_MECHANIC_SQL = `${COUNT_SQL}\n   ${mechanicExists("$1")}`;
@@ -161,6 +165,11 @@ function shape(row) {
     report: driverReport(row),
     workOrderId: row.maintenance_id ?? null,
     workOrderStatus: row.work_order_status ?? null,
+    assignedMechanicId: row.assigned_mechanic_id ?? null,
+    assignedMechanicName: row.assigned_mechanic_name ?? null,
+    assignedAt: row.assigned_at ?? null,
+    repairStartedAt: row.repair_started_at ?? null,
+    repairCompletedAt: row.repair_completed_at ?? null,
     bucket: bucketFor(row),
   };
 }

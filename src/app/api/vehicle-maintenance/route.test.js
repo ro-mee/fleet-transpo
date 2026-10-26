@@ -453,6 +453,20 @@ describe("GET /api/vehicle-maintenance mechanic scoping (Task 4)", () => {
     expect(countsCall[1]).toBeUndefined();
   });
 
+  it("binds the exact queue work-order filter while retaining mechanic ownership", async () => {
+    stubMaintenanceGet();
+    await GET(getReq("http://test/api/vehicle-maintenance?maintenance_id=44"));
+    expect(listSqls()[0]).toContain("vm.maintenance_id = $2");
+    expect(mechQuerySpy.mock.calls[0][1]).toEqual([77, 44]);
+  });
+
+  it.each(["0", "-1", "1 OR 1=1", "9007199254740992"])("refuses an invalid work-order filter %s before reading data", async maintenanceId => {
+    stubMaintenanceGet();
+    const result = await GET(getReq(`http://test/api/vehicle-maintenance?maintenance_id=${encodeURIComponent(maintenanceId)}`));
+    expect(result.status).toBe(400);
+    expect(mechQuerySpy).not.toHaveBeenCalled();
+  });
+
   it("Task 4b: mechanic lean rows carry the 9 evidence keys + source_inspection_id", async () => {
     stubMaintenanceGet();
     const res = await GET(getReq("http://test/api/vehicle-maintenance?page=1&pageSize=10"));

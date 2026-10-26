@@ -137,3 +137,23 @@ it("preserves the existing assignment when directory loading fails", async () =>
   await save(form(assigned));
   expect(apiFetch.mock.calls.at(-1)[1].body).not.toHaveProperty("assigned_mechanic_id");
 });
+
+it("returns a submitted repair for further work with a required reason", async () => {
+  const submitted = { maintenance_id: 44, vehicle_id: 12, status: "Pending Inspection" };
+  find(form(submitted), node => node?.props?.name === "status").props.onChange({ target: { name: "status", value: "In Progress" } });
+  const reason = find(form(submitted), node => node?.props?.name === "rejection_reason");
+  expect(reason, "staff need a reason field before the API can accept a return for repair").toBeDefined();
+  expect(reason.props.required).toBe(true);
+  await save(form(submitted));
+  expect(apiFetch).not.toHaveBeenCalled();
+  reason.props.onChange({ target: { name: "rejection_reason", value: "Brake test still fails" } });
+  await save(form(submitted));
+  expect(apiFetch.mock.calls.at(-1)[1].body).toMatchObject({ status: "In Progress", rejection_reason: "Brake test still fails" });
+});
+
+it("shows the mechanic's saved repair findings in the fleet review dialog", () => {
+  const record = { maintenance_id: 44, status: "Pending Inspection", diagnosis: "Worn pads" };
+  const panel = find(form(record), node => node?.type?.name === "RepairEvidence");
+  expect(panel).toBeDefined();
+  expect(panel.props.record).toBe(record);
+});

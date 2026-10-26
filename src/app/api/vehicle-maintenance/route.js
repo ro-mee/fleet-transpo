@@ -175,6 +175,13 @@ export async function GET(req) {
 
     if (isMechanic) { where += ` AND vm.assigned_mechanic_id = $${idx++}`; params.push(session.user.employeeId); }
 
+    const maintenanceId = searchParams.get("maintenance_id");
+    if (maintenanceId !== null) {
+      if (!/^[1-9]\d*$/.test(maintenanceId) || !Number.isSafeInteger(Number(maintenanceId))) return err("Invalid work order number", 400);
+      where += ` AND vm.maintenance_id = $${idx++}`;
+      params.push(Number(maintenanceId));
+    }
+
     const vehicle_id = searchParams.get("vehicle_id");
     if (vehicle_id) { where += ` AND vm.vehicle_id = $${idx++}`; params.push(+vehicle_id); }
 
