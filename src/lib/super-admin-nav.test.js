@@ -14,6 +14,7 @@ const EXPECTED_OPERATIONS_ROUTES = [
   "/routes",
   "/incidents",
   "/fuel",
+  "/expenses",
   "/maintenance",
   "/tracking/live-map",
   "/uvvrp",
@@ -39,13 +40,13 @@ describe("Super Admin Navigation Structure Contract", () => {
     expect(itemsWithChildren[0].href).toBe("/operations");
   });
 
-  it("Operations contains all 16 operational routes in exact order", () => {
+  it("Operations contains all operational routes in exact order", () => {
     const operationsGroup = superAdminNav.find((group) => group.label === "Operations");
     expect(operationsGroup).toBeDefined();
 
     const operationsItem = operationsGroup.items.find((item) => item.label === "Operations");
     expect(operationsItem).toBeDefined();
-    expect(operationsItem.children).toHaveLength(16);
+    expect(operationsItem.children).toHaveLength(EXPECTED_OPERATIONS_ROUTES.length);
 
     const childHrefs = operationsItem.children.map((c) => c.href);
     expect(childHrefs).toEqual(EXPECTED_OPERATIONS_ROUTES);

@@ -2,16 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useQuery, keepPreviousData, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/tables/data-table";
-import { createColumnHelper } from "@tanstack/react-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
   getExpenseRecords,
+  getAllExpenseRecords,
   reviewExpenseRecord,
 } from "@/services/expenses.service";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
@@ -22,13 +21,13 @@ import {
   XCircle,
   Clock,
   Eye,
-  Truck,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { rolesFor } from "@/lib/auth/permissions";
 import { exportToCSV } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
-import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { ExpenseVerificationModal } from "@/components/expenses/ExpenseVerificationModal";
+import { QueryBoundary } from "@/components/ui/query-feedback";
 
 const TONE_MAP = {
   primary:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   icon: 'bg-slate-500/15 text-slate-500',   dot: 'bg-slate-500',   text: 'text-slate-600 dark:text-slate-400' },
@@ -38,7 +37,8 @@ const TONE_MAP = {
 };
 
 export default function ExpensesPage() {
-  useRequireRole();
+  const { authorized, role } = useRequireRole();
+  const canReview = rolesFor("expenses", "review").includes(role);
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState("Pending");
@@ -60,10 +60,7 @@ export default function ExpensesPage() {
 
   const statusParam = activeTab === "all" ? undefined : activeTab;
 
-  const {
-    data = { rows: [], total: 0, counts: { total: 0, pending: 0, approved: 0, rejected: 0, approvedCost: 0 } },
-    isLoading,
-  } = useQuery({
+  const expenseQuery = useQuery({
     queryKey: ["expense-records", { page, activeTab, search, sort }],
     queryFn: () =>
       getExpenseRecords({
@@ -76,30 +73,36 @@ export default function ExpensesPage() {
       }),
     refetchInterval: 30_000,
     placeholderData: keepPreviousData,
+    enabled: authorized,
   });
 
+  const data = expenseQuery.data || {};
   const records = data.rows || [];
   const counts = data.counts || { total: 0, pending: 0, approved: 0, rejected: 0, approvedCost: 0 };
 
   const handleExport = async () => {
     setExporting(true);
     try {
-      const all = await getExpenseRecords({
+      const rows = await getAllExpenseRecords({
         status: statusParam,
         search: search || undefined,
+        sort: sort[0]?.id,
+        sortDir: sort[0]?.desc ? "desc" : "asc",
       });
-      exportToCSV(all?.rows || [], "travel-expenses", [
+      const result = exportToCSV(rows, "travel-expenses", [
         { label: "Expense Date", key: "expense_date" },
         { label: "Driver", accessor: (r) => (r.driver?.employee ? `${r.driver.employee.first_name} ${r.driver.employee.last_name}` : "") },
         { label: "Merchant", key: "merchant_name" },
         { label: "Category", key: "category" },
         { label: "Payment Method", key: "payment_method" },
         { label: "Amount", key: "amount" },
+        { label: "Currency", accessor: (r) => r.currency?.trim().toUpperCase() || "Unknown" },
         { label: "Status", key: "status" },
       ]);
-      toast.success(`Exported ${(all?.rows || []).length} records`);
-    } catch {
-      toast.error("Export failed — please try again");
+      if (result.count) toast.success(`Exported ${result.count} records`);
+      else toast.warning("No expenses match the current filter.");
+    } catch (error) {
+      toast.error(error.message || "Export failed — please try again");
     } finally {
       setExporting(false);
     }
@@ -118,8 +121,6 @@ export default function ExpensesPage() {
   const handleReview = (id, action, remarks) => {
     reviewMutation.mutate({ id, action, review_remarks: remarks });
   };
-
-  const columnHelper = createColumnHelper();
 
   const columns = [
     {
@@ -173,7 +174,7 @@ export default function ExpensesPage() {
       key: "amount",
       label: "Total Amount",
       sortable: true,
-      render: (val, row) => <span className="font-data font-medium text-xs text-foreground">{val ? formatCurrency(val, row.currency) : "—"}</span>,
+      render: (val, row) => <span className="font-data font-medium text-xs text-foreground">{val != null ? formatCurrency(val, row.currency) : "—"}</span>,
     },
     {
       key: "status",
@@ -192,7 +193,8 @@ export default function ExpensesPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
+                aria-label="Inspect expense"
+                className="h-8 w-8 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
                 onClick={() => setInspectRecord(row)}
               >
                 <Eye className="w-3.5 h-3.5" />
@@ -216,7 +218,7 @@ export default function ExpensesPage() {
             variant="outline"
             className={cn("h-10", heroButtonOutlineClass)}
             onClick={handleExport}
-            disabled={exporting}
+            disabled={exporting || expenseQuery.isLoading || expenseQuery.isError || !authorized}
           >
             <Download className={cn("w-4 h-4 mr-2", exporting && "animate-pulse")} />
             Export CSV
@@ -224,6 +226,10 @@ export default function ExpensesPage() {
         }
       />
 
+      <QueryBoundary query={expenseQuery} isEmpty={() => false}
+        errorTitle="Expenses unavailable"
+        errorDescription="Expense records could not be loaded. Try again before reviewing or exporting them.">
+      {() => <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {(() => {
           const t = TONE_MAP.primary;
@@ -310,24 +316,33 @@ export default function ExpensesPage() {
         })()}
       </div>
 
+      {counts.approvedOtherCurrency > 0 && (
+        <p className="text-sm text-foreground-secondary">The approved expense total includes PHP only. {counts.approvedOtherCurrency} approved expenses in other or missing currencies remain in the register and exports.</p>
+      )}
+
       <DataTable
         columns={columns}
         data={records}
-        isLoading={isLoading}
+        isLoading={expenseQuery.isLoading}
         title="Expense Records"
         description="Travel and business expenses submitted by drivers."
         icon={Receipt}
         searchable={true}
-        onSearch={setSearchInput}
-        onSort={setSort}
-        totalItems={data.total}
-        page={page}
-        onPageChange={setPage}
+        searchValue={searchInput}
+        onSearchChange={setSearchInput}
+        searchPlaceholder="Search driver, plate, merchant or category..."
+        manualPagination
+        onSortChange={(next) => { setSort(next); setPage(1); }}
+        rowCount={data.total || 0}
+        pageIndex={page - 1}
+        onPageChange={(index) => setPage(index + 1)}
         pageSize={10}
         emptyTitle="No expenses found"
         emptyDescription="Driver-submitted expenses will appear here for review."
         onRowClick={(row) => setInspectRecord(row)}
       />
+      </>}
+      </QueryBoundary>
 
       {inspectRecord && (
         <ExpenseVerificationModal 
@@ -335,6 +350,7 @@ export default function ExpensesPage() {
           onClose={() => setInspectRecord(null)}
           onReview={(action, remarks) => handleReview(inspectRecord.id, action, remarks)}
           isSubmitting={reviewMutation.isPending}
+          canReview={canReview}
         />
       )}
     </div>
