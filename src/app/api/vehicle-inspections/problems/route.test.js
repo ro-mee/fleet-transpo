@@ -22,6 +22,7 @@ const req = (url = "http://test/api/vehicle-inspections/problems") => new Reques
 beforeEach(() => {
   vi.clearAllMocks();
   requirePermission.mockResolvedValue({ user: { employeeId: 1 } });
+  countProblemCounts.mockResolvedValue({ reportedUntracked: 4, failedUntracked: 9, tracked: 11 });
 });
 
 describe("GET /api/vehicle-inspections/problems", () => {
@@ -35,7 +36,7 @@ describe("GET /api/vehicle-inspections/problems", () => {
     listVehicleProblems.mockResolvedValue({ items: [{ inspectionId: 42 }], counts: { reportedUntracked: 1, failedUntracked: 0, tracked: 0 } });
     const res = await GET(req());
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ items: [{ inspectionId: 42 }], counts: { reportedUntracked: 1, failedUntracked: 0, tracked: 0 } });
+    await expect(res.json()).resolves.toEqual({ items: [{ inspectionId: 42 }], counts: { reportedUntracked: 4, failedUntracked: 9, tracked: 11 }, total: 24, limit: 100, offset: 0 });
   });
 
   it("answers scope=count with the exact count and no rows", async () => {

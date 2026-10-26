@@ -39,7 +39,11 @@ export async function GET(req) {
 
     const limit = boundedInt(params.get("limit"), MAX_LIMIT, { min: 1, max: MAX_LIMIT });
     const offset = boundedInt(params.get("offset"), 0, { min: 0 });
-    return ok(await listVehicleProblems({ limit, offset, ...scope }));
+    const [page, counts] = await Promise.all([
+      listVehicleProblems({ limit, offset, ...scope }),
+      countProblemCounts(scope),
+    ]);
+    return ok({ ...page, counts, total: counts.reportedUntracked + counts.failedUntracked + counts.tracked, limit, offset });
   } catch (error) {
     return handleError(error);
   }

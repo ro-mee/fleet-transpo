@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles, archiveVehicleMaintenance } from "@/services/vehicle.service";
 import { getMechanics } from "@/services/maintenance.service";
 import { MechanicAssignmentField } from "@/components/maintenance/mechanic-assignment-field";
+import { RepairEvidence } from "@/components/maintenance/repair-evidence";
 import MaintenanceVehicleSelect from "@/components/maintenance/maintenance-vehicle-select";
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
@@ -57,6 +58,7 @@ export default function MaintenancePage() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const sourceIncidentId = searchParams.get("incident_id") || "";
+  const workOrderId = searchParams.get("work_order_id") || "";
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState([]);
   const [searchInput, setSearchInput] = useState("");
@@ -87,6 +89,7 @@ export default function MaintenancePage() {
     priority: "Normal",
     status: "Scheduled",
     remarks: "",
+    rejection_reason: "",
     // Staff assign-mechanic select value: "" = unassigned. Seeded from the
     // row on edit (staff list rows carry assigned_mechanic_id since P0).
     assigned_mechanic_id: "",
@@ -100,13 +103,14 @@ export default function MaintenancePage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["maintenance", { page, search, sort, sourceIncidentId }],
+    queryKey: ["maintenance", { page, search, sort, sourceIncidentId, workOrderId }],
     queryFn: () =>
       getVehicleMaintenance({
-        page,
+        page: workOrderId ? 1 : page,
         pageSize: 10,
         search: search || undefined,
         source_incident_id: sourceIncidentId || undefined,
+        maintenance_id: workOrderId || undefined,
         sort: sort[0]?.id,
         sortDir: sort[0]?.desc ? "desc" : "asc",
       }),
@@ -191,6 +195,7 @@ export default function MaintenancePage() {
       priority: "Normal",
       status: "Scheduled",
       remarks: "",
+      rejection_reason: "",
       assigned_mechanic_id: "",
     });
     setFormError(null);
@@ -213,6 +218,7 @@ export default function MaintenancePage() {
       priority: record.priority || "Normal",
       status: record.status || "Scheduled",
       remarks: record.remarks || "",
+      rejection_reason: "",
       assigned_mechanic_id: record.assigned_mechanic_id != null && record.assigned_mechanic_id !== ""
         ? String(record.assigned_mechanic_id)
         : "",
@@ -245,6 +251,15 @@ export default function MaintenancePage() {
       mileage_at_service: formData.mileage_at_service !== "" ? Number(formData.mileage_at_service) : null,
       completed_date: formData.completed_date !== "" ? formData.completed_date : null,
     };
+    if (editingRecord?.status === "Pending Inspection" && submissionData.status === "In Progress") {
+      if (!submissionData.rejection_reason.trim()) {
+        setFormError("Explain what still needs repair before returning this work order.");
+        return;
+      }
+      submissionData.rejection_reason = submissionData.rejection_reason.trim();
+    } else {
+      delete submissionData.rejection_reason;
+    }
     // P0: fold the assign-mechanic select into the payload. Create sends the
     // id only when a mechanic is chosen (the server stamps assigned_at);
     // edit sends it only when the selection changed — "" back to null is an
@@ -429,7 +444,9 @@ export default function MaintenancePage() {
       />
 
       {/* ── EXECUTIVE KPI CARDS ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Register-wide totals; hidden when a work-order deep link scopes the
+          page to a single record, where they would misread as its stats. */}
+      {!workOrderId && (<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Records</span>
@@ -483,9 +500,15 @@ export default function MaintenancePage() {
             <p className="text-[11px] text-success font-semibold mt-1">Cumulative maintenance cost</p>
           </div>
         </div>
-      </div>
+      </div>)}
 
       {/* ── MAINTENANCE TABLE ── */}
+      {workOrderId && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-control border border-border bg-surface p-4 text-sm">
+          <p>Showing work order <strong className="tabular-nums">#{workOrderId}</strong>. Open its details to review the repair, or edit it to assign or return the work.</p>
+          <Link href="/maintenance" className="inline-flex min-h-[44px] items-center font-semibold text-primary hover:underline focus-visible:ring-2 focus-visible:ring-primary">Show all work orders</Link>
+        </div>
+      )}
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="p-0">
           <DataTable
@@ -503,7 +526,7 @@ export default function MaintenancePage() {
             searchPlaceholder="Search maintenance by vehicle plate or type..."
             onRowClick={openViewDialog}
             manualPagination
-            pageIndex={page - 1}
+            pageIndex={workOrderId ? 0 : page - 1}
             onPageChange={(idx) => setPage(idx + 1)}
             rowCount={total}
             onSortChange={(s) => { setSort(s); setPage(1); }}
@@ -554,10 +577,6 @@ export default function MaintenancePage() {
                     <p className="font-bold text-foreground mt-0.5">{mechanicName(viewingRecord.assigned_mechanic_id)}</p>
                   </div>
                 )}
-                <div>
-                  <p className="text-foreground-muted font-bold">Performed By</p>
-                  <p className="font-bold text-foreground mt-0.5">{repairPerformerLabel(viewingRecord)}</p>
-                </div>
                 {viewingRecord.source_inspection_id && (
                   <div>
                     <p className="text-foreground-muted font-bold">Source Inspection</p>
@@ -577,9 +596,11 @@ export default function MaintenancePage() {
                   <p className="text-foreground font-medium">{viewingRecord.description}</p>
                 </div>
               )}
+              <RepairEvidence record={viewingRecord} />
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+              {editingRecord && <RepairEvidence record={editingRecord} />}
               {formError && (
                 <div className="p-3 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs font-semibold">
                   {formError}
@@ -682,6 +703,12 @@ export default function MaintenancePage() {
                   <SelectItem value="Completed">Completed</SelectItem>
                   <SelectItem value="Cancelled">Cancelled</SelectItem>
                 </FloatingSelect>
+
+                {editingRecord?.status === "Pending Inspection" && formData.status === "In Progress" && (
+                  <FloatingField label="Reason for returning to repair" required className="md:col-span-2" hint="Tell the mechanic what still needs work.">
+                    <textarea id="rejection_reason" aria-label="Reason for returning to repair" required maxLength={1000} rows={3} value={formData.rejection_reason} onChange={e => setFormData({ ...formData, rejection_reason: e.target.value })} className="w-full bg-transparent py-1 text-sm text-foreground focus:outline-hidden" />
+                  </FloatingField>
+                )}
 
                 {canAssignMechanic && (
                   <MechanicAssignmentField

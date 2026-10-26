@@ -136,6 +136,11 @@ describe("listVehicleProblems", () => {
         report: { kind: "free_text", text: "sira ang preno" },
         workOrderId: null,
         workOrderStatus: null,
+        assignedMechanicId: null,
+        assignedMechanicName: null,
+        assignedAt: null,
+        repairStartedAt: null,
+        repairCompletedAt: null,
         bucket: "reported_untracked",
       },
     ]);
@@ -147,6 +152,18 @@ describe("listVehicleProblems", () => {
     }]]);
     const { items } = await listVehicleProblems();
     expect(items[0].driverName).toBeNull();
+  });
+
+  it("carries the actual repair owner and milestones for follow-up", async () => {
+    stubQuery([["FROM vehicleinspection i", { rows: [row({ maintenance_id: 91,
+      assigned_mechanic_id: 77, assigned_mechanic_name: "Rosa Diaz",
+      assigned_at: "2026-10-20T01:00:00Z", repair_started_at: "2026-10-21T01:00:00Z",
+      repair_completed_at: "2026-10-22T01:00:00Z" })] }]]);
+    const { items } = await listVehicleProblems();
+    expect(items[0]).toMatchObject({ assignedMechanicId: 77, assignedMechanicName: "Rosa Diaz",
+      assignedAt: "2026-10-20T01:00:00Z", repairStartedAt: "2026-10-21T01:00:00Z",
+      repairCompletedAt: "2026-10-22T01:00:00Z" });
+    expect(query.mock.calls[0][0]).toContain("LEFT JOIN employees mechanic ON mechanic.employee_id = wo.assigned_mechanic_id");
   });
 
   it("tallies each bucket over the page it returned", async () => {
@@ -165,6 +182,16 @@ describe("listVehicleProblems", () => {
     stubQuery([["FROM vehicleinspection i", { rows: [] }]]);
     await listVehicleProblems({ limit: 25, offset: 50 });
     expect(query).toHaveBeenCalledWith(expect.stringContaining("LIMIT $1 OFFSET $2"), [25, 50]);
+  });
+
+  it("keeps older untracked findings ahead of linked work orders and preserves mechanic scoping", async () => {
+    stubQuery([["FROM vehicleinspection i", { rows: [] }]]);
+    await listVehicleProblems({ assignedMechanicId: 77 });
+    const [sql, params] = query.mock.calls[0];
+    expect(sql).toContain("CASE WHEN wo.maintenance_id IS NULL THEN 0 ELSE 1 END");
+    expect(sql).toContain("i.inspection_date ASC, i.inspection_id ASC");
+    expect(sql).toContain("vm.assigned_mechanic_id = $3");
+    expect(params).toEqual([100, 0, 77]);
   });
 
   // An archived work order (vehiclemaintenance.deleted_at) must NOT count as

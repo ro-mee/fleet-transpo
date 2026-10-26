@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { MechanicAssignmentField } from "@/components/maintenance/mechanic-assignment-field";
+import { RepairEvidence } from "@/components/maintenance/repair-evidence";
 import { createMaintenanceRecord, updateMaintenanceRecord, getMechanics } from "@/services/maintenance.service";
 import { getVehicles } from "@/services/vehicle.service";
 import { useAuth } from "@/hooks/use-auth";
@@ -24,6 +25,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
   
   const [loading, setLoading] = useState(false);
   const [pendingCancellationData, setPendingCancellationData] = useState(null);
+  const [formError, setFormError] = useState(null);
   const [formData, setFormData] = useState({
     vehicle_id: normalizeVehicleId(initialData?.vehicle_id),
     maintenance_type: initialData?.maintenance_type || "Routine",
@@ -35,6 +37,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
     mileage_at_service: normalizeMaintenanceMileage(initialData?.mileage_at_service),
     completed_date: initialData?.completed_date ? initialData.completed_date.split('T')[0] : "",
     remarks: initialData?.remarks || "",
+    rejection_reason: "",
     // Staff assign-mechanic select value: "" = unassigned. Seeded from the
     // row on edit so an untouched select never drops the current assignee.
     assigned_mechanic_id: initialData?.assigned_mechanic_id != null && initialData?.assigned_mechanic_id !== ""
@@ -72,7 +75,8 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
     // id only when a mechanic is chosen; edit sends it only when the
     // selection changed — "" back to null is an explicit unassign, an
     // untouched select stays out of the PUT entirely.
-    const payload = { ...formData };
+    const payload = { ...data };
+    if (!(initialData?.status === "Pending Inspection" && payload.status === "In Progress")) delete payload.rejection_reason;
     const selected = payload.assigned_mechanic_id === "unassigned" ? "" : payload.assigned_mechanic_id;
     if (isEditing) {
       const before = initialData?.assigned_mechanic_id != null && initialData?.assigned_mechanic_id !== ""
@@ -98,6 +102,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
       setPendingCancellationData(null);
       onClose();
     } catch (err) {
+      setFormError(err.message || "Failed to save maintenance record");
       if (showErrorToast) toast.error(err.message || "Failed to save maintenance record");
       throw err;
     } finally {
@@ -107,6 +112,11 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setFormError(null);
+    if (initialData?.status === "Pending Inspection" && formData.status === "In Progress" && !formData.rejection_reason.trim()) {
+      setFormError("Explain what still needs repair before returning this work order.");
+      return;
+    }
     if (isEditing && formData.status === "Cancelled" && initialData?.status !== "Cancelled") {
       setPendingCancellationData({ ...formData });
       return;
@@ -125,6 +135,8 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {isEditing && <RepairEvidence record={initialData} />}
+            {formError && <p role="alert" className="text-sm text-danger-700">{formError}</p>}
             <Field label="Vehicle">
               <select className="min-h-[44px] w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground" aria-label="Vehicle" name="vehicle_id" value={formData.vehicle_id} onChange={handleChange} required disabled={isEditing}>
                 <option value="">Select a vehicle...</option>
@@ -153,6 +165,12 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
                 </select>
               </Field>
             </div>
+
+            {initialData?.status === "Pending Inspection" && formData.status === "In Progress" && (
+              <Field label="Reason for returning to repair" hint="Tell the mechanic what still needs work.">
+                <textarea aria-label="Reason for returning to repair" name="rejection_reason" value={formData.rejection_reason} onChange={handleChange} required maxLength={1000} rows={3} className="w-full rounded-control border border-border bg-surface px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+              </Field>
+            )}
 
             <Field label="Maintenance Date">
               <Input type="date" name="maintenance_date" value={formData.maintenance_date} onChange={handleChange} required />
