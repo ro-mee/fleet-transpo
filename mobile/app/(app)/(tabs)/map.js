@@ -701,7 +701,6 @@ function MapTab() {
       request: requestTripBubblePermission, storage: AsyncStorage, alert: AppAlert.alert,
     });
   }
-  const appState = useRef(AppState.currentState);
   const loadTripRef = useRef(null);
   const [navigationBusy, setNavigationBusy] = useState(false);
 
@@ -802,6 +801,8 @@ function MapTab() {
     }
   }, [activeTrip]);
 
+  const appState = useRef(AppState.currentState);
+
   // A Google Maps handoff hides FleetOps: the bubble departs and returns with
   // app visibility and the navigation bookkeeping survives the round trip.
   // Tracking transitions on the same events belong to the app-level owner.
@@ -846,6 +847,9 @@ function MapTab() {
       const list = Array.isArray(data) ? data : [];
       const active = list.find(isGpsTrackedTrip);
       if (setTrackedTrip(active || null, trackedRead) === false) return;
+      // Invalidate stale navigation/GPS callbacks before React commits the new trip.
+      activeTripRef.current = active || null;
+      void tripBubbleRef.current.invalidate();
       // Bail out on identical payloads (see samePayload): every poll mints new
       // objects, and without this the screen re-renders every 15 s forever.
       setActiveTrip((prev) => {
@@ -898,6 +902,7 @@ function MapTab() {
   // `duty` is a fresh object every render (useDuty spreads state), so it must
   // never appear in a dep array — only the stable `refresh` callback.
   const dutyRefresh = duty?.refresh;
+
   const [emptyRefreshing, setEmptyRefreshing] = useState(false);
   const handleEmptyRefresh = useCallback(async () => {
     setEmptyRefreshing(true);

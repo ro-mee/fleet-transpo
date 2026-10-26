@@ -22,26 +22,27 @@ const pickupUrl = 'https://www.google.com/maps/dir/?api=1&destination=14.6%2C121
 const destinationUrl = 'https://www.google.com/maps/dir/?api=1&destination=14.7%2C121.1&travelmode=driving&dir_action=navigate';
 
 // Execute the shipped Map action with only native/platform boundaries replaced.
-function mapAction(prepare) {
-  const opened = [], warnings = [], events = [];
+// The handoff prepare no longer starts a background task; it only probes the
+// foreground permission (Location), so 'start-failed' has no map-side producer.
+function mapAction(permission, tripOverride = {}) {
+  const opened = [], warnings = [];
   const context = {
-    activeTripRef: { current: { ...trip } }, navigationBusyRef: { current: false },
-    navigationOperationRef: { current: null }, trackingTransitionRef: { current: Promise.resolve() },
+    activeTripRef: { current: { ...trip, ...tripOverride } }, navigationBusyRef: { current: false },
+    navigationOperationRef: { current: null },
     tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
-    appState: { current: 'active' }, distRef: { current: { leg1: 0, leg2: 0 } },
+    appState: { current: 'active' },
     user: { employeeId: 23 }, captureCargoSession: () => ({}), isCurrentCargoSession: () => true,
     setNavigationBusy: () => {}, navigationTarget, externalNavigationUrl, beginNavigationHandoff,
-    launchExternalNavigation, isGpsTrackedTrip, prepareBackgroundTracking: prepare,
-    stopBackgroundTracking: async () => { events.push('stop'); return { ok: true }; },
-    mergeStoredKm: async (_, expectedTripId) => { events.push(`merge:${expectedTripId}`); },
-    loadTripRef: { current: async () => { events.push('refresh'); } },
+    launchExternalNavigation, isGpsTrackedTrip, Location: { getForegroundPermissionsAsync: permission },
+    useCallback: fn => fn,
+    loadTripRef: { current: async () => {} },
     Linking: { openURL: async url => { opened.push(url); } },
     AppAlert: { alert: (...args) => { warnings.push(args); } },
   };
   const start = source.indexOf('  const openExternalNavigation =');
   const end = source.indexOf('  const handleMapReady', start);
   const action = runInNewContext(`${source.slice(start, end)}; openExternalNavigation`, context);
-  return { action, context, opened, warnings, events };
+  return { action, context, opened, warnings };
 }
 
 describe('external navigation release contract', () => {
@@ -97,8 +98,11 @@ describe('external navigation release contract', () => {
     expect(calls).toEqual(['prepare', destinationUrl]);
   });
 
-  it.each(['permission-denied', 'start-failed', 'unsupported'])('requires the explicit override after %s and keeps Stay Here safe', async reason => {
-    const safe = mapAction(async () => ({ ok: false, reason }));
+  it.each([
+    ['permission-denied', async () => ({ status: 'denied' }), {}, destinationUrl],
+    ['unsupported', async () => ({ status: 'granted' }), { trip_status: 'Assigned', origin_latitude: 14.6, origin_longitude: 121 }, pickupUrl],
+  ])('requires the explicit override after %s and keeps Stay Here safe', async (reason, permission, tripOverride, expectedUrl) => {
+    const safe = mapAction(permission, tripOverride);
     await safe.action();
     expect(safe.opened).toEqual([]);
     expect(safe.warnings).toHaveLength(1);
@@ -108,11 +112,11 @@ describe('external navigation release contract', () => {
     expect(safe.opened).toEqual([]);
     expect(safe.context.navigationBusyRef.current).toBe(false);
 
-    const override = mapAction(async () => ({ ok: false, reason }));
+    const override = mapAction(permission, tripOverride);
     await override.action();
     expect(override.opened).toEqual([]);
     await override.warnings[0][2][1].onPress();
-    expect(override.opened).toEqual([destinationUrl]);
+    expect(override.opened).toEqual([expectedUrl]);
   });
 
   it('locks duplicate taps through readiness and the warning decision', async () => {
@@ -126,7 +130,7 @@ describe('external navigation release contract', () => {
     await Promise.resolve();
     expect(preparations).toBe(1);
     expect(map.opened).toEqual([]);
-    resolveReady({ ok: false, reason: 'permission-denied' });
+    resolveReady({ status: 'denied' });
     await Promise.all([running, duplicate]);
     await map.action();
     expect(preparations).toBe(1);
@@ -137,7 +141,7 @@ describe('external navigation release contract', () => {
   });
 
   it('refuses a warning override when the current trip has ended', async () => {
-    const map = mapAction(async () => ({ ok: false, reason: 'permission-denied' }));
+    const map = mapAction(async () => ({ status: 'denied' }));
     await map.action();
     map.context.activeTripRef.current = null;
     await map.warnings[0][2][1].onPress();
@@ -145,22 +149,10 @@ describe('external navigation release contract', () => {
     expect(map.context.navigationBusyRef.current).toBe(false);
   });
 
-  it('stops and merges the returning trip before refreshing the canonical assignment', async () => {
-    const map = mapAction(async () => ({ ok: true }));
-    let changeState;
-    const start = source.indexOf('  const appState = useRef(AppState.currentState);');
-    const end = source.indexOf('  const prevTripIdsRef', start);
-    runInNewContext(source.slice(start, end), {
-      ...map.context, legForStatus, updateLegContext: async () => {},
-      useRef: () => map.context.appState, useEffect: effect => effect(),
-      AppState: { currentState: 'active', addEventListener: (_, callback) => { changeState = callback; return { remove() {} }; } },
-    });
-    map.context.appState.current = 'background';
-    changeState('active');
-    await map.context.trackingTransitionRef.current;
-    expect(map.events).toEqual(['stop', 'merge:7', 'refresh']);
-    expect(map.opened).toEqual([]);
-  });
+  // Re-homed: the stop-before-merge-then-refresh ordering on a foreground return
+  // now belongs to the app-level location owner and is pinned by
+  // trip-location-owner.test.js ("stops foreground callbacks before background
+  // ownership and merges stored mileage once on return" and companions).
 
   it('retains native background-location and foreground-service configuration', () => {
     expect(config.android.permissions).toEqual(expect.arrayContaining([

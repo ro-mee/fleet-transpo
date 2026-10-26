@@ -72,13 +72,14 @@ describe('shared warning alert opt-ins', () => {
     const h = host(), navigationBusyRef = { current: false }, openURL = vi.fn();
     const source = readFileSync('mobile/app/(app)/(tabs)/map.js', 'utf8');
     const start = source.indexOf('  const openExternalNavigation ='), end = source.indexOf('  const handleMapReady', start);
-    const prepare = vi.fn().mockResolvedValue({ ok: false, reason: 'permission-denied' });
+    const prepare = vi.fn().mockResolvedValue({ status: 'denied' });
     const action = runInNewContext(`${source.slice(start, end)}; openExternalNavigation`, {
-      navigationBusyRef, navigationOperationRef: { current: null }, trackingTransitionRef: { current: Promise.resolve() }, setNavigationBusy: () => {},
+      navigationBusyRef, navigationOperationRef: { current: null }, setNavigationBusy: () => {},
       tripBubbleRef: { current: createTripBubbleHandoff({ show: async () => {}, hide: async () => {} }) },
       activeTripRef: { current: { trip_id: 7, trip_status: 'En Route', destination_latitude: 14.7, destination_longitude: 121.1 } },
       appState: { current: 'active' }, user: { employeeId: 23 }, captureCargoSession: () => ({}), isCurrentCargoSession: () => true,
-      navigationTarget, beginNavigationHandoff, launchExternalNavigation, prepareBackgroundTracking: prepare, stopBackgroundTracking: async () => {},
+      navigationTarget, beginNavigationHandoff, launchExternalNavigation, Location: { getForegroundPermissionsAsync: prepare },
+      useCallback: fn => fn,
       isGpsTrackedTrip: () => true, Linking: { openURL }, AppAlert: h.AppAlert,
     });
     await action(); expect(navigationBusyRef.current).toBe(true);

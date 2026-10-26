@@ -31,9 +31,10 @@ function tripLoader(rows) {
     samePayload: (a, b) => JSON.stringify(a) === JSON.stringify(b),
     captureTrackedTripRead: () => ({}), setTrackedTrip() {}, setTripSession: value => { session = value; }, setActiveTrip: fn => { active = fn(active); },
     setNearbyTrips: fn => { nearby = fn(nearby); }, prevTripIdsRef: { current: new Set() },
+    activeTripRef: { current: null }, tripBubbleRef: { current: { invalidate() {} } },
     setRecentNotification() {}, setLoading() {}, console,
   };
-  runInNewContext(block('  const loadTrip = useCallback', '  useEffect(() => subscribeApiEvents'), scope);
+  runInNewContext(block('  const loadTrip = useCallback', '  useEffect(() => { loadTripRef'), scope);
   return { load, active: () => active, nearby: () => nearby, session: () => session };
 }
 

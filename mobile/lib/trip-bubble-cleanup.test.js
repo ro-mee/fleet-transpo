@@ -126,6 +126,7 @@ describe('actual Map authoritative cleanup handlers', () => {
       setNearbyTrips: vi.fn(), setRecentNotification: vi.fn(), prevTripIdsRef: { current: new Set() },
       setLoading: vi.fn(), samePayload: () => false, console: { warn() {} },
       isGpsTrackedTrip: value => value?.trip_status === 'En Route',
+      captureTrackedTripRead: () => ({}), setTrackedTrip() {},
       subscribeApiEvents: fn => { listener = fn; }, setRouteData: vi.fn(), setRouteChoices: vi.fn(),
       updateLegContext: async () => {}, stopBackgroundTracking: async () => {},
     };
@@ -166,6 +167,8 @@ describe('actual Map authoritative cleanup handlers', () => {
     expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
     runInNewContext(source.slice(start, end), {
       useFocusEffect: fn => fn(), useCallback: fn => fn, focusedRef: { current: false }, lastFixRef: { current: null },
+      setNow: () => {}, getTripLocation: () => null,
+      setMapFocused: () => {},
       emptyStateKey: 'off-duty', params: { bubbleReturn: '123' }, loadTrip, dutyRefresh: null,
       // The focus handler also resumes the map bridge and re-seeds the driver
       // location; the harness only needs those bindings to exist.
