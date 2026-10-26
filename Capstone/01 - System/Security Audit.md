@@ -18,6 +18,12 @@ last_verified: 2026-09-30
 
 Findings from the 2026-08-20 gap analysis of the FleetOps web app + mobile driver app.
 
+## Expense and company-card employee projections - 2026-10-26
+
+**Confirmed source-code exposure, corrected in the current checkout:** `GET /api/expenses` selected entire employee/reviewer rows, and card registry/history reads selected entire employee/assigner rows. Unlike the earlier fuel S14 fix below, these paths still used `row_to_json(employee_alias.*)` and could serialize credential and unrelated personnel fields. The projections now explicitly select employee ID and first/last names; expense driver identity is also limited to its required ID. No claim is made that credentials were actually retrieved by an attacker.
+
+Regression checks protect the projection and permission contracts. Actual current expense/card SQL and safe identity keys were checked against live inside a read-only transaction and rolled back, without printing private records or credentials. Live HTTP authentication was not exercised in that probe, and a source correction is not a production deployment. Expense list/receipt guards now match documented read roles, while Management's review controls stay unavailable. All 339 exported API methods passed the route-guard audit. See [[Travel Expenses]] and [[FleetOps Web Audit]].
+
 ## Tier 1 — CLOSED 2026-08-20
 
 | # | Finding | Status |

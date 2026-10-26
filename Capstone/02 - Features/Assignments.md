@@ -6,7 +6,7 @@ source:
   - src/app/(dashboard)/fleet/assignments/page.js
   - src/app/api/driver-assignments
   - src/app/api/substitute-driver-schedules
-last_verified: 2026-10-09
+last_verified: 2026-10-26
 related: ["[[Driver Management]]", "[[Fleet And Vehicles]]", "[[Dispatch]]"]
 ---
 
@@ -91,3 +91,11 @@ Assignment release/custody and substitute-schedule removal confirmations in both
 ## Assignment table text overflow fix - 2026-10-09
 
 Eligibility warnings now wrap inside a bounded License Eligibility column in both the active custodial pairings and substitute schedules tables. This keeps long warnings out of Notes and the Release action despite the shared DataTable no-wrap default. Both tables use the existing sticky-first-column behavior so driver identity remains visible during horizontal scrolling. Notes remain truncated with their full text title. Eligibility evaluation, copy, permissions, APIs, and assignment data are unchanged. The local active-pairings table was browser-checked with long multi-reason rows; the text wraps without covering Notes. Changed-file ESLint and diff checks passed. The substitute table currently has no rows, so its populated rendering was not browser-verified.
+
+## Philippine calendar dates - 2026-10-26
+
+Source review confirmed a partial earlier fix: the Active Substitutes total used the Manila day, but substitute row badges still used the UTC day. Between Philippine midnight and 08:00, coverage could count as active while its row said Upcoming. Both now use `getScheduleStatus` in `src/lib/assignment-coverage.js`, with inclusive start/end calendar keys and the shared `manilaDateKey` helper. Custody age labels count Philippine calendar days rather than elapsed hours since UTC midnight. The 7/30-day presets use timezone-free calendar arithmetic.
+
+Assignment and substitute list/write responses normalize PostgreSQL DATE fields, including license expiry, to `YYYY-MM-DD` before JSON serialization. This prevents local-midnight dates from turning into previous-day UTC timestamps. Custody creation, reassignment and release explicitly use the Philippine day in SQL rather than relying on the database session's `CURRENT_DATE`. The substitute list's `?date=` filter now requires open-ended schedules to have started, so future coverage does not appear active in dashboard/dispatch callers. Substitute availability lookup also uses the Philippine departure day (see [[UVVRP Number Coding]]).
+
+Verified by reproducing failing midnight/serialization tests before the fixes, then passing 70 focused tests across assignment/substitute routes, coverage, UVVRP and scheduling in both UTC and Asia/Manila. Changed-source ESLint and the focused diff whitespace check passed. Database calls were stubbed for these tests; no live writes, migrations, deployed changes or authenticated browser actions were performed.

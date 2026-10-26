@@ -17,6 +17,12 @@ related: ["[[Dispatch]]", "[[AI Architecture]]"]
 
 # Feature: AI Advisory
 
+## AI overview failure states and scope - 2026-10-26
+
+The `/ai` landing page previously ignored errors from insight, recommendation and service-prediction queries, showing zero counts and successful-looking empty states instead. It now uses the shared query boundary for failure/retry/loading/empty states, keeps failed or unresolved metrics unknown, and reports the recommendation query's failure even though it has no list panel. Successful zero/empty results remain distinct. Management's existing permissions are preserved: the page skips its denied prediction query and omits the maintenance link, explaining the role restriction.
+
+Overview copy now describes service schedule outlook and advisory vehicle suggestions rather than claiming autonomous operation or physical vehicle-health telemetry. High-priority counts explicitly count insight severity rather than all operational incidents. Six rendered-state regressions passed; an isolated browser fixture verified the desktop failure/retry treatment. This does not change dispatch authority, provider behavior, ranking or the service-scoring model. Authenticated end-to-end acceptance remains pending. See [[FleetOps Web Audit]].
+
 ## Dispatch pair exclusion clarity - 2026-10-16
 
 Pair recommendations now report the effective driver's service-type mismatch before the broader driver/vehicle/load compatibility message when both fail. Both checks still exclude the pair. Updated Cargo fixtures supply a consistent typed driver/vehicle/request, and dispatch-window fixtures separately exercise Passenger scheduling, unconfigured Cargo refusal, and simulated approved Cargo authority. The pair-scoring, recommendation-availability and dispatch-window suites passed 94 tests across three files. No provider was activated and no operational data was changed.

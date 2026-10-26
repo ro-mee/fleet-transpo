@@ -5,7 +5,7 @@ tags: [feature, uvvrp, compliance, philippines]
 source:
   - src/lib/uvvrp/policy.js
   - system_settings.uvvrp_policy (live)
-last_verified: 2026-08-11
+last_verified: 2026-10-26
 related: ["[[Dispatch]]"]
 ---
 
@@ -50,7 +50,7 @@ stat count — same set is reused).
 |---|---|
 | `block` | Reject the dispatch outright — **current setting** |
 | `warn` | Allow, but surface a warning |
-| `approve` | Allow silently |
+| `approve` | Require Fleet Manager/Admin approval before retrying dispatch |
 
 **Making enforcement strength a runtime setting rather than a hard-coded rule is the right call.** Coding schemes get suspended (holidays, emergencies, policy changes) and the response needs to change without a deploy. That's why the policy lives in `system_settings`, not in code.
 
@@ -76,14 +76,9 @@ flowchart TD
 
 `system_settings` (the policy) · `uvvrp_violations` — **0 rows**
 
-## The gap — CONFIRMED
+## Violation history and verification limits
 
-`uvvrp_violations` has **zero rows**. With `response: "block"`, violations are prevented rather than recorded, so an empty table is *consistent* with the policy working. But it also means:
-
-- there's no evidence the logging path works at all
-- in `warn` mode, allowed-but-restricted dispatches should be recorded, and that's untested
-
-**TODO:** set `response: "warn"` in a test environment and confirm a row lands in `uvvrp_violations`.
+The earlier zero-row observation is historical and was not checked against live data on 2026-10-26. Current source records blocked, warned and pending-approval attempts in `uvvrp_violations`; blocking does not skip the history insert. The `approve` mode returns 409 until an authorized approval covers that vehicle and Philippine departure day. Live logging and notification delivery still need an authorized runtime check.
 
 ## What I learned
 
@@ -96,6 +91,14 @@ Encoding a real-world regulation as data (`weekdayRestrictions` map) rather than
 ## Exemption expiry calendar alignment - 2026-10-16
 
 The Vehicle Exemption Passes form now uses the shared themed `DatePicker` for its optional Expires on field. Its compact trigger matches the neighboring 36 px controls, and the calendar uses the system UI instead of the browser-native popup. Clearing or selecting a date still supplies the same optional date-only value to the existing create-pass request. No API, permission, or exemption behavior changed.
+
+## Philippine calendar consistency - 2026-10-26
+
+Source review and failing regression tests confirmed mixed UTC, browser/server local and Philippine dates. Shared policy weekday checks now use Asia/Manila. The board's default day, seven-day forecast keys, Today marker and departure timestamps use Philippine dates/times; forecast arithmetic uses date keys, so crossing month/year boundaries or running on a different host timezone cannot shift a day.
+
+Exemption expiry is inclusive through its Philippine calendar day. Active-exemption queries use the selected travel day instead of the database session's current day, and the forecast reevaluates expiry on each day. An approved violation now covers only its vehicle and Philippine departure day: both SQL operands use that day explicitly. The same date scope reaches picker travel contexts, individual conflict checks and batch queue conflict checks; the batch shares one exemption lookup per distinct Philippine date. Permanent category exemptions remain valid until deactivated. Substitute coverage queries use the Philippine departure date too.
+
+Verified by reproducing the incorrect Sunday/Monday midnight result, early pass expiry, wrong substitute lookup day and cross-date approval behavior, then passing 70 focused tests in both UTC and Asia/Manila. Changed-source ESLint and focused diff whitespace checks passed. Tests replace database calls with controlled fixtures; no live policy edits, database writes, migrations, deployment or authenticated browser workflow checks were performed.
 
 ## Related
 

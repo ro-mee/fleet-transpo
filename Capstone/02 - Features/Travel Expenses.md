@@ -61,5 +61,15 @@ The reviewer can:
 
 ## Role Based Access Control
 - **Driver**: Can submit expenses and view their own history.
-- **Admin / System Admin / Fleet Manager / Management**: Can access the Finance Dashboard to view all expenses and their analytics.
-- **Review Authority**: Only `admin`, `system_admin`, `fleet_manager` possess the `review` permission for expenses. `management` is strictly read-only for analytics.
+- **Admin / Super Admin / Fleet Manager / Management**: Can access the Finance Dashboard to view all expenses and their analytics.
+- **Review Authority**: Only `admin`, `super_admin`, `fleet_manager` possess the `review` permission for expenses. `management` can inspect records/receipts and analytics but cannot approve or reject.
+
+## Verified web audit corrections - 2026-10-26
+
+Source inspection confirmed complete employee/reviewer records were being serialized by the expense registry, and complete employee/assigner records by card reads. These joins now select only employee ID and first/last names; expense driver identity no longer includes unrelated driver fields. A read-only live query check verified the current SQL and identity keys without disclosing records. This is a source fix, not a claim of a production deployment.
+
+The registry now uses the shared table's actual server-pagination, search and sort properties. The API honors only explicitly allowlisted sort columns, with a stable ID tie-breaker; invalid page values fail before querying. CSV collection walks the whole selected status/search/sort result and includes Currency. A later-page error or collection limit fails the export rather than producing a successful partial file. Empty results do not claim a download succeeded. The PHP approved-cost summary excludes other/missing currencies and states their count separately; records and exports retain them.
+
+The `/expenses` route and list/receipt APIs now share the documented expense read permission. Super Admin, Admin, Fleet Manager and Management have sidebar access; Dispatcher, Driver and Mechanic are denied the all-employee registry. Management's modal is read-only. Existing review permission, required rejection reason and audit transaction remain authoritative. Receipt and card-detail/history routes correctly await Next.js route parameters.
+
+Verified with API/service/rendered-page regression tests, role allow/deny checks, strict touched-source lint and actual read-only expense/card SQL. An isolated synthetic browser fixture checked the 360 px expense layout and contained table scrolling. Full authenticated review/receipt/CSV acceptance remains separate. See [[FleetOps Web Audit]] for the consolidated verification and [[Reports]] for approved-expense reconciliation.

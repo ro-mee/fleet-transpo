@@ -334,6 +334,12 @@ runs were replayed against live and return correct shapes.
 
 ## Predictive maintenance
 
+### Direction assessment - 2026-10-23 (proposed, not implemented)
+
+The owner selected a useful, realistic capstone that is easy to demonstrate. [[Predictive Maintenance Direction Assessment 2026-10-23]] records the source-checked audit, practical scope, UI direction and demo/evaluation criteria. Priorities are correct due detection, reliable data setup, qualifying-service-only schedule resets, completion/schedule consistency and reuse of existing mechanic work orders. A small service catalog and condition alerts can follow that complete workflow.
+
+The forward-only clamp described below does **not** establish overall schedule correctness: an unrelated completed repair can still advance a routine interval, and low-confidence trip usage can hide already-exceeded mileage. Treat the older claim of strictly safe scores as superseded by this assessment. The October 1 fleet counts remain historical. This review changed documentation only; application tests, live data and rendered UI were not reverified.
+
 `predictive-maintenance.js` is one of the pure modules in `src/lib/ai/`. It scores vehicles by proximity to a service threshold (odometer-driven) and surfaces them in the advisory ranking.
 
 **Schedule Clamp:** `recomputeVehicleSchedule()` updates a vehicle's next service date and mileage when a maintenance record is `Completed`. To prevent illegal tampering, this function uses a PostgreSQL `GREATEST()` clamp. If a user modifies an older completed maintenance record with a lower odometer reading, the clamp discards the edit and preserves the furthest advanced predictive schedule, keeping the risk scores strictly safe and forward-moving.
@@ -536,3 +542,15 @@ The work-order loading state now uses the same Card components, two-column stack
 Queue rows on both My Line and My Work Orders no longer show issue/description text, keeping the list focused on the vehicle, job type, status, timing, and action. The issue remains available in the vehicle snapshot and work-order details. Focused ESLint and `git diff --check` passed.
 
 The mechanic workspace sidebar now contains only My Line and workshop tasks; the separate Account group and Profile link were removed to keep the navigation focused on repair work. Other roles and the account menu are unchanged. Focused ESLint and `git diff --check` passed.
+
+## Web inspection follow-up and repair review — 2026-10-26
+
+The standalone web audit was checked against the source. Mechanic assignment, mechanic-only work-order visibility, status transitions, notification fan-out and separation of completion approval already existed. The real missing handoff was the staff return action: the API requires `rejection_reason` for Pending Inspection → In Progress, but both staff edit forms lacked a way to enter it. Both now show a required reason for that transition, block a blank reason before sending, and preserve previous rejection history on unrelated edits. The fleet dialog also retains a failed-save message beside the draft. Both staff review surfaces show the same saved diagnosis, parts, labor, performer, last submission time, handover notes and previous return reason before staff decide the outcome. These are existing saved fields; missing evidence reads **Not recorded**.
+
+The office Problem Queue previously fetched only the newest 100 records, exposed no page controls and displayed page counts as if they covered the whole queue. It now requests 25 records per page, with full-queue counts and total/limit/offset metadata from the existing aggregate query. Untracked findings sort ahead of linked work orders, with the oldest findings first, so newer tracked records do not hide older unanswered problems. Section counts and empty states describe the current page; loading is explicit. The same mechanic assignment scope is applied to list and aggregate reads.
+
+Linked rows now identify the work-order number, assigned mechanic and saved repair milestone, and state who acts next: Fleet Manager assignment, mechanic repair, or Fleet Manager review. The action opens `/maintenance?work_order_id=N`, which requests a bound `maintenance_id` filter and starts at the first register page. Invalid IDs are refused before reading records, and this filter cannot bypass mechanic ownership. A cancelled ticket is explicitly flagged for Fleet Manager review rather than presented as a completed repair.
+
+For failed inspections, office copy now calls for Fleet Manager triage and makes clear that a notification alone does not confirm action. High/Major/Critical findings call for immediate review with dispatch. Raising the existing work order remains the actionable office escalation path; this change adds no automatic escalation timer, acknowledgment storage, new grounding rule or mobile behavior. The existing failed-checklist filing remains Scheduled for tomorrow and does not itself ground the vehicle. Actual Fleet Manager/dispatcher decisions are still required.
+
+**Verified:** 195 tests passed across 19 maintenance, mechanic and inspection test files, including failing-then-passing regressions that invoke the actual staff form handlers and queue/register query callbacks. They cover the required return reason on both staff forms, saved evidence display, exact work-order filtering and malformed IDs, paging beyond the first page, full-queue totals, repair ownership/milestones and retained mechanic scope. Focused ESLint and `git diff --check` passed. No migration, live database write, deployment or seed run was performed. An authenticated browser walkthrough and responsive/keyboard visual acceptance were not performed for these new changes.
