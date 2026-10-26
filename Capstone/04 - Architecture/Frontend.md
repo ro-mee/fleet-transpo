@@ -12,6 +12,14 @@ last_verified: 2026-09-30
 
 # Frontend
 
+## Standalone web audit corrections - 2026-10-26
+
+The dashboard route group now has one `loading.js` and one `error.js`; duplicate JSX convention files were removed. The retained error boundary supports Next.js `unstable_retry`, the compatibility reset, a page reload and an error reference. No additional route-level copies were introduced.
+
+The expense registry now follows the existing Fuel table's server search/sort/pagination contract and uses shared query feedback instead of showing failures as empty results. Its sidebar links and page guard admit its documented readers; read-only users cannot see approval controls. AI overview similarly separates loading, errors and successful empty data, and does not offer denied maintenance navigation. Inspections use exact queue counts, paging and direct work-order context; staff repair review reuses a shared saved-evidence panel.
+
+Strict changed-file lint passed. The production webpack build passed with 248 static pages; the existing dynamic geoip import warning remains. The default Turbopack attempt hit a local generated junction collision and the restricted webpack attempt could not create a generated folder; a permitted webpack rerun completed. Browser checks used actual components and shared compiled tokens with synthetic records, covering desktop AI failure/retry and repair evidence, 360 px Expenses with contained table scrolling, and dark 360 px inspection queue/paging. Authenticated role/dialog acceptance is not implied. See [[FleetOps Web Audit]].
+
 ## UI/UX alignment owner rule - 2026-10-13
 
 Shared tables, pagination, calendars/date pickers, dialogs/modals, selects and menus should follow `docs/design-system.md` and reuse the closest existing app primitive. The mandatory UI/UX alignment owner guidance is in `.agents/AGENTS.md`; implementers inspect the relevant feature note and an in-app example, preserve accessibility and responsive/theme behavior, and report the rendered acceptance actually performed. The cargo contents editor was aligned to the shared Radix Select for its quantity, orientation and temperature choices.

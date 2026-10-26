@@ -172,11 +172,9 @@ static images are not substituted for visible road geometry.
 
 ## GPS tracking — CONFIRMED
 
-**Foreground** (`mobile/lib/tracking.js`):
-- `watchPositionAsync({ accuracy: Balanced, distanceInterval: 10 })` writes to a ref
-- A separate interval POSTs the latest fix every **30 s** to `/api/mobile/driver/trips/${tripId}/gps`
+**Foreground**: `mobile/lib/trip-location-owner.js` owns active-trip High/1500ms/3m location and shared per-leg distance independently of the Map tab. `mobile/lib/tracking.js` separately obtains Balanced observations on its nominal **30 s** upload tick for `/api/mobile/driver/trips/${tripId}/gps`; ticks never overlap. A focused Map subscribes to the owner, while standby display GPS and compass are visible-screen only.
 
-**Background** (`mobile/lib/background-tracking.js`, added 2026-08-19): a `expo-task-manager` task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `map.js` starts it on background via `AppState` and stops + merges km on return, so the two never overlap (no double-counted km, no duplicate posts). The foreground watcher remains the source of truth. → [[ADR-011 Background GPS Tracking]]
+**Background** (`mobile/lib/background-tracking.js`, added 2026-08-19): a `expo-task-manager` task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `trip-location-owner.js` starts it on background via `AppState` and stops + merges km before resuming the foreground stream, so the two never overlap (no double-counted km, no duplicate posts). The foreground watcher remains the source of truth. → [[ADR-011 Background GPS Tracking]]
 
 **Decoupling the sensor from the upload is the right shape**: position updates arrive at whatever rate the GPS produces them, but network traffic is bounded at one request per 30 s.
 
@@ -732,3 +730,35 @@ Final tracking follow-up: a server-confirmed completion uses the existing API ev
 ## Gated driver-guidance architecture - 2026-10-21
 
 The default-off v2 provider preserves the three coach-mark contexts and geometry engine while separating catalogue/progress/policy/presentation from operational controllers. Practice is an authenticated, identity-bound memory capability, not a tour URL. Shared production views receive local handlers; they do not mount real form controllers. Read-only practice readiness opts out of the API helper's normal outbox drain; existing operational callers retain the default. The existing inbox feed invalidates guidance on new work. See [[Driver Guidance Redesign Implementation Plan 2026-10-20]] for verification and the native/participant rollout gate.
+
+## Map reliability ownership and freshness - 2026-10-22
+
+Active-trip native location is owned once beside the app uploader, after the same
+sign-in, consent, password and tracking-setting gates. The Map's cleanup removes
+only its visual subscription; trip distance/background collection survives tab
+changes. Generation guards fence delayed native starts, and shared read revisions
+fence Map/poster responses across leg changes, completion and account replacement.
+Runtime errors expose unavailable GPS with a real retry path. Disabled tracking
+continues to allow assignment browsing without starting native trip collection.
+
+The poster retains its 30-second network cadence and never queues live writes.
+`advisoryObservedAt` and motion evidence use capture time; `lastSentAt` remains a
+delivery acknowledgement. Trip/session transitions clear all advisory payloads,
+IDs and times, including delayed completion/account-response races. The renderer
+receives `locationObservedAt` and freshness separately from coordinates. It defers
+resume routing until a resumed fix, stops hidden/stale-GPS provider refreshes,
+and hides expired turn guidance. Native ETA additionally checks GPS freshness
+and a five-minute provider-calculation age. Selecting a cached alternate does
+not renew that age.
+
+Map loading/ready/error are distinct, scoped states with retry. A new WebView
+load invalidates earlier route guidance; a dropped route-options command releases
+its busy state after 25 seconds. Page navigation/file-access restrictions preserve
+the existing inline document and HTTPS provider resources. Pending assignments
+stay in the standby radar; accepted/ongoing work uses the trip workspace.
+
+Regression evidence, the full 6,183-test run, rollback-only live SQL validation,
+Android export and remaining physical acceptance are recorded in
+[[Mobile Map Functionality Repairs 2026-10-21]]. No dependency, migration, deployment
+or business-data write was introduced. The existing tutorial redesign remains
+separate work.

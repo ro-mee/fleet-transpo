@@ -8,6 +8,8 @@ related: ["[[Manual Functional Testing Remediation Plan]]", "[[AI Advisory]]", "
 
 # Manual Functional Testing Follow-up Audit
 
+**Current scope notice - 2026-10-26:** This is a historical audit and remediation record. Use [[FleetOps Web Audit]] for the current standalone web scope. PMS/Booking hand-off and other findings requiring a separate external subsystem are excluded from the active web audit backlog; their historical entries below do not create current requirements.
+
 Follow-up to [[Manual Functional Testing Remediation Plan]]. The tester completed the remaining manual checks, including a disposable Assigned → Scheduled dispatch-release chain and cleanup. This note verifies the residual findings against current source, the live database and the actual downloaded files. All database work below was read-only.
 
 ## Executive verdict

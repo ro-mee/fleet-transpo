@@ -14,6 +14,12 @@ last_verified: 2026-09-23
 Role-based access control, **entirely in application code**. Seven roles
 (the six below plus `mechanic`, registered 2026-10-06).
 
+## Expense web permissions aligned - 2026-10-26
+
+The expense all-employee registry and private receipt route now use the shared `expenses.read` permission. Its existing intended reader set is Super Admin, Admin, Fleet Manager and Management; the stray Dispatcher read grant on the registry was removed. Management's read permission is explicit in the matrix and its review/update authority stays false. Approval/rejection remains limited to Super Admin, Admin and Fleet Manager through the unchanged server review guard. The modal hides decisions for read-only users.
+
+Explicit `/expenses` and `/cards` page gates close previously unmapped routes; the card route remains restricted to Super Admin, Admin and Fleet Manager. Expense readers receive sidebar access. Positive/negative expense tests cover all seven roles, and the route-auth audit passed all 339 exported methods. This checks authorization contracts and source guards; live end-to-end acceptance as each role remains outstanding. See [[Travel Expenses]] and [[FleetOps Web Audit]].
+
 ## The seven roles — CONFIRMED (live `roles` table, 2026-09-01; canonical rename P1 2026-09-22; `mechanic` row id 10 added by migration 143, 2026-10-06)
 
 | id | name | Landing | Scope |
