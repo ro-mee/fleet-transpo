@@ -65,6 +65,8 @@ export const NAV_ROLES = {
   "/fuel": ["admin", "super_admin", "fleet_manager"],
   "/fuel/analytics": ["admin", "super_admin", "fleet_manager", "management"],
   "/fuel/estimates": ["admin", "super_admin", "fleet_manager", "management"],
+  "/expenses": ["admin", "super_admin", "fleet_manager", "management"],
+  "/cards": ["admin", "super_admin", "fleet_manager"],
   "/maintenance": ["admin", "super_admin", "fleet_manager"],
   "/maintenance/predictive": ["admin", "super_admin", "fleet_manager"],
   "/ai": ["admin", "super_admin", "fleet_manager", "management"],
@@ -308,6 +310,7 @@ const MATRIX = {
     system: { read: false, update: false },
   },
   management: {
+    expenses: { read: true, read_all: true, review: false, update: false },
     cargo: { read: true, observe: false, clearance: false, manual_decision: false },
     vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },

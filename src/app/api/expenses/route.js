@@ -1,13 +1,23 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
+
+const SORT_COLUMNS = { expense_date: "e.expense_date", amount: "e.amount", created_at: "e.created_at" };
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["admin", "super_admin", "fleet_manager", "management", "dispatcher"]);
+    await requirePermission(req, "expenses", "read");
     
     const url = new URL(req.url);
-    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-    const pageSize = Math.min(100, Math.max(1, parseInt(url.searchParams.get("pageSize") || "10", 10)));
+    const page = Number(url.searchParams.get("page") || "1");
+    const requestedPageSize = Number(url.searchParams.get("pageSize") || "10");
+    if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(requestedPageSize) || requestedPageSize < 1) {
+      return err("Page and page size must be positive whole numbers", 400);
+    }
+    const pageSize = Math.min(100, requestedPageSize);
+    const sortKey = url.searchParams.get("sort");
+    const sortColumn = Object.hasOwn(SORT_COLUMNS, sortKey) ? SORT_COLUMNS[sortKey] : null;
+    const sortDirection = url.searchParams.get("sortDir")?.toLowerCase() === "asc" ? "ASC" : "DESC";
+    const orderBy = sortColumn ? `${sortColumn} ${sortDirection} NULLS LAST, e.id DESC` : "e.created_at DESC, e.id DESC";
     const status = url.searchParams.get("status");
     const search = url.searchParams.get("search")?.trim().toLowerCase();
     
@@ -42,7 +52,8 @@ export async function GET(req) {
         COUNT(*) FILTER (WHERE e.status = 'Pending') as pending,
         COUNT(*) FILTER (WHERE e.status = 'Approved') as approved,
         COUNT(*) FILTER (WHERE e.status = 'Rejected') as rejected,
-        COALESCE(SUM(e.amount) FILTER (WHERE e.status = 'Approved'), 0) as approved_cost
+        COALESCE(SUM(e.amount) FILTER (WHERE e.status = 'Approved' AND UPPER(TRIM(e.currency)) = 'PHP'), 0) as approved_cost,
+        COUNT(*) FILTER (WHERE e.status = 'Approved' AND UPPER(TRIM(e.currency)) IS DISTINCT FROM 'PHP') as approved_other_currency
       FROM expense_records e
     `);
 
@@ -60,12 +71,16 @@ export async function GET(req) {
     const { rows } = await query(`
       SELECT 
         e.*,
-        row_to_json(d.*) as driver,
-        row_to_json(emp.*) as employee,
+        CASE WHEN d.driver_id IS NOT NULL THEN json_build_object('driver_id', d.driver_id) END as driver,
+        CASE WHEN emp.employee_id IS NOT NULL THEN json_build_object(
+          'employee_id', emp.employee_id, 'first_name', emp.first_name, 'last_name', emp.last_name
+        ) END as employee,
         row_to_json(c.*) as company_card,
         row_to_json(v.*) as vehicle,
         row_to_json(t.*) as trip,
-        row_to_json(rev.*) as reviewer
+        CASE WHEN rev.employee_id IS NOT NULL THEN json_build_object(
+          'employee_id', rev.employee_id, 'first_name', rev.first_name, 'last_name', rev.last_name
+        ) END as reviewer
       FROM expense_records e
       LEFT JOIN drivers d ON d.driver_id = e.driver_id
       LEFT JOIN employees emp ON emp.employee_id = d.employee_id
@@ -74,7 +89,7 @@ export async function GET(req) {
       LEFT JOIN trips t ON t.trip_id = e.trip_id
       LEFT JOIN employees rev ON rev.employee_id = e.reviewed_by
       WHERE ${whereSql}
-      ORDER BY e.created_at DESC
+      ORDER BY ${orderBy}
       LIMIT $${paramIdx++} OFFSET $${paramIdx++}
     `, [...params, pageSize, offset]);
 
@@ -90,7 +105,8 @@ export async function GET(req) {
         pending: Number(countRows[0].pending),
         approved: Number(countRows[0].approved),
         rejected: Number(countRows[0].rejected),
-        approvedCost: Number(countRows[0].approved_cost)
+        approvedCost: Number(countRows[0].approved_cost),
+        approvedOtherCurrency: Number(countRows[0].approved_other_currency || 0)
       }
     });
 

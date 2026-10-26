@@ -79,6 +79,7 @@ export const WORKS = {
               { href: "/routes", label: "Routes" },
               { href: "/incidents", label: "Incidents" },
               { href: "/fuel", label: "Fuel Management" },
+              { href: "/expenses", label: "Travel Expenses" },
               { href: "/maintenance", label: "Maintenance" },
               { href: "/tracking/live-map", label: "Live GPS Tracking" },
               { href: "/uvvrp", label: "Number Coding" },
@@ -152,6 +153,7 @@ export const WORKS = {
         label: "Operations",
         items: [
           { href: "/fuel", label: "Fuel", icon: Fuel },
+          { href: "/expenses", label: "Travel Expenses", icon: Wallet },
           { href: "/fuel/estimates", label: "Fuel Estimates", icon: Gauge },
           {
             href: "/maintenance",
@@ -218,6 +220,7 @@ export const WORKS = {
           { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Activity },
           { href: "/maintenance/problems", label: "Problem Queue", icon: ListTodo },
           { href: "/fuel", label: "Fuel Monitoring", icon: Fuel },
+          { href: "/expenses", label: "Travel Expenses", icon: Wallet },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: ChartColumnIncreasing },
           { href: "/fuel/estimates", label: "Fuel Estimates", icon: Gauge },
           { href: "/settings/fuel", label: "Fuel Policy", icon: Fuel },
@@ -310,6 +313,7 @@ export const WORKS = {
           { href: "/analytics", label: "Analytics Dashboard", icon: ChartNoAxesCombined },
           { href: "/reports", label: "Reports Hub", icon: FileChartColumn },
           { href: "/reports/cost", label: "Financial Overview", icon: Wallet },
+          { href: "/expenses", label: "Travel Expenses", icon: Wallet },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
           { href: "/fuel/estimates", label: "Fuel Estimates", icon: Gauge },
           { href: "/dispatch/availability", label: "Resource Availability", icon: Users },

@@ -4,14 +4,18 @@ import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 export async function GET(req, { params }) {
   try {
     await requireAuth(req, ["admin", "super_admin", "fleet_manager"]);
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!Number.isInteger(id)) return err("Invalid card ID", 400);
 
     const { rows } = await query(`
       SELECT a.*,
-             row_to_json(e.*) as employee,
+             CASE WHEN e.employee_id IS NOT NULL THEN json_build_object(
+               'employee_id', e.employee_id, 'first_name', e.first_name, 'last_name', e.last_name
+             ) END as employee,
              row_to_json(v.*) as vehicle,
-             row_to_json(assigner.*) as assigned_by_employee
+             CASE WHEN assigner.employee_id IS NOT NULL THEN json_build_object(
+               'employee_id', assigner.employee_id, 'first_name', assigner.first_name, 'last_name', assigner.last_name
+             ) END as assigned_by_employee
       FROM company_card_assignments a
       LEFT JOIN employees e ON e.employee_id = a.employee_id
       LEFT JOIN vehicles v ON v.vehicle_id = a.vehicle_id
@@ -29,18 +33,14 @@ export async function GET(req, { params }) {
 export async function POST(req, { params }) {
   try {
     const session = await requireAuth(req, ["admin", "super_admin", "fleet_manager"]);
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!Number.isInteger(id)) return err("Invalid card ID", 400);
 
     const body = await parseBody(req);
     const employeeId = body.employee_id ? Number(body.employee_id) : null;
     const vehicleId = body.vehicle_id ? Number(body.vehicle_id) : null;
-    
-    if (!employeeId && !vehicleId && body.assignment_type !== 'Shared') {
-      // It doesn't strictly need one according to the prompt (XOR not required),
-      // but usually an assignment points somewhere. 
-      // If Shared/Unassigned is allowed, we accept it.
-    }
+    // Neither id is required: Shared (or unassigned card use) is accepted, per
+    // the card-assignment philosophy that a card need not point somewhere.
 
     const record = await withTransaction(async (tx) => {
       // 1. Lock the card

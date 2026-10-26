@@ -1,4 +1,7 @@
-export async function getExpenseRecords({ page = 1, pageSize = 10, status, search, sort, sortDir }) {
+import { collectPagedRows } from "@/lib/export";
+import { apiFetch } from "@/lib/api/client";
+
+export async function getExpenseRecords({ page = 1, pageSize = 10, status, search, sort, sortDir } = {}) {
   const params = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
@@ -8,33 +11,27 @@ export async function getExpenseRecords({ page = 1, pageSize = 10, status, searc
   if (sort) params.append("sort", sort);
   if (sortDir) params.append("sortDir", sortDir);
 
-  const res = await fetch(`/api/expenses?${params}`);
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new Error(error.error || "Failed to fetch expense records");
-  }
-  return res.json();
+  return apiFetch(`/api/expenses?${params}`);
+}
+
+export async function getAllExpenseRecords(filters = {}) {
+  let total = 0;
+  const rows = await collectPagedRows(async (page, pageSize) => {
+    const result = await getExpenseRecords({ ...filters, page, pageSize });
+    total = Number(result.total);
+    return result;
+  });
+  if (rows.length < total) throw new Error("The complete expense export could not be loaded. Narrow the filter and try again.");
+  return rows;
 }
 
 export async function reviewExpenseRecord(id, { action, review_remarks }) {
-  const res = await fetch(`/api/expenses/${id}/review`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, review_remarks }),
-  });
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new Error(error.error || "Failed to review expense record");
-  }
-  return res.json();
+  // apiFetch keeps 401s routed through the shared session-expiry dispatch that
+  // the list request above already benefits from.
+  return apiFetch(`/api/expenses/${id}/review`, { body: { action, review_remarks } });
 }
 
 export async function getExpenseReceiptUrl(id) {
-  const res = await fetch(`/api/expenses/${id}/receipt`);
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({}));
-    throw new Error(error.error || "Failed to get receipt URL");
-  }
-  const data = await res.json();
+  const data = await apiFetch(`/api/expenses/${id}/receipt`);
   return data.url;
 }

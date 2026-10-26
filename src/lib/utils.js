@@ -59,6 +59,13 @@ export function formatTime(date) {
 export function formatCurrency(amount, currency = "PHP") {
   const num = Number(amount);
   const valid = isNaN(num) || num == null ? 0 : num;
+  // A row currency can be NULL or padded on legacy data (the schema has no NOT
+  // NULL), and Intl throws a RangeError on anything that is not a 3-letter
+  // code — which would collapse the whole table render. Fall back to a plain
+  // formatted number without a symbol rather than assuming PHP.
+  if (!/^[A-Za-z]{3}$/.test(String(currency ?? ""))) {
+    return new Intl.NumberFormat("en-PH").format(valid);
+  }
   return new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency,

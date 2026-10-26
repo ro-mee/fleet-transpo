@@ -8,7 +8,7 @@ import { DuplicateWarningFlags } from "./DuplicateWarningFlags";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export function ExpenseVerificationModal({ record, onClose, onReview, isSubmitting }) {
+export function ExpenseVerificationModal({ record, onClose, onReview, isSubmitting, canReview = false }) {
   const [receiptUrl, setReceiptUrl] = useState(null);
   const [loadingReceipt, setLoadingReceipt] = useState(Boolean(record?.id));
   const [remarks, setRemarks] = useState("");
@@ -123,7 +123,10 @@ export function ExpenseVerificationModal({ record, onClose, onReview, isSubmitti
             </div>
 
             {/* Actions */}
-            {isPending && (
+            {isPending && !canReview && (
+              <p className="text-sm text-foreground-secondary">This expense is awaiting review. Your role has read-only access.</p>
+            )}
+            {isPending && canReview && (
               <div className="pt-4 mt-auto">
                 {isRejecting ? (
                   <div className="space-y-3">

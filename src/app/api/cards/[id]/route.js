@@ -4,7 +4,7 @@ import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 export async function PATCH(req, { params }) {
   try {
     await requireAuth(req, ["admin", "super_admin", "fleet_manager"]);
-    const id = Number(params.id);
+    const id = Number((await params).id);
     if (!Number.isInteger(id)) return err("Invalid card ID", 400);
 
     const body = await parseBody(req);

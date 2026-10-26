@@ -1,4 +1,4 @@
-import { query, withTransaction } from "@/lib/db";
+import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 export async function GET(req) {
@@ -9,7 +9,9 @@ export async function GET(req) {
     const { rows } = await query(`
       SELECT c.*,
              a.id as assignment_id, a.assigned_at, a.assignment_type,
-             row_to_json(e.*) as employee,
+             CASE WHEN e.employee_id IS NOT NULL THEN json_build_object(
+               'employee_id', e.employee_id, 'first_name', e.first_name, 'last_name', e.last_name
+             ) END as employee,
              row_to_json(v.*) as vehicle
       FROM company_cards c
       LEFT JOIN company_card_assignments a ON a.company_card_id = c.id AND a.unassigned_at IS NULL
