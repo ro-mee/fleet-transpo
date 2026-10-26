@@ -3,6 +3,7 @@ import { requiresOdometerPhoto } from '@/lib/trips/odometer-gate';
 import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
 import { computeDepartureWindow } from "@/lib/scheduling/departure-window";
 import { resolveEtaMinutes } from "@/lib/scheduling/start-window";
+import { haversineKm } from "@/lib/scheduling/travel-buffer";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
 import { resolveCoordinatesWithDb } from "@/lib/geo/dynamic-locations";
 import { getCoordinateProvenanceFields } from "@/lib/locations/coordinate-provenance";
@@ -48,6 +49,39 @@ const V2_LOCATION_INTERNAL_FIELDS = [
   "_dropoff_registry_location_id", "_dropoff_registry_is_active", "_dropoff_registry_retired_at",
   "_dropoff_registry_latitude", "_dropoff_registry_longitude", "_dropoff_proposal_present",
 ];
+
+const ETA_CACHE_TTL_MS = 60_000;
+const ETA_CACHE_MAX_ENTRIES = 256;
+const etaCache = new Map();
+
+// Advisory reads alone reuse routes; trip start still resolves a fresh ETA.
+// shortcut: reuse is per server process; use shared storage if instance churn erases the benefit.
+async function feedEtaMinutes(driverId, trip, driverPosition, pickupPosition) {
+  const inputs = { driverPosition, pickupPosition, storedDurationMinutes: trip.estimated_duration };
+  if (!driverPosition || !pickupPosition) return resolveEtaMinutes(inputs);
+
+  const key = `${driverId}:${trip.trip_id}`;
+  const signature = JSON.stringify([pickupPosition, trip.estimated_duration]);
+  const now = Date.now();
+  const cached = etaCache.get(key);
+  if (cached?.expiresAt > now && cached.signature === signature
+    && haversineKm(cached.driverPosition, driverPosition) < 0.05) {
+    return cached.promise;
+  }
+
+  for (const [entryKey, entry] of etaCache) {
+    if (entry.expiresAt <= now) etaCache.delete(entryKey);
+  }
+  etaCache.delete(key);
+  if (etaCache.size >= ETA_CACHE_MAX_ENTRIES) etaCache.delete(etaCache.keys().next().value);
+  const entry = { signature, driverPosition, expiresAt: now + ETA_CACHE_TTL_MS };
+  entry.promise = resolveEtaMinutes(inputs).catch(error => {
+    if (etaCache.get(key) === entry) etaCache.delete(key);
+    throw error;
+  });
+  etaCache.set(key, entry);
+  return entry.promise;
+}
 
 function v2Endpoint(row, endpoint) {
   const prefix = `_${endpoint}`;
@@ -239,14 +273,12 @@ export async function GET(req) {
 
     // Pre-trip + departure-window enrichment. Every pre-start trip (not yet
     // STARTED) gets the window fields so the app can show "when can I start".
-    // ETA (a TomTom network call) is only computed for the one trip actually
-    // awaiting START ROUTE (Driver Accepted), not the whole list.
+    // Each scheduled pre-start trip keeps its own pickup ETA. Recent routes
+    // are reused across polls without caching inspection, policy or trip reads.
     const preStart = rows.filter((t) =>
       [...STATUS_GROUPS.pending, "Driver Accepted"].includes(t.trip_status)
     );
-    const actionable = preStart.find((t) => t.trip_status === "Driver Accepted");
-
-    // ETA is resolved once (from the driver's current position) and reused.
+    // The driver's current position is loaded once for this response.
     // The ladder itself (TomTom → haversine heuristic → stored estimate) is
     // the shared start-window resolver — the same one the start gate and the
     // start-window notification producer use — so all three never drift.
@@ -265,11 +297,7 @@ export async function GET(req) {
           ? [Number(pos[0].current_latitude), Number(pos[0].current_longitude)]
           : null;
       }
-      const eta = await resolveEtaMinutes({
-        driverPosition: driverPos,
-        pickupPosition: dest,
-        storedDurationMinutes: trip.estimated_duration,
-      });
+      const eta = await feedEtaMinutes(session.user.driverId, trip, driverPos, dest);
       trip.eta_to_pickup_min = eta;
       return eta;
     };

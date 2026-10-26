@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import * as Location from "expo-location";
-import { api } from "./api";
+import { api, subscribeApiEvents } from "./api";
 import { useSettings } from "./settings-context";
+import { useAuth } from "./auth";
+import { captureCargoSession, isCurrentCargoSession } from "./cargo-sync";
 import { getActiveStatuses } from "./tripRef";
 import { monitorBannerFor } from "./monitor-banner";
 import { weatherChipFor } from "./weather-chip";
 import { createMotionState, recordFix, isDrivingAt } from "./motion-state";
+import { captureTrackedTripRead, setTrackedTrip, useTripLocationOwner } from "./trip-location-owner";
 
 // Re-exported for screens: the pure PR #4 banner derivation (implemented in
 // its own RN-import-free module so the vitest suite can exercise it).
@@ -23,15 +26,19 @@ const TRIP_REFRESH_MS = 60 * 1000;
 // ── Poster status pub/sub ──────────────────────────────────────────────────
 // The poster is mounted once at the (app) layout level; screens subscribe to
 // this to render their tracking chip without each owning a poster.
-let posterStatus = {
-  lastSentAt: null,
-  error: null,
+const CLEARED_TRIP_ADVISORIES = {
   geofence: null,
   geofenceTripId: null,
   monitor: null,
   monitorTripId: null,
   weather: null,
   weatherTripId: null,
+  advisoryObservedAt: null,
+};
+let posterStatus = {
+  lastSentAt: null,
+  error: null,
+  ...CLEARED_TRIP_ADVISORIES,
   activeTripId: null,
   standbyObservedAt: null,
   // Raw motion evidence from the most recent fix, consumed by useIsDriving.
@@ -142,11 +149,15 @@ export function useIsDriving() {
  */
 export function useActiveTripGpsPoster(enabled) {
   const { settings } = useSettings();
+  const { user } = useAuth();
+  const actorId = user?.employeeId;
+  useTripLocationOwner(Boolean(enabled && settings.locationTracking));
 
   useEffect(() => {
-    if (!enabled || !settings.locationTracking) {
-      publishStatus({ standbyObservedAt: null });
-      if (enabled) api.post('/api/mobile/driver/standby-location', { enabled: false }, { queueOnFailure: false }).catch(() => {});
+    const session = captureCargoSession(actorId);
+    if (!enabled || !settings.locationTracking || !isCurrentCargoSession(session)) {
+      publishStatus({ ...CLEARED_TRIP_ADVISORIES, activeTripId: null, standbyObservedAt: null });
+      if (enabled && isCurrentCargoSession(session)) api.post('/api/mobile/driver/standby-location', { enabled: false }, { queueOnFailure: false }).catch(() => {});
       return;
     }
 
@@ -156,6 +167,24 @@ export function useActiveTripGpsPoster(enabled) {
     let responderIncidentId = null;
     let standbyEnabled = false;
     let lastTripFetch = 0;
+    let tripRevision = 0;
+    const unsubscribeApiEvents = subscribeApiEvents(event => {
+      if (cancelled || event.type !== "trip-completed"
+        || (tripId != null && String(event.tripId) !== String(tripId))) return;
+      tripId = null;
+      tripRevision += 1;
+      lastTripFetch = 0;
+      publishStatus({ ...CLEARED_TRIP_ADVISORIES, activeTripId: null, standbyObservedAt: null });
+    });
+    const stop = () => {
+      if (cancelled) return;
+      cancelled = true;
+      if (interval) clearInterval(interval);
+      unsubscribeApiEvents();
+      session.signal.removeEventListener("abort", stop);
+      publishStatus({ ...CLEARED_TRIP_ADVISORIES, activeTripId: null, standbyObservedAt: null });
+    };
+    session.signal.addEventListener("abort", stop, { once: true });
 
     publishStatus({ error: null });
 
@@ -171,27 +200,30 @@ export function useActiveTripGpsPoster(enabled) {
 
       const findActiveTrip = async () => {
         try {
+          const revision = tripRevision;
+          const trackedRead = captureTrackedTripRead();
           const [trips, activeStatuses] = await Promise.all([
             api.get("/api/mobile/driver/trips"),
             getActiveStatuses(),
           ]);
-          if (cancelled) return;
+          if (cancelled || revision !== tripRevision) return;
           const active = (Array.isArray(trips) ? trips : []).find((t) =>
             activeStatuses.includes(t.trip_status)
           );
-          // A completed/cancelled trip is left in place: the server drops
-          // posts to non-live trips, and the next refresh replaces it.
+          if (setTrackedTrip(active ?? null, trackedRead) === false) {
+            lastTripFetch = 0;
+            return false;
+          }
+          // The canonical read also picks up changes made on another device.
           const oldTripId = tripId;
           tripId = active?.trip_id ?? null;
           // Publish-on-change: the 60 s refresh must not re-render every
-          // subscriber when nothing changed. On a trip change the weather
-          // payload is also cleared immediately, so Trip A's weather can
-          // never linger onto Trip B (or no trip) before the next post.
+          // subscriber when nothing changed. A trip change clears all old
+          // advisories before a fix or response for the next trip arrives.
           if (oldTripId !== tripId) {
             publishStatus({
+              ...CLEARED_TRIP_ADVISORIES,
               activeTripId: tripId,
-              weather: null,
-              weatherTripId: null,
             });
           }
         } catch {
@@ -218,9 +250,10 @@ export function useActiveTripGpsPoster(enabled) {
         const now = Date.now();
         if (now - lastTripFetch >= TRIP_REFRESH_MS) {
           lastTripFetch = now;
-          await findActiveTrip();
+          if (await findActiveTrip() === false) return;
           await findResponderMission();
         }
+        if (cancelled) return;
         try {
           if (!tripId && !responderIncidentId) {
             const duty = await api.get('/api/mobile/driver/duty');
@@ -233,7 +266,7 @@ export function useActiveTripGpsPoster(enabled) {
               await api.post('/api/mobile/driver/standby-location', { enabled:true }, { queueOnFailure:false });
               standbyEnabled = true;
               if (cancelled) {
-                await api.post('/api/mobile/driver/standby-location', { enabled:false }, { queueOnFailure:false }).catch(() => {});
+                if (isCurrentCargoSession(session)) await api.post('/api/mobile/driver/standby-location', { enabled:false }, { queueOnFailure:false }).catch(() => {});
                 return;
               }
             }
@@ -250,9 +283,10 @@ export function useActiveTripGpsPoster(enabled) {
           // gated on a response — a fix is evidence even if its post fails.
           publishStatus({
             motionSpeedMs: loc.coords.speed ?? null,
-            motionFixAt: new Date().toISOString(),
+            motionFixAt: new Date(loc.timestamp).toISOString(),
           });
           if (tripId) {
+            const postedTripId = tripId;
             // Trip GPS wins when both exist: it updates the same
             // drivers.current_* columns the responder evaluation reads, so
             // posting twice would only be a duplicate.
@@ -264,7 +298,7 @@ export function useActiveTripGpsPoster(enabled) {
             // verdicts below would then be computed from. The responder and
             // standby branches already pass it; this one did not, which is how
             // a trip-GPS ping was the only operational write still replayable.
-            const res = await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
+            const res = await api.post(`/api/mobile/driver/trips/${postedTripId}/gps`, {
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude,
               speed: loc.coords.speed ?? null,
@@ -287,16 +321,17 @@ export function useActiveTripGpsPoster(enabled) {
             // current-conditions payload for the map screen's compact ambient
             // chip — same trip-id tagging, same staleness rule, null (chip
             // simply not rendered) when the provider call failed.
-            if (!cancelled) {
+            if (!cancelled && tripId === postedTripId) {
               publishStatus({
                 lastSentAt: new Date().toISOString(),
+                advisoryObservedAt: new Date(loc.timestamp).toISOString(),
                 error: null,
                 geofence: res?.geofence ?? null,
-                geofenceTripId: tripId,
+                geofenceTripId: postedTripId,
                 monitor: res?.monitor ?? null,
-                monitorTripId: tripId,
+                monitorTripId: postedTripId,
                 weather: res?.weather ?? null,
-                weatherTripId: tripId,
+                weatherTripId: postedTripId,
               });
             }
           } else if (responderIncidentId) {
@@ -352,11 +387,8 @@ export function useActiveTripGpsPoster(enabled) {
       }
     });
 
-    return () => {
-      cancelled = true;
-      if (interval) clearInterval(interval);
-    };
-  }, [enabled, settings.locationTracking]);
+    return stop;
+  }, [enabled, settings.locationTracking, actorId]);
 }
 
 // ── Screen-side display hook ───────────────────────────────────────────────

@@ -75,3 +75,5 @@ External-system work remains excluded. A missing external feature is not recorde
 ## Local main integration - 2026-10-26
 
 The owner-requested web-only integration is complete in local main. Five web commits and their notes were integrated from the source branch, preserving current main improvements and excluding the separate mobile/GPS commit. Fresh combined-tree verification passed 6,432 tests with 114 opt-in database tests skipped, full strict lint, 339 route guards, 166 migration-file checks, encoding/whitespace checks and the production webpack build. See [[FleetOps Web Audit Merge 2026-10-26]] for commit mapping and the documentation conflict resolution. No remote push or deployment was performed.
+A follow-up merge later the same day integrated the separate mobile/GPS commit (`e89df809`) with its app-level owner architecture on top of this web-only integration; the mobile side and its verification are recorded in [[Worktree and Merge Audit 2026-10-16]] and [[Mobile Map Functionality Repairs 2026-10-21]].
+

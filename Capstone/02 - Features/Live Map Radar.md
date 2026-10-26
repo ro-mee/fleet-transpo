@@ -8,7 +8,7 @@ source:
   - mobile/components/CurvedPillTabBar.js
   - mobile/lib/ambient-weather.js
   - mobile/lib/standby-map.test.js
-last_verified: 2026-09-13
+last_verified: 2026-10-22
 related: ["[[Tracking]]", "[[Trips]]", "[[Mobile Architecture]]"]
 ---
 
@@ -21,7 +21,7 @@ Integrated `mobile/assets/images/carlive.png` as the vehicle marker on the live 
 - **Rotation:** Front of vehicle points straight up (North = 0°); GPS heading rotation is preserved relative to the map bearing.
 - **Contrast & Styling:** Light mode uses a natural ground drop-shadow (`rgba(18, 38, 28, 0.28)`). Dark mode adds a subtle 1.5px pale mint contour outline (`drop-shadow(0 0 1.5px rgba(220, 245, 232, 0.60))`) and deeper ground shadow for sharp separation against dark tiles without noisy glow.
 - **Color Customization Removed:** Completely removed the car customizer modal, swatches, and click handler, reinforcing FleetOps' forest green brand identity and keeping the map interface dedicated to tracking.
-- **Resilient Asset Loading & Lifecycle Handshake:** Implemented async asset download with `expo-file-system` Base64 conversion and a persistent WebView handshake (`window.carMarkerImageUrl`, marker creation assignment, `MAP_READY` re-injection, and fallback checks on GPS ticks). Enables Android `allowFileAccess` permissions to guarantee instant, reliable rendering on cold app start without triggering redundant WebView DOM reloads.
+- **Resilient Asset Loading & Lifecycle Handshake:** Implemented async asset download with `expo-file-system` Base64 conversion and a persistent WebView handshake (`window.carMarkerImageUrl`, marker creation assignment, `MAP_READY` re-injection, and fallback checks on GPS ticks). Uses inline image data (or an HTTPS asset fallback) without Android file-access permissions; a missing image keeps the built-in marker. Native cold-start acceptance remains pending.
 
 ## PR 4.5 ? Connected standby radar (2026-09-13, implemented)
 
@@ -38,7 +38,7 @@ This replaces the former multi-tier radar, range selector, large standby dashboa
 - In-app indicator `RadarPulse.jsx` (Home empty state, Trips standby queue, SOS) similarly carries a 1.5px stroke and refined fill for clean, slightly visible scanning feedback without visual clutter.
 - Recenter fits the actual coverage bounds with room for the header and bottom surfaces, resets north-up/flat view and resumes following. The circle is a visual coverage radius, not a new server-side operating-area restriction.
 - Light maps retain the existing FleetOps styling with muted blue water, soft green land and quieter labels. Dark appearance still follows the app theme. Provider POI/transit/shield labels are hidden in standby.
-- Right-hand controls use existing **ClayCard** compact surfaces: direction/recenter, layers, locate. The layers legend is closed initially; optional station/driver layers start hidden. Assigned dispatch markers and their existing authorized accept/details actions remain available. Anchored optional station/driver data is development-only; no other-driver live feed was introduced in the driver app.
+- Right-hand controls use existing **ClayCard** compact surfaces: direction/recenter and layers. The duplicate locate action was removed. The layers legend is closed initially; production offers Your Vehicle and Dispatch Requests only. Optional station/driver layers are development-only. Assigned dispatch markers and their existing authorized accept/details actions remain available. Anchored optional station/driver data is development-only; no other-driver live feed was introduced in the driver app.
 - A compact **ClayCard** near the bottom-left shows real temperature, condition, place (or Local weather) and device-local day/date. It reuses **useAmbientWeather**; the hook also exposes the original weather payload for condition/place. No valid weather means no card, with no fabricated weather or loading surface.
 - Weather sits **16 dp above** the existing 64 dp navigation pill, using its exported safe-area bottom-offset calculation. Controls share the weather bottom anchor. The navigation remains pinned below the weather.
 - Navigation labels are **Home / Map / Trips / Profile**. The scan button, wave and center spacer are hidden while Map is selected; other tabs retain their existing scan action. Global SOS behavior is unchanged.
@@ -174,3 +174,20 @@ Verification: 1,033 mobile/backend tests / 80 files, strict touched lint plus si
 Provider contract: [TomTom SDK 6.25.0 calculateRoute](https://api.tomtom.com/maps-sdk-for-web/6.x/6.25.0/documentation/dist/classes/Services.services.calculateRoute.html).
 
 Final tracking follow-up: a server-confirmed completion uses the existing API event hook to clear the hidden Map's active ref, discard obsolete polls, clear its old route and reload the real next assignment. Pending background starts check the trip and app state before and after the asynchronous OS start, stopping if completion or foreground return intervened. Executable tests cover completion before and during start, refused/queued responses and another trip's event. The final 1,033-test run includes these guards and the single-scroll-area sheet correction. Focused source review found those two fixes resolved; native visual review remains pending (`recapture`) because no device/emulator captures were available.
+
+## Assignment reachability and recovery - 2026-10-22
+
+Pending/Approved/Assigned/Vehicle Assigned/Driver Assigned/Dispatched rows remain
+in the standby radar. Only an accepted or ongoing trip selects the trip workspace,
+so two future assignments can actually appear as real verified pickup pins.
+Missing coordinates still produce no invented pin. Pre-start work does not bypass
+Off Duty/Rest Day/On Leave; an underway trip preserves the operational workspace.
+Accept locks synchronously and disables further taps while its write is pending.
+Unchanged polls preserve a valid authorization snapshot while fetching; failed
+reads still revoke it.
+
+Production no longer advertises unsupported gas-station or other-driver feeds.
+Map failure offers Retry map; delayed/lost GPS has separate truthful status and
+Retry GPS. The map's visual sensors stop on blur, while the app-owned trip stream
+keeps required distance collection. See [[Tracking]] and
+[[Mobile Map Functionality Repairs 2026-10-21]] for verification and native limits.

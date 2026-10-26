@@ -14,7 +14,7 @@ source:
   - mobile/app/(app)/(tabs)/map.js
   - mobile/components/TomTomMap.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
-last_verified: 2026-10-06
+last_verified: 2026-10-22
 related: ["[[Trips]]", "[[Mobile Architecture]]", "[[Live Map Radar]]"]
 ---
 
@@ -67,20 +67,19 @@ Reports the driver's position to the server every 30 seconds during an active tr
 
 ## How it works — CONFIRMED
 
-Two decoupled mechanisms drive the foreground uploader (`mobile/lib/tracking.js`):
+Two app-level responsibilities stay separate:
 
-```js
-// 1. Sensor → a ref. Fires whenever the device produces a fix.
-watchPositionAsync({ accuracy: Balanced, distanceInterval: 10 })
-
-// 2. Uploader → fixed cadence, independent of the sensor.
-POST_INTERVAL_MS = 30 * 1000
-POST `/api/mobile/driver/trips/${tripId}/gps`
-```
-
-**Decoupling the sensor from the upload is the design.** GPS fires at whatever rate the hardware and movement produce; the network sees exactly one request per 30 s regardless. Battery and data usage are bounded by a constant, not by how fast the van is moving.
-
-`distanceInterval: 10` (metres) plus `accuracy: Balanced` further reduces sensor wake-ups — a stationary vehicle produces almost no updates.
+- `useTripLocationOwner()` (`mobile/lib/trip-location-owner.js`) owns the active
+  trip's high-frequency foreground stream: `watchPositionAsync({ accuracy: High,
+  timeInterval: 1500, distanceInterval: 3 })`. It accumulates per-leg GPS distance
+  with the existing shared rules, independent of which tab is visible.
+- `useActiveTripGpsPoster()` (`mobile/lib/tracking.js`) obtains a Balanced fix on
+  its nominal 30-second upload cadence. Only one tick runs at a time; networking
+  does not run inside the map animation or high-frequency location callback.
+- A focused, foreground Map subscribes to the trip stream. Standby owns only a
+  visible-screen location watcher. Its compass and display watcher stop on blur
+  or app background. GPS distance remains a tracking aid, never an automatic
+  replacement for the vehicle's actual odometer reading.
 
 ## Location unavailable — hardened 2026-08-22
 
@@ -93,7 +92,7 @@ indicator or old trip error visible.
 
 Foreground-only was a deliberate scope decision (see [[ADR-010 Foreground Only GPS]]); the app has since moved to a dev build, so background tracking is now implemented. See [[ADR-011 Background GPS Tracking]] for the full decision and trade-offs.
 
-Summary: a headless task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. Map prepares the existing task before opening Google Maps; `AppState` provides a permission-free fallback for other exits, then stops it and merges the accumulated km on return. The task ignores foreground delivery, including a foreground return during its context read. The foreground watcher stays the source of truth; the task only fills the backgrounded gap.
+Summary: a headless task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `mobile/lib/trip-location-owner.js` starts it on background via `AppState`, stops it and merges the accumulated km before restarting foreground collection on return. The foreground watcher stays the source of truth; the task only fills the backgrounded gap.
 
 **Shared mobile navigation phase (2026-10-15):** `mobile/lib/trip-navigation-phase.js` now owns the status mapping used by the trusted navigation target and the existing background-tracking `legForStatus` export. Pending through At Pickup maps to pickup/leg1; Passenger Onboard, En Route, Drop-off, Arrived and In Progress maps to destination/leg2. Empty, terminal and unknown statuses return no target or leg. Passenger and Cargo use the same status rules. Verification: strict test-first checks reproduced the missing module and seven unsafe-fallback failures before implementation; the three focused phase, routing and background suites then passed 66/66 tests. This slice does not yet change tracking startup or the Google Maps launcher; physical Android acceptance remains pending.
 
@@ -102,6 +101,7 @@ Summary: a headless task (`fleetops-background-location`) posts GPS and accumula
 **Observable background readiness (2026-10-15, handoff Task 3):** `prepareBackgroundTracking({ tripId, leg, requestPermission })` requires a successful trip/leg context write, obtains foreground permission before checking background permission and starts the existing native task only when it is not already running. Permission prompting requires explicit opt-in; the default check never prompts. Results distinguish ready, unsupported web, denied permission and native startup failure. `stopBackgroundTracking()` reports success for an absent/stopped task and `stop-failed` for native lookup/stop errors. The existing AppState starter remains compatible and uses the same native task check without overwriting its saved context. The 10 m / 30 s cadence, balanced accuracy, automotive mode, foreground notification, odometer and merge rules remain unchanged. Initial strict test-first evidence: 17 new failures before implementation, then 44/44 focused readiness/odometer tests and 131/131 tests across seven related navigation/tracking suites passed; focused strict ESLint passed. Readiness confirms native registration, not delivery of real background fixes. Active-trip handoff wiring and physical Android acceptance remain later tasks.
 
 **Task 3 review fixes (2026-10-15):** Missing foreground permission is checked/requested first with the same prompt opt-in; refusal stops before any background check, and native permission exceptions return `start-failed`. Context writes now reject on storage failure so preparation returns `start-failed` before permission/native calls instead of accepting stale trip context. The serialized write queue recovers after failure and preserves same-trip distance totals. Existing callers already catch context errors; the background task and foreground merge retain their best-effort save behavior. Strict test-first evidence: six permission-order/denial/error regressions failed before that fix, then three context-failure regressions failed before the persistence fix. Final focused readiness/odometer checks passed 54/54 tests; seven related regression suites passed 141/141; strict touched lint passed. Physical Android acceptance remains pending.
+
 
 **Requires a custom dev build** (not Expo Go) and, for Android production release, Play Store review with a justification.
 
@@ -549,3 +549,50 @@ Per-fix `injectJavaScript` traffic (full snap/banner/marker/camera script on eve
 - **Fallbacks:** no TomTom key → existing `ROUTE_UNAVAILABLE`/stale wording; GPS denied → existing permission dead-ends with Settings/Try Again; WebView dead → 20 s overlay fail-open; responders prop defaults to `[]` (rescue screen feeds the stranded-driver point, Map tab passes a stable empty identity).
 
 Verified: focused suites 39/39 (incl. the hostile-data inline-script parse pin — still exactly one inline `<script>`), full mobile `lib` 73 files / 931 tests green, root `npm run lint` clean. On-device frame-rate, background-resume and low-end memory behavior remain unverified — no device run is claimed.
+
+## Mobile Map functionality repairs - 2026-10-22
+
+Implemented the confirmed functional defects from the supplied audit. See
+[[Mobile Map Functionality Repairs 2026-10-21]] for the complete review record and
+physical-device checklist.
+
+- Both trip GPS endpoints share `src/services/trip-gps.service.js`. Supplied
+  capture times must be valid zoned ISO datetimes, at most 30 seconds ahead.
+  Missing times retain the existing server-time fallback. Valid late samples stay
+  in `gpstracking`, while an atomic timestamp comparison prevents them replacing
+  a newer `drivers.current_*` position. `last_location_update` is capture time,
+  rather than the arrival time of an old upload. Stale/non-advancing samples return
+  no live geofence, monitor or weather advisory. Ownership and live-trip guards
+  remain route-specific. No migration was needed.
+- `trip-location-owner.js` owns foreground distance, background handoff, cleanup,
+  retry, and completion/session shutdown. Late native starts remove themselves;
+  provider errors publish unavailable evidence. Map and poster capture a shared
+  revision before trip reads, so an older response cannot restore a previous leg,
+  clear a newer trip, or configure another account's owner. Disabling tracking
+  still permits current assignments to render without starting a trip stream.
+- Poster advisory and motion timestamps use the device sample's timestamp.
+  Completion, trip change, tracking-off, session abort and signout clear scoped
+  guidance. Delayed responses cannot restore a completed/previous-account trip.
+- Local GPS is fresh up to 30 seconds, delayed until 90 seconds and lost afterward
+  (or immediately on a provider error). Geofence/monitor guidance expires within
+  90 seconds of its observation. GPS errors have a retry path. A delayed/lost local
+  position suppresses current ETA and turn guidance; a map marker alone is not
+  evidence of live tracking.
+- Live ETA expires after five minutes even without a provider error. Selecting a
+  previously calculated alternate retains its original calculation time.
+  Renderer refreshes stop while hidden or without a fresh observation; return
+  waits for the resumed position before routing. Capture time crosses the bridge
+  separately from delivery time, including stationary fixes.
+- Only `MAP_READY` marks a renderer ready. Startup/native/process errors and a
+  20-second deadline show retry; route-option commands have a separate 25-second
+  watchdog. Readiness is scoped to account/trip/leg/target/retry, and a new document
+  invalidates old guidance. The WebView refuses external page navigation, file
+  access and extra windows while retaining HTTPS resources and inline image data.
+
+The full automated run passed 6,183 tests (12 PostgreSQL integration files /
+114 tests remained opt-in and skipped). A later combined mobile/GPS run passed 1,449 tests; the final route/bridge
+regression run passed 70 tests. Exact ingest SQL was checked against live PostgreSQL using
+EXPLAIN and temporary-table fixtures rolled back without persistent data changes.
+Android Hermes export succeeded after using a workspace temporary directory;
+physical GPS, background drives, native permissions/rendering and bubble behavior
+remain unverified. Final combined checks are recorded in the repair note.

@@ -478,3 +478,20 @@ Verification: strict touched lint, UTF-8/whitespace checks and Android Hermes ex
 ## Gated driver guidance - 2026-10-21
 
 Passenger Map summary/controls and odometer evidence review now have shared presentation seams for explicit local practice. Trip transitions, current-photo requirements, assignment checks and Cargo clearance remain owned by real controllers. Cargo signer location is injected by the real workflow controller; practice injects no location access. Sample counts/signatures never create departure or receiving authority. V2 stays default-off pending the acceptance recorded in [[Driver Guidance Redesign Implementation Plan 2026-10-20]].
+
+## Mobile Map assignment feed fixes - 2026-10-22
+
+The driver's trip feed reuses advisory pickup ETA for at most 60 seconds and under
+50 metres of observed movement, with at most 256 per-process entries scoped to
+driver/trip/pickup/stored-estimate inputs. Concurrent identical reads coalesce.
+Every response still reads current assignment/inspection/policy data; missing ETA
+stays unknown. Actual Start Route validation and notifications retain the fresh
+shared resolver. Cache savings apply within each server process.
+
+A read-only live catalog check confirmed the request has guest_name but no guest
+phone/contact field. Map now states Passenger contact unavailable when no
+legitimate number exists, and offers Call only for an available number and current
+authorized Passenger workspace. This does not implement the separate proposed
+[[Reservation Luggage and Customer Contact Implementation Plan]] or invent a
+phone source. Assignment selection, polling and repeated-tap repairs are recorded
+in [[Mobile Map Functionality Repairs 2026-10-21]].

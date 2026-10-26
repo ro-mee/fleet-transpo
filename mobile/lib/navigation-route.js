@@ -62,7 +62,7 @@ export const ROUTE_CONTROLLER_SCRIPT = String.raw`
     window.cumDist = null;
     window.lastClosestIdx = 0;
     window.offRouteCount = 0;
-    window.lastRouteAt = Date.now();
+    window.lastRouteAt = candidate.calculatedAt;
     send('ROUTE_CALCULATED', Object.assign({}, candidate.route.summary, {
       calculatedAt: window.lastRouteAt, trafficAware: config.traffic,
       routes: summaries(), preferences: preferences
@@ -99,7 +99,7 @@ export const ROUTE_CONTROLLER_SCRIPT = String.raw`
       if (id !== requestId) return false;
       var features = response.toGeoJson().features || [];
       var valid = (response.routes || []).map(function (route, index) {
-        return { route: route, feature: features[index] };
+        return { route: route, feature: features[index], calculatedAt: Date.now() };
       }).filter(function (candidate) {
         var summary = candidate.route.summary;
         var geometry = candidate.feature && candidate.feature.geometry;

@@ -1,9 +1,8 @@
 import { query } from "@/lib/db";
-import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireDriver, parseBody, ok, handleError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
-import { isValidCoordinate } from "@/lib/gps";
-import { buildPingAdvisories } from "@/services/ping-advisories.service";
+import { recordTripGps } from "@/services/trip-gps.service";
 
 /**
  * POST /api/mobile/driver/trips/[id]/gps
@@ -16,9 +15,8 @@ import { buildPingAdvisories } from "@/services/ping-advisories.service";
  * request body. driver_id was dropped in migration 019 (never read; derivable
  * from the trip).
  *
- * The post-write advisory block (geofence / monitor / weather) is shared with
- * the general locations route via ping-advisories.service.js; auth stays
- * route-specific (driver-only here, permission-checked there).
+ * Persistence and live advisories are shared with the general locations route;
+ * auth stays route-specific (driver-only here, permission-checked there).
  */
 export async function POST(req, { params }) {
   try {
@@ -35,52 +33,7 @@ export async function POST(req, { params }) {
       return ok({ success: true, tracked: false, reason: "trip-not-live" });
     }
 
-    if (!isValidCoordinate(body.latitude, body.longitude)) {
-      return err("latitude and longitude are required", 400);
-    }
-    const latitude = Number(body.latitude);
-    const longitude = Number(body.longitude);
-
-    const toNumberOrNull = (value) => {
-      if (value == null || String(value).trim() === "") return null;
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const { rows } = await query(
-      `INSERT INTO gpstracking
-         (vehicle_id, trip_id, latitude, longitude, speed, heading, altitude, accuracy, recorded_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::TIMESTAMPTZ, NOW()))
-       RETURNING *`,
-      [
-        trip.vehicle_id,
-        trip.trip_id,
-        latitude,
-        longitude,
-        toNumberOrNull(body.speed),
-        toNumberOrNull(body.heading),
-        toNumberOrNull(body.altitude),
-        toNumberOrNull(body.accuracy),
-        body.recorded_at ?? null,
-      ]
-    );
-
-    await query(
-      `UPDATE drivers
-          SET current_latitude = $1, current_longitude = $2, last_location_update = NOW()
-        WHERE driver_id = $3`,
-      [latitude, longitude, trip.driver_id]
-    );
-
-    // Shared advisory enrichment (geofence / monitor / weather) — best-effort;
-    // a failure in any of it never fails the GPS write it describes.
-    const { geofence, monitor, weather } = await buildPingAdvisories(trip, {
-      latitude,
-      longitude,
-      accuracy: toNumberOrNull(body.accuracy),
-    }, query);
-
-    return ok({ ...rows[0], geofence, monitor, weather }, 201);
+    return ok(await recordTripGps(trip, body, query), 201);
   } catch (e) {
     return handleError(e);
   }
