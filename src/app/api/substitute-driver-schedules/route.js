@@ -1,6 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { toCalendarDay } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility, licenseNumberEvidence, licenseExpiryIsBefore, licenseReferenceCalendarDay } from "@/lib/drivers/license-eligibility";
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
@@ -30,7 +31,13 @@ const SELECT_SCHEDULE = `
 
 function safeSchedule(row) {
   const { license_number, ...safe } = row;
-  return { ...safe, ...licenseNumberEvidence(license_number) };
+  return {
+    ...safe,
+    effective_from: toCalendarDay(row.effective_from),
+    effective_until: toCalendarDay(row.effective_until),
+    license_expiry: toCalendarDay(row.license_expiry),
+    ...licenseNumberEvidence(license_number),
+  };
 }
 
 /**
@@ -57,8 +64,8 @@ export async function GET(req) {
     if (date) {
       params.push(date);
       where.push(
-        `( s.effective_until IS NULL
-           OR (s.effective_from <= $${params.length}::date AND s.effective_until >= $${params.length}::date) )`
+        `(s.effective_from <= $${params.length}::date
+           AND (s.effective_until IS NULL OR s.effective_until >= $${params.length}::date))`
       );
     }
 

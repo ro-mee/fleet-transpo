@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { toCalendarDay } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility, licenseNumberEvidence, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
 import { checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
@@ -28,7 +29,13 @@ const SELECT_SCHEDULE = `
 function safeSchedule(row) {
   if (!row) return row;
   const { license_number, ...safe } = row;
-  return { ...safe, ...licenseNumberEvidence(license_number) };
+  return {
+    ...safe,
+    effective_from: toCalendarDay(row.effective_from),
+    effective_until: toCalendarDay(row.effective_until),
+    license_expiry: toCalendarDay(row.license_expiry),
+    ...licenseNumberEvidence(license_number),
+  };
 }
 
 async function loadSchedule(id) {
@@ -54,8 +61,12 @@ export async function PATCH(req, { params }) {
 
     const body = await parseBody(req);
 
-    const from = body?.effective_from ?? existing.effective_from;
-    const until = body?.effective_until != null ? body.effective_until : existing.effective_until;
+    // Unchanged columns come back as pg Date objects pinned to local midnight
+    // (see src/lib/dates.js). Re-binding a Date into a `date` column would
+    // shift the stored day under the DB's UTC session, so unchanged values are
+    // normalized to calendar-day keys exactly as the POST handler stores them.
+    const from = body?.effective_from ?? toCalendarDay(existing.effective_from);
+    const until = body?.effective_until != null ? body.effective_until : toCalendarDay(existing.effective_until);
     const subDriverId = Number(body?.substitute_driver_id) || existing.substitute_driver_id;
 
     const fromD = new Date(from);

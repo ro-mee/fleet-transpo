@@ -1,5 +1,5 @@
 import { query, getAdminClient } from "@/lib/db";
-import { isExpiredOn } from "@/lib/dates";
+import { addDaysToKey, isExpiredOn, manilaDateKey } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility, licenseExpiryIsBefore } from "@/lib/drivers/license-eligibility";
 import {
   mergePolicy,
@@ -38,15 +38,16 @@ export async function saveUvvrpPolicy(policy, actorId) {
   return merged;
 }
 
-async function listActiveExemptions() {
+async function listActiveExemptions(date = new Date()) {
   const { rows } = await query(
     `SELECT e.exemption_id, e.vehicle_id, e.category, e.reason, e.approved_by,
             e.approved_at, e.expires_on, e.active, v.plate_number
        FROM uvvrp_exemptions e
        LEFT JOIN vehicles v ON v.vehicle_id = e.vehicle_id
       WHERE e.active = TRUE
-        AND (e.expires_on IS NULL OR e.expires_on >= CURRENT_DATE)
-      ORDER BY e.approved_at DESC`
+        AND (e.expires_on IS NULL OR e.expires_on >= $1::date)
+      ORDER BY e.approved_at DESC`,
+    [manilaDateKey(date)]
   );
   return rows;
 }
@@ -54,30 +55,34 @@ async function listActiveExemptions() {
 /** Whether an active exemption (or an approved violation) covers this vehicle+date. */
 async function hasCoverage(vehicleId, date) {
   const day = new Date(date);
-  const exemptions = await listActiveExemptions();
+  const exemptions = await listActiveExemptions(day);
   if (exemptions.some((e) => e.vehicle_id === vehicleId && isExemptionActive(e, day))) return true;
 
   const { rows } = await query(
     `SELECT violation_id FROM uvvrp_violations
-      WHERE vehicle_id = $1 AND action = 'approved' AND scheduled_departure::date = $2::date
+      WHERE vehicle_id = $1 AND action = 'approved' AND (scheduled_departure AT TIME ZONE 'Asia/Manila')::date = $2::date
       LIMIT 1`,
-    [vehicleId, day.toISOString()]
+    [vehicleId, manilaDateKey(day)]
   );
   return rows.length > 0;
 }
 
 /**
  * Vehicle ids that are exempt from coding: those with an active exemption, or
- * with an approved violation (coarse — not date-scoped). Used by the queue
- * conflict chips; the dispatch gate (enforceCoding) is date-precise.
+ * with an approved violation for the requested Philippine day. Permanent
+ * exemptions remain effective on every date until deactivated.
  */
-export async function getExemptVehicleIds() {
-  const exemptions = await listActiveExemptions();
+export async function getExemptVehicleIds(date = new Date()) {
+  const exemptions = await listActiveExemptions(date);
   const { rows } = await query(
-    `SELECT DISTINCT vehicle_id FROM uvvrp_violations WHERE action = 'approved'`
+    `SELECT DISTINCT vehicle_id FROM uvvrp_violations WHERE action = 'approved'
+      AND (scheduled_departure AT TIME ZONE 'Asia/Manila')::date = $1::date`,
+    [manilaDateKey(date)]
   );
   return new Set([...exemptions.map((e) => e.vehicle_id), ...rows.map((r) => r.vehicle_id)]);
-}/**
+}
+
+/**
  * Evaluate whether a vehicle is coding-restricted for a departure time.
  * Returns { restricted, weekday, digit, response, exempt } — exempt true when an
  * active exemption or an approved violation covers the window (then a retry or
@@ -310,7 +315,7 @@ export async function decideViolation(id, { approve, reason, decidedBy }) {
 
 export async function getBoardData({ date } = {}) {
   const policy = await getUvvrpPolicy();
-  const target = date ? new Date(date) : new Date();
+  const target = manilaDateKey(date || new Date());
   const weekday = weekdayFor(target);
   const digits = restrictedDigitsFor(policy, target);
 
@@ -318,7 +323,7 @@ export async function getBoardData({ date } = {}) {
     `SELECT vehicle_id, plate_number, vehicle_status FROM vehicles WHERE deleted_at IS NULL ORDER BY plate_number`
   );
 
-  const exemptions = await listActiveExemptions();
+  const exemptions = await listActiveExemptions(target);
   const exemptVehicleIds = new Set(exemptions.map((e) => e.vehicle_id));
 
   const restrictedToday = [];
@@ -336,17 +341,17 @@ export async function getBoardData({ date } = {}) {
 
   const upcoming = [];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(target);
-    d.setDate(target.getDate() + i);
+    const d = addDaysToKey(target, i);
     const dayDigits = restrictedDigitsFor(policy, d);
     upcoming.push({
-      date: d.toISOString().slice(0, 10),
+      date: d,
       weekday: weekdayFor(d),
       digits: dayDigits,
       restrictedCount: dayDigits.length
         ? vehicles.filter((v) => {
             const digit = plateLastDigit(v.plate_number);
-            return digit != null && dayDigits.includes(digit) && !exemptVehicleIds.has(v.vehicle_id);
+            return digit != null && dayDigits.includes(digit)
+              && !exemptions.some((e) => e.vehicle_id === v.vehicle_id && isExemptionActive(e, d));
           }).length
         : 0,
     });
@@ -392,7 +397,7 @@ export async function getActivePairings() {
  */
 export async function loadVehicleTravelContext(date) {
   const policy = await getUvvrpPolicy();
-  const exemptVehicleIds = policy?.enabled ? await getExemptVehicleIds() : new Set();
+  const exemptVehicleIds = policy?.enabled ? await getExemptVehicleIds(date) : new Set();
   let pairings = await getActivePairings();
 
   // Substitute coverage (migration 032). A vehicle whose custodian is off duty
@@ -403,7 +408,7 @@ export async function loadVehicleTravelContext(date) {
   // the custodial-pairing-only check.
   try {
     const d = date ? new Date(date) : new Date();
-    const iso = d.toISOString().slice(0, 10);
+    const iso = manilaDateKey(d);
     const { rows: subs } = await query(
       `SELECT vehicle_id, substitute_driver_id
          FROM substitute_vehicle_schedules
@@ -445,7 +450,7 @@ export async function loadVehicleTravelContext(date) {
  */
 export async function loadDriverTravelContext(date) {
   const policy = await getUvvrpPolicy();
-  const exemptVehicleIds = policy?.enabled ? await getExemptVehicleIds() : new Set();
+  const exemptVehicleIds = policy?.enabled ? await getExemptVehicleIds(date) : new Set();
   const pairings = await getActivePairings();
   const vehicleIds = [...new Set(pairings.map((p) => p.vehicle_id).filter(Boolean))];
   const vehicleRows = vehicleIds.length
