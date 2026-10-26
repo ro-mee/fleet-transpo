@@ -25,6 +25,9 @@ let cachedCarImage = '';
 
 const TomTomMap = forwardRef(({ 
   origin, 
+  locationObservedAt,
+  locationFresh = true,
+  mapActive = true,
   destination,
   originAddress,
   destAddress,
@@ -46,7 +49,9 @@ const TomTomMap = forwardRef(({
   routeSessionKey = "preview",
   routeTripId = null,
   routePreferences = {},
-  onMapReady
+  onMapReady,
+  onMapLoading,
+  onMapError
 }, ref) => {
   const webViewRef = useRef(null);
   const [carImage, setCarImage] = useState(cachedCarImage);
@@ -68,8 +73,8 @@ const TomTomMap = forwardRef(({
         }
         if (base64) {
           cachedCarImage = 'data:image/png;base64,' + base64;
-        } else if (asset.localUri || asset.uri) {
-          cachedCarImage = asset.localUri || asset.uri;
+        } else if (typeof asset.uri === 'string' && asset.uri.startsWith('https://')) {
+          cachedCarImage = asset.uri;
         }
         if (active && cachedCarImage) {
           setCarImage(cachedCarImage);
@@ -103,6 +108,8 @@ const TomTomMap = forwardRef(({
   // silently dropped by the WebView, and unthrottled per-fix injects are the
   // frame-drop source this module exists to remove.
   const isMapReadyRef = useRef(false);
+  const mapErrorRef = useRef(false);
+  const mapActiveRef = useRef(mapActive === true);
   const lastBridgePushRef = useRef(0);
   const latestFleetRef = useRef({ lat: null, lng: null, heading: null, respondersJson: '[]' });
   // Stable responder identity: per-fix array identities must not re-fire
@@ -120,12 +127,12 @@ const TomTomMap = forwardRef(({
   // One GPS tick → one direct global-function call (no postMessage
   // round-trip), throttled to FLEET_BRIDGE_PUSH_MS and sent only after
   // MAP_READY. Returns false when the inject was skipped.
-  const pushFleetPosition = useCallback((lat, lng, heading, respondersPayload, force = false) => {
+  const pushFleetPosition = useCallback((lat, lng, heading, respondersPayload, force = false, observedAt) => {
     const view = webViewRef.current;
     if (!view || isMapReadyRef.current !== true) return false;
     const now = Date.now();
     if (!force && !shouldPushFleetBridge(now, lastBridgePushRef.current)) return false;
-    const script = buildFleetPositionJs(lat, lng, heading, respondersPayload);
+    const script = buildFleetPositionJs(lat, lng, heading, respondersPayload, observedAt);
     if (!script) return false;
     lastBridgePushRef.current = now;
     try {
@@ -135,6 +142,19 @@ const TomTomMap = forwardRef(({
     }
     return true;
   }, []);
+
+  const reportMapError = useCallback((reason) => {
+    isMapReadyRef.current = false;
+    if (mapErrorRef.current) return;
+    mapErrorRef.current = true;
+    onMapError?.({ type: 'MAP_ERROR', reason });
+  }, [onMapError]);
+  useEffect(() => {
+    const active = mapActive === true;
+    if (active && !mapActiveRef.current) lastBridgePushRef.current = 0;
+    mapActiveRef.current = active;
+    if (isMapReadyRef.current) webViewRef.current?.injectJavaScript(buildMapActiveJs(active));
+  }, [mapActive]);
 
   useImperativeHandle(ref, () => ({
     recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterRadar && ${serializeInlineScriptValue(safeRadarMode)}) window.recenterRadar(); else if(window.recenterMap) window.recenterMap(); true;`),
@@ -148,11 +168,16 @@ const TomTomMap = forwardRef(({
     // bridge call out. Prefer letting the origin effect below drive this.
     updateFleetPosition: (fix) => pushFleetPosition(
       fix?.lat, fix?.lng, fix?.heading,
-      Array.isArray(fix?.responders) ? fleetRespondersSignature(fix.responders) : safeRespondersJson
+      Array.isArray(fix?.responders) ? fleetRespondersSignature(fix.responders) : safeRespondersJson,
+      false, fix?.observedAt
     ),
     // Tab/background lifecycle: pause rAF interpolation + camera glides when
     // the map is not visible, resume on focus.
-    setMapActive: (active) => webViewRef.current?.injectJavaScript(buildMapActiveJs(active)),
+    setMapActive: (active) => {
+      if (active === true && !mapActiveRef.current) lastBridgePushRef.current = 0;
+      mapActiveRef.current = active === true;
+      if (isMapReadyRef.current) webViewRef.current?.injectJavaScript(buildMapActiveJs(active));
+    },
   }));
 
   useEffect(() => {
@@ -178,10 +203,15 @@ const TomTomMap = forwardRef(({
       webViewRef.current.injectJavaScript(`if(window.applyFleetMapTheme) window.applyFleetMapTheme(${serializeInlineScriptValue(scheme === 'dark')}); true;`);
     }
   }, [scheme]);
+  useEffect(() => {
+    if (isMapReadyRef.current) webViewRef.current?.injectJavaScript(`if(window.__setLocationFresh) window.__setLocationFresh(${serializeInlineScriptValue(locationFresh === true)}); true;`);
+  }, [locationFresh]);
   const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "";
   const safeOriginLat = finiteNumberInRange(origin?.lat, -90, 90);
   const safeOriginLng = finiteNumberInRange(origin?.lng, -180, 180);
   const safeOriginHeading = finiteNumberInRange(origin?.heading, 0, 360);
+  const legacyObservedAt = useMemo(() => safeOriginLat != null && safeOriginLng != null ? Date.now() : null, [safeOriginLat, safeOriginLng]);
+  const safeObservedAt = locationObservedAt === undefined ? legacyObservedAt : finiteNumberInRange(locationObservedAt, 1, 8640000000000000);
   const safeDestinationLat = finiteNumberInRange(destination?.lat, -90, 90);
   const safeDestinationLng = finiteNumberInRange(destination?.lng, -180, 180);
   const safeTopInset = finiteNumberInRange(topInset, 0, 300) ?? 36;
@@ -194,6 +224,7 @@ const TomTomMap = forwardRef(({
     lng: safeOriginLng,
     heading: safeOriginHeading,
     respondersJson: safeRespondersJson,
+    observedAt: safeObservedAt,
   };
   const documentOriginLat = safeShowCarIcon ? null : safeOriginLat;
   const documentOriginLng = safeShowCarIcon ? null : safeOriginLng;
@@ -538,7 +569,14 @@ const TomTomMap = forwardRef(({
           </div>
           
           <script>
-              tt.setProductInfo('fleetops', '1.0');
+              window.__mapLoaded = false;
+              window.__mapErrorReported = false;
+              window.__reportMapError = function(reason) {
+                  if (window.__mapErrorReported) return;
+                  window.__mapErrorReported = true;
+                  if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_ERROR', reason: reason }));
+              };
+              if (typeof tt !== 'undefined' && typeof tt.setProductInfo === 'function') tt.setProductInfo('fleetops', '1.0');
               
               window.originMarker = null;
               window.destMarker = null;
@@ -628,7 +666,7 @@ const TomTomMap = forwardRef(({
               // High-frequency GPS ticks arrive via window.__updateFleetPositions
               // and only mutate source data — no tt.Marker is created per tick,
               // so per-fix DOM churn stays flat on low-end devices.
-              window.__mapActive = true;
+              window.__mapActive = ${serializeInlineScriptValue(mapActive === true)};
               window.__fleetAnimId = 0;
               window.__fleetRendered = null;
               window.__lastCamLng = null;
@@ -638,11 +676,21 @@ const TomTomMap = forwardRef(({
               // Tab/background lifecycle: pause rAF interpolation and camera
               // glides while hidden; the next tick repaints instantly on resume.
               window.__setMapActive = function(active) {
+                  const wasActive = window.__mapActive;
                   window.__mapActive = active === true;
                   if (!window.__mapActive && window.__fleetAnimId) {
                       try { cancelAnimationFrame(window.__fleetAnimId); } catch (e) {}
                       window.__fleetAnimId = 0;
                   }
+                  if (!wasActive && window.__mapActive) window.__refreshOnNextFix = true;
+              };
+              window.__setLocationFresh = function(fresh) {
+                  window.__locationFresh = fresh === true;
+                  if (!window.__locationFresh) {
+                      const header = document.getElementById('navHeader');
+                      if (header) header.style.display = 'none';
+                  }
+                  if (window.__locationFresh && window.__refreshOnNextFix && window.__refreshRouteIfNeeded && window.__refreshRouteIfNeeded()) window.__refreshOnNextFix = false;
               };
 
               window.__fleetPoint = function(lng, lat) {
@@ -709,13 +757,15 @@ const TomTomMap = forwardRef(({
               // Single per-tick entry point for live GPS. Snapping, banner,
               // rotation, interpolation and camera follow all happen here, so
               // the native side sends four numbers and nothing else.
-              window.__updateFleetPositions = function(lat, lng, heading, responders) {
+              window.__updateFleetPositions = function(lat, lng, heading, responders, observedAt) {
                   if (typeof lat !== 'number' || typeof lng !== 'number' || !isFinite(lat) || !isFinite(lng)) return;
                   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
                   const h = (typeof heading === 'number' && isFinite(heading)) ? heading : (window.lastHeading || 0);
                   window.lastHeading = h;
                   window.currentCarLng = lng;
                   window.currentCarLat = lat;
+                  window.currentFixObservedAt = observedAt === undefined ? Date.now() : observedAt;
+                  if (window.__mapActive && window.__refreshOnNextFix && window.__refreshRouteIfNeeded && window.__refreshRouteIfNeeded()) window.__refreshOnNextFix = false;
 
                   let finalLng = lng;
                   let finalLat = lat;
@@ -1178,6 +1228,13 @@ const TomTomMap = forwardRef(({
               ${ROUTE_CONTROLLER_SCRIPT}
 
               window.updateNavigationBanner = function(carLng, carLat, snapInfo = null) {
+                  const observedAt = window.currentFixObservedAt;
+                  if (${safeShowCarIcon} && (window.__locationFresh === false || typeof observedAt !== 'number' || !Number.isFinite(observedAt) || observedAt > Date.now() + 30000 || Date.now() - observedAt > 90000)) {
+                      const header = document.getElementById('navHeader');
+                      if (header) header.style.display = 'none';
+                      window.offRouteCount = 0;
+                      return;
+                  }
                   if (!window.routeInstructions || !window.routeCoords || window.routeCoords.length === 0) return;
                   
                   function getDist(lat1, lon1, lat2, lon2) {
@@ -1203,7 +1260,7 @@ const TomTomMap = forwardRef(({
                   // Auto-Rerouting: a single noisy fix must not trigger a full
                   // recalculation (urban-canyon jitter easily reads >50m off).
                   // Require two consecutive off-route fixes first.
-                  if (minDist > 50 && window.currentDestLng) {
+                  if (minDist > 50 && window.currentDestLng && window.__mapActive) {
                       window.offRouteCount = (window.offRouteCount || 0) + 1;
                       if (window.offRouteCount >= 2) {
                           window.offRouteCount = 0;
@@ -1348,6 +1405,7 @@ const TomTomMap = forwardRef(({
                   window.currentDestLng = hasDestination ? Number(destLng) : null;
                   window.currentCarLat = hasOrigin ? Number(originLat) : null;
                   window.currentCarLng = hasOrigin ? Number(originLng) : null;
+                  window.currentFixObservedAt = ${serializeInlineScriptValue(safeObservedAt)};
 
                   const map = tt.map({
                       key: ${tomtomKeyJs},
@@ -1363,6 +1421,9 @@ const TomTomMap = forwardRef(({
                       }
                   });
                   window.ttMap = map;
+                  map.on('error', function() {
+                      if (!window.__mapLoaded) window.__reportMapError('MAP_LOAD_FAILED');
+                  });
                   window.applyFleetMapTheme = function(forceDark) {
                         const isDark = forceDark !== undefined ? forceDark : ${scheme === 'dark'};
                         document.body.className = isDark ? 'scheme-dark' : 'scheme-light';
@@ -1448,6 +1509,7 @@ const TomTomMap = forwardRef(({
                     }
 
                     map.on('load', () => {
+                        window.__mapLoaded = true;
                         // MAP_READY first: a theme failure must never strand the
                         // native loading overlay on globe.json forever.
                         if (window.ReactNativeWebView) {
@@ -1661,7 +1723,9 @@ const TomTomMap = forwardRef(({
                               return { type: 'FeatureCollection', features: features };
                           };
 
-                      window.recalculateRoute(originLng, originLat).then(function (ok) {
+                      const initialObservedAt = window.currentFixObservedAt;
+                      const initialFixFresh = typeof initialObservedAt === 'number' && Number.isFinite(initialObservedAt) && initialObservedAt <= Date.now() + 30000 && Date.now() - initialObservedAt <= 90000;
+                      if (window.__mapActive && (!${safeShowCarIcon} || initialFixFresh)) window.recalculateRoute(window.currentCarLng, window.currentCarLat).then(function (ok) {
                           if (!ok) return;
                           var bounds = new tt.LngLatBounds();
                           window.routeCoords.forEach(function (coord) { bounds.extend(coord); });
@@ -1670,6 +1734,7 @@ const TomTomMap = forwardRef(({
                               if (window.isFollowing) map.flyTo({ center: [window.currentCarLng, window.currentCarLat], zoom: 18.5, pitch: 0, speed: 0.8 });
                           }, 5000);
                       });
+                      else window.__refreshOnNextFix = true;
 
                       // Periodic refresh: a route calculated once at load goes
                       // stale (traffic, ETA) over a long trip. Re-request it
@@ -1678,21 +1743,26 @@ const TomTomMap = forwardRef(({
                       // sitting in congestion still refreshes the traffic ETA
                       // (movement-only refresh would starve exactly when the
                       // driver most needs a new estimate).
-                      setInterval(function() {
-                          if (window.currentCarLng == null || window.currentDestLng == null || window.isRecalculating) return;
+                      window.__refreshRouteIfNeeded = function() {
+                          if (!window.__mapActive || window.currentCarLng == null || window.currentDestLng == null || window.isRecalculating) return false;
+                          if (window.__locationFresh === false) return false;
+                          const observedAt = window.currentFixObservedAt;
+                          if (typeof observedAt !== 'number' || !Number.isFinite(observedAt) || observedAt > Date.now() + 30000 || Date.now() - observedAt > 90000) return false;
                           var routeAgeMs = window.lastRouteAt ? (Date.now() - window.lastRouteAt) : Infinity;
                           if (window.lastCalcCarLng != null) {
                               const moved = Math.abs(window.currentCarLng - window.lastCalcCarLng) + Math.abs(window.currentCarLat - window.lastCalcCarLat);
                               // ~20m: parked, nothing new to calculate — unless
                               // the last traffic route is getting old.
-                              if (moved < 0.0002 && routeAgeMs < 4 * 60 * 1000) return;
+                              if (moved < 0.0002 && routeAgeMs < 4 * 60 * 1000) return true;
                           }
                           window.recalculateRoute(window.currentCarLng, window.currentCarLat);
-                      }, 120000);
+                          return true;
+                      };
+                      setInterval(window.__refreshRouteIfNeeded, 120000);
                   });
               }
 
-              initMap();
+              initMap().catch(function() { window.__reportMapError('INITIALIZATION_FAILED'); });
           </script>
       </body>
       </html>
@@ -1731,27 +1801,44 @@ const TomTomMap = forwardRef(({
     // Only the live map (showCarIcon = true) streams fixes; static pins keep
     // their document-baked coordinates.
     if (!safeShowCarIcon || safeOriginLat == null || safeOriginLng == null) return;
-    pushFleetPosition(safeOriginLat, safeOriginLng, safeOriginHeading, safeRespondersJson);
-  }, [safeOriginLat, safeOriginLng, safeOriginHeading, safeRespondersJson, safeShowCarIcon, pushFleetPosition]);
+    pushFleetPosition(safeOriginLat, safeOriginLng, safeOriginHeading, safeRespondersJson, false, safeObservedAt);
+  }, [safeOriginLat, safeOriginLng, safeOriginHeading, safeRespondersJson, safeShowCarIcon, safeObservedAt, pushFleetPosition]);
 
   return (
     <View style={[styles.container, style]}>
       <WebView
         ref={webViewRef}
+        // Keep every navigation inside the refusal callback; a narrow whitelist
+        // makes this WebView adapter open rejected URLs in external apps.
         originWhitelist={["*"]}
-        source={{ html: htmlContent }}
+        source={{ html: htmlContent, baseUrl: 'about:blank' }}
+        onShouldStartLoadWithRequest={(request) => request.url === 'about:blank'}
         style={styles.map}
         bounces={false}
         scrollEnabled={false}
         showsVerticalScrollIndicator={false}
         showsHorizontalScrollIndicator={false}
-        allowFileAccess={true}
-        allowFileAccessFromFileURLs={true}
-        allowUniversalAccessFromFileURLs={true}
+        allowFileAccess={false}
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
+        mixedContentMode="never"
+        setSupportMultipleWindows={false}
+        javaScriptCanOpenWindowsAutomatically={false}
         androidHardwareAccelerationDisabled={false}
         androidLayerType="hardware"
         javaScriptEnabled={true}
         overScrollMode="never"
+        onLoadStart={() => {
+          isMapReadyRef.current = false;
+          mapErrorRef.current = false;
+          onMapLoading?.();
+        }}
+        onError={() => reportMapError('WEBVIEW_LOAD_FAILED')}
+        onHttpError={() => {
+          if (!isMapReadyRef.current) reportMapError('WEBVIEW_HTTP_FAILED');
+        }}
+        onRenderProcessGone={() => reportMapError('WEBVIEW_PROCESS_TERMINATED')}
+        onContentProcessDidTerminate={() => reportMapError('WEBVIEW_PROCESS_TERMINATED')}
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
@@ -1765,6 +1852,9 @@ const TomTomMap = forwardRef(({
             // instead of being silently dropped.
             if (data.type === 'MAP_READY') {
               isMapReadyRef.current = true;
+              mapErrorRef.current = false;
+              webViewRef.current?.injectJavaScript(buildMapActiveJs(mapActiveRef.current));
+              webViewRef.current?.injectJavaScript(`if(window.__setLocationFresh) window.__setLocationFresh(${serializeInlineScriptValue(locationFresh === true)}); true;`);
               const activeCar = cachedCarImage || carImage;
               if (activeCar && webViewRef.current) {
                 webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${serializeInlineScriptValue(activeCar)}); true;`);
@@ -1772,10 +1862,11 @@ const TomTomMap = forwardRef(({
               const latest = latestFleetRef.current;
               if (latest.lat != null && latest.lng != null) {
                 lastBridgePushRef.current = 0;
-                pushFleetPosition(latest.lat, latest.lng, latest.heading, latest.respondersJson, true);
+                pushFleetPosition(latest.lat, latest.lng, latest.heading, latest.respondersJson, true, latest.observedAt);
               }
               if (onMapReady) onMapReady();
             }
+            if (data.type === 'MAP_ERROR') reportMapError(data.reason);
             if (data.type === 'MARKER_TAPPED' && onMarkerPress) {
               onMarkerPress(data.marker);
             }

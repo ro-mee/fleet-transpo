@@ -17,7 +17,7 @@ function setup(config = {}) {
   const window = { fleetRouteConfig: { key: 'test-key', primary: '#285448', sessionKey: 'trip-1-pickup', alternatives: true, traffic: true, ...config }, ttMap: map,
     currentCarLng: 121, currentCarLat: 14.6, currentDestLng: 121.1, currentDestLat: 14.7,
     ReactNativeWebView: { postMessage: value => messages.push(JSON.parse(value)) }, updateNavigationBanner: vi.fn() };
-  runInNewContext(ROUTE_CONTROLLER_SCRIPT, { window, tt: { services: { calculateRoute } }, setTimeout, clearTimeout });
+  runInNewContext(ROUTE_CONTROLLER_SCRIPT, { window, tt: { services: { calculateRoute } }, Date, setTimeout, clearTimeout });
   return { window, calculateRoute, messages, geometry: () => geometry, last: () => messages.at(-1) };
 }
 
@@ -51,6 +51,18 @@ describe('real WebView route controller', () => {
     expect(h.window.routeCoords[1][1]).toBe(14.7);
     await h.window.recalculateRoute(121.01, 14.61);
     expect(h.last().preferences.selectedIndex).toBe(1);
+  });
+  it('retains provider observation time when selecting an existing alternate', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-10-22T00:00:00Z'));
+      const h = setup();
+      await h.window.recalculateRoute(121, 14.6);
+      const observed = h.last().calculatedAt;
+      vi.setSystemTime(new Date('2026-10-22T00:06:00Z'));
+      h.window.applyRoutePreferences({ avoidTolls: false, selectedIndex: 1 });
+      expect(h.last().calculatedAt).toBe(observed);
+    } finally { vi.useRealTimers(); }
   });
   it('returns to recommended honestly when a previously selected alternate is absent', async () => {
     const h = setup();
@@ -159,35 +171,9 @@ it('executes the hidden Map completion listener and clears only its confirmed ac
   listener({ type: 'trip-completed', tripId: '7' });
   expect(activeTripRef.current).toBeNull(); expect(tripRequest.current).toBe(3);
   expect(setActiveTrip).toHaveBeenCalledWith(null); expect(setRouteData).toHaveBeenCalledWith(null);
-  expect(updateLegContext).toHaveBeenCalledWith({ tripId: null, leg: null });
-  expect(stopBackgroundTracking).toHaveBeenCalledOnce(); expect(loadTrip).toHaveBeenCalledOnce();
+  expect(loadTrip).toHaveBeenCalledOnce();
   expect(setCompletedCargo).toHaveBeenCalledWith({ tripId: 7, reference: 'TRP-7', session: completionSession });
 });
 
-it.each(['before-start', 'during-start'])('prevents a completed trip restarting background GPS %s', async timing => {
-  const source = readFileSync('mobile/app/(app)/(tabs)/map.js', 'utf8');
-  const start = source.indexOf('  const appState = useRef(AppState.currentState);');
-  const end = source.indexOf('  const prevTripIdsRef', start);
-  expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
-  let change, release;
-  const delayed = new Promise(resolve => { release = resolve; });
-  const activeTripRef = { current: { trip_id: 7, trip_status: 'En Route' } };
-  const updateLegContext = vi.fn().mockImplementation(() => timing === 'before-start' ? delayed : Promise.resolve());
-  const startBackgroundTracking = vi.fn().mockImplementation(() => timing === 'during-start' ? delayed : Promise.resolve());
-  const stopBackgroundTracking = vi.fn().mockResolvedValue(undefined);
-  runInNewContext(source.slice(start, end), {
-    useEffect: fn => fn(), useRef: current => ({ current }),
-    AppState: { currentState: 'active', addEventListener: (_, callback) => { change = callback; return { remove() {} }; } },
-    activeTripRef, isGpsTrackedTrip: trip => !!trip, legForStatus: () => 'leg2', updateLegContext,
-    startBackgroundTracking, stopBackgroundTracking, mergeStoredKm: vi.fn().mockResolvedValue(undefined),
-    distRef: { current: { prev: null, pending: null } },
-  });
-  change('background');
-  await Promise.resolve(); await Promise.resolve();
-  if (timing === 'during-start') expect(startBackgroundTracking).toHaveBeenCalledOnce();
-  activeTripRef.current = null;
-  release();
-  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-  if (timing === 'before-start') expect(startBackgroundTracking).not.toHaveBeenCalled();
-  else expect(stopBackgroundTracking).toHaveBeenCalledOnce();
-});
+// Foreground/background completion races are exercised on the app-level owner
+// in trip-location-owner.test.js, which now owns the native subscriptions.

@@ -58,12 +58,13 @@ export function shouldPushFleetBridge(nowMs, lastPushMs, intervalMs = FLEET_BRID
 // Direct global-function invocation (no postMessage round-trip) carrying one
 // GPS tick. Returns null when the fix is unusable so the caller skips the
 // inject entirely.
-export function buildFleetPositionJs(lat, lng, heading, respondersJson) {
+export function buildFleetPositionJs(lat, lng, heading, respondersJson, observedAt) {
   const safeLat = finiteNumberInRange(lat, -90, 90);
   const safeLng = finiteNumberInRange(lng, -180, 180);
   if (safeLat == null || safeLng == null) return null;
   // Null lets the document keep its last valid heading; zero means north.
   const safeHeading = finiteNumberInRange(heading, 0, 360);
+  const observation = observedAt === undefined ? '' : `, ${finiteNumberInRange(observedAt, 1, 8640000000000000)}`;
   let payload = "[]";
   if (typeof respondersJson === "string" && respondersJson) {
     try {
@@ -76,7 +77,7 @@ export function buildFleetPositionJs(lat, lng, heading, respondersJson) {
   }
   return (
     `window.__updateFleetPositions && window.__updateFleetPositions(` +
-    `${safeLat}, ${safeLng}, ${safeHeading}, ${payload}); true;`
+    `${safeLat}, ${safeLng}, ${safeHeading}, ${payload}${observation}); true;`
   );
 }
 

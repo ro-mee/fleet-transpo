@@ -73,6 +73,14 @@ describe("fleet bridge throttle", () => {
     expect(delivered[2]).toBe(0);
   });
 
+  it('delivers capture time without replacing it with the bridge clock', () => {
+    const positions = [];
+    const window = { __updateFleetPositions: (...args) => positions.push(args) };
+    runInNewContext(buildFleetPositionJs(14.6, 121, 0, [], 1234), { window });
+    runInNewContext(buildFleetPositionJs(14.6, 121, 0, [], null), { window });
+    expect(positions.map(args => args[4])).toEqual([1234, null]);
+  });
+
   it("builds the map-active pause/resume inject", () => {
     expect(buildMapActiveJs(true)).toBe("window.__setMapActive && window.__setMapActive(true); true;");
     expect(buildMapActiveJs(false)).toBe("window.__setMapActive && window.__setMapActive(false); true;");

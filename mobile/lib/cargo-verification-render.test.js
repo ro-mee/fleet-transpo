@@ -202,7 +202,7 @@ describe("normalized radar assignment selection", () => {
     const nearbyTrips = [trip], writes = [], alerts = [];
     const workspace = runInNewContext(workspaceExpression, { resolveDriverWorkspace, profile: { driverType: operational_use }, selectedMarker, nearbyTrips });
     expect(workspace.mode).toBe(operational_use.toLowerCase()); expect(workspace.tripReady).toBe(allowed);
-    const accept = runInNewContext(`(${acceptExpression})`, { assertCurrentOperation: () => {}, nearbyTrips, profile: { driverType: operational_use }, serverConfirmed: true, tripConfirmed: true, connectivity: "online", resolveDriverWorkspace, workspaceBlockReason, setAcceptingTripId: () => {}, setSelectedMarker: () => {}, loadTrip: async () => {}, wasQueued: () => false, AppAlert: { alert: (title, message) => alerts.push(message) }, user: { employeeId: 12 }, tripSession: {}, api: { put: async path => { writes.push(path); return {}; } } });
+    const accept = runInNewContext(`(${acceptExpression})`, { assertCurrentOperation: () => {}, nearbyTrips, profile: { driverType: operational_use }, serverConfirmed: true, tripConfirmed: true, connectivity: "online", resolveDriverWorkspace, workspaceBlockReason, acceptingTripRef: { current: null }, setAcceptingTripId: () => {}, setSelectedMarker: () => {}, loadTrip: async () => {}, wasQueued: () => false, AppAlert: { alert: (title, message) => alerts.push(message) }, user: { employeeId: 12 }, tripSession: {}, api: { put: async path => { writes.push(path); return {}; } } });
     await accept(selectedMarker.tripId);
     expect(writes).toEqual(allowed ? ["/api/mobile/driver/trips/701/accept"] : []);
     if (!allowed) expect(alerts[0]).toMatch(/saved trip type.*vehicle/i);

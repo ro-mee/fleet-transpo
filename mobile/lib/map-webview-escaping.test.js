@@ -29,7 +29,9 @@ vi.mock("react", () => {
       return component;
     },
     useEffect() {},
-    useImperativeHandle() {},
+    useImperativeHandle(ref, create) {
+      if (ref) ref.current = create();
+    },
     useMemo(callback) {
       return callback();
     },
@@ -120,12 +122,23 @@ function findNode(node, predicate) {
   return null;
 }
 
-function buildHtml(props) {
-  const tree = TomTomMap.render(props, null);
+function buildWebView(props, ref = null) {
+  const tree = TomTomMap.render(props, ref);
   const webView = findNode(tree, (node) => node.type === "WebView");
   if (!webView) throw new Error("TomTomMap did not render a WebView");
-  return webView.props.source.html;
+  return webView.props;
 }
+
+function buildHtml(props) {
+  return buildWebView(props).source.html;
+}
+
+it('reports a fresh document load so a returning screen cannot reuse old readiness', () => {
+  const onMapLoading = vi.fn();
+  const props = buildWebView({ onMapLoading });
+  props.onLoadStart();
+  expect(onMapLoading).toHaveBeenCalledOnce();
+});
 
 function inlineScripts(html) {
   return [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)]
@@ -169,6 +182,182 @@ describe("WebView data serialization", () => {
 });
 
 describe("generated TomTomMap WebView document", () => {
+  it("pauses periodic routing while hidden and refreshes an old route once on resume", () => {
+    const script = inlineScripts(buildHtml({}))[0][2];
+    const lifecycleStart = script.indexOf("window.__setMapActive = function");
+    const lifecycleEnd = script.indexOf("window.__fleetPoint = function", lifecycleStart);
+    const refreshStart = script.indexOf("// Periodic refresh:");
+    const refreshEnd = script.indexOf("\n                  });", refreshStart);
+    const requests = [];
+    const intervals = [];
+    const window = {
+      __mapActive: true,
+      currentCarLng: 121.01, currentCarLat: 14.61,
+      currentDestLng: 121.1, currentDestLat: 14.7,
+      lastCalcCarLng: 121, lastCalcCarLat: 14.6,
+      lastRouteAt: 1,
+      recalculateRoute: (...coordinates) => { requests.push(coordinates); },
+    };
+    runInNewContext(script.slice(lifecycleStart, lifecycleEnd) + script.slice(refreshStart, refreshEnd), {
+      window, Date: { now: () => 600000 }, setInterval: callback => { intervals.push(callback); },
+    });
+    window.__setMapActive(false);
+    intervals[0]();
+    expect(requests).toEqual([]);
+    window.__setMapActive(true);
+    expect(requests).toEqual([]);
+    window.__setMapActive(true);
+    expect(requests).toHaveLength(0);
+  });
+
+  it('waits for a fresh captured fix before refreshing a resumed or expired GPS route', () => {
+    const script = inlineScripts(buildHtml({}))[0][2];
+    const start = script.indexOf('window.__setMapActive = function');
+    const end = script.indexOf('window.__fleetPoint = function', start);
+    const updateStart = script.indexOf('window.__updateFleetPositions = function');
+    const updateEnd = script.indexOf('// Route geometry updates', updateStart);
+    const refreshStart = script.indexOf('// Periodic refresh:');
+    const refreshEnd = script.indexOf('\n                  });', refreshStart);
+    const requests = [];
+    const window = {
+      __mapActive: true, currentCarLng: 121, currentCarLat: 14.6,
+      currentFixObservedAt: 1000, currentDestLng: 121.1, currentDestLat: 14.7,
+      lastCalcCarLng: 121, lastCalcCarLat: 14.6, lastRouteAt: 1000,
+      recalculateRoute: (...point) => { requests.push(point); },
+      __paintResponders() {}, __paintDriverPoint() {},
+    };
+    runInNewContext(script.slice(start, end) + script.slice(updateStart, updateEnd) + script.slice(refreshStart, refreshEnd), {
+      window, Date: { now: () => 600000 }, setInterval() {}, requestAnimationFrame: () => 0,
+    });
+    window.__refreshRouteIfNeeded();
+    expect(requests).toEqual([]);
+    window.__setMapActive(false); window.__setMapActive(true);
+    expect(requests).toEqual([]);
+    window.__updateFleetPositions(14.68, 121.08, 0, [], 1000);
+    expect(requests).toEqual([]);
+    window.__updateFleetPositions(14.68, 121.08, 0, [], 600000);
+    expect(requests).toEqual([[121.08, 14.68]]);
+  });
+
+  it("does not refresh a fresh parked route when focus returns", () => {
+    const script = inlineScripts(buildHtml({}))[0][2];
+    const start = script.indexOf("window.__setMapActive = function");
+    const end = script.indexOf("window.__fleetPoint = function", start);
+    const refreshStart = script.indexOf("// Periodic refresh:");
+    const refreshEnd = script.indexOf("\n                  });", refreshStart);
+    const requests = [];
+    const window = {
+      __mapActive: false,
+      currentCarLng: 121, currentCarLat: 14.6, currentDestLng: 122,
+      lastCalcCarLng: 121, lastCalcCarLat: 14.6, lastRouteAt: 590000,
+      recalculateRoute: (...coordinates) => { requests.push(coordinates); },
+    };
+    runInNewContext(script.slice(start, end) + script.slice(refreshStart, refreshEnd), {
+      window, Date: { now: () => 600000 }, setInterval() {},
+    });
+    window.__setMapActive(true);
+    expect(requests).toEqual([]);
+  });
+
+  it('hides turn guidance and refuses off-route work after the GPS observation expires', () => {
+    const script = inlineScripts(buildHtml({ showCarIcon: true }))[0][2];
+    const start = script.indexOf('window.updateNavigationBanner = function');
+    const end = script.indexOf('async function initMap', start);
+    const header = { style: { display: 'flex' } }, recalculateRoute = vi.fn();
+    const window = { currentFixObservedAt: 1000, currentDestLng: 121.1, routeCoords: [[121, 14.6]], routeInstructions: [], recalculateRoute };
+    runInNewContext(script.slice(start, end), { window, document: { getElementById: () => header }, Date: { now: () => 600000 } });
+    window.updateNavigationBanner(121, 14.6, { minDist: 100, closestIdx: 0 });
+    expect(header.style.display).toBe('none');
+    expect(recalculateRoute).not.toHaveBeenCalled();
+  });
+
+  it("reports unavailable map SDK initialization through the native bridge", async () => {
+    const messages = [];
+    const window = { addEventListener() {}, ReactNativeWebView: { postMessage: value => messages.push(JSON.parse(value)) } };
+    const script = inlineScripts(buildHtml({}))[0][2];
+    expect(() => runInNewContext(script, { window })).not.toThrow();
+    await Promise.resolve();
+    expect(messages).toContainEqual({ type: "MAP_ERROR", reason: "INITIALIZATION_FAILED" });
+  });
+
+  it("reports map load failure once, keeps readiness, and ignores later tile errors", async () => {
+    const messages = [];
+    const events = {};
+    const window = { addEventListener() {}, ReactNativeWebView: { postMessage: value => messages.push(JSON.parse(value)) } };
+    const map = { on: (name, handler) => { events[name] = handler; } };
+    const script = inlineScripts(buildHtml({}))[0][2];
+    runInNewContext(script, { window, tt: { setProductInfo() {}, map: () => map } });
+    await Promise.resolve();
+    expect(events.error).toBeTypeOf("function");
+    events.error();
+    events.error();
+    expect(messages).toEqual([{ type: "MAP_ERROR", reason: "MAP_LOAD_FAILED" }]);
+    events.load();
+    events.error();
+    expect(messages).toEqual([{ type: "MAP_ERROR", reason: "MAP_LOAD_FAILED" }, { type: "MAP_READY" }]);
+  });
+
+  it("refuses external navigation and file access without blocking the map document", () => {
+    const view = buildWebView({});
+    expect(view.onShouldStartLoadWithRequest).toBeTypeOf("function");
+    for (const url of ["https://example.com", "file:///secret", "intent://app", "javascript:alert(1)", "https://api.tomtom.com"]) {
+      expect(view.onShouldStartLoadWithRequest({ url })).toBe(false);
+    }
+    expect(view.onShouldStartLoadWithRequest({ url: "about:blank" })).toBe(true);
+    expect(view.source.baseUrl).toBe("about:blank");
+    expect(view.allowFileAccess).toBe(false);
+    expect(view.allowFileAccessFromFileURLs).toBe(false);
+    expect(view.allowUniversalAccessFromFileURLs).toBe(false);
+    expect(view.javaScriptCanOpenWindowsAutomatically).toBe(false);
+    expect(view.setSupportMultipleWindows).toBe(false);
+  });
+
+  it("deduplicates native failures and recovers on map readiness", () => {
+    const failures = [];
+    const view = buildWebView({ onMapError: error => failures.push(error) });
+    expect(view.onError).toBeTypeOf("function");
+    view.onError({ nativeEvent: { description: "do not leak provider URLs or details" } });
+    view.onRenderProcessGone({ nativeEvent: { didCrash: true } });
+    expect(failures).toEqual([{ type: "MAP_ERROR", reason: "WEBVIEW_LOAD_FAILED" }]);
+    view.onMessage({ nativeEvent: { data: JSON.stringify({ type: "MAP_READY" }) } });
+    view.onContentProcessDidTerminate();
+    expect(failures).toEqual([
+      { type: "MAP_ERROR", reason: "WEBVIEW_LOAD_FAILED" },
+      { type: "MAP_ERROR", reason: "WEBVIEW_PROCESS_TERMINATED" },
+    ]);
+  });
+
+  it("retains hidden state through loading and closes the GPS bridge after failure", () => {
+    const ref = { current: null };
+    const view = buildWebView({ origin: { lat: 14.6, lng: 121 }, showCarIcon: true }, ref);
+    const activeStates = [];
+    const positions = [];
+    const window = {
+      __setMapActive: active => { activeStates.push(active); },
+      __updateFleetPositions: (...position) => { positions.push(position); },
+    };
+    view.ref.current = { injectJavaScript: script => runInNewContext(script, { window }) };
+    ref.current.setMapActive(false);
+    expect(activeStates).toEqual([]);
+    view.onMessage({ nativeEvent: { data: JSON.stringify({ type: "MAP_READY" }) } });
+    expect(activeStates).toEqual([false]);
+    expect(positions).toHaveLength(1);
+    view.onError();
+    expect(ref.current.updateFleetPosition({ lat: 14.7, lng: 121.1 })).toBe(false);
+    expect(positions).toHaveLength(1);
+    view.onMessage({ nativeEvent: { data: JSON.stringify({ type: "MAP_READY" }) } });
+    expect(activeStates).toEqual([false, false]);
+    expect(positions).toHaveLength(2);
+  });
+
+  it('starts a replacement renderer hidden when its Map tab is already hidden', () => {
+    const view = buildWebView({ mapActive: false });
+    const states = [], window = { __setMapActive: active => states.push(active) };
+    view.ref.current = { injectJavaScript: code => runInNewContext(code, { window }) };
+    view.onMessage({ nativeEvent: { data: JSON.stringify({ type: 'MAP_READY' }) } });
+    expect(states).toEqual([false]);
+  });
+
   it("moves standby coverage with the driver and retains the last valid heading", () => {
     const script = inlineScripts(buildHtml({
       origin: { lat: 14.6, lng: 121, heading: 270 },

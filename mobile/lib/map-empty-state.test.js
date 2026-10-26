@@ -9,6 +9,7 @@ const emptyStatesMatch = source.match(/export const MAP_EMPTY_STATES = ([\s\S]*?
 const resolverMatch = source.match(/export function resolveMapEmptyState\(([\s\S]*?^})/m);
 
 const context = vm.createContext({});
+vm.runInContext(source.match(/const GPS_TRACKING_STATUSES[\s\S]*?function isGpsTrackedTrip[\s\S]*?^}/m)[0], context);
 if (emptyStatesMatch) {
   vm.runInContext(`this.MAP_EMPTY_STATES = ${emptyStatesMatch[1]}`, context);
 }
@@ -160,8 +161,11 @@ describe("Map Tab Empty States — Specification and Gating", () => {
     it("returns null when an active trip is present (never blocks an in-progress dispatch)", () => {
       expect(resolveMapEmptyState({
         duty: { loaded: true, checkedIn: false },
-        activeTrip: { trip_id: 101, trip_status: "Dispatched" },
+        activeTrip: { trip_id: 101, trip_status: "Trip Started" },
       })).toBeNull();
+    });
+    it.each(['Assigned', 'Dispatched', 'Driver Accepted'])('does not bypass off-duty for pre-start %s', trip_status => {
+      expect(resolveMapEmptyState({ duty: { loaded: true, checkedIn: false }, activeTrip: { trip_id: 101, trip_status } })).toBe('off_duty');
     });
   });
 });

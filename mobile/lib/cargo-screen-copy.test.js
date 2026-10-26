@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from 'node:vm';
+import { parse } from 'espree';
 import * as copy from "./load-presentation";
 const screen = path => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 describe("cargo screen copy", () => {
@@ -20,7 +22,16 @@ describe("cargo screen copy", () => {
   });
   it("does not offer a passenger call action on a cargo consignment", () => {
     const map = screen("app/(app)/(tabs)/map.js");
-    expect(map).toContain('{(profile?.driverType === "Passenger") && serverConfirmed && tripConfirmed && connectivity === "online" && workspace.tripReady === true && <Pressable');
+    let gate;
+    function visit(node) {
+      if (!node || typeof node !== 'object') return;
+      if (node.type === 'LogicalExpression' && node.right.type === 'JSXElement' && node.right.openingElement.attributes.some(attr => attr.name?.name === 'accessibilityLabel' && attr.value?.value === 'Call passenger')) gate = map.slice(...node.left.range);
+      for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(visit); else if (value && typeof value === 'object') visit(value);
+    }
+    visit(parse(map, { ecmaVersion: 'latest', sourceType: 'module', range: true, ecmaFeatures: { jsx: true } }));
+    for (const [driverType, passenger_phone, expected] of [['Cargo', '09170000000', false], ['Passenger', null, false], ['Passenger', '09170000000', true]]) {
+      expect(Boolean(runInNewContext(gate, { profile: { driverType }, activeTrip: { passenger_phone }, serverConfirmed: true, tripConfirmed: true, connectivity: 'online', workspace: { tripReady: true } }))).toBe(expected);
+    }
     expect(screen("app/(app)/(tabs)/history.js").includes("tripStatusLabel(trip.trip_status, trip.load_type)")).toBe(true);
   });
 });

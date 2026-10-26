@@ -33,6 +33,7 @@ import MapControlCluster from '../../../components/map/MapControlCluster';
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
+import { observationIsFresh, localGpsState } from "../../../lib/map-freshness";
 import { FilledButton, TonalButton } from "../../../components/ui";
 import {
   useCoachMarkActions,
@@ -41,7 +42,7 @@ import {
   CoachMarkTarget,
 } from "../../../components/coachmarks";
 import MapIntroPractice from "../../../components/MapIntroPractice";
-import { accumulateFix, createAccumulator, haversineKm } from "../../../lib/gps-odometer";
+import { haversineKm } from "../../../lib/gps-odometer";
 import { isCargoLoad, loadTitle, loadSubtitle, tripStatusLabel, tripActionLabel, cargoVerificationLabel } from "../../../lib/load-presentation";
 import { readinessFor } from "../../../lib/trip-detail";
 import { odometerStartRoute } from "../../../lib/trip-odometer";
@@ -50,13 +51,8 @@ import { captureCargoSession, isCurrentCargoSession, getCargoSyncState } from ".
 import { resolveDriverWorkspace } from "../../../lib/driver-workspace";
 import { resolveCargoMapGate, workspaceModeLabel, workspaceBlockReason } from "../../../lib/cargo-view-model";
 import { ClayButton } from "../../../components/clay/ClayButton";
-import {
-  startBackgroundTracking,
-  stopBackgroundTracking,
-  updateLegContext,
-  mergeStoredKm,
-  legForStatus,
-} from "../../../lib/background-tracking";
+import { legForStatus } from "../../../lib/background-tracking";
+import { setTrackedTrip, captureTrackedTripRead, subscribeTripLocation, getTripLocation, retryTripLocation } from "../../../lib/trip-location-owner";
 
 // PR #3.1: a queued write reached the local outbox, NOT the server.
 // Transition behavior is unchanged; only the wording stays honest — the
@@ -123,13 +119,14 @@ function driverLocationFromFix(location) {
   const lng = Number(location?.coords?.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-  const heading = Number(location?.coords?.heading);
+  const heading = location?.coords?.heading == null ? NaN : Number(location.coords.heading);
   const speed = Number(location?.coords?.speed);
   return {
     lat,
     lng,
     heading: Number.isFinite(heading) && heading >= 0 ? heading : undefined,
     speed: Number.isFinite(speed) ? speed : undefined,
+    observedAt: location?.timestamp ?? null,
   };
 }
 
@@ -446,7 +443,7 @@ export function resolveMapEmptyState({ duty, profile, user, paramStatus, activeT
   }
 
   // Active in-progress trip always displays operational map
-  if (activeTrip != null) return null;
+  if (isGpsTrackedTrip(activeTrip) && activeTrip.trip_status !== 'Driver Accepted') return null;
 
   // 1. Evaluate "Currently on Leave"
   const isLeave =
@@ -550,11 +547,19 @@ function MapTab() {
   const [loading, setLoading] = useState(true);
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [permRetry, setPermRetry] = useState(0);
-  const [mapReady, setMapReady] = useState(false);
+  const [localFixAt, setLocalFixAt] = useState(null);
+  const [localGpsError, setLocalGpsError] = useState(null);
+  const [mapRetry, setMapRetry] = useState(0);
+  const mapTarget = navigationTarget(activeTrip);
+  const mapInstanceKey = `${driverId ?? 'none'}|${activeTrip?.trip_id ?? 'standby'}|${legForStatus(activeTrip?.trip_status) ?? ''}|${mapTarget?.lat ?? ''}|${mapTarget?.lng ?? ''}|${mapRetry}`;
+  const [mapReadyKey, setMapReadyKey] = useState(null);
+  const [mapError, setMapError] = useState(null);
+  const mapReady = mapReadyKey === mapInstanceKey;
+  const mapFailed = mapError?.key === mapInstanceKey;
   const [routeData, setRouteData] = useState(null);
   // True when the WebView reported ROUTE_UNAVAILABLE: the last routeData (if
   // any) is retained for context but must NOT be presented as a live ETA.
-  const [routeStale, setRouteStale] = useState(false);
+  const [routeInvalid, setRouteStale] = useState(false);
   const [routePhase, setRoutePhase] = useState('calculating');
   const [routeChoices, setRouteChoices] = useState([]);
   const [routePreferences, setRoutePreferences] = useState({ tripId: null, avoidTolls: false, selectedIndex: 0 });
@@ -617,6 +622,7 @@ function MapTab() {
 
   const [recentNotification, setRecentNotification] = useState(null);
   const [acceptingTripId, setAcceptingTripId] = useState(null);
+  const acceptingTripRef = useRef(null);
   const [coverageVisibility, setCoverageVisibility] = useState({
     vehicle: true,
     gas_station: false,
@@ -645,8 +651,8 @@ function MapTab() {
   const showAllCoverage = useCallback(() => {
     setCoverageVisibility({
       vehicle: true,
-      gas_station: true,
-      driver: true,
+      gas_station: DEMO_ENTITY_MODE,
+      driver: DEMO_ENTITY_MODE,
       assignment: true,
     });
   }, []);
@@ -682,11 +688,13 @@ function MapTab() {
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
 
-  // Focus gate: tabs stay mounted after first visit, so without this the
-  // Highest-accuracy GPS watcher + heading stream keep re-rendering (and
-  // bridge-spamming) while the driver is on Home or another tab. Fixes
-  // still feed the odometer + lastFix below; only rendering pauses.
+  // Focus gate: tabs stay mounted after first visit, so without this hidden
+  // tabs would keep running Stop's display-only GPS and compass while off
+  // screen. Active-trip fixes and mileage continue in the app-level owner
+  // independently of this screen.
   const focusedRef = useRef(false);
+  const [mapFocused, setMapFocused] = useState(false);
+  const [appForeground, setAppForeground] = useState(AppState.currentState === "active");
   const lastFixRef = useRef(null);
 
 
@@ -759,13 +767,6 @@ function MapTab() {
 
   const lastTripId = useRef(null);
 
-  // GPS distance accumulator for the two legs of the trip.
-  //   leg1 = km driven to the pickup
-  //   leg2 = km driven from pickup to the destination
-  // Held in a ref so it survives re-renders and the watcher closure can read and
-  // mutate it without the interval/callback being torn down.
-  const distRef = useRef(createAccumulator());
-
   // Last compass heading applied to the marker. watchHeadingAsync fires at
   // very high frequency; without a threshold, parked-idle jitter re-renders
   // the screen and spams the WebView with marker updates many times a second.
@@ -780,64 +781,8 @@ function MapTab() {
       setRouteData(null);
       setRouteStale(false);
       lastTripId.current = activeTrip?.trip_id;
-      // A new trip resets the accumulated leg distances so a previous trip's km
-      // never bleeds into the next one.
-      distRef.current = createAccumulator();
     }
   }, [activeTrip]);
-
-  // Keep the background task's trip/leg context in sync so it accumulates the
-  // correct leg (and posts to the right trip endpoint) when the app is
-  // backgrounded. Runs on every active trip or status change.
-  const activeTripIdForTracking = activeTrip?.trip_id;
-  const activeTripStatusForTracking = activeTrip?.trip_status;
-  useEffect(() => {
-    const tracking = activeTripIdForTracking != null && GPS_TRACKING_STATUSES.has(activeTripStatusForTracking);
-    updateLegContext({
-      tripId: tracking ? activeTripIdForTracking : null,
-      leg: tracking ? legForStatus(activeTripStatusForTracking) : null,
-    }).catch(() => {});
-  }, [activeTripIdForTracking, activeTripStatusForTracking]);
-
-  // Background tracking, driven by AppState so there is never overlap with the
-  // foreground watcher (no double-counted km, no duplicate GPS posts):
-  //   background + active trip → start the headless task
-  //   foreground              → stop it and merge the km it accumulated
-  const appState = useRef(AppState.currentState);
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (next) => {
-      const prev = appState.current;
-      appState.current = next;
-      const hadActiveTrip = isGpsTrackedTrip(activeTripRef.current);
-      const isLeavingActive = prev.match(/active/) && next.match(/inactive|background/);
-      const isReturning = next === "active";
-
-      if (isLeavingActive && hadActiveTrip) {
-        const expectedTripId = activeTripRef.current?.trip_id;
-        updateLegContext({
-          tripId: activeTripRef.current?.trip_id ?? null,
-          leg: legForStatus(activeTripRef.current?.trip_status),
-        }).then(async () => {
-          if (activeTripRef.current?.trip_id !== expectedTripId || appState.current === 'active') return;
-          await startBackgroundTracking();
-          // Completion/foreground return may arrive while OS permission/start is pending.
-          if (activeTripRef.current?.trip_id !== expectedTripId || appState.current === 'active') await stopBackgroundTracking();
-        }).catch(() => {});
-      } else if (isReturning) {
-        // Clear the straddling fix synchronously so a foreground watcher tick
-        // that fires before the merge resolves cannot double-count the gap
-        // between the last foreground fix and the backgrounded stretch.
-        distRef.current.prev = null;
-        distRef.current.pending = null;
-        // Merge only after the native task has stopped; otherwise its final
-        // AsyncStorage write can race this read and leave background km out.
-        stopBackgroundTracking()
-          .then(() => mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null))
-          .catch(() => {});
-      }
-    });
-    return () => sub.remove();
-  }, []);
 
   const prevTripIdsRef = useRef(new Set());
   const tripRequest = useRef(0);
@@ -847,7 +792,7 @@ function MapTab() {
     if (!snapshot) return;
     const request = ++tripRequest.current;
     const current = () => request === tripRequest.current && isCurrentCargoSession(snapshot);
-    setTripSession(null);
+    const trackedRead = captureTrackedTripRead();
     try {
       const data = await api.get("/api/mobile/driver/trips");
       if (!current()) return;
@@ -860,9 +805,10 @@ function MapTab() {
       // through — the map then rendered the wrong route, the wrong status
       // header and the wrong swipe action, and the GPS leg accumulator was
       // re-pointed at a trip the driver had not started. A GPS-tracked trip
-      // always wins; only when there is none do we fall back to pre-start.
+      // always wins. Pending assignments belong to the standby radar.
       const list = Array.isArray(data) ? data : [];
-      const active = list.find(isGpsTrackedTrip) || list.find((t) => !["Completed", "Cancelled"].includes(t.trip_status));
+      const active = list.find(isGpsTrackedTrip);
+      if (setTrackedTrip(active || null, trackedRead) === false) return;
       // Bail out on identical payloads (see samePayload): every poll mints new
       // objects, and without this the screen re-renders every 15 s forever.
       setActiveTrip((prev) => {
@@ -903,8 +849,6 @@ function MapTab() {
     setActiveTrip(null);
     setRouteData(null);
     setRouteChoices([]);
-    updateLegContext({ tripId: null, leg: null }).catch(() => {});
-    stopBackgroundTracking().catch(() => {});
     loadTrip();
   }), [loadTrip, profile?.driverType, user?.employeeId]);
 
@@ -993,14 +937,18 @@ function MapTab() {
 
   useFocusEffect(useCallback(() => {
     focusedRef.current = true;
+    setMapFocused(true);
+    setNow(Date.now());
     // Resume WebView interpolation/camera work; the bridge keeps buffering
     // fixes while unfocused via lastFixRef, so resume is instant.
-    mapRef.current?.setMapActive?.(true);
     // Re-seed the map from fixes collected while unfocused. Functional set
     // with an equality bail-out so a re-run with an unchanged fix does not
     // mint a new object and re-render for nothing.
-    if (lastFixRef.current) {
-      const seed = lastFixRef.current;
+    const ownerFix = getTripLocation();
+    const seed = ownerFix ? driverLocationFromFix(ownerFix) : lastFixRef.current;
+    mapRef.current?.setMapActive?.(true);
+    if (seed) {
+      if (observationIsFresh(seed.observedAt, Date.now(), 30000)) mapRef.current?.updateFleetPosition?.(seed);
       setDriverLocation((prev) => (
         prev?.lat === seed.lat && prev?.lng === seed.lng && prev?.heading === seed.heading && prev?.speed === seed.speed
           ? prev
@@ -1013,6 +961,7 @@ function MapTab() {
     dutyRefresh?.();
     return () => {
       focusedRef.current = false;
+      setMapFocused(false);
       // Pause rAF interpolation + camera glides while on another tab so a
       // hidden WebView holds no animation loop or WebGL churn.
       mapRef.current?.setMapActive?.(false);
@@ -1035,6 +984,8 @@ function MapTab() {
   // foreground return resumes only when this tab is still the focused one.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
+      setAppForeground(next === "active");
+      if (next === 'active') setNow(Date.now());
       if (next.match(/inactive|background/)) {
         mapRef.current?.setMapActive?.(false);
       } else if (next === "active" && focusedRef.current) {
@@ -1072,11 +1023,12 @@ function MapTab() {
   }, [radarMarkers, coverageVisibility]);
 
   const handleAcceptAssignment = async (tripId) => {
-    if (!tripId) return;
+    if (!tripId || acceptingTripRef.current != null) return;
     if (!serverConfirmed || !tripConfirmed || connectivity !== "online") { AppAlert.alert("Refresh required", "Connect online and refresh your profile and current trip before continuing."); return; }
     const assignment = nearbyTrips.find(trip => String(trip.trip_id) === String(tripId));
     const workspace = resolveDriverWorkspace({ driverType: profile?.driverType, trip: assignment });
     if (workspace.tripReady !== true) { AppAlert.alert("Assignment needs review", workspaceBlockReason(workspace)); return; }
+    acceptingTripRef.current = tripId;
     try {
       setAcceptingTripId(tripId);
       assertCurrentOperation(assignment);
@@ -1091,175 +1043,104 @@ function MapTab() {
     } catch (err) {
       AppAlert.alert("Could not accept", err.message || "Failed to accept trip.");
     } finally {
+      acceptingTripRef.current = null;
       setAcceptingTripId(null);
     }
   };
 
-  // Location pipeline: request permission once (or on retry), then stream
-  // fixes. Re-runs wholesale when permRetry changes so "Try Again" can recover
-  // from a denial without remounting the screen.
+  // Location pipeline: the app owns active-trip distance/GPS; Map subscribes
+  // only while visible and owns a display-only watcher for standby.
   useEffect(() => {
-    if (emptyStateKey) return;
-    let subscription = null;
-    let headingSubscription = null;
+    if (emptyStateKey || !mapFocused || !appForeground) return;
+    let subscription = null, headingSubscription = null, unsubscribe = null;
     let cancelled = false;
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+    const fail = () => { if (!cancelled) setLocalGpsError('Location updates stopped. Check Location services and try again.'); };
+    const applyFix = newLoc => {
       if (cancelled) return;
-      if (status !== 'granted') {
-        setPermissionDenied(true);
-        setLoading(false);
+      // The app-level owner publishes `null` as a benign reset — the Retry
+      // action, a trip change, dispose (trip-location-owner.js) — not a dead
+      // stream. Treat it as "no observation yet" (neutral copy + the Retry
+      // card) and keep the last known marker; `fail()` stays reserved for the
+      // display-only watcher's error handler.
+      if (newLoc == null) {
+        setLocalGpsError(null);
+        setLocalFixAt(null);
         return;
       }
-      setPermissionDenied(false);
-
-      // Seed the marker from a cached fix when available. The fresh request can
-      // be slow or fail on some Android devices; that must not leave the map
-      // without a vehicle while the watcher is being established.
-      let loc = null;
-      try {
-        loc = await Promise.race([
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }),
-          new Promise((resolve) => setTimeout(() => resolve(null), 8000)),
-        ]);
-      } catch (error) {
-        console.warn('[Map] Fresh location unavailable:', error?.message || error);
-      }
-      let initialFix = driverLocationFromFix(loc);
-      if (!initialFix) {
-        try {
-          loc = await Location.getLastKnownPositionAsync({
-            maxAge: 5 * 60 * 1000,
-            requiredAccuracy: 1000,
-          });
-        } catch (error) {
-          console.warn('[Map] Last known location unavailable:', error?.message || error);
+      const fix = driverLocationFromFix(newLoc);
+      if (!fix) { fail(); return; }
+      setLocalFixAt(newLoc.timestamp ?? null);
+      setLocalGpsError(null);
+      const next = { ...fix, heading: fix.speed > 2 && fix.heading != null ? fix.heading : lastFixRef.current?.heading };
+      lastFixRef.current = next;
+      setDriverLocation(prev => {
+        if (prev?.lat != null) {
+          const movedKm = haversineKm(prev.lat, prev.lng, next.lat, next.lng);
+          let delta = Math.abs((next.heading ?? -1) - (prev.heading ?? -1)) % 360;
+          if (delta > 180) delta = 360 - delta;
+          if (movedKm < 0.008 && delta < 5 && (next.speed ?? 0) < 1) return prev;
         }
-        initialFix = driverLocationFromFix(loc);
-      }
-      if (initialFix) {
-        lastFixRef.current = initialFix;
-        setDriverLocation(initialFix);
-      }
-
-      // Subscribe to real-time updates. Local UI map updates and backend
-      // telemetry are decoupled: fixes stream here for the odometer + map
-      // marker, while server POSTs stay on the poster's own 30 s cadence
-      // (lib/tracking.js) so network I/O never blocks UI updates. The
-      // WebView bridge itself is throttled to one inject per 1500 ms inside
-      // TomTomMap (FLEET_BRIDGE_PUSH_MS), gated on MAP_READY.
-      subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.High, timeInterval: 1500, distanceInterval: 3 },
-        (newLoc) => {
-
-          // 1. Map Marker Update
-          setDriverLocation(prev => {
-            let updatedHeading = prev?.heading;
-            
-            // If driving fast (> 2 m/s), prioritize GPS Course Over Ground heading!
-            if (newLoc.coords.speed > 2 && newLoc.coords.heading >= 0) {
-              updatedHeading = newLoc.coords.heading;
-            }
-
-            const lat = newLoc.coords.latitude;
-            const lng = newLoc.coords.longitude;
-            const next = {
-              lat,
-              lng,
-              heading: updatedHeading,
-              speed: newLoc.coords.speed,
-            };
-            // Remember every fix so refocusing re-seeds instantly; the
-            // odometer accumulator below also reads every raw fix.
-            lastFixRef.current = next;
-            // Unfocused (another tab): skip the render + bridge traffic.
-            if (!focusedRef.current) return prev;
-            // Parked/idle bail-out: the OS re-delivers near-identical fixes
-            // every ~3s. Returning prev skips the whole-screen re-render, the
-            // camera easeTo and the radar-marker rebuild.
-            if (prev?.lat != null) {
-              const movedKm = haversineKm(prev.lat, prev.lng, lat, lng);
-              const hNew = updatedHeading ?? -1;
-              const hPrev = prev.heading ?? -1;
-              let hDelta = Math.abs(hNew - hPrev) % 360;
-              if (hDelta > 180) hDelta = 360 - hDelta;
-              if (movedKm < 0.008 && hDelta < 5 && (newLoc.coords.speed ?? 0) < 1) {
-                return prev;
-              }
-            }
-
-            return next;
-          });
-
-          // 2. GPS Distance Accumulation (per leg)
-          const d = distRef.current;
-          if (!isGpsTrackedTrip(activeTripRef.current)) {
-            d.prev = null;
-            d.pending = null;
-            d.leg = null;
-            return;
-          }
-          const leg = legForStatus(activeTripRef.current?.trip_status);
-          const lat = newLoc.coords.latitude;
-          const lng = newLoc.coords.longitude;
-
-          // Shared rule set (lib/gps-odometer): drops >400 m jumps, anything
-          // implying more than 180 km/h, stale-gap distance, and parked jitter.
-          // A long-gap fix becomes a candidate until a plausible next fix
-          // confirms it. When the leg changes, the straddling fix is dropped.
-          accumulateFix(d, {
-            lat,
-            lng,
-            speedMs: newLoc.coords.speed ?? null,
-            atMs: newLoc.timestamp ?? null,
-            leg,
-          });
-        }
-      );
-      // 2. Compass/Gyroscope Subscription for when the car is stopped
-      try {
-          headingSubscription = await Location.watchHeadingAsync((headingObj) => {
-              const compassHeading = headingObj.trueHeading >= 0 ? headingObj.trueHeading : headingObj.magHeading;
-              if (compassHeading == null || compassHeading < 0) return;
-
-              // Only propagate meaningful changes (>= 10 degrees).
-              const last = lastCompassHeading.current;
-              let delta = last == null ? 999 : Math.abs(compassHeading - last) % 360;
-              if (delta > 180) delta = 360 - delta;
-              if (delta < 10) return;
-              lastCompassHeading.current = compassHeading;
-
-              setDriverLocation(prev => {
-                  if (!prev) return prev;
-                  // Only use the physical compass if the car is stopped or moving very slowly (< 2 m/s)
-                  // If we are driving fast, we trust the GPS course-over-ground instead so the map doesn't spin if you grab your phone!
-                  if (prev.speed === undefined || prev.speed < 2) {
-                      const next = { ...prev, heading: compassHeading };
-                      lastFixRef.current = next;
-                      if (!focusedRef.current) return prev;
-                      return next;
-                  }
-                  return prev;
-              });
-          });
-      } catch (e) {
-          console.warn("Compass not available on this device", e);
-      }
-
-    })().catch((error) => {
-      console.warn("Location unavailable:", error.message);
-    });
-    return () => {
-      cancelled = true;
-      if (subscription) subscription.remove();
-      if (headingSubscription) headingSubscription.remove();
+        return next;
+      });
     };
-  }, [permRetry, emptyStateKey]);
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (cancelled) return;
+      if (status !== 'granted') { setPermissionDenied(true); return; }
+      setPermissionDenied(false);
+      if (isGpsTrackedTrip(activeTripRef.current)) {
+        const sample = getTripLocation();
+        if (sample) applyFix(sample);
+        unsubscribe = subscribeTripLocation(applyFix);
+      } else {
+        let loc = null, timer;
+        try {
+          loc = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest }),
+            new Promise(resolve => { timer = setTimeout(() => resolve(null), 8000); }),
+          ]);
+        } catch (error) { console.warn('[Map] Fresh location unavailable:', error?.message || error); }
+        finally { clearTimeout(timer); }
+        if (cancelled) return;
+        if (!driverLocationFromFix(loc)) {
+          try { loc = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000, requiredAccuracy: 1000 }); }
+          catch (error) { console.warn('[Map] Last known location unavailable:', error?.message || error); }
+        }
+        if (cancelled) return;
+        if (driverLocationFromFix(loc)) applyFix(loc);
+        subscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.High, timeInterval: 1500, distanceInterval: 3 }, applyFix, fail,
+        );
+        if (cancelled) { subscription.remove(); return; }
+      }
+      try {
+        headingSubscription = await Location.watchHeadingAsync(heading => {
+          if (cancelled) return;
+          const direction = heading.trueHeading >= 0 ? heading.trueHeading : heading.magHeading;
+          if (direction == null || direction < 0) return;
+          const last = lastCompassHeading.current;
+          let delta = last == null ? 999 : Math.abs(direction - last) % 360;
+          if (delta > 180) delta = 360 - delta;
+          if (delta < 10) return;
+          lastCompassHeading.current = direction;
+          const fix = lastFixRef.current;
+          if (fix && (fix.speed == null || fix.speed < 2)) {
+            const next = { ...fix, heading: direction };
+            lastFixRef.current = next;
+            setDriverLocation(next);
+          }
+        });
+        if (cancelled) headingSubscription.remove();
+      } catch (error) { console.warn('Compass not available on this device', error); }
+    })().catch(fail);
+    return () => { cancelled = true; unsubscribe?.(); subscription?.remove(); headingSubscription?.remove(); };
+  }, [permRetry, emptyStateKey, mapFocused, appForeground, activeTrip?.trip_id]);
 
   // "Try Again" on the permission-denied state: clear the flag and re-run the
   // location effect via the retry counter.
   const retryLocationPermission = () => {
     setPermissionDenied(false);
+    retryTripLocation();
     setPermRetry((c) => c + 1);
   };
 
@@ -1315,8 +1196,11 @@ function MapTab() {
   // linger onto the next assignment. Suggestion only — every transition below
   // stays human-confirmed.
   const poster = usePosterStatus();
+  const advisoryFresh = !poster.error && observationIsFresh(poster.advisoryObservedAt, now, 90000);
+  const gpsState = localGpsState(localFixAt, localGpsError, now);
+  const routeStale = routeInvalid || gpsState !== 'fresh' || (!!routeData && !observationIsFresh(routeData.calculatedAt, now, 5 * 60 * 1000));
   const tripGeofence =
-    poster.geofenceTripId != null && String(poster.geofenceTripId) === String(activeTrip?.trip_id)
+    advisoryFresh && gpsState === 'fresh' && poster.geofenceTripId != null && String(poster.geofenceTripId) === String(activeTrip?.trip_id)
       ? poster.geofence
       : null;
   const nearPickupHint = isState1 && tripGeofence?.near_pickup === true;
@@ -1327,7 +1211,7 @@ function MapTab() {
   // banner cannot linger onto the next assignment). Minimal by design: calm
   // copy, no risk jargon, no dispatcher-style next-trip panic while driving.
   const tripMonitor =
-    poster.monitorTripId != null && String(poster.monitorTripId) === String(activeTrip?.trip_id)
+    advisoryFresh && poster.monitorTripId != null && String(poster.monitorTripId) === String(activeTrip?.trip_id)
       ? poster.monitor
       : null;
   const monitorBanner = monitorBannerFor(tripMonitor);
@@ -1348,17 +1232,6 @@ function MapTab() {
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, []);
-
-  // Fail-open for the map overlay: MAP_READY normally lifts it, but a dead
-  // WebView (offline CDN, bad key, init exception) must never pin globe.json
-  // forever — observed as infinite loading on the Drop-off leg. After 20s we
-  // lift the overlay anyway; the map area may be blank but the trip sheet
-  // (ARRIVED AT DESTINATION / DROPPED OFF GUEST) stays usable.
-  useEffect(() => {
-    if (mapReady) return;
-    const t = setTimeout(() => setMapReady(true), 20000);
-    return () => clearTimeout(t);
-  }, [mapReady]);
 
   // Fail-open for GPS: getCurrentPositionAsync can hang or throw (GPS off,
   // timeout) while its catch only warns, leaving driverLocation null forever
@@ -1399,7 +1272,7 @@ function MapTab() {
   // reset above is not enough: an old "3 min to pickup" ETA would linger on
   // the "EN ROUTE TO DESTINATION" header until TomTom answers (or forever if
   // it fails). Clear live route numbers whenever the routing target changes.
-  const routeLegKey = `${driverId ?? 'none'}|${activeTrip?.trip_id ?? "none"}|${isHeadingToPickup ? "pickup" : "dest"}|${targetLat ?? ""}|${targetLng ?? ""}`;
+  const routeLegKey = `${driverId ?? 'none'}|${activeTrip?.trip_id ?? "none"}|${isHeadingToPickup ? "pickup" : "dest"}|${targetLat ?? ""}|${targetLng ?? ""}|${mapRetry}`;
   const lastRouteLegKey = useRef(routeLegKey);
   const routeTripId = activeTrip?.trip_id;
   const effectivePreferences = useMemo(() => routePreferences.tripId === routeTripId
@@ -1417,16 +1290,52 @@ function MapTab() {
       applyingRoute.current = false;
     }
   }, [routeLegKey]);
+  // A bridge command may never reach a failed WebView. Bound native busy state
+  // independently of the document's provider timeout.
+  useEffect(() => {
+    if (routePhase !== 'refreshing') return;
+    const timer = setTimeout(() => {
+      applyingRoute.current = false;
+      setRoutePhase('failed');
+      setRouteStale(true);
+    }, 25000);
+    return () => clearTimeout(timer);
+  }, [routePhase, routeLegKey]);
+
   const routeDisabledReason = connectivity === 'offline' ? 'Reconnect to calculate a route.'
-    : !driverLocation ? 'Current GPS location is unavailable.'
+    : !driverLocation || gpsState === 'lost' ? 'Current GPS location is unavailable.'
     : !trustedTarget ? 'A verified pickup or delivery location is required. Contact Dispatch.'
+    : mapFailed ? 'The map is unavailable. Retry loading it.'
     : !mapReady ? 'The map is still loading.' : null;
   const openExternalNavigation = () => {
     const url = externalNavigationUrl(trustedTarget);
     if (!url) return AppAlert.alert('Navigation unavailable', 'Ask Dispatch to verify the current pickup or delivery location.');
     Linking.openURL(url).catch(() => AppAlert.alert('Navigation unavailable', 'Unable to open Google Maps on this device.'));
   };
-  const handleMapReady = useCallback(() => setMapReady(true), []);
+  const handleMapLoading = useCallback(() => { setMapReadyKey(null); setMapError(null); setRouteStale(true); setRoutePhase('calculating'); }, []);
+  const handleMapReady = useCallback(() => { setMapReadyKey(mapInstanceKey); setMapError(null); }, [mapInstanceKey]);
+  const handleMapError = useCallback(() => {
+    setMapReadyKey(null);
+    setMapError({ key: mapInstanceKey });
+    applyingRoute.current = false;
+    setRoutePhase('failed');
+    setRouteStale(true);
+  }, [mapInstanceKey]);
+  const retryMap = () => { setMapRetry(value => value + 1); setRoutePhase('calculating'); };
+  const mapLoadingContent = mapFailed ? (
+    <View style={{ padding: 24, gap: 12, maxWidth: 360 }}>
+      <Text accessibilityRole="alert" style={[type.supporting, { color: colors.onSurface }]}>Map unavailable. Check your connection and try again.</Text>
+      <ClayButton label="Retry map" variant="tonal" onPress={retryMap} />
+    </View>
+  ) : <LottieView autoPlay loop source={require("../../../assets/globe.json")} style={styles.mapLoader} />;
+  const gpsNotice = gpsState !== 'fresh' ? (
+    <View style={{ position: 'absolute', top: Math.max(insets.top, 20) + 76, left: 16, right: 80 }}>
+      <ClayCard variant="compact">
+        <Text accessibilityLiveRegion="polite" style={[type.supporting, { color: colors.onSurface }]}>{gpsState === 'delayed' ? 'GPS updates delayed. Your marker shows an earlier position.' : localGpsError || 'GPS signal unavailable. Your location may be out of date.'}</Text>
+        <ClayButton label="Retry GPS" variant="tonal" onPress={retryLocationPermission} />
+      </ClayCard>
+    </View>
+  ) : null;
   const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
   const handleMapDragged = useCallback(() => {}, []);
 
@@ -1436,10 +1345,17 @@ function MapTab() {
   const shouldRenderMapBeforeGps = activeMilestone === "map_intro" || mapIntroPending;
 
   // Cold start resolution: while duty eligibility resolves on first mount, keep
-  // the dark companion shell stable without flashing the GPS map or location dialog.
-  // Cold start resolution: while duty eligibility resolves on first mount, keep
   // the companion shell stable without flashing the GPS map or location dialog.
   const isDutyResolving = !duty?.loaded && !profile && !activeTrip && !params?.status && !params?.empty_state && !params?.mode;
+  const mapShouldRender = !isDutyResolving && !emptyStateKey && (!permissionDenied || shouldRenderMapBeforeGps) && (!!driverLocation || gpsTimedOut || shouldRenderMapBeforeGps);
+  // Fail-open for the map overlay: failure releases the spinner, but only
+  // MAP_READY can enable route controls for this renderer instance.
+  useEffect(() => {
+    if (!mapShouldRender || mapReady || mapFailed) return;
+    const t = setTimeout(() => setMapError({ key: mapInstanceKey }), 20000);
+    return () => clearTimeout(t);
+  }, [mapReady, mapFailed, mapInstanceKey, mapShouldRender]);
+
   if (isDutyResolving) {
     return (
       <View style={[styles.emptyScreenContainer, { backgroundColor: emptyTheme.bgColors[0] }]}>
@@ -1654,12 +1570,7 @@ function MapTab() {
   if (!driverLocation && !gpsTimedOut && !shouldRenderMapBeforeGps) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <LottieView
-          autoPlay
-          loop
-          source={require("../../../assets/globe.json")}
-          style={styles.mapLoader}
-        />
+        {mapLoadingContent}
         <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, marginTop: 16, letterSpacing: 0.2 }]}>
           Acquiring GPS position…
         </Text>
@@ -1672,8 +1583,12 @@ function MapTab() {
     return (
       <View style={[styles.container, { backgroundColor: rTheme.background }]}>
         <TomTomMap 
+          key={mapInstanceKey}
           ref={mapRef}
           origin={driverLocation}
+          locationObservedAt={localFixAt}
+          locationFresh={gpsState === 'fresh'}
+          mapActive={mapFocused && appForeground}
           destination={null}
           scrollEnabled={true}
           showCarIcon={true}
@@ -1686,18 +1601,16 @@ function MapTab() {
           onMarkerPress={handleMarkerPress}
           onMapDragged={handleMapDragged}
           onMapReady={handleMapReady}
+          onMapError={handleMapError}
+          onMapLoading={handleMapLoading}
         />
         {!mapReady && (
           <View style={[styles.mapLoadingOverlay, { backgroundColor: rTheme.background }]}>
-            <LottieView
-              autoPlay
-              loop
-              source={require("../../../assets/globe.json")}
-              style={styles.mapLoader}
-            />
+            {mapLoadingContent}
           </View>
         )}
 
+        {gpsNotice}
         {/* Real-time Notification Banner */}
         {recentNotification && (
           <View style={[styles.toastBanner, { top: insets.top + 92, backgroundColor: rTheme.topBarBg, borderColor: rTheme.primary }]}>
@@ -1741,12 +1654,13 @@ function MapTab() {
               <View style={[styles.legendIndicatorDot, { backgroundColor: rTheme.primary }]} />
               <Text style={[styles.legendHeaderTitle, { color: rTheme.legendText }]}>Coverage Legend</Text>
               {(() => {
-                const activeCount = Object.values(coverageVisibility).filter(Boolean).length;
-                if (activeCount < 4) {
+                const supportedKeys = DEMO_ENTITY_MODE ? ['vehicle', 'gas_station', 'driver', 'assignment'] : ['vehicle', 'assignment'];
+                const activeCount = supportedKeys.filter(key => coverageVisibility[key]).length;
+                if (activeCount < supportedKeys.length) {
                   return (
                     <View style={[styles.legendFilterBadge, { backgroundColor: rTheme.activeRangeBg }]}>
                       <Text style={[styles.legendFilterBadgeText, { color: rTheme.activeRangeText }]}>
-                        {activeCount}/4
+                        {activeCount}/{supportedKeys.length}
                       </Text>
                     </View>
                   );
@@ -1788,7 +1702,7 @@ function MapTab() {
                     <Ionicons name="document-text" size={13} color={active ? rTheme.warning : rTheme.legendSubtext} />
                   ),
                 },
-              ].map((item) => {
+              ].filter(item => DEMO_ENTITY_MODE || ['vehicle', 'assignment'].includes(item.key)).map((item) => {
                 const isVisible = coverageVisibility[item.key];
                 return (
                   <Pressable
@@ -1845,7 +1759,7 @@ function MapTab() {
 
         {/* radius 24 is half of the 48dp control, which is how a target says
             "I am round": the spotlight hole then becomes a circle instead of a
-            rounded square. The cluster is a column of three, so the hole takes
+            rounded square. The cluster is a column of two, so the hole takes
             rounded ends rather than being a single circle. */}
         <CoachMarkTarget
           targetId="map.controls"
@@ -1860,9 +1774,6 @@ function MapTab() {
               <Ionicons name="layers-outline" size={21} color={colors.onSurface} />
             </ClayCard>
           </CoachMarkTarget>
-          <ClayCard variant="compact" style={styles.standbyControl} onPress={() => mapRef.current?.recenter()} accessibilityLabel="Locate my vehicle">
-            <Ionicons name="locate-outline" size={21} color={colors.onSurface} />
-          </ClayCard>
         </CoachMarkTarget>
 
         {/* Compact Interactive Assignment / Station / Driver Card */}
@@ -1966,8 +1877,8 @@ function MapTab() {
                   </Pressable>
 
                   <Pressable
-                    disabled={!serverConfirmed || !tripConfirmed || connectivity !== "online" || markerWorkspace.tripReady !== true}
-                    accessibilityState={{ disabled: markerWorkspace.tripReady !== true }}
+                    disabled={acceptingTripId != null || !serverConfirmed || !tripConfirmed || connectivity !== "online" || markerWorkspace.tripReady !== true}
+                    accessibilityState={{ disabled: acceptingTripId != null || !serverConfirmed || !tripConfirmed || connectivity !== "online" || markerWorkspace.tripReady !== true, busy: acceptingTripId != null }}
                     onPress={() => handleAcceptAssignment(selectedMarker.tripId)}
                     style={[styles.markerCardPriBtn, { backgroundColor: rTheme.primary, opacity: markerWorkspace.tripReady === true ? 1 : 0.5 }]}
                     accessibilityRole="button"
@@ -2075,8 +1986,12 @@ function MapTab() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <DriverGuideTrigger guideId={activeTrip?.load_type === 'Passenger' && ['Trip Started', 'At Pickup'].includes(activeTrip?.trip_status) ? 'passenger.pickup' : activeTrip?.load_type === 'Passenger' && ['Passenger Onboard', 'Drop-off'].includes(activeTrip?.trip_status) ? 'passenger.dropoff' : 'map.controls'} trip={activeTrip} requireTrip={!!activeTrip} enabled={serverConfirmed && (!activeTrip || tripConfirmed)} />
       <TomTomMap 
+        key={mapInstanceKey}
         ref={mapRef}
         origin={originProp}
+        locationObservedAt={localFixAt}
+        locationFresh={gpsState === 'fresh'}
+        mapActive={mapFocused && appForeground}
         destination={destinationProp}
         routeSessionKey={routeLegKey}
         routeTripId={routeTripId}
@@ -2092,18 +2007,16 @@ function MapTab() {
         topInset={Math.max(insets.top, 20) + 10}
         onRouteData={handleRouteMessage}
         onMapReady={handleMapReady}
+        onMapError={handleMapError}
+        onMapLoading={handleMapLoading}
       />
       {!mapReady && (
         <View style={[styles.mapLoadingOverlay, { backgroundColor: colors.background }]}>
-          <LottieView
-            autoPlay
-            loop
-            source={require("../../../assets/globe.json")}
-            style={styles.mapLoader}
-          />
+          {mapLoadingContent}
         </View>
       )}
 
+      {gpsNotice}
       {/* Floating restore pill — appears when bottom sheet is hidden */}
       {activeTrip && isMinimized && (
         <Pressable
@@ -2490,7 +2403,8 @@ function MapTab() {
                   })()}
                 </View>
                 {(profile?.driverType === "Cargo") && serverConfirmed && tripConfirmed && connectivity === "online" && workspace.tripReady === true && <ClayButton label={cargoVerificationLabel(activeTrip)} variant="tonal" onPress={() => router.push(`/trip/${activeTrip.trip_id}/${["Drop-off", "Arrived"].includes(activeTrip.trip_status) ? "cargo-delivery" : activeTrip.trip_status === "At Pickup" ? "cargo-pickup" : "cargo"}`)} />}
-                {(profile?.driverType === "Passenger") && serverConfirmed && tripConfirmed && connectivity === "online" && workspace.tripReady === true && <Pressable
+                {(profile?.driverType === "Passenger") && !activeTrip.passenger_phone ? <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>Passenger contact unavailable</Text> : null}
+                {(profile?.driverType === "Passenger") && !!activeTrip.passenger_phone && serverConfirmed && tripConfirmed && connectivity === "online" && workspace.tripReady === true && <Pressable
                   style={({ pressed }) => [
                     styles.iconButton,
                     mats.clayTile,
@@ -2502,13 +2416,9 @@ function MapTab() {
                     },
                   ]}
                   onPress={() => {
-                    if (activeTrip.passenger_phone) {
                       Linking.openURL(`tel:${activeTrip.passenger_phone}`).catch(() => {
                         AppAlert.alert("Call Failed", "Unable to open phone dialer on this device.");
                       });
-                    } else {
-                      AppAlert.alert("Contact Unavailable", "No contact phone number was listed for this passenger.");
-                    }
                   }}
                   accessibilityRole="button"
                   accessibilityLabel="Call passenger"
@@ -2549,7 +2459,7 @@ function MapTab() {
         </Animated.View>
       )}
       {mapIntroPractice}
-      {routeOptionsVisible ? <RouteOptionsSheet visible routes={routeChoices} preferences={effectivePreferences} phase={routePhase} disabledReason={routeDisabledReason} onClose={() => setRouteOptionsVisible(false)} onApply={preferences => {
+      {routeOptionsVisible ? <RouteOptionsSheet visible routes={routeStale ? [] : routeChoices} preferences={effectivePreferences} phase={routePhase} disabledReason={routeDisabledReason} onClose={() => setRouteOptionsVisible(false)} onApply={preferences => {
         if (routeDisabledReason) return;
         applyingRoute.current = true;
         setRoutePhase('refreshing');
