@@ -28,6 +28,7 @@ Install the latest compatible Android build and complete one authorized Passenge
 - `mobile/README.md` has a stale Not implemented list for push/offline/background work and outdated auth/setup details. Use the current architecture and implementation notes for readiness; reconcile that README in a documentation cleanup.
 - The Google Maps preflight and optional Android floating bubble have a separate branch/rollout record. They are not established as shipped in this checkout. Navigation acceptance comes first; the bubble remains optional. See [[Google Maps Navigation and Android Bubble Implementation Plan]].
 - Current EAS production configuration targets an internally distributed Android APK. Public-store/iOS release work depends on the chosen distribution scope.
+- A bookkeeping-only GPS accumulator: `mobile/lib/trip-location-owner.js` sums location fixes into `distance.current` (`accumulateFix`) and folds queued background-tracking km back in through `mergeStoredKm` on reconcile, but nothing reads that aggregate afterwards. GPS reporting posts per-fix data and the odometer proof relies on actual odometer photos, not GPS math, so the totals are computed every fix without any screen, service or payload consuming them. Either surface it where it would be useful (for example an in-app distance readout or a debug pane) or delete it in a future mobile pass. Found and deliberately left 2026-10-26 during the web commit-review pass; recorded here to force the decision.
 
 ## Verification and limits
 
