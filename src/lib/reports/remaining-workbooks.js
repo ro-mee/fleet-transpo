@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { manilaDateKey } from "@/lib/dates";
 import { addNativeCharts } from "@/lib/reports/native-charts";
 
 const COLORS = {
@@ -27,10 +28,6 @@ const day = (value) => {
   return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
 };
 const instant = (value) => value ? new Date(value) : null;
-const monthOf = (value) => {
-  const date = day(value);
-  return date ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}` : "Unknown";
-};
 
 function workbook(title) {
   const book = new ExcelJS.Workbook();
@@ -444,97 +441,95 @@ export async function buildDriverPerformanceWorkbook(report, { from, to }) {
   return writeWorkbook(book, charts);
 }
 
-function costMonthly(report) {
-  const map = new Map();
-  const add = (date, key, amount) => {
-    const month = monthOf(date);
-    if (month === "Unknown") return;
-    const row = map.get(month) || { month, fuel: 0, maintenance: 0, distance: 0 };
-    row[key] += amount;
-    map.set(month, row);
-  };
-  (report.fuelRecords || []).forEach((row) => add(row.fuel_date, "fuel", number(row.amount)));
-  (report.maintenanceRecords || []).forEach((row) => add(row.maintenance_date, "maintenance", number(row.cost)));
-  (report.trips || []).forEach((row) => add(row.start_time, "distance", number(row.distance)));
-  return [...map.values()].sort((a, b) => a.month.localeCompare(b.month));
+function expenseSheets(book, report) {
+  detailSheet(book, "Expense Details", ["Expense ID", "Date (Philippines)", "Driver ID", "Trip ID", "Vehicle ID", "Category", "Merchant", "Amount", "Currency", "Payment method", "Status", "Reviewed by", "Reviewed at (UTC)"], (report.expenseRecords || []).map(row => [row.id, manilaDateKey(row.expense_date), row.driver_id, row.trip_id, row.vehicle_id, safeText(row.category), safeText(row.merchant_name), number(row.amount), safeText(row.currency), safeText(row.payment_method), safeText(row.status), row.reviewed_by, instant(row.reviewed_at)]), [14, 20, 12, 12, 12, 18, 24, 16, 12, 20, 14, 14, 20]);
+  book.getWorksheet("Expense Details").getColumn(13).numFmt = "yyyy-mm-dd hh:mm";
+  book.getWorksheet("Expense Details").getColumn(8).numFmt = 'PHP #,##0.00';
+  detailSheet(book, "Expense Categories", ["Category", "Approved PHP cost", "Records"], (report.expensesByCategory || []).map(row => [safeText(row.category), row.cost, row.count]), [24, 22, 14]);
+  book.getWorksheet("Expense Categories").getColumn(2).numFmt = 'PHP #,##0.00';
+  detailSheet(book, "Excluded Currencies", ["Currency", "Approved records", "Amount (original currency)"], (report.excludedExpenseCurrencies || []).map(row => [safeText(row.currency), row.count, row.amount]), [18, 20, 28]);
 }
 
 export async function buildFleetCostWorkbook(report, { from, to }) {
   const book = workbook("Fleet Cost");
   const summary = baseSummary(book, "Summary", "Fleet Cost by Vehicle", from, to);
   const totals = report.totals || {};
-  const costRows = (report.fuelRecords?.length || 0) + (report.maintenanceRecords?.length || 0) + (report.trips?.length || 0);
+  const costRows = (report.fuelRecords?.length || 0) + (report.maintenanceRecords?.length || 0) + (report.trips?.length || 0) + (report.expenseRecords?.length || 0);
   kpi(summary, 5, 1, "Total recorded cost", costRows ? totals.total_cost : null, 'PHP #,##0.00');
   kpi(summary, 5, 3, "Recorded fuel cost", report.fuelRecords?.length ? totals.fuel_cost : null, 'PHP #,##0.00');
   kpi(summary, 5, 5, "Recorded maintenance cost", report.maintenanceRecords?.length ? totals.maintenance_cost : null, 'PHP #,##0.00');
   kpi(summary, 5, 7, "Cost per km", totals.distance ? totals.cost_per_km : null, 'PHP #,##0.00', `IF(A10=0,"",A6/A10)`);
   kpi(summary, 9, 1, "Distance recorded", report.trips?.length ? totals.distance : null, '0.00 "km"');
-  kpi(summary, 9, 3, "Vehicles with recorded spend", (report.details || []).filter((row) => row.total_cost > 0).length, "0");
+  kpi(summary, 9, 3, "Vehicles with recorded spend", (report.details || []).filter((row) => row.vehicle_id != null && row.total_cost > 0).length, "0");
+  kpi(summary, 9, 5, "Approved driver expenses", report.expenseRecords?.length ? totals.expense_cost : null, 'PHP #,##0.00');
   methodology(summary, 14, report.methodology);
+  summary.getRow(15).height = 60;
+  summary.getRow(16).height = 50;
 
   const analysis = book.addWorksheet("Analysis", { properties: { tabColor: { argb: COLORS.blue } } });
-  styleTitle(analysis, "A1:I2", "Vehicle Cost Analysis", COLORS.blue);
-  analysis.mergeCells("A3:I3");
+  styleTitle(analysis, "A1:J2", "Vehicle Cost Analysis", COLORS.blue);
+  analysis.mergeCells("A3:J3");
   analysis.getCell("A3").value = "Total cost and cost/km are workbook formulas. Cost/km is blank when no distance is recorded, rather than presenting a misleading zero.";
   analysis.getCell("A3").font = { size: 10, italic: true, color: { argb: COLORS.muted } };
   analysis.getCell("A3").alignment = { wrapText: true };
   analysis.addRow([]);
-  analysis.addRow(["Rank", "Vehicle", "Plate", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km", "Spend share"]);
+  analysis.addRow(["Rank", "Vehicle", "Plate", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km", "Spend share", "Approved expenses"]);
   styleHeader(analysis.getRow(5), COLORS.blue);
   const rows = report.details || [];
   const totalCost = totals.total_cost || 0;
   rows.forEach((item, index) => {
     const rowNumber = index + 6;
-    const line = analysis.addRow([index + 1, safeText(item.vehicle), safeText(item.plate_number), item.fuel_cost, item.maintenance_cost, null, item.distance, null, null]);
-    formula(line.getCell(6), `D${rowNumber}+E${rowNumber}`, item.fuel_cost + item.maintenance_cost, 'PHP #,##0.00');
+    const line = analysis.addRow([index + 1, safeText(item.vehicle), safeText(item.plate_number), item.fuel_cost, item.maintenance_cost, null, item.distance, null, null, item.expense_cost || 0]);
+    formula(line.getCell(6), `D${rowNumber}+E${rowNumber}+J${rowNumber}`, item.total_cost, 'PHP #,##0.00');
     formula(line.getCell(8), `IF(G${rowNumber}=0,"",F${rowNumber}/G${rowNumber})`, item.distance ? item.total_cost / item.distance : null, 'PHP #,##0.00');
     formula(line.getCell(9), `IF(SUM($F$6:$F$${Math.max(6, rows.length + 5)})=0,"",F${rowNumber}/SUM($F$6:$F$${Math.max(6, rows.length + 5)}))`, totalCost ? item.total_cost / totalCost : null, "0.0%");
-    [4, 5, 6, 8].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
+    [4, 5, 6, 8, 10].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
     line.getCell(9).numFmt = "0.0%";
   });
-  finishTable(analysis, [9, 28, 15, 16, 20, 16, 16, 14, 14], 5, Math.max(5, rows.length + 5));
+  finishTable(analysis, [9, 28, 15, 16, 20, 16, 16, 14, 14, 22], 5, Math.max(5, rows.length + 5));
   if (rows.length) {
     addDataBar(analysis, `F6:F${rows.length + 5}`, COLORS.blue);
     addDataBar(analysis, `G6:G${rows.length + 5}`, COLORS.teal);
     addColorScale(analysis, `H6:H${rows.length + 5}`);
-  } else noData(analysis, "A6:I8", "No vehicle cost records in this period.");
+  } else noData(analysis, "A6:J8", "No vehicle cost records in this period.");
 
   const summaryStart = 19;
-  section(summary, summaryStart, 8, "Cost by vehicle", COLORS.blue);
-  const summaryHeader = summary.addRow(["Rank", "Vehicle", "Plate", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km"]);
+  section(summary, summaryStart, 9, "Cost by vehicle", COLORS.blue);
+  const summaryHeader = summary.addRow(["Rank", "Vehicle", "Plate", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km", "Approved expenses"]);
+  summary.getColumn(9).width = 22;
   styleHeader(summaryHeader, COLORS.blue);
   rows.slice(0, 10).forEach((item, index) => {
-    const target = summary.addRow(Array.from({ length: 8 }, () => null));
+    const target = summary.addRow(Array.from({ length: 9 }, () => null));
     const sourceRow = index + 6;
-    const values = [index + 1, item.vehicle, item.plate_number, item.fuel_cost, item.maintenance_cost, item.total_cost, item.distance, item.distance ? item.total_cost / item.distance : null];
-    values.forEach((value, column) => formula(target.getCell(column + 1), `'Analysis'!${String.fromCharCode(65 + column)}${sourceRow}`, value, [3, 4, 5, 7].includes(column) ? 'PHP #,##0.00' : null));
+    const values = [index + 1, item.vehicle, item.plate_number, item.fuel_cost, item.maintenance_cost, item.total_cost, item.distance, item.distance ? item.total_cost / item.distance : null, item.expense_cost || 0];
+    values.forEach((value, column) => formula(target.getCell(column + 1), `'Analysis'!${(column === 8 ? "J" : String.fromCharCode(65 + column))}${sourceRow}`, value, [3, 4, 5, 7, 8].includes(column) ? 'PHP #,##0.00' : null));
   });
   if (rows.length) {
     styleBody(summary, summaryStart + 2, summaryStart + rows.slice(0, 10).length + 1);
     addDataBar(summary, `F${summaryStart + 2}:F${summaryStart + rows.slice(0, 10).length + 1}`, COLORS.blue);
-  } else noData(summary, `A${summaryStart + 1}:H${summaryStart + 3}`, "No vehicle cost records in this period.");
+  } else noData(summary, `A${summaryStart + 1}:I${summaryStart + 3}`, "No vehicle cost records in this period.");
 
   const trends = book.addWorksheet("Trends", { properties: { tabColor: { argb: COLORS.teal } } });
-  styleTitle(trends, "A1:F2", "Fleet Cost Trends", COLORS.teal);
+  styleTitle(trends, "A1:G2", "Fleet Cost Trends", COLORS.teal);
   trends.addRow([]);
-  trends.addRow(["Month", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km"]);
+  trends.addRow(["Month", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km", "Approved expenses"]);
   styleHeader(trends.getRow(4), COLORS.teal);
-  const monthly = costMonthly(report);
+  const monthly = report.monthlyData.map(row => ({ month: row.month, fuel: row.fuelCost, maintenance: row.maintenanceCost, expenses: row.expenseCost || 0, distance: row.distance }));
   monthly.forEach((row, index) => {
     const rowNumber = index + 5;
-    const line = trends.addRow([row.month, row.fuel, row.maintenance, null, row.distance, null]);
-    formula(line.getCell(4), `B${rowNumber}+C${rowNumber}`, row.fuel + row.maintenance, 'PHP #,##0.00');
-    formula(line.getCell(6), `IF(E${rowNumber}=0,"",D${rowNumber}/E${rowNumber})`, row.distance ? (row.fuel + row.maintenance) / row.distance : null, 'PHP #,##0.00');
-    [2, 3, 4, 6].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
+    const line = trends.addRow([row.month, row.fuel, row.maintenance, null, row.distance, null, row.expenses || 0]);
+    formula(line.getCell(4), `B${rowNumber}+C${rowNumber}+G${rowNumber}`, row.fuel + row.maintenance + (row.expenses || 0), 'PHP #,##0.00');
+    formula(line.getCell(6), `IF(E${rowNumber}=0,"",D${rowNumber}/E${rowNumber})`, row.distance ? (row.fuel + row.maintenance + (row.expenses || 0)) / row.distance : null, 'PHP #,##0.00');
+    [2, 3, 4, 6, 7].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
   });
-  finishTable(trends, [16, 16, 20, 16, 16, 14], 4, Math.max(4, monthly.length + 4));
+  finishTable(trends, [16, 16, 20, 16, 16, 14, 22], 4, Math.max(4, monthly.length + 4));
   if (monthly.length) addDataBar(trends, `D5:D${monthly.length + 4}`, COLORS.teal);
-  else noData(trends, "A5:F7", "No cost activity in this period.");
+  else noData(trends, "A5:G7", "No cost activity in this period.");
 
-  detailSheet(book, "Vehicle Costs", ["Vehicle ID", "Plate", "Vehicle", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km"], rows.map((item) => [item.vehicle_id, safeText(item.plate_number), safeText(item.vehicle), item.fuel_cost, item.maintenance_cost, item.total_cost, item.distance, item.distance ? item.cost_per_km : null]), [12, 15, 30, 16, 20, 16, 16, 14]);
+  detailSheet(book, "Vehicle Costs", ["Vehicle ID", "Plate", "Vehicle", "Fuel cost", "Maintenance cost", "Approved expenses", "Total cost", "Distance (km)", "Cost/km"], rows.map((item) => [item.vehicle_id, safeText(item.plate_number), safeText(item.vehicle), item.fuel_cost, item.maintenance_cost, item.expense_cost || 0, item.total_cost, item.distance, item.distance ? item.cost_per_km : null]), [12, 15, 30, 16, 20, 22, 16, 16, 14]);
   const vehicleCosts = book.getWorksheet("Vehicle Costs");
-  [4, 5, 6, 8].forEach((column) => { vehicleCosts.getColumn(column).numFmt = 'PHP #,##0.00'; });
-  addDataBar(vehicleCosts, `F2:F${Math.max(2, vehicleCosts.rowCount)}`, COLORS.blue);
+  [4, 5, 6, 7, 9].forEach((column) => { vehicleCosts.getColumn(column).numFmt = 'PHP #,##0.00'; });
+  addDataBar(vehicleCosts, `G2:G${Math.max(2, vehicleCosts.rowCount)}`, COLORS.blue);
   detailSheet(book, "Fuel Costs", ["Fuel record ID", "Date", "Vehicle", "Plate", "Fuel type", "Status", "Liters", "Amount", "Station"], (report.fuelRecords || []).map((row) => [row.fuel_record_id, day(row.fuel_date), row.vehicle_id, safeText(row.plate_number), safeText(row.fuel_type), safeText(row.status), number(row.liters), number(row.amount), safeText(row.station_name)]), [14, 14, 12, 15, 16, 14, 12, 16, 24]);
   const fuel = book.getWorksheet("Fuel Costs");
   fuel.getColumn(2).numFmt = "yyyy-mm-dd";
@@ -549,43 +544,47 @@ export async function buildFleetCostWorkbook(report, { from, to }) {
   const trips = book.getWorksheet("Trip Distance");
   trips.getColumn(2).numFmt = "yyyy-mm-dd hh:mm";
   addDataBar(trips, `F2:F${Math.max(2, trips.rowCount)}`, COLORS.teal);
+  expenseSheets(book, report);
   return writeWorkbook(book, [
     nativeChart("Summary", "Total recorded cost by vehicle (PHP)", `B21:B${20 + Math.min(10, rows.length)}`, Math.min(10, rows.length), [chartSeries("F20", `F21:F${20 + Math.min(10, rows.length)}`, COLORS.blue)], { direction: "bar", numberFormat: '"PHP" #,##0', anchor: { from: { col: 9, row: 18 }, to: { col: 17, row: 34 } } }),
     nativeChart("Analysis", "Recorded cost per km by vehicle (PHP)", `B6:B${rows.length + 5}`, rows.length, [chartSeries("H5", `H6:H${rows.length + 5}`, COLORS.amber)], { direction: "bar", numberFormat: '"PHP" #,##0.00', anchor: { from: { col: 10, row: 3 }, to: { col: 18, row: 19 } } }),
-    nativeChart("Trends", "Monthly operating cost components (PHP)", `A5:A${monthly.length + 4}`, monthly.length, [chartSeries("B4", `B5:B${monthly.length + 4}`, COLORS.amber), chartSeries("C4", `C5:C${monthly.length + 4}`, COLORS.red), chartSeries("D4", `D5:D${monthly.length + 4}`, COLORS.teal)], { type: "line", numberFormat: '"PHP" #,##0', anchor: { from: { col: 7, row: 3 }, to: { col: 15, row: 19 } } }),
+    nativeChart("Trends", "Monthly operating cost components (PHP)", `A5:A${monthly.length + 4}`, monthly.length, [chartSeries("B4", `B5:B${monthly.length + 4}`, COLORS.amber), chartSeries("C4", `C5:C${monthly.length + 4}`, COLORS.red), chartSeries("G4", `G5:G${monthly.length + 4}`, COLORS.blue), chartSeries("D4", `D5:D${monthly.length + 4}`, COLORS.teal)], { type: "line", numberFormat: '"PHP" #,##0', anchor: { from: { col: 7, row: 3 }, to: { col: 15, row: 19 } } }),
   ]);
 }
 
 export async function buildFinancialWorkbook(report, { from, to }) {
   const book = workbook("Financial Summary");
   const summary = baseSummary(book, "Summary", "Financial Summary", from, to);
-  const financialRows = (report.fuelRecords?.length || 0) + (report.maintenanceRecords?.length || 0) + (report.tripRecords?.length || 0);
+  const financialRows = (report.fuelRecords?.length || 0) + (report.maintenanceRecords?.length || 0) + (report.tripRecords?.length || 0) + (report.expenseRecords?.length || 0);
   kpi(summary, 5, 1, "Total operating cost", financialRows ? report.totalCost : null, 'PHP #,##0.00');
   kpi(summary, 5, 3, "Fuel cost", report.fuelRecords?.length ? report.fuelCost : null, 'PHP #,##0.00');
   kpi(summary, 5, 5, "Maintenance cost", report.maintenanceRecords?.length ? report.maintCost : null, 'PHP #,##0.00');
   kpi(summary, 5, 7, "Cost per km", report.totalDistance ? report.costPerKm : null, 'PHP #,##0.00', `IF(A10=0,"",A6/A10)`);
   kpi(summary, 9, 1, "Distance recorded", report.tripRecords?.length ? report.totalDistance : null, '0.00 "km"');
   kpi(summary, 9, 3, "Fuel share", financialRows && report.totalCost ? report.fuelCost / report.totalCost : null, "0.0%", `IF(A6=0,"",C6/A6)`);
+  kpi(summary, 9, 5, "Approved driver expenses", report.expenseRecords?.length ? report.expenseCost : null, 'PHP #,##0.00');
   methodology(summary, 14, report.methodology);
+  summary.getRow(15).height = 60;
+  summary.getRow(16).height = 50;
 
   const analysis = book.addWorksheet("Analysis", { properties: { tabColor: { argb: COLORS.blue } } });
   styleTitle(analysis, "A1:E2", "Operating Cost Allocation", COLORS.blue);
   analysis.mergeCells("A3:E3");
-  analysis.getCell("A3").value = "Allocation percentages and totals are workbook formulas tied to the recorded fuel and maintenance costs shown below.";
+  analysis.getCell("A3").value = "Allocation percentages and totals are workbook formulas tied to the eligible fuel, recorded maintenance and approved PHP driver expense costs shown below.";
   analysis.getCell("A3").font = { size: 10, italic: true, color: { argb: COLORS.muted } };
   analysis.addRow([]);
   analysis.addRow(["Component", "Recorded cost", "Share of total", "Source rows", "Label"]);
   styleHeader(analysis.getRow(5), COLORS.blue);
-  const components = [["Fuel", report.fuelCost, (report.fuelRecords || []).length, "Fuel amounts"], ["Maintenance", report.maintCost, (report.maintenanceRecords || []).length, "Maintenance costs"]];
+  const components = [["Fuel", report.fuelCost, (report.fuelRecords || []).length, "Fuel amounts"], ["Maintenance", report.maintCost, (report.maintenanceRecords || []).length, "Recorded maintenance costs"], ["Approved driver expenses", report.expenseCost || 0, (report.expenseRecords || []).length, "Approved PHP expenses"]];
   components.forEach((component, index) => {
     const rowNumber = index + 6;
     const line = analysis.addRow([component[0], component[1], null, component[2], component[3]]);
-    formula(line.getCell(3), `IF(SUM($B$6:$B$7)=0,"",B${rowNumber}/SUM($B$6:$B$7))`, report.totalCost ? component[1] / report.totalCost : null, "0.0%");
+    formula(line.getCell(3), `IF(SUM($B$6:$B$8)=0,"",B${rowNumber}/SUM($B$6:$B$8))`, report.totalCost ? component[1] / report.totalCost : null, "0.0%");
     line.getCell(2).numFmt = 'PHP #,##0.00';
   });
-  finishTable(analysis, [20, 18, 16, 14, 24], 5, 7);
-  addDataBar(analysis, "B6:B7", COLORS.blue);
-  addColorScale(analysis, "C6:C7");
+  finishTable(analysis, [20, 18, 16, 14, 24], 5, 8);
+  addDataBar(analysis, "B6:B8", COLORS.blue);
+  addColorScale(analysis, "C6:C8");
 
   const summaryStart = 19;
   section(summary, summaryStart, 5, "Operating cost allocation", COLORS.blue);
@@ -600,20 +599,20 @@ export async function buildFinancialWorkbook(report, { from, to }) {
   addDataBar(summary, `B${summaryStart + 2}:B${summaryStart + components.length + 1}`, COLORS.blue);
 
   const trends = book.addWorksheet("Trends", { properties: { tabColor: { argb: COLORS.teal } } });
-  styleTitle(trends, "A1:F2", "Operating Cost Trends", COLORS.teal);
+  styleTitle(trends, "A1:G2", "Operating Cost Trends", COLORS.teal);
   trends.addRow([]);
-  trends.addRow(["Month", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km"]);
+  trends.addRow(["Month", "Fuel cost", "Maintenance cost", "Approved expenses", "Total cost", "Distance (km)", "Cost/km"]);
   styleHeader(trends.getRow(4), COLORS.teal);
   (report.monthlyData || []).forEach((row, index) => {
     const rowNumber = index + 5;
-    const line = trends.addRow([row.month, row.fuelCost, row.maintenanceCost, null, row.distance, null]);
-    formula(line.getCell(4), `B${rowNumber}+C${rowNumber}`, row.fuelCost + row.maintenanceCost, 'PHP #,##0.00');
-    formula(line.getCell(6), `IF(E${rowNumber}=0,"",D${rowNumber}/E${rowNumber})`, row.distance ? (row.fuelCost + row.maintenanceCost) / row.distance : null, 'PHP #,##0.00');
-    [2, 3, 4, 6].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
+    const line = trends.addRow([row.month, row.fuelCost, row.maintenanceCost, row.expenseCost || 0, null, row.distance, null]);
+    formula(line.getCell(5), `B${rowNumber}+C${rowNumber}+D${rowNumber}`, row.fuelCost + row.maintenanceCost + (row.expenseCost || 0), 'PHP #,##0.00');
+    formula(line.getCell(7), `IF(F${rowNumber}=0,"",E${rowNumber}/F${rowNumber})`, row.distance ? (row.fuelCost + row.maintenanceCost + (row.expenseCost || 0)) / row.distance : null, 'PHP #,##0.00');
+    [2, 3, 4, 5, 7].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
   });
-  finishTable(trends, [16, 16, 22, 16, 16, 14], 4, Math.max(4, (report.monthlyData || []).length + 4));
-  if (report.monthlyData?.length) addDataBar(trends, `D5:D${report.monthlyData.length + 4}`, COLORS.teal);
-  else noData(trends, "A5:F7", "No financial activity in this period.");
+  finishTable(trends, [16, 16, 22, 22, 16, 16, 14], 4, Math.max(4, (report.monthlyData || []).length + 4));
+  if (report.monthlyData?.length) addDataBar(trends, `E5:E${report.monthlyData.length + 4}`, COLORS.teal);
+  else noData(trends, "A5:G7", "No financial activity in this period.");
 
   detailSheet(book, "Fuel Details", ["Fuel record ID", "Date", "Vehicle ID", "Status", "Liters", "Amount"], (report.fuelRecords || []).map((row) => [row.fuel_record_id, day(row.fuel_date), row.vehicle_id, safeText(row.status), number(row.liters), number(row.amount)]), [16, 14, 12, 14, 12, 16]);
   const fuel = book.getWorksheet("Fuel Details");
@@ -630,10 +629,11 @@ export async function buildFinancialWorkbook(report, { from, to }) {
   trips.getColumn(2).numFmt = "yyyy-mm-dd hh:mm";
   trips.getColumn(5).numFmt = 'PHP #,##0.00';
   addDataBar(trips, `D2:D${Math.max(2, trips.rowCount)}`, COLORS.teal);
+  expenseSheets(book, report);
   return writeWorkbook(book, [
-    nativeChart("Summary", "Operating cost allocation (PHP)", "A21:A22", 2, [chartSeries("B20", "B21:B22", COLORS.blue)], { direction: "col", numberFormat: '"PHP" #,##0', anchor: { from: { col: 6, row: 18 }, to: { col: 14, row: 33 } } }),
-    nativeChart("Analysis", "Share of total operating cost", "A6:A7", 2, [chartSeries("C5", "C6:C7", COLORS.teal)], { direction: "col", numberFormat: "0%", anchor: { from: { col: 6, row: 3 }, to: { col: 14, row: 18 } } }),
-    nativeChart("Trends", "Monthly operating cost trend (PHP)", `A5:A${(report.monthlyData || []).length + 4}`, (report.monthlyData || []).length, [chartSeries("B4", `B5:B${(report.monthlyData || []).length + 4}`, COLORS.amber), chartSeries("C4", `C5:C${(report.monthlyData || []).length + 4}`, COLORS.red), chartSeries("D4", `D5:D${(report.monthlyData || []).length + 4}`, COLORS.teal)], { type: "line", numberFormat: '"PHP" #,##0', anchor: { from: { col: 7, row: 3 }, to: { col: 15, row: 19 } } }),
+    nativeChart("Summary", "Operating cost allocation (PHP)", "A21:A23", 3, [chartSeries("B20", "B21:B23", COLORS.blue)], { direction: "col", numberFormat: '"PHP" #,##0', anchor: { from: { col: 6, row: 18 }, to: { col: 14, row: 33 } } }),
+    nativeChart("Analysis", "Share of total operating cost", "A6:A8", 3, [chartSeries("C5", "C6:C8", COLORS.teal)], { direction: "col", numberFormat: "0%", anchor: { from: { col: 6, row: 3 }, to: { col: 14, row: 18 } } }),
+    nativeChart("Trends", "Monthly operating cost trend (PHP)", `A5:A${(report.monthlyData || []).length + 4}`, (report.monthlyData || []).length, [chartSeries("B4", `B5:B${(report.monthlyData || []).length + 4}`, COLORS.amber), chartSeries("C4", `C5:C${(report.monthlyData || []).length + 4}`, COLORS.red), chartSeries("D4", `D5:D${(report.monthlyData || []).length + 4}`, COLORS.blue), chartSeries("E4", `E5:E${(report.monthlyData || []).length + 4}`, COLORS.teal)], { type: "line", numberFormat: '"PHP" #,##0', anchor: { from: { col: 7, row: 3 }, to: { col: 15, row: 19 } } }),
   ]);
 }
 
@@ -790,7 +790,7 @@ export async function buildIncidentWorkbook(report, { from, to }) {
 export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }, { from, to }) {
   const book = workbook("Executive Analytics");
   const summary = baseSummary(book, "Summary", "Fleet Telemetry & Executive Analytics", from, to);
-  const executiveFinancialRows = (financial?.fuelRecords?.length || 0) + (financial?.maintenanceRecords?.length || 0) + (financial?.tripRecords?.length || 0);
+  const executiveFinancialRows = (financial?.fuelRecords?.length || 0) + (financial?.maintenanceRecords?.length || 0) + (financial?.tripRecords?.length || 0) + (financial?.expenseRecords?.length || 0);
   kpi(summary, 5, 1, "Current in-use rate", fleet?.fleetSize ? (fleet.utilization / 100) : null, "0%");
   kpi(summary, 5, 3, "Trip records", fleet?.totalTrips ?? null, "0");
   kpi(summary, 5, 5, "Distance recorded", fleet?.trips?.length ? fleet.totalDistance : null, '0.00 "km"');
@@ -799,22 +799,26 @@ export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }
   kpi(summary, 9, 3, "Maintenance cost", financial?.maintenanceRecords?.length ? financial.maintCost : null, 'PHP #,##0.00');
   kpi(summary, 9, 5, "Total operating cost", executiveFinancialRows ? financial.totalCost : null, 'PHP #,##0.00');
   kpi(summary, 9, 7, "Driver punctuality", drivers?.punctuality?.onTimeRate == null ? null : drivers.punctuality.onTimeRate / 100, "0.0%");
-  methodology(summary, 14, "This workbook combines the same Fleet Activity, Fuel Consumption, Financial Summary and Driver Performance payloads used by the Analytics page. Fuel efficiency is estimated only when the fuel report's minimum-distance rule is met; missing measurements remain blank.");
+  methodology(summary, 14, financial?.methodology || "Operating cost combines eligible fuel receipts, recorded maintenance and approved PHP driver expenses. Non-PHP expenses are excluded; original-currency amounts appear on Excluded Currencies. Missing measurements remain unavailable.");
+  summary.getRow(15).height = 60;
+  summary.getRow(16).height = 50;
+  kpi(summary, 12, 1, "Approved driver expenses", financial?.expenseCost || 0, 'PHP #,##0.00');
   section(summary, 19, 3, "Operating cost mix", COLORS.blue);
   const costMixHeader = summary.addRow(["Component", "Recorded cost", "Share"]);
   styleHeader(costMixHeader, COLORS.blue);
   const costMix = [
     ["Fuel", financial?.fuelRecords?.length ? financial.fuelCost : null, "A10"],
     ["Maintenance", financial?.maintenanceRecords?.length ? financial.maintCost : null, "C10"],
+    ["Approved driver expenses", financial?.expenseCost || 0, "A13"],
   ];
   costMix.forEach(([label, value, source], index) => {
     const rowNumber = index + 21;
     const line = summary.addRow([safeText(label), null, null]);
     formula(line.getCell(2), `'Summary'!${source}`, value, 'PHP #,##0.00');
-    formula(line.getCell(3), `IF(SUM($B$21:$B$22)=0,"",B${rowNumber}/SUM($B$21:$B$22))`, financial?.totalCost ? number(value) / financial.totalCost : null, "0.0%");
+    formula(line.getCell(3), `IF(SUM($B$21:$B$23)=0,"",B${rowNumber}/SUM($B$21:$B$23))`, financial?.totalCost ? number(value) / financial.totalCost : null, "0.0%");
   });
-  styleBody(summary, 21, 22);
-  addDataBar(summary, "B21:B22", COLORS.blue);
+  styleBody(summary, 21, 23);
+  addDataBar(summary, "B21:B23", COLORS.blue);
 
   const analysis = book.addWorksheet("Analysis", { properties: { tabColor: { argb: COLORS.blue } } });
   styleTitle(analysis, "A1:D2", "Executive KPI Signals", COLORS.blue);
@@ -826,7 +830,7 @@ export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }
     ["Current in-use rate", fleet?.fleetSize ? fleet.utilization / 100 : null, "Current fleet status", fleet?.fleetSize ? "Available" : "Insufficient data"],
     ["Trip records", fleet?.totalTrips ?? null, "Selected start-time window", fleet?.totalTrips != null ? "Available" : "Insufficient data"],
     ["Estimated fuel efficiency", fuel?.estimatedEfficiency ?? null, "Completed distance / eligible fuel; 50 km minimum", fuel?.estimatedEfficiency == null ? "Insufficient data" : "Estimated"],
-    ["Cost per km", financial?.costPerKm && financial.totalDistance ? financial.costPerKm : null, "Recorded fuel + maintenance / distance", financial?.totalDistance ? "Derived" : "Insufficient data"],
+    ["Cost per km", financial?.costPerKm && financial.totalDistance ? financial.costPerKm : null, "Eligible fuel + recorded maintenance + approved PHP expenses / distance", financial?.totalDistance ? "Derived" : "Insufficient data"],
     ["Driver punctuality", driverRate, "On-time / measured pickups", driverRate == null ? "Insufficient data" : "Derived"],
   ];
   signals.forEach((row) => analysis.addRow([safeText(row[0]), row[1] == null ? "" : row[1], safeText(row[2]), safeText(row[3])]));
@@ -838,23 +842,23 @@ export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }
   textStatus(analysis, `D5:D${4 + signals.length}`, [["Available", "DCFCE7", COLORS.green], ["Derived", "DBEAFE", COLORS.blue], ["Estimated", "FEF3C7", COLORS.amber], ["Insufficient data", "F8FAFC", COLORS.muted]]);
 
   const trends = book.addWorksheet("Trends", { properties: { tabColor: { argb: COLORS.teal } } });
-  styleTitle(trends, "A1:G2", "Executive Trends", COLORS.teal);
+  styleTitle(trends, "A1:H2", "Executive Trends", COLORS.teal);
   trends.addRow([]);
-  trends.addRow(["Month", "Fuel liters", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km"]);
+  trends.addRow(["Month", "Fuel liters", "Fuel cost", "Maintenance cost", "Total cost", "Distance (km)", "Cost/km", "Approved expenses"]);
   styleHeader(trends.getRow(4), COLORS.teal);
   const months = new Map();
   (fuel?.monthlyData || []).forEach((row) => months.set(row.month, { month: row.month, liters: number(row.liters), fuelCost: number(row.cost), maintenanceCost: 0, distance: number(row.distance) }));
-  (financial?.monthlyData || []).forEach((row) => { const current = months.get(row.month) || { month: row.month, liters: 0, fuelCost: 0, maintenanceCost: 0, distance: 0 }; current.fuelCost = number(row.fuelCost); current.maintenanceCost = number(row.maintenanceCost); current.distance = number(row.distance); months.set(row.month, current); });
+  (financial?.monthlyData || []).forEach((row) => { const current = months.get(row.month) || { month: row.month, liters: 0, fuelCost: 0, maintenanceCost: 0, distance: 0 }; current.fuelCost = number(row.fuelCost); current.maintenanceCost = number(row.maintenanceCost); current.expenseCost = number(row.expenseCost); current.distance = number(row.distance); months.set(row.month, current); });
   const executiveMonths = [...months.values()].sort((a, b) => a.month.localeCompare(b.month));
   executiveMonths.forEach((row, index) => {
     const rowNumber = index + 5;
-    const line = trends.addRow([row.month, row.liters, row.fuelCost, row.maintenanceCost, null, row.distance, null]);
-    formula(line.getCell(5), `C${rowNumber}+D${rowNumber}`, row.fuelCost + row.maintenanceCost, 'PHP #,##0.00');
-    formula(line.getCell(7), `IF(F${rowNumber}=0,"",E${rowNumber}/F${rowNumber})`, row.distance ? (row.fuelCost + row.maintenanceCost) / row.distance : null, 'PHP #,##0.00');
+    const line = trends.addRow([row.month, row.liters, row.fuelCost, row.maintenanceCost, null, row.distance, null, row.expenseCost || 0]);
+    formula(line.getCell(5), `C${rowNumber}+D${rowNumber}+H${rowNumber}`, row.fuelCost + row.maintenanceCost + (row.expenseCost || 0), 'PHP #,##0.00');
+    formula(line.getCell(7), `IF(F${rowNumber}=0,"",E${rowNumber}/F${rowNumber})`, row.distance ? (row.fuelCost + row.maintenanceCost + (row.expenseCost || 0)) / row.distance : null, 'PHP #,##0.00');
     line.getCell(2).numFmt = "0.00";
-    [3, 4, 5, 7].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
+    [3, 4, 5, 7, 8].forEach((column) => { line.getCell(column).numFmt = 'PHP #,##0.00'; });
   });
-  finishTable(trends, [16, 14, 16, 20, 16, 16, 14], 4, Math.max(4, executiveMonths.length + 4));
+  finishTable(trends, [16, 14, 16, 20, 16, 16, 14, 22], 4, Math.max(4, executiveMonths.length + 4));
   if (executiveMonths.length) { addDataBar(trends, `E5:E${executiveMonths.length + 4}`, COLORS.teal); addDataBar(trends, `F5:F${executiveMonths.length + 4}`, COLORS.blue); }
   else noData(trends, "A5:G7", "No monthly analytics activity in this period.");
 
@@ -865,8 +869,9 @@ export async function buildExecutiveWorkbook({ fleet, fuel, financial, drivers }
   const leaderboard = book.getWorksheet("Driver Leaderboard");
   leaderboard.getColumn(4).numFmt = "0.0%";
   addDataBar(leaderboard, `C2:C${Math.max(2, leaderboard.rowCount)}`, COLORS.blue);
+  expenseSheets(book, financial || {});
   return writeWorkbook(book, [
-    nativeChart("Summary", "Recorded operating cost mix (PHP)", "A21:A22", 2, [chartSeries("B20", "B21:B22", COLORS.blue)], { numberFormat: '"PHP" #,##0', anchor: { from: { col: 5, row: 18 }, to: { col: 13, row: 33 } } }),
+    nativeChart("Summary", "Recorded operating cost mix (PHP)", "A21:A23", 3, [chartSeries("B20", "B21:B23", COLORS.blue)], { numberFormat: '"PHP" #,##0', anchor: { from: { col: 5, row: 18 }, to: { col: 13, row: 33 } } }),
     nativeChart("Analysis", "Top vehicle activity by distance (km)", `B2:B${Math.min(10, (fleet?.byVehicle || []).length) + 1}`, Math.min(10, (fleet?.byVehicle || []).length), [chartSeries("E1", `E2:E${Math.min(10, (fleet?.byVehicle || []).length) + 1}`, COLORS.blue)], { sourceSheet: "Vehicle Activity", direction: "bar", numberFormat: "#,##0", anchor: { from: { col: 5, row: 3 }, to: { col: 13, row: 19 } } }),
     nativeChart("Trends", "Monthly total operating cost (PHP)", `A5:A${executiveMonths.length + 4}`, executiveMonths.length, [chartSeries("E4", `E5:E${executiveMonths.length + 4}`, COLORS.teal)], { type: "line", numberFormat: '"PHP" #,##0', anchor: { from: { col: 8, row: 3 }, to: { col: 16, row: 19 } } }),
   ]);

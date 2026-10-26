@@ -1,10 +1,9 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge, TONE_CHIP, TONE_TEXT, severityTone, riskTone } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAiRecommendations, getAiInsights, getPredictiveMaintenance } from "@/services/ai.service";
@@ -12,22 +11,16 @@ import { isUnscheduled } from "@/lib/ai/predictive-maintenance";
 import { formatDate } from "@/lib/utils";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import {
-  Brain,
   Lightbulb,
   Wrench,
   TrendingUp,
   AlertTriangle,
-  CalendarDays,
-  Gauge,
-  ArrowRight,
   Sparkles,
-  Bot,
-  ShieldAlert,
   ChevronRight,
-  Zap,
-  Activity,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { rolesFor } from "@/lib/auth/permissions";
+import { QueryBoundary } from "@/components/ui/query-feedback";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
@@ -37,22 +30,30 @@ function normalizeSeverity(insight) {
 }
 
 export default function AiDashboardPage() {
-  useRequireRole();
+  const { authorized, role } = useRequireRole();
+  const canViewOutlook = rolesFor("predictive_maintenance", "read").includes(role);
 
-  const { data: insightsData, isLoading: insightsLoading } = useQuery({
+  const insightsQuery = useQuery({
     queryKey: ["ai-insights"],
     queryFn: () => getAiInsights(),
+    enabled: authorized,
   });
 
-  const { data: recommendationsData } = useQuery({
+  const recommendationsQuery = useQuery({
     queryKey: ["ai-recommendations"],
     queryFn: () => getAiRecommendations(),
+    enabled: authorized,
   });
 
-  const { data: predictionData, isLoading: predictionsLoading } = useQuery({
+  const predictionsQuery = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),
+    enabled: authorized && canViewOutlook,
   });
+
+  const { data: insightsData } = insightsQuery;
+  const { data: recommendationsData } = recommendationsQuery;
+  const { data: predictionData } = predictionsQuery;
 
   const predictions = predictionData?.predictions ?? [];
   const predictionSummary = predictionData?.summary ?? { overdue: 0, critical: 0, high: 0 };
@@ -74,6 +75,8 @@ export default function AiDashboardPage() {
   ).length;
 
   const overdueMaint = predictionSummary.overdue + predictionSummary.critical + predictionSummary.high;
+  const metric = (query, value) => query.isLoading || query.isError || !query.data ? "—" : value;
+  const metricNote = (query, label) => query.isError ? "Unavailable — retry below" : !query.data ? `Loading ${label}` : undefined;
 
   return (
     <div className="space-y-6 pb-12 w-full">
@@ -81,8 +84,8 @@ export default function AiDashboardPage() {
       <HeroHeader
         icon={Sparkles}
         title="AI & Operational Automation Hub"
-        badge="Autonomous Engine v2.4"
-        description="Intelligent predictive maintenance algorithms, telemetry insights, and automated fleet recommendations."
+        badge="Decision support"
+        description="Review fleet insights, service schedules and advisory vehicle suggestions."
         actions={
           <Link href="/ai/insights">
             <Button variant="default" size="sm" className={cn("rounded-2xl h-10 px-5 text-xs font-bold shadow-xs cursor-pointer", heroButtonPrimaryClass)}>
@@ -94,11 +97,17 @@ export default function AiDashboardPage() {
 
       {/* ── EXECUTIVE KPI STAT CARDS ── */}
       <StatGrid cols={4}>
-        <StatCard icon={Lightbulb} label="Active Insights" value={insights.length} trend="Across all telemetry modules" tone="primary" />
-        <StatCard icon={AlertTriangle} label="Critical Alerts" value={critical} trend="Requires immediate attention" tone="danger" />
-        <StatCard icon={Wrench} label="Maintenance Alerts" value={overdueMaint} trend="Due or approaching service" tone="warning" />
-        <StatCard icon={TrendingUp} label="Recommendations" value={recommendations.length} trend="Actionable fleet suggestions" tone="success" />
+        <StatCard icon={Lightbulb} label="Active Insights" value={metric(insightsQuery, insights.length)} trend={metricNote(insightsQuery, "insights") || "Current fleet insights"} tone="primary" />
+        <StatCard icon={AlertTriangle} label="High-priority insights" value={metric(insightsQuery, critical)} trend={metricNote(insightsQuery, "insights") || "High or critical insight severity"} tone="danger" />
+        <StatCard icon={Wrench} label="Service schedule alerts" value={canViewOutlook ? metric(predictionsQuery, overdueMaint) : "—"} trend={canViewOutlook ? metricNote(predictionsQuery, "service outlook") || "Due or approaching planned service" : "Available to fleet maintenance roles"} tone="warning" />
+        <StatCard icon={TrendingUp} label="Recommendations" value={metric(recommendationsQuery, recommendations.length)} trend={metricNote(recommendationsQuery, "recommendations") || "Advisory vehicles; confirm resources in dispatch"} tone="success" />
       </StatGrid>
+
+      <QueryBoundary query={recommendationsQuery} isEmpty={() => false} skeleton={<></>}
+        errorTitle="Recommendations unavailable"
+        errorDescription="Vehicle suggestions could not be loaded. Try again; no resources have been assigned.">
+        {() => null}
+      </QueryBoundary>
 
       {/* ── SECTION 1: AI INSIGHTS GRID ── */}
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
@@ -114,17 +123,10 @@ export default function AiDashboardPage() {
         </CardHeader>
 
         <CardContent className="pt-4">
-          {insightsLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2, 3].map((n) => (
-                <div key={n} className="p-4 rounded-3xl border border-border/80 space-y-3 bg-surface">
-                  <Skeleton className="h-4 w-24 rounded-lg" />
-                  <Skeleton className="h-4 w-3/4 rounded-lg" />
-                  <Skeleton className="h-3 w-full rounded-lg" />
-                </div>
-              ))}
-            </div>
-          ) : insights.length === 0 ? (
+          <QueryBoundary query={insightsQuery} isEmpty={() => false} errorTitle="Insights unavailable"
+            errorDescription="Fleet insights could not be loaded. Try again to check the current results."
+            skeleton={<div role="status" aria-label="Loading insights"><Skeleton className="h-28 w-full" /><span className="sr-only">Loading insights</span></div>}>
+          {() => insights.length === 0 ? (
             <EmptyState
               icon={Lightbulb}
               title="No active insights yet"
@@ -169,6 +171,7 @@ export default function AiDashboardPage() {
               })}
             </div>
           )}
+          </QueryBoundary>
         </CardContent>
       </Card>
 
@@ -176,31 +179,23 @@ export default function AiDashboardPage() {
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
           <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-            <Wrench className="w-4 h-4 text-warning" /> Predictive Maintenance Telemetry
+            <Wrench className="w-4 h-4 text-warning" /> Service Schedule Outlook
           </CardTitle>
-          <Link href="/maintenance/predictive" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
+          {canViewOutlook && <Link href="/maintenance/predictive" className="text-xs font-bold text-primary hover:underline flex items-center gap-1">
             Open Maintenance Center <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
+          </Link>}
         </CardHeader>
 
         <CardContent className="p-0">
-          {predictionsLoading ? (
-            <div className="p-4 space-y-3">
-              {[1, 2, 3].map((n) => (
-                <div key={n} className="flex items-center gap-4 p-3 rounded-3xl border border-border/60">
-                  <Skeleton className="h-10 w-10 rounded-xl" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-4 w-40" />
-                    <Skeleton className="h-3 w-full" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : predictions.length === 0 ? (
+          {!canViewOutlook ? <p className="p-4 text-sm text-foreground-secondary">Service outlook is available to fleet maintenance roles.</p> :
+          <QueryBoundary query={predictionsQuery} isEmpty={() => false} errorTitle="Service outlook unavailable"
+            errorDescription="Service schedule predictions could not be loaded. Try again before drawing conclusions about the fleet."
+            skeleton={<div className="p-4" role="status" aria-label="Loading service outlook"><Skeleton className="h-28 w-full" /><span className="sr-only">Loading service outlook</span></div>}>
+          {() => predictions.length === 0 ? (
             <EmptyState
               icon={Wrench}
-              title="No vehicles registered in telemetry"
-              description="Add vehicles to initialize AI predictive health scoring."
+              title="No eligible vehicles to assess"
+              description="No eligible active vehicles were returned. Service predictions are separate from maintenance work orders."
               variant="first-run"
               size="compact"
             />
@@ -244,6 +239,7 @@ export default function AiDashboardPage() {
               })}
             </div>
           )}
+          </QueryBoundary>}
         </CardContent>
       </Card>
     </div>

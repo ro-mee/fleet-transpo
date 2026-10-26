@@ -11,6 +11,16 @@ import {
   FLAG,
 } from "./report-narrative";
 
+it("financial analysis names approved expenses and never invents a rate without distance", () => {
+  const data = { totalCost: 250, fuelCost: 150, maintCost: 60, expenseCost: 40, totalDistance: 0, costPerKm: 0 };
+  expect(buildReportSnapshot("financial", data)).toMatchObject({ expense_cost: 40, cost_per_km: null });
+  const narrative = deterministicNarrative("financial", data).narrative;
+  expect(narrative).toContain("approved driver expenses PHP 40");
+  expect(narrative).toContain("unavailable");
+  expect(narrative).not.toContain("trip costs");
+  expect(narrative).not.toContain("PHP 0/km");
+});
+
 describe("report-narrative: demo guard", () => {
   it("flags missing/empty payloads as demo", () => {
     expect(isDemoPayload(null)).toBe(true);
@@ -201,7 +211,7 @@ describe("report-narrative: cross-report contamination", () => {
     expect(maint.narrative).not.toContain("Fleet utilization");
     expect(maint.narrative).not.toContain("safety performance score");
 
-    const fin = deterministicNarrative("financial", { totalCost: 11000, tripCost: 2000, fuelCost: 6000, maintCost: 3000, costPerKm: 12 });
+    const fin = deterministicNarrative("financial", { totalCost: 11000, expenseCost: 2000, fuelCost: 6000, maintCost: 3000, costPerKm: 12 });
     expect(fin.narrative).not.toContain("busiest unit");
     expect(fin.narrative).not.toContain("safety performance score");
   });

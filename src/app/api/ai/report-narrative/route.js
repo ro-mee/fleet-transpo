@@ -28,6 +28,7 @@ import {
 
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 const FORCE_DAILY_LIMIT = 3;
+const COST_SCOPE_REPORTS = new Set(["financial", "analytics"]);
 
 // (report, range) -> canonical key strings for the COALESCE'd UNIQUE index.
 function keyParts(report, range) {
@@ -70,7 +71,7 @@ async function upsertNarrative(report, range, payload, force) {
       ON CONFLICT (report, COALESCE(range_from, '*'), COALESCE(range_to, '*'))
       DO UPDATE SET ${updates.join(", ")}
       RETURNING *`,
-    [r, from, to, payload.mode, payload.narrative, JSON.stringify(payload.actions || []), payload.flag]
+    [r, from, to, COST_SCOPE_REPORTS.has(report) ? `${payload.mode}-v2` : payload.mode, payload.narrative, JSON.stringify(payload.actions || []), payload.flag]
   );
   return rows[0];
 }
@@ -108,15 +109,17 @@ export async function POST(req) {
     }
 
     const existing = await loadNarrative(report, range);
+    // Version the stored mode, retaining the same row and regeneration budget.
+    const currentScope = !COST_SCOPE_REPORTS.has(report) || ["deterministic-v2", "generative-v2"].includes(existing?.mode);
 
     // Token guard: serve cached sticky note unless explicitly regenerating.
-    if (!force && existing && Date.now() - new Date(existing.generated_at).getTime() < CACHE_DURATION) {
+    if (!force && existing && currentScope && Date.now() - new Date(existing.generated_at).getTime() < CACHE_DURATION) {
       return ok({
         ok: true,
         report,
         range,
         cached: true,
-        mode: existing.mode,
+        mode: COST_SCOPE_REPORTS.has(report) ? existing.mode.replace(/-v2$/, "") : existing.mode,
         narrative: existing.narrative,
         actions: existing.actions || [],
         flag: existing.flag,
@@ -137,9 +140,7 @@ export async function POST(req) {
           message: `You can only regenerate this analysis ${FORCE_DAILY_LIMIT} times per day.`,
           // Keep the most recent narrative so the UI can still show it and only
           // surface a small "limit reached" notice instead of a blank card.
-          narrative: existing.narrative,
-          actions: existing.actions || [],
-          flag: existing.flag,
+          ...(currentScope ? { narrative: existing.narrative, actions: existing.actions || [], flag: existing.flag } : deterministicNarrative(report, data)),
           force_used_today: Number(existing.force_count) || 0,
           force_remaining_today: 0,
         });

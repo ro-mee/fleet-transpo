@@ -49,3 +49,52 @@ describe("POST /api/ai/report-narrative empty fleet window", () => {
     expect(state.executeLlmCompletion).not.toHaveBeenCalled();
   });
 });
+
+describe("financial narrative scope version", () => {
+  const request = (force = false) => new Request("https://fleet.test/api/ai/report-narrative", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ report: "financial", force, data: { totalCost: 250, fuelCost: 150, maintCost: 60, expenseCost: 40, totalDistance: 100, costPerKm: 2.5 } }),
+  });
+  beforeEach(() => {
+    state.query.mockReset();
+    state.executeLlmCompletion.mockReset();
+    state.executeLlmCompletion.mockResolvedValue({ success: false });
+  });
+  it("replaces a fresh legacy narrative while keeping the existing budget row", async () => {
+    state.query.mockImplementation(async (sql, params) => {
+      if (sql.startsWith("SELECT")) return { rows: [{ mode: "deterministic", narrative: "Old trip costs", generated_at: new Date(), force_count: 2, force_day: new Date() }] };
+      expect(params[0]).toBe("financial");
+      expect(params[3]).toBe("deterministic-v2");
+      return { rows: [{ force_count: 2 }] };
+    });
+    const body = await (await POST(request())).json();
+    expect(body.cached).not.toBe(true);
+    expect(body.mode).toBe("deterministic");
+    expect(body.narrative).toContain("approved driver expenses PHP 40");
+    expect(body.force_remaining_today).toBe(1);
+  });
+  it("serves a current scope cache without another model call", async () => {
+    state.query.mockResolvedValue({ rows: [{ mode: "generative-v2", narrative: "Current approved expenses", generated_at: new Date() }] });
+    const body = await (await POST(request())).json();
+    expect(body.cached).toBe(true);
+    expect(body.mode).toBe("generative");
+    expect(state.executeLlmCompletion).not.toHaveBeenCalled();
+  });
+  it("does not return an obsolete narrative when the regeneration budget is spent", async () => {
+    state.query.mockResolvedValue({ rows: [{ mode: "deterministic", narrative: "Old trip costs", generated_at: new Date(), force_count: 3, force_day: new Date() }] });
+    const body = await (await POST(request(true))).json();
+    expect(body.mode).toBe("rate-limited");
+    expect(body.narrative).toContain("approved driver expenses PHP 40");
+    expect(body.narrative).not.toContain("Old trip costs");
+  });
+});
+
+it.each([false, true])("does not reuse an old analytics cost scope when force=%s", async force => {
+  state.query.mockReset();
+  state.query.mockResolvedValue({ rows: [{ mode: "deterministic", narrative: "Old analytics total", generated_at: new Date(), force_count: 3, force_day: new Date() }] });
+  state.executeLlmCompletion.mockResolvedValue({ success: false });
+  const req = new Request("https://fleet.test/api/ai/report-narrative", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ report: "analytics", force, data: { totalCost: 250, totalTrips: 1, expenseCost: 40, totalDistance: 80, costDistance: 100, costPerKm: 2.5 } }) });
+  const body = await (await POST(req)).json();
+  expect(body.narrative).toContain("PHP 250");
+  expect(body.narrative).not.toContain("Old analytics total");
+});

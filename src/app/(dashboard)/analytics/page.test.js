@@ -173,6 +173,42 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+it("uses the financial denominator for the cost rate, including services outside fleet activity", () => {
+  state.queries["analytics-fleet"] = query({ totalDistance: 80 });
+  state.queries["analytics-financial"] = query({ totalCost: 250, totalDistance: 100, costPerKm: 2.5 });
+  render();
+  const card = rosterRowText("Cost Per Kilometer");
+  expect(card).toContain("2.50");
+  expect(card).toContain("100");
+  expect(card).not.toContain("80");
+});
+
+it("downloads a CSV whose cost components and currency exclusions reconcile with the displayed total", async () => {
+  state.queries["analytics-fleet"] = query({ utilization: 0, totalTrips: 1, totalDistance: 80 });
+  state.queries["analytics-fuel"] = query({ totalLiters: 2, totalCost: 999 });
+  state.queries["analytics-financial"] = query({ fuelCost: 150, maintCost: 60, expenseCost: 40, totalCost: 250, totalDistance: 100, costPerKm: 2.5, excludedExpenseCurrencies: [{ currency: "USD", count: 1, amount: 10 }] });
+  render();
+  const actions = state.motion.map(props => props.children?.props?.actions).find(Boolean);
+  const csvButton = actions.props.children.find(button => button.props.children.some(child => typeof child === "string" && child.includes("Export raw CSV")));
+  const blobs = [];
+  const createUrl = vi.spyOn(URL, "createObjectURL").mockImplementation(blob => { blobs.push(blob); return "blob:test"; });
+  vi.stubGlobal("document", { createElement: () => ({ click() {}, remove() {} }), body: { appendChild() {} } });
+  vi.stubGlobal("window", { setTimeout() {} });
+  try {
+    csvButton.props.onClick();
+    const [headers, row] = (await blobs[0].text()).replace(/^\uFEFF/, "").split("\r\n").map(line => line.split(","));
+    const cell = label => row[headers.indexOf(label)];
+    expect(cell("Fuel Expenses (₱)")).toBe("150");
+    expect(cell("Maintenance Expenses (₱)")).toBe("60");
+    expect(cell("Approved Driver Expenses (PHP)")).toBe("40");
+    expect(cell("Total Operating Expenses (₱)")).toBe("250");
+    expect(cell("Cost Distance (km)")).toBe("100");
+    expect(cell("Excluded Expense Currencies")).toBe("USD: 1 records (10)");
+  } finally {
+    createUrl.mockRestore();
+  }
+});
+
 describe("Analytics — driver leaderboard", () => {
   it("ranks the roster from the payload details, not a retired top-drivers list", () => {
     state.queries["analytics-drivers"] = query(payload([

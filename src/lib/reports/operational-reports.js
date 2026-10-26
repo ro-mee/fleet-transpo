@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { toCalendarDay } from "@/lib/dates";
+import { toCalendarDay, manilaDateKey } from "@/lib/dates";
 import { TRIPS_JOINS, TRIPS_SELECT } from "@/lib/api/trips-query";
 import { appendTripFilters } from "@/lib/trips/filters";
 import { SERVICE_CODES } from "@/lib/integration/contracts";
@@ -355,38 +355,72 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
 
 /** Shared server payload for Fleet Cost. Component filters mirror the current page. */
 export async function getFleetCostReport(from = DEFAULT_REPORT_FROM, to = DEFAULT_REPORT_TO) {
-  const [{ rows }, { rows: fuelRecords }, { rows: maintenanceRecords }, { rows: tripRecords }] = await Promise.all([
+  const [financial, { rows: vehicles }] = await Promise.all([
+    getFinancialSummary(from, to),
+    query(`SELECT vehicle_id, plate_number, vehicle_name, manufacturer, model FROM vehicles WHERE deleted_at IS NULL ORDER BY plate_number`, []),
+  ]);
+  const details = (vehicles || []).map(row => ({ vehicle_id: row.vehicle_id, plate_number: row.plate_number, vehicle: vehicleLabel(row), fuel_cost: 0, maintenance_cost: 0, expense_cost: 0, distance: 0 }));
+  const byVehicle = new Map(details.map(row => [String(row.vehicle_id), row]));
+  const add = (records, field, amount) => {
+    for (const source of records) {
+      let target = byVehicle.get(String(source.vehicle_id));
+      if (!target) {
+        target = byVehicle.get("unallocated");
+        if (!target) {
+          target = { vehicle_id: null, plate_number: "Unallocated / archived", vehicle: "No current vehicle in roster", fuel_cost: 0, maintenance_cost: 0, expense_cost: 0, distance: 0 };
+          byVehicle.set("unallocated", target);
+          details.push(target);
+        }
+      }
+      target[field] += number(source[amount]);
+    }
+  };
+  add(financial.fuelRecords, "fuel_cost", "amount");
+  add(financial.maintenanceRecords, "maintenance_cost", "cost");
+  add(financial.expenseRecords, "expense_cost", "amount");
+  add(financial.tripRecords, "distance", "distance");
+  for (const row of details) {
+    for (const field of ["fuel_cost", "maintenance_cost", "expense_cost", "distance"]) row[field] = round(row[field]);
+    row.total_cost = round(row.fuel_cost + row.maintenance_cost + row.expense_cost);
+    row.cost_per_km = row.distance ? row.total_cost / row.distance : 0;
+  }
+  return {
+    details,
+    totals: { fuel_cost: financial.fuelCost, maintenance_cost: financial.maintCost, expense_cost: financial.expenseCost, total_cost: financial.totalCost, distance: financial.totalDistance, cost_per_km: financial.costPerKm },
+    fuelRecords: financial.fuelRecords,
+    maintenanceRecords: financial.maintenanceRecords,
+    expenseRecords: financial.expenseRecords,
+    expensesByCategory: financial.expensesByCategory,
+    excludedExpenseCurrencies: financial.excludedExpenseCurrencies,
+    trips: financial.tripRecords,
+    monthlyData: financial.monthlyData,
+    methodology: `${financial.methodology} Costs and distance without a current vehicle remain in the Unallocated / archived row so vehicle totals reconcile with Financial Summary.`,
+  };
+}
+
+/** Shared server payload for the Financial Summary report. */
+export async function getFinancialSummary(from = DEFAULT_REPORT_FROM, to = DEFAULT_REPORT_TO) {
+  const [{ rows: tripRecords }, { rows: fuelRecords }, { rows: maintenanceRecords }, { rows: approvedExpenses }] = await Promise.all([
     query(
-      `SELECT v.vehicle_id, v.plate_number, COALESCE(v.vehicle_name,'') AS vehicle_name,
-              COALESCE(v.manufacturer,'') AS manufacturer, COALESCE(v.model,'') AS model,
-              (SELECT COALESCE(SUM(f.amount), 0) FROM fuelrecords f
-                WHERE f.vehicle_id = v.vehicle_id
-                  AND f.deleted_at IS NULL
-                  AND f.fuel_date >= $1::date AND f.fuel_date < ($2::date + 1)) AS fuel_cost,
-              (SELECT COALESCE(SUM(m.cost), 0) FROM vehiclemaintenance m
-                WHERE m.vehicle_id = v.vehicle_id
-                  AND m.deleted_at IS NULL
-                  AND m.maintenance_date >= $1::date AND m.maintenance_date < ($2::date + 1)) AS maintenance_cost,
-              (SELECT COALESCE(SUM(t.distance), 0) FROM trips t
-                WHERE t.vehicle_id = v.vehicle_id AND t.deleted_at IS NULL
-                  AND t.start_time >= $1::date AND t.start_time < ($2::date + 1)) AS distance
-         FROM vehicles v
-        WHERE v.deleted_at IS NULL
-        ORDER BY v.plate_number`,
+      `SELECT t.trip_id, t.vehicle_id, t.start_time, t.end_time, t.distance, t.total_cost, t.trip_status, v.plate_number
+         FROM trips t LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
+        WHERE t.deleted_at IS NULL
+          AND t.start_time >= $1::date AND t.start_time < ($2::date + 1)
+        ORDER BY t.start_time, t.trip_id`,
       [from, to]
     ),
     query(
-      `SELECT f.fuel_record_id, f.vehicle_id, f.fuel_date, f.liters, f.amount,
-              f.status, f.fuel_type, f.station_name, v.plate_number
+      `SELECT f.fuel_record_id, f.vehicle_id, f.fuel_date, f.amount, f.liters, f.status,
+              f.fuel_type, f.station_name, v.plate_number
          FROM fuelrecords f LEFT JOIN vehicles v ON v.vehicle_id = f.vehicle_id
         WHERE f.deleted_at IS NULL
+          AND f.status IN ('Approved', 'Completed')
           AND f.fuel_date >= $1::date AND f.fuel_date < ($2::date + 1)
         ORDER BY f.fuel_date, f.fuel_record_id`,
       [from, to]
     ),
     query(
-      `SELECT m.maintenance_id, m.vehicle_id, m.maintenance_date, m.maintenance_type,
-              m.cost, m.status, v.plate_number
+      `SELECT m.maintenance_id, m.vehicle_id, m.maintenance_date, m.cost, m.maintenance_type, m.status, v.plate_number
          FROM vehiclemaintenance m LEFT JOIN vehicles v ON v.vehicle_id = m.vehicle_id
         WHERE m.deleted_at IS NULL
           AND m.maintenance_date >= $1::date AND m.maintenance_date < ($2::date + 1)
@@ -394,75 +428,36 @@ export async function getFleetCostReport(from = DEFAULT_REPORT_FROM, to = DEFAUL
       [from, to]
     ),
     query(
-      `SELECT t.trip_id, t.vehicle_id, t.start_time, t.end_time, t.distance,
-              t.trip_status, t.total_cost, v.plate_number
-         FROM trips t LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
-        WHERE t.deleted_at IS NULL
-          AND t.start_time >= $1::date AND t.start_time < ($2::date + 1)
-        ORDER BY t.start_time, t.trip_id`,
+      `SELECT id, driver_id, trip_id, vehicle_id, category, merchant_name, amount,
+              currency, expense_date, payment_method, status, reviewed_by, reviewed_at
+         FROM expense_records
+        WHERE status = 'Approved'
+          AND expense_date >= ($1::date::timestamp AT TIME ZONE 'Asia/Manila')
+          AND expense_date < (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Manila')
+        ORDER BY expense_date, id`,
       [from, to]
     ),
   ]);
-  const details = (rows || []).map((row) => {
-    const fuel = number(row.fuel_cost);
-    const maintenance = number(row.maintenance_cost);
-    const distance = number(row.distance);
-    const total = fuel + maintenance;
-    return {
-      vehicle_id: row.vehicle_id,
-      plate_number: row.plate_number,
-      vehicle: vehicleLabel(row),
-      fuel_cost: fuel,
-      maintenance_cost: maintenance,
-      total_cost: total,
-      distance,
-      cost_per_km: distance ? total / distance : 0,
-    };
-  });
-  const totals = details.reduce((sum, row) => ({
-    fuel_cost: sum.fuel_cost + row.fuel_cost,
-    maintenance_cost: sum.maintenance_cost + row.maintenance_cost,
-    total_cost: sum.total_cost + row.total_cost,
-    distance: sum.distance + row.distance,
-  }), { fuel_cost: 0, maintenance_cost: 0, total_cost: 0, distance: 0 });
-  return {
-    details,
-    totals: { ...totals, cost_per_km: totals.distance ? totals.total_cost / totals.distance : 0 },
-    fuelRecords: fuelRecords || [],
-    maintenanceRecords: maintenanceRecords || [],
-    trips: tripRecords || [],
-    methodology: "Fleet cost totals use the same component scope as the on-screen Fleet Cost page: recorded fuel amount and maintenance cost in the period, plus non-deleted trip distance. Cost per km is blank when no distance is recorded.",
-  };
-}
-
-/** Shared server payload for the Financial Summary report. */
-export async function getFinancialSummary(from = DEFAULT_REPORT_FROM, to = DEFAULT_REPORT_TO) {
-  const [{ rows: tripRecords }, { rows: fuelRecords }, { rows: maintenanceRecords }] = await Promise.all([
-    query(
-      `SELECT trip_id, start_time, end_time, distance, total_cost, trip_status
-         FROM trips
-        WHERE deleted_at IS NULL
-          AND start_time >= $1::date AND start_time < ($2::date + 1)
-        ORDER BY start_time, trip_id`,
-      [from, to]
-    ),
-    query(
-      `SELECT fuel_record_id, vehicle_id, fuel_date, amount, liters, status
-         FROM fuelrecords
-        WHERE deleted_at IS NULL
-          AND fuel_date >= $1::date AND fuel_date < ($2::date + 1)
-        ORDER BY fuel_date, fuel_record_id`,
-      [from, to]
-    ),
-    query(
-      `SELECT maintenance_id, vehicle_id, maintenance_date, cost, maintenance_type, status
-         FROM vehiclemaintenance
-        WHERE deleted_at IS NULL
-          AND maintenance_date >= $1::date AND maintenance_date < ($2::date + 1)
-        ORDER BY maintenance_date, maintenance_id`,
-      [from, to]
-    ),
-  ]);
+  const expenseRecords = [];
+  const excluded = new Map();
+  for (const row of approvedExpenses || []) {
+    const currency = String(row.currency || "").trim().toUpperCase() || "Unknown";
+    if (currency === "PHP") expenseRecords.push({ ...row, currency });
+    else {
+      const entry = excluded.get(currency) || { currency, count: 0, amount: 0 };
+      entry.count += 1;
+      entry.amount += number(row.amount);
+      excluded.set(currency, entry);
+    }
+  }
+  const expenseCost = expenseRecords.reduce((sum, row) => sum + number(row.amount), 0);
+  const categoryMap = new Map();
+  for (const row of expenseRecords) {
+    const entry = categoryMap.get(row.category) || { category: row.category, cost: 0, count: 0 };
+    entry.cost += number(row.amount);
+    entry.count += 1;
+    categoryMap.set(row.category, entry);
+  }
   const fuelCost = (fuelRecords || []).reduce((sum, row) => sum + number(row.amount), 0);
   const maintCost = (maintenanceRecords || []).reduce((sum, row) => sum + number(row.cost), 0);
   const totalDistance = (tripRecords || []).reduce((sum, row) => sum + number(row.distance), 0);
@@ -470,25 +465,29 @@ export async function getFinancialSummary(from = DEFAULT_REPORT_FROM, to = DEFAU
   const addMonth = (date, key, value) => {
     const month = monthOf(date);
     if (month === "Unknown") return;
-    const row = monthlyMap.get(month) || { month, fuelCost: 0, maintenanceCost: 0, distance: 0 };
+    const row = monthlyMap.get(month) || { month, fuelCost: 0, maintenanceCost: 0, expenseCost: 0, distance: 0 };
     row[key] += value;
     monthlyMap.set(month, row);
   };
   for (const row of fuelRecords || []) addMonth(row.fuel_date, "fuelCost", number(row.amount));
   for (const row of maintenanceRecords || []) addMonth(row.maintenance_date, "maintenanceCost", number(row.cost));
+  for (const row of expenseRecords) addMonth(manilaDateKey(row.expense_date), "expenseCost", number(row.amount));
   for (const row of tripRecords || []) addMonth(row.start_time, "distance", number(row.distance));
   return {
     fuelCost: round(fuelCost),
     maintCost: round(maintCost),
-    totalCost: round(fuelCost + maintCost),
+    expenseCost: round(expenseCost),
+    totalCost: round(fuelCost + maintCost + expenseCost),
     totalDistance: round(totalDistance),
-    costPerKm: totalDistance ? (fuelCost + maintCost) / totalDistance : 0,
-    tripCost: 0,
-    monthlyData: [...monthlyMap.values()].map((row) => ({ ...row, fuelCost: round(row.fuelCost), maintenanceCost: round(row.maintenanceCost), distance: round(row.distance) })).sort((a, b) => a.month.localeCompare(b.month)),
+    costPerKm: totalDistance ? (fuelCost + maintCost + expenseCost) / totalDistance : 0,
+    monthlyData: [...monthlyMap.values()].map((row) => ({ ...row, fuelCost: round(row.fuelCost), maintenanceCost: round(row.maintenanceCost), expenseCost: round(row.expenseCost), distance: round(row.distance) })).sort((a, b) => a.month.localeCompare(b.month)),
     tripRecords: tripRecords || [],
     fuelRecords: fuelRecords || [],
     maintenanceRecords: maintenanceRecords || [],
-    methodology: "Financial summary follows the existing page scope: fuel amounts, maintenance costs, and trip distance in the selected period. Fuel and maintenance totals are recorded costs; cost per km is derived only when distance is available.",
+    expenseRecords,
+    expensesByCategory: [...categoryMap.values()].map(row => ({ ...row, cost: round(row.cost) })).sort((a, b) => b.cost - a.cost || a.category.localeCompare(b.category)),
+    excludedExpenseCurrencies: [...excluded.values()].map(row => ({ ...row, amount: round(row.amount) })).sort((a, b) => a.currency.localeCompare(b.currency)),
+    methodology: "Operating cost = non-deleted Approved/Completed fuel receipts + all non-deleted recorded maintenance costs (including scheduled/cancelled status) + Finance-approved PHP driver expenses. Expense dates use Philippine calendar days. Other or unknown expense currencies are excluded and listed separately; no exchange rate is assumed. Expense categories exclude fuel. Stored trip total_cost is excluded to avoid double counting. Distance uses non-deleted trip start dates; cost per km is unavailable without distance.",
   };
 }
 

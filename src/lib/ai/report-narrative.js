@@ -52,7 +52,7 @@ export const REPORT_SCHEMAS = {
   fuel: ["totalLiters", "totalCost", "avgCost"],
   maintenance: ["totalCost", "totalRecords"],
   drivers: ["totalDrivers", "totalCompletedTrips", "punctuality"],
-  financial: ["totalCost", "tripCost", "fuelCost", "maintCost", "costPerKm"],
+  financial: ["totalCost", "expenseCost", "fuelCost", "maintCost", "costPerKm"],
   analytics: ["utilization", "totalTrips", "totalDistance", "totalCost", "costPerKm", "maintDue"],
 };
 
@@ -165,10 +165,10 @@ export function buildReportSnapshot(report, data) {
       return {
         ...base,
         total_cost: Math.round(num(data?.totalCost)),
-        trip_cost: Math.round(num(data?.tripCost)),
+        expense_cost: Math.round(num(data?.expenseCost)),
         fuel_cost: Math.round(num(data?.fuelCost)),
         maint_cost: Math.round(num(data?.maintCost)),
-        cost_per_km: round1(data?.costPerKm),
+        cost_per_km: num(data?.totalDistance) > 0 ? round1(data?.costPerKm) : null,
         total_distance_km: Math.round(num(data?.totalDistance)),
       };
     case "analytics":
@@ -178,9 +178,12 @@ export function buildReportSnapshot(report, data) {
         total_trips: Math.round(num(data?.totalTrips)),
         total_distance_km: Math.round(num(data?.totalDistance)),
         total_cost: Math.round(num(data?.totalCost)),
-        cost_per_km: round1(data?.costPerKm),
+        cost_per_km: num(data?.costDistance) > 0 ? round1(data?.costPerKm) : null,
+        cost_distance_km: Math.round(num(data?.costDistance)),
+        expense_cost: Math.round(num(data?.expenseCost)),
+        maint_cost: Math.round(num(data?.maintCost)),
         maint_due: Math.round(num(data?.maintDue)),
-        fuel_cost: Math.round(num(data?.fuelCost) ?? num(data?.totalCost)),
+        fuel_cost: Math.round(num(data?.fuelCost)),
       };
     default:
       return { report, data };
@@ -296,7 +299,7 @@ export function deterministicNarrative(report, data) {
     }
     case "financial": {
       const total = Math.round(num(data?.totalCost));
-      const trip = Math.round(num(data?.tripCost));
+      const expense = Math.round(num(data?.expenseCost));
       const fuel = Math.round(num(data?.fuelCost));
       const maint = Math.round(num(data?.maintCost));
       const ck = round1(data?.costPerKm);
@@ -305,9 +308,10 @@ export function deterministicNarrative(report, data) {
       return {
         narrative:
           `Total operational cost was PHP ${total.toLocaleString()} — fuel PHP ${fuel.toLocaleString()} (${share}%), ` +
-          `maintenance PHP ${maint.toLocaleString()}, trip costs PHP ${trip.toLocaleString()} — at PHP ${ck}/km run.`,
+          `maintenance PHP ${maint.toLocaleString()}, approved driver expenses PHP ${expense.toLocaleString()} — ` +
+          (num(data?.totalDistance) > 0 ? `at PHP ${ck}/km run.` : "cost per km is unavailable without recorded distance."),
         actions: [
-          share > 50 ? `Fuel is ${share}% of cost; target sourcing and route economy to rebalance spend.` : "Cost allocation is balanced across fuel, maintenance, and trips.",
+          share > 50 ? `Fuel is ${share}% of cost; target sourcing and route economy to rebalance spend.` : "Cost allocation is balanced across fuel, maintenance, and approved driver expenses.",
           ck > 15 ? "Drive cost-per-km below the PHP 15 threshold by trimming fuel and maintenance waste." : null,
         ].filter(Boolean),
         flag: risk ? FLAG.WATCH : FLAG.SUCCESS,
@@ -315,7 +319,7 @@ export function deterministicNarrative(report, data) {
     }
     case "analytics": {
       const utilization = pct(data?.utilization);
-      const total = Math.round(num(data?.totalCost) ?? num(data?.fuelCost));
+      const total = Math.round(num(data?.totalCost));
       const ck = round1(data?.costPerKm);
       const due = Math.round(num(data?.maintDue));
       const trips = Math.round(num(data?.totalTrips));
@@ -323,11 +327,11 @@ export function deterministicNarrative(report, data) {
       return {
         narrative:
           `Executive snapshot shows ${trips} trips at ${utilization}% utilization and PHP ${total.toLocaleString()} ` +
-          `total cost (PHP ${ck}/km).` +
+          `total cost ` + (num(data?.costDistance) > 0 ? `(PHP ${ck}/km).` : "(cost per km unavailable without recorded financial distance).") +
           (due > 0 ? ` ${due} vehicle${due === 1 ? " is" : "s are"} due for maintenance and need attention.` : ""),
         actions: [
           due > 0 ? `Dispatch the ${due} overdue unit${due === 1 ? "" : "s"} to service immediately.` : "No maintenance units are currently due.",
-          ck > 15 ? "Focus on lowering cost-per-km through fuel economy and preventive maintenance." : "Cost-per-km is within a healthy band.",
+          num(data?.costDistance) > 0 ? ck > 15 ? "Focus on lowering cost-per-km through fuel economy and preventive maintenance." : "Cost-per-km is within a healthy band." : "Record trip distance before comparing cost per km.",
         ].filter(Boolean),
         flag: risk ? FLAG.RISK : FLAG.SUCCESS,
       };

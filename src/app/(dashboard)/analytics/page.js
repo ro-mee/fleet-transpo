@@ -392,7 +392,7 @@ export default function AnalyticsPage() {
   // render and make downstream memo deps unstable.
   const f = useMemo(() => fleet || { utilization: 0, totalTrips: 0, totalDistance: 0 }, [fleet]);
   const fu = useMemo(() => fuel || { totalLiters: 0, totalCost: 0, byCategory: [], monthlyData: [] }, [fuel]);
-  const fi = useMemo(() => financial || { totalCost: 0, tripCost: 0, fuelCost: 0, maintCost: 0, costPerKm: 0 }, [financial]);
+  const fi = useMemo(() => financial || { totalCost: 0, fuelCost: 0, maintCost: 0, expenseCost: 0, costPerKm: 0 }, [financial]);
   const maintDue = (predictionData?.summary?.overdue ?? 0) + (predictionData?.summary?.critical ?? 0);
 
   // AI Analyst narrative — one consolidated snapshot across all executive KPIs.
@@ -403,10 +403,11 @@ export default function AnalyticsPage() {
       totalDistance: f.totalDistance,
       totalLiters: fu.totalLiters,
       totalCost: fi.totalCost || fi.fuelCost,
-      tripCost: fi.tripCost,
       fuelCost: fi.fuelCost,
       maintCost: fi.maintCost,
-      costPerKm: fi.costPerKm,
+      expenseCost: fi.expenseCost,
+      costDistance: fi.totalDistance,
+      costPerKm: fi.totalDistance ? fi.costPerKm : null,
       maintDue,
       // Fleet pickup punctuality (0-100, already weighted by the report backend).
       // The retired `avgScore` key is gone from the payload; null means nothing
@@ -626,13 +627,13 @@ export default function AnalyticsPage() {
       label: "Total Operational Cost",
       value: financialQuery.data ? formatCurrency(fi.totalCost || 0) : "—",
       tone: "success",
-      context: financialQuery.data ? "Fuel & maintenance total" : "Awaiting financial data",
+      context: financialQuery.data ? "Fuel, maintenance & approved expenses" : "Awaiting financial data",
     },
     {
       label: "Cost Per Kilometer",
-      value: financialQuery.data ? formatCurrency(fi.costPerKm || 0) : "—",
+      value: financialQuery.data && fi.totalDistance ? formatCurrency(fi.costPerKm || 0) : "—",
       tone: "primary",
-      context: financialQuery.data ? `${formatDistance(f.totalDistance || 0)} total distance` : "Awaiting financial data",
+      context: financialQuery.data ? fi.totalDistance ? `${formatDistance(fi.totalDistance)} financial report distance` : "No recorded distance" : "Awaiting financial data",
     },
     {
       label: "Fleet Utilization",
@@ -669,8 +670,11 @@ export default function AnalyticsPage() {
     { label: "Fuel Consumed (L)", key: "fuel_liters" },
     { label: "Fuel Expenses (₱)", key: "fuel_cost" },
     { label: "Maintenance Expenses (₱)", key: "maintenance_cost" },
+    { label: "Approved Driver Expenses (PHP)", key: "approved_expenses_php" },
     { label: "Total Operating Expenses (₱)", key: "total_cost" },
     { label: "Average Cost Per Km (₱/km)", key: "cost_per_km" },
+    { label: "Cost Distance (km)", key: "cost_distance_km" },
+    { label: "Excluded Expense Currencies", key: "excluded_expense_currencies" },
   ];
 
   function handleCsvExport() {
@@ -684,10 +688,13 @@ export default function AnalyticsPage() {
         total_distance_km: f.totalDistance,
         total_trips: f.totalTrips,
         fuel_liters: fu.totalLiters,
-        fuel_cost: fu.totalCost,
+        fuel_cost: fi.fuelCost,
+        approved_expenses_php: fi.expenseCost,
+        excluded_expense_currencies: (fi.excludedExpenseCurrencies || []).map(row => `${row.currency}: ${row.count} records (${row.amount})`).join("; "),
         maintenance_cost: fi.maintCost,
         total_cost: fi.totalCost,
-        cost_per_km: fi.costPerKm,
+        cost_per_km: fi.totalDistance ? fi.costPerKm : null,
+        cost_distance_km: fi.totalDistance,
       }],
       "fleet-analytics-summary",
       ANALYTICS_CSV_COLUMNS

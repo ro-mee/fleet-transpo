@@ -10,7 +10,7 @@ You are analyzing an **Analytics / Executive snapshot** report. This is the cros
 
 ## Rules for your assessment
 - This is the executive story — prioritize the few numbers that matter most, not a data dump.
-- Base every claim strictly on the provided figures (utilization %, total trips, distance, total cost, cost per km, maintenance due, fuel cost).
+- Base every claim strictly on the provided figures (utilization %, total trips, distance, total cost, cost per km, maintenance due, fuel cost, maintenance cost, approved driver expense cost).
 - Do not overstate — mark only real risks as risk/watch.
 
 ## Narrative style
