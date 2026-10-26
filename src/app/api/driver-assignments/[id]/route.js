@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { toCalendarDay } from "@/lib/dates";
 
 /**
  * DELETE /api/driver-assignments/[id]   { release_reason? }
@@ -39,7 +40,7 @@ export async function DELETE(req, { params }) {
 
     const { rows: released } = await query(
       `UPDATE driver_vehicle_assignments
-          SET assigned_until = CURRENT_DATE,
+          SET assigned_until = (NOW() AT TIME ZONE 'Asia/Manila')::date,
               release_reason = $2,
               updated_at = NOW(),
               updated_by = $3
@@ -56,7 +57,11 @@ export async function DELETE(req, { params }) {
       newValues: { assigned_until: released[0].assigned_until, release_reason: released[0].release_reason },
     });
 
-    return ok({ assignment: released[0], message: "Assignment released" });
+    return ok({ assignment: {
+      ...released[0],
+      assigned_from: toCalendarDay(released[0].assigned_from),
+      assigned_until: toCalendarDay(released[0].assigned_until),
+    }, message: "Assignment released" });
   } catch (e) {
     return handleError(e);
   }

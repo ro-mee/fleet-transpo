@@ -1,3 +1,5 @@
+import { manilaDateKey, toCalendarDay } from "@/lib/dates";
+
 // Number Coding (UVVRP) — pure policy helpers. No DB, no React, no env.
 //
 // Everything here is deterministic given a policy + a date + a plate, so the
@@ -64,11 +66,10 @@ export function mergePolicy(stored) {
   return base;
 }
 
-/** JS Date.getDay() (0=Sun..6=Sat) → weekday name. */
+/** The Philippine weekday, independent of the browser or server timezone. */
 export function weekdayFor(date) {
-  const d = date instanceof Date ? date : new Date(date);
-  if (Number.isNaN(d.getTime())) return null;
-  return WEEKDAYS[d.getDay()];
+  const key = manilaDateKey(date);
+  return key ? WEEKDAYS[new Date(`${key}T00:00:00Z`).getUTCDay()] : null;
 }
 
 /**
@@ -105,9 +106,9 @@ export function isExemptionActive(exemption, date) {
   if (!exemption) return false;
   if (exemption.active !== true) return false;
   if (exemption.expires_on) {
-    const d = new Date(date);
-    const e = new Date(exemption.expires_on);
-    if (Number.isFinite(e.getTime()) && d.getTime() > e.getTime()) return false;
+    const day = manilaDateKey(date);
+    const expiry = toCalendarDay(exemption.expires_on);
+    if (day && expiry && day > expiry) return false;
   }
   return true;
 }

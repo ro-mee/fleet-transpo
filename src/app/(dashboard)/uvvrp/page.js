@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { DatePicker } from "@/components/ui/date-picker";
+import { formatManilaDateTime, manilaDateKey } from "@/lib/dates";
 import { StatsGridSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
@@ -61,7 +62,7 @@ export default function UvvrpBoardPage() {
   const violations = useMemo(() => data?.violations || [], [data]);
   const dispatchesAffected = useMemo(() => data?.dispatchesAffected || [], [data]);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = manilaDateKey();
 
   const columns = useMemo(
     () => [
@@ -86,7 +87,7 @@ export default function UvvrpBoardPage() {
         header: "Scheduled Departure",
         cell: (info) => (
           <span className="text-xs text-foreground-secondary font-data font-medium">
-            {info.getValue() ? new Date(info.getValue()).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+            {formatManilaDateTime(info.getValue())}
           </span>
         ),
       }),

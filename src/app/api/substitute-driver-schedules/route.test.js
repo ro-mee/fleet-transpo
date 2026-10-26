@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { POST } from "./route";
+import { GET, POST } from "./route";
 import * as db from "@/lib/db";
 import * as apiUtils from "@/lib/api/utils";
 import * as audit from "@/lib/audit";
@@ -93,4 +93,24 @@ describe("POST /api/substitute-driver-schedules license eligibility", () => {
     expect(body.error).toMatch(/classification does not match/i);
     expect(db.withTransaction).not.toHaveBeenCalled();
   });
+});
+
+it("returns substitute dates as calendar keys that survive browser serialization", async () => {
+  vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
+  vi.spyOn(db, "query").mockResolvedValue({ rows: [{
+    substitute_id: 44, ...DRIVER, ...VEHICLE,
+    effective_from: new Date(2026, 9, 26), effective_until: new Date(2026, 9, 27),
+    license_expiry: new Date(2030, 11, 31),
+  }] });
+  const response = await GET({ url: "http://x/api/substitute-driver-schedules" });
+  const { schedules } = await response.json();
+  expect(schedules[0]).toMatchObject({ effective_from: "2026-10-26", effective_until: "2026-10-27", license_expiry: "2030-12-31" });
+});
+
+it("requires open-ended coverage to have started on the selected date", async () => {
+  vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
+  const query = vi.spyOn(db, "query").mockResolvedValue({ rows: [] });
+  expect((await GET({ url: "http://x/api/substitute-driver-schedules?date=2026-10-26" })).status).toBe(200);
+  expect(query.mock.calls[0][0]).toMatch(/s\.effective_from <= \$1::date\s+AND \(s\.effective_until IS NULL OR s\.effective_until >= \$1::date\)/);
+  expect(query.mock.calls[0][1]).toEqual(["2026-10-26"]);
 });

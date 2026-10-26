@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { isExpiredOn, toCalendarDay } from "@/lib/dates";
+import { isExpiredOn, manilaDateKey, toCalendarDay } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility } from "@/lib/drivers/license-eligibility";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
 import { evaluateVehicleCapacity, formatCapacityBlocker } from "@/lib/scheduling/load-capacity";
@@ -476,7 +476,7 @@ async function buildUvvrpCtx(vehicle, date, strict = false) {
     if (!policy.enabled) return null;
     const restricted = isRestricted(vehicle.plate_number, policy, new Date(date));
     if (!restricted) return null;
-    const exemptVehicleIds = await getExemptVehicleIds();
+    const exemptVehicleIds = await getExemptVehicleIds(date);
     return {
       restricted: true,
       response: policy.response,
@@ -824,9 +824,12 @@ export async function detectConflictsForRequests(requests = []) {
     : null;
 
   const uvvrpPolicy = await getUvvrpPolicy().catch(() => null);
-  const exemptVehicleIds = uvvrpPolicy?.enabled
-    ? await getExemptVehicleIds().catch(() => new Set())
-    : new Set();
+  const codingDays = uvvrpPolicy?.enabled
+    ? [...new Set(requests.filter((r) => r.vehicle_id && r.pickup_datetime).map((r) => manilaDateKey(r.pickup_datetime)).filter(Boolean))]
+    : [];
+  const exemptionsByDay = new Map(await Promise.all(codingDays.map(async (day) => [
+    day, await getExemptVehicleIds(day).catch(() => new Set()),
+  ])));
   // §4.8.3 safety-buffer config — passed to the evaluator for consistency.
   const dispatchPolicy = await getDispatchPolicy().catch(() => null);
   const physicalByRequest = await loadCargoPhysicalBatch(requests, { policy: dispatchPolicy });
@@ -851,7 +854,7 @@ export async function detectConflictsForRequests(requests = []) {
         uvvrp = {
           restricted: true,
           response: uvvrpPolicy.response,
-          exempt: exemptVehicleIds.has(vehicle.vehicle_id),
+          exempt: exemptionsByDay.get(manilaDateKey(r.pickup_datetime))?.has(vehicle.vehicle_id) ?? false,
           weekday: weekdayFor(r.pickup_datetime),
           digit: plateLastDigit(vehicle.plate_number),
         };

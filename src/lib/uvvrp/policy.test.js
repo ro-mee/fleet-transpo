@@ -23,6 +23,10 @@ describe("plateLastDigit", () => {
 });
 
 describe("weekdayFor", () => {
+  it("uses the Philippine weekday when UTC is still on the previous day", () => {
+    expect(weekdayFor("2026-10-25T16:30:00Z")).toBe("Monday");
+    expect(weekdayFor("2026-10-26T00:30:00+08:00")).toBe("Monday");
+  });
   it("maps a Date to the weekday name", () => {
     // 2026-08-06 is a Thursday.
     expect(weekdayFor("2026-08-06")).toBe("Thursday");
@@ -59,6 +63,11 @@ describe("isRestricted", () => {
 });
 
 describe("isExemptionActive", () => {
+  it("keeps an exemption valid through the entire Philippine expiration day", () => {
+    const exemption = { active: true, expires_on: "2026-10-26" };
+    expect(isExemptionActive(exemption, "2026-10-26T23:59:59+08:00")).toBe(true);
+    expect(isExemptionActive(exemption, "2026-10-27T00:00:00+08:00")).toBe(false);
+  });
   it("true for an active exemption with no expiry", () => {
     expect(isExemptionActive({ active: true, expires_on: null }, "2026-08-06")).toBe(true);
   });

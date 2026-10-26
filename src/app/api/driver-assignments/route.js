@@ -1,6 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
+import { toCalendarDay } from "@/lib/dates";
 import { evaluateDriverLicenseEligibility, licenseNumberEvidence } from "@/lib/drivers/license-eligibility";
 import { assertStoredVehicleLoadCompatibility, checkVehicleLoadCompatibility, vehicleLoadCompatibilityMessage } from "@/lib/trips/vehicle-load-compatibility";
 
@@ -30,6 +31,17 @@ const SELECT_ASSIGNMENT = `
     LEFT JOIN drivers d ON d.driver_id = a.driver_id
     LEFT JOIN employees e ON e.employee_id = d.employee_id
 `;
+
+function safeAssignment(row) {
+  const { license_number, ...safe } = row;
+  return {
+    ...safe,
+    assigned_from: toCalendarDay(row.assigned_from),
+    assigned_until: toCalendarDay(row.assigned_until),
+    license_expiry: toCalendarDay(row.license_expiry),
+    ...licenseNumberEvidence(license_number),
+  };
+}
 
 /**
  * GET /api/driver-assignments
@@ -61,10 +73,7 @@ export async function GET(req) {
       params
     );
 
-    return ok({ assignments: rows.map((row) => ({
-      ...(({ license_number: _licenseNumber, ...safeRow }) => safeRow)(row),
-      ...licenseNumberEvidence(row.license_number),
-    })) });
+    return ok({ assignments: rows.map(safeAssignment) });
   } catch (e) {
     return handleError(e);
   }
@@ -138,8 +147,7 @@ export async function POST(req) {
     // spurious unique-violation 500.
     const identical = current.find((a) => a.driver_id === driverId && a.vehicle_id === vehicleId);
     if (identical) {
-      const { license_number: _licenseNumber, ...safeAssignment } = identical;
-      return ok({ assignment: safeAssignment, unchanged: true });
+      return ok({ assignment: safeAssignment(identical), unchanged: true });
     }
 
     // Someone else currently holds this vehicle. Needs an explicit override.
@@ -147,12 +155,11 @@ export async function POST(req) {
     if (heldByOther && body?.force !== true) {
       const who = `${heldByOther.first_name || ""} ${heldByOther.last_name || ""}`.trim()
         || `driver #${heldByOther.driver_id}`;
-      const { license_number: _licenseNumber, ...safeCurrentAssignment } = heldByOther;
       return Response.json(
         {
           error: `${vRows[0].plate_number} is currently assigned to ${who}. Reassign anyway?`,
           requires_force: true,
-          current_assignment: safeCurrentAssignment,
+          current_assignment: safeAssignment(heldByOther),
         },
         { status: 409 }
       );
@@ -164,7 +171,7 @@ export async function POST(req) {
       // and, when forced, the vehicle's current custodian.
       await tx.query(
         `UPDATE driver_vehicle_assignments
-            SET assigned_until = CURRENT_DATE,
+            SET assigned_until = (NOW() AT TIME ZONE 'Asia/Manila')::date,
                 release_reason = COALESCE(release_reason, 'Reassigned'),
                 updated_at = NOW(),
                 updated_by = $3
@@ -175,8 +182,8 @@ export async function POST(req) {
 
       const { rows } = await tx.query(
         `INSERT INTO driver_vehicle_assignments
-           (driver_id, vehicle_id, notes, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, $4)
+           (driver_id, vehicle_id, notes, created_by, updated_by, assigned_from)
+         VALUES ($1, $2, $3, $4, $4, (NOW() AT TIME ZONE 'Asia/Manila')::date)
          RETURNING assignment_id`,
         [driverId, vehicleId, body?.notes || null, session.user.employeeId ?? null]
       );
@@ -200,8 +207,7 @@ export async function POST(req) {
       },
     });
 
-    const { license_number: _licenseNumber, ...safeCreated } = created[0];
-    return ok({ assignment: safeCreated, replaced: current.map((a) => a.assignment_id) }, 201);
+    return ok({ assignment: safeAssignment(created[0]), replaced: current.map((a) => a.assignment_id) }, 201);
   } catch (e) {
     if (e?.code === "VEHICLE_LOAD_INCOMPATIBLE") return err(e.message, 409);
     // The partial unique indexes are the real guard; if a concurrent request

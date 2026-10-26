@@ -21,8 +21,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { toast } from "@/components/ui/toast";
 import { cn, formatDate } from "@/lib/utils";
-import { getFleetCustodyCoverage } from "@/lib/assignment-coverage";
-import { manilaDateKey } from "@/lib/dates";
+import { getFleetCustodyCoverage, getRelativeAssignedDuration, getScheduleStatus } from "@/lib/assignment-coverage";
+import { addDaysToKey } from "@/lib/dates";
 import { VEHICLE_STATUS } from "@/lib/constants";
 import {
   UserCog,
@@ -85,36 +85,6 @@ function vehicleName(row) {
 
 function vehicleLabel(row) {
   return [row.plate_number, row.vehicle_name || row.model].filter(Boolean).join(" · ") || `Vehicle #${row.vehicle_id}`;
-}
-
-function getRelativeAssignedDuration(assignedFrom) {
-  if (!assignedFrom) return null;
-  const start = new Date(assignedFrom);
-  const now = new Date();
-  const diffDays = Math.floor((now - start) / (1000 * 60 * 60 * 24));
-  if (diffDays <= 0) return "Assigned today";
-  if (diffDays === 1) return "1 day active";
-  if (diffDays < 30) return `${diffDays} days active`;
-  const diffMonths = Math.floor(diffDays / 30);
-  if (diffMonths === 1) return "1 month active";
-  return `${diffMonths} months active`;
-}
-
-function getScheduleStatus(schedule) {
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const from = schedule.effective_from;
-  const until = schedule.effective_until;
-
-  if (until && until < todayKey) {
-    return { label: "Expired", tone: "secondary", activeToday: false };
-  }
-  if (from && from > todayKey) {
-    return { label: "Upcoming", tone: "info", activeToday: false };
-  }
-  if (!until) {
-    return { label: "Open-Ended (Active)", tone: "primary", activeToday: true, openEnded: true };
-  }
-  return { label: "Active Today", tone: "success", activeToday: true };
 }
 
 export default function AssignmentsPage() {
@@ -183,12 +153,7 @@ export default function AssignmentsPage() {
   );
 
   const activeSubstitutesCount = useMemo(() => {
-    const todayKey = manilaDateKey();
-    return schedules.filter((s) => {
-      if (s.effective_until && s.effective_until < todayKey) return false;
-      if (s.effective_from && s.effective_from > todayKey) return false;
-      return true;
-    }).length;
+    return schedules.filter((schedule) => getScheduleStatus(schedule).activeToday).length;
   }, [schedules]);
 
   const coveragePercent = custodyCoverage.percent;
@@ -1439,9 +1404,7 @@ function ScheduleDialog({ mode = "create", open, onOpenChange, canManage, schedu
     if (days === 0) {
       setForm({ ...form, from: fromStr, until: "" });
     } else {
-      const target = new Date(`${fromStr}T00:00:00+08:00`);
-      target.setDate(target.getDate() + days);
-      setForm({ ...form, from: fromStr, until: licenseReferenceCalendarDay(target) });
+      setForm({ ...form, from: fromStr, until: addDaysToKey(fromStr, days) });
     }
   };
 

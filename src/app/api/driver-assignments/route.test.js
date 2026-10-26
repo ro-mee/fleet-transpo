@@ -135,6 +135,17 @@ describe("POST /api/driver-assignments license eligibility", () => {
 });
 
 describe("GET /api/driver-assignments license evidence", () => {
+  it("returns database DATE values as calendar keys rather than UTC timestamps", async () => {
+    vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
+    vi.spyOn(db, "query").mockResolvedValue({ rows: [{
+      assignment_id: 1, ...DRIVER,
+      assigned_from: new Date(2026, 9, 26), assigned_until: null,
+      license_expiry: new Date(2030, 11, 31),
+    }] });
+    const response = await GET(request());
+    const { assignments } = await response.json();
+    expect(assignments[0]).toMatchObject({ assigned_from: "2026-10-26", assigned_until: null, license_expiry: "2030-12-31" });
+  });
   it("preserves presence and syntax without returning the license number", async () => {
     vi.spyOn(apiUtils, "requirePermission").mockResolvedValue({ user: { employeeId: 2 } });
     vi.spyOn(db, "query").mockResolvedValue({ rows: [
@@ -151,4 +162,20 @@ describe("GET /api/driver-assignments license evidence", () => {
     )).toEqual([[true, true], [true, false], [false, false]]);
     expect(assignments.every((row) => !("license_number" in row))).toBe(true);
   });
+});
+
+it("creates and closes custody intervals using Philippine dates independently of the database session timezone", async () => {
+  setup();
+  const queries = [];
+  vi.mocked(db.withTransaction).mockImplementationOnce(async (fn) => fn({ query: async (sql, params) => {
+    queries.push([sql, params]);
+    return sql.includes("SELECT d.driver_type")
+      ? { rows: [{ driver_type: "Passenger", operational_use: "Passenger" }] }
+      : { rows: [{ assignment_id: 71 }] };
+  } }));
+  expect((await POST(request())).status).toBe(201);
+  expect(queries.find(([sql]) => sql.includes("UPDATE driver_vehicle_assignments"))?.[0]).toContain("AT TIME ZONE 'Asia/Manila'");
+  const insert = queries.find(([sql]) => sql.includes("INSERT INTO driver_vehicle_assignments"))?.[0];
+  expect(insert).toContain("assigned_from");
+  expect(insert).toContain("AT TIME ZONE 'Asia/Manila'");
 });
