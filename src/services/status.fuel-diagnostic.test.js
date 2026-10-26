@@ -2,13 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const fixture = vi.hoisted(() => ({ maintenance: [], status: "Available", incidents: [], trips: [] }));
 vi.mock("@/lib/db", () => ({
   query: vi.fn(),
-  getAdminClient: () => ({ from: (table) => {
-    const result = { select() { return this; }, eq() { return this; }, in() { return this; }, is() { return this; }, limit() { return this; },
-      update(values) { fixture.status = values.vehicle_status; return this; },
-      maybeSingle: async () => ({ data: { vehicle_status: fixture.status, registration_expiry: "2030-01-01" } }),
-      then(resolve) { return Promise.resolve({ data: table === "vehiclemaintenance" ? fixture.maintenance : table === "driverincidents" ? fixture.incidents : table === "trips" ? fixture.trips : [] }).then(resolve); },
-    };
-    return result;
+  withTransaction: async (run) => run({ query: async (sql, values) => {
+    if (sql.includes("FROM vehicles")) return { rows: [{ vehicle_status: fixture.status, registration_expiry: "2030-01-01" }] };
+    if (sql.includes("FROM driverincidents")) return { rows: fixture.incidents };
+    if (sql.includes("FROM trips")) return { rows: fixture.trips };
+    if (sql.includes("FROM vehiclemaintenance")) return { rows: fixture.maintenance.filter((m) =>
+      ["In Progress", "Pending Inspection"].includes(m.status) || (m.status === "Scheduled" && m.maintenance_date <= values[1])) };
+    if (sql.includes("UPDATE vehicles")) { fixture.status = values[0]; return { rows: [] }; }
+    throw new Error(sql);
   } }),
 }));
 import { buildFuelDiagnosticPayload } from "@/lib/fuel/diagnostic";

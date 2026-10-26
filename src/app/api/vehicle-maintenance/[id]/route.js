@@ -1,8 +1,12 @@
+import { captureServiceCompletion, appendMaintenanceSnapshot, maintenanceSnapshots } from "@/services/maintenance-evidence.service";
+import { validateInspectionOutcomes, normalizeInspectionItems } from "@/lib/maintenance/inspection-signals";
+import { lockMaintenanceWorkOrder, assertWorkOrderPlanUnchanged } from "@/services/maintenance-plan-workorders.service";
 import { fanoutMaintenanceNotification } from "@/lib/maintenance/notifications";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
+import { syncVehicleStatus } from "@/services/status.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 import {
@@ -55,6 +59,7 @@ const FIELD_TO_COLUMN = {
   diagnosis: "diagnosis",
   parts_replaced: "parts_replaced",
   labor_hours: "labor_hours",
+  inspection_outcomes: "inspection_outcomes",
 };
 
 // Per-role state machines for the PUT guards below.
@@ -78,7 +83,7 @@ const STAFF_TRANSITIONS = {
 // deleted_at, next_schedule_*, assigned_mechanic_id, assigned_at — is stripped.
 const MECHANIC_WRITABLE = new Set(["status", "description", "remarks", "mileage_at_service",
   "notes",
-  "diagnosis", "parts_replaced", "labor_hours"]);
+  "diagnosis", "parts_replaced", "labor_hours", "inspection_outcomes"]);
 
 // Task 4b — scoped single-record read for the Task 6 detail page. Mechanic
 // reads own rows only (fail closed: unassigned NULL rows match nobody); staff
@@ -99,7 +104,7 @@ export async function GET(req, { params }) {
       `SELECT vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
          vm.completed_date, vm.status, vm.priority, vm.cost,
          vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
-         vm.source_incident_id, vm.source_inspection_id,
+         vm.inspection_items, vm.inspection_outcomes, (SELECT i.checklist FROM vehicleinspection i WHERE i.inspection_id=vm.source_inspection_id) AS source_checklist, vm.source_incident_id, vm.source_inspection_id, vm.service_plan_id, vm.service_plan_version,
          vm.assigned_mechanic_id, vm.assigned_at, vm.repair_started_at,
          vm.repair_completed_at, vm.repair_completed_by, vm.diagnosis,
          vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
@@ -114,7 +119,11 @@ export async function GET(req, { params }) {
     if (!rows[0]) return err("Maintenance record not found", 404);
     if (normalizeRoleName(session.user.role) === "mechanic" &&
       Number(rows[0].assigned_mechanic_id) !== Number(session.user.employeeId)) return err("Forbidden", 403);
-    return ok(rows[0]);
+    const row=rows[0];
+    if(!row.inspection_items?.length) row.inspection_items=normalizeInspectionItems([{inspection_id:row.source_inspection_id,checklist:row.source_checklist}]);
+    delete row.source_checklist;
+    row.forecast_snapshots=await maintenanceSnapshots(session.user,numericId);
+    return ok(row);
   } catch (e) { return handleError(e); }
 }
 
@@ -153,12 +162,8 @@ export async function PUT(req, { params }) {
     }
 
     const updateResult = await withTransaction(async (tx) => {
-      // Lock the active row so concurrent reviews cannot both pass the state
-      // guards and commit conflicting maintenance transitions.
-      const beforeRow = (await tx.query(
-        `SELECT status, created_by, repair_completed_by, assigned_mechanic_id, repair_started_at, priority, vehicle_id, maintenance_date FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [id]
-      )).rows[0];
+      const mechanicActor = normalizeRoleName(session.user.role) === "mechanic";
+      const { beforeRow, vehicleIds } = await lockMaintenanceWorkOrder(tx, id, mechanicActor ? null : body.vehicle_id, body.status === "Completed", mechanicActor ? null : body.maintenance_type);
       if (!beforeRow) return { error: err("Maintenance record not found", 404) };
 
       const isMechanic = normalizeRoleName(session.user.role) === "mechanic";
@@ -178,9 +183,39 @@ export async function PUT(req, { params }) {
         }
       }
 
+      assertWorkOrderPlanUnchanged(beforeRow, body);
+
+      // Empty actual dates are server-stamped on approval, never copied from
+      // the planned date or an earlier prefilled completion field.
+      if (body.status === "Completed" && beforeRow.status !== "Completed" && !body.completed_date) {
+        delete body.completed_date;
+      }
+
+      let reviewedInspectionItems=null;
+      if(body.inspection_outcomes !== undefined) {
+        if(["Completed","Cancelled"].includes(beforeRow.status)) return {error:err("Terminal inspection outcomes are read-only.",409)};
+        if(Number(beforeRow.assigned_mechanic_id)!==Number(session.user.employeeId)) return {error:err("Only the assigned mechanic can record inspection outcomes.",403)};
+        let items=beforeRow.inspection_items ?? [];
+        if(!items.length && beforeRow.source_inspection_id) {
+          const source=(await tx.query("SELECT inspection_id,checklist FROM vehicleinspection WHERE inspection_id=$1",[beforeRow.source_inspection_id])).rows[0];
+          items=normalizeInspectionItems(source?[source]:[]);
+        }
+        try {
+          reviewedInspectionItems=items;
+          const outcomes=validateInspectionOutcomes(body.inspection_outcomes,items,session.user.employeeId).map(value=>{
+            const old=(beforeRow.inspection_outcomes ?? []).find(previous=>previous.checklist_item_id===value.checklist_item_id);
+            return old && old.outcome===value.outcome && old.evidence===value.evidence ? old : value;
+          });
+          body.inspection_outcomes=[...(beforeRow.inspection_outcomes ?? []).filter(old=>!outcomes.some(value=>value.checklist_item_id===old.checklist_item_id)),...outcomes];
+        }
+        catch(e) { return {error:err(e.message,400)}; }
+      }
       const sets = [];
       const values = [];
       const seen = new Set();
+      if(reviewedInspectionItems) {
+        values.push(JSON.stringify(reviewedInspectionItems));sets.push("inspection_items = $1::jsonb");
+      }
       for (const [field, column] of Object.entries(FIELD_TO_COLUMN)) {
         if (body[field] === undefined) continue;
         if (seen.has(column)) continue;
@@ -189,7 +224,7 @@ export async function PUT(req, { params }) {
         // node-postgres maps JS arrays to PostgreSQL array literals. The
         // parts_replaced column is JSONB, so pass JSON text for the validated
         // JSON array instead of letting the driver build an array literal.
-        values.push(field === "parts_replaced" && value != null ? JSON.stringify(value) : value);
+        values.push(["parts_replaced","inspection_outcomes"].includes(field) && value != null ? JSON.stringify(value) : value);
         sets.push(`${column} = $${values.length}`);
       }
       if (sets.length === 0) return { error: err("No writable fields were provided", 400) };
@@ -288,6 +323,9 @@ export async function PUT(req, { params }) {
         }
       }
 
+      if (isTransitioningToCompleted && !body.completed_date) {
+        sets.push("completed_date = (NOW() AT TIME ZONE 'Asia/Manila')::date");
+      }
       values.push(id);
       const idParamIndex = values.length;
 
@@ -297,6 +335,16 @@ export async function PUT(req, { params }) {
         values
       );
       if (!rows[0]) return { error: err("Maintenance record not found", 404) };
+      if(body.inspection_outcomes !== undefined) await appendMaintenanceSnapshot(tx,{event:"mechanic_outcome",order:rows[0],actorId:session.user.employeeId,inputs:{inspection_items:beforeRow.inspection_items ?? []},outcome:{inspection_outcomes:body.inspection_outcomes}});
+      for (const vehicleId of vehicleIds) await syncVehicleStatus(vehicleId, tx);
+      if (isTransitioningToCompleted && !rows[0].deleted_at) {
+        await captureServiceCompletion(tx,rows[0],session.user.employeeId);
+        const cycle = await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0], tx);
+        if (rows[0].service_plan_id && cycle) await writeAuditRequired(tx, req, session, {
+          action: "service_plan_completed", resource: "vehicle_service_plans", resourceId: cycle.plan.plan_id,
+          oldValues: cycle.before, newValues: { ...cycle.plan, maintenance_id: rows[0].maintenance_id },
+        });
+      }
       const action = rows[0].deleted_at
         ? "maintenance_archived"
         : isTransitioningToCompleted
@@ -307,24 +355,13 @@ export async function PUT(req, { params }) {
         resource: "vehiclemaintenance",
         resourceId: rows[0].maintenance_id,
         oldValues: { status: beforeStatus },
-        newValues: { changed_fields: [...seen], status: rows[0].status, source_incident_id: rows[0].source_incident_id },
+        newValues: { service_plan_id: rows[0].service_plan_id, service_plan_version: rows[0].service_plan_version, changed_fields: [...seen], status: rows[0].status, source_incident_id: rows[0].source_incident_id },
       });
       return { row: rows[0], beforeStatus, beforeAssignee: beforeRow.assigned_mechanic_id ?? null, beforePriority: beforeRow.priority ?? null, beforeVehicleId: beforeRow.vehicle_id, beforeMaintenanceDate: beforeRow.maintenance_date };
     });
     if (updateResult.error) return updateResult.error;
     const { beforeStatus, beforeAssignee, beforePriority, beforeVehicleId, beforeMaintenanceDate } = updateResult;
     const rows = [updateResult.row];
-    if (rows[0]?.vehicle_id) {
-      const { syncVehicleStatus } = await import("@/services/status.service");
-      await syncVehicleStatus(rows[0].vehicle_id);
-      // Completing a record is what advances the vehicle's next due-dates.
-      // Skipped when this request archived the record: a row on its way out
-      // must not push a schedule forward, and the clamp would make that
-      // push permanent.
-      if (!rows[0].deleted_at) {
-        await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0]);
-      }
-    }
     // Task 5 — post-commit fan-out for the mechanic work-order lifecycle.
     // Best-effort only: every INSERT is dedupe-guarded on
     // (employee_id, title, reference_type, reference_id) and the whole block is

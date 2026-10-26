@@ -42,6 +42,7 @@ describe("POST work-order", () => {
       inspectionId: 42,
       session: expect.objectContaining({ user: expect.anything() }),
       allowChecklistType: true,
+      checklistItemId: null,
     });
     // The source is derived from the record, so the announcement cannot call a
     // Pre-Shift an end-of-shift report.

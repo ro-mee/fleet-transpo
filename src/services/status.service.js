@@ -1,88 +1,50 @@
 import { getAdminClient } from "@/lib/db";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
 import { employeeIdsForRoles, notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 import { driverAutoSuspendedDriver, driverAutoSuspendedStaff } from "@/lib/notifications/copy";
 import { licenseReferenceCalendarDay } from "@/lib/drivers/license-eligibility";
-import { manilaDateKey } from "@/lib/dates";
+import { manilaDateKey, toCalendarDay } from "@/lib/dates";
 
-function isBeforeToday(dateStr) {
-  if (!dateStr) return false;
-  const d = new Date(`${String(dateStr).slice(0, 10)}T00:00:00`);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return !Number.isNaN(d.getTime()) && d.getTime() < today.getTime();
-}
+/** Recompute on the caller's connection so required writes commit or roll back together. */
+export async function syncVehicleStatus(vehicleId, executor) {
+  if (!vehicleId) return;
+  if (!executor) return withTransaction((tx) => syncVehicleStatus(vehicleId, tx));
 
-
-export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminClient();
-
-  const { data: vehicle } = await supabase
-    .from("vehicles")
-    .select("vehicle_status, registration_expiry")
-    .eq("vehicle_id", vehicleId)
-    .maybeSingle();
+  const { rows: vehicles } = await executor.query(
+    `SELECT vehicle_status, registration_expiry FROM vehicles
+      WHERE vehicle_id = $1 AND deleted_at IS NULL FOR UPDATE`, [vehicleId]
+  );
+  const vehicle = vehicles[0];
   if (!vehicle || vehicle.vehicle_status === "Decommissioned") return;
-
-  // SAFETY INVARIANT: Unresolved Major/Critical incidents unconditionally ground the vehicle
-  const { data: incident } = await supabase
-    .from("driverincidents")
-    .select("incident_id")
-    .eq("vehicle_id", vehicleId)
-    .in("severity", ["Major", "Critical"])
-    .eq("status", "Open")
-    .is("deleted_at", null)
-    .limit(1);
-    
-  if (incident?.length) {
-    await supabase.from("vehicles").update({ vehicle_status: "Under Maintenance" }).eq("vehicle_id", vehicleId);
-    return;
-  }
-
-  const { data: maintenance } = await supabase
-    .from("vehiclemaintenance")
-    .select("maintenance_id, status, maintenance_date")
-    .eq("vehicle_id", vehicleId)
-    .in("status", ["Scheduled", "In Progress", "Pending Inspection"])
-    .is("deleted_at", null);
   const today = manilaDateKey();
-  const hasActiveMaintenance = (maintenance || []).some((m) => {
-    if (m.status === "In Progress" || m.status === "Pending Inspection") return true;
-    const day = String(m.maintenance_date ?? "").slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(day) && day <= today;
-  });
-  if (hasActiveMaintenance) {
-    await supabase.from("vehicles").update({ vehicle_status: "Under Maintenance" }).eq("vehicle_id", vehicleId);
-    return;
+  const { rows: incidents } = await executor.query(
+    `SELECT incident_id FROM driverincidents WHERE vehicle_id = $1
+      AND severity IN ('Major', 'Critical') AND status = 'Open'
+      AND deleted_at IS NULL LIMIT 1`, [vehicleId]
+  );
+  let status = "Under Maintenance";
+  if (!incidents.length) {
+    const { rows: maintenance } = await executor.query(
+      `SELECT maintenance_id FROM vehiclemaintenance WHERE vehicle_id = $1
+        AND deleted_at IS NULL AND (status IN ('In Progress', 'Pending Inspection')
+          OR (status = 'Scheduled' AND maintenance_date <= $2::date)) LIMIT 1`, [vehicleId, today]
+    );
+    if (!maintenance.length) {
+      const { rows: trips } = await executor.query(
+        `SELECT trip_id FROM trips WHERE vehicle_id = $1 AND deleted_at IS NULL
+          AND trip_status IN ('Trip Started', 'At Pickup', 'Passenger Onboard', 'En Route', 'Drop-off', 'Arrived', 'In Progress')
+          LIMIT 1`, [vehicleId]
+      );
+      const expiry = toCalendarDay(vehicle.registration_expiry);
+      status = trips.length ? "In Use" : expiry && expiry < today ? "Registration Expired" : "Available";
+    }
   }
-
-  const { data: trip } = await supabase
-    .from("trips")
-    .select("trip_id")
-    .eq("vehicle_id", vehicleId)
-    .in("trip_status", ["Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "In Progress"])
-    .is("deleted_at", null)
-    .limit(1);
-  if (trip?.length) {
-    await supabase.from("vehicles").update({ vehicle_status: "In Use" }).eq("vehicle_id", vehicleId);
-    return;
-  }
-
-  if (isBeforeToday(vehicle?.registration_expiry)) {
-    await supabase.from("vehicles").update({ vehicle_status: "Registration Expired" }).eq("vehicle_id", vehicleId);
-    return;
-  }
-
-  // NOTE: there is deliberately NO "Reserved" state. A coarse whole-day flag
-  // cannot express "busy 1am–2am, free 3am" — it pinned a car `Reserved` for a
-  // single booking and made every strict-`Available` picker hide it for all
-  // other times and days. Time-slot availability is answered precisely by the
-  // windowed searches (vehicles/available slot overlap, findDispatchConflicts,
-  // findReservationConflicts), so an open dispatch/booking on the row below
-  // never flips the flag. A vehicle is Available unless it is conditionally
-  // grounded (maintenance above, live trip above, expired registration above).
-  await supabase.from("vehicles").update({ vehicle_status: "Available" }).eq("vehicle_id", vehicleId);
+  // A booking reserves a time window, rather than grounding a whole vehicle day.
+  await executor.query(
+    "UPDATE vehicles SET vehicle_status = $1 WHERE vehicle_id = $2", [status, vehicleId]
+  );
 }
 
 export async function syncAllVehicleStatuses() {

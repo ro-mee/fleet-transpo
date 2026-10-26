@@ -1,7 +1,9 @@
+import { appendMaintenanceSnapshot } from "@/services/maintenance-evidence.service";
+import { isReviewedPlanRequest, reviewPlanWorkOrder } from "@/services/maintenance-plan-workorders.service";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
-import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
+import { syncVehicleStatus } from "@/services/status.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 import { normalizeRoleName } from "@/lib/auth/role-names";
 import { writeAppError } from "@/lib/app-errors";
@@ -63,7 +65,7 @@ const MT_LIST_SELECT = `
   vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
   vm.completed_date, vm.status, vm.priority, vm.cost,
   vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
-  vm.source_incident_id, vm.source_inspection_id, vm.assigned_mechanic_id,
+  vm.inspection_items, vm.inspection_outcomes, vm.source_incident_id, vm.source_inspection_id, vm.assigned_mechanic_id, vm.service_plan_id, vm.service_plan_version,
   vm.assigned_at, vm.repair_started_at, vm.repair_completed_at, vm.repair_completed_by,
   NULLIF(trim(concat_ws(' ', repairer.first_name, repairer.last_name)), '') AS repair_completed_by_name,
   vm.diagnosis, vm.parts_replaced, vm.labor_hours, vm.rejection_reason,
@@ -281,6 +283,7 @@ export async function POST(req) {
     body.status = "Scheduled";
     delete body.completed_by;
     delete body.completed_at;
+    delete body.completed_date;
 
     // Provenance: the server stamps the filing actor. A client-supplied
     // created_by is never trusted (spoof-proof by deletion, not by hoping the
@@ -346,8 +349,21 @@ export async function POST(req) {
     const insertSql = assigningMechanic
       ? `INSERT INTO vehiclemaintenance (${columns.join(", ")}, assigned_at) VALUES (${placeholders}, CURRENT_TIMESTAMP) RETURNING *`
       : `INSERT INTO vehiclemaintenance (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`;
-    const row = await withTransaction(async (tx) => {
-      const { rows } = await tx.query(insertSql, values);
+    const result = await withTransaction(async (tx) => {
+      const review = isReviewedPlanRequest(body) ? await reviewPlanWorkOrder(tx, session.user, body) : null;
+      if (review?.existing) return { row: review.existing, created: false };
+      if (!review) await tx.query(
+        "SELECT vehicle_id FROM vehicles WHERE vehicle_id = $1 FOR UPDATE", [Number(body.vehicle_id)]
+      );
+      const linkedColumns = review ? [...columns, "service_plan_id", "service_plan_version"] : columns;
+      const linkedValues = review ? [...values, review.plan.plan_id, review.plan.version] : values;
+      if (review) linkedValues[columns.indexOf("maintenance_type")] = review.plan.service_code === "routine" ? "Routine" : "Preventive";
+      const linkedSql = review
+        ? `INSERT INTO vehiclemaintenance (${linkedColumns.join(", ")}${assigningMechanic ? ", assigned_at" : ""}) VALUES (${linkedValues.map((_,i) => `$${i+1}`).join(", ")}${assigningMechanic ? ", CURRENT_TIMESTAMP" : ""}) RETURNING *`
+        : insertSql;
+      const { rows } = await tx.query(linkedSql, linkedValues);
+      if (review?.reviewedService) await appendMaintenanceSnapshot(tx,{event:"reviewed_schedule",order:rows[0],actorId:session.user.employeeId,forecast:review.reviewedService,inputs:{assessed_at:review.reviewedService.assessed_at,service_plan_version:review.plan.version,mileage:review.reviewedService.mileage,evidence:review.reviewedService.evidence,last_service_date:review.reviewedService.last_service_date,last_service_mileage:review.reviewedService.last_service_mileage,interval_days:review.reviewedService.interval_days,interval_km:review.reviewedService.interval_km}});
+      if (rows[0]?.vehicle_id) await syncVehicleStatus(rows[0].vehicle_id, tx);
       await writeAuditRequired(tx, req, session, {
         action: "maintenance_created",
         resource: "vehiclemaintenance",
@@ -355,19 +371,16 @@ export async function POST(req) {
         newValues: {
           vehicle_id: rows[0]?.vehicle_id,
           status: rows[0]?.status,
-          changed_fields: columns,
+          changed_fields: linkedColumns,
+          ...(review ? { service_plan_id: review.plan.plan_id, service_plan_version: review.plan.version, service_code: review.plan.service_code } : {}),
           source_incident_id: rows[0]?.source_incident_id,
           ...(assigningMechanic ? { assigned_mechanic_id: rows[0]?.assigned_mechanic_id } : {}),
         },
       });
-      return rows[0];
+      return { row: rows[0], created: true, reviewedService: review?.reviewedService ?? null };
     });
-    if (row?.vehicle_id) {
-      const { syncVehicleStatus } = await import("@/services/status.service");
-      await syncVehicleStatus(row.vehicle_id);
-      await recomputeVehicleSchedule(row.vehicle_id, row);
-    }
-    if (assigningMechanic && row?.maintenance_id) {
+    const { row, created } = result;
+    if (created && assigningMechanic && row?.maintenance_id) {
       try {
         const plate = (await query("SELECT plate_number FROM vehicles WHERE vehicle_id = $1", [row.vehicle_id])).rows[0]?.plate_number ?? null;
         // One ping, not two: an urgent assignment pages as the Alert only —
@@ -390,7 +403,7 @@ export async function POST(req) {
     // INSERT … WHERE NOT EXISTS dedupe. Best-effort only: a notify failure
     // lands in app_errors and never fails the create. Ordinary (non-fuel)
     // creates are untouched — the marker predicate is what arms this.
-    if (fuelDiagnostic && row?.maintenance_id) {
+    if (created && fuelDiagnostic && row?.maintenance_id) {
       try {
         const { notifyFuelDiagnosticTeam } = await import("@/lib/fuel/maintenance");
         const plate = (await query(
@@ -409,6 +422,6 @@ export async function POST(req) {
         });
       }
     }
-    return ok(row, 201);
+    return ok(row, created ? 201 : 200);
   } catch (e) { return handleError(e); }
 }

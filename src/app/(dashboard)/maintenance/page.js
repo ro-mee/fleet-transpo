@@ -20,6 +20,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles, archiveVehicleMaintenance } from "@/services/vehicle.service";
+import { getMaintenanceRecord } from "@/services/maintenance.service";
 import { getMechanics } from "@/services/maintenance.service";
 import { MechanicAssignmentField } from "@/components/maintenance/mechanic-assignment-field";
 import { RepairEvidence } from "@/components/maintenance/repair-evidence";
@@ -59,6 +60,8 @@ export default function MaintenancePage() {
   const searchParams = useSearchParams();
   const sourceIncidentId = searchParams.get("incident_id") || "";
   const workOrderId = searchParams.get("work_order_id") || "";
+  const linkedOrderId = searchParams.get("work_order") || "";
+  const linkedOrder = useQuery({queryKey:["maintenance-record",linkedOrderId],queryFn:()=>getMaintenanceRecord(linkedOrderId),enabled:/^[1-9]\d*$/.test(linkedOrderId)});
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState([]);
   const [searchInput, setSearchInput] = useState("");
@@ -234,6 +237,12 @@ export default function MaintenancePage() {
     setDialogOpen(true);
   }
 
+  useEffect(() => {
+    if (!linkedOrder.data) return;
+    const timer = setTimeout(() => {setViewingRecord(linkedOrder.data);setEditingRecord(null);setDialogOpen(true);},0);
+    return () => clearTimeout(timer);
+  }, [linkedOrder.data]);
+
   function closeDialog() {
     setDialogOpen(false);
     setViewingRecord(null);
@@ -402,9 +411,17 @@ export default function MaintenancePage() {
     []
   );
 
+  const linkedOrderFeedback = linkedOrder.isError ? (
+    <div role="alert" className="rounded-xl border border-danger/30 bg-danger-bg p-4 text-sm text-foreground">
+      Could not open this work order.{" "}
+      <Button type="button" variant="outline" onClick={() => linkedOrder.refetch()}>Retry work order</Button>
+    </div>
+  ) : null;
+
   if (isError) {
     return (
       <div className="space-y-6 pb-12 w-full">
+        {linkedOrderFeedback}
         <EmptyState
           icon={TriangleAlert}
           title="Could not load maintenance records"
@@ -418,6 +435,7 @@ export default function MaintenancePage() {
 
   return (
     <div className="space-y-6 pb-12 w-full">
+      {linkedOrderFeedback}
       {/* ── TOP HERO HEADER BAR ── */}
       <HeroHeader
         icon={Wrench}

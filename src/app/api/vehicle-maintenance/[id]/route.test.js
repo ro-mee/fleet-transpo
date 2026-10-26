@@ -75,6 +75,36 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     return { json: async () => body };
   }
 
+  it("saves only linked assigned-mechanic item outcomes with server evidence stamps", async () => {
+    mockRecord.status="In Progress";mockRecord.assigned_mechanic_id=77;
+    mockRecord.inspection_items=[{checklist_item_id:"brakes_tires",inspection_ids:[42]}];
+    const req=mockRequest({inspection_outcomes:[{checklist_item_id:"brakes_tires",outcome:"confirmed",evidence:"Pads replaced",actor_id:999}]},"mechanic",77);
+    const res=await PUT(req,{params:Promise.resolve({id:maintenanceId})});
+    expect(res.status).toBe(200);
+    const call=querySpy.mock.calls.find(([sql])=>sql.includes("UPDATE vehiclemaintenance"));
+    const evidence=call[1].find(value=>typeof value==="string" && value.includes("\"outcome\""));
+    expect(JSON.parse(evidence)[0]).toMatchObject({actor_id:77,evidence:"Pads replaced",inspection_ids:[42]});
+    expect(JSON.parse(evidence)[0].recorded_at).toBeTruthy();
+  });
+  it("preserves unchanged replay outcome sources actor and time when another item is edited",async()=>{
+    mockRecord.status="In Progress";mockRecord.assigned_mechanic_id=77;
+    mockRecord.inspection_items=[{checklist_item_id:"brakes_tires",inspection_ids:[1,2]},{checklist_item_id:"lights",inspection_ids:[2]}];
+    const old={checklist_item_id:"brakes_tires",inspection_ids:[1],outcome:"not_confirmed",evidence:"Not reproduced",actor_id:55,recorded_at:"2026-10-01T00:00:00Z"};
+    mockRecord.inspection_outcomes=[old];
+    const body={inspection_outcomes:[{checklist_item_id:"brakes_tires",outcome:"not_confirmed",evidence:"Not reproduced"},{checklist_item_id:"lights",outcome:"confirmed",evidence:"Lamp replaced"}]};
+    expect((await PUT(mockRequest(body,"mechanic",77),{params:Promise.resolve({id:maintenanceId})})).status).toBe(200);
+    const call=querySpy.mock.calls.find(([sql])=>sql.includes("UPDATE vehiclemaintenance"));
+    const saved=JSON.parse(call[1].find(v=>typeof v==="string" && v.includes('"outcome"')));
+    expect(saved.find(v=>v.checklist_item_id==="brakes_tires")).toEqual(old);
+    expect(saved.find(v=>v.checklist_item_id==="lights")).toMatchObject({actor_id:77,inspection_ids:[2]});
+  });
+  it("rejects foreign item outcomes and another mechanic's evidence edit", async () => {
+    mockRecord.status="In Progress";mockRecord.assigned_mechanic_id=77;
+    mockRecord.inspection_items=[{checklist_item_id:"brakes_tires",inspection_ids:[42]}];
+    const body={inspection_outcomes:[{checklist_item_id:"lights",outcome:"confirmed",evidence:"Fixed"}]};
+    expect((await PUT(mockRequest(body,"mechanic",77),{params:Promise.resolve({id:maintenanceId})})).status).toBe(400);
+    expect((await PUT(mockRequest(body,"mechanic",78),{params:Promise.resolve({id:maintenanceId})})).status).toBe(403);
+  });
   it("Test 1: Scheduled → In Progress (completed_by remains NULL)", async () => {
     mockRecord.status = "Scheduled"; // Before status
     
@@ -654,6 +684,13 @@ describe("GET /api/vehicle-maintenance/[id] scoped single-record read (Task 4b)"
     "completed_date",
   ];
 
+  it("GET performs no evidence writes even when repeated", async () => {
+    stubGetRow(EVIDENCE_ROW());
+    await GET(mockGetRequest(),{params:Promise.resolve({id:"11"})});
+    await GET(mockGetRequest(),{params:Promise.resolve({id:"11"})});
+    const writes=db.query.mock.calls.filter(([sql])=>/INSERT|UPDATE|DELETE/.test(sql));
+    expect(writes).toEqual([]);
+  });
   it("mechanic 77 GET own assigned WO → 200 with the 9 evidence keys, lean vehicle", async () => {
     stubGetRow(EVIDENCE_ROW());
     const res = await GET(mockGetRequest("mechanic", 77), {

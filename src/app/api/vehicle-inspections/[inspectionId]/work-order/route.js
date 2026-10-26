@@ -32,7 +32,7 @@ export async function POST(req, { params }) {
     // through — it is what makes the earlier "only an End Duty report raises a
     // work order" boundary true of the automatic path and false of a person's
     // request. This route is the only caller that sets it.
-    const result = await ensureInspectionMaintenance({ inspectionId, session, allowChecklistType: true });
+    const result = await ensureInspectionMaintenance({ inspectionId, session, allowChecklistType: true, checklistItemId: req.url ? new URL(req.url).searchParams.get("checklist_item_id") : null });
 
     if (result.notFound) return err("Inspection not found", 404);
     if (result.notRequired) {

@@ -1,0 +1,13 @@
+import { beforeEach, it, expect, vi } from "vitest";
+const h=vi.hoisted(()=>({user:{role:"fleet_manager",employeeId:8},save:vi.fn(),list:vi.fn(),audit:vi.fn(),permission:vi.fn()}));
+vi.mock("@/lib/db",()=>({query:vi.fn(),withTransaction:async run=>run({query:vi.fn()})}));
+vi.mock("@/lib/api/utils",async()=>{const actual=await vi.importActual("@/lib/api/utils");return {...actual,requirePermission:async(...args)=>{h.permission(...args);return {user:h.user};}};});
+vi.mock("@/lib/audit",()=>({writeAuditRequired:h.audit}));
+vi.mock("@/services/maintenance-plans.service",async()=>{const actual=await vi.importActual("@/services/maintenance-plans.service");return {...actual,saveServicePlan:h.save,listServicePlans:h.list};});
+import { GET,PUT } from "./route";
+const request=body=>new Request("https://fleet.test/api/maintenance/service-plans?vehicle_id=7",body?{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(body)}:{});
+beforeEach(()=>{vi.clearAllMocks();h.user={role:"fleet_manager",employeeId:8};h.save.mockResolvedValue({before:null,plan:{plan_id:4,version:1}});h.list.mockResolvedValue([]);});
+it("denies configuration to a mechanic even with maintenance update",async()=>{h.user.role="mechanic";expect((await PUT(request({vehicle_id:7,service_code:"routine",interval_days:30,expected_version:0}))).status).toBe(403);expect(h.save).not.toHaveBeenCalled();});
+it.each(["admin","super_admin","fleet_manager"])("allows %s and requires audited configuration",async role=>{h.user.role=role;const res=await PUT(request({vehicle_id:7,service_code:"routine",interval_days:30,expected_version:0}));expect(res.status).toBe(200);expect(h.permission).toHaveBeenCalledWith(expect.anything(),"maintenance","update");expect(h.audit).toHaveBeenCalled();});
+it("fails configuration if its required audit fails",async()=>{h.audit.mockRejectedValueOnce(new Error("audit failed"));expect((await PUT(request({vehicle_id:7,service_code:"routine",interval_days:30,expected_version:0}))).status).toBe(500);});
+it("passes mechanic scope to the read service",async()=>{h.user.role="mechanic";expect((await GET(request())).status).toBe(200);expect(h.list).toHaveBeenCalledWith(h.user,"7");});

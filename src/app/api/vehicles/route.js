@@ -1,3 +1,4 @@
+import { assertPlanConfigurationRole, hasLegacyScheduleFields, syncRoutinePlanFromLegacy } from "@/services/maintenance-plans.service";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
@@ -123,6 +124,10 @@ export async function POST(req) {
 
     // Separate documents array from vehicle attributes
     const { documents, ...vehicleData } = body;
+    if (hasLegacyScheduleFields(vehicleData)) {
+      await requirePermission(req, "maintenance", "update");
+      assertPlanConfigurationRole(session.user);
+    }
 
     // Validate fields before inserting
     const errors = validateBody(vehicleData, vehicleWriteSchema);
@@ -181,6 +186,7 @@ export async function POST(req) {
         values
       );
       const created = rows[0];
+      if (created) await syncRoutinePlanFromLegacy(tx, created.vehicle_id, vehicleData, session.user.employeeId);
       if (Array.isArray(documents) && documents.length > 0 && created?.vehicle_id) {
         for (const doc of documents) {
           if (!doc.document_type || (!doc.file_url && !doc.expiry_date && !doc.document_number)) continue;

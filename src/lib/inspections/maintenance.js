@@ -1,3 +1,4 @@
+import { reuseInspectionItemOrder, attachOriginalInspectionItems } from "@/services/maintenance-inspection-workorders.service";
 import { query, withTransaction } from "@/lib/db";
 import { sendPush } from "@/services/push.service";
 import { buildInspectionMaintenancePayload, buildChecklistMaintenancePayload } from "@/lib/inspections/report";
@@ -21,7 +22,7 @@ import { writeAppError } from "@/lib/app-errors";
 // source_inspection_id already answers from the other direction.
 
 const SELECT_WORK_ORDER = `SELECT maintenance_id, vehicle_id, maintenance_type, maintenance_date,
-                                  status, priority, cost, source_inspection_id
+                                  status, priority, cost, source_inspection_id, inspection_items
                              FROM vehiclemaintenance
                             WHERE source_inspection_id = $1
                             ORDER BY maintenance_id DESC
@@ -32,7 +33,7 @@ const SELECT_WORK_ORDER = `SELECT maintenance_id, vehicle_id, maintenance_type, 
  * Returns a discriminated result rather than throwing for the ordinary
  * outcomes — "nothing was reported" is not an error.
  */
-export async function ensureInspectionMaintenance({ inspectionId, session, allowChecklistType = false }) {
+export async function ensureInspectionMaintenance({ inspectionId, session, allowChecklistType = false, checklistItemId = null }) {
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(
       // FOR UPDATE OF i: a bare FOR UPDATE cannot lock the nullable side of a
@@ -77,8 +78,12 @@ export async function ensureInspectionMaintenance({ inspectionId, session, allow
     const failedItems = isChecklistType ? failedItemsFrom(inspection.checklist) : [];
     if (isChecklistType && !failedItems.length) return { notReported: true, inspection };
 
+    if (isChecklistType) {
+      const reused = await reuseInspectionItemOrder(tx, inspection, checklistItemId, session?.user?.employeeId ?? null);
+      if (reused) return { workOrder: reused, created: false, inspection };
+    }
     const { rows: existingRows } = await tx.query(SELECT_WORK_ORDER, [inspection.inspection_id]);
-    if (existingRows[0]) return { workOrder: existingRows[0], created: false, inspection };
+    if (existingRows[0]) return { workOrder: isChecklistType ? await attachOriginalInspectionItems(tx, existingRows[0], inspection, session?.user?.employeeId ?? null, checklistItemId) : existingRows[0], created: false, inspection };
 
     const payload = isChecklistType
       ? buildChecklistMaintenancePayload({
@@ -130,7 +135,7 @@ export async function ensureInspectionMaintenance({ inspectionId, session, allow
       if (!recoveredRows[0]) throw new Error("End Duty work order could not be created");
       return { workOrder: recoveredRows[0], created: false, inspection };
     }
-    return { workOrder, created: true, inspection };
+    return { workOrder: isChecklistType ? await attachOriginalInspectionItems(tx, workOrder, inspection, session?.user?.employeeId ?? null, checklistItemId, true) : workOrder, created: true, inspection };
   });
 }
 

@@ -1,3 +1,4 @@
+import { assertPlanConfigurationRole, hasLegacyScheduleFields, syncRoutinePlanFromLegacy } from "@/services/maintenance-plans.service";
 import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
@@ -110,6 +111,10 @@ export async function PUT(req, { params }) {
     const id = (await params).id;
     const body = await parseBody(req);
     const { documents, ...vehicleData } = body;
+    if (hasLegacyScheduleFields(vehicleData)) {
+      await requirePermission(req, "maintenance", "update");
+      assertPlanConfigurationRole(session.user);
+    }
 
     const errors = validateBody(vehicleData, vehicleWriteSchema);
     if (vehicleData.required_license_class && !SUPPORTED_LICENSE_CLASSES.includes(String(vehicleData.required_license_class).trim().toUpperCase())) {
@@ -198,6 +203,7 @@ export async function PUT(req, { params }) {
         [id]
       );
       if (!beforeRows[0]) return null;
+      await syncRoutinePlanFromLegacy(tx, id, vehicleData, session.user.employeeId);
 
       const { rows } = await tx.query(
         `UPDATE vehicles SET ${setClause} WHERE vehicle_id = $${keys.length + 1} AND deleted_at IS NULL RETURNING *`,

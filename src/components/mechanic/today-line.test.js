@@ -141,6 +141,14 @@ describe("Today's Line dashboard", () => {
     expect(rail).toContain("Upcoming maintenance unavailable");
   });
 
+  it("includes recorded mileage overdue without inventing a day count", () => {
+    const row = { vehicle_id: 7, plate_number: "OVER-007", serviceStatus: "overdue", mileageOverdue: true, kmToService: -1, effectiveDays: null, basis: "mileage" };
+    expect(isActionablePrediction(row)).toBe(true);
+    const rail = renderToStaticMarkup(React.createElement(SideRail, { job: null, upcoming: [row] }));
+    expect(rail).toContain("mileage overdue by 1 km");
+    expect(rail).not.toContain("overdue by null days");
+  });
+
   it("keeps predictive items visible when the actionable line is clear", () => {
     state.queries = {
       mechanicSummary: { data: emptySummary(), isLoading: false },

@@ -982,6 +982,22 @@ CREATE TABLE locations (
   CONSTRAINT locations_pkey PRIMARY KEY (location_id)
 );
 
+CREATE TABLE maintenance_forecast_snapshots (
+  snapshot_id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  vehicle_id integer NOT NULL,
+  service_plan_id integer,
+  maintenance_id integer,
+  rule_version text NOT NULL,
+  event text NOT NULL,
+  captured_at timestamptz DEFAULT clock_timestamp() NOT NULL,
+  captured_by integer,
+  inputs jsonb DEFAULT '{}'::jsonb NOT NULL,
+  forecast jsonb DEFAULT '{}'::jsonb NOT NULL,
+  outcome jsonb DEFAULT '{}'::jsonb NOT NULL,
+  CONSTRAINT maintenance_forecast_snapshots_event_check CHECK ((event = ANY (ARRAY['reviewed_schedule'::text, 'inspection_reviewed'::text, 'mechanic_outcome'::text, 'completed'::text, 'threshold_observed'::text]))),
+  CONSTRAINT maintenance_forecast_snapshots_pkey PRIMARY KEY (snapshot_id)
+);
+
 CREATE TABLE mfa_recovery_codes (
   recovery_code_id bigint DEFAULT nextval('mfa_recovery_codes_recovery_code_id_seq'::regclass) NOT NULL,
   employee_id integer NOT NULL,
@@ -1455,7 +1471,8 @@ CREATE TABLE transportation_requests (
   CONSTRAINT chk_transport_fleet_status CHECK (((fleet_status)::text = ANY ((ARRAY['Pending'::character varying, 'Scheduled'::character varying, 'Assigned'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT chk_transport_priority CHECK (((priority)::text = ANY ((ARRAY['Urgent'::character varying, 'High'::character varying, 'Medium'::character varying, 'Low'::character varying])::text[]))),
   CONSTRAINT chk_transport_typed_load CHECK ((((load_type IS NULL) AND (passenger_count IS NOT NULL) AND (passenger_count > 0) AND (cargo_weight_kg IS NULL) AND (cargo_description IS NULL)) OR ((load_type IS NOT NULL) AND ((load_type)::text = 'Passenger'::text) AND (passenger_count IS NOT NULL) AND (passenger_count > 0) AND (cargo_weight_kg IS NULL) AND (cargo_description IS NULL)) OR ((load_type IS NOT NULL) AND ((load_type)::text = 'Cargo'::text) AND (passenger_count IS NULL) AND (cargo_weight_kg IS NOT NULL) AND (cargo_weight_kg > (0)::numeric) AND (cargo_weight_kg <> 'NaN'::numeric) AND (cargo_description IS NOT NULL) AND (btrim(cargo_description, (' 	
-'::text || chr(11))) <> ''::text)))),
+
+'::text || chr(11))) <> ''::text)))),
   CONSTRAINT chk_transportation_requests_partner_dropoff_location_proposal CHECK (((partner_dropoff_location_proposal IS NULL) OR ((jsonb_typeof(partner_dropoff_location_proposal) = 'object'::text) AND ((partner_dropoff_location_proposal - ARRAY['address'::text, 'latitude'::text, 'longitude'::text]) = '{}'::jsonb) AND ((NOT (partner_dropoff_location_proposal ? 'address'::text)) OR ((jsonb_typeof((partner_dropoff_location_proposal -> 'address'::text)) = 'string'::text) AND (char_length((partner_dropoff_location_proposal ->> 'address'::text)) <= 2000))) AND ((((NOT (partner_dropoff_location_proposal ? 'latitude'::text)) OR (jsonb_typeof((partner_dropoff_location_proposal -> 'latitude'::text)) = 'null'::text)) AND ((NOT (partner_dropoff_location_proposal ? 'longitude'::text)) OR (jsonb_typeof((partner_dropoff_location_proposal -> 'longitude'::text)) = 'null'::text))) OR
 CASE
     WHEN ((jsonb_typeof((partner_dropoff_location_proposal -> 'latitude'::text)) = 'number'::text) AND (jsonb_typeof((partner_dropoff_location_proposal -> 'longitude'::text)) = 'number'::text)) THEN
@@ -1465,7 +1482,8 @@ CASE
     END
     ELSE false
 END) AND (((NULLIF(btrim((partner_dropoff_location_proposal ->> 'address'::text)), ''::text) IS NOT NULL) AND (NULLIF(btrim((partner_dropoff_location_proposal ->> 'address'::text), (' 	
-'::text || chr(11))), ''::text) IS NOT NULL)) OR
+
+'::text || chr(11))), ''::text) IS NOT NULL)) OR
 CASE
     WHEN ((jsonb_typeof((partner_dropoff_location_proposal -> 'latitude'::text)) = 'number'::text) AND (jsonb_typeof((partner_dropoff_location_proposal -> 'longitude'::text)) = 'number'::text)) THEN
     CASE
@@ -1483,7 +1501,8 @@ CASE
     END
     ELSE false
 END) AND (((NULLIF(btrim((partner_pickup_location_proposal ->> 'address'::text)), ''::text) IS NOT NULL) AND (NULLIF(btrim((partner_pickup_location_proposal ->> 'address'::text), (' 	
-'::text || chr(11))), ''::text) IS NOT NULL)) OR
+
+'::text || chr(11))), ''::text) IS NOT NULL)) OR
 CASE
     WHEN ((jsonb_typeof((partner_pickup_location_proposal -> 'latitude'::text)) = 'number'::text) AND (jsonb_typeof((partner_pickup_location_proposal -> 'longitude'::text)) = 'number'::text)) THEN
     CASE
@@ -1683,6 +1702,50 @@ CREATE TABLE vehicle_cargo_profiles (
   CONSTRAINT vehicle_cargo_profiles_pkey PRIMARY KEY (vehicle_id)
 );
 
+CREATE TABLE vehicle_odometer_observations (
+  observation_id integer DEFAULT nextval('vehicle_odometer_observations_observation_id_seq'::regclass) NOT NULL,
+  vehicle_id integer NOT NULL,
+  reading_km numeric(12,2) NOT NULL,
+  observed_at timestamptz NOT NULL,
+  recorded_at timestamptz DEFAULT clock_timestamp() NOT NULL,
+  recorded_by integer NOT NULL,
+  reason text NOT NULL,
+  CONSTRAINT vehicle_odometer_observations_no_future CHECK ((observed_at <= recorded_at)),
+  CONSTRAINT vehicle_odometer_observations_reading_km_check CHECK (((reading_km >= (0)::numeric) AND (reading_km <= (2000000)::numeric))),
+  CONSTRAINT vehicle_odometer_observations_reason_check CHECK (((NULLIF(btrim(reason), ''::text) IS NOT NULL) AND (length(reason) <= 1000))),
+  CONSTRAINT vehicle_odometer_observations_pkey PRIMARY KEY (observation_id)
+);
+
+CREATE TABLE vehicle_service_plans (
+  plan_id integer DEFAULT nextval('vehicle_service_plans_plan_id_seq'::regclass) NOT NULL,
+  vehicle_id integer NOT NULL,
+  service_code varchar(20) NOT NULL,
+  interval_days integer,
+  interval_km numeric(12,2),
+  last_service_date date,
+  last_service_mileage numeric(12,2),
+  next_service_date date,
+  next_service_mileage numeric(12,2),
+  deferred_until date,
+  defer_reason text,
+  version integer DEFAULT 1 NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  created_by integer,
+  updated_by integer,
+  CONSTRAINT vehicle_service_plans_configured CHECK (((interval_days IS NOT NULL) OR (interval_km IS NOT NULL) OR (next_service_date IS NOT NULL) OR (next_service_mileage IS NOT NULL))),
+  CONSTRAINT vehicle_service_plans_deferral CHECK (((deferred_until IS NULL) OR (NULLIF(btrim(defer_reason), ''::text) IS NOT NULL))),
+  CONSTRAINT vehicle_service_plans_interval_days_check CHECK ((interval_days > 0)),
+  CONSTRAINT vehicle_service_plans_interval_km_check CHECK ((interval_km > (0)::numeric)),
+  CONSTRAINT vehicle_service_plans_last_service_mileage_check CHECK ((last_service_mileage >= (0)::numeric)),
+  CONSTRAINT vehicle_service_plans_next_service_mileage_check CHECK ((next_service_mileage >= (0)::numeric)),
+  CONSTRAINT vehicle_service_plans_service_code_check CHECK (((service_code)::text = ANY ((ARRAY['routine'::character varying, 'brakes'::character varying, 'tires'::character varying])::text[]))),
+  CONSTRAINT vehicle_service_plans_version_check CHECK ((version > 0)),
+  CONSTRAINT vehicle_service_plans_pkey PRIMARY KEY (plan_id),
+  CONSTRAINT vehicle_service_plans_plan_vehicle_key UNIQUE (plan_id, vehicle_id),
+  CONSTRAINT vehicle_service_plans_vehicle_code_key UNIQUE (vehicle_id, service_code)
+);
+
 CREATE TABLE vehiclecategories (
   category_id integer DEFAULT nextval('vehiclecategories_category_id_seq'::regclass) NOT NULL,
   category_name varchar(100) NOT NULL,
@@ -1775,6 +1838,11 @@ CREATE TABLE vehiclemaintenance (
   parts_replaced jsonb DEFAULT '[]'::jsonb,
   labor_hours numeric(8,2),
   rejection_reason text,
+  service_plan_id integer,
+  service_plan_version integer,
+  inspection_items jsonb DEFAULT '[]'::jsonb NOT NULL,
+  inspection_outcomes jsonb DEFAULT '[]'::jsonb NOT NULL,
+  CONSTRAINT vehiclemaintenance_service_plan_pair CHECK ((((service_plan_id IS NULL) AND (service_plan_version IS NULL)) OR ((service_plan_id IS NOT NULL) AND (vehicle_id IS NOT NULL) AND (service_plan_version IS NOT NULL) AND (service_plan_version > 0)))),
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -1817,7 +1885,7 @@ CREATE TABLE vehicles (
   commissioning_status varchar(20) DEFAULT 'Pending'::character varying,
   fuel_level_updated_at timestamptz,
   CONSTRAINT chk_vehicle_fuel_efficiency CHECK (((fuel_efficiency_kmpl IS NULL) OR ((fuel_efficiency_kmpl > (0)::numeric) AND (fuel_efficiency_kmpl <= (100)::numeric)))),
-  CONSTRAINT chk_vehicle_status CHECK (((vehicle_status)::text = ANY ((ARRAY['Available'::character varying, 'Reserved'::character varying, 'In Use'::character varying, 'Under Maintenance'::character varying, 'Decommissioned'::character varying])::text[]))),
+  CONSTRAINT chk_vehicle_status CHECK (((vehicle_status)::text = ANY ((ARRAY['Available'::character varying, 'Reserved'::character varying, 'In Use'::character varying, 'Under Maintenance'::character varying, 'Decommissioned'::character varying, 'Registration Expired'::character varying])::text[]))),
   CONSTRAINT chk_vehicle_tank_capacity CHECK (((tank_capacity_l IS NULL) OR ((tank_capacity_l > (0)::numeric) AND (tank_capacity_l <= (1000)::numeric)))),
   CONSTRAINT chk_vehicles_cargo_capacity CHECK (((cargo_capacity_kg IS NULL) OR ((cargo_capacity_kg > (0)::numeric) AND (cargo_capacity_kg <> 'NaN'::numeric)))),
   CONSTRAINT chk_vehicles_commissioning_status CHECK (((commissioning_status)::text = ANY ((ARRAY['Pending'::character varying, 'Ready'::character varying])::text[]))),
@@ -1948,6 +2016,10 @@ ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_vehicle_id_fkey FOREIGN KEY (
 ALTER TABLE incident_comments ADD CONSTRAINT incident_comments_incident_id_fkey FOREIGN KEY (incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE incident_comments ADD CONSTRAINT incident_comments_user_id_fkey FOREIGN KEY (user_id) REFERENCES employees(employee_id);
 ALTER TABLE locations ADD CONSTRAINT locations_address_id_fkey FOREIGN KEY (address_id) REFERENCES addresses(address_id) ON DELETE SET NULL;
+ALTER TABLE maintenance_forecast_snapshots ADD CONSTRAINT maintenance_forecast_snapshots_captured_by_fkey FOREIGN KEY (captured_by) REFERENCES employees(employee_id);
+ALTER TABLE maintenance_forecast_snapshots ADD CONSTRAINT maintenance_forecast_snapshots_maintenance_id_fkey FOREIGN KEY (maintenance_id) REFERENCES vehiclemaintenance(maintenance_id);
+ALTER TABLE maintenance_forecast_snapshots ADD CONSTRAINT maintenance_forecast_snapshots_service_plan_id_fkey FOREIGN KEY (service_plan_id) REFERENCES vehicle_service_plans(plan_id);
+ALTER TABLE maintenance_forecast_snapshots ADD CONSTRAINT maintenance_forecast_snapshots_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE mfa_recovery_codes ADD CONSTRAINT mfa_recovery_codes_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE mobile_refresh_tokens ADD CONSTRAINT mobile_refresh_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE notification_preferences ADD CONSTRAINT notification_preferences_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
@@ -2011,6 +2083,11 @@ ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_dispatch_id_fkey FO
 ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicle_cargo_profiles ADD CONSTRAINT vehicle_cargo_profiles_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
 ALTER TABLE vehicle_cargo_profiles ADD CONSTRAINT vehicle_cargo_profiles_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_odometer_observations ADD CONSTRAINT vehicle_odometer_observations_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_odometer_observations ADD CONSTRAINT vehicle_odometer_observations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE vehicle_service_plans ADD CONSTRAINT vehicle_service_plans_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_service_plans ADD CONSTRAINT vehicle_service_plans_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
+ALTER TABLE vehicle_service_plans ADD CONSTRAINT vehicle_service_plans_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicledocuments ADD CONSTRAINT vehicledocuments_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
@@ -2021,6 +2098,7 @@ ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_inspected_by_fkey FOREIGN KEY (inspected_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_manager_approved_by_fkey FOREIGN KEY (manager_approved_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_repair_completed_by_fkey FOREIGN KEY (repair_completed_by) REFERENCES employees(employee_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_service_plan_vehicle_fk FOREIGN KEY (service_plan_id, vehicle_id) REFERENCES vehicle_service_plans(plan_id, vehicle_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_incident_id_fkey FOREIGN KEY (source_incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_inspection_id_fkey FOREIGN KEY (source_inspection_id) REFERENCES vehicleinspection(inspection_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -2116,6 +2194,7 @@ CREATE INDEX idx_locations_active_name ON public.locations USING btree (is_activ
 CREATE INDEX idx_locations_address_id ON public.locations USING btree (address_id);
 CREATE INDEX idx_locations_name ON public.locations USING btree (name);
 CREATE INDEX idx_maintenance_date ON public.vehiclemaintenance USING btree (maintenance_date);
+CREATE INDEX idx_maintenance_forecast_order ON public.maintenance_forecast_snapshots USING btree (maintenance_id, snapshot_id);
 CREATE INDEX idx_maintenance_status ON public.vehiclemaintenance USING btree (status);
 CREATE INDEX idx_maintenance_vehicle ON public.vehiclemaintenance USING btree (vehicle_id);
 CREATE INDEX idx_mfa_recovery_codes_employee ON public.mfa_recovery_codes USING btree (employee_id, used_at);
@@ -2223,6 +2302,8 @@ CREATE UNIQUE INDEX uq_supply_shipment_source_event ON public.supply_shipment_ev
 CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehiclemaintenance_source_incident ON public.vehiclemaintenance USING btree (source_incident_id) WHERE (source_incident_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_vehiclemaintenance_source_inspection ON public.vehiclemaintenance USING btree (source_inspection_id) WHERE (source_inspection_id IS NOT NULL);
+CREATE INDEX vehicle_odometer_observations_vehicle_time ON public.vehicle_odometer_observations USING btree (vehicle_id, observed_at DESC, observation_id DESC);
+CREATE UNIQUE INDEX vehiclemaintenance_active_service_plan_key ON public.vehiclemaintenance USING btree (service_plan_id) WHERE ((service_plan_id IS NOT NULL) AND (deleted_at IS NULL) AND ((status)::text = ANY ((ARRAY['Scheduled'::character varying, 'In Progress'::character varying, 'Pending Inspection'::character varying])::text[])));
 CREATE UNIQUE INDEX vehicles_fleet_asset_code_uq ON public.vehicles USING btree (fleet_asset_code);
 
 -- ============================= VIEWS ============================
@@ -2824,6 +2905,14 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.maintenance_forecast_immutable()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN RAISE EXCEPTION 'Maintenance forecast evidence is immutable'; END;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.notify_dispatch_created()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -3053,6 +3142,7 @@ CREATE TRIGGER supply_manifest_revisions_immutable BEFORE DELETE OR UPDATE ON pu
 CREATE TRIGGER supply_shipment_events_immutable BEFORE DELETE OR UPDATE ON public.supply_shipment_events FOR EACH ROW EXECUTE FUNCTION prevent_supply_history_mutation();
 CREATE TRIGGER trg_dispatch_number BEFORE INSERT ON public.dispatchschedules FOR EACH ROW WHEN ((new.dispatch_number IS NULL)) EXECUTE FUNCTION generate_dispatch_number();
 CREATE TRIGGER trg_dispatch_overlap BEFORE INSERT OR UPDATE OF vehicle_id, driver_id, scheduled_departure, scheduled_arrival, status ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION guard_dispatch_overlap();
+CREATE TRIGGER trg_maintenance_forecast_immutable BEFORE DELETE OR UPDATE ON public.maintenance_forecast_snapshots FOR EACH ROW EXECUTE FUNCTION maintenance_forecast_immutable();
 CREATE TRIGGER trigger_enqueue_dispatch_push AFTER INSERT ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION enqueue_dispatch_push();
 CREATE TRIGGER trigger_notify_dispatch_created AFTER INSERT ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION notify_dispatch_created();
 CREATE TRIGGER trigger_notify_document_expiry AFTER INSERT OR UPDATE ON public.vehicledocuments FOR EACH ROW EXECUTE FUNCTION notify_document_expiry();

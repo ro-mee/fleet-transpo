@@ -20,6 +20,8 @@ export function DateTimePicker({
   placeholder = "Select Date & Time...",
   id,
   disabled = false,
+  disablePast = true,
+  disableFuture = false,
   className,
 }) {
   const [open, setOpen] = React.useState(false);
@@ -102,12 +104,15 @@ export function DateTimePicker({
     setViewDate((prev) => setYear(prev, yearNum));
   };
 
-  const handleSelectDay = (dayNum) => {
-    const candidate = new Date(viewDate.getFullYear(), viewDate.getMonth(), dayNum);
-    // Block past dates (before today at midnight)
+  const isDateDisabled = (date) => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    if (candidate < todayStart) return;
+    return (disablePast && date < todayStart) || (disableFuture && date > todayStart);
+  };
+
+  const handleSelectDay = (dayNum) => {
+    const candidate = new Date(viewDate.getFullYear(), viewDate.getMonth(), dayNum);
+    if (isDateDisabled(candidate)) return;
     commitDateTime(candidate, hour, minute, period);
   };
 
@@ -260,10 +265,13 @@ export function DateTimePicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild disabled={disabled}>
-        <div
+        <button
+          type="button"
+          aria-label={selectedDate ? `${label}: ${formattedDateString}, ${formattedTimeString}` : label}
+          disabled={disabled}
           id={id}
           className={cn(
-            "relative rounded-2xl p-[5px] transition-all select-none group cursor-pointer",
+            "relative w-full text-left rounded-2xl p-[5px] transition-all select-none group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
             "bg-gradient-to-b from-border/70 to-border/30 ring-1 ring-border/70 hover:ring-primary/50",
             selectedDate ? "ring-primary/60" : "",
             disabled && "opacity-50 cursor-not-allowed",
@@ -303,10 +311,10 @@ export function DateTimePicker({
               <CalendarClock className="w-4 h-4" />
             </div>
           </div>
-        </div>
+        </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-auto p-4 rounded-3xl border border-border/80 shadow-lg bg-surface">
+      <PopoverContent align="start" collisionPadding={12} style={{ maxHeight: "var(--radix-popover-content-available-height)" }} className="w-auto overflow-y-auto overscroll-contain p-4 rounded-3xl border border-border/80 shadow-lg bg-surface">
         <div className="flex flex-col sm:flex-row gap-5">
           {/* ── LEFT PANE: CALENDAR PICKER ── */}
           <div className="w-[250px] space-y-3.5 shrink-0">
@@ -316,7 +324,8 @@ export function DateTimePicker({
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={handlePrevMonth}
+                aria-label="Previous month"
+                  onClick={handlePrevMonth}
                 className="h-8 w-8 rounded-xl hover:bg-hover text-foreground-secondary"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -344,7 +353,8 @@ export function DateTimePicker({
                 type="button"
                 variant="ghost"
                 size="icon"
-                onClick={handleNextMonth}
+                aria-label="Next month"
+                  onClick={handleNextMonth}
                 className="h-8 w-8 rounded-xl hover:bg-hover text-foreground-secondary"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -382,19 +392,17 @@ export function DateTimePicker({
 
                 // Past-date check
                 const dayDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
-                const todayMidnight = new Date();
-                todayMidnight.setHours(0, 0, 0, 0);
-                const isPast = dayDate < todayMidnight;
+                const isDisabled = isDateDisabled(dayDate);
 
                 return (
                   <button
                     key={`curr-${d}`}
                     type="button"
                     onClick={() => handleSelectDay(d)}
-                    disabled={isPast}
+                    disabled={isDisabled}
                     className={cn(
                       "h-8 w-8 rounded-xl flex items-center justify-center font-bold transition-all mx-auto",
-                      isPast
+                      isDisabled
                         ? "text-foreground-muted/30 cursor-not-allowed"
                         : isSelected
                         ? "bg-primary text-white dark:text-slate-950 shadow-md scale-105 cursor-pointer"
@@ -433,7 +441,8 @@ export function DateTimePicker({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={incrementHour}
+                    aria-label="Increase hour"
+                  onClick={incrementHour}
                     className="h-7 w-7 rounded-lg hover:bg-primary/10 text-foreground-secondary hover:text-primary"
                   >
                     <ChevronUp className="w-4 h-4" />
@@ -441,6 +450,7 @@ export function DateTimePicker({
                   <input
                     type="text"
                     inputMode="numeric"
+                    aria-label="Hour"
                     value={hour === "" ? "" : String(hour).padStart(2, "0")}
                     onChange={handleHourChange}
                     onBlur={handleHourBlur}
@@ -450,7 +460,8 @@ export function DateTimePicker({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={decrementHour}
+                    aria-label="Decrease hour"
+                  onClick={decrementHour}
                     className="h-7 w-7 rounded-lg hover:bg-primary/10 text-foreground-secondary hover:text-primary"
                   >
                     <ChevronDown className="w-4 h-4" />
@@ -464,7 +475,8 @@ export function DateTimePicker({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={incrementMinute}
+                    aria-label="Increase minute"
+                  onClick={incrementMinute}
                     className="h-7 w-7 rounded-lg hover:bg-primary/10 text-foreground-secondary hover:text-primary"
                   >
                     <ChevronUp className="w-4 h-4" />
@@ -472,6 +484,7 @@ export function DateTimePicker({
                   <input
                     type="text"
                     inputMode="numeric"
+                    aria-label="Minute"
                     value={minute === "" ? "" : String(minute).padStart(2, "0")}
                     onChange={handleMinuteChange}
                     onBlur={handleMinuteBlur}
@@ -481,7 +494,8 @@ export function DateTimePicker({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={decrementMinute}
+                    aria-label="Decrease minute"
+                  onClick={decrementMinute}
                     className="h-7 w-7 rounded-lg hover:bg-primary/10 text-foreground-secondary hover:text-primary"
                   >
                     <ChevronDown className="w-4 h-4" />
@@ -495,14 +509,16 @@ export function DateTimePicker({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={togglePeriod}
+                    aria-label="Toggle AM or PM"
+                  onClick={togglePeriod}
                     className="h-7 w-7 rounded-lg hover:bg-primary/10 text-foreground-secondary hover:text-primary"
                   >
                     <ChevronUp className="w-4 h-4" />
                   </Button>
                   <button
                     type="button"
-                    onClick={togglePeriod}
+                    aria-label="Toggle AM or PM"
+                  onClick={togglePeriod}
                     className="w-11 h-9 rounded-xl border border-border bg-background flex items-center justify-center text-xs font-extrabold text-primary shadow-2xs cursor-pointer hover:bg-primary/10 transition-colors"
                   >
                     {period}
@@ -511,7 +527,8 @@ export function DateTimePicker({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={togglePeriod}
+                    aria-label="Toggle AM or PM"
+                  onClick={togglePeriod}
                     className="h-7 w-7 rounded-lg hover:bg-primary/10 text-foreground-secondary hover:text-primary"
                   >
                     <ChevronDown className="w-4 h-4" />

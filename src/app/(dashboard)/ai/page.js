@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAiRecommendations, getAiInsights, getPredictiveMaintenance } from "@/services/ai.service";
+import { dueLabel } from "@/lib/maintenance/outlook-display";
 import { isUnscheduled } from "@/lib/ai/predictive-maintenance";
 import { formatDate } from "@/lib/utils";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
@@ -203,7 +204,8 @@ export default function AiDashboardPage() {
             <div className="divide-y divide-border/60">
               {predictions.slice(0, 8).map((p) => {
                 const unscheduled = isUnscheduled(p);
-                const tone = unscheduled ? "secondary" : riskTone(p.risk);
+                const primary = p.services?.find(service => service.plan_id === p.primary_service_plan_id) || p.services?.[0] || p;
+                const tone = unscheduled || p.serviceStatus === "needs_data" ? "secondary" : riskTone(p.risk);
                 return (
                   <div key={p.vehicle_id} className="flex items-center justify-between gap-4 p-4 hover:bg-hover/50 transition-colors">
                     <div className="flex items-center gap-3.5 min-w-0">
@@ -214,24 +216,23 @@ export default function AiDashboardPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-bold text-foreground font-data">{p.plate_number}</p>
                           <span className="text-xs text-foreground-muted truncate font-medium">{p.vehicle_name}</span>
-                          <StatusBadge status={unscheduled ? "unscheduled" : p.risk} entity="risk" className="text-[11px] font-bold">
-                            {unscheduled
-                              ? "No schedule"
-                              : p.effectiveDays < 0
-                              ? `${Math.abs(p.effectiveDays)}d overdue`
-                              : `${p.effectiveDays}d remaining`}
-                          </StatusBadge>
+                          <StatusBadge
+                            status={unscheduled || p.serviceStatus === "needs_data" ? "unscheduled" : p.risk}
+                            entity="risk"
+                            className="text-[11px] font-bold"
+                            label={unscheduled ? "No schedule" : dueLabel(primary)}
+                          />
                         </div>
                         <p className="text-xs text-foreground-secondary mt-0.5 truncate">{p.recommendation}</p>
                       </div>
                     </div>
 
                     <div className="text-right shrink-0">
-                      <p className={cn("font-data text-sm font-extrabold", unscheduled ? "text-foreground-muted" : "text-foreground")}>
-                        {unscheduled ? "—" : `${p.score}/100`}
+                      <p className={cn("font-data text-sm font-extrabold", unscheduled || p.effectiveDays == null ? "text-foreground-muted" : "text-foreground")}>
+                        {p.services?.length ?? 0} services
                       </p>
                       <p className="text-[11px] text-foreground-muted font-medium font-data">
-                        {p.mileage?.toLocaleString()} km
+                        {p.mileage == null ? "Mileage unavailable" : p.mileage.toLocaleString() + " km"}
                       </p>
                     </div>
                   </div>

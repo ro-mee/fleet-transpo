@@ -45,3 +45,10 @@ describe("maintenance.service body encoding", () => {
     expect(apiFetch).toHaveBeenCalledWith("/api/mechanic/vehicle-history?vehicle_id=12");
   });
 });
+
+// The reviewed adapter sends identity/version only; server recomputes forecast claims.
+it("files a reviewed service through the existing creation endpoint", async () => {
+ const { createReviewedPlanWorkOrder } = await import("./maintenance.service");
+ await createReviewedPlanWorkOrder(7,{plan_id:4,version:2,service_code:"brakes",risk:"overdue",evidence:{sample:5}},{maintenance_date:"2026-10-24",assigned_mechanic_id:"9"});
+ expect(apiFetch).toHaveBeenLastCalledWith("/api/vehicle-maintenance",{method:"POST",body:{vehicle_id:7,service_plan_id:4,expected_version:2,maintenance_type:"Preventive",maintenance_date:"2026-10-24",assigned_mechanic_id:9}});
+});

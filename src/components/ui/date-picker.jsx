@@ -403,6 +403,7 @@ export function DatePicker({
               type="button"
               variant="ghost"
               size="icon"
+              aria-label="Previous month"
               onClick={handlePrevMonth}
               className="h-8 w-8 rounded-xl hover:bg-hover text-foreground-secondary"
             >
@@ -432,6 +433,7 @@ export function DatePicker({
               type="button"
               variant="ghost"
               size="icon"
+              aria-label="Next month"
               onClick={handleNextMonth}
               className="h-8 w-8 rounded-xl hover:bg-hover text-foreground-secondary"
             >
