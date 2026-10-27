@@ -29,6 +29,30 @@ last_verified: 2026-09-21
 
 # Feature: Driver In-App Guidance & Contextual Coach Marks
 
+## Source review and current rollout status - 2026-10-27
+
+Reviewed the recent guidance commit `cdd20920` and compared the guidance/provider/configuration files with merged `main`; those files match. V2 adds independent contextual tips, More details, per-section Help replay and optional memory-only practice, with distinct Hotel/Passenger handoff and Cargo count/issue/signature/clearance explanations. It retains the existing measured spotlight system. Shared guidance covers inspections, odometer photos, fuel, incidents, SOS and offline/sync states. Practice does not submit operating records and requires a safely parked, eligible driver.
+
+The provider selects V2 only when `EXPO_PUBLIC_DRIVER_GUIDES_V2` equals `1`. No EAS profile sets that flag; the inspected primary mobile environment also does not set it, and no mobile environment file exists in the merged main checkout. The development APK rebuild did not activate V2. Legacy remains the configured default; an externally supplied Metro environment could select V2. This is a source/configuration review, not fresh runtime or phone acceptance. Existing physical-device and participant rollout requirements remain pending. No application setting or behavior was changed during this review.
+
+## Local V2 phone testing enabled - 2026-10-27
+
+After the owner pointed out that a disabled guide cannot be tested, enabled `EXPO_PUBLIC_DRIVER_GUIDES_V2=1` in ignored local mobile settings in both the primary checkout and merged-main checkout. The merged-main local mobile settings also use the existing public development API/map settings. EAS profiles and the code default were not changed; this enables local testing rather than a production rollout.
+
+Started the merged-main backend on port3000 with the existing primary development environment inherited in the process, without copying privileged environment files. Its LAN driver-reference endpoint returned401 as expected without sign-in. Port8081 already had a Metro server, so it was preserved. The new merged-main Metro server runs at `http://192.168.0.200:8082`, with the LAN hostname forced and its cache cleared. Its status and Android manifest returned200, identified the correct merged-main project, and served the Android bundle successfully (10,978,909 bytes), including the V2 provider and both Cargo/Passenger guide catalogues. These checks do not establish phone visual acceptance.
+
+The first Metro start exposed missing React development types. A local `npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund @types/react@~19.1.10` refreshed the local dependency tree; no tracked manifest/lockfile changed. Expo generated an untracked `mobile/tsconfig.json` for the running development server and immediately recreated it after a cleanup attempt; it remains a local generated file. No tutorial checks were bypassed and no application source changed.
+
+Phone steps: open the installed FleetOps development APK, use Enter URL manually with `http://192.168.0.200:8082`, and sign in. Open Profile → Help & Support → Driver guidance. Use Read this section for individual highlights or Try with sample data for supported practice. Test a saved Cargo driver and a saved Passenger driver separately. Practice requires safe parking, no accepted/active assignment, no pending operational submissions and no emergency work. Reset In-App Tips is available for replaying automatic tips. A further APK rebuild is unnecessary for this local JavaScript setting. Actual installation, phone connectivity and guide interaction remain for the owner to verify.
+
+## Normal-use trigger clarification - 2026-10-27
+
+Checked the provider, trigger, controller, policy and progress implementation, including merged-main Map/Cargo producers. Drivers do not need to open Help: normal focused screens request their current guide. Passenger Map selects pickup for Trip Started/At Pickup and drop-off for Passenger Onboard/Drop-off. Cargo selects manifest, issue, pickup acknowledgment, departure or delivery based on its current view. Inspection, odometer, fuel and incident screens have their own triggers.
+
+Automatic presentation requires confirmed identity/context, a fresh stationary motion reading, current non-emergency work checks, the current visible screen and a registered target. Driving, unknown/stale motion, background state, emergency/responder work, unavailable targets or suppressed saved progress prevent presentation. Only one automatic guide is allowed per route visit; changing steps within one screen does not force a sequence. Dismissed/completed guides remain suppressed per driver/variant/version, including conservatively imported legacy progress. Leaving/re-entering changes the visit scope; the producer retries for up to30 seconds while it remains eligible.
+
+The on-screen Explain this step button manually reopens the current guide without requiring a visit to Help. Manual replay shows read-only guide content without a spotlight target, while automatic tips point at measured real controls. Guidance does not perform the operational action. This was a source review, not phone/runtime acceptance; no application changes were made.
+
 ## Passenger and Cargo redesign proposal review - 2026-10-20
 
 Assessment only: [[Coach Marks Passenger Cargo Proposal Assessment 2026-10-20]]. Recommend independent contextual guides and optional practice using production components, with shared guidance plus distinct Passenger/Cargo workflows. Include current odometer photos, Cargo signed counts and separate clearance requirements. Practice needs visibly labeled, isolated local state and no operational writes or queue effects. The existing forced sequence and current guide behavior remain unchanged; this assessment does not supersede the implementation record below.
