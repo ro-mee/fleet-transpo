@@ -6,11 +6,15 @@ source:
   - src/app/api/vehicles
   - src/app/(dashboard)/fleet
   - src/lib/vehicles/odometer.js
-last_verified: 2026-10-12
+last_verified: 2026-10-27
 related: ["[[Dispatch]]", "[[Maintenance]]"]
 ---
 
 # Feature: Fleet And Vehicles
+
+## Owner-authorized Cargo demo readiness - 2026-10-27
+
+Vehicle142 is now explicitly named DEMO Cargo Vehicle - TEST ONLY, with sample plateDMO-0142, classB,500kg usable payload, synthetic Cargo profile and privately stored DEMO OR/CR and insurance fixtures. Its Verified documents and Ready commissioning state are the owner's explicitly requested synthetic test state, not genuine document or measurement approval. Inactive roleless fixture identity138 and required audit snapshots make that distinction explicit. The actual database-backed road-readiness and physical-load evaluators pass; assignment163 pairs it with Cargo Tester98. Normal policies/gates are unchanged. See [[Cargo Tester Delivery Setup 2026-10-27]] before using, replacing or removing this bounded fixture.
 
 ## 2026-10-09 - OR/CR and insurance upload experience
 

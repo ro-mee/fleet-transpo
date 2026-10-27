@@ -44,7 +44,7 @@ Expo's prior local React development types/base tsconfig are preserved as a sepa
 
 ## Remaining operating acceptance
 
-Physical phone camera/upload, live authenticated manager review and an actual operating delivery remain unverified. Cargo Tester driver98 still lacks license/verification details. Demo Cargo Vehicle142 still lacks plate/class/capacity/document dates/commissioning. Genuine eligible fleet data must be completed before normal assignment; no proof was fabricated. Pending sample request606 remains explicitly fictional originTEST and unassigned; it is not silently converted to INTERNAL.
+Physical phone camera/upload, live authenticated manager review and an actual operating delivery remain unverified. In a later explicit instruction, the owner requested verified DEMO driver/vehicle details. The bounded synthetic fixture is now applied: driver98 has a DEMO Professional/B license, vehicle142 has plateDMO-0142,500kg usable payload and privately stored DEMO documents, and assignment163 pairs them. Actual license/road-readiness/physical-load evaluators pass. This is clearly marked test state, not genuine credential/document/measurement approval; the original missing-data hold no longer blocks this authorized QA pair. See [[Cargo Tester Delivery Setup 2026-10-27]] for the disabled fixture verifier, audit and repeated verification. Pending sample request606 remains explicitly fictional originTEST and unassigned; it is not silently converted to INTERNAL.
 
 Related feature/storage/mobile notes and SYSTEM.md record the final behavior and checks.
 
