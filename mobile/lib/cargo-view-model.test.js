@@ -7,6 +7,46 @@ it("binds a normalized signature to exactly the reviewed receipt and rejects mal
   expect(() => buildCargoReceipt(execution, { stage: "PICKUP", counts: { boxes: "10" }, handover: { ...handover, signature: { ...handover.signature, strokes: [] } } })).toThrow();
 });
 const cargoTrip = { trip_id: 701, vehicle_id: 3, operational_use: "Cargo", load_type: "Cargo", trip_status: "At Pickup" };
+
+describe("internal Cargo manager status wording", () => {
+  const internal = () => ({ ...execution, manifest: { ...manifest, source_ref: { system: "INTERNAL", external_request_id: "private-internal-uuid" } }, feedback: { state: "INTERNAL_RECORDED" } });
+  it("names FleetOps and manager reviews without partner or internal identifier jargon", () => {
+    const view = buildCargoViewModel(internal(), { driverType: "Cargo", trip: cargoTrip });
+    expect(view.summary.sourceLabel).toBe("FleetOps delivery");
+    expect(view.summary.feedbackLabel).toBe("Internal job — no partner message required");
+    expect(view.summary.sourceDecisionLabel).toContain("manager");
+    expect(view.summary.clearanceLabel).toContain("Manager");
+    expect(view.summary.securementLabel).toContain("Manager");
+    expect(view.summary.receiverLabel).toContain("Manager");
+    expect(view.summary.syncLabel).toBe("No observation saved");
+    expect(view.canDepart).toBe(false);
+  });
+  it("reports saved and accepted manager decisions only from server records", () => {
+    const current = { ...internal(), pickup_receipt: { receipt_id: "saved" }, pickup_state: "READY", source_decision: { action: "ACCEPT_OBSERVED" }, can_depart: true, securement_confirmed: true, receiver_confirmed: true };
+    const view = buildCargoViewModel(current, { driverType: "Cargo", trip: cargoTrip });
+    expect(view.summary.syncLabel).toBe("Saved to Fleet");
+    expect(view.summary.sourceDecisionLabel).toBe("Manager accepted the observed pickup count");
+    expect(view.summary.clearanceLabel).toBe("Manager departure clearance confirmed");
+    expect(view.summary.securementLabel).toBe("Manager confirmed safe loading");
+    expect(view.summary.receiverLabel).toBe("Manager confirmed receiving");
+    expect(buildCargoViewModel(current, { driverType: "Cargo", trip: cargoTrip, offline: true }).canDepart).toBe(false);
+  });
+  it("keeps external source and partner wording unchanged", () => {
+    const view = buildCargoViewModel(execution, { driverType: "Cargo", trip: cargoTrip });
+    expect(view.summary.sourceLabel).toBe(`${manifest.source_ref.system} · ${manifest.source_ref.external_request_id}`);
+    expect(view.summary.feedbackLabel).toBe("Partner receipt not queued");
+    expect(view.summary.receiverLabel).toBe("Receiver authority unavailable");
+  });
+  it("explains internal source holds as manager review without changing readiness", async () => {
+    const current = { ...internal(), pickup_state: "AWAITING_DECISION", blockers: [{ code: "CARGO_SOURCE_DECISION_REQUIRED", message: "Source acceptance is required for this observation." }] };
+    const view = buildCargoViewModel(current, { driverType: "Cargo", trip: cargoTrip });
+    expect(view.statusTitle).toBe("Awaiting manager pickup review");
+    expect(view.blockers[0].message).toBe("A Fleet Manager must accept the current pickup count before departure review.");
+    const gate = await resolveCargoMapGate(cargoTrip, { driverType: "Cargo", readExecution: async () => current });
+    expect(gate.allowed).toBe(false);
+    expect(gate.reason).toContain("manager acceptance");
+  });
+});
 const manifest = { manifest_ref: { kind: "REQUEST", id: "b8da95aa-6670-4dd5-a0b0-367cab368017", revision: 1, hash: "a".repeat(64) }, source_ref: { system: "POS", organization_id: "restaurant", external_request_id: "order-12" }, service_code: "RESTAURANT_SUPPLY_PICKUP", lines: [{ line_id: "boxes", name: "Fresh produce", expected_quantity: "10", unit: "boxes", quantity_basis: "TRANSPORT_PACKAGE", handling: ["SECURE_LOAD"], reference_image_ref: null }] };
 export const execution = { manifest, pickup_state: "NOT_RECORDED", delivery_state: "NOT_RECORDED", can_depart: false, can_complete: false, capabilities: { observe: true }, blockers: [{ code: "CARGO_PICKUP_REQUIRED", message: "Verify cargo at pickup." }], lines: [{ line_id: "boxes", expected_quantity: "10", pickup_quantity: null, delivery_quantity: null, order_shortage: null, delivery_shortage: null }], feedback: { state: "NOT_QUEUED" } };
 describe("driver cargo view model", () => {

@@ -191,7 +191,7 @@ CREATE TABLE cargo_decision_inbox (
   decision_id uuid NOT NULL,
   received_at timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT cargo_decision_inbox_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
-  CONSTRAINT cargo_decision_inbox_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text]))),
+  CONSTRAINT cargo_decision_inbox_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text, 'INTERNAL'::text]))),
   CONSTRAINT cargo_decision_inbox_pkey PRIMARY KEY (inbox_id),
   CONSTRAINT cargo_decision_inbox_source_system_source_organization_id_e_key UNIQUE (source_system, source_organization_id, event_id)
 );
@@ -218,8 +218,9 @@ CREATE TABLE cargo_decisions (
   CONSTRAINT cargo_decisions_principal_ref_check CHECK (((length(btrim(principal_ref)) >= 1) AND (length(btrim(principal_ref)) <= 255))),
   CONSTRAINT cargo_decisions_reason_check CHECK (((length(btrim(reason)) >= 1) AND (length(btrim(reason)) <= 2000))),
   CONSTRAINT cargo_decisions_source_organization_id_check CHECK (((length(btrim(source_organization_id)) >= 1) AND (length(btrim(source_organization_id)) <= 128))),
-  CONSTRAINT cargo_decisions_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text]))),
+  CONSTRAINT cargo_decisions_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'SCM'::text, 'INTERNAL'::text]))),
   CONSTRAINT cargo_decisions_pkey PRIMARY KEY (decision_id),
+  CONSTRAINT cargo_internal_decision_review_required TRIGGER DEFERRABLE INITIALLY DEFERRED,
   CONSTRAINT cargo_decisions_decision_id_receipt_id_key UNIQUE (decision_id, receipt_id),
   CONSTRAINT cargo_decisions_source_system_source_organization_id_event__key UNIQUE (source_system, source_organization_id, event_id)
 );
@@ -250,7 +251,7 @@ END))),
   CONSTRAINT cargo_evidence_check1 CHECK (((state = 'ATTACHED'::text) = (receipt_id IS NOT NULL))),
   CONSTRAINT cargo_evidence_content_hash_check CHECK ((content_hash ~ '^[a-f0-9]{64}$'::text)),
   CONSTRAINT cargo_evidence_mime_type_check CHECK ((mime_type = ANY (ARRAY['image/jpeg'::text, 'image/png'::text]))),
-  CONSTRAINT cargo_evidence_retention_state_check CHECK ((retention_state = 'AWAITING_APPROVED_POLICY'::text)),
+  CONSTRAINT cargo_evidence_retention_state_check CHECK ((retention_state = ANY (ARRAY['AWAITING_APPROVED_POLICY'::text, 'INTERNAL_PRESERVE'::text]))),
   CONSTRAINT cargo_evidence_state_check CHECK ((state = ANY (ARRAY['STAGED'::text, 'READY'::text, 'ORPHANED'::text, 'ATTACHED'::text]))),
   CONSTRAINT cargo_evidence_pkey PRIMARY KEY (evidence_id),
   CONSTRAINT cargo_evidence_execution_id_uploader_employee_id_submission_key UNIQUE (execution_id, uploader_employee_id, submission_id, content_hash),
@@ -270,11 +271,13 @@ CREATE TABLE cargo_execution_commands (
   response jsonb NOT NULL,
   created_at timestamptz DEFAULT now() NOT NULL,
   evidence_id uuid,
+  internal_review_id uuid,
   CONSTRAINT cargo_commands_decision_kind CHECK (((command_kind = ANY (ARRAY['DECISION'::text, 'MANUAL_DECISION'::text])) = (decision_id IS NOT NULL))),
   CONSTRAINT cargo_commands_evidence_kind CHECK ((((command_kind = 'EVIDENCE'::text) = (evidence_id IS NOT NULL)) AND ((command_kind = 'EVIDENCE'::text) = (receipt_id IS NULL)))),
+  CONSTRAINT cargo_commands_internal_review_kind CHECK (((command_kind = 'INTERNAL_REVIEW'::text) = (internal_review_id IS NOT NULL))),
   CONSTRAINT cargo_execution_commands_check1 CHECK (((command_kind = 'CLEARANCE'::text) = (clearance_id IS NOT NULL))),
   CONSTRAINT cargo_execution_commands_command_key_check CHECK (((length(command_key) >= 1) AND (length(command_key) <= 255))),
-  CONSTRAINT cargo_execution_commands_command_kind_check CHECK ((command_kind = ANY (ARRAY['RECEIPT'::text, 'DECISION'::text, 'CLEARANCE'::text, 'MANUAL_DECISION'::text, 'EVIDENCE'::text]))),
+  CONSTRAINT cargo_execution_commands_command_kind_check CHECK ((command_kind = ANY (ARRAY['RECEIPT'::text, 'DECISION'::text, 'CLEARANCE'::text, 'MANUAL_DECISION'::text, 'EVIDENCE'::text, 'INTERNAL_REVIEW'::text]))),
   CONSTRAINT cargo_execution_commands_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
   CONSTRAINT cargo_execution_commands_response_check CHECK ((jsonb_typeof(response) = 'object'::text)),
   CONSTRAINT cargo_execution_commands_pkey PRIMARY KEY (command_id),
@@ -332,7 +335,43 @@ CREATE TABLE cargo_fleet_clearances (
   CONSTRAINT cargo_fleet_clearances_safety_evidence_ref_check CHECK (((safety_evidence_ref IS NULL) OR ((length(btrim(safety_evidence_ref)) >= 1) AND (length(btrim(safety_evidence_ref)) <= 255)))),
   CONSTRAINT cargo_fleet_clearances_version_check CHECK ((version > 0)),
   CONSTRAINT cargo_fleet_clearances_pkey PRIMARY KEY (clearance_id),
+  CONSTRAINT cargo_internal_clearance_review_required TRIGGER DEFERRABLE INITIALLY DEFERRED,
   CONSTRAINT cargo_fleet_clearances_receipt_id_version_key UNIQUE (receipt_id, version)
+);
+
+CREATE TABLE cargo_internal_reviews (
+  review_id uuid DEFAULT gen_random_uuid() NOT NULL,
+  execution_id uuid NOT NULL,
+  receipt_id uuid NOT NULL,
+  manifest_hash text NOT NULL,
+  submission_id uuid NOT NULL,
+  payload_hash text NOT NULL,
+  command_payload jsonb NOT NULL,
+  kind text NOT NULL,
+  action text NOT NULL,
+  reason text NOT NULL,
+  reviewer_employee_id integer NOT NULL,
+  execution_version integer NOT NULL,
+  driver_id integer NOT NULL,
+  vehicle_id integer NOT NULL,
+  reviewed_evidence_ids uuid[] DEFAULT '{}'::uuid[] NOT NULL,
+  securement_checks jsonb,
+  decision_id uuid,
+  clearance_id uuid,
+  reviewed_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT cargo_internal_reviews_check CHECK ((((kind = 'SOURCE'::text) AND (action = ANY (ARRAY['ACCEPT_OBSERVED'::text, 'WAIT'::text, 'REJECT_PICKUP'::text]))) OR ((kind = 'SECUREMENT'::text) AND (action = ANY (ARRAY['CLEAR'::text, 'WAIT'::text]))) OR ((kind = 'RECEIVER'::text) AND (action = ANY (ARRAY['ACCEPT_DELIVERY'::text, 'WAIT'::text]))))),
+  CONSTRAINT cargo_internal_reviews_check1 CHECK (((kind = 'SOURCE'::text) = (decision_id IS NOT NULL))),
+  CONSTRAINT cargo_internal_reviews_check2 CHECK ((((kind = 'SECUREMENT'::text) AND (action = 'CLEAR'::text)) = (clearance_id IS NOT NULL))),
+  CONSTRAINT cargo_internal_reviews_check3 CHECK (((action <> 'CLEAR'::text) OR ((securement_checks @> '{"load_secured": true, "vehicle_safe": true, "counts_reviewed": true}'::jsonb) IS TRUE))),
+  CONSTRAINT cargo_internal_reviews_execution_version_check CHECK ((execution_version > 1)),
+  CONSTRAINT cargo_internal_reviews_kind_check CHECK ((kind = ANY (ARRAY['SOURCE'::text, 'SECUREMENT'::text, 'RECEIVER'::text]))),
+  CONSTRAINT cargo_internal_reviews_manifest_hash_check CHECK ((manifest_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_internal_reviews_payload_hash_check CHECK ((payload_hash ~ '^[a-f0-9]{64}$'::text)),
+  CONSTRAINT cargo_internal_reviews_reason_check CHECK (((length(btrim(reason)) >= 1) AND (length(btrim(reason)) <= 2000))),
+  CONSTRAINT cargo_internal_reviews_pkey PRIMARY KEY (review_id),
+  CONSTRAINT cargo_internal_review_command_required TRIGGER DEFERRABLE INITIALLY DEFERRED,
+  CONSTRAINT cargo_internal_reviews_execution_id_execution_version_key UNIQUE (execution_id, execution_version),
+  CONSTRAINT cargo_internal_reviews_execution_id_submission_id_key UNIQUE (execution_id, submission_id)
 );
 
 CREATE TABLE cargo_manual_decision_provenance (
@@ -1171,7 +1210,7 @@ CREATE TABLE request_cargo_manifest_revisions (
   CONSTRAINT request_cargo_manifest_revisions_revision_check CHECK ((revision > 0)),
   CONSTRAINT request_cargo_manifest_revisions_source_event_id_check CHECK (((length(btrim(source_event_id)) >= 1) AND (length(btrim(source_event_id)) <= 255))),
   CONSTRAINT request_cargo_manifest_revisions_source_organization_id_check CHECK (((length(btrim(source_organization_id)) >= 1) AND (length(btrim(source_organization_id)) <= 128))),
-  CONSTRAINT request_cargo_manifest_revisions_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text]))),
+  CONSTRAINT request_cargo_manifest_revisions_source_system_check CHECK ((source_system = ANY (ARRAY['PMS'::text, 'POS'::text, 'INTERNAL'::text]))),
   CONSTRAINT request_cargo_manifest_revisions_pkey PRIMARY KEY (request_cargo_manifest_revision_id),
   CONSTRAINT request_cargo_manifest_revisi_source_system_source_organiza_key UNIQUE (source_system, source_organization_id, source_event_id),
   CONSTRAINT request_cargo_manifest_revisions_request_id_revision_key UNIQUE (request_id, revision)
@@ -1927,6 +1966,7 @@ ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_dec
 ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
 ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_evidence_id_fkey FOREIGN KEY (evidence_id) REFERENCES cargo_evidence(evidence_id);
 ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
+ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_internal_review_id_fkey FOREIGN KEY (internal_review_id) REFERENCES cargo_internal_reviews(review_id) ON DELETE RESTRICT;
 ALTER TABLE cargo_execution_commands ADD CONSTRAINT cargo_execution_commands_receipt_id_execution_id_fkey FOREIGN KEY (receipt_id, execution_id) REFERENCES cargo_receipts(receipt_id, execution_id);
 ALTER TABLE cargo_feedback_outbox ADD CONSTRAINT cargo_feedback_outbox_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
 ALTER TABLE cargo_feedback_outbox ADD CONSTRAINT cargo_feedback_outbox_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
@@ -1936,6 +1976,13 @@ ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_decisio
 ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
 ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_receipt_id_execution_id_fkey FOREIGN KEY (receipt_id, execution_id) REFERENCES cargo_receipts(receipt_id, execution_id);
 ALTER TABLE cargo_fleet_clearances ADD CONSTRAINT cargo_fleet_clearances_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES cargo_receipts(receipt_id);
+ALTER TABLE cargo_internal_reviews ADD CONSTRAINT cargo_internal_reviews_clearance_id_fkey FOREIGN KEY (clearance_id) REFERENCES cargo_fleet_clearances(clearance_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_internal_reviews ADD CONSTRAINT cargo_internal_reviews_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES cargo_decisions(decision_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_internal_reviews ADD CONSTRAINT cargo_internal_reviews_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_internal_reviews ADD CONSTRAINT cargo_internal_reviews_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_internal_reviews ADD CONSTRAINT cargo_internal_reviews_receipt_id_fkey FOREIGN KEY (receipt_id) REFERENCES cargo_receipts(receipt_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_internal_reviews ADD CONSTRAINT cargo_internal_reviews_reviewer_employee_id_fkey FOREIGN KEY (reviewer_employee_id) REFERENCES employees(employee_id) ON DELETE RESTRICT;
+ALTER TABLE cargo_internal_reviews ADD CONSTRAINT cargo_internal_reviews_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE RESTRICT;
 ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_decision_id_fkey FOREIGN KEY (decision_id) REFERENCES cargo_decisions(decision_id);
 ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_decision_id_receipt_id_fkey FOREIGN KEY (decision_id, receipt_id) REFERENCES cargo_decisions(decision_id, receipt_id);
 ALTER TABLE cargo_manual_decision_provenance ADD CONSTRAINT cargo_manual_decision_provenance_execution_id_fkey FOREIGN KEY (execution_id) REFERENCES cargo_trip_executions(execution_id);
@@ -2580,18 +2627,24 @@ CREATE OR REPLACE FUNCTION public.guard_cargo_command_binding()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
-DECLARE e public.cargo_trip_executions; a public.audit_logs; c public.cargo_fleet_clearances; r public.cargo_receipts; d public.cargo_decisions; p public.cargo_manual_decision_provenance; photo public.cargo_evidence;
+DECLARE e public.cargo_trip_executions; a public.audit_logs; c public.cargo_fleet_clearances; r public.cargo_receipts; d public.cargo_decisions; p public.cargo_manual_decision_provenance; photo public.cargo_evidence; review public.cargo_internal_reviews;
 BEGIN
   SELECT * INTO e FROM public.cargo_trip_executions WHERE execution_id=NEW.execution_id FOR UPDATE;
   SELECT * INTO a FROM public.audit_logs WHERE log_id=NEW.audit_log_id;
   IF (NEW.response->>'execution_id'=e.execution_id::text AND NEW.response->>'trip_id'=e.trip_id::text
     AND NEW.response->>'version'=e.version::text AND NEW.response->'manifest'=e.manifest
     AND a.resource='cargo_execution' AND a.resource_id=e.trip_id
-    AND a.action=CASE NEW.command_kind WHEN 'RECEIPT' THEN 'cargo_receipt' WHEN 'DECISION' THEN 'cargo_decision' WHEN 'MANUAL_DECISION' THEN 'cargo_manual_decision' WHEN 'EVIDENCE' THEN 'cargo_evidence' ELSE 'cargo_clearance' END
+    AND a.action=CASE NEW.command_kind WHEN 'RECEIPT' THEN 'cargo_receipt' WHEN 'DECISION' THEN 'cargo_decision' WHEN 'MANUAL_DECISION' THEN 'cargo_manual_decision' WHEN 'EVIDENCE' THEN 'cargo_evidence' WHEN 'INTERNAL_REVIEW' THEN 'cargo_internal_review' ELSE 'cargo_clearance' END
     AND a.new_values->>'command_id'=NEW.command_id::text) IS NOT TRUE THEN
     RAISE EXCEPTION 'Cargo command response or audit mismatch' USING ERRCODE='23514';
   END IF;
-  IF NEW.command_kind='EVIDENCE' THEN
+  IF NEW.command_kind='INTERNAL_REVIEW' THEN
+    SELECT * INTO review FROM public.cargo_internal_reviews WHERE review_id=NEW.internal_review_id;
+    IF (review.execution_id=e.execution_id AND review.receipt_id=NEW.receipt_id AND review.execution_version=e.version
+      AND a.employee_id=review.reviewer_employee_id AND NEW.command_key=review.submission_id::text AND NEW.payload_hash=review.payload_hash
+      AND EXISTS(SELECT 1 FROM jsonb_array_elements(NEW.response->'internal_reviews') item WHERE item->>'review_id'=review.review_id::text)) IS NOT TRUE THEN
+      RAISE EXCEPTION 'Internal cargo command actor mismatch' USING ERRCODE='23514'; END IF;
+  ELSIF NEW.command_kind='EVIDENCE' THEN
     SELECT * INTO photo FROM public.cargo_evidence WHERE evidence_id=NEW.evidence_id;
     IF (photo.execution_id=e.execution_id AND photo.state IN ('READY','ATTACHED') AND photo.uploader_employee_id=a.employee_id
       AND NEW.command_key=photo.evidence_id::text AND NEW.payload_hash=photo.content_hash AND NEW.response->'evidence_upload'->>'evidence_id'=photo.evidence_id::text) IS NOT TRUE THEN
@@ -2680,6 +2733,59 @@ CREATE OR REPLACE FUNCTION public.guard_cargo_history()
  LANGUAGE plpgsql
 AS $function$
 BEGIN RAISE EXCEPTION 'Cargo history is immutable' USING ERRCODE='55000'; END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.guard_cargo_internal_review()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE e public.cargo_trip_executions; r public.cargo_receipts; d public.cargo_decisions; c public.cargo_fleet_clearances;
+BEGIN
+  SELECT * INTO e FROM public.cargo_trip_executions WHERE execution_id=NEW.execution_id FOR UPDATE;
+  SELECT * INTO r FROM public.cargo_receipts WHERE receipt_id=NEW.receipt_id;
+  IF (e.manifest->'source_ref'->>'system'='INTERNAL' AND e.version=NEW.execution_version
+    AND r.execution_id=e.execution_id AND r.manifest_hash=NEW.manifest_hash
+    AND NEW.manifest_hash=e.manifest->'manifest_ref'->>'hash'
+    AND r.stage=CASE NEW.kind WHEN 'RECEIVER' THEN 'DELIVERY' ELSE 'PICKUP' END
+    AND NEW.command_payload->>'submission_id'=NEW.submission_id::text
+    AND NEW.command_payload->>'receipt_id'=NEW.receipt_id::text
+    AND NEW.command_payload->>'kind'=NEW.kind AND NEW.command_payload->>'action'=NEW.action
+    AND NEW.command_payload->>'reason'=NEW.reason
+    AND COALESCE(NEW.command_payload->'securement_checks','null'::jsonb) IS NOT DISTINCT FROM NEW.securement_checks
+    AND (NEW.command_payload->>'expected_version')::integer=NEW.execution_version-1
+    AND NEW.command_payload->'reviewed_evidence_ids'=to_jsonb(NEW.reviewed_evidence_ids)
+    AND NOT EXISTS(SELECT 1 FROM public.cargo_receipts newer WHERE newer.execution_id=e.execution_id AND newer.stage=r.stage AND newer.execution_version>r.execution_version)) IS NOT TRUE THEN
+    RAISE EXCEPTION 'Internal cargo review binding mismatch' USING ERRCODE='23514';
+  END IF;
+  PERFORM 1 FROM public.trips t JOIN public.employees emp ON emp.employee_id=NEW.reviewer_employee_id
+    JOIN public.roles ro ON ro.role_id=emp.role_id
+    WHERE t.trip_id=e.trip_id AND t.driver_id=NEW.driver_id AND t.vehicle_id=NEW.vehicle_id
+      AND t.deleted_at IS NULL AND emp.deleted_at IS NULL AND emp.status='Active'
+      AND ro.role_name IN ('fleet_manager','admin','super_admin')
+      AND (CASE NEW.kind WHEN 'RECEIVER' THEN t.trip_status IN ('Drop-off','Arrived') ELSE t.trip_status IN ('Trip Started','At Pickup') END);
+  IF NOT FOUND THEN RAISE EXCEPTION 'Internal cargo review authority mismatch' USING ERRCODE='23514'; END IF;
+  IF cardinality(NEW.reviewed_evidence_ids)<>(SELECT count(DISTINCT id) FROM unnest(NEW.reviewed_evidence_ids) id)
+    OR EXISTS(SELECT 1 FROM unnest(NEW.reviewed_evidence_ids) id WHERE NOT EXISTS(
+      SELECT 1 FROM public.cargo_evidence photo WHERE photo.evidence_id=id AND photo.execution_id=e.execution_id
+        AND photo.receipt_id=r.receipt_id AND photo.state='ATTACHED'))
+    OR (NEW.action<>'WAIT' AND EXISTS(SELECT 1 FROM jsonb_array_elements(r.lines) line
+      CROSS JOIN LATERAL jsonb_array_elements_text(line->'evidence_ids') evidence_id
+      WHERE NOT (evidence_id::uuid=ANY(NEW.reviewed_evidence_ids)))) THEN
+    RAISE EXCEPTION 'Internal cargo evidence review mismatch' USING ERRCODE='23514';
+  END IF;
+  IF NEW.kind='SOURCE' THEN
+    SELECT * INTO d FROM public.cargo_decisions WHERE decision_id=NEW.decision_id;
+    IF (d.receipt_id=NEW.receipt_id AND d.execution_version=NEW.execution_version AND d.source_system='INTERNAL'
+      AND d.principal_ref='employee:'||NEW.reviewer_employee_id::text AND d.action=NEW.action AND d.reason=NEW.reason
+      AND d.event_id=NEW.submission_id) IS NOT TRUE THEN RAISE EXCEPTION 'Internal cargo decision mismatch' USING ERRCODE='23514'; END IF;
+  ELSIF NEW.action='CLEAR' THEN
+    SELECT * INTO c FROM public.cargo_fleet_clearances WHERE clearance_id=NEW.clearance_id;
+    IF (c.execution_id=e.execution_id AND c.receipt_id=NEW.receipt_id AND c.version=NEW.execution_version
+      AND c.authorized_employee_id=NEW.reviewer_employee_id AND c.safety_evidence_ref=NEW.review_id::text) IS NOT TRUE THEN
+      RAISE EXCEPTION 'Internal cargo securement mismatch' USING ERRCODE='23514'; END IF;
+  END IF;
+  RETURN NEW;
+END $function$
 ;
 
 CREATE OR REPLACE FUNCTION public.guard_cargo_manual_provenance()
@@ -3085,6 +3191,38 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.require_cargo_internal_authority_review()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+DECLARE internal_source boolean;
+BEGIN
+  IF TG_TABLE_NAME='cargo_decisions' THEN
+    internal_source := NEW.source_system='INTERNAL';
+    IF internal_source AND NOT EXISTS(SELECT 1 FROM public.cargo_internal_reviews WHERE decision_id=NEW.decision_id AND kind='SOURCE') THEN
+      RAISE EXCEPTION 'Internal cargo decision requires authenticated manager review' USING ERRCODE='23514'; END IF;
+  ELSE
+    SELECT manifest->'source_ref'->>'system'='INTERNAL' INTO internal_source FROM public.cargo_trip_executions WHERE execution_id=NEW.execution_id;
+    IF internal_source AND NOT EXISTS(SELECT 1 FROM public.cargo_internal_reviews WHERE clearance_id=NEW.clearance_id AND kind='SECUREMENT' AND action='CLEAR') THEN
+      RAISE EXCEPTION 'Internal cargo clearance requires authenticated manager review' USING ERRCODE='23514'; END IF;
+  END IF;
+  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.require_cargo_internal_review_command()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  PERFORM 1 FROM public.cargo_execution_commands c JOIN public.audit_logs a ON a.log_id=c.audit_log_id
+    WHERE c.internal_review_id=NEW.review_id AND c.command_kind='INTERNAL_REVIEW'
+      AND a.employee_id=NEW.reviewer_employee_id AND a.action='cargo_internal_review';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Internal cargo review requires its audited immutable response' USING ERRCODE='23514'; END IF;
+  RETURN NEW;
+END $function$
+;
+
 CREATE OR REPLACE FUNCTION public.update_incident_sla_breaches()
  RETURNS void
  LANGUAGE plpgsql
@@ -3126,6 +3264,11 @@ CREATE TRIGGER cargo_dispatch_linkage BEFORE UPDATE ON public.dispatchschedules 
 CREATE TRIGGER cargo_evidence_identity BEFORE DELETE OR UPDATE ON public.cargo_evidence FOR EACH ROW EXECUTE FUNCTION guard_cargo_evidence_identity();
 CREATE TRIGGER cargo_execution_binding BEFORE INSERT OR DELETE OR UPDATE ON public.cargo_trip_executions FOR EACH ROW EXECUTE FUNCTION guard_cargo_execution_binding();
 CREATE TRIGGER cargo_inbox_immutable BEFORE DELETE OR UPDATE ON public.cargo_decision_inbox FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
+CREATE CONSTRAINT TRIGGER cargo_internal_clearance_review_required AFTER INSERT ON public.cargo_fleet_clearances DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION require_cargo_internal_authority_review();
+CREATE CONSTRAINT TRIGGER cargo_internal_decision_review_required AFTER INSERT ON public.cargo_decisions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION require_cargo_internal_authority_review();
+CREATE TRIGGER cargo_internal_review_binding BEFORE INSERT ON public.cargo_internal_reviews FOR EACH ROW EXECUTE FUNCTION guard_cargo_internal_review();
+CREATE CONSTRAINT TRIGGER cargo_internal_review_command_required AFTER INSERT ON public.cargo_internal_reviews DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION require_cargo_internal_review_command();
+CREATE TRIGGER cargo_internal_review_history BEFORE DELETE OR UPDATE ON public.cargo_internal_reviews FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
 CREATE TRIGGER cargo_manual_provenance_binding BEFORE INSERT ON public.cargo_manual_decision_provenance FOR EACH ROW EXECUTE FUNCTION guard_cargo_manual_provenance();
 CREATE TRIGGER cargo_manual_provenance_immutable BEFORE DELETE OR UPDATE ON public.cargo_manual_decision_provenance FOR EACH ROW EXECUTE FUNCTION guard_cargo_history();
 CREATE TRIGGER cargo_outbox_identity BEFORE DELETE OR UPDATE ON public.cargo_feedback_outbox FOR EACH ROW EXECUTE FUNCTION guard_cargo_outbox_identity();

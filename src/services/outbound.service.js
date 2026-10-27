@@ -35,6 +35,7 @@ function nowIso() {
  *   Fleet cannot keep.
  */
 export async function emitTransportStatus(request, extra = {}) {
+  if (request?.source_system === 'INTERNAL') return { delivered: false, gateway: 'none', reason: 'internal-request' };
   if (!request?.external_booking_id) {
     // Nothing to correlate on the Booking side — this request didn't originate
     // from an external booking, so there's nobody to notify.
@@ -121,13 +122,16 @@ export async function reconcileFailedDeliveries({ max = 50 } = {}) {
        FROM integration_log
       WHERE direction = 'outbound'
         AND status IN ('pending', 'failed')
+        AND source_system IS DISTINCT FROM 'INTERNAL'
+        AND COALESCE(payload->>'source_system','') <> 'INTERNAL'
       ORDER BY log_id
       LIMIT $1`,
     [max]
   );
 
+  const externalRows = stuck.filter(row => row.source_system !== 'INTERNAL' && row.payload?.source_system !== 'INTERNAL');
   const results = [];
-  for (const row of stuck) {
+  for (const row of externalRows) {
     if (!row.payload || typeof row.payload !== "object") {
       results.push({ logId: row.log_id, delivered: false, error: "payload is missing or not an object" });
       continue;
@@ -163,7 +167,7 @@ export async function reconcileFailedDeliveries({ max = 50 } = {}) {
   return {
     gateway: results.length && results.every((r) => r.gateway === results[0].gateway) && results[0].gateway
       ? results[0].gateway : "mixed-or-unavailable",
-    retried: stuck.length,
+    retried: externalRows.length,
     delivered: results.filter((r) => r.delivered).length,
     stillFailed: results.filter((r) => !r.delivered).length,
     results,

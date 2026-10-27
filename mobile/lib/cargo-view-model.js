@@ -4,6 +4,16 @@ import { validateCargoHandover } from "../../shared/cargo-handover";
 const SERVICES = { RESTAURANT_SUPPLY_PICKUP: "Restaurant supply pickup", RESTAURANT_FOOD_DELIVERY: "Restaurant food delivery", HOTEL_SUPPLY_TRANSFER: "Hotel supply transfer" };
 const SYNC = { NONE: "No observation saved", DEVICE_SAVED: "Saved on this device", FLEET_SAVED: "Saved to Fleet", STALE_REVIEW: "Manifest changed — review your count", TERMINAL_REVIEW: "Saved draft needs Fleet review", REAUTHENTICATION_REQUIRED: "Sign in again to sync" };
 const FEEDBACK = { ACKNOWLEDGED: "Partner acknowledged receipt — not approval", PENDING: "Partner receipt pending", LEASED: "Sending partner receipt", RETRY: "Partner receipt will retry", FAILED: "Partner receipt failed", NOT_QUEUED: "Partner receipt not queued" };
+const INTERNAL_BLOCKERS = {
+  CARGO_SOURCE_DECISION_REQUIRED: "A Fleet Manager must accept the current pickup count before departure review.",
+  CARGO_SOURCE_WAIT: "The manager requested review or a new pickup count.",
+  CARGO_PICKUP_REJECTED: "The manager rejected this pickup. Contact Fleet before continuing.",
+  CARGO_FLEET_CLEARANCE_REQUIRED: "A Fleet Manager must clear departure for the current pickup.",
+  CARGO_SECUREMENT_REQUIRED: "A Fleet Manager must confirm safe loading before departure.",
+  CARGO_RECEIVER_CONFIRMATION_REQUIRED: "A Fleet Manager must review and confirm the delivery before this trip can finish.",
+  CARGO_DELIVERY_REVIEW_REQUIRED: "A Fleet Manager must review the current delivery observation.",
+};
+const INTERNAL_STATUS_TITLES = { AWAITING_DECISION: "Awaiting manager pickup review", WAITING: "Waiting for manager clearance", REJECTED: "Pickup rejected — contact Fleet", CONFIRMED: "Manager confirmed delivery" };
 const LEGACY_HOLD = "This legacy In Progress cargo trip needs Fleet review. Delivery observations can only be attached at Drop-off or Arrived. Contact Fleet to review the trip status and custody before continuing; this screen cannot change its status.";
 export function cargoMapAction(trip, driverType) {
   if (!resolveDriverWorkspace({ driverType, trip }).tripReady || trip?.load_type !== "Cargo") return null;
@@ -42,9 +52,10 @@ export function buildCargoViewModel(execution, { offline = false, syncState = {}
   const view = execution?.data ?? execution;
   if (!validManifest(view?.manifest)) return { stage: "UNAVAILABLE", primaryAction: "Retry", canSubmit: false, canDepart: false, canConfirmDelivery: false, legacyHold: tripStatus === "In Progress" ? LEGACY_HOLD : null, summary: {}, blockers: [{ code: "CARGO_UNAVAILABLE", message: "Cargo verification is unavailable. Retry online or contact Fleet." }] };
   const manifest = view.manifest;
+  const internal = manifest.source_ref?.system === "INTERNAL";
   const state = typeof syncState === "string" ? syncState : syncState.state || "NONE";
   const pending = !["NONE", "FLEET_SAVED"].includes(state);
-  const blockers = [...(view.blockers || [])];
+  const blockers = (view.blockers || []).map(row => internal && INTERNAL_BLOCKERS[row.code] ? { ...row, message: INTERNAL_BLOCKERS[row.code] } : row);
   if (offline || !fresh) blockers.unshift({ code: "CARGO_FRESH_VIEW_REQUIRED", message: "Reconnect and refresh the server view before departure or confirmation." });
   if (pending) blockers.unshift({ code: "CARGO_DRAFT_PENDING", message: SYNC[state] || "Saved draft needs review." });
   const canDepart = !offline && fresh && !pending && view.can_depart === true && view.pickup_state === "READY" && view.securement_confirmed === true;
@@ -55,10 +66,19 @@ export function buildCargoViewModel(execution, { offline = false, syncState = {}
   if (stage === "READY" && !canDepart) stage = "WAITING";
   if (state === "STALE_REVIEW") stage = "STALE_REVIEW";
   if (view.delivery_state === "CONFIRMED" && canConfirmDelivery) stage = "CONFIRMED";
-  if (atDelivery && !canConfirmDelivery && !blockers.some(row => row.code === "CARGO_RECEIVER_CONFIRMATION_REQUIRED")) blockers.push({ code: "CARGO_RECEIVER_CONFIRMATION_REQUIRED", message: "Receiver authority has not been confirmed by the server. Delivery observations remain pending review." });
+  if (atDelivery && !canConfirmDelivery && !blockers.some(row => row.code === "CARGO_RECEIVER_CONFIRMATION_REQUIRED")) blockers.push({ code: "CARGO_RECEIVER_CONFIRMATION_REQUIRED", message: internal ? "A Fleet Manager must review and confirm the delivery before this trip can finish." : "Receiver authority has not been confirmed by the server. Delivery observations remain pending review." });
   const legacyHold = tripStatus === "In Progress" && !canConfirmDelivery ? LEGACY_HOLD : null;
-  return { stage, legacyHold, primaryAction: stage === "PICKUP" ? "Record pickup" : stage === "READY" ? "Review departure" : stage === "DELIVERY" ? "Record delivery observation" : "Refresh status", canSubmit: !offline && fresh && !pending && view.capabilities?.observe === true && (tripStatus === "At Pickup" || atDelivery), canDepart, canConfirmDelivery,
-    summary: { serviceLabel: SERVICES[manifest.service_code], sourceLabel: `${manifest.source_ref?.system || "Source"} · ${manifest.source_ref?.external_request_id || "Reference unavailable"}`, itemCount: manifest.lines.length, revision: manifest.manifest_ref.revision, syncLabel: SYNC[state] || "Save state unavailable", feedbackLabel: FEEDBACK[view.feedback?.state] || "Partner receipt state unavailable", sourceDecisionLabel: view.source_decision?.action === "ACCEPT_OBSERVED" ? "Source accepted the observed amount" : view.source_decision?.action === "REJECT_PICKUP" ? "Source rejected pickup" : ["WAITING", "AWAITING_DECISION"].includes(view.pickup_state) ? "Awaiting source decision or Fleet clearance" : "No source decision recorded", clearanceLabel: canDepart ? "Fleet departure clearance confirmed" : "Fleet clearance required", securementLabel: view.securement_confirmed === true ? "Server verified post-load securement" : "Post-load securement required", receiverLabel: view.receiver_confirmed === true ? "Receiver confirmation verified by server" : "Receiver authority unavailable", progress: canConfirmDelivery ? "Pickup verified · Delivery confirmed" : view.pickup_receipt ? "Pickup recorded · Delivery pending" : "Pickup pending · Delivery pending" }, blockers };
+  const internalSummary = internal ? {
+    sourceLabel: "FleetOps delivery",
+    feedbackLabel: "Internal job — no partner message required",
+    syncLabel: state === "NONE" && (view.pickup_receipt || view.delivery_receipt) ? "Saved to Fleet" : SYNC[state] || "Save state unavailable",
+    sourceDecisionLabel: view.source_decision?.action === "ACCEPT_OBSERVED" ? "Manager accepted the observed pickup count" : view.source_decision?.action === "REJECT_PICKUP" ? "Manager rejected pickup" : view.source_decision?.action === "WAIT" ? "Manager requested review or recount" : "Awaiting manager pickup review",
+    clearanceLabel: canDepart ? "Manager departure clearance confirmed" : "Manager departure review required",
+    securementLabel: view.securement_confirmed === true ? "Manager confirmed safe loading" : "Manager safe-loading review required",
+    receiverLabel: view.receiver_confirmed === true ? "Manager confirmed receiving" : "Manager receiving review pending",
+  } : {};
+  return { stage, ...(internal ? { statusTitle: INTERNAL_STATUS_TITLES[stage] } : {}), legacyHold, primaryAction: stage === "PICKUP" ? "Record pickup" : stage === "READY" ? "Review departure" : stage === "DELIVERY" ? "Record delivery observation" : "Refresh status", canSubmit: !offline && fresh && !pending && view.capabilities?.observe === true && (tripStatus === "At Pickup" || atDelivery), canDepart, canConfirmDelivery,
+    summary: { serviceLabel: SERVICES[manifest.service_code], sourceLabel: `${manifest.source_ref?.system || "Source"} · ${manifest.source_ref?.external_request_id || "Reference unavailable"}`, itemCount: manifest.lines.length, revision: manifest.manifest_ref.revision, syncLabel: SYNC[state] || "Save state unavailable", feedbackLabel: FEEDBACK[view.feedback?.state] || "Partner receipt state unavailable", sourceDecisionLabel: view.source_decision?.action === "ACCEPT_OBSERVED" ? "Source accepted the observed amount" : view.source_decision?.action === "REJECT_PICKUP" ? "Source rejected pickup" : ["WAITING", "AWAITING_DECISION"].includes(view.pickup_state) ? "Awaiting source decision or Fleet clearance" : "No source decision recorded", clearanceLabel: canDepart ? "Fleet departure clearance confirmed" : "Fleet clearance required", securementLabel: view.securement_confirmed === true ? "Server verified post-load securement" : "Post-load securement required", receiverLabel: view.receiver_confirmed === true ? "Receiver confirmation verified by server" : "Receiver authority unavailable", progress: canConfirmDelivery ? "Pickup verified · Delivery confirmed" : view.pickup_receipt ? "Pickup recorded · Delivery pending" : "Pickup pending · Delivery pending", ...internalSummary }, blockers };
 }
 export function buildCargoReceipt(execution, { stage, counts, issues = {}, observedAt = new Date().toISOString(), confirm = false, reportIssue = false, handover }) {
   const view = execution?.data ?? execution;
@@ -117,8 +137,9 @@ export async function resolveCargoMapGate(trip, { driverType, offline = false, r
   try {
     const [execution, syncState] = await Promise.all([readExecution(), readSyncState ? readSyncState() : Promise.resolve({})]);
     const view = buildCargoViewModel(execution, { driverType, trip, fresh: true, syncState });
+    const internal = (execution?.data ?? execution)?.manifest?.source_ref?.system === "INTERNAL";
     const delivery = ["Drop-off", "Arrived", "In Progress"].includes(trip.trip_status);
-    return (delivery ? view.canConfirmDelivery : view.canDepart) ? { allowed: true } : { allowed: false, route, reason: legacyHold || (delivery ? "Verify the delivery observation and wait for server-confirmed receiver authority before completing the trip." : "Verify pickup and wait for current source acceptance, Fleet clearance and separate post-load securement before departure.") };
+    return (delivery ? view.canConfirmDelivery : view.canDepart) ? { allowed: true } : { allowed: false, route, reason: legacyHold || (internal ? (delivery ? "Record the delivery and wait for manager receiving confirmation before completing the trip." : "Record pickup and wait for manager acceptance and safe-loading clearance before departure.") : delivery ? "Verify the delivery observation and wait for server-confirmed receiver authority before completing the trip." : "Verify pickup and wait for current source acceptance, Fleet clearance and separate post-load securement before departure.") };
   } catch { return { allowed: false, route, reason: legacyHold ? `Cargo verification is unavailable. ${legacyHold}` : "Cargo verification is unavailable. Retry online or contact Fleet. Your trip movement was not confirmed." }; }
 }
 

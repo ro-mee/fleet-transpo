@@ -7,6 +7,11 @@ import { receiptSchema, decisionSchema } from './contracts';
 import { manualDecisionSchema } from './manual-decision';
 import { storeCargoEvidence } from './evidence-storage';
 import * as execution from '@/services/cargo-execution.service';
+import { withTransaction } from '@/lib/db';
+import { assertInternalCargoTrip } from '@/services/cargo-internal-authority';
+import { INTERNAL_CARGO_CONFIG } from './internal-policy';
+import { storeInternalCargoEvidence, signInternalCargoEvidence } from './internal-evidence-storage';
+import { readInternalCargoHistory, resolveInternalCargoSourceLink } from './read-adapter';
 
 const MAX_JSON_BYTES = 131072;
 const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
@@ -191,7 +196,7 @@ function handlers(deps) {
         state: latestFeedback.status,
         event_id: latestFeedback.event_id,
         last_error_code: latestFeedback.last_error_code ?? null,
-      } : { state: 'NOT_QUEUED', last_error_code: null };
+      } : { state: view?.manifest?.source_ref?.system === 'INTERNAL' ? 'INTERNAL_RECORDED' : 'NOT_QUEUED', last_error_code: null };
       if (view?.delivery_receipt) data.receiver_confirmed = view.delivery_receipt.receiver_proof != null;
       if (view?.fleet_clearance) data.securement_confirmed = view.fleet_clearance.safety_proof != null;
       const sourceLink = await deps.resolveSourceLink?.({ tripId, session, manifest: view?.manifest });
@@ -202,6 +207,7 @@ function handlers(deps) {
         observe: session.user.role === 'driver',
         clearance: await approvedAction(session, tripId, 'clearance'),
         manual_decision: deps.service.manualDecisionAvailable?.() === true && await approvedAction(session, tripId, 'manual_decision'),
+        ...(view?.manifest?.source_ref?.system === 'INTERNAL' ? { review_internal: rolesFor('cargo','review_internal').includes(session.user.role) } : {}),
         feedback_retry: rolesFor('integrations', 'execute').includes(session.user.role) && data.feedback.state === 'FAILED' &&
           z.string().uuid().safeParse(data.feedback.event_id).success &&
           await deps.authorizeFeedbackRetry?.({ session, tripId, sourceSystem: view?.manifest?.source_ref?.system,
@@ -226,7 +232,10 @@ function handlers(deps) {
     evidence: wrap(async (req, context) => {
       const { session, tripId } = await actor(req, context, 'observe');
       // Refuse unavailable runtime before reading uploaded bytes.
-      if (!deps.simulated) unavailable();
+      if (!deps.simulated) {
+        if (!deps.authorizeEvidence) unavailable();
+        await deps.authorizeEvidence({ tripId,session });
+      }
       const form = await evidenceForm(req);
       if ([...form.keys()].some(key => !['file', 'submission_id'].includes(key)) ||
         form.getAll('file').length !== 1 || form.getAll('submission_id').length !== 1) {
@@ -278,7 +287,19 @@ function handlers(deps) {
 }
 
 // No setter, runtime provider, credentials or factory is installed by routes.
-export const cargoApi = handlers({ service: execution, storeEvidence: storeCargoEvidence, credentials: [] });
+export const cargoApi = handlers({ service: execution, storeEvidence: storeInternalCargoEvidence, credentials: [],
+  approvalRef: INTERNAL_CARGO_CONFIG.staffReadApprovalRef,
+  authorizeStaff: async ({session,tripId,action}) => {
+    if (action !== 'read') return false;
+    return withTransaction(async tx => { await assertInternalCargoTrip(tripId,session,tx,{managerOnly:true}); return true; });
+  },
+  authorizeEvidence: ({tripId,session}) => {
+    if (!process.env.DATABASE_URL) unavailable();
+    return withTransaction(tx => assertInternalCargoTrip(tripId,session,tx));
+  },
+  readHistory: readInternalCargoHistory, resolveSourceLink: resolveInternalCargoSourceLink,
+  signEvidence: signInternalCargoEvidence,
+});
 export function createCargoApi(deps) {
   if (process.env.NODE_ENV === 'production' || deps?.simulated !== true ||
     !['test', 'development'].includes(deps.environment) || !deps.approvalRef?.trim()) unavailable();

@@ -31,6 +31,16 @@ function view(capabilities = {}) {
   };
 }
 
+it("keeps external source and clearance forms out of internal manager reviews", () => {
+  const current = view({ manual_decision: true, clearance: true });
+  current.manifest = { ...manifest, source_ref: { ...manifest.source_ref, system: "INTERNAL" } };
+  const markup = renderToStaticMarkup(React.createElement(CargoVerificationPanelContent, { tripId: 42, view: current }));
+  expect(markup).not.toContain("Save source decision");
+  expect(markup).not.toContain("Record Fleet clearance");
+  expect(markup).not.toContain("Partner message delivery");
+  expect(markup).toContain("Fleet Manager review");
+});
+
 it("renders an honest unavailable state when the server has no cargo configuration", () => {
   const markup = renderToStaticMarkup(React.createElement(CargoVerificationPanelContent, {
     tripId: 42,

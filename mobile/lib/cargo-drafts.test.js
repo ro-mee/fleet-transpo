@@ -21,6 +21,16 @@ async function freshDrafts() {
 beforeEach(() => vi.clearAllMocks());
 
 describe("account-scoped cargo drafts", () => {
+  it("binds every photo to its immutable receipt submission across reloads", async () => {
+    const { drafts } = await freshDrafts();
+    const saved = await drafts.saveCargoDraft({ actorId: "employee-7", tripId: 44,
+      manifestRef: { kind: "REQUEST", id: "r1", revision: 1, hash: "h" },
+      draft: { submission_id: "receipt-submission", lines: [{ line_id: "oil", evidence: [
+        { uri: "file:first.jpg" }, { uri: "file:second.jpg", uploadSubmissionId: "untrusted-old-id" },
+      ] }] } });
+    expect(saved.evidence.map(file => file.uploadSubmissionId)).toEqual([saved.submissionId, saved.submissionId]);
+    expect((await drafts.listCargoDrafts("employee-7"))[0].evidence).toEqual(saved.evidence);
+  });
   it("keeps both drafts when saves overlap on one owner queue", async () => {
     const { drafts, storage } = await freshDrafts();
     let releaseReads;

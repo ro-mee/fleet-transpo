@@ -31,13 +31,26 @@ describe("cargo evidence replay", () => {
     const { sync, drafts, item } = await setup();
     const order = [];
     const api = {
-      uploadEvidence: vi.fn(async (_tripId, form) => { order.push("upload"); expect(form.get("submission_id")).toMatch(/^[0-9a-f-]{36}$/); expect(form.get("submission_id")).not.toBe(item.submissionId); return { data: { execution_id: "e1", evidence_upload: { evidence_id: "server-evidence-1" } } }; }),
+      uploadEvidence: vi.fn(async (_tripId, form) => { order.push("upload"); expect(form.get("submission_id")).toMatch(/^[0-9a-f-]{36}$/); expect(form.get("submission_id")).toBe(item.submissionId); return { data: { execution_id: "e1", evidence_upload: { evidence_id: "server-evidence-1" } } }; }),
       submitReceipt: vi.fn(async (_tripId, receipt) => { order.push("receipt"); expect(receipt.submission_id).toBe(item.submissionId); expect(receipt.lines[0].evidence_ids).toEqual(["server-evidence-1"]); return { data: { pickup_state: "AWAITING_DECISION" } }; }),
     };
     const files = { exists: vi.fn(async () => true), getInfo: vi.fn(async () => ({ exists: true })) };
     await sync.syncCargoDrafts({ actorId: "employee-A", api, files });
     expect(order).toEqual(["upload", "receipt"]);
     expect((await drafts.listCargoDrafts("employee-A"))[0].evidence[0].evidenceId).toBe("server-evidence-1");
+  });
+
+  it("reuploads an older mismatched photo under the receipt submission before attaching", async () => {
+    const { sync, drafts, item } = await setup();
+    await drafts.updateCargoDraft("employee-A", item.submissionId, { evidence: item.evidence.map(file => ({ ...file, uploadSubmissionId: "old-submission", evidenceId: "old-photo" })) });
+    let uploadedSubmission;
+    let receipt;
+    await sync.syncCargoDrafts({ actorId: "employee-A", api: {
+      uploadEvidence: async (_id, form) => { uploadedSubmission = form.get("submission_id"); return { evidence_upload: { evidence_id: "bound-photo" } }; },
+      submitReceipt: async (_id, value) => { receipt = value; return {}; },
+    } });
+    expect(uploadedSubmission).toBe(item.submissionId);
+    expect(receipt.lines[0].evidence_ids).toEqual(["bound-photo"]);
   });
 
   it("stops on stale manifest and leaves the draft for review", async () => {

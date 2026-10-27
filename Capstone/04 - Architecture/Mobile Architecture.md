@@ -30,10 +30,18 @@ source:
   - mobile/app/(app)/(tabs)/map.js
   - mobile/lib/storage.js
   - mobile/AGENTS.md
-last_verified: 2026-10-21
+last_verified: 2026-10-27
 ---
 
 # Mobile Architecture
+
+## Internal Cargo local test stack - 2026-10-27
+
+The existing Cargo phone UI uses the actual INTERNAL runtime for saved FleetOps jobs, with manager review wording and receipt-bound photo uploads. External runtime and fixture-only providers retain their existing restrictions. See [[Internal Cargo Evidence Implementation 2026-10-27]] for private state and retry contracts.
+
+The dedicated test servers were moved from the older main checkout to `codex/internal-cargo-testing` in the primary checkout: web/backend at `192.168.0.200:3000`, Metro at `192.168.0.200:8082`. The separate existing8081 Metro was preserved. LAN API probes returned401 without credentials; Metro status/Android manifest and an actual updated Android JavaScript bundle returned200 with FleetOps-delivery/manager wording and DriverGuideProvider code. Ignored local `EXPO_PUBLIC_DRIVER_GUIDES_V2=1` remains enabled; no production/EAS flag changed. The existing development APK supports these JavaScript changes; no additional native module was introduced.
+
+Expo's earlier local development startup added matching React19.1 development types and its generated base tsconfig after discovering existing TypeScript native-module source. These setup files are preserved separately from the Cargo feature. This is development tooling, not an application framework/runtime upgrade. Phone installation, camera/photo upload and a real delivery remain unverified; Cargo Tester and its demo vehicle still need genuine qualifying details.
 
 ## Current Android trip bubble - 2026-10-16, Task 5
 

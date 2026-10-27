@@ -50,7 +50,7 @@ export function deriveCargoState({ manifest: rawManifest, pickup = null, deliver
   if (!pickup) block('CARGO_PICKUP_REQUIRED', 'Verify cargo at pickup.');
   else if (currentDecision?.action === 'REJECT_PICKUP') { pickup_state = 'REJECTED'; block('CARGO_PICKUP_REJECTED', 'Source review rejected this pickup.'); }
   else if (currentDecision?.action === 'WAIT') { pickup_state = 'WAITING'; block('CARGO_SOURCE_WAIT', 'Wait for source review or record a new count.'); }
-  else if (pickupException && currentDecision?.action !== 'ACCEPT_OBSERVED') { pickup_state = 'AWAITING_DECISION'; block('CARGO_SOURCE_DECISION_REQUIRED', 'Source acceptance is required for this observation.'); }
+  else if ((pickupException || manifest.source_ref.system === 'INTERNAL') && currentDecision?.action !== 'ACCEPT_OBSERVED') { pickup_state = 'AWAITING_DECISION'; block('CARGO_SOURCE_DECISION_REQUIRED', 'Source acceptance is required for this observation.'); }
   else {
     pickup_state = 'WAITING';
     const bound = clearance && clearance.execution_id === pickup.execution_id && clearance.receipt_id === pickup.receipt_id && clearance.manifest_hash === manifest.manifest_ref.hash &&
@@ -66,10 +66,11 @@ export function deriveCargoState({ manifest: rawManifest, pickup = null, deliver
     delivery_state = 'AWAITING_REVIEW';
     const chronological = pickup && delivery.execution_id === pickup.execution_id && delivery.execution_version > Math.max(pickup.execution_version, currentDecision?.execution_version ?? 0, clearance?.version ?? 0);
     const clean = p && d.lines.every(line => line.condition === 'INTACT' && line.issue_code === null && compareQuantities(line.observed_quantity, p.lines.find(item => item.line_id === line.line_id).observed_quantity) === 0);
-    if (!clean || !chronological) block('CARGO_DELIVERY_REVIEW_REQUIRED', 'The delivery observation requires review.');
     const confirmed = matchesCargoAuthorityProof(delivery.receiver_proof, 'RECEIVER_CONFIRMATION', delivery);
+    const accepted = clean || (manifest.source_ref.system === 'INTERNAL' && confirmed && delivery.receiver_proof.method === 'internal-manager-review' && delivery.receiver_proof.accepted_discrepancy === true);
+    if (!accepted || !chronological) block('CARGO_DELIVERY_REVIEW_REQUIRED', 'The delivery observation requires review.');
     if (!confirmed) block('CARGO_RECEIVER_CONFIRMATION_REQUIRED', 'Approved receiver confirmation is required.');
-    if (pickup_state === 'READY' && clean && chronological && confirmed && d.handover) delivery_state = 'CONFIRMED';
+    if (pickup_state === 'READY' && accepted && chronological && confirmed && d.handover) delivery_state = 'CONFIRMED';
   }
   return { pickup_state, delivery_state, can_depart: pickup_state === 'READY', can_complete: delivery_state === 'CONFIRMED', blockers, lines };
 }

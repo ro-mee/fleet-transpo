@@ -1,11 +1,15 @@
 ---
 type: reference
-status: applied-runtime-disabled
-last_verified: 2026-10-20
+status: applied-internal-runtime-enabled-external-disabled
+last_verified: 2026-10-27
 tags: [database, cargo, privacy]
 ---
 
 # Cargo execution storage — Task 5
+
+## INTERNAL manager review extension - 2026-10-27
+
+The owner-approved standalone INTERNAL workflow now reuses the existing immutable execution/receipt engine through a separate server provider. The stored request origin, exact manifest and local `fleetops` ownership select it; external execution and simulated factory restrictions remain. Explicit authenticated manager source release, assignment-bound securement and later receiving reviews are durable and version-bound. Recounts invalidate prior authority, exact retries retain original responses, and INTERNAL events do not enqueue partner traffic. Migration170 adds private `cargo_internal_reviews` plus audited-response/identity/immutability guards. It was applied through the repository runner and `schema.sql` regenerated; final live status is170 applied/0 pending/0 changed. The catalog contract covers93 relations with0 violations, including review-table RLS and revoked exposed-role grants. The paired anon probe returned0 exposed relations; its48 empty-response results require the catalog contract, not a standalone PASS. See [[Internal Cargo Execution Implementation 2026-10-27]] for interfaces, checks and acceptance limits. Earlier blanket runtime-disabled statements below describe the external and historical boundaries.
 
 ## Private signed receipt payloads - 2026-10-20
 

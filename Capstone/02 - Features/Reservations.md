@@ -14,11 +14,31 @@ source:
   - src/components/reservations/ai-recommendation-panel.jsx
   - src/components/reservations/historic-recommendation-summary.jsx
   - src/lib/dispatch/decision.js
-last_verified: 2026-10-06
+last_verified: 2026-10-27
 related: ["[[Dispatch]]", "[[System Boundaries]]"]
 ---
 
 # Feature: Reservations
+
+## Internal Cargo intake - 2026-10-27
+
+Live-schema rollback verification: `src/services/internal-reservation.postgres.test.js` passed with `INTERNAL_RESERVATION_ROLLBACK_TEST=1`. The real intake service used an existing active canonical route, locations, Cargo service and active Fleet Manager identity. One request, immutable physical manifest, created timeline event and required audit were present inside the transaction; exact retry returned the same identities without duplicates and changed content returned409. An actual database error at the required audit stage rolled back the preceding request/manifest/timeline through a savepoint. The enclosing transaction always rolled back; follow-up marker queries found zero requests, manifests, timeline events or audits. Network access was blocked and zero fetch attempts were observed. Only the four expected tables were mutated within the rollback transaction; no route, assignment, qualification or external partner state was changed.
+
+The existing `/reservations/new` form now lets staff choose Passenger or Cargo. Passenger retains the typed PMS simulator. Cargo saves a real internal delivery job through session-only `POST /api/reservations`, protected by the existing `reservations:create` permission (dispatcher, Fleet Manager and administrative roles). The client cannot supply source authority, assigned resources or an approval identity. Cargo pickup picker values explicitly use Manila time.
+
+The server derives `INTERNAL` / `fleetops` / `internal:<submission UUID>` identity, validates the active Cargo service and canonical location IDs under transaction locks, and stores their current display names. It reuses the strict canonical route estimator without creating a route; unavailable distance/duration stay unknown. A version-1 physical item manifest, Pending request, required timeline event and required audit entry commit together. A failed required write rolls the transaction back. Exact retry of a stable submission UUID returns the same saved request; changed content, a different creating employee, missing saved contents or a deleted identity returns a conflict. UUID letter casing cannot create a second identity.
+
+Item counts retain their counting units separately from transport packages. Gross load is reconciled exactly against package count times gross kg per package; dimensions, rotation, handling and temperature retain their existing bounded contracts. Reference images remain null. Pickup/delivery counts, photos, signatures and manager decisions belong to the assigned trip workflow, not this intake form. Creation makes no dispatch or new Approved lifecycle state. The initial item list is immutable; the form does not offer post-save content editing.
+
+Verification: 43 focused tests across the intake service, session route, form boundary and existing Cargo draft suites passed; touched-file strict ESLint, encoding and tracked whitespace checks passed. Coverage includes rollback, replay/content/actor conflicts, typed manifests, registry refusal, integer-ID bounds, preserved Passenger behavior, exact gross mass and Manila picker conversion under a UTC browser timezone. Parent integration applied migration170, verified the live catalog, and confirmed the real components in isolated desktop/narrow browser fixtures. The live-schema rollback proof above records actual transactional writes without persistent operating rows. Physical-phone and authenticated operating-delivery acceptance remain pending.
+
+## Internal Cargo cancellation before pickup - 2026-10-27
+
+Form regression follow-up: the shared Radix Select can emit an empty native change while the service options change. Saving that empty service incorrectly switched sample Cargo back to Passenger. The load/service handlers now accept only valid choices for the current load, preserving Cargo and its item editor. Two callback-event regressions failed before the fix; all five form boundary tests passed afterward. Actual browser fixture confirmation is recorded by the integration review.
+
+Staff with the existing `reservations:cancel` permission can cancel an INTERNAL Cargo job before pickup, including an unassigned Pending job. The endpoint rechecks the stored INTERNAL origin under the request lock and keeps the existing driver/vehicle table locks. It checks immutable pickup receipts across every dispatch for the request, including historical or stood-down runs. Any recorded pickup keeps the custody-review hold. Active dispatches still pass the real Cargo lifecycle checkpoint before their trip/request changes, so later trip stages cannot bypass the hold when receipt data is unavailable. External Cargo cancellation retains its source-coordination refusal. Internal cancellation sends no partner notification.
+
+Verification: 33 tests passed across the cancellation route and existing Cargo lifecycle guards; touched-route/test strict ESLint and whitespace checks passed. New route cases cover unassigned cancellation, actual checkpoint acceptance before pickup, historical pickup refusal, actual post-departure refusal, stored-origin revalidation and preserved external refusal. These checks used mocked database/audit boundaries and the real Cargo checkpoint; no live database writes were performed by this workstream.
 
 ## Transportation Queue filter dropdowns aligned to shared UI - 2026-10-13
 

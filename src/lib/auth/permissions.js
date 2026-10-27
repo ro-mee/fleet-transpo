@@ -51,6 +51,7 @@ export const NAV_ROLES = {
   "/dispatch/calendar": ["admin", "super_admin", "fleet_manager", "dispatcher"],
   "/dispatch/availability": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/supply-deliveries": ["admin", "super_admin", "fleet_manager", "dispatcher"],
+  "/cargo-review": ["super_admin", "admin", "fleet_manager"],
   "/incidents": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers": ["admin", "super_admin", "fleet_manager", "dispatcher", "management"],
@@ -136,7 +137,7 @@ export function hasRole(employee, roleOrRoles) {
 // here — as is `driver: reservations.read = false`.
 const MATRIX = {
   admin: {
-    cargo: { read: true, observe: false, clearance: true, manual_decision: true },
+    cargo: { read: true, observe: false, clearance: true, manual_decision: true, review_internal: true },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     driver_assignments: { create: true, read: true, update: true, delete: true },
@@ -190,7 +191,7 @@ const MATRIX = {
     expenses: { read: true, read_all: true, update: true, review: true },
   },
   fleet_manager: {
-    cargo: { read: true, observe: false, clearance: true, manual_decision: true },
+    cargo: { read: true, observe: false, clearance: true, manual_decision: true, review_internal: true },
     vehicles: { create: true, read: true, read_all: true, update: true, delete: false },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     // Custodial pairing is a fleet-management decision, so fleet_manager writes
